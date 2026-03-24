@@ -1,23 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from app.core.aits_state import (
+    ActionItem,
     AITSRuntimeState,
-    RuntimeMeta,
-    SystemState,
-    MarketState,
-    RegimeState,
-    PortfolioState,
-    IntelligenceState,
-    AIDecisionState,
-    ControlState,
     ExecutionState,
     ExplainabilityState,
+    IntelligenceState,
+    MarketSnapshot,
     OversightState,
+    PortfolioState,
+    RegimeState,
+    RuntimeMeta,
+    SystemState,
 )
+from app.services.ai_decision_service import AIDecisionService
+from app.services.explainability_service import ExplainabilityService
+from app.services.portfolio_brain import PortfolioBrain
+from app.services.regime_detector import RegimeDetector
+from app.services.module_pack_resolver import ModulePackResolver
+from app.core.module_pack_state import (
+    DEFAULT_MODULE_PACK_DEFINITIONS,
+    DEFAULT_USER_MODULE_PACK_SELECTION,
+    UserModulePackSelection,
+    ModulePackRuntimeState,
+)
+try:
+    from app.services.order_adapter import AITSOrderAdapter
+except Exception:
+    AITSOrderAdapter = None
 
 # ---------------------------------------------------------------------------
 # Cycle result types (Phase 1)
@@ -130,15 +144,22 @@ class AITSOrchestrator:
         self.config = config if config is not None else {}
         self.app_state = app_state
         self.logger = logger
-        self.regime_detector = regime_detector
-        self.portfolio_brain = portfolio_brain
-        self.ai_decision_service = ai_decision_service
-        self.explainability_service = explainability_service
+        self.regime_detector = regime_detector or RegimeDetector(config=self.config, logger=self.logger)
+        self.portfolio_brain = portfolio_brain or PortfolioBrain(config=self.config, logger=self.logger)
+        self.ai_decision_service = ai_decision_service or AIDecisionService(
+            config=self.config, logger=self.logger
+        )
+        self.explainability_service = explainability_service or ExplainabilityService(
+            config=self.config, logger=self.logger
+        )
         self.module_engine = module_engine
         self.scenario_engine = scenario_engine
         self.provider_router = provider_router
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
+        from app.services.execution_bridge import ExecutionBridge
+
+        self.execution_bridge = ExecutionBridge(config=self.config, logger=self.logger)
 
         self.initialized = False
         self.paused = False
@@ -149,6 +170,39 @@ class AITSOrchestrator:
         self.last_explainability: Optional[ExplainabilityState] = None
         self.last_error: str = ""
         self.current_user_controls: Dict[str, Any] = {}
+        self.last_bridge_result: Optional[Any] = None
+        _oa_cls = AITSOrderAdapter
+        if _oa_cls is None:
+            from app.services.order_adapter import AITSOrderAdapter as _oa_cls
+        self.order_adapter = _oa_cls(
+            execution_mode="disabled",
+            min_order_krw=5000.0,
+            allow_reduce_live=False,
+            logger=self.logger,
+        )
+        self.last_order_adapter_result: Optional[Any] = None
+        self.execution_mode: str = "disabled"
+
+        self.module_pack_resolver = ModulePackResolver(
+            pack_definitions=DEFAULT_MODULE_PACK_DEFINITIONS,
+            base_pack_id="ai_default",
+            logger=self.logger,
+        )
+        _mps = DEFAULT_USER_MODULE_PACK_SELECTION
+        self.module_pack_selection = UserModulePackSelection(
+            active_pack_id=_mps.active_pack_id,
+            is_active=_mps.is_active,
+            timer_enabled=_mps.timer_enabled,
+            duration_minutes=_mps.duration_minutes,
+            remaining_seconds=_mps.remaining_seconds,
+            activated_at=_mps.activated_at,
+            expires_at=_mps.expires_at,
+            auto_revert_to_ai_default=_mps.auto_revert_to_ai_default,
+            manual_deactivation_allowed=_mps.manual_deactivation_allowed,
+            selection_reason=_mps.selection_reason,
+            status_text_ko=_mps.status_text_ko,
+        )
+        self.last_module_pack_runtime: Optional[ModulePackRuntimeState] = None
 
     def initialize(self) -> bool:
         try:
@@ -157,9 +211,33 @@ class AITSOrchestrator:
             state.system.initialized = True
             state.system.running = False
             state.system.paused = self.paused
+            state.system.active_provider = "local_rule_based"
+            state.explainability.current_ai_view = (
+                "AITS Phase 1: 초기화되었습니다. 장세·포트폴리오·판단을 연결할 준비가 되었습니다."
+            )
+            state.oversight.oversight_summary = (
+                "시스템이 초기화되었습니다. 사용자는 언제든 판단을 검토하고 일시정지할 수 있습니다."
+            )
             self.last_runtime_state = state
+            self.last_bridge_result = None
+            self.last_order_adapter_result = None
+            self.order_adapter.set_execution_mode(self.execution_mode)
+            try:
+                self.last_module_pack_runtime = self.module_pack_resolver.resolve(
+                    self.module_pack_selection
+                )
+            except Exception:
+                self.last_module_pack_runtime = None
             self.initialized = True
-            self._safe_log_info("AITSOrchestrator initialized (Phase 1 skeleton).")
+            self._safe_log_info("AITS orchestrator initialized")
+            self._safe_log_info(
+                "Module pack runtime initialized: "
+                + (
+                    (self.last_module_pack_runtime.pack_name_ko or "AI 기본 모드")
+                    if self.last_module_pack_runtime is not None
+                    else "AI 기본 모드"
+                )
+            )
             return True
         except Exception:
             return False
@@ -194,6 +272,8 @@ class AITSOrchestrator:
             if user_override_flags:
                 self.current_user_controls.update(user_override_flags)
 
+            self._refresh_module_pack_runtime()
+
             if self.paused:
                 result.status.ok = True
                 result.status.status = "paused"
@@ -207,16 +287,28 @@ class AITSOrchestrator:
                 rs.oversight.oversight_summary = (
                     "현재 일시정지 상태입니다. 재개 전까지 자동 실행은 진행되지 않습니다."
                 )
-                finished = datetime.now()
-                result.meta.finished_at = finished
-                result.meta.duration_ms = (finished - started_at).total_seconds() * 1000.0
                 rs.system.running = False
                 result.runtime_state = rs
                 result.action_plan = rs.execution.plan
-                result.execution_request = ExecutionRequest()
+                result.execution_request = ExecutionRequest(
+                    actions=[],
+                    priority=1,
+                    source="aits",
+                    decision_trace_id=f"cycle-{self.cycle_counter}",
+                    dry_run=True,
+                    request_summary=rs.execution.plan.reason_summary or "일시정지 중입니다.",
+                )
+                result.execution_result.execution_summary = rs.execution.result.execution_summary
+                result.diagnostics.provider_used = rs.system.active_provider
+                result.diagnostics.decision_trace_id = f"cycle-{self.cycle_counter}"
                 self.last_action_plan = rs.execution.plan
                 self.last_explainability = rs.explainability
                 self.last_runtime_state = rs
+                self._update_bridge_result(result)
+                self._update_order_adapter_result()
+                finished = datetime.now()
+                result.meta.finished_at = finished
+                result.meta.duration_ms = (finished - started_at).total_seconds() * 1000.0
                 self.last_cycle_result = result
                 return result
 
@@ -227,11 +319,6 @@ class AITSOrchestrator:
             self._build_execution_state()
             self._build_explainability_state()
 
-            rs.execution.plan.reason_summary = (
-                rs.execution.plan.reason_summary
-                or "Phase 1: 실행 계획은 스켈레톤 단계로, 승인·지연·차단 목록을 비우고 요약만 기록합니다."
-            )
-
             action_plan = rs.execution.plan
             self.last_action_plan = action_plan
             self.last_explainability = rs.explainability
@@ -239,10 +326,22 @@ class AITSOrchestrator:
 
             result.runtime_state = rs
             result.action_plan = action_plan
-            result.execution_request = ExecutionRequest()
-            result.execution_result.execution_summary = (
-                "이번 사이클에서는 실제 주문 제출 없이 구조 점검만 수행했습니다."
+            result.execution_request = ExecutionRequest(
+                actions=rs.execution.plan.approved_actions,
+                priority=1,
+                source="aits",
+                decision_trace_id=f"cycle-{self.cycle_counter}",
+                dry_run=True,
+                request_summary=rs.execution.plan.reason_summary,
             )
+            result.execution_result.execution_summary = rs.execution.result.execution_summary
+            result.diagnostics.provider_used = rs.system.active_provider
+            result.diagnostics.decision_trace_id = f"cycle-{self.cycle_counter}"
+
+            self._update_bridge_result(result)
+            self._update_order_adapter_result()
+
+            self._log_module_pack_effect()
 
             result.status.phase = "completed"
             result.status.status = "success"
@@ -276,6 +375,8 @@ class AITSOrchestrator:
             err_result.meta.duration_ms = (fin - started_at).total_seconds() * 1000.0
             self._safe_log_error(f"run_cycle failed: {exc}")
             self.last_cycle_result = err_result
+            self._update_bridge_result(err_result)
+            self._update_order_adapter_result()
             return err_result
 
     def get_runtime_state(self) -> AITSRuntimeState:
@@ -286,6 +387,86 @@ class AITSOrchestrator:
 
     def get_last_explainability(self) -> Optional[ExplainabilityState]:
         return self.last_explainability
+
+    def get_last_bridge_result(self) -> Optional[Any]:
+        return self.last_bridge_result
+
+    def get_last_order_adapter_result(self) -> Optional[Any]:
+        return self.last_order_adapter_result
+
+    def set_execution_mode(self, execution_mode: str) -> None:
+        self.execution_mode = str(execution_mode or "").strip() or "disabled"
+        try:
+            self.order_adapter.set_execution_mode(self.execution_mode)
+            self.execution_mode = self.order_adapter.execution_mode
+        except Exception:
+            self.execution_mode = "disabled"
+            try:
+                self.order_adapter.set_execution_mode("disabled")
+            except Exception:
+                pass
+
+    def get_execution_mode(self) -> str:
+        return self.execution_mode
+
+    def get_module_pack_selection(self) -> UserModulePackSelection:
+        return self.module_pack_selection
+
+    def get_last_module_pack_runtime(self) -> Optional[ModulePackRuntimeState]:
+        return self.last_module_pack_runtime
+
+    def activate_module_pack(
+        self,
+        pack_id: str,
+        duration_minutes: int = 0,
+        reason: str = "",
+    ) -> None:
+        if not pack_id or not str(pack_id).strip():
+            return
+        sel = self.module_pack_selection
+        now = datetime.now()
+        pid = str(pack_id).strip()
+        sel.active_pack_id = pid
+        sel.is_active = True
+        sel.auto_revert_to_ai_default = True
+        sel.selection_reason = reason or ""
+        if duration_minutes > 0:
+            try:
+                dm = int(duration_minutes)
+            except (TypeError, ValueError):
+                dm = 0
+            if dm > 0:
+                sel.timer_enabled = True
+                sel.duration_minutes = dm
+                sel.remaining_seconds = dm * 60
+                sel.activated_at = now
+                sel.expires_at = now + timedelta(minutes=dm)
+                sel.status_text_ko = f"모듈팩 활성: {pid} (타이머)"
+            else:
+                sel.timer_enabled = False
+                sel.duration_minutes = 0
+                sel.remaining_seconds = 0
+                sel.activated_at = now
+                sel.expires_at = None
+                sel.status_text_ko = f"모듈팩 활성: {pid} / 무기한"
+        else:
+            sel.timer_enabled = False
+            sel.duration_minutes = 0
+            sel.remaining_seconds = 0
+            sel.activated_at = now
+            sel.expires_at = None
+            sel.status_text_ko = f"모듈팩 활성: {pid} / 무기한"
+        try:
+            self.last_module_pack_runtime = self.module_pack_resolver.resolve(
+                self.module_pack_selection,
+                current_time=datetime.now(),
+            )
+        except Exception:
+            try:
+                self.last_module_pack_runtime = self.module_pack_resolver.resolve(None)
+            except Exception:
+                self.last_module_pack_runtime = None
+        self._safe_log_info(f"Module pack activation updated: {pid}")
 
     def request_pause(self, reason: Optional[str] = None) -> None:
         self.paused = True
@@ -336,6 +517,14 @@ class AITSOrchestrator:
         self.last_runtime_state.system.running = False
         self._safe_log_info("AITSOrchestrator shutdown.")
 
+    def _safe_float(self, value: Any, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
     def _safe_log_info(self, message: str) -> None:
         try:
             if self.logger is not None and hasattr(self.logger, "info"):
@@ -353,55 +542,224 @@ class AITSOrchestrator:
         except Exception:
             pass
 
+    def _update_bridge_result(self, result: CycleResult) -> None:
+        try:
+            self.last_bridge_result = self.execution_bridge.build_from_cycle_result(result)
+            br = self.last_bridge_result
+            if br is not None and hasattr(br, "summary_text"):
+                self._safe_log_info(br.summary_text())
+        except Exception as exc:
+            try:
+                if self.logger is not None and hasattr(self.logger, "debug"):
+                    self.logger.debug(f"bridge result update skipped: {exc}")
+            except Exception:
+                pass
+
+    def _update_order_adapter_result(self) -> None:
+        try:
+            self.last_order_adapter_result = self.order_adapter.execute(self.last_bridge_result)
+            ar = self.last_order_adapter_result
+            if ar is not None and hasattr(ar, "summary_text"):
+                self._safe_log_info(f"[AITS][OrderAdapter] {ar.summary_text()}")
+        except Exception as exc:
+            try:
+                if self.logger is not None and hasattr(self.logger, "debug"):
+                    self.logger.debug(f"order adapter update skipped: {exc}")
+            except Exception:
+                pass
+
+    def _refresh_module_pack_runtime(self) -> None:
+        try:
+            self.last_module_pack_runtime = self.module_pack_resolver.tick(
+                self.module_pack_selection,
+                current_time=datetime.now(),
+            )
+        except Exception as exc:
+            try:
+                if self.logger is not None and hasattr(self.logger, "debug"):
+                    self.logger.debug(f"module pack runtime refresh failed: {exc}")
+            except Exception:
+                pass
+            try:
+                self.last_module_pack_runtime = self.module_pack_resolver.resolve(None)
+            except Exception:
+                self.last_module_pack_runtime = None
+
+    def _format_seconds_hhmmss(self, seconds: int) -> str:
+        try:
+            s = int(seconds)
+        except (TypeError, ValueError):
+            s = 0
+        if s < 0:
+            s = 0
+        h = s // 3600
+        m = (s % 3600) // 60
+        sec = s % 60
+        return f"{h:02d}:{m:02d}:{sec:02d}"
+
+    def _log_module_pack_effect(self) -> None:
+        try:
+            rs = getattr(self, "last_runtime_state", None)
+            if rs is None:
+                return
+            intel = getattr(rs, "intelligence", None)
+            decision = getattr(intel, "ai_decision", None) if intel else None
+            if decision is None:
+                return
+            logic = (getattr(decision, "selected_strategy_logic", None) or "")
+            action = (getattr(decision, "action", None) or "")
+            pr = getattr(self, "last_module_pack_runtime", None)
+            if pr is None:
+                return
+            apid = getattr(pr, "active_pack_id", None)
+            apid_str = "" if apid is None else str(apid).strip()
+            if not apid_str:
+                return
+            pname = (getattr(pr, "pack_name_ko", None) or "").strip() or apid_str
+            override_applied = "override_applied" in logic
+            rem_suffix = ""
+            if bool(getattr(pr, "timer_enabled", False)):
+                try:
+                    rem = int(getattr(pr, "remaining_seconds", 0))
+                except (TypeError, ValueError):
+                    rem = 0
+                if rem > 0:
+                    rem_suffix = f", remaining={self._format_seconds_hhmmss(rem)}"
+            if override_applied:
+                msg = (
+                    f"[AITS][ModulePack] {pname} applied -> action={action}, override=yes{rem_suffix}"
+                )
+            else:
+                msg = (
+                    f"[AITS][ModulePack] {pname} active -> action={action}, override=no{rem_suffix}"
+                )
+            self._safe_log_info(msg)
+        except Exception:
+            pass
+
     def _build_market_state(self, market_snapshot_override: Optional[Any] = None) -> None:
         rs = self.last_runtime_state
+        rs.system.active_provider = "local_rule_based"
         snap = rs.market.snapshot
-        regime = rs.market.regime
-        if market_snapshot_override is not None:
-            snap.snapshot_summary = (
-                "외부에서 전달된 시장 스냅샷 오버라이드가 적용되었습니다. (override_used)"
+        base: Dict[str, Any] = {
+            "btc_price": 0.0,
+            "btc_change_pct": 0.0,
+            "market_volatility": 0.0,
+            "market_breadth": 0.5,
+            "snapshot_summary": "기본 시장 스냅샷을 사용합니다.",
+        }
+
+        if market_snapshot_override is None:
+            data = dict(base)
+            data["btc_price"] = self._safe_float(snap.btc_price, 0.0)
+            data["btc_change_pct"] = self._safe_float(snap.btc_change_pct, 0.0)
+            data["market_volatility"] = self._safe_float(snap.market_volatility, 0.0)
+            data["market_breadth"] = self._safe_float(snap.market_breadth, 0.5)
+            if (snap.snapshot_summary or "").strip():
+                data["snapshot_summary"] = snap.snapshot_summary
+            regime = self.regime_detector.detect_from_dict(data)
+            snap.btc_price = data["btc_price"]
+            snap.btc_change_pct = data["btc_change_pct"]
+            snap.market_volatility = data["market_volatility"]
+            snap.market_breadth = data["market_breadth"]
+            snap.snapshot_summary = data.get("snapshot_summary", base["snapshot_summary"])
+        elif isinstance(market_snapshot_override, dict):
+            data = {**base, **market_snapshot_override}
+            regime = self.regime_detector.detect_from_dict(data)
+            snap.btc_price = self._safe_float(data.get("btc_price"), 0.0)
+            snap.btc_change_pct = self._safe_float(data.get("btc_change_pct"), 0.0)
+            snap.market_volatility = self._safe_float(data.get("market_volatility"), 0.0)
+            snap.market_breadth = self._safe_float(data.get("market_breadth"), 0.5)
+            snap.snapshot_summary = str(
+                data.get("snapshot_summary") or "외부 시장 스냅샷 오버라이드가 적용되었습니다."
             )
+        elif isinstance(market_snapshot_override, MarketSnapshot):
+            regime = self.regime_detector.detect(market_snapshot_override)
+            snap.btc_price = self._safe_float(market_snapshot_override.btc_price, 0.0)
+            snap.btc_change_pct = self._safe_float(market_snapshot_override.btc_change_pct, 0.0)
+            snap.market_volatility = self._safe_float(market_snapshot_override.market_volatility, 0.0)
+            snap.market_breadth = self._safe_float(market_snapshot_override.market_breadth, 0.5)
+            ss = (market_snapshot_override.snapshot_summary or "").strip()
+            snap.snapshot_summary = ss or "MarketSnapshot 오버라이드가 적용되었습니다."
         else:
-            snap.snapshot_summary = (
-                "아직 실시간 시장 데이터 파이프는 연결되지 않았으며, "
-                "다음 단계에서 스냅샷이 채워집니다."
+            data = dict(base)
+            data["snapshot_summary"] = "지원하지 않는 오버라이드 형식입니다. 기본 스냅샷을 사용합니다."
+            regime = self.regime_detector.detect_from_dict(data)
+            snap.snapshot_summary = data["snapshot_summary"]
+
+        rs.market.regime = regime
+        if not (regime.summary_reason or "").strip():
+            rs.market.regime.summary_reason = (
+                "장세는 규칙 기반 로컬 판별기로 산출되었습니다."
             )
-        if not regime.label or not str(regime.label).strip():
-            regime.label = "unknown"
-        regime.summary_reason = (
-            "레짐 분석기가 연결되기 전이라 기본 레이블을 유지합니다. "
-            "추후 추세·변동성 점수와 함께 갱신됩니다."
-        )
+        if not (snap.snapshot_summary or "").strip():
+            snap.snapshot_summary = "기본 시장 스냅샷을 사용합니다."
 
     def _build_portfolio_state(self) -> None:
         rs = self.last_runtime_state
         ps = rs.portfolio
-        ps.summary.position_count = len(ps.positions)
+        summ = ps.summary
+        positions = ps.positions
+        try:
+            if summ.position_count is None:
+                current_count = 0
+            else:
+                current_count = int(summ.position_count)
+        except (TypeError, ValueError):
+            current_count = 0
+        if current_count < 0:
+            current_count = 0
+        if positions and len(positions) > 0:
+            summ.position_count = len(positions)
+        else:
+            summ.position_count = current_count
+        acr = self._safe_float(ps.summary.available_cash_ratio, 0.0)
+        if acr < 0.0:
+            ps.summary.available_cash_ratio = 0.0
+        elif acr > 1.0:
+            ps.summary.available_cash_ratio = 1.0
 
     def _build_intelligence_state(self, forced_mode: Optional[str] = None) -> None:
         rs = self.last_runtime_state
-        ai = rs.intelligence.ai_decision
-        ai.action = "wait"
-        ai.ai_summary_for_user = (
-            "AITS Phase 1 기본 판단: 현재는 관망·대기 상태입니다. "
-            "연결된 데이터와 전략이 준비되면 우선순위가 정리됩니다."
+        regime = rs.market.regime
+        portfolio = rs.portfolio
+        target = self.portfolio_brain.build_target(regime, portfolio)
+        decision = self.ai_decision_service.decide(
+            regime,
+            portfolio,
+            target,
+            pack_runtime=self.last_module_pack_runtime,
         )
-        ai.market_interpretation = (
-            "시장 데이터와 전략 판단이 아직 최소 구조 단계이므로 보수적으로 해석합니다."
-        )
+        rs.portfolio.target = target
+        rs.intelligence.ai_decision = decision
+
         if forced_mode:
-            ai.action_bias = str(forced_mode)
-            ai.selected_strategy_logic = str(forced_mode)
+            fm = str(forced_mode)
+            base_logic = (decision.selected_strategy_logic or "").strip()
+            decision.selected_strategy_logic = (
+                f"rule_based_phase1 | forced_mode={fm}"
+                if not base_logic
+                else f"{base_logic} | forced_mode={fm}"
+            )
+
         sm = self.current_user_controls.get("selected_modules")
         if isinstance(sm, list):
             rs.intelligence.modules.selected_modules = list(sm)
             rs.intelligence.modules.active_modules = list(sm)
             rs.intelligence.modules.dominant_module = sm[0] if sm else ""
 
+        opp = rs.intelligence.opportunities
+        if not (opp.selection_summary or "").strip():
+            opp.selection_summary = (
+                "Phase 1에서는 종목 후보 탐색보다 장세 및 포트폴리오 판단을 우선합니다."
+            )
+
     def _apply_control_state(self) -> None:
         rs = self.last_runtime_state
         rs.system.paused = self.paused
         ctrl = rs.control
+        decision = rs.intelligence.ai_decision
+        regime = rs.market.regime
         if not ctrl.protection.stage:
             ctrl.protection.stage = "none"
         nb = self.current_user_controls.get("new_buy_enabled")
@@ -413,9 +771,11 @@ class AITSOrchestrator:
         bl = self.current_user_controls.get("blacklist")
         if isinstance(bl, list):
             ctrl.constraints.blacklist = list(bl)
+            ctrl.constraints.blocked_symbols = list(bl)
         ree = self.current_user_controls.get("reentry_enabled")
         if isinstance(ree, bool):
             ctrl.constraints.reentry_enabled = ree
+
         ctrl.risk.risk_summary = ctrl.risk.risk_summary or (
             "리스크 엔진이 연결되기 전입니다. 계좌·시장 리스크는 기본값으로 유지합니다."
         )
@@ -426,46 +786,99 @@ class AITSOrchestrator:
             "사용자·시스템 제약을 반영합니다. 화이트리스트/블랙리스트와 신규 매수 허용 여부를 "
             "우선 적용합니다."
         )
+        if isinstance(nb, bool) and not nb:
+            ctrl.constraints.constraint_summary += " 신규 매수는 사용자 설정에 의해 제한됩니다."
+
+        lbl = (regime.label or "").strip().lower()
+        if decision.action in ("sell", "reduce") and lbl == "bear":
+            ctrl.risk.risk_summary = (ctrl.risk.risk_summary or "").strip() + (
+                " 약세장 환경에서 손실·노출 축소가 우선입니다."
+            )
+            ctrl.protection.protection_summary = (ctrl.protection.protection_summary or "").strip() + (
+                " 방어적 조정이 반영되었습니다."
+            )
+
+        if lbl == "bear" and self._safe_float(regime.confidence, 1.0) < 0.35:
+            ctrl.pause_logic.suggested_pause = True
+            ctrl.pause_logic.suggested_pause_reason = (
+                "약세장과 낮은 장세 신뢰도가 겹쳐 일시정지를 고려할 수 있습니다."
+            )
 
     def _build_execution_state(self) -> None:
         rs = self.last_runtime_state
         plan = rs.execution.plan
         res = rs.execution.result
-        plan.execution_mode = "normal"
-        blocked = self.paused or rs.control.pause_logic.pause_requested
-        if blocked:
+        decision = rs.intelligence.ai_decision
+
+        plan.approved_actions = []
+        plan.blocked_actions = []
+        plan.delayed_actions = []
+        plan.requires_user_attention = False
+
+        paused = self.paused or rs.control.pause_logic.pause_requested
+        new_buy_ok = rs.control.constraints.new_buy_enabled
+
+        if paused:
+            plan.execution_mode = "blocked"
             plan.reason_summary = (
-                "일시정지 또는 사용자 요청으로 실행 단계가 제한되었습니다. "
-                "재개 후 다시 평가합니다."
+                "일시정지 또는 사용자 요청으로 실행이 차단되었습니다. 재개 후 다시 평가합니다."
             )
+        elif decision.action == "wait":
+            plan.execution_mode = "normal"
+            plan.reason_summary = "현재는 신규 행동보다 관망이 우선입니다."
+        elif decision.action == "hold":
+            plan.execution_mode = "normal"
+            plan.reason_summary = "현재 보유 포지션 유지가 우선입니다."
+        elif decision.action in ("buy", "sell", "reduce"):
+            item = ActionItem(
+                symbol="",
+                action_type=decision.action,
+                reason=decision.ai_summary_for_user or "",
+            )
+            if not new_buy_ok and decision.action == "buy":
+                plan.blocked_actions = [item]
+                plan.approved_actions = []
+                plan.reason_summary = "신규 매수 제한이 활성화되어 매수 실행이 차단되었습니다."
+            else:
+                plan.approved_actions = [item]
+                plan.reason_summary = decision.ai_summary_for_user or "실행 계획이 생성되었습니다."
+            plan.execution_mode = "normal"
         else:
-            plan.reason_summary = (
-                "Phase 1에서는 승인·차단·지연 액션 목록을 비우고, "
-                "실제 브로커 연동 전 구조만 점검합니다."
-            )
+            plan.execution_mode = "normal"
+            plan.reason_summary = decision.ai_summary_for_user or "실행 계획이 생성되었습니다."
+
         res.execution_summary = (
-            "주문 실행 어댑터가 연결되기 전이므로 제출·체결 내역은 비어 있습니다."
+            "Phase 1에서는 실제 주문 실행 없이 실행 계획만 생성합니다."
         )
 
     def _build_explainability_state(self) -> None:
         rs = self.last_runtime_state
-        ex = rs.explainability
-        ai = rs.intelligence.ai_decision
         regime = rs.market.regime
-        ex.current_ai_view = ai.ai_summary_for_user
-        ex.current_market_story = regime.summary_reason or (
-            "시장 스토리는 레짐 요약과 유동성 흐름이 연결되면 풍부해집니다."
-        )
-        ex.why_continue_trading = (
-            "현재는 구조 점검 단계이며, 허용된 조건에서만 제한적으로 매매를 검토합니다."
-        )
-        pr = rs.control.pause_logic.pause_reason
-        if pr:
-            ex.why_pause_trading = f"일시정지 사유: {pr}"
-        else:
-            ex.why_pause_trading = (
-                "일시정지가 걸리면 리스크·유동성·사용자 의사를 우선하고 실행을 멈춥니다."
+        target = rs.portfolio.target
+        decision = rs.intelligence.ai_decision
+        explain = self.explainability_service.build(regime, target, decision)
+        rs.explainability = explain
+        self.last_explainability = explain
+
+        ov = rs.oversight
+        if not (ov.oversight_summary or "").strip():
+            ov.oversight_summary = (
+                explain.why_pause_trading or explain.current_ai_view or "사용자 검토가 가능합니다."
             )
-        rs.oversight.oversight_summary = (
-            "사용자는 현재 AI 판단을 검토하고 필요 시 일시정지할 수 있습니다."
-        )
+
+        mpr = self.last_module_pack_runtime
+        if mpr is not None and (mpr.active_pack_id or "").strip():
+            pname = (mpr.pack_name_ko or "").strip() or str(mpr.active_pack_id)
+            suffix = f" / 현재 모듈팩: {pname}"
+            cur = (ov.oversight_summary or "").strip()
+            if suffix.strip() not in cur:
+                ov.oversight_summary = (cur + suffix).strip()
+
+        if decision.action == "sell":
+            if "sell_review" not in ov.review_required_actions:
+                ov.review_required_actions.append("sell_review")
+
+        if decision.action == "buy" and self._safe_float(regime.confidence, 1.0) < 0.35:
+            ov.trust_alerts.append(
+                "장세 신뢰도가 낮은 상태에서 매수 신호가 있습니다. 주의하세요."
+            )
