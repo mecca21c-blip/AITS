@@ -148,6 +148,7 @@ class OpportunityCandidate:
 @dataclass
 class OpportunityState:
     top_candidates: List[OpportunityCandidate] = field(default_factory=list)
+    candidate_symbols: List[str] = field(default_factory=list)
     rejected_candidates: List[str] = field(default_factory=list)
     market_opportunity_score: float = 0.0
     selection_summary: str = ""
@@ -160,6 +161,7 @@ class AIDecisionState:
     confidence: float = 0.0
     market_interpretation: str = ""
     selected_strategy_logic: str = ""
+    selected_symbol: str = ""
     why_this_symbol: str = ""
     why_not_others: str = ""
     ai_summary_for_user: str = ""

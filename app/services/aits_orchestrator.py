@@ -761,6 +761,33 @@ class AITSOrchestrator:
         rs = self.last_runtime_state
         regime = rs.market.regime
         portfolio = rs.portfolio
+        opp = rs.intelligence.opportunities
+        try:
+            sources: List[Any] = []
+            flow = getattr(rs.market, "flow", None)
+            snap = getattr(rs.market, "snapshot", None)
+            sources.extend(list(getattr(flow, "leader_symbols", None) or []))
+            sources.extend(list(getattr(snap, "volume_leaders", None) or []))
+            sources.extend(list(getattr(snap, "top_gainers", None) or []))
+
+            seen: set[str] = set()
+            cleaned: List[str] = []
+            for sym in sources:
+                if not isinstance(sym, str):
+                    continue
+                s = sym.strip()
+                if not s:
+                    continue
+                if s in seen:
+                    continue
+                seen.add(s)
+                cleaned.append(s)
+                if len(cleaned) >= 5:
+                    break
+            opp.candidate_symbols = cleaned
+        except Exception:
+            opp.candidate_symbols = []
+
         target = self.portfolio_brain.build_target(regime, portfolio)
         decision = self.ai_decision_service.decide(
             regime,
@@ -786,7 +813,6 @@ class AITSOrchestrator:
             rs.intelligence.modules.active_modules = list(sm)
             rs.intelligence.modules.dominant_module = sm[0] if sm else ""
 
-        opp = rs.intelligence.opportunities
         if not (opp.selection_summary or "").strip():
             opp.selection_summary = (
                 "Phase 1에서는 종목 후보 탐색보다 장세 및 포트폴리오 판단을 우선합니다."

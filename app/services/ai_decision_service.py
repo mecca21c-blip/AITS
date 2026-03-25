@@ -508,17 +508,89 @@ class AIDecisionService:
             )
 
         if reb and pos == 0:
-            conf = self._clamp(self.neutral_wait_confidence - 0.05, 0.55, 0.70)
+            sideways_probe_confidence_min = 0.60
+            rb = (regime.risk_bias or "").strip().lower() if regime else ""
+            rc = self._safe_float(regime.confidence, 0.0) if regime else 0.0
+            if rb == "defensive" or rc < sideways_probe_confidence_min:
+                conf = self._clamp(self.neutral_wait_confidence - 0.05, 0.55, 0.70)
+                return AIDecisionState(
+                    action="wait",
+                    action_bias="neutral",
+                    confidence=conf,
+                    market_interpretation="횡보장으로 보이며 현재 보유 포지션이 없어 신규 진입보다 대기를 우선합니다.",
+                    selected_strategy_logic="sideways_wait_no_positions",
+                    why_this_symbol="",
+                    why_not_others="",
+                    ai_summary_for_user="현재는 횡보장으로 해석되며, 보유 포지션이 없어 무리한 진입보다 관망이 적절합니다.",
+                    ai_warning_for_user="리밸런싱이 필요해 보여도 횡보장에서는 급한 진입보다 계획 수립을 우선하세요.",
+                    selected_symbol="",
+                )
+            conf = self._clamp(self.neutral_wait_confidence, 0.55, 0.70)
+
+            resolved_symbol = ""
+            if target is not None:
+                # Phase 2: probe buy 대상 심볼을 '현재 입력'에서만 단일 후보일 때만 해석
+                for attr_name in ("selected_symbol", "target_symbol", "primary_symbol"):
+                    v = getattr(target, attr_name, None)
+                    if isinstance(v, str) and v.strip():
+                        resolved_symbol = v.strip()
+                        break
+
+                if not resolved_symbol:
+                    tsw = getattr(target, "target_symbol_weights", None)
+                    if isinstance(tsw, dict) and len(tsw) == 1:
+                        k = next(iter(tsw.keys()))
+                        if isinstance(k, str) and k.strip():
+                            resolved_symbol = k.strip()
+
+                if not resolved_symbol:
+                    cs = getattr(target, "candidate_symbols", None)
+                    if isinstance(cs, list) and cs:
+                        first = cs[0]
+                        if isinstance(first, str) and first.strip():
+                            resolved_symbol = first.strip()
+
+            if not resolved_symbol and pack_runtime is not None:
+                cs = getattr(pack_runtime, "candidate_symbols", None)
+                if isinstance(cs, list) and cs:
+                    first = cs[0]
+                    if isinstance(first, str) and first.strip():
+                        resolved_symbol = first.strip()
+
+            if not resolved_symbol and portfolio is not None:
+                cs = getattr(portfolio, "candidate_symbols", None)
+                if isinstance(cs, list) and cs:
+                    first = cs[0]
+                    if isinstance(first, str) and first.strip():
+                        resolved_symbol = first.strip()
+
             return AIDecisionState(
-                action="wait",
+                action="buy" if resolved_symbol else "wait",
                 action_bias="neutral",
                 confidence=conf,
-                market_interpretation="횡보장으로 보이며 현재 보유 포지션이 없어 신규 진입보다 대기를 우선합니다.",
-                selected_strategy_logic="sideways_wait_no_positions",
-                why_this_symbol="",
+                market_interpretation=(
+                    "횡보장으로 보이지만 무포지션 상태가 길어질 수 있어 소규모 탐색 진입을 검토합니다."
+                    if resolved_symbol
+                    else "횡보장으로 해석되며 탐색 진입 여건은 있으나, 현재는 대상 심볼이 확정되지 않아 관망합니다."
+                ),
+                selected_strategy_logic=(
+                    "sideways_probe_buy_no_positions"
+                    if resolved_symbol
+                    else "sideways_wait_no_symbol_source"
+                ),
+                why_this_symbol=resolved_symbol if resolved_symbol else "",
                 why_not_others="",
-                ai_summary_for_user="현재는 횡보장으로 해석되며, 보유 포지션이 없어 무리한 진입보다 관망이 적절합니다.",
-                ai_warning_for_user="리밸런싱이 필요해 보여도 횡보장에서는 급한 진입보다 계획 수립을 우선하세요.",
+                ai_summary_for_user=(
+                    "현재는 횡보장으로 해석되지만 무포지션 상태이므로, 조건부로 소규모 탐색 진입이 가능합니다."
+                    if resolved_symbol
+                    else "현재는 횡보장이며 소규모 탐색 진입 여건은 있지만, 대상 심볼 정보가 부족해 관망이 적절합니다."
+                ),
+                ai_warning_for_user=(
+                    "횡보장에서는 변동성이 제한적일 수 있으므로 첫 진입은 탐색 수준으로 보수적으로 접근하세요."
+                    if resolved_symbol
+                    else "대상 심볼이 확정되지 않은 상태에서는 무리한 진입보다 후보 선별을 우선하세요."
+                ),
+                selected_symbol=resolved_symbol if resolved_symbol else "",
             )
 
         conf = self._clamp(self.neutral_wait_confidence, 0.55, 0.70)
