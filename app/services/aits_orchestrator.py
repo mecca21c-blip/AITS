@@ -894,8 +894,14 @@ class AITSOrchestrator:
             plan.execution_mode = "normal"
             plan.reason_summary = "현재 보유 포지션 유지가 우선입니다."
         elif decision.action in ("buy", "sell", "reduce"):
+            resolved_symbol = ""
+            raw_symbol = getattr(decision, "selected_symbol", "")
+            if isinstance(raw_symbol, str):
+                rsym = raw_symbol.strip()
+                if rsym:
+                    resolved_symbol = rsym
             item = ActionItem(
-                symbol="",
+                symbol=resolved_symbol,
                 action_type=decision.action,
                 reason=decision.ai_summary_for_user or "",
             )

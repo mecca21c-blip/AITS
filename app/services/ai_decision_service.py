@@ -550,13 +550,6 @@ class AIDecisionService:
                         if isinstance(first, str) and first.strip():
                             resolved_symbol = first.strip()
 
-            if not resolved_symbol and pack_runtime is not None:
-                cs = getattr(pack_runtime, "candidate_symbols", None)
-                if isinstance(cs, list) and cs:
-                    first = cs[0]
-                    if isinstance(first, str) and first.strip():
-                        resolved_symbol = first.strip()
-
             if not resolved_symbol and portfolio is not None:
                 cs = getattr(portfolio, "candidate_symbols", None)
                 if isinstance(cs, list) and cs:
