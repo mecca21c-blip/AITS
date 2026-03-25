@@ -1446,6 +1446,22 @@ class MainWindow(QMainWindow):
         self.lbl_aits_bias_mode = QLabel("AITS Bias Mode: 연결 대기")
         aits_ly.addWidget(self.lbl_aits_bias)
         aits_ly.addWidget(self.lbl_aits_bias_mode)
+        # --- AITS order adapter status ---
+        self.lbl_aits_exec_mode = QLabel("AITS Execution Mode: 연결 대기")
+        self.lbl_aits_orders = QLabel("AITS Orders: 연결 대기")
+        self.lbl_aits_orders_summary = QLabel("AITS Orders Summary: 주문 실행 결과를 불러오지 못했습니다.")
+        self.lbl_aits_orders_summary.setWordWrap(True)
+        aits_ly.addWidget(self.lbl_aits_exec_mode)
+        aits_ly.addWidget(self.lbl_aits_orders)
+        aits_ly.addWidget(self.lbl_aits_orders_summary)
+        # --- AITS execution mode control ---
+        self.cmb_aits_exec_mode = QComboBox()
+        self.cmb_aits_exec_mode.addItems(["disabled", "dry_run", "live"])
+        self.lbl_aits_exec_mode_apply = QLabel("AITS Execution Control: 연결 대기")
+        self._sync_aits_exec_mode_combo()
+        self.cmb_aits_exec_mode.currentTextChanged.connect(self._on_aits_exec_mode_changed)
+        aits_ly.addWidget(self.cmb_aits_exec_mode)
+        aits_ly.addWidget(self.lbl_aits_exec_mode_apply)
         lay.addWidget(self._aits_status_group)
 
         # 5초마다 인포 갱신
@@ -2125,6 +2141,140 @@ class MainWindow(QMainWindow):
             self.lbl_aits_bias.setStyleSheet("color: #888888;")
             self.lbl_aits_bias_mode.setStyleSheet("color: #888888;")
 
+    def _get_aits_order_adapter_result(self):
+        try:
+            orch = getattr(self, "orchestrator", None)
+            if orch is not None and hasattr(orch, "get_last_order_adapter_result"):
+                return orch.get_last_order_adapter_result()
+            ctx = getattr(self, "app_context", None)
+            if isinstance(ctx, dict):
+                o = ctx.get("orchestrator")
+                if o is not None and hasattr(o, "get_last_order_adapter_result"):
+                    return o.get_last_order_adapter_result()
+            return getattr(self, "last_order_adapter_result", None)
+        except Exception:
+            return None
+        return None
+
+    def _get_aits_execution_mode(self):
+        try:
+            orch = getattr(self, "orchestrator", None)
+            if orch is not None and hasattr(orch, "get_execution_mode"):
+                return orch.get_execution_mode()
+            ctx = getattr(self, "app_context", None)
+            if isinstance(ctx, dict):
+                o = ctx.get("orchestrator")
+                if o is not None and hasattr(o, "get_execution_mode"):
+                    return o.get_execution_mode()
+            return None
+        except Exception:
+            return None
+        return None
+
+    def _get_aits_orchestrator(self):
+        try:
+            orch = getattr(self, "orchestrator", None)
+            if orch is not None:
+                return orch
+            ctx = getattr(self, "app_context", None)
+            if isinstance(ctx, dict):
+                o = ctx.get("orchestrator")
+                if o is not None:
+                    return o
+        except Exception:
+            return None
+        return None
+
+    def _sync_aits_exec_mode_combo(self) -> None:
+        if not hasattr(self, "cmb_aits_exec_mode"):
+            return
+        try:
+            mode = str(self._get_aits_execution_mode() or "disabled").strip()
+            if mode not in ("disabled", "dry_run", "live"):
+                mode = "disabled"
+            self.cmb_aits_exec_mode.blockSignals(True)
+            self.cmb_aits_exec_mode.setCurrentText(mode)
+            self.cmb_aits_exec_mode.blockSignals(False)
+            if hasattr(self, "lbl_aits_exec_mode_apply"):
+                if self._get_aits_orchestrator() is None:
+                    self.lbl_aits_exec_mode_apply.setText(
+                        "AITS Execution Control: 오케스트레이터 연결 대기"
+                    )
+                else:
+                    self.lbl_aits_exec_mode_apply.setText(
+                        f"AITS Execution Control: 현재 모드 {mode}"
+                    )
+        except Exception:
+            try:
+                self.cmb_aits_exec_mode.blockSignals(True)
+                self.cmb_aits_exec_mode.setCurrentText("disabled")
+                self.cmb_aits_exec_mode.blockSignals(False)
+            except Exception:
+                pass
+            if hasattr(self, "lbl_aits_exec_mode_apply"):
+                self.lbl_aits_exec_mode_apply.setText("AITS Execution Control: 연결 대기")
+
+    def _on_aits_exec_mode_changed(self, value: str) -> None:
+        try:
+            orch = self._get_aits_orchestrator()
+            if orch is None or not hasattr(orch, "set_execution_mode"):
+                self.lbl_aits_exec_mode_apply.setText(
+                    "AITS Execution Control: 오케스트레이터 연결 대기"
+                )
+                return
+            selected = str(value or "").strip() or "disabled"
+            orch.set_execution_mode(selected)
+            applied = "disabled"
+            if hasattr(orch, "get_execution_mode"):
+                applied = str(orch.get_execution_mode() or "disabled").strip() or "disabled"
+            if applied not in ("disabled", "dry_run", "live"):
+                applied = "disabled"
+            self.lbl_aits_exec_mode_apply.setText(f"AITS Execution Control: 적용됨 ({applied})")
+            self._sync_aits_exec_mode_combo()
+        except Exception:
+            try:
+                self.lbl_aits_exec_mode_apply.setText("AITS Execution Control: 적용 실패")
+            except Exception:
+                pass
+
+    def _set_aits_order_adapter_labels(self) -> None:
+        if not all(
+            hasattr(self, n)
+            for n in ("lbl_aits_exec_mode", "lbl_aits_orders", "lbl_aits_orders_summary")
+        ):
+            return
+        try:
+            mode = self._get_aits_execution_mode()
+            ar = self._get_aits_order_adapter_result()
+            if ar is None:
+                if mode:
+                    exec_text = str(mode)
+                    orders_text = "결과 대기"
+                    summary_text = "이번 사이클의 주문 실행 결과를 기다리는 중입니다."
+                else:
+                    exec_text = "연결 대기"
+                    orders_text = "연결 대기"
+                    summary_text = "주문 실행 결과를 불러오지 못했습니다."
+            else:
+                exec_text = getattr(ar, "execution_mode", None) or (mode or "확인 불가")
+                submitted = int(getattr(ar, "submitted_count", 0) or 0)
+                blocked = int(getattr(ar, "blocked_count", 0) or 0)
+                failed = int(getattr(ar, "failed_count", 0) or 0)
+                skipped = int(getattr(ar, "skipped_count", 0) or 0)
+                summary_text = getattr(ar, "summary_ko", "") or "주문 실행 결과 요약이 없습니다."
+                orders_text = (
+                    f"submitted={submitted} | blocked={blocked} | failed={failed} | skipped={skipped}"
+                )
+            self.lbl_aits_exec_mode.setText(f"AITS Execution Mode: {exec_text}")
+            self.lbl_aits_orders.setText(f"AITS Orders: {orders_text}")
+            self.lbl_aits_orders_summary.setText(f"AITS Orders Summary: {summary_text}")
+        except Exception:
+            self.lbl_aits_exec_mode.setText("AITS Execution Mode: 연결 대기")
+            self.lbl_aits_orders.setText("AITS Orders: 연결 대기")
+            self.lbl_aits_orders_summary.setText(
+                "AITS Orders Summary: 주문 실행 결과를 불러오지 못했습니다."
+            )
+
     def _refresh_aits_status_view(self):
         if not all(
             hasattr(self, n)
@@ -2141,6 +2291,11 @@ class MainWindow(QMainWindow):
                 "lbl_aits_override_summary",
                 "lbl_aits_bias",
                 "lbl_aits_bias_mode",
+                "lbl_aits_exec_mode",
+                "lbl_aits_orders",
+                "lbl_aits_orders_summary",
+                "cmb_aits_exec_mode",
+                "lbl_aits_exec_mode_apply",
             )
         ):
             return
@@ -2155,6 +2310,8 @@ class MainWindow(QMainWindow):
                 self._set_aits_module_pack_labels()
                 self._set_aits_override_labels()
                 self._set_aits_bias_labels()
+                self._set_aits_order_adapter_labels()
+                self._sync_aits_exec_mode_combo()
                 return
             market = getattr(rs, "market", None)
             regime = getattr(market, "regime", None) if market else None
@@ -2175,6 +2332,8 @@ class MainWindow(QMainWindow):
             self._set_aits_module_pack_labels()
             self._set_aits_override_labels()
             self._set_aits_bias_labels()
+            self._set_aits_order_adapter_labels()
+            self._sync_aits_exec_mode_combo()
         except Exception:
             self.lbl_aits_regime.setText("AITS Regime: 연결 대기")
             self.lbl_aits_action.setText("AITS Action: 연결 대기")
@@ -2191,6 +2350,14 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self._set_aits_bias_labels()
+            except Exception:
+                pass
+            try:
+                self._set_aits_order_adapter_labels()
+            except Exception:
+                pass
+            try:
+                self._sync_aits_exec_mode_combo()
             except Exception:
                 pass
 

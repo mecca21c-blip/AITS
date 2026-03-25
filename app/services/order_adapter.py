@@ -229,7 +229,7 @@ class AITSOrderAdapter:
             self._safe_log_error(f"validate_candidates failed: {exc}")
             return result
 
-    def execute(self, bridge: Optional[BridgeResult]) -> OrderAdapterResult:
+    def execute(self, bridge: Optional[BridgeResult], order_service=None) -> OrderAdapterResult:
         result = self.build_candidates(bridge)
         result = self.validate_candidates(result)
         try:
@@ -263,21 +263,70 @@ class AITSOrderAdapter:
                 result.summary_ko = "드라이런 모드로 주문 후보를 검토했습니다."
 
             elif self.execution_mode == "live":
-                for c in valid_candidates:
-                    result.failed_orders.append(
-                        self._make_record(
-                            action_type=c.action_type,
-                            symbol=c.symbol,
-                            status="failed",
-                            reason="live_not_implemented",
-                            detail_ko="live 모드는 아직 실제 주문 연결 전 단계입니다.",
+                if order_service is None:
+                    for c in valid_candidates:
+                        result.failed_orders.append(
+                            self._make_record(
+                                action_type=c.action_type,
+                                symbol=c.symbol,
+                                status="failed",
+                                reason="live_not_implemented",
+                                detail_ko="live 모드는 아직 실제 주문 연결 전 단계입니다.",
+                            )
                         )
+                    if "live_not_implemented" not in result.warnings:
+                        result.warnings.append("live_not_implemented")
+                    result.summary_ko = (
+                        "live 모드가 선택되었지만 실제 주문 연결 전 단계이므로 제출하지 않았습니다."
                     )
-                if "live_not_implemented" not in result.warnings:
-                    result.warnings.append("live_not_implemented")
-                result.summary_ko = (
-                    "live 모드가 선택되었지만 실제 주문 연결 전 단계이므로 제출하지 않았습니다."
-                )
+                else:
+                    for c in valid_candidates:
+                        symbol = c.symbol
+                        try:
+                            order_request = {
+                                "symbol": symbol,
+                                "side": c.order_side,
+                                "amount_krw": c.amount_krw,
+                                "volume": c.quantity,
+                                "order_type": "market",
+                            }
+                            po_result = order_service.place_order(order_request)
+                            if isinstance(po_result, dict) and po_result.get("success"):
+                                result.submitted_orders.append(
+                                    self._make_record(
+                                        action_type=c.action_type,
+                                        symbol=symbol or "",
+                                        status="submitted_live",
+                                        reason=str(po_result.get("order_id") or ""),
+                                        detail_ko="live 주문이 접수되었습니다.",
+                                    )
+                                )
+                            else:
+                                if isinstance(po_result, dict):
+                                    raw_e = po_result.get("error")
+                                    err = str(raw_e) if raw_e is not None else "unknown_error"
+                                else:
+                                    err = "unknown_error"
+                                result.failed_orders.append(
+                                    self._make_record(
+                                        action_type=c.action_type,
+                                        symbol=symbol or "",
+                                        status="failed",
+                                        reason=err or "unknown_error",
+                                        detail_ko="주문 제출에 실패했습니다.",
+                                    )
+                                )
+                        except Exception as e:
+                            result.failed_orders.append(
+                                self._make_record(
+                                    action_type=c.action_type,
+                                    symbol=symbol or "",
+                                    status="failed",
+                                    reason=f"exception:{str(e)}",
+                                    detail_ko="주문 제출 중 예외가 발생했습니다.",
+                                )
+                            )
+                    result.summary_ko = "live 모드에서 주문 hook 처리를 완료했습니다."
             else:
                 for c in valid_candidates:
                     result.skipped_orders.append(
