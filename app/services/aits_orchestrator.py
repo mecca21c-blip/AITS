@@ -789,6 +789,20 @@ class AITSOrchestrator:
             opp.candidate_symbols = []
 
         target = self.portfolio_brain.build_target(regime, portfolio)
+        try:
+            mirrored: List[str] = []
+            source_candidates = getattr(opp, "candidate_symbols", None)
+            if isinstance(source_candidates, (list, tuple)):
+                mirrored = list(source_candidates)
+            if target is not None:
+                target.candidate_symbols = mirrored
+        except Exception:
+            if target is not None:
+                try:
+                    target.candidate_symbols = []
+                except Exception:
+                    pass
+
         decision = self.ai_decision_service.decide(
             regime,
             portfolio,

@@ -104,6 +104,7 @@ class PortfolioTarget:
     target_major_weight: float = 0.0
     target_alt_weight: float = 0.0
     target_symbol_weights: Dict[str, float] = field(default_factory=dict)
+    candidate_symbols: List[str] = field(default_factory=list)
     rebalance_needed: bool = False
     target_reason: str = ""
 
