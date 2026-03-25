@@ -22,6 +22,7 @@ from app.services.explainability_service import ExplainabilityService
 from app.services.portfolio_brain import PortfolioBrain
 from app.services.regime_detector import RegimeDetector
 from app.services.module_pack_resolver import ModulePackResolver
+from app.services.order_service import OrderService
 from app.core.module_pack_state import (
     DEFAULT_MODULE_PACK_DEFINITIONS,
     DEFAULT_USER_MODULE_PACK_SELECTION,
@@ -250,6 +251,14 @@ class AITSOrchestrator:
     ) -> CycleResult:
         started_at = datetime.now()
         try:
+            order_service = None
+            execution_mode = self.execution_mode
+            if execution_mode == "live":
+                try:
+                    order_service = OrderService()
+                except Exception:
+                    order_service = None
+
             self.cycle_counter += 1
             result = CycleResult()
             result.status.phase = "collecting"
@@ -305,6 +314,16 @@ class AITSOrchestrator:
                 self.last_explainability = rs.explainability
                 self.last_runtime_state = rs
                 self._update_bridge_result(result)
+                try:
+                    self.last_order_adapter_result = self.order_adapter.execute(
+                        self.last_bridge_result, order_service=order_service
+                    )
+                except Exception as exc:
+                    try:
+                        if self.logger is not None and hasattr(self.logger, "debug"):
+                            self.logger.debug(f"order adapter execute skipped: {exc}")
+                    except Exception:
+                        pass
                 self._update_order_adapter_result()
                 finished = datetime.now()
                 result.meta.finished_at = finished
@@ -339,6 +358,16 @@ class AITSOrchestrator:
             result.diagnostics.decision_trace_id = f"cycle-{self.cycle_counter}"
 
             self._update_bridge_result(result)
+            try:
+                self.last_order_adapter_result = self.order_adapter.execute(
+                    self.last_bridge_result, order_service=order_service
+                )
+            except Exception as exc:
+                try:
+                    if self.logger is not None and hasattr(self.logger, "debug"):
+                        self.logger.debug(f"order adapter execute skipped: {exc}")
+                except Exception:
+                    pass
             self._update_order_adapter_result()
 
             self._log_module_pack_effect()
@@ -376,6 +405,16 @@ class AITSOrchestrator:
             self._safe_log_error(f"run_cycle failed: {exc}")
             self.last_cycle_result = err_result
             self._update_bridge_result(err_result)
+            try:
+                self.last_order_adapter_result = self.order_adapter.execute(
+                    self.last_bridge_result, order_service=order_service
+                )
+            except Exception as exc:
+                try:
+                    if self.logger is not None and hasattr(self.logger, "debug"):
+                        self.logger.debug(f"order adapter execute skipped: {exc}")
+                except Exception:
+                    pass
             self._update_order_adapter_result()
             return err_result
 
@@ -557,7 +596,6 @@ class AITSOrchestrator:
 
     def _update_order_adapter_result(self) -> None:
         try:
-            self.last_order_adapter_result = self.order_adapter.execute(self.last_bridge_result)
             ar = self.last_order_adapter_result
             if ar is not None and hasattr(ar, "summary_text"):
                 self._safe_log_info(f"[AITS][OrderAdapter] {ar.summary_text()}")
