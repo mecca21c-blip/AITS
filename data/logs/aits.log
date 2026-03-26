@@ -56,3 +56,150 @@
 2026-03-26 22:10:03,768 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
 2026-03-26 22:10:03,769 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
 2026-03-26 22:10:03,769 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:46,415 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:12:46,415 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:12:46,416 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:12:47,393 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,393 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,393 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,394 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,394 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,394 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,395 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,395 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,395 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,395 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,396 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,396 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,396 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,396 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,396 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,397 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,397 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,397 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,397 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,398 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,398 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,398 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,398 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,398 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,399 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,399 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,399 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,400 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,400 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,400 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,400 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,401 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,401 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,401 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,401 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,401 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,402 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,402 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,402 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,402 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,403 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,403 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,403 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,403 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,403 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,404 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,404 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,404 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,405 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,405 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,406 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,406 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,406 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,407 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,408 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,408 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,408 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,409 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,409 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,409 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,410 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,410 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,410 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,410 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,411 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,411 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,411 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,411 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,411 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,412 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,412 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,412 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,413 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,413 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,413 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,413 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,414 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,414 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,414 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,414 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,414 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,415 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,415 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,415 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,416 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,416 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,416 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,417 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:12:47,417 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:12:47,417 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:00,988 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:00,988 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:00,988 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:01,783 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:01,783 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:01,783 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:02,785 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:02,785 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:02,785 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:02,786 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:02,786 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:02,786 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:03,788 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:03,788 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:03,788 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:03,927 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:03,927 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:03,927 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:04,929 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:04,930 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:04,930 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:04,930 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:04,930 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:04,931 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:05,933 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:05,933 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:05,933 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:06,091 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:06,091 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:06,092 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:07,093 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:07,094 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:07,094 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:07,094 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:07,095 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:07,095 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:08,097 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:08,097 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:08,097 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:08,239 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:08,240 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:08,240 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:09,242 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:09,242 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:09,242 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:09,243 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:13:09,243 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:09,243 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:13:10,271 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:10,277 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:13:10,279 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:13:10,439 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
+2026-03-26 22:13:10,439 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
+2026-03-26 22:13:10,439 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
