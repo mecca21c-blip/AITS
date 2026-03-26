@@ -564,6 +564,23 @@ class AITSOrchestrator:
         except (TypeError, ValueError):
             return default
 
+    def _normalize_symbol_list_for_snapshot(self, raw: Any) -> List[str]:
+        if not isinstance(raw, (list, tuple)):
+            return []
+        out: List[str] = []
+        seen: set[str] = set()
+        for x in raw:
+            if not isinstance(x, str):
+                continue
+            s = x.strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            out.append(s)
+            if len(out) >= 5:
+                break
+        return out
+
     def _safe_log_info(self, message: str) -> None:
         try:
             if self.logger is not None and hasattr(self.logger, "info"):
@@ -679,6 +696,8 @@ class AITSOrchestrator:
         rs = self.last_runtime_state
         rs.system.active_provider = "local_rule_based"
         snap = rs.market.snapshot
+        top_src: Any = None
+        vol_src: Any = None
         base: Dict[str, Any] = {
             "btc_price": 0.0,
             "btc_change_pct": 0.0,
@@ -701,6 +720,8 @@ class AITSOrchestrator:
             snap.market_volatility = data["market_volatility"]
             snap.market_breadth = data["market_breadth"]
             snap.snapshot_summary = data.get("snapshot_summary", base["snapshot_summary"])
+            top_src = data.get("top_gainers")
+            vol_src = data.get("volume_leaders")
         elif isinstance(market_snapshot_override, dict):
             data = {**base, **market_snapshot_override}
             regime = self.regime_detector.detect_from_dict(data)
@@ -711,6 +732,8 @@ class AITSOrchestrator:
             snap.snapshot_summary = str(
                 data.get("snapshot_summary") or "외부 시장 스냅샷 오버라이드가 적용되었습니다."
             )
+            top_src = data.get("top_gainers")
+            vol_src = data.get("volume_leaders")
         elif isinstance(market_snapshot_override, MarketSnapshot):
             regime = self.regime_detector.detect(market_snapshot_override)
             snap.btc_price = self._safe_float(market_snapshot_override.btc_price, 0.0)
@@ -719,11 +742,22 @@ class AITSOrchestrator:
             snap.market_breadth = self._safe_float(market_snapshot_override.market_breadth, 0.5)
             ss = (market_snapshot_override.snapshot_summary or "").strip()
             snap.snapshot_summary = ss or "MarketSnapshot 오버라이드가 적용되었습니다."
+            top_src = getattr(market_snapshot_override, "top_gainers", None)
+            vol_src = getattr(market_snapshot_override, "volume_leaders", None)
         else:
             data = dict(base)
             data["snapshot_summary"] = "지원하지 않는 오버라이드 형식입니다. 기본 스냅샷을 사용합니다."
             regime = self.regime_detector.detect_from_dict(data)
             snap.snapshot_summary = data["snapshot_summary"]
+            top_src = data.get("top_gainers")
+            vol_src = data.get("volume_leaders")
+
+        try:
+            snap.top_gainers = self._normalize_symbol_list_for_snapshot(top_src)
+            snap.volume_leaders = self._normalize_symbol_list_for_snapshot(vol_src)
+        except Exception:
+            snap.top_gainers = []
+            snap.volume_leaders = []
 
         rs.market.regime = regime
         if not (regime.summary_reason or "").strip():
