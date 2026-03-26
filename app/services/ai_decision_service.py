@@ -385,7 +385,9 @@ class AIDecisionService:
     ) -> AIDecisionState:
         pnl = self._safe_float(portfolio.summary.portfolio_pnl_pct if portfolio else None, 0.0)
         cash = self._safe_float(portfolio.summary.available_cash_ratio if portfolio else None, 0.0)
-        pos = int(portfolio.summary.position_count) if portfolio else 0
+        position_count = len(getattr(portfolio, "positions", []) or []) if getattr(portfolio, "position_count", None) in (None, "") else getattr(portfolio, "position_count", 0)
+        risk_bias = getattr(target, "effective_risk_bias", "") or "neutral"
+        pos = int(position_count) if portfolio else 0
         tc = self._safe_float(target.target_cash_weight if target else None, 0.50)
 
         conf = self._clamp(self.bearish_defensive_confidence, 0.70, 0.85)
@@ -420,7 +422,8 @@ class AIDecisionService:
             summary = "추가 정보가 쌓일 때까지 방어적 관점에서 천천히 대응하는 편이 낫습니다."
             warn = "약세장에서는 급한 진입·회전보다 현금과 정보 확보를 우선하세요."
             logic = "bear_defensive_wait_no_positions"
-
+        print(f"[AITS][AIDecision] bear_wait_inputs | regime={getattr(regime, 'label', '')} | confidence={getattr(regime, 'confidence', '')} | positions={position_count} | rebalance_needed={getattr(target, 'rebalance_needed', '')} | risk_bias={risk_bias if target is not None else ''} | candidate_count={len(getattr(target, 'candidate_symbols', []) or []) if target is not None else 0}")
+        print(f"[AITS][AIDecision] bear_wait_debug | portfolio_type={type(portfolio).__name__ if portfolio is not None else 'None'} | target_type={type(target).__name__ if target is not None else 'None'} | portfolio_keys={sorted(list(getattr(portfolio, '__dict__', {}).keys())) if portfolio is not None and hasattr(portfolio, '__dict__') else []} | target_keys={sorted(list(getattr(target, '__dict__', {}).keys())) if target is not None and hasattr(target, '__dict__') else []}")
         return AIDecisionState(
             action=action,
             action_bias="defensive",

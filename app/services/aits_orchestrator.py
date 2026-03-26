@@ -315,6 +315,7 @@ class AITSOrchestrator:
                 self.last_runtime_state = rs
                 self._update_bridge_result(result)
                 try:
+                    print(f"[AITS][Orchestrator] execute_adapter | mode={self.execution_mode} | actions={len(result.execution_request.actions) if result.execution_request and result.execution_request.actions else 0}")
                     self.last_order_adapter_result = self.order_adapter.execute(
                         self.last_bridge_result, order_service=order_service
                     )
@@ -357,8 +358,10 @@ class AITSOrchestrator:
             result.diagnostics.provider_used = rs.system.active_provider
             result.diagnostics.decision_trace_id = f"cycle-{self.cycle_counter}"
 
+            print(f"[AITS][Orchestrator] decision_state | action={getattr(getattr(getattr(getattr(result, 'runtime_state', None), 'intelligence', None), 'ai_decision', None), 'action', '')} | logic={getattr(getattr(getattr(getattr(result, 'runtime_state', None), 'intelligence', None), 'ai_decision', None), 'selected_strategy_logic', '')} | symbol={getattr(getattr(getattr(getattr(result, 'runtime_state', None), 'intelligence', None), 'ai_decision', None), 'selected_symbol', '')} | approved={len(action_plan.approved_actions) if action_plan and getattr(action_plan, 'approved_actions', None) else 0} | blocked={len(action_plan.blocked_actions) if action_plan and getattr(action_plan, 'blocked_actions', None) else 0} | actions={len(result.execution_request.actions) if result.execution_request and getattr(result.execution_request, 'actions', None) else 0}")
             self._update_bridge_result(result)
             try:
+                print(f"[AITS][Orchestrator] execute_adapter | mode={self.execution_mode} | actions={len(result.execution_request.actions) if result.execution_request and result.execution_request.actions else 0}")
                 self.last_order_adapter_result = self.order_adapter.execute(
                     self.last_bridge_result, order_service=order_service
                 )
@@ -406,6 +409,7 @@ class AITSOrchestrator:
             self.last_cycle_result = err_result
             self._update_bridge_result(err_result)
             try:
+                print(f"[AITS][Orchestrator] execute_adapter | mode={self.execution_mode} | actions={len(err_result.execution_request.actions) if err_result.execution_request and err_result.execution_request.actions else 0}")
                 self.last_order_adapter_result = self.order_adapter.execute(
                     self.last_bridge_result, order_service=order_service
                 )

@@ -5,6 +5,10 @@ class OrderService:
     """Minimal order placement surface for Order Adapter injection (live hook)."""
 
     def place_order(self, order_request: dict) -> dict:
+        try:
+            print(f"[AITS][OrderService] place_order called | request={order_request}")
+        except Exception:
+            pass
         def _fail(error: str) -> dict:
             return {
                 "success": False,
