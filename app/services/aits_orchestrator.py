@@ -714,6 +714,56 @@ class AITSOrchestrator:
             data["market_breadth"] = self._safe_float(snap.market_breadth, 0.5)
             if (snap.snapshot_summary or "").strip():
                 data["snapshot_summary"] = snap.snapshot_summary
+            try:
+                from app.services.market_feed import (
+                    calc_market_breadth,
+                    get_tickers,
+                    get_top_markets_by_volume,
+                )
+
+                blacklist_raw = getattr(getattr(rs.control, "constraints", None), "blacklist", None) or []
+                blacklist = {str(x).strip() for x in blacklist_raw if isinstance(x, str) and x.strip()}
+
+                top_rows = get_top_markets_by_volume(
+                    limit=20,
+                    quote="KRW",
+                    exclude_black=blacklist,
+                    min_price=10.0,
+                )
+                if top_rows:
+                    volume_leaders = [m for (m, _) in top_rows[:5] if isinstance(m, str) and m.strip()]
+                    sorted_by_change = sorted(
+                        top_rows,
+                        key=lambda x: float(((x[1] or {}).get("signed_change_rate") if isinstance(x[1], dict) else 0.0) or 0.0),
+                        reverse=True,
+                    )
+                    top_gainers = [m for (m, _) in sorted_by_change[:5] if isinstance(m, str) and m.strip()]
+
+                    ticks_map = {
+                        m: t for (m, t) in top_rows if isinstance(m, str) and m.strip() and isinstance(t, dict)
+                    }
+                    breadth, _mean_chg = calc_market_breadth(ticks_map)
+
+                    if volume_leaders:
+                        data["volume_leaders"] = volume_leaders
+                    if top_gainers:
+                        data["top_gainers"] = top_gainers
+                    data["market_breadth"] = self._safe_float(breadth, data.get("market_breadth", 0.5))
+
+                    btc = ticks_map.get("KRW-BTC")
+                    if btc is None:
+                        btc_tick = get_tickers(["KRW-BTC"])
+                        btc = btc_tick.get("KRW-BTC") if isinstance(btc_tick, dict) else None
+                    if isinstance(btc, dict):
+                        data["btc_price"] = self._safe_float(btc.get("trade_price"), data.get("btc_price", 0.0))
+                        data["btc_change_pct"] = self._safe_float(
+                            btc.get("signed_change_rate"), data.get("btc_change_pct", 0.0)
+                        )
+
+                    if not str(data.get("snapshot_summary") or "").strip():
+                        data["snapshot_summary"] = "market_feed 기반 시장 스냅샷이 적용되었습니다."
+            except Exception:
+                pass
             regime = self.regime_detector.detect_from_dict(data)
             snap.btc_price = data["btc_price"]
             snap.btc_change_pct = data["btc_change_pct"]
