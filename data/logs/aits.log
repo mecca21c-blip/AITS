@@ -221,3 +221,1053 @@
 2026-03-26 22:16:02,653 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
 2026-03-26 22:16:02,653 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
 2026-03-26 22:16:02,653 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
+2026-03-27 06:41:52,046 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:52,047 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:52,048 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:52,973 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:52,973 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:52,974 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:53,976 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:53,976 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:53,976 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:53,977 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:53,977 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:53,977 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:54,981 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:54,981 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:54,981 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:55,130 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:55,130 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:55,130 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:56,137 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:56,138 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:56,141 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:56,143 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:56,144 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:56,144 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:57,146 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:57,147 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:57,147 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:57,274 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:57,275 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:57,275 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:58,279 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:58,279 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:58,279 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:58,280 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:58,281 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:58,281 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:59,286 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:59,287 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:41:59,290 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:41:59,431 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:41:59,431 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:41:59,431 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:00,433 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:00,433 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:00,433 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:00,434 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:00,434 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:00,434 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:01,443 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:01,444 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:01,444 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:01,588 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:01,589 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:01,589 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:02,597 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:02,597 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:02,598 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:02,600 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:02,600 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:02,601 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:03,603 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:03,603 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:03,603 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:03,738 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:03,738 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:03,738 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:04,743 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:04,744 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:04,744 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:04,745 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:04,746 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:04,746 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:05,753 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:05,753 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:05,754 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:05,912 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:05,912 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:05,912 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:06,915 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:06,915 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:06,915 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:06,916 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:06,916 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:06,916 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:07,918 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:07,919 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:07,919 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:08,057 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:08,057 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:08,058 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:09,063 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:09,063 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:09,063 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:09,065 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:09,066 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:09,066 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:10,068 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:10,068 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:10,069 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:10,202 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:10,202 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:10,202 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:11,210 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:11,211 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:11,211 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:11,212 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:11,212 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:11,212 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:12,218 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:12,219 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:12,219 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:12,400 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:12,400 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:12,400 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:13,402 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:13,403 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:13,403 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:13,403 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:13,404 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:13,404 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:14,409 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:14,409 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:14,409 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:14,559 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:14,559 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:14,559 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:15,563 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:15,564 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:15,564 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:15,565 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:15,566 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:15,566 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:16,569 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:16,569 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:16,570 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:16,710 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:16,710 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:16,710 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:17,716 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:17,716 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:17,717 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:17,719 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:17,720 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:17,720 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:18,727 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:18,727 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:18,728 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:18,889 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:18,889 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:18,889 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:19,891 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:19,892 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:19,892 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:19,892 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:19,893 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:19,893 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:20,898 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:20,898 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:20,898 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:21,045 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:21,045 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:21,046 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:22,052 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:22,053 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:22,053 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:22,055 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:22,057 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:22,058 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:23,061 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:23,061 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:23,062 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:23,204 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:23,204 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:23,204 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:24,211 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:24,212 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:24,212 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:24,214 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:24,215 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:24,216 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:33,275 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:33,275 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:33,276 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:34,015 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:34,015 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:34,015 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:35,022 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:35,023 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:35,025 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:35,028 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:35,029 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:35,029 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:36,033 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:36,033 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:36,033 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:36,177 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:36,178 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:36,178 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:37,184 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:37,184 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:37,185 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:37,187 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:37,188 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:37,188 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:38,193 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:38,193 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:38,193 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:38,368 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:38,368 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:38,368 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:39,373 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:39,373 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:39,373 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:39,374 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:39,375 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:39,375 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:40,378 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:40,378 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:40,379 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:40,528 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:40,528 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:40,528 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:41,533 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:41,534 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:41,534 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:41,536 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:41,537 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:41,538 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:42,544 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:42,545 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:42,545 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:42,707 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:42,708 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:42,708 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:43,714 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:43,715 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:43,715 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:43,717 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:43,718 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:43,719 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:44,723 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:44,724 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:44,726 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:44,870 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:44,870 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:44,870 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:45,875 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:45,875 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:45,876 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:45,877 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:45,877 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:45,878 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:46,879 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:46,880 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:46,880 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:47,016 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:47,016 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:47,017 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:48,021 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:48,021 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:48,021 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:48,023 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:48,023 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:48,024 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:49,032 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:49,032 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:49,033 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:49,191 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:49,191 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:49,191 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:50,194 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:50,194 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:50,194 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:50,195 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:50,195 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:50,195 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:51,199 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:51,200 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:51,200 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:51,356 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:51,356 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:51,357 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:52,362 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:52,362 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:52,362 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:52,364 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:52,364 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:52,364 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:53,370 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:53,370 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:53,371 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:53,517 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:53,517 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:53,517 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:54,521 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:54,522 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:54,522 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:54,523 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:54,524 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:54,525 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:55,533 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:55,533 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:55,534 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:55,689 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:55,690 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:55,690 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:56,697 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:56,698 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:56,698 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:56,701 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:56,702 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:56,702 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:57,707 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:57,709 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:57,711 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:57,863 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:57,864 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:57,864 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:58,868 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:58,869 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:58,869 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:58,870 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:42:58,871 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:58,871 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:42:59,875 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:42:59,876 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:42:59,876 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:00,024 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:00,025 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:00,025 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:01,031 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:01,031 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:01,032 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:01,033 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:01,034 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:01,034 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:02,038 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:02,039 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:02,039 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:02,190 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:02,190 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:02,190 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:03,193 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:03,193 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:03,193 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:03,194 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:03,194 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:03,194 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:04,201 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:04,202 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:04,202 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:04,354 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:04,355 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:04,355 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:05,360 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:05,361 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:05,361 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:05,363 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:05,363 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:05,363 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:06,367 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:06,368 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:06,368 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:06,503 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:06,504 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:06,504 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:07,509 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:07,510 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:07,511 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:07,513 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:07,513 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:07,514 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:08,516 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:08,516 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:08,516 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:08,651 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:08,651 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:08,651 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:09,653 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:09,653 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:09,653 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:09,654 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:09,655 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:09,655 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:10,660 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:10,661 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:10,662 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:10,817 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:10,817 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:10,818 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:11,821 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:11,821 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:11,821 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:11,822 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:11,822 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:11,822 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:12,830 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:12,830 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:12,831 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:12,982 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:12,983 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:12,983 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:13,989 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:13,989 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:13,990 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:13,992 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:13,994 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:13,995 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:15,000 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:15,001 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:15,001 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:15,150 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:15,150 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:15,150 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:16,152 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:16,152 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:16,152 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:16,153 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:16,153 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:16,153 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:32,706 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:32,706 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:32,707 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:33,522 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:33,522 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:33,522 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:35,524 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:35,524 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:35,524 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:35,662 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:35,662 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:35,663 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:37,665 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:37,665 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:37,665 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:37,797 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:37,798 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:37,798 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:39,800 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:39,800 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:39,800 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:39,927 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:39,927 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:39,927 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:41,930 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:41,930 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:41,930 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:42,063 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:42,063 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:42,063 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:44,065 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:44,066 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:44,066 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:44,197 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:44,198 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:44,198 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:46,203 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:46,203 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:46,203 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:46,349 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:46,349 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:46,349 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:48,354 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:48,354 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:48,355 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:48,485 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:48,485 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:48,485 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:50,488 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:50,488 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:50,488 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:50,631 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:50,631 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:50,631 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:52,636 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:52,637 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:52,637 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:52,799 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:52,799 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:52,799 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:54,804 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:54,805 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:54,805 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:54,949 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:54,949 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:54,949 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:56,953 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:56,954 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:56,954 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:57,106 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:57,106 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:57,107 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:59,113 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:59,115 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:43:59,115 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:43:59,268 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:43:59,269 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:43:59,269 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:01,275 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:01,275 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:01,276 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:01,423 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:01,424 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:01,424 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:03,428 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:03,429 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:03,429 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:03,580 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:03,581 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:03,582 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:05,588 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:05,588 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:05,589 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:05,740 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:05,741 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:05,741 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:07,747 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:07,749 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:07,749 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:07,906 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:07,907 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:07,907 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:09,908 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:09,909 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:09,909 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:10,042 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:10,042 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:10,042 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:12,048 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:12,049 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:12,049 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:12,211 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:12,211 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:12,212 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:14,219 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:14,219 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:14,220 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:14,376 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:14,377 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:14,377 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:16,383 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:16,383 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:16,384 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:16,531 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:16,532 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:16,532 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:18,536 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:18,536 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:18,536 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:18,700 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:18,700 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:18,701 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:20,703 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:20,703 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:20,704 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:20,852 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:20,852 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:20,852 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:22,857 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:22,857 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:22,857 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:23,012 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:23,013 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:23,013 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:25,018 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:25,018 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:25,019 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:25,158 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:25,159 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:25,159 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:38,331 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:38,331 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:38,331 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:39,094 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:39,094 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:39,094 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:40,099 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:40,099 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:40,099 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:40,100 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:40,100 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:40,100 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:41,104 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:41,105 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:41,105 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:41,257 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:41,257 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:41,257 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:42,261 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:42,261 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:42,261 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:42,262 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:42,263 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:42,263 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:43,271 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:43,271 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:43,271 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:43,427 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:43,427 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:43,428 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:44,431 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:44,431 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:44,431 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:44,432 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:44,433 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:44,433 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:45,438 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:45,439 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:45,439 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:45,581 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:45,581 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:45,582 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:46,586 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:46,586 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:46,586 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:46,588 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:46,589 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:46,589 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:47,594 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:47,594 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:47,595 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:47,731 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:47,731 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:47,731 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:48,737 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:48,737 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:48,737 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:48,739 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:48,739 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:48,739 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:49,746 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:49,746 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:49,747 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:49,900 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:49,900 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:49,901 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:50,904 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:50,904 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:50,905 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:50,906 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:50,906 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:50,907 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:51,910 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:51,910 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:51,911 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:52,054 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:52,054 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:52,055 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:53,060 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:53,060 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:53,060 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:53,062 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:53,062 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:53,063 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:54,072 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:54,072 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:54,072 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:54,236 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:54,236 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:54,236 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:55,240 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:55,241 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:55,241 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:55,242 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:55,242 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:55,243 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:56,250 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:56,251 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:56,252 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:56,401 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:56,401 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:56,401 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:57,404 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:57,405 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:57,405 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:57,405 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:57,406 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:57,406 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:58,412 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:58,413 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:58,413 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:58,563 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:58,563 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:58,564 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:59,569 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:59,569 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:44:59,570 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:44:59,571 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:44:59,572 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:44:59,572 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:00,576 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:00,577 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:00,577 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:00,724 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:00,724 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:00,724 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:01,728 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:01,729 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:01,729 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:01,730 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:01,730 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:01,731 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:02,735 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:02,736 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:02,736 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:02,904 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:02,904 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:02,904 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:03,908 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:03,908 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:03,908 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:03,909 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:03,909 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:03,910 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:04,914 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:04,914 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:04,914 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:05,057 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:05,057 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:05,057 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:06,063 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:06,063 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:06,064 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:06,066 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:06,067 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:06,068 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:07,077 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:07,077 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:07,078 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:07,231 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:07,231 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:07,231 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:08,234 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:08,234 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:08,234 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:08,235 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:08,235 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:08,235 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:09,238 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:09,239 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:09,239 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:09,385 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:09,385 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:09,385 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:10,387 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:10,387 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:10,387 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:10,388 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:10,388 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:10,388 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:11,391 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:11,391 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:11,391 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:11,530 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:11,531 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:11,531 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:12,538 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:12,539 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:12,539 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:12,542 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:12,543 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:12,543 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:13,550 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:13,553 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:13,554 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:13,703 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:13,703 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:13,704 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:14,710 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:14,710 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:14,711 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:14,713 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:14,714 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:14,715 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:15,724 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:15,725 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:15,725 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:15,880 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:15,880 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:15,881 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:16,884 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:16,885 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:16,885 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:16,886 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:16,886 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:16,887 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:17,892 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:17,892 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:17,893 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:18,035 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:18,035 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:18,035 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:19,039 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:19,039 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:19,040 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:19,041 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:19,041 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:19,042 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:20,046 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:20,046 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:20,047 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:20,199 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:20,199 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:20,199 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:21,207 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:21,207 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:21,208 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:21,210 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:21,211 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:21,211 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:22,215 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:22,215 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:22,218 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:22,354 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:22,354 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:22,354 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:23,359 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:23,360 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:23,360 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:23,360 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:23,360 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:23,360 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:24,364 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:24,364 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:24,364 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:24,493 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:24,493 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:24,493 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:25,499 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:25,499 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:25,500 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:25,503 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:25,504 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:25,504 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:26,507 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:26,507 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:26,507 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:26,649 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:26,650 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:26,651 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:27,657 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:27,657 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:27,657 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:27,659 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:27,659 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:27,660 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:28,663 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:28,663 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:28,664 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:28,804 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:28,805 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:28,805 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:29,809 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:29,810 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:29,810 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:29,811 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:29,812 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:29,812 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:30,816 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:30,817 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:30,817 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:30,969 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:30,969 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:30,969 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:31,973 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:31,974 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:31,974 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:31,975 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:31,976 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:31,976 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:32,980 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:32,980 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:32,980 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:33,130 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:33,130 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:33,130 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:34,132 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:34,132 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:34,132 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:34,133 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:34,133 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:34,133 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:35,135 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:35,135 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:35,135 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:35,267 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:35,268 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:35,268 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:36,269 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:36,270 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:36,270 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:36,270 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:36,270 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:36,271 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:37,273 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:37,273 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:37,274 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:37,405 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:37,405 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:37,405 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:38,406 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:38,406 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:38,407 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:38,407 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:38,407 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:38,407 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:39,409 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:39,409 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:39,409 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:39,564 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:39,564 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:39,564 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:40,566 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:40,567 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:40,567 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:40,567 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:40,568 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:40,568 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:41,570 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:41,570 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:41,570 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:41,700 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:41,700 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:41,701 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:42,706 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:42,707 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:42,707 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:42,709 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:42,709 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:42,709 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:43,716 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:43,716 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:43,717 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:43,863 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:43,863 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:43,863 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:44,865 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:44,865 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:44,865 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:44,866 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:44,866 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:44,866 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:45,870 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:45,870 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:45,870 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:46,016 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:46,016 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:46,016 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:47,021 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:47,021 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:47,022 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:47,023 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:47,024 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:47,025 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:48,027 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:48,027 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:48,027 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:48,239 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:48,239 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:48,239 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:49,242 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:49,243 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:49,243 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:49,244 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:49,244 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:49,244 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:50,248 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:50,248 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:50,248 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:50,394 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:50,395 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:50,395 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:51,398 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:51,398 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:51,399 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:51,400 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:51,400 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:51,400 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:52,404 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:52,404 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:52,405 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:52,550 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:52,550 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:52,550 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:53,552 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:53,553 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:53,553 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:53,553 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:53,554 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:53,554 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:54,555 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:54,555 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:54,555 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:54,680 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:54,680 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:54,680 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:55,683 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:55,683 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:55,684 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:55,685 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:55,685 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:55,685 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:56,689 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:56,689 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:56,689 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:56,828 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:56,828 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:56,828 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:57,832 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:57,833 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:57,833 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:57,835 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:57,836 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:57,836 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:58,839 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:58,839 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:58,840 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:58,981 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:58,981 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:58,981 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:59,985 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:59,985 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:45:59,985 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:45:59,986 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:45:59,987 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:45:59,987 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:00,990 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:00,990 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:46:00,991 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:01,126 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:46:01,126 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:01,126 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:02,129 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:02,130 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:46:02,130 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:02,131 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:46:02,131 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:02,132 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:03,135 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:03,136 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:46:03,136 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:03,281 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:46:03,281 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:03,281 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:04,284 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:04,285 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 06:46:04,285 | INFO | aits | AITS orchestrator initialized
+2026-03-27 06:46:04,285 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-27 06:46:04,286 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-27 06:46:04,286 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)

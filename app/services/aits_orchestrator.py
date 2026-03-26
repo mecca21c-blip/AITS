@@ -1002,11 +1002,18 @@ class AITSOrchestrator:
                 rsym = raw_symbol.strip()
                 if rsym:
                     resolved_symbol = rsym
+            selected_logic = str(getattr(decision, "selected_strategy_logic", "") or "").strip()
+            buy_amount_krw = float(getattr(decision, "amount_krw", 0.0) or 0.0)
+            if selected_logic in ("sideways_probe_buy_no_positions", "bear_probe_buy_no_positions") and buy_amount_krw <= 0:
+                buy_amount_krw = 5000.0
             item = ActionItem(
                 symbol=resolved_symbol,
                 action_type=decision.action,
                 reason=decision.ai_summary_for_user or "",
+                amount_krw=buy_amount_krw,
             )
+            if decision.action == "buy":
+                print(f"[AITS][Orchestrator] execution_buy_amount | logic={selected_logic} | symbol={getattr(decision, 'selected_symbol', '')} | amount_krw={buy_amount_krw}")
             if not new_buy_ok and decision.action == "buy":
                 plan.blocked_actions = [item]
                 plan.approved_actions = []
