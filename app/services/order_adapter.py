@@ -284,13 +284,18 @@ class AITSOrderAdapter:
                     for c in valid_candidates:
                         symbol = c.symbol
                         try:
+                            amount_krw = float(getattr(c, "amount_krw", 0.0) or 0.0)
+                            if 0 < amount_krw < 5000:
+                                amount_krw = 5000.0
                             order_request = {
                                 "symbol": symbol,
                                 "side": c.order_side,
-                                "amount_krw": c.amount_krw,
+                                "amount_krw": amount_krw,
                                 "volume": c.quantity,
                                 "order_type": "market",
                             }
+                            if c.action_type == "buy":
+                                print(f"[AITS][OrderAdapter] buy_order_request | symbol={order_request.get('symbol')} | amount_krw={order_request.get('amount_krw')}")
                             po_result = order_service.place_order(order_request)
                             if isinstance(po_result, dict) and po_result.get("success"):
                                 result.submitted_orders.append(
