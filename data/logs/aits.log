@@ -203,3 +203,21 @@
 2026-03-26 22:13:10,439 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
 2026-03-26 22:13:10,439 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
 2026-03-26 22:13:10,439 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
+2026-03-26 22:15:59,672 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:15:59,672 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:15:59,672 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:16:00,502 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:16:00,503 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:16:00,503 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:16:01,505 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:16:01,505 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:16:01,505 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:16:01,506 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-03-26 22:16:01,506 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:16:01,506 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 22:16:02,508 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:16:02,509 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 22:16:02,509 | INFO | aits | AITS orchestrator initialized
+2026-03-26 22:16:02,653 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
+2026-03-26 22:16:02,653 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
+2026-03-26 22:16:02,653 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)

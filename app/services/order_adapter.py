@@ -188,6 +188,12 @@ class AITSOrderAdapter:
                     )
                     continue
 
+                if at == "buy":
+                    _amt = float(getattr(c, "amount_krw", 0.0) or 0.0)
+                    if 0 < _amt < 5000:
+                        c.amount_krw = 5000.0
+                    print(f"[AITS][OrderAdapter] candidate_amount_adjusted | action_type={getattr(c, 'action_type', '')} | symbol={getattr(c, 'symbol', '')} | amount_krw={getattr(c, 'amount_krw', '')}")
+
                 if at == "buy" and self._safe_float(c.amount_krw, 0.0) < self.min_order_krw:
                     result.blocked_orders.append(
                         self._make_record(
