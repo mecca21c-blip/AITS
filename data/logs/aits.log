@@ -38,3 +38,9 @@
 2026-03-26 21:33:30,259 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
 2026-03-26 21:33:30,259 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
 2026-03-26 21:33:30,259 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=0, failed=0, skipped=0)
+2026-03-26 21:40:35,149 | INFO | aits | AITS orchestrator initialized
+2026-03-26 21:40:35,149 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-26 21:40:35,150 | INFO | aits | AITS orchestrator initialized
+2026-03-26 21:40:36,310 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
+2026-03-26 21:40:36,310 | INFO | aits | OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)
+2026-03-26 21:40:36,310 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=live, submitted=0, blocked=1, failed=0, skipped=0)

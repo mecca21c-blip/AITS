@@ -389,6 +389,7 @@ class AIDecisionService:
         risk_bias = getattr(target, "effective_risk_bias", "") or "neutral"
         pos = int(position_count) if portfolio else 0
         tc = self._safe_float(target.target_cash_weight if target else None, 0.50)
+        selected_symbol = ""
 
         conf = self._clamp(self.bearish_defensive_confidence, 0.70, 0.85)
 
@@ -417,11 +418,24 @@ class AIDecisionService:
             warn = "약세장에서는 알트·고위험 자산 비중을 특히 줄이는 것이 좋습니다."
             logic = "bear_defensive_reduce_mild"
         else:
-            action = "wait"
-            interp = "약세장으로 해석되며 아직 보유 포지션이 없거나 현금 비중을 판단하기 어려워 관망이 적절합니다."
-            summary = "추가 정보가 쌓일 때까지 방어적 관점에서 천천히 대응하는 편이 낫습니다."
-            warn = "약세장에서는 급한 진입·회전보다 현금과 정보 확보를 우선하세요."
-            logic = "bear_defensive_wait_no_positions"
+            candidate_symbols = getattr(target, "candidate_symbols", []) or []
+            confidence = float(getattr(regime, "confidence", 0.0) or 0.0)
+            selected_symbol = candidate_symbols[0] if candidate_symbols else ""
+            if risk_bias == "defensive" or confidence < 0.55 or not selected_symbol:
+                action = "wait"
+                interp = "약세장으로 해석되며 아직 보유 포지션이 없거나 현금 비중을 판단하기 어려워 관망이 적절합니다."
+                summary = "추가 정보가 쌓일 때까지 방어적 관점에서 천천히 대응하는 편이 낫습니다."
+                warn = "약세장에서는 급한 진입·회전보다 현금과 정보 확보를 우선하세요."
+                logic = "bear_defensive_wait_no_positions"
+                selected_symbol = ""
+            else:
+                action = "buy"
+                interp = "약세장으로 해석되지만 보유 포지션이 없고 후보 종목이 있어 제한적인 탐색 진입을 검토합니다."
+                summary = "약세장이지만 방어 성향이 과하지 않고 후보 종목이 있어 소규모 탐색 진입을 시도합니다."
+                warn = "약세장 진입이므로 초기 비중을 낮게 유지하고 추가 확인 전 공격적 확대를 피하세요."
+                logic = "bear_probe_buy_no_positions"
+        if pos >= 1:
+            selected_symbol = ""
         print(f"[AITS][AIDecision] bear_wait_inputs | regime={getattr(regime, 'label', '')} | confidence={getattr(regime, 'confidence', '')} | positions={position_count} | rebalance_needed={getattr(target, 'rebalance_needed', '')} | risk_bias={risk_bias if target is not None else ''} | candidate_count={len(getattr(target, 'candidate_symbols', []) or []) if target is not None else 0}")
         print(f"[AITS][AIDecision] bear_wait_debug | portfolio_type={type(portfolio).__name__ if portfolio is not None else 'None'} | target_type={type(target).__name__ if target is not None else 'None'} | portfolio_keys={sorted(list(getattr(portfolio, '__dict__', {}).keys())) if portfolio is not None and hasattr(portfolio, '__dict__') else []} | target_keys={sorted(list(getattr(target, '__dict__', {}).keys())) if target is not None and hasattr(target, '__dict__') else []}")
         return AIDecisionState(
@@ -430,6 +444,7 @@ class AIDecisionService:
             confidence=conf,
             market_interpretation=interp,
             selected_strategy_logic=logic,
+            selected_symbol=selected_symbol,
             why_this_symbol="",
             why_not_others="",
             ai_summary_for_user=summary,
