@@ -198,6 +198,7 @@ class AITSOrderAdapter:
                             detail_ko="최소 주문 금액 미만이라 매수 후보를 차단했습니다.",
                         )
                     )
+                    print(f"[AITS][OrderAdapter] blocked_live_order | blocked={result.blocked_orders[-1] if result.blocked_orders else {}}")
                     continue
 
                 if at == "reduce" and self.execution_mode == "live" and not self.allow_reduce_live:
