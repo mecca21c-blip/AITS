@@ -58,3 +58,6 @@ class OrderService:
                 "filled": None,
                 "avg_price": None,
             }
+
+
+svc_order = OrderService()
