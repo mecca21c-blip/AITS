@@ -3064,3 +3064,17 @@ Traceback (most recent call last):
   File "C:\AITS\app\ui\app_gui.py", line 416, in <module>
     from app.db.trades_db import positions, load_pnl_by_strategy, get_last_strategy_info
 ModuleNotFoundError: No module named 'app.db'
+2026-03-27 13:46:30,991 | INFO | aits | AITS bootstrap start
+2026-03-27 13:46:31,002 | INFO | aits | AITS orchestrator initialized
+2026-03-27 13:46:31,002 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 13:46:31,002 | INFO | aits | AITS orchestrator initialized
+2026-03-27 13:46:31,406 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 105, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 417, in <module>
+    from app.services import ai_reco  # [NEW] AI 자동 추천 스케줄러/업데이트
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ImportError: cannot import name 'ai_reco' from 'app.services' (unknown location)
