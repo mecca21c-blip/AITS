@@ -3010,3 +3010,16 @@ Traceback (most recent call last):
   File "C:\AITS\app\ui\auth_dialogs.py", line 10, in <module>
     from app.core.auth import has_any_user, create_user, verify_login
 ImportError: cannot import name 'has_any_user' from 'app.core.auth' (C:\AITS\app\core\auth.py)
+2026-03-27 12:48:35,311 | INFO | aits | AITS bootstrap start
+2026-03-27 12:48:35,320 | INFO | aits | AITS orchestrator initialized
+2026-03-27 12:48:35,320 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 12:48:35,321 | INFO | aits | AITS orchestrator initialized
+2026-03-27 12:48:36,008 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 105, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 266, in <module>
+    import app.core.bus as eventbus
+ModuleNotFoundError: No module named 'app.core.bus'
