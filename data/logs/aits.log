@@ -3078,3 +3078,8 @@ Traceback (most recent call last):
     from app.services import ai_reco  # [NEW] AI 자동 추천 스케줄러/업데이트
     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ImportError: cannot import name 'ai_reco' from 'app.services' (unknown location)
+2026-03-27 13:53:06,602 | INFO | aits | AITS bootstrap start
+2026-03-27 13:53:06,608 | INFO | aits | AITS orchestrator initialized
+2026-03-27 13:53:06,608 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-27 13:53:06,608 | INFO | aits | AITS orchestrator initialized
+2026-03-27 13:53:07,192 | INFO | aits | UI launched via legacy-compatible entry
