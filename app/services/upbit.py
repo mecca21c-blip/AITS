@@ -6,6 +6,7 @@ This module intentionally provides only lightweight wrappers/fallbacks so
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List
 
 import requests
@@ -59,6 +60,20 @@ def _normalize_ticker_dict(market: str, d: Any) -> Dict[str, Any]:
         }
 
 
+_KRW_SYM_TAIL = re.compile(r"^[A-Za-z0-9]+$")
+
+
+def _valid_krw_market(s: str) -> bool:
+    if not s or not s.startswith("KRW-"):
+        return False
+    if any(ch in s for ch in " ,\t\n{}\"'"):
+        return False
+    tail = s[4:]
+    if not tail or not _KRW_SYM_TAIL.match(tail):
+        return False
+    return True
+
+
 def test_public_ping(*args, **kwargs):
     """Simple public API health check. Never raises."""
     timeout = kwargs.get("timeout", 3)
@@ -73,9 +88,42 @@ def test_public_ping(*args, **kwargs):
 def get_tickers(markets, *args, **kwargs):
     """Return list[dict] ticker rows (KMTS UI contract). Never raises."""
     out: List[Dict[str, Any]] = []
+    raw_markets: List[Any] = []
+    try:
+        if markets is None:
+            raw_markets = []
+        elif isinstance(markets, str):
+            raw_markets = [markets]
+        else:
+            raw_markets = list(markets)
+    except Exception:
+        raw_markets = []
+
+    valid_markets: List[str] = []
+    seen: set[str] = set()
+    for x in raw_markets:
+        s = str(x).strip()
+        if not _valid_krw_market(s):
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        valid_markets.append(s)
+
+    raw_n = len(raw_markets)
+    print(
+        f"[AITS][upbit] tickers_request raw={raw_n} valid={len(valid_markets)} sample={valid_markets[:3]}"
+    )
+
+    if not valid_markets:
+        print(
+            f"[AITS][upbit] tickers_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        return out
+
     try:
         ttl = float(kwargs.get("ttl", 1.5))
-        raw = _mf_get_tickers(markets, ttl)
+        raw = _mf_get_tickers(valid_markets, ttl)
         if isinstance(raw, dict):
             for mk, row in raw.items():
                 r = _TickerRow()
