@@ -3083,3 +3083,124 @@ ImportError: cannot import name 'ai_reco' from 'app.services' (unknown location)
 2026-03-27 13:53:06,608 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-03-27 13:53:06,608 | INFO | aits | AITS orchestrator initialized
 2026-03-27 13:53:07,192 | INFO | aits | UI launched via legacy-compatible entry
+2026-03-28 08:48:32,203 | INFO | aits | AITS bootstrap start
+2026-03-28 08:48:32,211 | INFO | aits | AITS orchestrator initialized
+2026-03-28 08:48:32,211 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-28 08:48:32,212 | INFO | aits | AITS orchestrator initialized
+2026-03-28 08:48:33,306 | INFO | aits | UI launched via legacy-compatible entry
+2026-03-28 09:39:25,041 | ERROR | aits | UI main() failed
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 111, in launch_ui
+    ret = ui_main(
+        root_dir=app_context["root_dir"],
+        data_dir=app_context["data_dir"],
+    )
+  File "C:\AITS\app\ui\main_window.py", line 23, in main
+    _legacy_main(root_dir=root_dir, data_dir=data_dir)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AITS\app\ui\app_gui.py", line 6605, in main
+    window = MainWindow(state, root_dir, data_dir)
+  File "C:\AITS\app\ui\app_gui.py", line 998, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\app_gui.py", line 1760, in _build_ui
+    self.tab_trades = TradesTab(self)
+                      ~~~~~~~~~^^^^^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 25, in __init__
+    self._setup_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 65, in _setup_ui
+    self._load_column_widths()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 292, in _load_column_widths
+    from app.utils.logging_kmt import log_throttled, is_debug_mode
+ModuleNotFoundError: No module named 'app.utils.logging_kmt'
+2026-03-28 09:39:53,663 | ERROR | aits | UI main() failed
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 111, in launch_ui
+    ret = ui_main(
+        root_dir=app_context["root_dir"],
+        data_dir=app_context["data_dir"],
+    )
+  File "C:\AITS\app\ui\main_window.py", line 23, in main
+    _legacy_main(root_dir=root_dir, data_dir=data_dir)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AITS\app\ui\app_gui.py", line 6605, in main
+    window = MainWindow(state, root_dir, data_dir)
+  File "C:\AITS\app\ui\app_gui.py", line 998, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\app_gui.py", line 1760, in _build_ui
+    self.tab_trades = TradesTab(self)
+                      ~~~~~~~~~^^^^^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 25, in __init__
+    self._setup_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 65, in _setup_ui
+    self._load_column_widths()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 292, in _load_column_widths
+    from app.utils.logging_kmt import log_throttled, is_debug_mode
+ModuleNotFoundError: No module named 'app.utils.logging_kmt'
+2026-03-28 09:58:16,288 | INFO | aits | AITS bootstrap start
+2026-03-28 09:58:16,295 | INFO | aits | AITS orchestrator initialized
+2026-03-28 09:58:16,295 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-28 09:58:16,295 | INFO | aits | AITS orchestrator initialized
+2026-03-28 09:58:17,230 | INFO | aits | UI launched via legacy-compatible entry
+2026-03-28 09:59:17,481 | ERROR | aits | UI main() failed
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 111, in launch_ui
+    ret = ui_main(
+        root_dir=app_context["root_dir"],
+        data_dir=app_context["data_dir"],
+    )
+  File "C:\AITS\app\ui\main_window.py", line 23, in main
+    _legacy_main(root_dir=root_dir, data_dir=data_dir)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AITS\app\ui\app_gui.py", line 6605, in main
+    window = MainWindow(state, root_dir, data_dir)
+  File "C:\AITS\app\ui\app_gui.py", line 998, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\app_gui.py", line 1760, in _build_ui
+    self.tab_trades = TradesTab(self)
+                      ~~~~~~~~~^^^^^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 25, in __init__
+    self._setup_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 65, in _setup_ui
+    self._load_column_widths()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\tabs\trades_tab.py", line 292, in _load_column_widths
+    from app.utils.logging_kmt import log_throttled, is_debug_mode
+ModuleNotFoundError: No module named 'app.utils.logging_kmt'
+2026-03-28 10:03:09,560 | INFO | aits | AITS bootstrap start
+2026-03-28 10:03:09,567 | INFO | aits | AITS orchestrator initialized
+2026-03-28 10:03:09,567 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-28 10:03:09,569 | INFO | aits | AITS orchestrator initialized
+2026-03-28 10:03:10,191 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 105, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 251, in <module>
+    from app.services.upbit import (
+    ...<6 lines>...
+    )
+  File "C:\AITS\app\services\upbit.py", line 11, in <module>
+    import requests
+ModuleNotFoundError: No module named 'requests'
+2026-03-28 11:51:21,139 | INFO | aits | AITS bootstrap start
+2026-03-28 11:51:21,146 | INFO | aits | AITS orchestrator initialized
+2026-03-28 11:51:21,146 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-28 11:51:21,147 | INFO | aits | AITS orchestrator initialized
+2026-03-28 11:51:22,845 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 105, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 426, in <module>
+    import uuid, jwt
+ModuleNotFoundError: No module named 'jwt'
