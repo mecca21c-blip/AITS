@@ -17,6 +17,48 @@ from app.services.market_feed import (
 )
 
 
+class _TickerRow(dict):
+    """Ticker as dict; str(row) is market code for legacy `str(s)` symbol extraction."""
+
+    def __str__(self) -> str:  # noqa: D105
+        try:
+            return str(self.get("market") or "")
+        except Exception:
+            return ""
+
+
+def _normalize_ticker_dict(market: str, d: Any) -> Dict[str, Any]:
+    try:
+        if not isinstance(d, dict):
+            d = {}
+        m = str(market or d.get("market") or "")
+        return {
+            "market": m,
+            "trade_price": float(d.get("trade_price") or 0.0),
+            "acc_trade_price_24h": float(d.get("acc_trade_price_24h") or 0.0),
+            "signed_change_rate": float(d.get("signed_change_rate") or 0.0),
+            "signed_change_price": float(d.get("signed_change_price") or 0.0),
+            "high_price": float(d.get("high_price") or 0.0),
+            "low_price": float(d.get("low_price") or 0.0),
+            "prev_closing_price": float(d.get("prev_closing_price") or 0.0),
+            "acc_trade_volume_24h": float(d.get("acc_trade_volume_24h") or 0.0),
+            "timestamp": int(d.get("timestamp") or 0),
+        }
+    except Exception:
+        return {
+            "market": str(market or ""),
+            "trade_price": 0.0,
+            "acc_trade_price_24h": 0.0,
+            "signed_change_rate": 0.0,
+            "signed_change_price": 0.0,
+            "high_price": 0.0,
+            "low_price": 0.0,
+            "prev_closing_price": 0.0,
+            "acc_trade_volume_24h": 0.0,
+            "timestamp": 0,
+        }
+
+
 def test_public_ping(*args, **kwargs):
     """Simple public API health check. Never raises."""
     timeout = kwargs.get("timeout", 3)
@@ -29,26 +71,90 @@ def test_public_ping(*args, **kwargs):
 
 
 def get_tickers(markets, *args, **kwargs):
-    """Pass-through wrapper to market_feed.get_tickers."""
+    """Return list[dict] ticker rows (KMTS UI contract). Never raises."""
+    out: List[Dict[str, Any]] = []
     try:
-        return _mf_get_tickers(markets)
+        ttl = float(kwargs.get("ttl", 1.5))
+        raw = _mf_get_tickers(markets, ttl)
+        if isinstance(raw, dict):
+            for mk, row in raw.items():
+                r = _TickerRow()
+                r.update(_normalize_ticker_dict(str(mk), row))
+                out.append(r)
+        elif isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, dict):
+                    r = _TickerRow()
+                    r.update(
+                        _normalize_ticker_dict(str(item.get("market") or ""), item)
+                    )
+                    out.append(r)
+                elif isinstance(item, (tuple, list)) and len(item) >= 2:
+                    r = _TickerRow()
+                    r.update(_normalize_ticker_dict(str(item[0]), item[1]))
+                    out.append(r)
+        print(
+            f"[AITS][upbit] tickers_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        return out
     except Exception:
-        return {}
+        print(
+            f"[AITS][upbit] tickers_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        return []
 
 
 def get_top_markets_by_volume(*args, **kwargs):
-    """Pass-through wrapper to market_feed.get_top_markets_by_volume."""
+    """Return list[dict] top markets (KMTS UI contract). Never raises."""
+    out: List[Dict[str, Any]] = []
     try:
-        return _mf_get_top_markets_by_volume(*args, **kwargs)
+        raw = _mf_get_top_markets_by_volume(*args, **kwargs)
+        if not isinstance(raw, list):
+            raw = []
+        for item in raw:
+            if isinstance(item, (tuple, list)) and len(item) >= 2:
+                m, d = item[0], item[1]
+                r = _TickerRow()
+                r.update(_normalize_ticker_dict(str(m), d))
+                out.append(r)
+            elif isinstance(item, dict):
+                r = _TickerRow()
+                r.update(_normalize_ticker_dict(str(item.get("market") or ""), item))
+                out.append(r)
+        print(
+            f"[AITS][upbit] top_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        return out
     except Exception:
+        print(
+            f"[AITS][upbit] top_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
         return []
 
 
 def get_all_markets(*args, **kwargs):
-    """Pass-through wrapper to market_feed.get_markets."""
+    """Return list[str] market codes (KMTS UI contract). Never raises."""
+    out: List[str] = []
     try:
-        return _mf_get_markets()
+        raw = _mf_get_markets(*args, **kwargs)
+        if isinstance(raw, list):
+            for x in raw:
+                if isinstance(x, str) and x.strip():
+                    out.append(x.strip())
+                elif isinstance(x, dict):
+                    m = x.get("market")
+                    if m is not None:
+                        s = str(m).strip()
+                        if s:
+                            out.append(s)
+        print(
+            f"[AITS][upbit] all_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        return out
     except Exception:
+        print(
+            f"[AITS][upbit] all_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
         return []
 
 
