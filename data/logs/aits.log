@@ -3254,3 +3254,8 @@ ModuleNotFoundError: No module named 'jwt'
 2026-03-29 12:26:53,119 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-03-29 12:26:53,120 | INFO | aits | AITS orchestrator initialized
 2026-03-29 12:26:53,565 | INFO | aits | UI launched via legacy-compatible entry
+2026-03-29 13:03:40,514 | INFO | aits | AITS bootstrap start
+2026-03-29 13:03:40,522 | INFO | aits | AITS orchestrator initialized
+2026-03-29 13:03:40,522 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-03-29 13:03:40,523 | INFO | aits | AITS orchestrator initialized
+2026-03-29 13:03:40,779 | INFO | aits | UI launched via legacy-compatible entry
