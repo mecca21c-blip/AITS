@@ -958,7 +958,7 @@ class MainWindow(QMainWindow):
         self._geometry_restored = False
         
         os.makedirs(self._data_dir, exist_ok=True)
-        self.setWindowTitle("KMTS-v1")
+        self.setWindowTitle("AITS | AI Trading System")
 
         # ✅ P0-BOOT-LOADING: 초기 로딩 팝업 표시
         self._loading_progress = QProgressDialog("KMTS에 접속중입니다...\n초기 데이터를 불러오는 중입니다.", None, 0, 0, self)
@@ -1204,17 +1204,40 @@ class MainWindow(QMainWindow):
         available_krw = max(0.0, krw_balance - krw_locked)
 
         if coins:
-            markets = [f"KRW-{sym}" for sym, _, _, _ in coins]
-            prices = {}
+            symbols: list[str] = []
+            items: list = []
             try:
-                CHUNK = 50
-                for i in range(0, len(markets), CHUNK):
-                    ticks = get_tickers(markets[i:i+CHUNK]) or []
-                    for t in ticks:
-                        m = t.get("market")
-                        if m: prices[m] = float(t.get("trade_price") or 0.0)
+                from app.services.holdings_service import fetch_live_holdings
+
+                holdings_data = fetch_live_holdings(force=False)
+                if isinstance(holdings_data, dict):
+                    items = holdings_data.get("items", []) or []
             except Exception:
-                pass
+                items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                sym = str(item.get("symbol") or "").strip()
+                if not sym:
+                    continue
+                if not bool(item.get("market_supported", False)):
+                    continue
+                symbols.append(sym)
+            print(
+                f"[AITS][app_gui] supported_holding_symbols total_items={len(items) if isinstance(items, list) else 0} supported_symbols={len(symbols)} sample={symbols[:3] if isinstance(symbols, list) else []}"
+            )
+            prices = {}
+            if symbols:
+                try:
+                    CHUNK = 50
+                    for i in range(0, len(symbols), CHUNK):
+                        ticks = get_tickers(symbols[i : i + CHUNK]) or []
+                        for t in ticks:
+                            m = t.get("market")
+                            if m:
+                                prices[m] = float(t.get("trade_price") or 0.0)
+                except Exception:
+                    pass
 
             for sym, bal, lck, avgp in coins:
                 px = prices.get(f"KRW-{sym}", 0.0)
@@ -1408,7 +1431,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.global_status_frame)
 
         # --- AITS status panel (read-only, Phase 1) ---
-        self._aits_status_group = QGroupBox("AITS Status")
+        self._aits_status_group = QGroupBox("AITS AI Trading System")
         aits_ly = QVBoxLayout(self._aits_status_group)
         aits_ly.setContentsMargins(8, 8, 8, 8)
         aits_ly.setSpacing(4)
