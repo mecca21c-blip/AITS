@@ -1,5 +1,6 @@
 """Order execution interface skeleton (Phase 1). No real exchange calls."""
 
+import os
 import uuid
 
 import jwt
@@ -48,6 +49,10 @@ class OrderService:
                     else:
                         ak = str(getattr(up, "access_key", None) or "").strip()
                         sk = str(getattr(up, "secret_key", None) or "").strip()
+            if not ak:
+                ak = (os.getenv("UPBIT_ACCESS_KEY") or "").strip()
+            if not sk:
+                sk = (os.getenv("UPBIT_SECRET_KEY") or "").strip()
             if not ak or not sk or len(ak) < 10 or len(sk) < 10:
                 rows = list(default_rows)
             else:

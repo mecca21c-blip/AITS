@@ -1,6 +1,13 @@
 import os
 import sys
 import logging
+
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Any, Dict, Optional

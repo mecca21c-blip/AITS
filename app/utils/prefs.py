@@ -98,6 +98,29 @@ _SENSITIVE_PATHS = [
     ("upbit", "secret_key"),
 ]
 
+
+def _merge_env_secrets(data: dict) -> dict:
+    """prefs 로드 후 UPBIT / OpenAI 키를 환경 변수로 보강(저장소에 키 없이 동작)."""
+    if not isinstance(data, dict):
+        return data
+    try:
+        up = dict(data.get("upbit") or {})
+        env_ak = (os.getenv("UPBIT_ACCESS_KEY") or "").strip()
+        env_sk = (os.getenv("UPBIT_SECRET_KEY") or "").strip()
+        if env_ak:
+            up["access_key"] = env_ak
+        if env_sk:
+            up["secret_key"] = env_sk
+        data["upbit"] = up
+        st = dict(data.get("strategy") or {})
+        env_oai = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if env_oai:
+            st["ai_openai_api_key"] = env_oai
+        data["strategy"] = st
+    except Exception:
+        pass
+    return data
+
 def _safe_decrypt(val: str) -> str:
     # "enc:<token>" 형태(표준 Fernet token) 우선 복호화
     try:
@@ -148,7 +171,7 @@ def _read_prefs_json() -> dict:
             sk_len = len(defaults.get("upbit", {}).get("secret_key", "").strip())
             _log_info(f"[PREFS-PATH] path={path} exists={exists} loaded=defaults")
             _log_info(f"[KEY-PERSIST] load: sources=[defaults] final_source=defaults ak_len={ak_len} sk_len={sk_len}")
-            return defaults
+            return _merge_env_secrets(defaults)
         with open(_PREFS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f) or {}
         # 민감키 복호화
@@ -165,12 +188,12 @@ def _read_prefs_json() -> dict:
                 pass
         _log_info(f"[PREFS-PATH] path={path} exists=True loaded=prefs.json")
         _log_info(f"[KEY-PERSIST] load: sources=[prefs.json] final_source=prefs.json ak_len={ak_len} sk_len={sk_len}")
-        return data
+        return _merge_env_secrets(data)
     except Exception as e:
         _log_error(f"[PREFS-PATH] path={path} exists={exists} loaded=error error={e!s}")
         _log_error(f"[KEY-PERSIST] load: sources=[error] final_source=error ak_len=0 sk_len=0 error={e}")
         _log_error(f"_read_prefs_json 실패: {e}")
-        return _load_defaults().model_dump()
+        return _merge_env_secrets(_load_defaults().model_dump())
 
 # [ANCHOR: UTILS_HELPERS_START]
 def get_active_strategy_id(prefs) -> str:
