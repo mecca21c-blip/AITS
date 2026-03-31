@@ -242,7 +242,7 @@ class OllamaCommandWorker(QThread):
                 err_msg = proc.stderr.strip() or proc.stdout.strip() or "실패"
                 self.finished.emit(False, err_msg[:200])  # 길이 제한
         except FileNotFoundError:
-            self.finished.emit(False, "Ollama가 설치되어 있지 않거나 PATH에 없습니다.")
+            self.finished.emit(False, "Basic AI가 설치되어 있지 않거나 PATH에 없습니다.")
         except Exception as e:
             err_str = str(e)[:200]
             self.finished.emit(False, f"오류: {err_str}")
@@ -1001,6 +1001,8 @@ class MainWindow(QMainWindow):
         
         # ✅ P0-BOOT-ORDER: _settings 속성 선언 (AttributeError 방지)
         self._settings = None
+        # 선택된 엔진과 분리된 "실제 적용 엔진" 상태 (gpt/gemini/basic)
+        self._active_ai_engine = "basic"
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
@@ -1816,6 +1818,10 @@ class MainWindow(QMainWindow):
         self.lbl_engine_status.setStyleSheet("font-size: 11px; color: #555;")
         self.lbl_engine_status.setToolTip("선택된 AI 엔진 및 연결 상태")
         top.addWidget(self.lbl_engine_status)
+        self.lbl_active_engine = QLabel("Active Engine: Basic AI")
+        self.lbl_active_engine.setStyleSheet("font-size: 11px; color: #9e9e9e; font-weight: bold;")
+        self.lbl_active_engine.setToolTip("실제로 연결 완료되어 현재 적용 중인 AI 엔진")
+        top.addWidget(self.lbl_active_engine)
         self.btn_run_toggle.setMinimumHeight(30)
         self.btn_sellall.setMinimumHeight(30)
         self.btn_refresh.setMinimumHeight(28)
@@ -1834,6 +1840,10 @@ class MainWindow(QMainWindow):
         top_outer.addLayout(top)
         self.top_control_widget.setLayout(top_outer)
         lay.addWidget(self.top_control_widget)
+        try:
+            self._update_active_engine_label()
+        except Exception:
+            pass
 
         # ---- Tabs
         # ✅ 탭 위젯도 central 아래로 귀속(레이아웃/표시 정상화)
@@ -2517,14 +2527,16 @@ class MainWindow(QMainWindow):
                 self._engine_ui_unified_done = True
             selected = ""
             sel_eng = ""
+            cloud_model = ""
             try:
                 st = getattr(self._settings, "strategy", None) if getattr(self, "_settings", None) else None
                 st_dict = st.model_dump() if hasattr(st, "model_dump") else (st if isinstance(st, dict) else {})
                 selected = (st_dict.get("ai_provider") or "").strip().lower() if isinstance(st_dict, dict) else ""
                 sel_eng = (st_dict.get("ai_local_model") or "").strip() if isinstance(st_dict, dict) else ""
+                cloud_model = (st_dict.get("ai_openai_model") or "").strip() if isinstance(st_dict, dict) else ""
             except Exception:
                 pass
-            selected = selected or "local"
+            selected = selected if selected in ("gpt", "gemini", "local") else "local"
             actual = ""
             try:
                 from app.services import ai_reco
@@ -2539,16 +2551,27 @@ class MainWindow(QMainWindow):
                 local_label = (self.cmb_local_model.currentText() or "").strip() or sel_eng
             else:
                 local_label = sel_eng or (actual if actual and not actual.startswith("gpt-") else "—")
+            if not cloud_model and hasattr(self, "ed_openai_model"):
+                cloud_model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
+            if actual.startswith("gpt-"):
+                cloud_model = actual
+            if not cloud_model:
+                cloud_model = "—"
 
-            # 4가지 상태: 아이콘 + 텍스트 (배경색 변경 없음, 연회색 고정)
+            # provider 3분기 + 상태 텍스트(내부 명칭 노출 금지)
             if stage == "degraded":
-                box_txt = "AI Engine | SIMPLE_MOMO"
-            elif actual.startswith("gpt-"):
-                box_txt = "AI Engine | GPT(%s)" % actual
-            elif selected == "gpt" and not actual.startswith("gpt-"):
-                box_txt = "AI Engine | LOCAL"
+                if selected == "gpt":
+                    box_txt = "AI Engine | OpenAI (%s)" % cloud_model
+                elif selected == "gemini":
+                    box_txt = "AI Engine | Gemini (%s)" % cloud_model
+                else:
+                    box_txt = "AI Engine | Basic AI (%s)" % local_label
+            elif selected == "gpt":
+                box_txt = "AI Engine | OpenAI (%s)" % cloud_model
+            elif selected == "gemini":
+                box_txt = "AI Engine | Gemini (%s)" % cloud_model
             else:
-                box_txt = "AI Engine | LOCAL(%s)" % local_label
+                box_txt = "AI Engine | Basic AI (%s)" % local_label
 
             if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
                 self.lbl_engine_status.setText(box_txt)
@@ -2582,6 +2605,37 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._log.debug("[ENGINE-UI] update err=%s", str(e)[:80])
 
+    def _update_active_engine_label(self):
+        """실제 적용 엔진(연결 성공 기준)을 새로고침 버튼 옆 라벨에 반영."""
+        try:
+            active = (getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
+            if active == "gpt":
+                model = ""
+                if hasattr(self, "ed_openai_model"):
+                    model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
+                if not model:
+                    model = "gpt-4o-mini"
+                txt = f"Active Engine: OpenAI ({model})"
+                color = "#2e7d32"
+            elif active == "gemini":
+                model = ""
+                if hasattr(self, "ed_openai_model"):
+                    model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
+                if not model and hasattr(self, "cmb_ai_model"):
+                    model = (self.cmb_ai_model.currentText() or "").strip()
+                if not model:
+                    model = "gemini"
+                txt = f"Active Engine: Gemini ({model})"
+                color = "#1565c0"
+            else:
+                txt = "Active Engine: Basic AI"
+                color = "#9e9e9e"
+            if hasattr(self, "lbl_active_engine") and self.lbl_active_engine is not None:
+                self.lbl_active_engine.setText(txt)
+                self.lbl_active_engine.setStyleSheet(f"font-size: 11px; color: {color}; font-weight: bold;")
+        except Exception:
+            pass
+
     def _update_ai_status(self):
         """우측상단 표시 1곳 통일: actual_engine SSOT만 lbl_engine_status에 반영."""
         try:
@@ -2594,9 +2648,9 @@ class MainWindow(QMainWindow):
             pass
 
     def _set_ai_provider_ui_active(self, provider: str):
-        """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화. provider는 'gpt' 또는 'local'."""
+        """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화."""
         provider = (provider or "local").strip().lower()
-        if provider not in ("gpt", "local"):
+        if provider not in ("gpt", "gemini", "local"):
             provider = "local"
         self._ai_provider_box_active = provider
         if hasattr(self, "cb_ai_provider"):
@@ -2604,15 +2658,16 @@ class MainWindow(QMainWindow):
         self._log.info("[AI-BOX] selected=%s", provider)
 
         # 박스별 enable/disable
-        gpt_en = provider == "gpt"
+        cloud_en = provider in ("gpt", "gemini")
+        gpt_only = provider == "gpt"
         if hasattr(self, "ed_openai_key"):
-            self.ed_openai_key.setEnabled(gpt_en)
+            self.ed_openai_key.setEnabled(cloud_en)
         if hasattr(self, "ed_openai_model"):
-            self.ed_openai_model.setEnabled(gpt_en)
+            self.ed_openai_model.setEnabled(cloud_en)
         if hasattr(self, "btn_test_gpt"):
-            self.btn_test_gpt.setEnabled(gpt_en)
+            self.btn_test_gpt.setEnabled(gpt_only)
         if hasattr(self, "btn_openai_usage"):
-            self.btn_openai_usage.setEnabled(gpt_en)
+            self.btn_openai_usage.setEnabled(gpt_only)
         local_en = provider == "local"
         if hasattr(self, "inp_local_url"):
             self.inp_local_url.setEnabled(local_en)
@@ -2633,7 +2688,7 @@ class MainWindow(QMainWindow):
                     getattr(self, btn_name).setEnabled(False)
 
         # 박스 배경색: 활성=옅은 하늘/초록, 비활성=중성
-        gpt_bg = "#D9F1FF" if gpt_en else "#f5f5f5"
+        gpt_bg = "#D9F1FF" if cloud_en else "#f5f5f5"
         local_bg = "#DFF5E1" if local_en else "#f5f5f5"
         if hasattr(self, "gpt_box"):
             self.gpt_box.setStyleSheet(f"QGroupBox {{ background-color: {gpt_bg}; border-radius: 6px; padding: 8px; }}")
@@ -2645,6 +2700,71 @@ class MainWindow(QMainWindow):
             self._update_engine_ui_ssot()
         except Exception as e:
             self._log.warning("[UI-AI-STATUS] ERROR: %s", str(e)[:80])
+
+    def _on_ai_engine_changed(self, engine_text: str):
+        eng = str(engine_text or "").strip()
+        if not hasattr(self, "cmb_ai_model") or self.cmb_ai_model is None:
+            return
+        self.cmb_ai_model.clear()
+        if eng == "OpenAI":
+            self.cmb_ai_model.addItems(["gpt-4o-mini", "gpt-4o"])
+            if hasattr(self, "ed_ai_api_key"):
+                self.ed_ai_api_key.setEnabled(True)
+                self.ed_ai_api_key.setPlaceholderText("OpenAI API Key")
+            try:
+                self._set_ai_provider_ui_active("gpt")
+            except Exception:
+                pass
+        elif eng == "Gemini":
+            self.cmb_ai_model.addItems(["gemini-1.5-pro", "gemini-1.5-flash"])
+            if hasattr(self, "ed_ai_api_key"):
+                self.ed_ai_api_key.setEnabled(True)
+                self.ed_ai_api_key.setPlaceholderText("Gemini API Key")
+            try:
+                self._set_ai_provider_ui_active("gemini")
+            except Exception:
+                pass
+        else:
+            self.cmb_ai_model.addItems(["Local Strategy Engine"])
+            if hasattr(self, "ed_ai_api_key"):
+                self.ed_ai_api_key.setEnabled(False)
+                self.ed_ai_api_key.setPlaceholderText("API Key 불필요")
+            try:
+                self._set_ai_provider_ui_active("local")
+            except Exception:
+                pass
+
+    def _on_test_connection_clicked(self):
+        eng = ""
+        model = ""
+        try:
+            eng = (self.cmb_ai_engine.currentText() or "").strip()
+            model = (self.cmb_ai_model.currentText() or "").strip()
+        except Exception:
+            pass
+        if eng == "OpenAI":
+            print("[AITS] OpenAI connection test")
+            try:
+                if hasattr(self, "ed_ai_api_key") and hasattr(self, "ed_openai_key"):
+                    self.ed_openai_key.setText(self.ed_ai_api_key.text())
+                if hasattr(self, "ed_openai_model") and model:
+                    idx = self.ed_openai_model.findData(model)
+                    if idx >= 0:
+                        self.ed_openai_model.setCurrentIndex(idx)
+                self._on_test_gpt()
+            except Exception:
+                pass
+            if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
+                self.lbl_engine_status.setText(f"AI Engine | OpenAI ({model or 'gpt-4o-mini'})")
+            return
+        if eng == "Gemini":
+            print("[AITS] Gemini connection test")
+            if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
+                self.lbl_engine_status.setText(f"AI Engine | Gemini ({model or 'gemini-1.5-pro'})")
+            return
+        print("[AITS] Basic AI ready")
+        if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
+            self.lbl_engine_status.setText("AI Engine | Basic AI")
 
     def _boot_sequence_step1(self):
         """✅ P0-BOOT-LOADING: 부팅 시퀀스 1단계"""
@@ -3169,18 +3289,36 @@ class MainWindow(QMainWindow):
         info_text = QLabel(
             "【업비트】 로그인 → 프로필 → API Keys에서 Access/Secret 발급 · 권한: 조회+주문 필수 · Secret 노출 금지.\n"
             "【GPT】 OpenAI 대시보드에서 API Key 발급 · 모델은 gpt-4o-mini(권장)/gpt-4o 등 선택.\n"
-            "【Local】 Ollama 설치 후 터미널에서 ollama run qwen2.5 실행 · URL은 기본 http://127.0.0.1:11434."
+            "【Local】 Basic AI 설치 후 모델을 준비하세요 · URL은 기본 http://127.0.0.1:11434."
         )
         info_text.setWordWrap(True)
         info_text.setStyleSheet("QLabel { padding: 8px; background-color: #f5f5f5; border-radius: 4px; font-size: 11px; }")
         info_layout.addWidget(info_text)
         info_box.setLayout(info_layout)
         v.addRow(info_box)
+
+        # 통합 AI 엔진 선택 UI (OpenAI / Gemini / Basic AI)
+        self.cmb_ai_engine = QComboBox()
+        self.cmb_ai_engine.addItems(["OpenAI", "Gemini", "Basic AI"])
+        self.cmb_ai_engine.setCurrentText("Basic AI")
+        self.cmb_ai_model = QComboBox()
+        self.ed_ai_api_key = QLineEdit()
+        self.ed_ai_api_key.setEchoMode(QLineEdit.Password)
+        self.btn_test_connection = QPushButton("연결 테스트")
+        ai_engine_form = QFormLayout()
+        ai_engine_form.addRow("AI Engine", self.cmb_ai_engine)
+        ai_engine_form.addRow("AI Model", self.cmb_ai_model)
+        ai_engine_form.addRow("API Key", self.ed_ai_api_key)
+        ai_engine_form.addRow("", self.btn_test_connection)
+        v.addRow(ai_engine_form)
+        self.cmb_ai_engine.currentTextChanged.connect(self._on_ai_engine_changed)
+        self.btn_test_connection.clicked.connect(self._on_test_connection_clicked)
+        self._on_ai_engine_changed(self.cmb_ai_engine.currentText())
         
         # GPT 박스 / LOCAL 박스 분리 (선택한 박스만 활성화·저장, 콤보는 내부 동기화용만 사용)
         self._ai_provider_box_active = "local"
         self.cb_ai_provider = QComboBox()
-        self.cb_ai_provider.addItems(["local", "gpt"])
+        self.cb_ai_provider.addItems(["gpt", "gemini", "local"])
         self.cb_ai_provider.setCurrentText("local")
         self.cb_ai_provider.setVisible(False)
 
@@ -3281,7 +3419,7 @@ class MainWindow(QMainWindow):
         )
         self.lbl_local_engines = QLabel(
             "Local 엔진 3종: llama3.1(범용) | qwen2.5(추천/점수 적합) | mistral(경량·실시간). "
-            "설치: Ollama(https://ollama.com) 설치 후 터미널에서 ollama run <모델명> 실행. "
+            "설치: Basic AI 설치 후 앱의 모델 설치 버튼으로 준비. "
             "설정: URL 기본 http://127.0.0.1:11434"
         )
         self.lbl_local_engines.setWordWrap(True)
@@ -3289,8 +3427,8 @@ class MainWindow(QMainWindow):
         self.btn_test_local_ai = QPushButton("로컬 AI 테스트")
         self.btn_test_local_ai.setObjectName("btn_test_local_ai")
         # ✅ LOCAL 옵션 가이드 버튼들
-        self.btn_ollama_install_guide = QPushButton("Ollama 설치 안내(웹)")
-        self.btn_ollama_install_guide.setToolTip("Ollama 설치 후 모델 설치 버튼을 눌러주세요.")
+        self.btn_ollama_install_guide = QPushButton("Basic AI 설치 안내(웹)")
+        self.btn_ollama_install_guide.setToolTip("Basic AI 설치 후 모델 설치 버튼을 눌러주세요.")
         self.btn_ollama_install_guide.setObjectName("btn_ollama_install_guide")
         self.btn_install_qwen = QPushButton("qwen2.5 설치 필요")
         self.btn_install_qwen.setObjectName("btn_install_qwen")
@@ -3315,9 +3453,9 @@ class MainWindow(QMainWindow):
 
         gpt_layout = QVBoxLayout()
 
-        # 제목 영역: "GPT (OpenAI)" + ⓘ 버튼 + 헤더 오른쪽 1줄 테스트 결과 (좌측 여백 200px)
+        # 제목 영역: "Cloud AI (OpenAI / Gemini)" + ⓘ 버튼 + 헤더 오른쪽 1줄 테스트 결과 (좌측 여백 200px)
         gpt_title_row = QHBoxLayout()
-        gpt_title_label = QLabel("GPT (OpenAI)")
+        gpt_title_label = QLabel("Cloud AI (OpenAI / Gemini)")
         gpt_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         self.btn_gpt_info = QPushButton("i")
         self.btn_gpt_info.setMaximumWidth(30)
@@ -3368,15 +3506,15 @@ class MainWindow(QMainWindow):
 
         self.gpt_box.setLayout(gpt_layout)
 
-        # [LOCAL 박스] LOCAL (Ollama) — URL, Model, 테스트, 가이드
+        # [LOCAL 박스] LOCAL (Basic AI) — URL, Model, 테스트, 가이드
         self.local_box = ClickableGroupBox("")  # 제목은 내부 라벨로 처리
         self.local_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.local_box.setMinimumHeight(0)
 
         local_layout = QVBoxLayout()
-        # 제목 영역: "LOCAL (Ollama)" + ⓘ 버튼
+        # 제목 영역: "LOCAL (Basic AI)" + ⓘ 버튼
         local_title_row = QHBoxLayout()
-        local_title_label = QLabel("LOCAL (Ollama)")
+        local_title_label = QLabel("LOCAL (Basic AI)")
         local_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         self.btn_local_info = QPushButton("i")
         self.btn_local_info.setMaximumWidth(30)
@@ -4024,7 +4162,7 @@ class MainWindow(QMainWindow):
             
             # AI settings — SSOT: 선택된 박스(_ai_provider_box_active)만 저장, 반대쪽 필드는 patch에 넣지 않음
             ui_ai_provider = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
-            if ui_ai_provider not in ("gpt", "local"):
+            if ui_ai_provider not in ("gpt", "gemini", "local"):
                 ui_ai_provider = self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local"
             ui_ai_provider = ui_ai_provider or "local"
             self._log.info("[SAVE] ai_provider=%s (from selected box)", ui_ai_provider)
@@ -4430,12 +4568,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "로컬 AI 연결 실패",
-                f"Ollama 서버에 연결할 수 없습니다.\n\n"
+                f"Basic AI 서버에 연결할 수 없습니다.\n\n"
                 f"URL: {base_url}\n"
                 f"사유: {result}\n\n"
                 f"조치:\n"
-                f"1) Ollama 실행 확인\n"
-                f"2) 필요 시: ollama serve"
+                f"1) Basic AI 실행 확인\n"
+                f"2) 모델 설치 버튼으로 모델 준비 확인"
             )
             return
 
@@ -4447,16 +4585,18 @@ class MainWindow(QMainWindow):
                 "로컬 AI 모델 없음",
                 f"선택한 모델이 설치되어 있지 않습니다.\n\n"
                 f"모델: {model}\n"
-                f"설치 명령:\n  ollama pull {model}"
+                f"설치 방법:\n  앱의 '{model} 설치 필요' 버튼 사용"
             )
             return
 
         prompt = "respond with OK"
         ok, msg = self._call_local_ollama(prompt, model, base_url, timeout_sec=60)
         if ok:
-            QMessageBox.information(self, "로컬 AI 테스트", "Ollama 연결 성공.")
+            self._active_ai_engine = "basic"
+            self._update_active_engine_label()
+            QMessageBox.information(self, "로컬 AI 테스트", "Basic AI 연결 성공.")
         else:
-            QMessageBox.warning(self, "로컬 AI 테스트", f"Ollama 호출 실패: {msg}")
+            QMessageBox.warning(self, "로컬 AI 테스트", f"Basic AI 호출 실패: {msg}")
 
     def _on_open_openai_usage(self):
         """OpenAI Usage 페이지를 기본 브라우저로 연다."""
@@ -4508,15 +4648,15 @@ class MainWindow(QMainWindow):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(
                 self,
-                "LOCAL AI (Ollama) 사용 안내",
-                "[Ollama란?]\n"
+                "LOCAL AI (Basic AI) 사용 안내",
+                "[Basic AI란?]\n"
                 "- 내 PC에서 AI를 실행하는 로컬 AI 엔진\n"
                 "- 인터넷 비용 없음\n"
                 "- GPT보다 응답은 느릴 수 있음\n\n"
                 "[설치 방법]\n"
-                "1. https://ollama.com 접속\n"
-                "2. Windows 설치파일 다운로드\n"
-                "3. 설치 완료 후 앱 재시작\n\n"
+                "1. Basic AI 설치 안내 버튼 클릭\n"
+                "2. 설치 후 앱 재시작\n"
+                "3. 모델 설치 버튼으로 모델 준비\n\n"
                 "[모델 설명]\n\n"
                 "qwen2.5\n"
                 "- 빠르고 안정적\n"
@@ -4545,7 +4685,7 @@ class MainWindow(QMainWindow):
             try:
                 QMessageBox.warning(
                     self,
-                    "Ollama 설치 안내",
+                    "Basic AI 설치 안내",
                     f"브라우저를 열 수 없습니다.\n\n사유: {e}"
                 )
             except Exception:
@@ -4710,9 +4850,9 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self,
                         f"{model} 설치 실패",
-                        f"Ollama가 설치되어 있지 않거나 PATH에 없습니다.\n\n"
+                        f"Basic AI가 설치되어 있지 않거나 PATH에 없습니다.\n\n"
                         f"조치:\n"
-                        f"1) 'Ollama 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
+                        f"1) 'Basic AI 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
                         f"2) 설치 후 앱을 재시작하세요."
                     )
                 else:
@@ -4723,8 +4863,8 @@ class MainWindow(QMainWindow):
                         f"설치 중 오류가 발생했습니다.\n\n"
                         f"사유: {error_display}\n\n"
                         f"조치:\n"
-                        f"1) Ollama가 실행 중인지 확인하세요.\n"
-                        f"2) 터미널에서 'ollama pull {model}' 명령을 직접 실행해보세요."
+                        f"1) Basic AI가 실행 중인지 확인하세요.\n"
+                        f"2) 앱에서 '{model} 설치 필요' 버튼을 다시 눌러주세요."
                     )
         except Exception as e:
             try:
@@ -4760,9 +4900,9 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self,
                         "모델 목록 새로고침 실패",
-                        "Ollama가 설치되어 있지 않거나 PATH에 없습니다.\n\n"
+                        "Basic AI가 설치되어 있지 않거나 PATH에 없습니다.\n\n"
                         "조치:\n"
-                        "1) 'Ollama 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
+                        "1) 'Basic AI 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
                         "2) 설치 후 앱을 재시작하세요."
                     )
                 else:
@@ -4772,8 +4912,8 @@ class MainWindow(QMainWindow):
                         f"명령 실행 중 오류가 발생했습니다.\n\n"
                         f"사유: {output}\n\n"
                         f"조치:\n"
-                        f"1) Ollama가 실행 중인지 확인하세요.\n"
-                        f"2) 터미널에서 'ollama list' 명령을 직접 실행해보세요."
+                        f"1) Basic AI가 실행 중인지 확인하세요.\n"
+                        f"2) 앱에서 모델 설치 버튼 상태를 확인하세요."
                     )
                 return
             
@@ -4960,6 +5100,8 @@ class MainWindow(QMainWindow):
                 actual = (last_dec.get("actual_engine") or "").strip()
             except Exception:
                 pass
+            self._active_ai_engine = "gpt"
+            self._update_active_engine_label()
             QMessageBox.information(
                 self, "GPT 연결 테스트",
                 "GPT가 이미 연결되어 있습니다.\n현재 엔진: %s" % (actual or "gpt-*")
@@ -5067,6 +5209,8 @@ class MainWindow(QMainWindow):
                     out(f"[3/3] Token usage OK (in={inp or 0}, out={out_tok or 0}) ✅ 토큰 소모 확인됨")
                     self._gpt_test_ok = True
                     self._gpt_last_in, self._gpt_last_out = inp or 0, out_tok or 0
+                    self._active_ai_engine = "gpt"
+                    self._update_active_engine_label()
                     set_header("🟢 READY")
                     self._log.warning("[DIAG] gpt_test status=READY in=%s out=%s", inp or 0, out_tok or 0)
                 else:
@@ -5076,6 +5220,8 @@ class MainWindow(QMainWindow):
                         snippet = (delta.get("content") or "").strip()[:30]
                     out(f"[3/3] usage 없음, 생성 텍스트: {snippet or '(없음)'} — ✅ 응답 성공 (토큰 수 미표시)")
                     self._gpt_test_ok = True
+                    self._active_ai_engine = "gpt"
+                    self._update_active_engine_label()
                     set_header("🟢 READY")
             else:
                 snippet = ""
@@ -5084,6 +5230,8 @@ class MainWindow(QMainWindow):
                     snippet = (delta.get("content") or "").strip()[:30]
                 out(f"[3/3] usage 없음, 생성: {snippet or '(없음)'} — ✅ 응답 성공")
                 self._gpt_test_ok = True
+                self._active_ai_engine = "gpt"
+                self._update_active_engine_label()
                 set_header("🟢 READY")
             if hasattr(self, "_update_ai_status"):
                 self._update_ai_status()
@@ -5734,6 +5882,33 @@ class MainWindow(QMainWindow):
                 _svc.set_settings(self._settings)
             except Exception:
                 pass
+
+            # 선택 엔진과 실제 적용 엔진이 다르면 시작 전에 경고(실행은 기존 엔진 기준으로 계속)
+            if run:
+                selected_provider = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
+                if selected_provider not in ("gpt", "gemini", "local"):
+                    selected_provider = (self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local")
+                    selected_provider = (selected_provider or "local").strip().lower()
+                selected_active = "basic" if selected_provider == "local" else selected_provider
+                current_active = (getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
+                if selected_active != current_active:
+                    active_label = "Basic AI"
+                    if current_active == "gpt":
+                        model = ""
+                        if hasattr(self, "ed_openai_model"):
+                            model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
+                        active_label = f"OpenAI ({model or 'gpt-4o-mini'})"
+                    elif current_active == "gemini":
+                        model = ""
+                        if hasattr(self, "ed_openai_model"):
+                            model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
+                        active_label = f"Gemini ({model or 'gemini'})"
+                    QMessageBox.warning(
+                        self,
+                        "실행 전 확인",
+                        "선택한 AI 엔진이 아직 연결되지 않았습니다.\n"
+                        f"현재는 Active Engine: {active_label} 기준으로 실행됩니다."
+                    )
 
             # ✅ P0-REAL: 실거래 안전 가드(시작 전)
             try:
