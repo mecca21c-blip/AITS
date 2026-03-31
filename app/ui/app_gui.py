@@ -535,7 +535,7 @@ class MainWindow(QMainWindow):
                 pass  # 라벨만 보유해도 무해
 
         # 2) 실행 버튼 텍스트/아이콘 동기화(여러 후보명을 안전 탐색)
-        btn_txt = "정지 ■" if running else "실행 ▶"
+        btn_txt = "AITS STOP" if running else "AITS ON"
         for name in ("btn_run", "btn_toggle_run", "btn_start_stop", "btn_execute", "btn_run_toggle"):
             try:
                 btn = getattr(self, name, None)
@@ -1582,10 +1582,18 @@ class MainWindow(QMainWindow):
         # ---- Top controls (런바: 배경으로 영역 구분)
         self.top_control_widget = QWidget(central)
         self.top_control_widget.setObjectName("runBar")
+        top_outer = QVBoxLayout()
+        top_outer.setContentsMargins(0, 0, 0, 0)
+        top_outer.setSpacing(4)
+        self.lbl_aits_control_panel = QLabel("AITS Control Panel")
+        self.lbl_aits_control_panel.setStyleSheet(
+            "font-weight: bold; font-size: 12px; color: #111827;"
+        )
+        top_outer.addWidget(self.lbl_aits_control_panel)
         top = QHBoxLayout()
         # 실행/정지 토글 버튼
-        self.btn_run_toggle = QPushButton("실행 ▶")
-        self.btn_run_toggle.setToolTip("자동매매를 실행합니다")
+        self.btn_run_toggle = QPushButton("AITS ON")
+        self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
         self.btn_run_toggle.setObjectName("StopButton")
         self.btn_run_toggle.setCheckable(True)
 
@@ -1646,11 +1654,11 @@ class MainWindow(QMainWindow):
         # 버튼 연결은 초기화 마지막에 한 번만 수행 (중복 방지)
         
         # 전량매도
-        self.btn_sellall = QPushButton("전량매도")
-        self.btn_sellall.setToolTip("보유 코인을 모두 시장가로 매도합니다")
+        self.btn_sellall = QPushButton("AITS OFF")
+        self.btn_sellall.setToolTip("보유 코인을 모두 시장가로 매도합니다 (기존 전량매도)")
         self.btn_sellall.clicked.connect(self.on_sell_all)  # P0-D2: 버튼 연결 확인
         # 통합 새로고침
-        self.btn_refresh = QPushButton("새로고침")
+        self.btn_refresh = QPushButton("상태 새로고침")
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
         
         # P0-HITTEST: 창 표시 후에만 유효(표시 전이면 widgetAt이 None일 수 있음)
@@ -1747,11 +1755,27 @@ class MainWindow(QMainWindow):
             self._log.error(f"[BTN-EVENT] install error={e}")
         for b in (self.btn_run_toggle, self.btn_sellall, self.btn_refresh):
             top.addWidget(b)
-        self.lbl_engine_status = QLabel("현재 엔진: —")
+        self.lbl_engine_status = QLabel("AI Engine | —")
         self.lbl_engine_status.setStyleSheet("font-size: 11px; color: #555;")
         self.lbl_engine_status.setToolTip("선택된 AI 엔진 및 연결 상태")
         top.addWidget(self.lbl_engine_status)
-        self.top_control_widget.setLayout(top)
+        self.btn_run_toggle.setMinimumHeight(30)
+        self.btn_sellall.setMinimumHeight(30)
+        self.btn_refresh.setMinimumHeight(28)
+        self.btn_run_toggle.setStyleSheet(
+            "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+            " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+        )
+        self.btn_sellall.setStyleSheet(
+            "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+            " background-color: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 6px;"
+        )
+        self.btn_refresh.setStyleSheet(
+            "padding: 5px 12px; min-height: 28px; border-radius: 6px;"
+            " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
+        )
+        top_outer.addLayout(top)
+        self.top_control_widget.setLayout(top_outer)
         lay.addWidget(self.top_control_widget)
 
         # ---- Tabs
@@ -1908,7 +1932,7 @@ class MainWindow(QMainWindow):
         try:
             # ✅ 후보 A) 버튼 초기 체크상태가 이미 True로 시작하는 문제 해결
             self.btn_run_toggle.setChecked(False)  # 반드시 False로 시작
-            self.btn_run_toggle.setText("실행 ▶")  # 반드시 실행 텍스트로 시작
+            self.btn_run_toggle.setText("AITS ON")  # 반드시 실행 텍스트로 시작
             btn_text = getattr(self.btn_run_toggle, 'text', lambda: '')()
             btn_checked = getattr(self.btn_run_toggle, 'isChecked', lambda: False)()
             btn_enabled = getattr(self.btn_run_toggle, 'isEnabled', lambda: True)()
@@ -2457,13 +2481,13 @@ class MainWindow(QMainWindow):
 
             # 4가지 상태: 아이콘 + 텍스트 (배경색 변경 없음, 연회색 고정)
             if stage == "degraded":
-                box_txt = "🟠 SIMPLE_MOMO(폴백)"
+                box_txt = "AI Engine | SIMPLE_MOMO"
             elif actual.startswith("gpt-"):
-                box_txt = "🔵 GPT(%s)" % actual
+                box_txt = "AI Engine | GPT(%s)" % actual
             elif selected == "gpt" and not actual.startswith("gpt-"):
-                box_txt = "🟡 LOCAL(연결중) / 곧 GPT 전환"
+                box_txt = "AI Engine | LOCAL"
             else:
-                box_txt = "🟢 LOCAL(%s)" % local_label
+                box_txt = "AI Engine | LOCAL(%s)" % local_label
 
             if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
                 self.lbl_engine_status.setText(box_txt)
@@ -5422,11 +5446,11 @@ class MainWindow(QMainWindow):
 
     def _sync_run_toggle_text(self):
         if getattr(self.state, "is_running", False):
-            self.btn_run_toggle.setText("정지 ⏸")
-            self.btn_run_toggle.setToolTip("자동매매를 일시정지합니다")
+            self.btn_run_toggle.setText("AITS STOP")
+            self.btn_run_toggle.setToolTip("AITS 자동매매를 중지합니다")
         else:
-            self.btn_run_toggle.setText("실행 ▶")
-            self.btn_run_toggle.setToolTip("자동매매를 실행합니다")
+            self.btn_run_toggle.setText("AITS ON")
+            self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
 
     def _on_toggle_run_toggled(self, checked: bool):
         """Start/Stop 토글 엔트리포인트(단일): toggled 시그널만 사용"""
@@ -5442,7 +5466,7 @@ class MainWindow(QMainWindow):
                 self.btn_run_toggle.blockSignals(True)
                 desired = getattr(self, "_is_running", False)
                 self.btn_run_toggle.setChecked(desired)
-                self.btn_run_toggle.setText("정지 ■" if desired else "실행 ▶")
+                self.btn_run_toggle.setText("AITS STOP" if desired else "AITS ON")
                 self.btn_run_toggle.blockSignals(False)
             except Exception:
                 pass
@@ -5491,7 +5515,7 @@ class MainWindow(QMainWindow):
         # - STOP 경로에서는 setEnabled(True) 금지 → _on_toggle_run에서 disabled 유지, STOP-ACK 후 _set_running_ui(False)에서만 재활성화
         try:
             self.btn_run_toggle.blockSignals(True)
-            new_text = "정지 ■" if checked else "실행 ▶"
+            new_text = "AITS STOP" if checked else "AITS ON"
             self.btn_run_toggle.setText(new_text)
             if checked:
                 self.btn_run_toggle.setEnabled(True)
@@ -5518,7 +5542,7 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self.btn_run_toggle.blockSignals(True)
-                revert_text = "실행 ▶" if bool(checked) else "정지 ■"
+                revert_text = "AITS ON" if bool(checked) else "AITS STOP"
                 self.btn_run_toggle.setText(revert_text)
                 self.btn_run_toggle.setEnabled(True)
                 self.btn_run_toggle.blockSignals(False)
@@ -5556,7 +5580,7 @@ class MainWindow(QMainWindow):
         # ✅ P0-TOGGLE-IMMEDIATE: 즉시 UI 토글 (사용자 체감 우선)
         try:
             self.btn_run_toggle.blockSignals(True)
-            new_text = "정지 ■" if desired_run else "실행 ▶"
+            new_text = "AITS STOP" if desired_run else "AITS ON"
             self.btn_run_toggle.setText(new_text)
             self.btn_run_toggle.setChecked(desired_run)
             self.btn_run_toggle.blockSignals(False)
@@ -6037,7 +6061,7 @@ class MainWindow(QMainWindow):
                 # 실패 시 UI 되돌리기
                 try:
                     self.btn_run_toggle.blockSignals(True)
-                    revert_text = "실행 ▶" if run else "정지 ■"
+                    revert_text = "AITS ON" if run else "AITS STOP"
                     revert_checked = not run
                     self.btn_run_toggle.setText(revert_text)
                     self.btn_run_toggle.setChecked(revert_checked)
