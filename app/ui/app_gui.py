@@ -501,9 +501,47 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass  # 라벨만 보유해도 무해
 
+    def set_aits_state(self, state: str):
+        state = str(state).upper()
+        lb = getattr(self, "lbl_aits_state", None)
+        if lb is None:
+            return
+        if state == "RUNNING":
+            lb.setText("AITS RUNNING")
+            lb.setStyleSheet("color:#2e7d32; font-weight:bold;")
+        elif state == "ERROR":
+            lb.setText("AITS ERROR")
+            lb.setStyleSheet("color:#c62828; font-weight:bold;")
+        else:
+            lb.setText("AITS STOPPED")
+            lb.setStyleSheet("color:#9e9e9e; font-weight:bold;")
+
+    def set_ai_status(self, status: str):
+        s = str(status).strip().upper()
+        lb = getattr(self, "lbl_ai_status", None)
+        if lb is None:
+            return
+        if s == "TRADING":
+            lb.setText("AI Status: Trading")
+            lb.setStyleSheet("color:#ef6c00; font-weight:600;")
+        elif s == "SCANNING":
+            lb.setText("AI Status: Scanning")
+            lb.setStyleSheet("color:#1565c0; font-weight:600;")
+        else:
+            lb.setText("AI Status: Idle")
+            lb.setStyleSheet("color:#607d8b; font-weight:600;")
+
     def _set_running_ui(self, running: bool):
         """RUNNING/IDLE 표시 + KPI 자동 갱신 on/off + 버튼/라벨 동기화."""
         self._ensure_run_widgets()
+        try:
+            self.set_aits_state("RUNNING" if running else "STOPPED")
+        except Exception:
+            pass
+        try:
+            self.set_ai_status("SCANNING" if running else "IDLE")
+        except Exception:
+            pass
 
         # 1) 상태 라벨들 동기화(여러 이름을 대비해 안전하게 시도)
         txt_state = "RUNNING" if running else "STOP"
@@ -541,6 +579,17 @@ class MainWindow(QMainWindow):
                 btn = getattr(self, name, None)
                 if btn is not None:
                     btn.setText(btn_txt)
+                    if name == "btn_run_toggle":
+                        if running:
+                            btn.setStyleSheet(
+                                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                                " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+                            )
+                        else:
+                            btn.setStyleSheet(
+                                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                                " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+                            )
                     # Stop 완료 후에만 버튼 재활성화 (Stop inflight guard와 쌍)
                     if not running:
                         btn.setEnabled(True)
@@ -1590,6 +1639,14 @@ class MainWindow(QMainWindow):
             "font-weight: bold; font-size: 12px; color: #111827;"
         )
         top_outer.addWidget(self.lbl_aits_control_panel)
+        self.lbl_aits_state = QLabel("AITS STOPPED")
+        self.lbl_aits_state.setStyleSheet("color:#9e9e9e; font-weight:bold;")
+        top_outer.addWidget(self.lbl_aits_state)
+        self.set_aits_state("STOPPED")
+        self.lbl_ai_status = QLabel("AI Status: Idle")
+        self.lbl_ai_status.setStyleSheet("color:#607d8b; font-weight:600;")
+        top_outer.addWidget(self.lbl_ai_status)
+        self.set_ai_status("IDLE")
         top = QHBoxLayout()
         # 실행/정지 토글 버튼
         self.btn_run_toggle = QPushButton("AITS ON")
@@ -1654,8 +1711,8 @@ class MainWindow(QMainWindow):
         # 버튼 연결은 초기화 마지막에 한 번만 수행 (중복 방지)
         
         # 전량매도
-        self.btn_sellall = QPushButton("AITS OFF")
-        self.btn_sellall.setToolTip("보유 코인을 모두 시장가로 매도합니다 (기존 전량매도)")
+        self.btn_sellall = QPushButton("전량매도")
+        self.btn_sellall.setToolTip("보유 코인을 모두 시장가로 매도합니다")
         self.btn_sellall.clicked.connect(self.on_sell_all)  # P0-D2: 버튼 연결 확인
         # 통합 새로고침
         self.btn_refresh = QPushButton("상태 새로고침")
@@ -1768,7 +1825,7 @@ class MainWindow(QMainWindow):
         )
         self.btn_sellall.setStyleSheet(
             "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-            " background-color: #fef2f2; color: #991b1b; border: 1px solid #fecaca; border-radius: 6px;"
+            " background-color: #e3f2fd; color: #1e88e5; border: 1px solid #4da6ff; border-radius: 6px;"
         )
         self.btn_refresh.setStyleSheet(
             "padding: 5px 12px; min-height: 28px; border-radius: 6px;"
@@ -1927,6 +1984,10 @@ class MainWindow(QMainWindow):
             self._log.info("[BTN-CONNECT] ok target=_on_toggle_run_toggled (single entrypoint)")
         except Exception as e:
             self._log.error(f"[BTN-CONNECT] error={e}")
+        try:
+            self.btn_refresh.clicked.connect(self.on_refresh)
+        except Exception:
+            pass
         
         # ✅ P0-TOGGLE-INIT: 초기 UI 상태 로깅 + 상태 고정
         try:
@@ -5448,9 +5509,17 @@ class MainWindow(QMainWindow):
         if getattr(self.state, "is_running", False):
             self.btn_run_toggle.setText("AITS STOP")
             self.btn_run_toggle.setToolTip("AITS 자동매매를 중지합니다")
+            self.btn_run_toggle.setStyleSheet(
+                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+            )
         else:
             self.btn_run_toggle.setText("AITS ON")
             self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
+            self.btn_run_toggle.setStyleSheet(
+                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+            )
 
     def _on_toggle_run_toggled(self, checked: bool):
         """Start/Stop 토글 엔트리포인트(단일): toggled 시그널만 사용"""
@@ -5467,6 +5536,14 @@ class MainWindow(QMainWindow):
                 desired = getattr(self, "_is_running", False)
                 self.btn_run_toggle.setChecked(desired)
                 self.btn_run_toggle.setText("AITS STOP" if desired else "AITS ON")
+                self.btn_run_toggle.setStyleSheet(
+                    "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                    + (
+                        " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+                        if desired
+                        else " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+                    )
+                )
                 self.btn_run_toggle.blockSignals(False)
             except Exception:
                 pass
@@ -5517,6 +5594,14 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.blockSignals(True)
             new_text = "AITS STOP" if checked else "AITS ON"
             self.btn_run_toggle.setText(new_text)
+            self.btn_run_toggle.setStyleSheet(
+                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                + (
+                    " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+                    if checked
+                    else " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+                )
+            )
             if checked:
                 self.btn_run_toggle.setEnabled(True)
             # else: Stop 경로 → 버튼은 _on_toggle_run에서 disabled, STOP-ACK 후 _set_running_ui(False)에서 재활성화
@@ -5544,6 +5629,14 @@ class MainWindow(QMainWindow):
                 self.btn_run_toggle.blockSignals(True)
                 revert_text = "AITS ON" if bool(checked) else "AITS STOP"
                 self.btn_run_toggle.setText(revert_text)
+                self.btn_run_toggle.setStyleSheet(
+                    "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                    + (
+                        " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+                        if bool(checked)
+                        else " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+                    )
+                )
                 self.btn_run_toggle.setEnabled(True)
                 self.btn_run_toggle.blockSignals(False)
                 try:
@@ -5582,6 +5675,14 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.blockSignals(True)
             new_text = "AITS STOP" if desired_run else "AITS ON"
             self.btn_run_toggle.setText(new_text)
+            self.btn_run_toggle.setStyleSheet(
+                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                + (
+                    " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+                    if desired_run
+                    else " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+                )
+            )
             self.btn_run_toggle.setChecked(desired_run)
             self.btn_run_toggle.blockSignals(False)
             
@@ -6064,6 +6165,14 @@ class MainWindow(QMainWindow):
                     revert_text = "AITS ON" if run else "AITS STOP"
                     revert_checked = not run
                     self.btn_run_toggle.setText(revert_text)
+                    self.btn_run_toggle.setStyleSheet(
+                        "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+                        + (
+                            " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
+                            if run
+                            else " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
+                        )
+                    )
                     self.btn_run_toggle.setChecked(revert_checked)
                     self.btn_run_toggle.blockSignals(False)
                     self._log.info(f"[UI] toggle reverted: text={revert_text} checked={revert_checked}")
@@ -6356,6 +6465,14 @@ class MainWindow(QMainWindow):
         - app_gui.py는 탭의 refresh만 호출한다. (레거시 테이블/심볼 재구성 금지)
         """
         try:
+            print("[AITS] refresh clicked")
+            try:
+                from app.services.holdings_service import fetch_live_holdings
+
+                fetch_live_holdings(force=True)
+            except Exception as e:
+                print(f"[AITS] refresh holdings preload failed: {e}")
+
             # 전역 상태바: 시작 메시지
             self.set_global_status("⏳ 데이터 갱신 중...", "busy", "refresh")
 
