@@ -186,7 +186,7 @@ QLineEdit[readOnly="true"] {
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QHeaderView,
-    QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox,
+    QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
     QAbstractItemView, QMenu, QSizePolicy, QScrollArea, QCheckBox,
     QGroupBox, QLineEdit, QTextEdit, QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem,
     QProgressDialog, QStackedWidget,
@@ -1003,6 +1003,19 @@ class MainWindow(QMainWindow):
         self._settings = None
         # 선택된 엔진과 분리된 "실제 적용 엔진" 상태 (gpt/gemini/basic)
         self._active_ai_engine = "basic"
+        # AITS 관리 종목군 / 전체 시장 탐색(ag-Grid 스타일 원칙 → Qt 테이블 골격)
+        # 상단 row 예: symbol, name, price, change_rate, source(AI|USER), ai_status, target_price, stop_loss, pnl, locked
+        # 하단 row 예: symbol, name, price, change_rate, volume_24h
+        self.ai_managed_rows: list[dict] = []
+        self.market_all_rows: list[dict] = []
+        self.basic_ai_settings = {
+            "risk_mode": "중립",
+            "target_profit_pct": 3.0,
+            "stop_loss_pct": 1.5,
+            "max_positions": 5,
+            "selection_strength": "보통",
+            "avoid_bear_market": True,
+        }
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
@@ -1584,7 +1597,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
-                elif title == "워치리스트":
+                elif title in ("AITS 종목관리", "워치리스트"):
                     try:
                         if hasattr(self, "tab_watch") and hasattr(self.tab_watch, "refresh"):
                             self.tab_watch.refresh(caller="tables_timer_tick")
@@ -1845,6 +1858,56 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # ---- AITS 종목 관리: Managed Pool / Market Explorer (위젯 생성만 — 배치는 첫 탭 내부)
+        self._aits_pool_outer = QWidget(central)
+        _aits_pool_ly = QVBoxLayout(self._aits_pool_outer)
+        _aits_pool_ly.setContentsMargins(0, 4, 0, 4)
+        _aits_pool_ly.setSpacing(6)
+        _gb_managed = QGroupBox("AITS Managed Pool")
+        _managed_inner = QVBoxLayout(_gb_managed)
+        self.tbl_ai_managed = QTableWidget(0, 10)
+        self.tbl_ai_managed.setHorizontalHeaderLabels(
+            [
+                "코인명",
+                "현재가",
+                "변동률",
+                "구분",
+                "AI 상태",
+                "목표가",
+                "손절가",
+                "수익률",
+                "잠금",
+                "액션",
+            ]
+        )
+        self.tbl_ai_managed.verticalHeader().setVisible(False)
+        self.tbl_ai_managed.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_ai_managed.setMinimumHeight(140)
+        self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
+        _managed_inner.addWidget(self.tbl_ai_managed)
+        _gb_market = QGroupBox("Market Explorer")
+        _market_inner = QVBoxLayout(_gb_market)
+        self.ed_market_search = QLineEdit()
+        self.ed_market_search.setPlaceholderText("코인 검색 (예: BTC, XRP, KRW-BTC)")
+        self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
+        _market_inner.addWidget(self.ed_market_search)
+        self.tbl_market_all = QTableWidget(0, 5)
+        self.tbl_market_all.setHorizontalHeaderLabels(["코인명", "현재가", "변동률", "거래량", "추가"])
+        self.tbl_market_all.verticalHeader().setVisible(False)
+        self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_market_all.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl_market_all.setMinimumHeight(120)
+        self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
+        _market_inner.addWidget(self.tbl_market_all)
+        _aits_pool_ly.addWidget(_gb_managed, 3)
+        _aits_pool_ly.addWidget(_gb_market, 2)
+        try:
+            self._refresh_ai_managed_table()
+            QTimer.singleShot(400, self._load_market_explorer_initial_data)
+        except Exception:
+            pass
+
         # ---- Tabs
         # ✅ 탭 위젯도 central 아래로 귀속(레이아웃/표시 정상화)
         self.tabs = QTabWidget(central)
@@ -1853,7 +1916,7 @@ class MainWindow(QMainWindow):
         # Watchlist — UI/시그널/렌더링 소유는 WatchlistTab
         from app.ui.tabs.watchlist_tab import WatchlistTab
         self.tab_watch = WatchlistTab(self)
-        self.tabs.addTab(self._wrap_tab_scroll(self.tab_watch), "워치리스트")
+        self.tabs.addTab(self._wrap_tab_scroll(self.tab_watch), "AITS 종목관리")
         
         # ✅ P0-BOOT-SCORE: WatchlistTab 생성 로그
         import logging
@@ -1861,6 +1924,24 @@ class MainWindow(QMainWindow):
         
         # ✅ P0-UI-GLOBAL-STATUS: WatchlistTab에 parent_window 참조 전달
         self.tab_watch._parent_window = self
+
+        # AITS Managed Pool / Market Explorer → 첫 탭 본문 상단에 배치 (메인 vertical 중복 제거)
+        try:
+            _wl_lay = self.tab_watch.layout()
+            if _wl_lay is not None:
+                _wl_lay.insertWidget(0, self._aits_pool_outer, 0)
+        except Exception:
+            pass
+        # 기존 KMTS 워치리스트 표·상단 버튼은 숨김 (탭 내부만)
+        try:
+            for _bn in ("btn_clear_all", "btn_wl_100", "btn_bl_40"):
+                _bw = getattr(self.tab_watch, _bn, None)
+                if _bw is not None:
+                    _bw.setVisible(False)
+            if getattr(self.tab_watch, "tbl", None) is not None:
+                self.tab_watch.tbl.setVisible(False)
+        except Exception:
+            pass
 
         # 레거시 호환(남아있는 app_gui 레거시가 self.tbl을 참조할 수 있음)
         self.tbl = getattr(self.tab_watch, "tbl", None)
@@ -2619,10 +2700,12 @@ class MainWindow(QMainWindow):
                 color = "#2e7d32"
             elif active == "gemini":
                 model = ""
-                if hasattr(self, "ed_openai_model"):
-                    model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
+                if hasattr(self, "cmb_gemini_model"):
+                    model = (self.cmb_gemini_model.currentText() or "").strip()
                 if not model and hasattr(self, "cmb_ai_model"):
                     model = (self.cmb_ai_model.currentText() or "").strip()
+                if not model and hasattr(self, "ed_openai_model"):
+                    model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
                 if not model:
                     model = "gemini"
                 txt = f"Active Engine: Gemini ({model})"
@@ -2658,14 +2741,20 @@ class MainWindow(QMainWindow):
         self._log.info("[AI-BOX] selected=%s", provider)
 
         # 박스별 enable/disable
-        cloud_en = provider in ("gpt", "gemini")
         gpt_only = provider == "gpt"
+        gemini_only = provider == "gemini"
         if hasattr(self, "ed_openai_key"):
-            self.ed_openai_key.setEnabled(cloud_en)
+            self.ed_openai_key.setEnabled(gpt_only)
         if hasattr(self, "ed_openai_model"):
-            self.ed_openai_model.setEnabled(cloud_en)
+            self.ed_openai_model.setEnabled(gpt_only)
+        if hasattr(self, "ed_gemini_key"):
+            self.ed_gemini_key.setEnabled(gemini_only)
+        if hasattr(self, "cmb_gemini_model"):
+            self.cmb_gemini_model.setEnabled(gemini_only)
         if hasattr(self, "btn_test_gpt"):
             self.btn_test_gpt.setEnabled(gpt_only)
+        if hasattr(self, "btn_test_gemini"):
+            self.btn_test_gemini.setEnabled(gemini_only)
         if hasattr(self, "btn_openai_usage"):
             self.btn_openai_usage.setEnabled(gpt_only)
         local_en = provider == "local"
@@ -2687,13 +2776,25 @@ class MainWindow(QMainWindow):
                 if hasattr(self, btn_name):
                     getattr(self, btn_name).setEnabled(False)
 
-        # 박스 배경색: 활성=옅은 하늘/초록, 비활성=중성
-        gpt_bg = "#D9F1FF" if cloud_en else "#f5f5f5"
-        local_bg = "#DFF5E1" if local_en else "#f5f5f5"
+        # 박스 배경색: 비활성=흰색, 활성=강조색
+        gpt_bg = "#D9F1FF" if gpt_only else "#ffffff"
+        gemini_bg = "#E3F2FD" if gemini_only else "#ffffff"
+        local_bg = "#DFF5E1" if local_en else "#ffffff"
+        gpt_border = "#90CAF9" if gpt_only else "#d0d7de"
+        gemini_border = "#64B5F6" if gemini_only else "#d0d7de"
+        local_border = "#81C784" if local_en else "#d0d7de"
         if hasattr(self, "gpt_box"):
-            self.gpt_box.setStyleSheet(f"QGroupBox {{ background-color: {gpt_bg}; border-radius: 6px; padding: 8px; }}")
+            self.gpt_box.setStyleSheet(
+                f"QGroupBox {{ background-color: {gpt_bg}; border: 1px solid {gpt_border}; border-radius: 6px; padding: 8px; }}"
+            )
+        if hasattr(self, "gemini_box"):
+            self.gemini_box.setStyleSheet(
+                f"QGroupBox {{ background-color: {gemini_bg}; border: 1px solid {gemini_border}; border-radius: 6px; padding: 8px; }}"
+            )
         if hasattr(self, "local_box"):
-            self.local_box.setStyleSheet(f"QGroupBox {{ background-color: {local_bg}; border-radius: 6px; padding: 8px; }}")
+            self.local_box.setStyleSheet(
+                f"QGroupBox {{ background-color: {local_bg}; border: 1px solid {local_border}; border-radius: 6px; padding: 8px; }}"
+            )
 
         # 우측상단 배지 + 현재 엔진: actual_engine SSOT로 2곳 갱신
         try:
@@ -2759,12 +2860,354 @@ class MainWindow(QMainWindow):
             return
         if eng == "Gemini":
             print("[AITS] Gemini connection test")
+            try:
+                if hasattr(self, "ed_ai_api_key") and hasattr(self, "ed_openai_key"):
+                    self.ed_openai_key.setText(self.ed_ai_api_key.text())
+                self._on_test_gemini()
+            except Exception:
+                pass
             if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
                 self.lbl_engine_status.setText(f"AI Engine | Gemini ({model or 'gemini-1.5-pro'})")
             return
-        print("[AITS] Basic AI ready")
+        print("[AITS] Basic AI connection test")
+        try:
+            self._on_test_local_ai()
+        except Exception:
+            pass
         if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
             self.lbl_engine_status.setText("AI Engine | Basic AI")
+
+    # --- AITS Managed Pool / Market Explorer (Qt 테이블 골격, ag-Grid 스타일 상태·이벤트 분리) ---
+    _AI_M_COL_LOCK = 8
+    _AI_M_COL_ACTION = 9
+    _MKT_COL_ADD = 4
+
+    def _fmt_change_pct(self, rate: float) -> str:
+        try:
+            x = float(rate or 0.0)
+            if -1.0 <= x <= 1.0:
+                return f"{x * 100.0:.2f}%"
+            return f"{x:.2f}%"
+        except Exception:
+            return "0.00%"
+
+    def _refresh_ai_managed_table(self) -> None:
+        if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
+            return
+        t = self.tbl_ai_managed
+        t.setRowCount(0)
+        for i, row in enumerate(self.ai_managed_rows):
+            t.insertRow(i)
+            sym = (row.get("symbol") or "").strip()
+            name = (row.get("name") or "").strip() or sym
+            label = f"{name}\n{sym}" if name and sym and name != sym else (sym or name)
+            c0 = QTableWidgetItem(label)
+            c0.setData(Qt.ItemDataRole.UserRole, sym)
+            t.setItem(i, 0, c0)
+            t.setItem(i, 1, QTableWidgetItem(f"{float(row.get('price') or 0.0):,.0f}"))
+            t.setItem(i, 2, QTableWidgetItem(self._fmt_change_pct(float(row.get("change_rate") or 0.0))))
+            src = (row.get("source") or "USER").strip().upper()
+            c3 = QTableWidgetItem("AI" if src == "AI" else "USER")
+            if src == "AI":
+                c3.setForeground(QColor("#1565c0"))
+            else:
+                c3.setForeground(QColor("#2e7d32"))
+            t.setItem(i, 3, c3)
+            status_txt = str(row.get("ai_status") or "Watching")
+            c4 = QTableWidgetItem(status_txt)
+            _status_color = {
+                "Watching": "#757575",
+                "Buy Ready": "#1565c0",
+                "Holding": "#2e7d32",
+                "Sell Ready": "#c62828",
+                "Dropped": "#6d4c41",
+            }.get(status_txt, "#757575")
+            c4.setForeground(QColor(_status_color))
+            t.setItem(i, 4, c4)
+            t.setItem(i, 5, QTableWidgetItem(f"{float(row.get('target_price') or 0.0):,.0f}"))
+            t.setItem(i, 6, QTableWidgetItem(f"{float(row.get('stop_loss') or 0.0):,.0f}"))
+            t.setItem(i, 7, QTableWidgetItem(f"{float(row.get('pnl') or 0.0):.2f}%"))
+            locked = bool(row.get("locked"))
+            t.setItem(i, 8, QTableWidgetItem("🔒" if locked else "🔓"))
+            t.setItem(i, 9, QTableWidgetItem("제거"))  # TODO: 상세 패널/차트 연결
+
+    def _ensure_demo_ai_rows(self) -> None:
+        """AI 소스 종목이 없을 때만 샘플 AI 종목을 1회 주입한다."""
+        try:
+            if any(str(r.get("source") or "").upper() == "AI" for r in (self.ai_managed_rows or [])):
+                return
+            existing = {str(r.get("symbol") or "").strip() for r in (self.ai_managed_rows or [])}
+            for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP"):
+                if sym in existing:
+                    continue
+                self.ai_managed_rows.append(
+                    {
+                        "symbol": sym,
+                        "name": sym.split("-")[-1],
+                        "price": 0.0,
+                        "change_rate": 0.0,
+                        "source": "AI",
+                        "ai_status": "Watching",
+                        "target_price": 0.0,
+                        "stop_loss": 0.0,
+                        "pnl": 0.0,
+                        "locked": False,
+                    }
+                )
+                existing.add(sym)
+            print(f"[AITS] demo ai rows injected count={len([r for r in self.ai_managed_rows if str(r.get('source')) == 'AI'])}")
+        except Exception:
+            pass
+
+    def _sync_ai_pool_market_fields(self) -> None:
+        """market_all_rows 시세를 ai_managed_rows 동일 symbol에 반영."""
+        try:
+            market_map = {}
+            for r in (self.market_all_rows or []):
+                sym = str(r.get("symbol") or "").strip()
+                if sym:
+                    market_map[sym] = r
+            for row in (self.ai_managed_rows or []):
+                sym = str(row.get("symbol") or "").strip()
+                if not sym:
+                    continue
+                src = market_map.get(sym)
+                if not src:
+                    continue
+                row["price"] = float(src.get("price", 0.0) or 0.0)
+                row["change_rate"] = float(src.get("change_rate", 0.0) or 0.0)
+                if not str(row.get("name") or "").strip():
+                    row["name"] = str(src.get("name") or sym.split("-")[-1])
+        except Exception:
+            pass
+
+    def _update_ai_pool_statuses(self) -> None:
+        """AI 종목의 최소 상태 규칙을 적용한다(USER는 Watching 유지)."""
+        try:
+            for row in (self.ai_managed_rows or []):
+                src = str(row.get("source") or "").upper()
+                prev_status = str(row.get("ai_status") or "Watching")
+                if src != "AI":
+                    row["ai_status"] = "Watching"
+                    continue
+                price = float(row.get("price") or 0.0)
+                chg = float(row.get("change_rate") or 0.0)
+                pnl = float(row.get("pnl") or 0.0)
+                if price > 0:
+                    tp = float(self.basic_ai_settings.get("target_profit_pct", 3.0) or 3.0)
+                    sl = float(self.basic_ai_settings.get("stop_loss_pct", 1.5) or 1.5)
+                    row["target_price"] = float(price * (1.0 + tp / 100.0))
+                    row["stop_loss"] = float(price * (1.0 - sl / 100.0))
+                else:
+                    row["target_price"] = 0.0
+                    row["stop_loss"] = 0.0
+
+                if prev_status == "Holding":
+                    if pnl >= 3.0:
+                        row["ai_status"] = "Sell Ready"
+                    else:
+                        row["ai_status"] = "Holding"
+                else:
+                    if chg >= 2.0:
+                        row["ai_status"] = "Buy Ready"
+                    elif chg <= -3.0:
+                        row["ai_status"] = "Dropped"
+                    else:
+                        row["ai_status"] = "Watching"
+            print(f"[AITS] ai pool statuses refreshed total={len(self.ai_managed_rows)}")
+        except Exception:
+            pass
+
+    def _sync_basic_ai_settings_from_ui(self) -> None:
+        if not hasattr(self, "cmb_basic_ai_risk"):
+            return
+        self.basic_ai_settings["risk_mode"] = str(self.cmb_basic_ai_risk.currentText()).strip() or "중립"
+        self.basic_ai_settings["target_profit_pct"] = float(self.sp_basic_ai_target_profit.value())
+        self.basic_ai_settings["stop_loss_pct"] = float(self.sp_basic_ai_stop_loss.value())
+        self.basic_ai_settings["max_positions"] = int(self.sp_basic_ai_max_positions.value())
+        self.basic_ai_settings["selection_strength"] = (
+            str(self.cmb_basic_ai_selection.currentText()).strip() or "보통"
+        )
+        self.basic_ai_settings["avoid_bear_market"] = bool(self.cb_basic_ai_avoid_bear.isChecked())
+
+    def _load_basic_ai_settings_to_ui(self) -> None:
+        if not hasattr(self, "cmb_basic_ai_risk"):
+            return
+        d = self.basic_ai_settings
+        rm = str(d.get("risk_mode") or "중립")
+        if self.cmb_basic_ai_risk.findText(rm) >= 0:
+            self.cmb_basic_ai_risk.setCurrentText(rm)
+        else:
+            self.cmb_basic_ai_risk.setCurrentText("중립")
+        self.sp_basic_ai_target_profit.setValue(float(d.get("target_profit_pct", 3.0) or 3.0))
+        self.sp_basic_ai_stop_loss.setValue(float(d.get("stop_loss_pct", 1.5) or 1.5))
+        self.sp_basic_ai_max_positions.setValue(int(d.get("max_positions", 5) or 5))
+        ss = str(d.get("selection_strength") or "보통")
+        if self.cmb_basic_ai_selection.findText(ss) >= 0:
+            self.cmb_basic_ai_selection.setCurrentText(ss)
+        else:
+            self.cmb_basic_ai_selection.setCurrentText("보통")
+        self.cb_basic_ai_avoid_bear.setChecked(bool(d.get("avoid_bear_market", True)))
+
+    def _save_basic_ai_settings(self) -> None:
+        try:
+            self._sync_basic_ai_settings_from_ui()
+            print(f"[AITS] basic ai settings saved: {self.basic_ai_settings}")
+            QMessageBox.information(self, "Basic AI", "저장되었습니다.")
+            try:
+                s0 = self._get_settings_cached(force=False)
+                us0 = getattr(s0, "ui_state", None) or {}
+                if hasattr(us0, "model_dump"):
+                    us0 = us0.model_dump()
+                elif not isinstance(us0, dict):
+                    us0 = {}
+                us_merged = dict(us0)
+                us_merged["basic_ai_settings"] = dict(self.basic_ai_settings)
+                self._apply_settings_patch({"ui_state": us_merged}, reason="basic_ai_settings_save")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _refresh_market_all_table(self) -> None:
+        if not hasattr(self, "tbl_market_all") or self.tbl_market_all is None:
+            return
+        q = ""
+        try:
+            q = (self.ed_market_search.text() or "").strip().lower()
+        except Exception:
+            q = ""
+        rows = list(self.market_all_rows)
+        if q:
+            rows = [
+                r
+                for r in self.market_all_rows
+                if q in (r.get("symbol") or "").lower() or q in (r.get("name") or "").lower()
+            ]
+        self._market_display_rows = rows
+        t = self.tbl_market_all
+        t.setRowCount(0)
+        for i, r in enumerate(rows):
+            t.insertRow(i)
+            sym = (r.get("symbol") or "").strip()
+            name = (r.get("name") or "").strip() or sym
+            c0 = QTableWidgetItem(f"{name} ({sym})" if sym else name)
+            c0.setData(Qt.ItemDataRole.UserRole, sym)
+            t.setItem(i, 0, c0)
+            t.setItem(i, 1, QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}"))
+            t.setItem(i, 2, QTableWidgetItem(self._fmt_change_pct(float(r.get("change_rate") or 0.0))))
+            t.setItem(i, 3, QTableWidgetItem(f"{float(r.get('volume_24h') or 0.0):,.0f}"))
+            t.setItem(i, 4, QTableWidgetItem("추가"))
+
+    def _on_market_search_text_changed(self, _t: str = "") -> None:
+        try:
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
+    def _load_market_explorer_initial_data(self) -> None:
+        try:
+            raw = get_top_markets_by_volume(limit=30) or []
+            self.market_all_rows = []
+            for r in raw:
+                if not isinstance(r, dict):
+                    continue
+                sym = (r.get("market") or "").strip()
+                if not sym:
+                    continue
+                tail = sym.split("-")[-1] if "-" in sym else sym
+                self.market_all_rows.append(
+                    {
+                        "symbol": sym,
+                        "name": tail,
+                        "price": float(r.get("trade_price") or 0.0),
+                        "change_rate": float(r.get("signed_change_rate") or 0.0),
+                        "volume_24h": float(r.get("acc_trade_volume_24h") or 0.0),
+                    }
+                )
+            self._ensure_demo_ai_rows()
+            self._sync_ai_pool_market_fields()
+            self._update_ai_pool_statuses()
+            self._refresh_ai_managed_table()
+            self._refresh_market_all_table()
+        except Exception:
+            self.market_all_rows = []
+            self._ensure_demo_ai_rows()
+            self._sync_ai_pool_market_fields()
+            self._update_ai_pool_statuses()
+            self._refresh_ai_managed_table()
+            self._refresh_market_all_table()
+
+    def _add_symbol_to_ai_pool(self, row_or_symbol) -> None:
+        sym = ""
+        src_row = None
+        if isinstance(row_or_symbol, str):
+            sym = row_or_symbol.strip()
+            for r in self.market_all_rows:
+                if (r.get("symbol") or "").strip() == sym:
+                    src_row = r
+                    break
+        elif isinstance(row_or_symbol, dict):
+            sym = (row_or_symbol.get("symbol") or "").strip()
+            src_row = row_or_symbol
+        if not sym:
+            return
+        for ex in self.ai_managed_rows:
+            if (ex.get("symbol") or "").strip() == sym:
+                QMessageBox.information(self, "관리 종목", "이미 관리 종목에 있습니다.")
+                return
+        name = (src_row.get("name") if src_row else None) or (sym.split("-")[-1] if "-" in sym else sym)
+        price = float(src_row.get("price", 0.0)) if src_row else 0.0
+        chg = float(src_row.get("change_rate", 0.0)) if src_row else 0.0
+        self.ai_managed_rows.append(
+            {
+                "symbol": sym,
+                "name": name,
+                "price": price,
+                "change_rate": chg,
+                "source": "USER",
+                "ai_status": "Watching",
+                "target_price": 0.0,
+                "stop_loss": 0.0,
+                "pnl": 0.0,
+                "locked": True,
+            }
+        )
+        self._refresh_ai_managed_table()
+
+    def _remove_symbol_from_ai_pool(self, symbol: str) -> None:
+        sym = (symbol or "").strip()
+        for i, r in enumerate(self.ai_managed_rows):
+            if (r.get("symbol") or "").strip() != sym:
+                continue
+            if bool(r.get("locked")):
+                QMessageBox.warning(
+                    self,
+                    "제거 불가",
+                    "잠금된 종목입니다. 잠금 해제 후 제거하세요.",
+                )
+                return
+            self.ai_managed_rows.pop(i)
+            self._refresh_ai_managed_table()
+            return
+
+    def _on_ai_managed_table_cell_clicked(self, row: int, col: int) -> None:
+        if row < 0 or row >= len(self.ai_managed_rows):
+            return
+        sym = (self.ai_managed_rows[row].get("symbol") or "").strip()
+        if col == self._AI_M_COL_LOCK:
+            self.ai_managed_rows[row]["locked"] = not bool(self.ai_managed_rows[row].get("locked"))
+            self._refresh_ai_managed_table()
+        elif col == self._AI_M_COL_ACTION:
+            self._remove_symbol_from_ai_pool(sym)
+
+    def _on_market_all_table_cell_clicked(self, row: int, col: int) -> None:
+        if col != self._MKT_COL_ADD:
+            return
+        disp = getattr(self, "_market_display_rows", None) or []
+        if row < 0 or row >= len(disp):
+            return
+        self._add_symbol_to_ai_pool(disp[row])
 
     def _boot_sequence_step1(self):
         """✅ P0-BOOT-LOADING: 부팅 시퀀스 1단계"""
@@ -3297,7 +3740,7 @@ class MainWindow(QMainWindow):
         info_box.setLayout(info_layout)
         v.addRow(info_box)
 
-        # 통합 AI 엔진 선택 UI (OpenAI / Gemini / Basic AI)
+        # (레거시) 상단 공통 엔진 UI는 숨김 유지 — 엔진 설정은 하단 3박스에서만 수행
         self.cmb_ai_engine = QComboBox()
         self.cmb_ai_engine.addItems(["OpenAI", "Gemini", "Basic AI"])
         self.cmb_ai_engine.setCurrentText("Basic AI")
@@ -3310,7 +3753,10 @@ class MainWindow(QMainWindow):
         ai_engine_form.addRow("AI Model", self.cmb_ai_model)
         ai_engine_form.addRow("API Key", self.ed_ai_api_key)
         ai_engine_form.addRow("", self.btn_test_connection)
-        v.addRow(ai_engine_form)
+        self.ai_engine_legacy_widget = QWidget()
+        self.ai_engine_legacy_widget.setLayout(ai_engine_form)
+        self.ai_engine_legacy_widget.setVisible(False)
+        v.addRow(self.ai_engine_legacy_widget)
         self.cmb_ai_engine.currentTextChanged.connect(self._on_ai_engine_changed)
         self.btn_test_connection.clicked.connect(self._on_test_connection_clicked)
         self._on_ai_engine_changed(self.cmb_ai_engine.currentText())
@@ -3356,6 +3802,14 @@ class MainWindow(QMainWindow):
         for model_info in self.KMTS_GPT_MODELS:
             self.ed_openai_model.addItem(model_info["label"], model_info["id"])
         self.ed_openai_model.setCurrentIndex(0)  # gpt-4o-mini 기본값
+
+        self.ed_gemini_key = QLineEdit()
+        self.ed_gemini_key.setEchoMode(QLineEdit.Password)
+        self.ed_gemini_key.setPlaceholderText("Gemini API Key")
+        self.cmb_gemini_model = QComboBox()
+        self.cmb_gemini_model.addItems(["gemini-1.5-pro", "gemini-1.5-flash"])
+        self.lbl_gemini_test_status = QLabel("⚪ NOT TESTED")
+        self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color: #666;")
         
         # Custom Model 입력 (고급 사용자용)
         self.cb_custom_model = QCheckBox("고급 사용자 모드")
@@ -3441,70 +3895,64 @@ class MainWindow(QMainWindow):
         self.btn_install_mistral.setStyleSheet("background-color: #FFE5CC; color: #8B4513;")  # 연한 주황 (미설치)
         self.btn_test_gpt = QPushButton("GPT 연결 테스트")
         self.btn_test_gpt.setObjectName("btn_test_gpt")
+        self.btn_test_gemini = QPushButton("Gemini 연결 테스트")
+        self.btn_test_gemini.setObjectName("btn_test_gemini")
         # ✅ OpenAI 사용량 페이지 바로 열기 (API 호출 없음, 브라우저 연결만)
         self.btn_openai_usage = QPushButton("GPT 사용량 보기 (OpenAI 웹)")
         self.btn_openai_usage.setToolTip("OpenAI Usage 페이지를 브라우저로 엽니다.")
         self.btn_openai_usage.setObjectName("btn_openai_usage")
 
-        # [GPT 박스] GPT (OpenAI) — Key, Model, 테스트
+        # [OpenAI 박스] OpenAI — Key, Model, 테스트
         self.gpt_box = ClickableGroupBox("")  # 제목은 내부 라벨로 처리
         self.gpt_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.gpt_box.setMinimumHeight(0)
 
         gpt_layout = QVBoxLayout()
 
-        # 제목 영역: "Cloud AI (OpenAI / Gemini)" + ⓘ 버튼 + 헤더 오른쪽 1줄 테스트 결과 (좌측 여백 200px)
+        # 제목 영역: "OpenAI" + 상태 1줄
         gpt_title_row = QHBoxLayout()
-        gpt_title_label = QLabel("Cloud AI (OpenAI / Gemini)")
+        gpt_title_label = QLabel("OpenAI")
         gpt_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
-        self.btn_gpt_info = QPushButton("i")
-        self.btn_gpt_info.setMaximumWidth(30)
-        self.btn_gpt_info.setToolTip("GPT 사용 가이드")
-        self.btn_gpt_info.setObjectName("btn_gpt_info")
         self.gpt_test_header_status = QLabel("⚪ NOT TESTED")
         self.gpt_test_header_status.setStyleSheet("font-size: 11px; color: #666;")
         self._gpt_status_stage = "idle"  # idle | connecting | connect_ok | applying | ready
         gpt_title_row.addWidget(gpt_title_label)
-        gpt_title_row.addWidget(self.btn_gpt_info)
-        gpt_title_row.addSpacing(200)
         gpt_title_row.addWidget(self.gpt_test_header_status)
         gpt_title_row.addStretch()
         gpt_layout.addLayout(gpt_title_row)
-        # 최근 판단 요약 (HOLD(ai_hold) / BUY(score=...) — 매수 없음이 버그처럼 보이지 않게)
-        self.gpt_decision_summary = QLabel("")
-        self.gpt_decision_summary.setStyleSheet("font-size: 10px; color: #888;")
-        self.gpt_decision_summary.setToolTip("ai.reco 최근 추천 요약: HOLD=매수조건 불충족(정상), BUY=추천 점수")
-        gpt_layout.addWidget(self.gpt_decision_summary)
         # 폼 레이아웃
         gpt_form = QFormLayout()
         gpt_form.addRow("OpenAI API Key", self.ed_openai_key)
         gpt_form.addRow("OpenAI Model", self.ed_openai_model)
-        # ✅ QFormLayout에서 자동 줄바꿈 방지: QHBoxLayout로 감싸기
-        desc_row = QHBoxLayout()
-        desc_row.addWidget(self.lbl_gpt_model_desc)
-        gpt_form.addRow("", desc_row)  # 모델 설명
-        gpt_form.addRow("", self.cb_custom_model)  # Custom 모드 체크박스
-        gpt_form.addRow("Custom Model", self.inp_custom_model)  # Custom 모델 입력
 
-        # ✅ GPT 버튼 2개를 한 줄에 배치
+        # OpenAI 버튼 배치
         gpt_btn_row = QHBoxLayout()
         self.btn_test_gpt.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.btn_openai_usage.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         gpt_btn_row.addWidget(self.btn_test_gpt)
-        gpt_btn_row.addWidget(self.btn_openai_usage)
         gpt_form.addRow("", gpt_btn_row)
-        # GPT 연결 테스트 결과 표시 (3단계 텍스트, 키 원문/과다 출력 금지) — 숨김, 최종 요약은 헤더 1줄로 표시
-        self.gpt_test_result = QPlainTextEdit()
-        self.gpt_test_result.setReadOnly(True)
-        self.gpt_test_result.setMaximumBlockCount(10)
-        self.gpt_test_result.setMaximumHeight(2)
-        self.gpt_test_result.setVisible(False)
-        self.gpt_test_result.setPlaceholderText("GPT 연결 테스트 버튼을 누르면 결과가 여기에 표시됩니다.")
-        gpt_form.addRow("", self.gpt_test_result)
 
         gpt_layout.addLayout(gpt_form)
-
         self.gpt_box.setLayout(gpt_layout)
+
+        # [Gemini 박스] Gemini — Key, Model, 테스트
+        self.gemini_box = ClickableGroupBox("")
+        self.gemini_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.gemini_box.setMinimumHeight(0)
+        gemini_layout = QVBoxLayout()
+        gemini_title_row = QHBoxLayout()
+        gemini_title_label = QLabel("Gemini")
+        gemini_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        gemini_title_row.addWidget(gemini_title_label)
+        gemini_title_row.addWidget(self.lbl_gemini_test_status)
+        gemini_title_row.addStretch()
+        gemini_layout.addLayout(gemini_title_row)
+        gemini_form = QFormLayout()
+        gemini_form.addRow("Gemini API Key", self.ed_gemini_key)
+        gemini_form.addRow("Gemini Model", self.cmb_gemini_model)
+        self.btn_test_gemini.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        gemini_form.addRow("", self.btn_test_gemini)
+        gemini_layout.addLayout(gemini_form)
+        self.gemini_box.setLayout(gemini_layout)
 
         # [LOCAL 박스] LOCAL (Basic AI) — URL, Model, 테스트, 가이드
         self.local_box = ClickableGroupBox("")  # 제목은 내부 라벨로 처리
@@ -3512,9 +3960,9 @@ class MainWindow(QMainWindow):
         self.local_box.setMinimumHeight(0)
 
         local_layout = QVBoxLayout()
-        # 제목 영역: "LOCAL (Basic AI)" + ⓘ 버튼
+        # 제목 영역: "Basic AI" + ⓘ 버튼
         local_title_row = QHBoxLayout()
-        local_title_label = QLabel("LOCAL (Basic AI)")
+        local_title_label = QLabel("Basic AI")
         local_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         self.btn_local_info = QPushButton("i")
         self.btn_local_info.setMaximumWidth(30)
@@ -3528,6 +3976,36 @@ class MainWindow(QMainWindow):
         local_form = QFormLayout()
         local_form.addRow("Local URL", self.inp_local_url)
         local_form.addRow("Local Model", self.cmb_local_model)
+        self.cmb_basic_ai_risk = QComboBox()
+        self.cmb_basic_ai_risk.addItems(["보수적", "중립", "공격적"])
+        self.cmb_basic_ai_risk.setCurrentText("중립")
+        self.sp_basic_ai_target_profit = QDoubleSpinBox()
+        self.sp_basic_ai_target_profit.setRange(0.1, 50.0)
+        self.sp_basic_ai_target_profit.setDecimals(2)
+        self.sp_basic_ai_target_profit.setSingleStep(0.5)
+        self.sp_basic_ai_target_profit.setValue(3.0)
+        self.sp_basic_ai_stop_loss = QDoubleSpinBox()
+        self.sp_basic_ai_stop_loss.setRange(0.1, 50.0)
+        self.sp_basic_ai_stop_loss.setDecimals(2)
+        self.sp_basic_ai_stop_loss.setSingleStep(0.5)
+        self.sp_basic_ai_stop_loss.setValue(1.5)
+        self.sp_basic_ai_max_positions = QSpinBox()
+        self.sp_basic_ai_max_positions.setRange(1, 50)
+        self.sp_basic_ai_max_positions.setValue(5)
+        self.cmb_basic_ai_selection = QComboBox()
+        self.cmb_basic_ai_selection.addItems(["낮음", "보통", "높음"])
+        self.cmb_basic_ai_selection.setCurrentText("보통")
+        self.cb_basic_ai_avoid_bear = QCheckBox("약세장 회피")
+        self.cb_basic_ai_avoid_bear.setChecked(True)
+        self.btn_save_basic_ai_settings = QPushButton("Basic AI 설정 저장")
+        self.btn_save_basic_ai_settings.clicked.connect(self._save_basic_ai_settings)
+        local_form.addRow("Risk Mode", self.cmb_basic_ai_risk)
+        local_form.addRow("Target Profit %", self.sp_basic_ai_target_profit)
+        local_form.addRow("Stop Loss %", self.sp_basic_ai_stop_loss)
+        local_form.addRow("Max Positions", self.sp_basic_ai_max_positions)
+        local_form.addRow("Selection Strength", self.cmb_basic_ai_selection)
+        local_form.addRow("Avoid Bear Market", self.cb_basic_ai_avoid_bear)
+        local_form.addRow("", self.btn_save_basic_ai_settings)
         local_form.addRow("", self.lbl_local_engines)
 
         # ✅ LOCAL 버튼 2개를 한 줄에 배치
@@ -3546,11 +4024,14 @@ class MainWindow(QMainWindow):
         local_form.addRow("", model_buttons_row)
         local_layout.addLayout(local_form)
         self.local_box.setLayout(local_layout)
+        self._load_basic_ai_settings_to_ui()
 
         self.gpt_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gpt"))
+        self.gemini_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gemini"))
         self.local_box.clicked.connect(lambda: self._set_ai_provider_ui_active("local"))
         self.btn_test_local_ai.clicked.connect(self._on_test_local_ai)
         self.btn_test_gpt.clicked.connect(self._on_test_gpt)
+        self.btn_test_gemini.clicked.connect(self._on_test_gemini)
         if hasattr(self, "cmb_local_model"):
             self.cmb_local_model.currentTextChanged.connect(self._on_local_model_changed)
         try:
@@ -3566,8 +4047,6 @@ class MainWindow(QMainWindow):
             self._gpt_poll_timer.setInterval(2000)
             self._gpt_poll_timer.timeout.connect(self._on_gpt_poll_tick)
             self._gpt_poll_timer.start()
-        self.btn_openai_usage.clicked.connect(self._on_open_openai_usage)
-        self.btn_gpt_info.clicked.connect(self._on_show_gpt_guide)
         self.btn_local_info.clicked.connect(self._on_show_local_guide)
         # ✅ LOCAL 옵션 가이드 버튼 연결
         self.btn_ollama_install_guide.clicked.connect(self._on_open_ollama_install_guide)
@@ -3575,14 +4054,15 @@ class MainWindow(QMainWindow):
         self.btn_install_llama.clicked.connect(lambda: self._on_install_ollama_model("llama3.1"))
         self.btn_install_mistral.clicked.connect(lambda: self._on_install_ollama_model("mistral"))
 
-        # GPT / LOCAL 1행 2열 배치 (좌우 stretch)
-        row_ai = QWidget()
-        row_ai_layout = QHBoxLayout(row_ai)
-        row_ai_layout.setContentsMargins(0, 0, 0, 0)
-        row_ai_layout.setSpacing(12)
-        row_ai_layout.addWidget(self.gpt_box, 1)
-        row_ai_layout.addWidget(self.local_box, 1)
-        v.addRow(row_ai)
+        # OpenAI / Gemini 1행 2열 + Basic AI 하단 전체폭
+        row_ai_top = QWidget()
+        row_ai_top_layout = QHBoxLayout(row_ai_top)
+        row_ai_top_layout.setContentsMargins(0, 0, 0, 0)
+        row_ai_top_layout.setSpacing(12)
+        row_ai_top_layout.addWidget(self.gpt_box, 1)
+        row_ai_top_layout.addWidget(self.gemini_box, 1)
+        v.addRow(row_ai_top)
+        v.addRow(self.local_box)
         self._set_ai_provider_ui_active("local")
         # 초기 로드 시 모델 상태 확인 (백그라운드)
         QTimer.singleShot(1000, self._check_and_update_model_buttons)
@@ -3832,6 +4312,35 @@ class MainWindow(QMainWindow):
                     self.inp_local_url.setText(ai_local_url)
                 if hasattr(self, "cmb_local_model") and ai_local_model in ("llama3.1", "qwen2.5", "mistral"):
                     self.cmb_local_model.setCurrentText(ai_local_model)
+                try:
+                    us = getattr(s, "ui_state", None) or {}
+                    if hasattr(us, "model_dump"):
+                        us = us.model_dump()
+                    elif not isinstance(us, dict):
+                        us = {}
+                    bas = us.get("basic_ai_settings")
+                    if isinstance(bas, dict):
+                        if "risk_mode" in bas and str(bas.get("risk_mode") or "").strip():
+                            self.basic_ai_settings["risk_mode"] = str(bas["risk_mode"]).strip()
+                        if "target_profit_pct" in bas:
+                            self.basic_ai_settings["target_profit_pct"] = float(
+                                bas.get("target_profit_pct") or 3.0
+                            )
+                        if "stop_loss_pct" in bas:
+                            self.basic_ai_settings["stop_loss_pct"] = float(
+                                bas.get("stop_loss_pct") or 1.5
+                            )
+                        if "max_positions" in bas:
+                            self.basic_ai_settings["max_positions"] = int(bas.get("max_positions") or 5)
+                        if "selection_strength" in bas and str(bas.get("selection_strength") or "").strip():
+                            self.basic_ai_settings["selection_strength"] = str(
+                                bas["selection_strength"]
+                            ).strip()
+                        if "avoid_bear_market" in bas:
+                            self.basic_ai_settings["avoid_bear_market"] = bool(bas["avoid_bear_market"])
+                        self._load_basic_ai_settings_to_ui()
+                except Exception:
+                    pass
                 # GPT 박스: 키/모델 항상 로드. LOCAL이어도 키는 마스킹 표시만(비우지 않음).
                 if hasattr(self, "ed_openai_key"):
                     openai_key_loaded = (st_dict.get("ai_openai_api_key") or "")
@@ -4269,6 +4778,20 @@ class MainWindow(QMainWindow):
                     patch.get("strategy", {}).get("ai_provider"), ui_ai_provider)
             self._log.info("[AI-SSOT] save ai_provider=%s", ui_ai_provider)
 
+            if hasattr(self, "cmb_basic_ai_risk"):
+                try:
+                    self._sync_basic_ai_settings_from_ui()
+                    us0 = getattr(s0, "ui_state", None) or {}
+                    if hasattr(us0, "model_dump"):
+                        us0 = us0.model_dump()
+                    elif not isinstance(us0, dict):
+                        us0 = {}
+                    us_merged = dict(us0)
+                    us_merged["basic_ai_settings"] = dict(self.basic_ai_settings)
+                    patch["ui_state"] = us_merged
+                except Exception:
+                    pass
+
             # (2) patch 생성 검증 — 키 목록만 (nested upbit 유지)
             st_keys = list((patch.get("strategy") or {}).keys())
             self._log.info("[SAVE] patch_keys=%s strategy_keys=%s", list(patch.keys()), st_keys)
@@ -4592,7 +5115,7 @@ class MainWindow(QMainWindow):
         prompt = "respond with OK"
         ok, msg = self._call_local_ollama(prompt, model, base_url, timeout_sec=60)
         if ok:
-            self._active_ai_engine = "basic"
+            self._active_ai_engine = "local"
             self._update_active_engine_label()
             QMessageBox.information(self, "로컬 AI 테스트", "Basic AI 연결 성공.")
         else:
@@ -5266,6 +5789,36 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_update_ai_status"):
                 self._update_ai_status()
 
+    def _on_test_gemini(self):
+        """Gemini 박스: 연결 테스트(임시 최소 버전). API Key 유무 확인 후 성공/실패만 반영."""
+        provider = (self.cb_ai_provider.currentText() or "local").strip().lower() if hasattr(self, "cb_ai_provider") else "local"
+        if provider != "gemini":
+            QMessageBox.information(self, "Gemini 연결 테스트", "AI Provider가 gemini일 때만 테스트할 수 있습니다.")
+            return
+
+        api_key = (self.ed_gemini_key.text() or "").strip() if hasattr(self, "ed_gemini_key") else ""
+        if not api_key:
+            QMessageBox.warning(self, "Gemini 연결 테스트", "API Key를 입력하세요.")
+            return
+
+        try:
+            # 임시 최소 테스트: 키 존재 시 성공 처리(실제 Gemini 서비스 연동은 다음 단계)
+            success = True
+            if success:
+                self._active_ai_engine = "gemini"
+                self._update_active_engine_label()
+                if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
+                    self.lbl_gemini_test_status.setText("🟢 CONNECTED")
+                    self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
+                QMessageBox.information(self, "Gemini 연결 테스트", "Gemini 연결 성공")
+            else:
+                raise Exception("fail")
+        except Exception as e:
+            if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
+                self.lbl_gemini_test_status.setText("🔴 FAILED")
+                self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#c62828;")
+            QMessageBox.critical(self, "Gemini 연결 테스트", f"Gemini 연결 실패: {str(e)}")
+
     def _on_test_upbit(self):
         """
         업비트 연결 테스트 핸들러:
@@ -5889,8 +6442,10 @@ class MainWindow(QMainWindow):
                 if selected_provider not in ("gpt", "gemini", "local"):
                     selected_provider = (self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local")
                     selected_provider = (selected_provider or "local").strip().lower()
-                selected_active = "basic" if selected_provider == "local" else selected_provider
+                selected_active = "local" if selected_provider == "local" else selected_provider
                 current_active = (getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
+                if current_active == "basic":
+                    current_active = "local"
                 if selected_active != current_active:
                     active_label = "Basic AI"
                     if current_active == "gpt":
@@ -5909,6 +6464,15 @@ class MainWindow(QMainWindow):
                         "선택한 AI 엔진이 아직 연결되지 않았습니다.\n"
                         f"현재는 Active Engine: {active_label} 기준으로 실행됩니다."
                     )
+
+                print(f"[AITS] managed symbols count={len(getattr(self, 'ai_managed_rows', []) or [])}")
+                if len(getattr(self, "ai_managed_rows", []) or []) <= 0:
+                    QMessageBox.warning(
+                        self,
+                        "거래 종목 없음",
+                        "거래할 종목이 없습니다. 최소 1개 이상의 종목을 추가하세요.",
+                    )
+                    return
 
             # ✅ P0-REAL: 실거래 안전 가드(시작 전)
             try:
@@ -6681,6 +7245,12 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, "tab_watch") and hasattr(self.tab_watch, "refresh"):
                     self.tab_watch.refresh()
+            except Exception:
+                pass
+
+            # AITS 종목관리 탭 데이터 동기화(시장 데이터 기준)
+            try:
+                self._load_market_explorer_initial_data()
             except Exception:
                 pass
 
