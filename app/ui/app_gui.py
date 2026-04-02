@@ -1024,6 +1024,11 @@ class MainWindow(QMainWindow):
             "exclude_overheated": True,
             "avoid_sudden_drop": True,
             "trend_filter": "약함",
+            "entry_score_threshold": 60,
+            "exit_score_threshold": 45,
+            "decision_speed": "보통",
+            "reentry_cooldown_min": 30,
+            "max_new_entries": 2,
         }
         self._basic_ai_status_idx = 0
         self._polling_started = False
@@ -1880,19 +1885,21 @@ class MainWindow(QMainWindow):
         _aits_pool_ly.setSpacing(6)
         _gb_managed = QGroupBox("AITS Managed Pool")
         _managed_inner = QVBoxLayout(_gb_managed)
-        self.tbl_ai_managed = QTableWidget(0, 10)
+        self.tbl_ai_managed = QTableWidget(0, 12)
         self.tbl_ai_managed.setHorizontalHeaderLabels(
             [
                 "코인명",
                 "현재가",
                 "변동률",
                 "구분",
+                "AI 점수",
                 "AI 상태",
                 "목표가",
                 "손절가",
                 "수익률",
                 "잠금",
                 "액션",
+                "AI 판단 요약",
             ]
         )
         self.tbl_ai_managed.verticalHeader().setVisible(False)
@@ -2893,8 +2900,8 @@ class MainWindow(QMainWindow):
             self.lbl_engine_status.setText("AI Engine | Basic AI")
 
     # --- AITS Managed Pool / Market Explorer (Qt 테이블 골격, ag-Grid 스타일 상태·이벤트 분리) ---
-    _AI_M_COL_LOCK = 8
-    _AI_M_COL_ACTION = 9
+    _AI_M_COL_LOCK = 9
+    _AI_M_COL_ACTION = 10
     _MKT_COL_ADD = 4
 
     def _fmt_change_pct(self, rate: float) -> str:
@@ -2928,8 +2935,17 @@ class MainWindow(QMainWindow):
             else:
                 c3.setForeground(QColor("#2e7d32"))
             t.setItem(i, 3, c3)
+            if src == "AI" and row.get("ai_score") is not None:
+                _sc = row.get("ai_score")
+                try:
+                    cscore = QTableWidgetItem(str(int(_sc)))
+                except Exception:
+                    cscore = QTableWidgetItem("—")
+            else:
+                cscore = QTableWidgetItem("—")
+            t.setItem(i, 4, cscore)
             status_txt = str(row.get("ai_status") or "Watching")
-            c4 = QTableWidgetItem(status_txt)
+            c5 = QTableWidgetItem(status_txt)
             _status_color = {
                 "Watching": "#757575",
                 "Buy Ready": "#1565c0",
@@ -2937,14 +2953,18 @@ class MainWindow(QMainWindow):
                 "Sell Ready": "#c62828",
                 "Dropped": "#6d4c41",
             }.get(status_txt, "#757575")
-            c4.setForeground(QColor(_status_color))
-            t.setItem(i, 4, c4)
-            t.setItem(i, 5, QTableWidgetItem(f"{float(row.get('target_price') or 0.0):,.0f}"))
-            t.setItem(i, 6, QTableWidgetItem(f"{float(row.get('stop_loss') or 0.0):,.0f}"))
-            t.setItem(i, 7, QTableWidgetItem(f"{float(row.get('pnl') or 0.0):.2f}%"))
+            c5.setForeground(QColor(_status_color))
+            t.setItem(i, 5, c5)
+            t.setItem(i, 6, QTableWidgetItem(f"{float(row.get('target_price') or 0.0):,.0f}"))
+            t.setItem(i, 7, QTableWidgetItem(f"{float(row.get('stop_loss') or 0.0):,.0f}"))
+            t.setItem(i, 8, QTableWidgetItem(f"{float(row.get('pnl') or 0.0):.2f}%"))
             locked = bool(row.get("locked"))
-            t.setItem(i, 8, QTableWidgetItem("🔒" if locked else "🔓"))
-            t.setItem(i, 9, QTableWidgetItem("제거"))  # TODO: 상세 패널/차트 연결
+            t.setItem(i, 9, QTableWidgetItem("🔒" if locked else "🔓"))
+            t.setItem(i, 10, QTableWidgetItem("제거"))  # TODO: 상세 패널/차트 연결
+            _sum = (row.get("ai_reason_summary") or "").strip()
+            if len(_sum) > 48:
+                _sum = _sum[:45] + "…"
+            t.setItem(i, 11, QTableWidgetItem(_sum if _sum else "—"))
 
     def _ensure_demo_ai_rows(self) -> None:
         """AI 소스 종목이 없을 때만 샘플 AI 종목을 1회 주입한다."""
@@ -2996,40 +3016,236 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _update_ai_pool_statuses(self) -> None:
-        """AI 종목의 최소 상태 규칙을 적용한다(USER는 Watching 유지)."""
+    def _calc_basic_ai_score(self, row: dict) -> dict:
+        """Basic AI 규칙 기반 점수(0~100)."""
+        st = self.basic_ai_settings
+        reasons: list[str] = []
+        trend_score = 0
+        volume_score = 0
+        risk_penalty = 0
+        score = 50
+        chg = float(row.get("change_rate") or 0.0)
+        sym = str(row.get("symbol") or "").strip()
+        vol_24 = 0.0
         try:
-            for row in (self.ai_managed_rows or []):
+            for mr in self.market_all_rows or []:
+                if str(mr.get("symbol") or "").strip() == sym:
+                    vol_24 = float(mr.get("volume_24h") or 0.0)
+                    break
+        except Exception:
+            vol_24 = 0.0
+
+        if chg >= 3.0:
+            score += 20
+            trend_score += 20
+            reasons.append("상승률 양호")
+        elif chg >= 1.0:
+            score += 10
+            trend_score += 10
+            reasons.append("상승 흐름")
+        elif chg <= -3.0:
+            score -= 25
+            trend_score -= 25
+            risk_penalty += 25
+            reasons.append("급락 우려")
+        elif chg <= -1.0:
+            score -= 10
+            trend_score -= 10
+            risk_penalty += 10
+            reasons.append("약세 구간")
+
+        min_vol = int(st.get("min_volume", 0) or 0)
+        if vol_24 >= min_vol:
+            score += 10
+            volume_score = 10
+            reasons.append("최소 거래대금 충족")
+        else:
+            score -= 15
+            volume_score = -15
+            risk_penalty += 15
+            reasons.append("거래대금 부족")
+
+        if bool(st.get("exclude_overheated", True)) and chg >= 8.0:
+            score -= 20
+            risk_penalty += 20
+            reasons.append("과열 구간")
+
+        if bool(st.get("avoid_sudden_drop", True)) and chg <= -5.0:
+            score -= 30
+            risk_penalty += 30
+            reasons.append("급락 위험")
+
+        mrows = self.market_all_rows or []
+        if bool(st.get("avoid_bear_market", True)) and mrows:
+            try:
+                avg_c = sum(float(x.get("change_rate") or 0.0) for x in mrows) / max(len(mrows), 1)
+                if avg_c < 0:
+                    score -= 10
+                    risk_penalty += 10
+                    reasons.append("시장 평균 약세")
+            except Exception:
+                pass
+
+        tf = str(st.get("trend_filter") or "약함")
+        if tf == "강함":
+            if chg >= 2.0:
+                score += 10
+                trend_score += 10
+                reasons.append("추세 필터(강함) 통과")
+            else:
+                score -= 10
+                trend_score -= 10
+                risk_penalty += 10
+                reasons.append("추세 필터(강함) 미달")
+        elif tf == "약함":
+            if chg >= 0.5:
+                score += 5
+                trend_score += 5
+                reasons.append("추세 필터(약함) 가점")
+
+        sel = str(st.get("selection_strength") or "보통")
+        if sel == "높음":
+            score -= 5
+            reasons.append("선별 강도(높음)")
+        elif sel == "낮음":
+            score += 5
+            reasons.append("선별 강도(낮음)")
+
+        rm = str(st.get("risk_mode") or "중립")
+        if rm == "공격적":
+            score += 5
+            reasons.append("운용 성향: 공격")
+        elif rm == "보수적":
+            score -= 5
+            reasons.append("운용 성향: 보수")
+
+        try:
+            import time as _time
+
+            let = row.get("last_exit_ts")
+            if let is not None:
+                let_f = float(let)
+                cool = int(st.get("reentry_cooldown_min", 30) or 30)
+                if _time.time() - let_f < cool * 60:
+                    score -= 20
+                    risk_penalty += 20
+                    reasons.append("재진입 쿨다운")
+        except Exception:
+            pass
+
+        score = max(0, min(100, int(round(score))))
+        return {
+            "score": score,
+            "reasons": reasons,
+            "trend_score": int(trend_score),
+            "volume_score": int(volume_score),
+            "risk_penalty": int(risk_penalty),
+        }
+
+    def _update_ai_pool_statuses(self) -> None:
+        """AI 종목: 규칙 기반 점수로 상태 갱신. USER는 목표/손절만 반영·상태 Watching."""
+        try:
+            st = self.basic_ai_settings
+            max_pos = int(st.get("max_positions", 5) or 5)
+            max_new = max(0, int(st.get("max_new_entries", 2) or 2))
+            entry_th = int(st.get("entry_score_threshold", 60) or 60)
+            exit_th = int(st.get("exit_score_threshold", 45) or 45)
+            tp_pct = float(st.get("target_profit_pct", 3.0) or 3.0)
+            sl_pct = float(st.get("stop_loss_pct", 1.5) or 1.5)
+
+            rows = self.ai_managed_rows or []
+            position_limit_blocked = False
+
+            for row in rows:
                 src = str(row.get("source") or "").upper()
                 prev_status = str(row.get("ai_status") or "Watching")
-                if src != "AI":
-                    row["ai_status"] = "Watching"
-                    continue
                 price = float(row.get("price") or 0.0)
-                chg = float(row.get("change_rate") or 0.0)
                 pnl = float(row.get("pnl") or 0.0)
+
                 if price > 0:
-                    tp = float(self.basic_ai_settings.get("target_profit_pct", 3.0) or 3.0)
-                    sl = float(self.basic_ai_settings.get("stop_loss_pct", 1.5) or 1.5)
-                    row["target_price"] = float(price * (1.0 + tp / 100.0))
-                    row["stop_loss"] = float(price * (1.0 - sl / 100.0))
+                    tpv = float(tp_pct)
+                    slv = float(sl_pct)
+                    row["target_price"] = float(price * (1.0 + tpv / 100.0))
+                    row["stop_loss"] = float(price * (1.0 - slv / 100.0))
                 else:
                     row["target_price"] = 0.0
                     row["stop_loss"] = 0.0
 
+                if src != "AI":
+                    row["ai_status"] = "Watching"
+                    row.pop("ai_score", None)
+                    row.pop("ai_reason_summary", None)
+                    continue
+
+                res = self._calc_basic_ai_score(row)
+                sc = int(res.get("score", 0))
+                row["ai_score"] = sc
+                rsn = res.get("reasons") or []
+                row["ai_reason_summary"] = ", ".join(rsn[:3])
+
                 if prev_status == "Holding":
-                    if pnl >= 3.0:
+                    if pnl >= tp_pct:
+                        row["ai_status"] = "Sell Ready"
+                    elif pnl <= -sl_pct:
                         row["ai_status"] = "Sell Ready"
                     else:
                         row["ai_status"] = "Holding"
+                    continue
+
+                if sc <= exit_th:
+                    row["ai_status"] = "Dropped"
+                elif sc >= entry_th:
+                    row["ai_status"] = "Buy Ready"
                 else:
-                    if chg >= 2.0:
-                        row["ai_status"] = "Buy Ready"
-                    elif chg <= -3.0:
-                        row["ai_status"] = "Dropped"
-                    else:
-                        row["ai_status"] = "Watching"
-            print(f"[AITS] ai pool statuses refreshed total={len(self.ai_managed_rows)}")
+                    row["ai_status"] = "Watching"
+
+            holding_count = sum(
+                1
+                for r in rows
+                if str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Holding"
+            )
+
+            buy_rows = [r for r in rows if str(r.get("source") or "").upper() == "AI" and r.get("ai_status") == "Buy Ready"]
+
+            if holding_count >= max_pos and buy_rows:
+                position_limit_blocked = True
+                for r in buy_rows:
+                    r["ai_status"] = "Watching"
+                buy_rows = []
+            elif buy_rows:
+                buy_rows.sort(key=lambda r: int(r.get("ai_score") or 0), reverse=True)
+                keep_ids = {id(r) for r in buy_rows[:max_new]}
+                for r in buy_rows:
+                    if id(r) not in keep_ids:
+                        r["ai_status"] = "Watching"
+
+            buy_ready_count = sum(1 for r in rows if str(r.get("ai_status") or "") == "Buy Ready")
+            watching_count = sum(1 for r in rows if str(r.get("ai_status") or "") == "Watching")
+            print(
+                f"[AITS] ai score update total={len(rows)} buy_ready={buy_ready_count} watching={watching_count}"
+            )
+
+            status_text = "AITS AI Status: Market Scanning"
+            has_buy = any(
+                str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Buy Ready"
+                for r in rows
+            )
+            has_hold = any(
+                str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Holding"
+                for r in rows
+            )
+            if position_limit_blocked:
+                status_text = "AITS AI Status: Position Limit Reached"
+            elif has_buy:
+                status_text = "AITS AI Status: Opportunity Scoring"
+            elif has_hold:
+                status_text = "AITS AI Status: Position Monitoring"
+            else:
+                status_text = "AITS AI Status: Market Scanning"
+
+            if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                self.lbl_aits_ai_engine_status.setText(status_text)
+            print(f"[AITS] ai engine status={status_text}")
         except Exception:
             pass
 
@@ -3090,6 +3306,11 @@ class MainWindow(QMainWindow):
                 getattr(self, "cb_basic_ai_exclude_overheated", None),
                 getattr(self, "cb_basic_ai_avoid_sudden_drop", None),
                 getattr(self, "cmb_basic_ai_trend_filter", None),
+                getattr(self, "sp_basic_ai_entry_score", None),
+                getattr(self, "sp_basic_ai_exit_score", None),
+                getattr(self, "cmb_basic_ai_decision_speed", None),
+                getattr(self, "sp_basic_ai_reentry_cooldown", None),
+                getattr(self, "sp_basic_ai_max_new_entries", None),
             ):
                 if w is None:
                     continue
@@ -3107,7 +3328,7 @@ class MainWindow(QMainWindow):
 
     def _sync_basic_ai_settings_from_ui(self) -> None:
         try:
-            if not hasattr(self, "cmb_basic_ai_risk"):
+            if not hasattr(self, "cmb_basic_ai_risk") or not hasattr(self, "sp_basic_ai_entry_score"):
                 return
             self.basic_ai_settings["risk_mode"] = str(self.cmb_basic_ai_risk.currentText()).strip() or "중립"
             self.basic_ai_settings["target_profit_pct"] = float(self.sp_basic_ai_target_profit.value())
@@ -3136,12 +3357,19 @@ class MainWindow(QMainWindow):
             self.basic_ai_settings["trend_filter"] = (
                 str(self.cmb_basic_ai_trend_filter.currentText()).strip() or "약함"
             )
+            self.basic_ai_settings["entry_score_threshold"] = int(self.sp_basic_ai_entry_score.value())
+            self.basic_ai_settings["exit_score_threshold"] = int(self.sp_basic_ai_exit_score.value())
+            self.basic_ai_settings["decision_speed"] = (
+                str(self.cmb_basic_ai_decision_speed.currentText()).strip() or "보통"
+            )
+            self.basic_ai_settings["reentry_cooldown_min"] = int(self.sp_basic_ai_reentry_cooldown.value())
+            self.basic_ai_settings["max_new_entries"] = int(self.sp_basic_ai_max_new_entries.value())
         except Exception:
             pass
 
     def _load_basic_ai_settings_to_ui(self) -> None:
         try:
-            if not hasattr(self, "cmb_basic_ai_risk"):
+            if not hasattr(self, "cmb_basic_ai_risk") or not hasattr(self, "sp_basic_ai_entry_score"):
                 return
             d = self.basic_ai_settings
             rm = str(d.get("risk_mode") or "중립")
@@ -3179,6 +3407,15 @@ class MainWindow(QMainWindow):
                 self.cmb_basic_ai_trend_filter.setCurrentText(tf)
             else:
                 self.cmb_basic_ai_trend_filter.setCurrentText("약함")
+            self.sp_basic_ai_entry_score.setValue(int(d.get("entry_score_threshold", 60) or 60))
+            self.sp_basic_ai_exit_score.setValue(int(d.get("exit_score_threshold", 45) or 45))
+            ds = str(d.get("decision_speed") or "보통")
+            if self.cmb_basic_ai_decision_speed.findText(ds) >= 0:
+                self.cmb_basic_ai_decision_speed.setCurrentText(ds)
+            else:
+                self.cmb_basic_ai_decision_speed.setCurrentText("보통")
+            self.sp_basic_ai_reentry_cooldown.setValue(int(d.get("reentry_cooldown_min", 30) or 30))
+            self.sp_basic_ai_max_new_entries.setValue(int(d.get("max_new_entries", 2) or 2))
         except Exception:
             pass
 
@@ -4139,7 +4376,7 @@ class MainWindow(QMainWindow):
         self.cmb_basic_ai_selection = QComboBox()
         self.cmb_basic_ai_selection.addItems(["낮음", "보통", "높음"])
         self.cmb_basic_ai_selection.setCurrentText("보통")
-        self.cb_basic_ai_avoid_bear = QCheckBox("약세장 회피")
+        self.cb_basic_ai_avoid_bear = QCheckBox("하락장 회피")
         self.cb_basic_ai_avoid_bear.setChecked(True)
         self.cmb_basic_ai_buy_sensitivity = QComboBox()
         self.cmb_basic_ai_buy_sensitivity.addItems(["낮음", "보통", "높음"])
@@ -4166,6 +4403,21 @@ class MainWindow(QMainWindow):
         self.cmb_basic_ai_trend_filter = QComboBox()
         self.cmb_basic_ai_trend_filter.addItems(["없음", "약함", "강함"])
         self.cmb_basic_ai_trend_filter.setCurrentText("약함")
+        self.sp_basic_ai_entry_score = QSpinBox()
+        self.sp_basic_ai_entry_score.setRange(0, 100)
+        self.sp_basic_ai_entry_score.setValue(60)
+        self.sp_basic_ai_exit_score = QSpinBox()
+        self.sp_basic_ai_exit_score.setRange(0, 100)
+        self.sp_basic_ai_exit_score.setValue(45)
+        self.cmb_basic_ai_decision_speed = QComboBox()
+        self.cmb_basic_ai_decision_speed.addItems(["느림", "보통", "빠름"])
+        self.cmb_basic_ai_decision_speed.setCurrentText("보통")
+        self.sp_basic_ai_reentry_cooldown = QSpinBox()
+        self.sp_basic_ai_reentry_cooldown.setRange(1, 10_080)
+        self.sp_basic_ai_reentry_cooldown.setValue(30)
+        self.sp_basic_ai_max_new_entries = QSpinBox()
+        self.sp_basic_ai_max_new_entries.setRange(0, 50)
+        self.sp_basic_ai_max_new_entries.setValue(2)
         self.btn_save_basic_ai_settings = QPushButton("Basic AI 설정 저장")
         self.btn_save_basic_ai_settings.clicked.connect(self._save_basic_ai_settings)
 
@@ -4180,29 +4432,29 @@ class MainWindow(QMainWindow):
 
         gb_core = QGroupBox("핵심 운용값")
         gc = _basic_ai_grid(gb_core)
-        gc.addWidget(QLabel("Risk Mode"), 0, 0)
+        gc.addWidget(QLabel("운용 성향"), 0, 0)
         gc.addWidget(self.cmb_basic_ai_risk, 0, 1)
-        gc.addWidget(QLabel("Selection Strength"), 0, 2)
+        gc.addWidget(QLabel("종목 선별 강도"), 0, 2)
         gc.addWidget(self.cmb_basic_ai_selection, 0, 3)
-        gc.addWidget(QLabel("Max Positions"), 1, 0)
+        gc.addWidget(QLabel("최대 보유 종목 수"), 1, 0)
         gc.addWidget(self.sp_basic_ai_max_positions, 1, 1)
         local_layout.addWidget(gb_core)
 
         gb_goal = QGroupBox("목표/손절")
         gg = _basic_ai_grid(gb_goal)
-        gg.addWidget(QLabel("Target Profit %"), 0, 0)
+        gg.addWidget(QLabel("목표 수익률 (%)"), 0, 0)
         gg.addWidget(self.sp_basic_ai_target_profit, 0, 1)
-        gg.addWidget(QLabel("Stop Loss %"), 0, 2)
+        gg.addWidget(QLabel("손절 기준 (%)"), 0, 2)
         gg.addWidget(self.sp_basic_ai_stop_loss, 0, 3)
-        gg.addWidget(QLabel("Max Hold Time (분)"), 1, 0)
+        gg.addWidget(QLabel("최대 보유 시간 (분)"), 1, 0)
         gg.addWidget(self.sp_basic_ai_max_hold_min, 1, 1)
         local_layout.addWidget(gb_goal)
 
         gb_trade = QGroupBox("매수/매도 동작")
         gt = _basic_ai_grid(gb_trade)
-        gt.addWidget(QLabel("Buy Sensitivity"), 0, 0)
+        gt.addWidget(QLabel("매수 민감도"), 0, 0)
         gt.addWidget(self.cmb_basic_ai_buy_sensitivity, 0, 1)
-        gt.addWidget(QLabel("Sell Sensitivity"), 0, 2)
+        gt.addWidget(QLabel("매도 민감도"), 0, 2)
         gt.addWidget(self.cmb_basic_ai_sell_sensitivity, 0, 3)
         gt.addWidget(self.cb_basic_ai_split_buy, 1, 0, 1, 2)
         gt.addWidget(self.cb_basic_ai_split_sell, 1, 2, 1, 2)
@@ -4210,14 +4462,28 @@ class MainWindow(QMainWindow):
 
         gb_filter = QGroupBox("시장 필터")
         gf = _basic_ai_grid(gb_filter)
-        gf.addWidget(QLabel("Min Volume Filter (원)"), 0, 0)
+        gf.addWidget(QLabel("최소 거래대금 (원)"), 0, 0)
         gf.addWidget(self.sp_basic_ai_min_volume, 0, 1)
-        gf.addWidget(QLabel("Trend Filter"), 0, 2)
+        gf.addWidget(QLabel("추세 필터"), 0, 2)
         gf.addWidget(self.cmb_basic_ai_trend_filter, 0, 3)
         gf.addWidget(self.cb_basic_ai_avoid_bear, 1, 0, 1, 2)
         gf.addWidget(self.cb_basic_ai_exclude_overheated, 1, 2, 1, 2)
         gf.addWidget(self.cb_basic_ai_avoid_sudden_drop, 2, 0, 1, 2)
         local_layout.addWidget(gb_filter)
+
+        gb_ai_logic = QGroupBox("AI 판단 로직")
+        gl = _basic_ai_grid(gb_ai_logic)
+        gl.addWidget(QLabel("AI 진입 기준 점수"), 0, 0)
+        gl.addWidget(self.sp_basic_ai_entry_score, 0, 1)
+        gl.addWidget(QLabel("AI 청산 기준 점수"), 0, 2)
+        gl.addWidget(self.sp_basic_ai_exit_score, 0, 3)
+        gl.addWidget(QLabel("AI 판단 속도"), 1, 0)
+        gl.addWidget(self.cmb_basic_ai_decision_speed, 1, 1)
+        gl.addWidget(QLabel("재진입 제한 시간 (분)"), 1, 2)
+        gl.addWidget(self.sp_basic_ai_reentry_cooldown, 1, 3)
+        gl.addWidget(QLabel("동시 매수 제한 수"), 2, 0)
+        gl.addWidget(self.sp_basic_ai_max_new_entries, 2, 1)
+        local_layout.addWidget(gb_ai_logic)
 
         self.btn_save_basic_ai_settings.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         local_layout.addWidget(self.btn_save_basic_ai_settings)
@@ -4579,6 +4845,22 @@ class MainWindow(QMainWindow):
                             self.basic_ai_settings["avoid_sudden_drop"] = bool(bas["avoid_sudden_drop"])
                         if "trend_filter" in bas and str(bas.get("trend_filter") or "").strip():
                             self.basic_ai_settings["trend_filter"] = str(bas["trend_filter"]).strip()
+                        if "entry_score_threshold" in bas:
+                            self.basic_ai_settings["entry_score_threshold"] = int(
+                                bas.get("entry_score_threshold") or 60
+                            )
+                        if "exit_score_threshold" in bas:
+                            self.basic_ai_settings["exit_score_threshold"] = int(
+                                bas.get("exit_score_threshold") or 45
+                            )
+                        if "decision_speed" in bas and str(bas.get("decision_speed") or "").strip():
+                            self.basic_ai_settings["decision_speed"] = str(bas["decision_speed"]).strip()
+                        if "reentry_cooldown_min" in bas:
+                            self.basic_ai_settings["reentry_cooldown_min"] = int(
+                                bas.get("reentry_cooldown_min") or 30
+                            )
+                        if "max_new_entries" in bas:
+                            self.basic_ai_settings["max_new_entries"] = int(bas.get("max_new_entries") or 2)
                         self._load_basic_ai_settings_to_ui()
                 except Exception:
                     pass
