@@ -1015,7 +1015,17 @@ class MainWindow(QMainWindow):
             "max_positions": 5,
             "selection_strength": "보통",
             "avoid_bear_market": True,
+            "buy_sensitivity": "보통",
+            "sell_sensitivity": "보통",
+            "split_buy": True,
+            "split_sell": True,
+            "max_hold_time": 120,
+            "min_volume": 100_000_000,
+            "exclude_overheated": True,
+            "avoid_sudden_drop": True,
+            "trend_filter": "약함",
         }
+        self._basic_ai_status_idx = 0
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
@@ -1488,6 +1498,11 @@ class MainWindow(QMainWindow):
 
         global_status_layout.addWidget(self.global_status_icon)
         global_status_layout.addWidget(self.global_status_text)
+        self.lbl_aits_ai_engine_status = QLabel("AITS AI Status: Market Scanning")
+        self.lbl_aits_ai_engine_status.setStyleSheet(
+            "font-size: 11px; color: #37474f; font-weight: 600; padding: 0 8px;"
+        )
+        global_status_layout.addWidget(self.lbl_aits_ai_engine_status)
         global_status_layout.addStretch()
         global_status_layout.addWidget(self.ai_status_text)
         global_status_layout.addWidget(self.global_status_time)
@@ -3018,40 +3033,159 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _hide_basic_ai_legacy_local_ui(self, form) -> None:
+        try:
+            for w in (
+                getattr(self, "inp_local_url", None),
+                getattr(self, "cmb_local_model", None),
+                getattr(self, "lbl_local_engines", None),
+                getattr(self, "btn_test_local_ai", None),
+                getattr(self, "btn_ollama_install_guide", None),
+                getattr(self, "btn_install_qwen", None),
+                getattr(self, "btn_install_llama", None),
+                getattr(self, "btn_install_mistral", None),
+                getattr(self, "_local_legacy_btn_wrap", None),
+                getattr(self, "_local_model_btn_wrap", None),
+            ):
+                if w is None:
+                    continue
+                try:
+                    w.setVisible(False)
+                except Exception:
+                    pass
+                try:
+                    lf = form.labelForField(w)
+                    if lf is not None:
+                        lf.setVisible(False)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _advance_basic_ai_status_line(self) -> None:
+        try:
+            msgs = (
+                "AITS AI Status: Market Scanning",
+                "AITS AI Status: Opportunity Scoring",
+                "AITS AI Status: Risk Filtering",
+            )
+            self._basic_ai_status_idx = (int(getattr(self, "_basic_ai_status_idx", 0)) + 1) % len(msgs)
+            if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                self.lbl_aits_ai_engine_status.setText(msgs[self._basic_ai_status_idx])
+        except Exception:
+            pass
+
+    def _wire_basic_ai_status_line_hooks(self) -> None:
+        try:
+            def _bump():
+                self._advance_basic_ai_status_line()
+
+            for w in (
+                getattr(self, "cmb_basic_ai_buy_sensitivity", None),
+                getattr(self, "cmb_basic_ai_sell_sensitivity", None),
+                getattr(self, "cb_basic_ai_split_buy", None),
+                getattr(self, "cb_basic_ai_split_sell", None),
+                getattr(self, "sp_basic_ai_max_hold_min", None),
+                getattr(self, "sp_basic_ai_min_volume", None),
+                getattr(self, "cb_basic_ai_exclude_overheated", None),
+                getattr(self, "cb_basic_ai_avoid_sudden_drop", None),
+                getattr(self, "cmb_basic_ai_trend_filter", None),
+            ):
+                if w is None:
+                    continue
+                try:
+                    if hasattr(w, "currentTextChanged"):
+                        w.currentTextChanged.connect(lambda _t="", b=_bump: b())
+                    elif hasattr(w, "toggled"):
+                        w.toggled.connect(lambda _c=False, b=_bump: b())
+                    elif hasattr(w, "valueChanged"):
+                        w.valueChanged.connect(lambda _v=0, b=_bump: b())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _sync_basic_ai_settings_from_ui(self) -> None:
-        if not hasattr(self, "cmb_basic_ai_risk"):
-            return
-        self.basic_ai_settings["risk_mode"] = str(self.cmb_basic_ai_risk.currentText()).strip() or "중립"
-        self.basic_ai_settings["target_profit_pct"] = float(self.sp_basic_ai_target_profit.value())
-        self.basic_ai_settings["stop_loss_pct"] = float(self.sp_basic_ai_stop_loss.value())
-        self.basic_ai_settings["max_positions"] = int(self.sp_basic_ai_max_positions.value())
-        self.basic_ai_settings["selection_strength"] = (
-            str(self.cmb_basic_ai_selection.currentText()).strip() or "보통"
-        )
-        self.basic_ai_settings["avoid_bear_market"] = bool(self.cb_basic_ai_avoid_bear.isChecked())
+        try:
+            if not hasattr(self, "cmb_basic_ai_risk"):
+                return
+            self.basic_ai_settings["risk_mode"] = str(self.cmb_basic_ai_risk.currentText()).strip() or "중립"
+            self.basic_ai_settings["target_profit_pct"] = float(self.sp_basic_ai_target_profit.value())
+            self.basic_ai_settings["stop_loss_pct"] = float(self.sp_basic_ai_stop_loss.value())
+            self.basic_ai_settings["max_positions"] = int(self.sp_basic_ai_max_positions.value())
+            self.basic_ai_settings["selection_strength"] = (
+                str(self.cmb_basic_ai_selection.currentText()).strip() or "보통"
+            )
+            self.basic_ai_settings["avoid_bear_market"] = bool(self.cb_basic_ai_avoid_bear.isChecked())
+            self.basic_ai_settings["buy_sensitivity"] = (
+                str(self.cmb_basic_ai_buy_sensitivity.currentText()).strip() or "보통"
+            )
+            self.basic_ai_settings["sell_sensitivity"] = (
+                str(self.cmb_basic_ai_sell_sensitivity.currentText()).strip() or "보통"
+            )
+            self.basic_ai_settings["split_buy"] = bool(self.cb_basic_ai_split_buy.isChecked())
+            self.basic_ai_settings["split_sell"] = bool(self.cb_basic_ai_split_sell.isChecked())
+            self.basic_ai_settings["max_hold_time"] = int(self.sp_basic_ai_max_hold_min.value())
+            self.basic_ai_settings["min_volume"] = int(self.sp_basic_ai_min_volume.value())
+            self.basic_ai_settings["exclude_overheated"] = bool(
+                self.cb_basic_ai_exclude_overheated.isChecked()
+            )
+            self.basic_ai_settings["avoid_sudden_drop"] = bool(
+                self.cb_basic_ai_avoid_sudden_drop.isChecked()
+            )
+            self.basic_ai_settings["trend_filter"] = (
+                str(self.cmb_basic_ai_trend_filter.currentText()).strip() or "약함"
+            )
+        except Exception:
+            pass
 
     def _load_basic_ai_settings_to_ui(self) -> None:
-        if not hasattr(self, "cmb_basic_ai_risk"):
-            return
-        d = self.basic_ai_settings
-        rm = str(d.get("risk_mode") or "중립")
-        if self.cmb_basic_ai_risk.findText(rm) >= 0:
-            self.cmb_basic_ai_risk.setCurrentText(rm)
-        else:
-            self.cmb_basic_ai_risk.setCurrentText("중립")
-        self.sp_basic_ai_target_profit.setValue(float(d.get("target_profit_pct", 3.0) or 3.0))
-        self.sp_basic_ai_stop_loss.setValue(float(d.get("stop_loss_pct", 1.5) or 1.5))
-        self.sp_basic_ai_max_positions.setValue(int(d.get("max_positions", 5) or 5))
-        ss = str(d.get("selection_strength") or "보통")
-        if self.cmb_basic_ai_selection.findText(ss) >= 0:
-            self.cmb_basic_ai_selection.setCurrentText(ss)
-        else:
-            self.cmb_basic_ai_selection.setCurrentText("보통")
-        self.cb_basic_ai_avoid_bear.setChecked(bool(d.get("avoid_bear_market", True)))
+        try:
+            if not hasattr(self, "cmb_basic_ai_risk"):
+                return
+            d = self.basic_ai_settings
+            rm = str(d.get("risk_mode") or "중립")
+            if self.cmb_basic_ai_risk.findText(rm) >= 0:
+                self.cmb_basic_ai_risk.setCurrentText(rm)
+            else:
+                self.cmb_basic_ai_risk.setCurrentText("중립")
+            self.sp_basic_ai_target_profit.setValue(float(d.get("target_profit_pct", 3.0) or 3.0))
+            self.sp_basic_ai_stop_loss.setValue(float(d.get("stop_loss_pct", 1.5) or 1.5))
+            self.sp_basic_ai_max_positions.setValue(int(d.get("max_positions", 5) or 5))
+            ss = str(d.get("selection_strength") or "보통")
+            if self.cmb_basic_ai_selection.findText(ss) >= 0:
+                self.cmb_basic_ai_selection.setCurrentText(ss)
+            else:
+                self.cmb_basic_ai_selection.setCurrentText("보통")
+            self.cb_basic_ai_avoid_bear.setChecked(bool(d.get("avoid_bear_market", True)))
+            bs = str(d.get("buy_sensitivity") or "보통")
+            if self.cmb_basic_ai_buy_sensitivity.findText(bs) >= 0:
+                self.cmb_basic_ai_buy_sensitivity.setCurrentText(bs)
+            else:
+                self.cmb_basic_ai_buy_sensitivity.setCurrentText("보통")
+            ssell = str(d.get("sell_sensitivity") or "보통")
+            if self.cmb_basic_ai_sell_sensitivity.findText(ssell) >= 0:
+                self.cmb_basic_ai_sell_sensitivity.setCurrentText(ssell)
+            else:
+                self.cmb_basic_ai_sell_sensitivity.setCurrentText("보통")
+            self.cb_basic_ai_split_buy.setChecked(bool(d.get("split_buy", True)))
+            self.cb_basic_ai_split_sell.setChecked(bool(d.get("split_sell", True)))
+            self.sp_basic_ai_max_hold_min.setValue(int(d.get("max_hold_time", 120) or 120))
+            self.sp_basic_ai_min_volume.setValue(int(d.get("min_volume", 100_000_000) or 0))
+            self.cb_basic_ai_exclude_overheated.setChecked(bool(d.get("exclude_overheated", True)))
+            self.cb_basic_ai_avoid_sudden_drop.setChecked(bool(d.get("avoid_sudden_drop", True)))
+            tf = str(d.get("trend_filter") or "약함")
+            if self.cmb_basic_ai_trend_filter.findText(tf) >= 0:
+                self.cmb_basic_ai_trend_filter.setCurrentText(tf)
+            else:
+                self.cmb_basic_ai_trend_filter.setCurrentText("약함")
+        except Exception:
+            pass
 
     def _save_basic_ai_settings(self) -> None:
         try:
             self._sync_basic_ai_settings_from_ui()
+            self._advance_basic_ai_status_line()
             print(f"[AITS] basic ai settings saved: {self.basic_ai_settings}")
             QMessageBox.information(self, "Basic AI", "저장되었습니다.")
             try:
@@ -3960,6 +4094,8 @@ class MainWindow(QMainWindow):
         self.local_box.setMinimumHeight(0)
 
         local_layout = QVBoxLayout()
+        local_layout.setSpacing(4)
+        local_layout.setContentsMargins(2, 2, 2, 2)
         # 제목 영역: "Basic AI" + ⓘ 버튼
         local_title_row = QHBoxLayout()
         local_title_label = QLabel("Basic AI")
@@ -3972,10 +4108,18 @@ class MainWindow(QMainWindow):
         local_title_row.addWidget(self.btn_local_info)
         local_title_row.addStretch()
         local_layout.addLayout(local_title_row)
-        # 폼 레이아웃
-        local_form = QFormLayout()
-        local_form.addRow("Local URL", self.inp_local_url)
-        local_form.addRow("Local Model", self.cmb_local_model)
+        self.btn_local_info.setVisible(False)
+        self.lbl_basic_ai_subtitle = QLabel("AITS 기본 자동매매 엔진 (설정 기반 AI)")
+        self.lbl_basic_ai_subtitle.setStyleSheet("font-size: 11px; color: #555; padding: 0 0 6px 0;")
+        self.lbl_basic_ai_subtitle.setWordWrap(True)
+        local_layout.addWidget(self.lbl_basic_ai_subtitle)
+        # 레거시 Local/Ollama 행만 유지 (숨김 처리용, 메인 설정은 아래 그룹박스)
+        self._basic_ai_legacy_form = QFormLayout()
+        self._basic_ai_legacy_form.setSpacing(4)
+        self._basic_ai_legacy_form.setVerticalSpacing(4)
+        self._basic_ai_legacy_form.setHorizontalSpacing(8)
+        self._basic_ai_legacy_form.addRow("Local URL", self.inp_local_url)
+        self._basic_ai_legacy_form.addRow("Local Model", self.cmb_local_model)
         self.cmb_basic_ai_risk = QComboBox()
         self.cmb_basic_ai_risk.addItems(["보수적", "중립", "공격적"])
         self.cmb_basic_ai_risk.setCurrentText("중립")
@@ -3997,34 +4141,113 @@ class MainWindow(QMainWindow):
         self.cmb_basic_ai_selection.setCurrentText("보통")
         self.cb_basic_ai_avoid_bear = QCheckBox("약세장 회피")
         self.cb_basic_ai_avoid_bear.setChecked(True)
+        self.cmb_basic_ai_buy_sensitivity = QComboBox()
+        self.cmb_basic_ai_buy_sensitivity.addItems(["낮음", "보통", "높음"])
+        self.cmb_basic_ai_buy_sensitivity.setCurrentText("보통")
+        self.cmb_basic_ai_sell_sensitivity = QComboBox()
+        self.cmb_basic_ai_sell_sensitivity.addItems(["느림", "보통", "빠름"])
+        self.cmb_basic_ai_sell_sensitivity.setCurrentText("보통")
+        self.cb_basic_ai_split_buy = QCheckBox("분할 매수")
+        self.cb_basic_ai_split_buy.setChecked(True)
+        self.cb_basic_ai_split_sell = QCheckBox("분할 매도")
+        self.cb_basic_ai_split_sell.setChecked(True)
+        self.sp_basic_ai_max_hold_min = QSpinBox()
+        self.sp_basic_ai_max_hold_min.setRange(1, 10_080)
+        self.sp_basic_ai_max_hold_min.setSingleStep(10)
+        self.sp_basic_ai_max_hold_min.setValue(120)
+        self.sp_basic_ai_min_volume = QSpinBox()
+        self.sp_basic_ai_min_volume.setRange(0, 2_000_000_000)
+        self.sp_basic_ai_min_volume.setSingleStep(1_000_000)
+        self.sp_basic_ai_min_volume.setValue(100_000_000)
+        self.cb_basic_ai_exclude_overheated = QCheckBox("과열 종목 제외")
+        self.cb_basic_ai_exclude_overheated.setChecked(True)
+        self.cb_basic_ai_avoid_sudden_drop = QCheckBox("급락 회피")
+        self.cb_basic_ai_avoid_sudden_drop.setChecked(True)
+        self.cmb_basic_ai_trend_filter = QComboBox()
+        self.cmb_basic_ai_trend_filter.addItems(["없음", "약함", "강함"])
+        self.cmb_basic_ai_trend_filter.setCurrentText("약함")
         self.btn_save_basic_ai_settings = QPushButton("Basic AI 설정 저장")
         self.btn_save_basic_ai_settings.clicked.connect(self._save_basic_ai_settings)
-        local_form.addRow("Risk Mode", self.cmb_basic_ai_risk)
-        local_form.addRow("Target Profit %", self.sp_basic_ai_target_profit)
-        local_form.addRow("Stop Loss %", self.sp_basic_ai_stop_loss)
-        local_form.addRow("Max Positions", self.sp_basic_ai_max_positions)
-        local_form.addRow("Selection Strength", self.cmb_basic_ai_selection)
-        local_form.addRow("Avoid Bear Market", self.cb_basic_ai_avoid_bear)
-        local_form.addRow("", self.btn_save_basic_ai_settings)
-        local_form.addRow("", self.lbl_local_engines)
 
-        # ✅ LOCAL 버튼 2개를 한 줄에 배치
+        def _basic_ai_grid(gb: QGroupBox) -> QGridLayout:
+            g = QGridLayout(gb)
+            g.setContentsMargins(6, 6, 6, 6)
+            g.setHorizontalSpacing(10)
+            g.setVerticalSpacing(3)
+            g.setColumnStretch(1, 1)
+            g.setColumnStretch(3, 1)
+            return g
+
+        gb_core = QGroupBox("핵심 운용값")
+        gc = _basic_ai_grid(gb_core)
+        gc.addWidget(QLabel("Risk Mode"), 0, 0)
+        gc.addWidget(self.cmb_basic_ai_risk, 0, 1)
+        gc.addWidget(QLabel("Selection Strength"), 0, 2)
+        gc.addWidget(self.cmb_basic_ai_selection, 0, 3)
+        gc.addWidget(QLabel("Max Positions"), 1, 0)
+        gc.addWidget(self.sp_basic_ai_max_positions, 1, 1)
+        local_layout.addWidget(gb_core)
+
+        gb_goal = QGroupBox("목표/손절")
+        gg = _basic_ai_grid(gb_goal)
+        gg.addWidget(QLabel("Target Profit %"), 0, 0)
+        gg.addWidget(self.sp_basic_ai_target_profit, 0, 1)
+        gg.addWidget(QLabel("Stop Loss %"), 0, 2)
+        gg.addWidget(self.sp_basic_ai_stop_loss, 0, 3)
+        gg.addWidget(QLabel("Max Hold Time (분)"), 1, 0)
+        gg.addWidget(self.sp_basic_ai_max_hold_min, 1, 1)
+        local_layout.addWidget(gb_goal)
+
+        gb_trade = QGroupBox("매수/매도 동작")
+        gt = _basic_ai_grid(gb_trade)
+        gt.addWidget(QLabel("Buy Sensitivity"), 0, 0)
+        gt.addWidget(self.cmb_basic_ai_buy_sensitivity, 0, 1)
+        gt.addWidget(QLabel("Sell Sensitivity"), 0, 2)
+        gt.addWidget(self.cmb_basic_ai_sell_sensitivity, 0, 3)
+        gt.addWidget(self.cb_basic_ai_split_buy, 1, 0, 1, 2)
+        gt.addWidget(self.cb_basic_ai_split_sell, 1, 2, 1, 2)
+        local_layout.addWidget(gb_trade)
+
+        gb_filter = QGroupBox("시장 필터")
+        gf = _basic_ai_grid(gb_filter)
+        gf.addWidget(QLabel("Min Volume Filter (원)"), 0, 0)
+        gf.addWidget(self.sp_basic_ai_min_volume, 0, 1)
+        gf.addWidget(QLabel("Trend Filter"), 0, 2)
+        gf.addWidget(self.cmb_basic_ai_trend_filter, 0, 3)
+        gf.addWidget(self.cb_basic_ai_avoid_bear, 1, 0, 1, 2)
+        gf.addWidget(self.cb_basic_ai_exclude_overheated, 1, 2, 1, 2)
+        gf.addWidget(self.cb_basic_ai_avoid_sudden_drop, 2, 0, 1, 2)
+        local_layout.addWidget(gb_filter)
+
+        self.btn_save_basic_ai_settings.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        local_layout.addWidget(self.btn_save_basic_ai_settings)
+
+        self._basic_ai_legacy_form.addRow("", self.lbl_local_engines)
+        # ✅ LOCAL 버튼 2개를 한 줄에 배치 (레거시, 레이아웃 유지·숨김)
         local_btn_row = QHBoxLayout()
         self.btn_test_local_ai.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_ollama_install_guide.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         local_btn_row.addWidget(self.btn_test_local_ai)
         local_btn_row.addWidget(self.btn_ollama_install_guide)
-        local_form.addRow("", local_btn_row)
+        self._local_legacy_btn_wrap = QWidget()
+        self._local_legacy_btn_wrap.setLayout(local_btn_row)
+        self._basic_ai_legacy_form.addRow("", self._local_legacy_btn_wrap)
 
-        # 모델 설치 버튼 가로 배치
+        # 모델 설치 버튼 가로 배치 (레거시, 레이아웃 유지·숨김)
         model_buttons_row = QHBoxLayout()
         model_buttons_row.addWidget(self.btn_install_qwen)
         model_buttons_row.addWidget(self.btn_install_llama)
         model_buttons_row.addWidget(self.btn_install_mistral)
-        local_form.addRow("", model_buttons_row)
-        local_layout.addLayout(local_form)
+        self._local_model_btn_wrap = QWidget()
+        self._local_model_btn_wrap.setLayout(model_buttons_row)
+        self._basic_ai_legacy_form.addRow("", self._local_model_btn_wrap)
+        _basic_ai_legacy_wrap = QWidget()
+        _basic_ai_legacy_wrap.setLayout(self._basic_ai_legacy_form)
+        local_layout.insertWidget(2, _basic_ai_legacy_wrap)
         self.local_box.setLayout(local_layout)
+        self._hide_basic_ai_legacy_local_ui(self._basic_ai_legacy_form)
         self._load_basic_ai_settings_to_ui()
+        self._wire_basic_ai_status_line_hooks()
 
         self.gpt_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gpt"))
         self.gemini_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gemini"))
@@ -4338,6 +4561,24 @@ class MainWindow(QMainWindow):
                             ).strip()
                         if "avoid_bear_market" in bas:
                             self.basic_ai_settings["avoid_bear_market"] = bool(bas["avoid_bear_market"])
+                        if "buy_sensitivity" in bas and str(bas.get("buy_sensitivity") or "").strip():
+                            self.basic_ai_settings["buy_sensitivity"] = str(bas["buy_sensitivity"]).strip()
+                        if "sell_sensitivity" in bas and str(bas.get("sell_sensitivity") or "").strip():
+                            self.basic_ai_settings["sell_sensitivity"] = str(bas["sell_sensitivity"]).strip()
+                        if "split_buy" in bas:
+                            self.basic_ai_settings["split_buy"] = bool(bas["split_buy"])
+                        if "split_sell" in bas:
+                            self.basic_ai_settings["split_sell"] = bool(bas["split_sell"])
+                        if "max_hold_time" in bas:
+                            self.basic_ai_settings["max_hold_time"] = int(bas.get("max_hold_time") or 120)
+                        if "min_volume" in bas:
+                            self.basic_ai_settings["min_volume"] = int(bas.get("min_volume") or 0)
+                        if "exclude_overheated" in bas:
+                            self.basic_ai_settings["exclude_overheated"] = bool(bas["exclude_overheated"])
+                        if "avoid_sudden_drop" in bas:
+                            self.basic_ai_settings["avoid_sudden_drop"] = bool(bas["avoid_sudden_drop"])
+                        if "trend_filter" in bas and str(bas.get("trend_filter") or "").strip():
+                            self.basic_ai_settings["trend_filter"] = str(bas["trend_filter"]).strip()
                         self._load_basic_ai_settings_to_ui()
                 except Exception:
                     pass
