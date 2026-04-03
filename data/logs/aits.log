@@ -3339,3 +3339,61 @@ ModuleNotFoundError: No module named 'jwt'
 2026-04-02 10:59:56,613 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-02 10:59:56,614 | INFO | aits | AITS orchestrator initialized
 2026-04-02 10:59:56,936 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-03 08:25:09,214 | INFO | aits | AITS bootstrap start
+2026-04-03 08:25:09,221 | INFO | aits | AITS orchestrator initialized
+2026-04-03 08:25:09,221 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-03 08:25:09,221 | INFO | aits | AITS orchestrator initialized
+2026-04-03 08:25:10,256 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-03 08:25:14,210 | ERROR | aits | UI main() failed
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 118, in launch_ui
+    ret = ui_main(
+        root_dir=app_context["root_dir"],
+        data_dir=app_context["data_dir"],
+    )
+  File "C:\AITS\app\ui\main_window.py", line 23, in main
+    _legacy_main(root_dir=root_dir, data_dir=data_dir)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AITS\app\ui\app_gui.py", line 8269, in main
+    window = MainWindow(state, root_dir, data_dir)
+  File "C:\AITS\app\ui\app_gui.py", line 1078, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\app_gui.py", line 1935, in _build_ui
+    _fb = QFormLayout()
+          ^^^^^^^^^^^
+NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?
+2026-04-03 08:25:25,837 | INFO | aits | AITS bootstrap start
+2026-04-03 08:25:25,844 | INFO | aits | AITS orchestrator initialized
+2026-04-03 08:25:25,844 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-03 08:25:25,845 | INFO | aits | AITS orchestrator initialized
+2026-04-03 08:25:26,087 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-03 08:25:28,726 | ERROR | aits | UI main() failed
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 118, in launch_ui
+    ret = ui_main(
+        root_dir=app_context["root_dir"],
+        data_dir=app_context["data_dir"],
+    )
+  File "C:\AITS\app\ui\main_window.py", line 23, in main
+    _legacy_main(root_dir=root_dir, data_dir=data_dir)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\AITS\app\ui\app_gui.py", line 8269, in main
+    window = MainWindow(state, root_dir, data_dir)
+  File "C:\AITS\app\ui\app_gui.py", line 1078, in __init__
+    self._build_ui()
+    ~~~~~~~~~~~~~~^^
+  File "C:\AITS\app\ui\app_gui.py", line 1935, in _build_ui
+    _fb = QFormLayout()
+          ^^^^^^^^^^^
+NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?
+2026-04-03 15:53:08,950 | INFO | aits | AITS bootstrap start
+2026-04-03 15:53:08,959 | INFO | aits | AITS orchestrator initialized
+2026-04-03 15:53:08,959 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-03 15:53:08,960 | INFO | aits | AITS orchestrator initialized
+2026-04-03 15:53:09,814 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-03 15:55:35,298 | INFO | aits | AITS bootstrap start
+2026-04-03 15:55:35,304 | INFO | aits | AITS orchestrator initialized
+2026-04-03 15:55:35,305 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-03 15:55:35,305 | INFO | aits | AITS orchestrator initialized
+2026-04-03 15:55:36,087 | INFO | aits | UI launched via legacy-compatible entry

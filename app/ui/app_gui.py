@@ -185,7 +185,7 @@ QLineEdit[readOnly="true"] {
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QHeaderView,
+    QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QFormLayout, QHeaderView,
     QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
     QAbstractItemView, QMenu, QSizePolicy, QScrollArea, QCheckBox,
     QGroupBox, QLineEdit, QTextEdit, QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem,
@@ -1031,6 +1031,8 @@ class MainWindow(QMainWindow):
             "max_new_entries": 2,
         }
         self._basic_ai_status_idx = 0
+        self._selected_ai_pool_symbol = ""
+        self._aits_overview_expanded = False
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
@@ -1514,11 +1516,29 @@ class MainWindow(QMainWindow):
         
         lay.addWidget(self.global_status_frame)
 
-        # --- AITS status panel (read-only, Phase 1) ---
-        self._aits_status_group = QGroupBox("AITS AI Trading System")
+        # --- AITS status panel (read-only, Phase 1) — 접힘 기본, 펼치면 스크롤 ---
+        self._aits_status_group = QGroupBox("")
         aits_ly = QVBoxLayout(self._aits_status_group)
         aits_ly.setContentsMargins(8, 8, 8, 8)
         aits_ly.setSpacing(4)
+        _aits_hdr = QHBoxLayout()
+        self.lbl_aits_panel_title = QLabel("AITS AI Trading System")
+        self.lbl_aits_panel_title.setStyleSheet("font-weight: bold; font-size: 13px;")
+        _aits_hdr.addWidget(self.lbl_aits_panel_title)
+        _aits_hdr.addStretch()
+        self.btn_aits_overview_toggle = QPushButton("펼치기 ▼")
+        self.btn_aits_overview_toggle.clicked.connect(self._toggle_aits_overview)
+        _aits_hdr.addWidget(self.btn_aits_overview_toggle)
+        aits_ly.addLayout(_aits_hdr)
+        self.lbl_aits_overview_latest = QLabel("최신: 연결 대기")
+        self.lbl_aits_overview_latest.setStyleSheet("font-size: 11px; color: #37474f;")
+        self.lbl_aits_overview_latest.setWordWrap(True)
+        aits_ly.addWidget(self.lbl_aits_overview_latest)
+
+        self._aits_overview_body = QWidget()
+        self._aits_overview_body_ly = QVBoxLayout(self._aits_overview_body)
+        self._aits_overview_body_ly.setContentsMargins(0, 0, 0, 0)
+        self._aits_overview_body_ly.setSpacing(4)
         self.lbl_aits_regime = QLabel("AITS Regime: 연결 대기")
         self.lbl_aits_action = QLabel("AITS Action: 연결 대기")
         self.lbl_aits_summary = QLabel("AITS Summary: AITS 상태 없음")
@@ -1526,11 +1546,11 @@ class MainWindow(QMainWindow):
         self.lbl_aits_oversight = QLabel("AITS Oversight: AITS 상태 없음")
         for _lw in (self.lbl_aits_summary, self.lbl_aits_market, self.lbl_aits_oversight):
             _lw.setWordWrap(True)
-        aits_ly.addWidget(self.lbl_aits_regime)
-        aits_ly.addWidget(self.lbl_aits_action)
-        aits_ly.addWidget(self.lbl_aits_summary)
-        aits_ly.addWidget(self.lbl_aits_market)
-        aits_ly.addWidget(self.lbl_aits_oversight)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_regime)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_action)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_summary)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_market)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_oversight)
         # --- AITS module pack status ---
         self.lbl_aits_pack_name = QLabel("AITS Module Pack: AI 기본 모드")
         self.lbl_aits_pack_timer = QLabel("AITS Pack Timer: 무기한")
@@ -1538,37 +1558,45 @@ class MainWindow(QMainWindow):
             "AITS Pack Summary: 현재 모듈팩이 활성화되어 있지 않습니다."
         )
         self.lbl_aits_pack_summary.setWordWrap(True)
-        aits_ly.addWidget(self.lbl_aits_pack_name)
-        aits_ly.addWidget(self.lbl_aits_pack_timer)
-        aits_ly.addWidget(self.lbl_aits_pack_summary)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_pack_name)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_pack_timer)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_pack_summary)
         # --- AITS override status (module pack action override trace) ---
         self.lbl_aits_override = QLabel("AITS Override: 없음")
         self.lbl_aits_override_summary = QLabel(
             "AITS Override Summary: 이번 사이클에서 모듈팩에 의한 판단 조정이 감지되지 않았습니다."
         )
         self.lbl_aits_override_summary.setWordWrap(True)
-        aits_ly.addWidget(self.lbl_aits_override)
-        aits_ly.addWidget(self.lbl_aits_override_summary)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_override)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_override_summary)
         self.lbl_aits_bias = QLabel("AITS Bias: 연결 대기")
         self.lbl_aits_bias_mode = QLabel("AITS Bias Mode: 연결 대기")
-        aits_ly.addWidget(self.lbl_aits_bias)
-        aits_ly.addWidget(self.lbl_aits_bias_mode)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_bias)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_bias_mode)
         # --- AITS order adapter status ---
         self.lbl_aits_exec_mode = QLabel("AITS Execution Mode: 연결 대기")
         self.lbl_aits_orders = QLabel("AITS Orders: 연결 대기")
         self.lbl_aits_orders_summary = QLabel("AITS Orders Summary: 주문 실행 결과를 불러오지 못했습니다.")
         self.lbl_aits_orders_summary.setWordWrap(True)
-        aits_ly.addWidget(self.lbl_aits_exec_mode)
-        aits_ly.addWidget(self.lbl_aits_orders)
-        aits_ly.addWidget(self.lbl_aits_orders_summary)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_exec_mode)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_orders)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_orders_summary)
         # --- AITS execution mode control ---
         self.cmb_aits_exec_mode = QComboBox()
         self.cmb_aits_exec_mode.addItems(["disabled", "dry_run", "live"])
         self.lbl_aits_exec_mode_apply = QLabel("AITS Execution Control: 연결 대기")
         self._sync_aits_exec_mode_combo()
         self.cmb_aits_exec_mode.currentTextChanged.connect(self._on_aits_exec_mode_changed)
-        aits_ly.addWidget(self.cmb_aits_exec_mode)
-        aits_ly.addWidget(self.lbl_aits_exec_mode_apply)
+        self._aits_overview_body_ly.addWidget(self.cmb_aits_exec_mode)
+        self._aits_overview_body_ly.addWidget(self.lbl_aits_exec_mode_apply)
+
+        self._aits_overview_scroll = QScrollArea()
+        self._aits_overview_scroll.setWidgetResizable(True)
+        self._aits_overview_scroll.setWidget(self._aits_overview_body)
+        self._aits_overview_scroll.setMaximumHeight(240)
+        self._aits_overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._aits_overview_scroll.setVisible(False)
+        aits_ly.addWidget(self._aits_overview_scroll)
         lay.addWidget(self._aits_status_group)
 
         # 5초마다 인포 갱신
@@ -1651,10 +1679,9 @@ class MainWindow(QMainWindow):
         # ✅ SIGNAL-GUARD: Prevent duplicate signal connections
         try:
             self._tables_timer.timeout.disconnect()
-            self._log.info("[SIGNAL-GUARD] disconnected tables_timer signal")
         except Exception:
-            pass  # No connection existed
-            
+            pass
+
         self._tables_timer.timeout.connect(_refresh_visible)
         self._log.info("[SIGNAL-GUARD] connected tables_timer signal count=1")
         self._log.info(
@@ -1883,6 +1910,10 @@ class MainWindow(QMainWindow):
         _aits_pool_ly = QVBoxLayout(self._aits_pool_outer)
         _aits_pool_ly.setContentsMargins(0, 4, 0, 4)
         _aits_pool_ly.setSpacing(6)
+        _managed_top_split = QWidget()
+        _managed_top_ly = QHBoxLayout(_managed_top_split)
+        _managed_top_ly.setContentsMargins(0, 0, 0, 0)
+        _managed_top_ly.setSpacing(8)
         _gb_managed = QGroupBox("AITS Managed Pool")
         _managed_inner = QVBoxLayout(_gb_managed)
         self.tbl_ai_managed = QTableWidget(0, 12)
@@ -1907,7 +1938,96 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_ai_managed.setMinimumHeight(140)
         self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
+        self.tbl_ai_managed.itemSelectionChanged.connect(self._on_ai_managed_table_selection_changed)
         _managed_inner.addWidget(self.tbl_ai_managed)
+        _managed_top_ly.addWidget(_gb_managed, 3)
+
+        self._gb_ai_detail = QGroupBox("AI 종목 상세")
+        _detail_inner = QVBoxLayout(self._gb_ai_detail)
+        _detail_inner.setSpacing(4)
+        self.lbl_ai_detail_hint = QLabel(
+            "선택된 종목이 없습니다.\nMarket Explorer에서 종목을 추가하거나 AI 종목을 확인하세요."
+        )
+        self.lbl_ai_detail_hint.setWordWrap(True)
+        self.lbl_ai_detail_hint.setStyleSheet("color: #666; font-size: 11px;")
+        _detail_inner.addWidget(self.lbl_ai_detail_hint)
+
+        def _dh(txt: str) -> QLabel:
+            lb = QLabel(txt)
+            lb.setStyleSheet("font-weight: bold; font-size: 11px; color: #333; margin-top: 4px;")
+            return lb
+
+        _detail_inner.addWidget(_dh("[기본 정보]"))
+        _fb = QFormLayout()
+        _fb.setSpacing(4)
+        _fb.setHorizontalSpacing(8)
+        self.lbl_ai_detail_name = QLabel("—")
+        self.lbl_ai_detail_source = QLabel("—")
+        self.lbl_ai_detail_status = QLabel("—")
+        self.lbl_ai_detail_lock = QLabel("—")
+        _fb.addRow("종목명", self.lbl_ai_detail_name)
+        _fb.addRow("구분", self.lbl_ai_detail_source)
+        _fb.addRow("AI 상태", self.lbl_ai_detail_status)
+        _fb.addRow("잠금 여부", self.lbl_ai_detail_lock)
+        _detail_inner.addLayout(_fb)
+
+        _detail_inner.addWidget(_dh("[가격 정보]"))
+        _fp = QFormLayout()
+        _fp.setSpacing(4)
+        self.lbl_ai_detail_price = QLabel("—")
+        self.lbl_ai_detail_change = QLabel("—")
+        self.lbl_ai_detail_target = QLabel("—")
+        self.lbl_ai_detail_stop = QLabel("—")
+        self.lbl_ai_detail_pnl = QLabel("—")
+        _fp.addRow("현재가", self.lbl_ai_detail_price)
+        _fp.addRow("변동률", self.lbl_ai_detail_change)
+        _fp.addRow("목표가", self.lbl_ai_detail_target)
+        _fp.addRow("손절가", self.lbl_ai_detail_stop)
+        _fp.addRow("수익률", self.lbl_ai_detail_pnl)
+        _detail_inner.addLayout(_fp)
+
+        _detail_inner.addWidget(_dh("[AI 판단]"))
+        _fa = QFormLayout()
+        self.lbl_ai_detail_score = QLabel("—")
+        _fa.addRow("AI 점수", self.lbl_ai_detail_score)
+        _detail_inner.addLayout(_fa)
+        self.txt_ai_detail_reason = QPlainTextEdit()
+        self.txt_ai_detail_reason.setReadOnly(True)
+        self.txt_ai_detail_reason.setPlaceholderText("AI 판단 요약")
+        self.txt_ai_detail_reason.setMaximumHeight(100)
+        self.txt_ai_detail_reason.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        _detail_inner.addWidget(self.txt_ai_detail_reason)
+
+        _detail_inner.addWidget(_dh("[차트]"))
+        self._frm_ai_detail_chart = QFrame()
+        self._frm_ai_detail_chart.setMinimumHeight(180)
+        self._frm_ai_detail_chart.setMaximumHeight(220)
+        self._frm_ai_detail_chart.setStyleSheet(
+            "QFrame { border: 1px solid #cfd8dc; border-radius: 4px; background: #fafafa; }"
+        )
+        _chart_ly = QVBoxLayout(self._frm_ai_detail_chart)
+        _chart_ly.setContentsMargins(8, 8, 8, 8)
+        self.lbl_ai_detail_chart_ph = QLabel("차트 영역 (다음 단계에서 연결)")
+        self.lbl_ai_detail_chart_ph.setAlignment(Qt.AlignCenter)
+        self.lbl_ai_detail_chart_ph.setStyleSheet("color: #78909c; font-size: 11px;")
+        _chart_ly.addStretch()
+        _chart_ly.addWidget(self.lbl_ai_detail_chart_ph)
+        _chart_ly.addStretch()
+        _detail_inner.addWidget(self._frm_ai_detail_chart)
+
+        _detail_inner.addWidget(_dh("[사용자 액션]"))
+        _act_row = QHBoxLayout()
+        self.btn_ai_detail_remove = QPushButton("제거")
+        self.btn_ai_detail_lock = QPushButton("잠금 설정")
+        self.btn_ai_detail_remove.clicked.connect(self._on_ai_detail_remove_clicked)
+        self.btn_ai_detail_lock.clicked.connect(self._on_ai_detail_lock_clicked)
+        _act_row.addWidget(self.btn_ai_detail_remove)
+        _act_row.addWidget(self.btn_ai_detail_lock)
+        _detail_inner.addLayout(_act_row)
+        _detail_inner.addStretch()
+
+        _managed_top_ly.addWidget(self._gb_ai_detail, 2)
+        _aits_pool_ly.addWidget(_managed_top_split, 3)
         _gb_market = QGroupBox("Market Explorer")
         _market_inner = QVBoxLayout(_gb_market)
         self.ed_market_search = QLineEdit()
@@ -1922,7 +2042,6 @@ class MainWindow(QMainWindow):
         self.tbl_market_all.setMinimumHeight(120)
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
         _market_inner.addWidget(self.tbl_market_all)
-        _aits_pool_ly.addWidget(_gb_managed, 3)
         _aits_pool_ly.addWidget(_gb_market, 2)
         try:
             self._refresh_ai_managed_table()
@@ -2457,6 +2576,10 @@ class MainWindow(QMainWindow):
                 self.lbl_aits_exec_mode_apply.setText("AITS Execution Control: 적용 실패")
             except Exception:
                 pass
+        try:
+            self._update_aits_overview_latest()
+        except Exception:
+            pass
 
     def _set_aits_order_adapter_labels(self) -> None:
         if not all(
@@ -2495,6 +2618,66 @@ class MainWindow(QMainWindow):
             self.lbl_aits_orders_summary.setText(
                 "AITS Orders Summary: 주문 실행 결과를 불러오지 못했습니다."
             )
+
+    def _toggle_aits_overview(self) -> None:
+        try:
+            self._aits_overview_expanded = not bool(getattr(self, "_aits_overview_expanded", False))
+            if self._aits_overview_expanded:
+                if hasattr(self, "_aits_overview_scroll"):
+                    self._aits_overview_scroll.setVisible(True)
+                if hasattr(self, "btn_aits_overview_toggle"):
+                    self.btn_aits_overview_toggle.setText("접기 ▲")
+            else:
+                if hasattr(self, "_aits_overview_scroll"):
+                    self._aits_overview_scroll.setVisible(False)
+                if hasattr(self, "btn_aits_overview_toggle"):
+                    self.btn_aits_overview_toggle.setText("펼치기 ▼")
+        except Exception:
+            pass
+
+    def _update_aits_overview_latest(self) -> None:
+        try:
+            if not hasattr(self, "lbl_aits_overview_latest"):
+                return
+            _names = (
+                "lbl_aits_regime",
+                "lbl_aits_action",
+                "lbl_aits_summary",
+                "lbl_aits_market",
+                "lbl_aits_oversight",
+                "lbl_aits_pack_name",
+                "lbl_aits_pack_timer",
+                "lbl_aits_pack_summary",
+                "lbl_aits_override",
+                "lbl_aits_override_summary",
+                "lbl_aits_bias",
+                "lbl_aits_bias_mode",
+                "lbl_aits_exec_mode",
+                "lbl_aits_orders",
+                "lbl_aits_orders_summary",
+                "lbl_aits_exec_mode_apply",
+            )
+            line = ""
+            for _name in reversed(_names):
+                w = getattr(self, _name, None)
+                if w is None:
+                    continue
+                try:
+                    t = (w.text() or "").strip()
+                except Exception:
+                    continue
+                if t:
+                    line = t
+                    break
+            if not line:
+                line = "연결 대기"
+            if line.startswith("최신:"):
+                out = line
+            else:
+                out = f"최신: {line}"
+            self.lbl_aits_overview_latest.setText(out)
+        except Exception:
+            pass
 
     def _refresh_aits_status_view(self):
         if not all(
@@ -2579,6 +2762,11 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self._sync_aits_exec_mode_combo()
+            except Exception:
+                pass
+        finally:
+            try:
+                self._update_aits_overview_latest()
             except Exception:
                 pass
 
@@ -2913,10 +3101,131 @@ class MainWindow(QMainWindow):
         except Exception:
             return "0.00%"
 
+    def _set_selected_ai_pool_symbol(self, sym: str) -> None:
+        try:
+            s = (sym or "").strip()
+            if s == getattr(self, "_selected_ai_pool_symbol", ""):
+                return
+            self._selected_ai_pool_symbol = s
+            print(f"[AITS] detail selected symbol={self._selected_ai_pool_symbol}")
+        except Exception:
+            pass
+
+    def _refresh_ai_detail_panel(self) -> None:
+        try:
+            if not hasattr(self, "lbl_ai_detail_name"):
+                return
+            sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            print(f"[AITS] detail panel refreshed symbol={sym}")
+            row = None
+            for r in self.ai_managed_rows or []:
+                if (r.get("symbol") or "").strip() == sym:
+                    row = r
+                    break
+            if not sym or row is None:
+                self.lbl_ai_detail_hint.setVisible(True)
+                self.lbl_ai_detail_name.setText("—")
+                self.lbl_ai_detail_source.setText("—")
+                self.lbl_ai_detail_status.setText("—")
+                self.lbl_ai_detail_lock.setText("—")
+                self.lbl_ai_detail_price.setText("—")
+                self.lbl_ai_detail_change.setText("—")
+                self.lbl_ai_detail_target.setText("—")
+                self.lbl_ai_detail_stop.setText("—")
+                self.lbl_ai_detail_pnl.setText("—")
+                self.lbl_ai_detail_score.setText("—")
+                self.txt_ai_detail_reason.setPlainText("")
+                self.btn_ai_detail_remove.setEnabled(False)
+                self.btn_ai_detail_lock.setEnabled(False)
+                self.btn_ai_detail_lock.setText("잠금 설정")
+                return
+            self.lbl_ai_detail_hint.setVisible(False)
+            name = (row.get("name") or "").strip() or sym
+            self.lbl_ai_detail_name.setText(f"{name} ({sym})" if name != sym else sym)
+            src = (row.get("source") or "USER").strip().upper()
+            self.lbl_ai_detail_source.setText("AI" if src == "AI" else "USER")
+            self.lbl_ai_detail_status.setText(str(row.get("ai_status") or "Watching"))
+            locked = bool(row.get("locked"))
+            self.lbl_ai_detail_lock.setText("잠김" if locked else "해제")
+            pr = float(row.get("price") or 0.0)
+            self.lbl_ai_detail_price.setText(f"{pr:,.0f}" if pr > 0 else "—")
+            self.lbl_ai_detail_change.setText(self._fmt_change_pct(float(row.get("change_rate") or 0.0)))
+            tp = float(row.get("target_price") or 0.0)
+            sl = float(row.get("stop_loss") or 0.0)
+            self.lbl_ai_detail_target.setText(f"{tp:,.0f}" if tp > 0 else "—")
+            self.lbl_ai_detail_stop.setText(f"{sl:,.0f}" if sl > 0 else "—")
+            pnl = float(row.get("pnl") or 0.0)
+            self.lbl_ai_detail_pnl.setText(f"{pnl:.2f}%" if pr > 0 else "—")
+            if src == "AI" and row.get("ai_score") is not None:
+                try:
+                    self.lbl_ai_detail_score.setText(str(int(row.get("ai_score"))))
+                except Exception:
+                    self.lbl_ai_detail_score.setText("—")
+            else:
+                self.lbl_ai_detail_score.setText("—")
+            rs = (row.get("ai_reason_summary") or "").strip()
+            if rs:
+                parts = [p.strip() for p in rs.replace("，", ",").split(",") if p.strip()]
+                self.txt_ai_detail_reason.setPlainText(
+                    "\n".join(f"- {p}" for p in parts) if parts else "—"
+                )
+            else:
+                self.txt_ai_detail_reason.setPlainText("—")
+            self.btn_ai_detail_remove.setEnabled(True)
+            self.btn_ai_detail_lock.setEnabled(True)
+            self.btn_ai_detail_lock.setText("잠금 해제" if locked else "잠금 설정")
+        except Exception:
+            pass
+
+    def _on_ai_managed_table_selection_changed(self) -> None:
+        try:
+            t = self.tbl_ai_managed
+            if t is None:
+                return
+            r = t.currentRow()
+            if r < 0 or r >= len(self.ai_managed_rows or []):
+                self._set_selected_ai_pool_symbol("")
+                self._refresh_ai_detail_panel()
+                return
+            sym = (self.ai_managed_rows[r].get("symbol") or "").strip()
+            self._set_selected_ai_pool_symbol(sym)
+            self._refresh_ai_detail_panel()
+        except Exception:
+            pass
+
+    def _toggle_ai_pool_lock_by_symbol(self, symbol: str) -> None:
+        try:
+            sym = (symbol or "").strip()
+            for r in self.ai_managed_rows or []:
+                if (r.get("symbol") or "").strip() == sym:
+                    r["locked"] = not bool(r.get("locked"))
+                    return
+        except Exception:
+            pass
+
+    def _on_ai_detail_remove_clicked(self) -> None:
+        try:
+            sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            if sym:
+                self._remove_symbol_from_ai_pool(sym)
+        except Exception:
+            pass
+
+    def _on_ai_detail_lock_clicked(self) -> None:
+        try:
+            sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            if not sym:
+                return
+            self._toggle_ai_pool_lock_by_symbol(sym)
+            self._refresh_ai_managed_table()
+        except Exception:
+            pass
+
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
             return
         t = self.tbl_ai_managed
+        t.blockSignals(True)
         t.setRowCount(0)
         for i, row in enumerate(self.ai_managed_rows):
             t.insertRow(i)
@@ -2965,6 +3274,24 @@ class MainWindow(QMainWindow):
             if len(_sum) > 48:
                 _sum = _sum[:45] + "…"
             t.setItem(i, 11, QTableWidgetItem(_sum if _sum else "—"))
+        if not self.ai_managed_rows:
+            self._set_selected_ai_pool_symbol("")
+            t.clearSelection()
+            t.blockSignals(False)
+            self._refresh_ai_detail_panel()
+            return
+        target_sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+        sel_i = -1
+        for i, row in enumerate(self.ai_managed_rows):
+            if (row.get("symbol") or "").strip() == target_sym:
+                sel_i = i
+                break
+        if sel_i < 0:
+            sel_i = 0
+            self._set_selected_ai_pool_symbol((self.ai_managed_rows[0].get("symbol") or "").strip())
+        t.selectRow(sel_i)
+        t.blockSignals(False)
+        self._refresh_ai_detail_panel()
 
     def _ensure_demo_ai_rows(self) -> None:
         """AI 소스 종목이 없을 때만 샘플 AI 종목을 1회 주입한다."""
@@ -3567,7 +3894,7 @@ class MainWindow(QMainWindow):
             return
         sym = (self.ai_managed_rows[row].get("symbol") or "").strip()
         if col == self._AI_M_COL_LOCK:
-            self.ai_managed_rows[row]["locked"] = not bool(self.ai_managed_rows[row].get("locked"))
+            self._toggle_ai_pool_lock_by_symbol(sym)
             self._refresh_ai_managed_table()
         elif col == self._AI_M_COL_ACTION:
             self._remove_symbol_from_ai_pool(sym)
