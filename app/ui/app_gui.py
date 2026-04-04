@@ -203,6 +203,13 @@ from PySide6.QtGui import (
     QIcon, QFont, QPixmap, QPalette, QColor, QKeySequence, QDesktopServices,
     QTextCursor, QPainter, QPen, QBrush, QLinearGradient, QAction
 )
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
+matplotlib.rcParams["font.family"] = "Malgun Gothic"
+matplotlib.rcParams["axes.unicode_minus"] = False
 
 
 class ClickableGroupBox(QGroupBox):
@@ -212,6 +219,22 @@ class ClickableGroupBox(QGroupBox):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+class _AITSOverviewHeader(QWidget):
+    """현황판 상단 헤더: 제목·여백 클릭 시 펼치기/접기(토글 버튼과 동일 동작)."""
+
+    def __init__(self, main_window, parent=None):
+        super().__init__(parent)
+        self._mw = main_window
+        self.setObjectName("aits_overview_header_row")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("#aits_overview_header_row:hover { background-color: #f0f1f2; }")
+
+    def mousePressEvent(self, event):
+        if self._mw is not None:
+            self._mw._toggle_aits_overview()
         super().mousePressEvent(event)
 
 
@@ -1032,6 +1055,7 @@ class MainWindow(QMainWindow):
         }
         self._basic_ai_status_idx = 0
         self._selected_ai_pool_symbol = ""
+        self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
@@ -1521,18 +1545,22 @@ class MainWindow(QMainWindow):
         aits_ly = QVBoxLayout(self._aits_status_group)
         aits_ly.setContentsMargins(8, 8, 8, 8)
         aits_ly.setSpacing(4)
-        _aits_hdr = QHBoxLayout()
+        self._aits_overview_header = _AITSOverviewHeader(self)
+        _aits_hdr = QHBoxLayout(self._aits_overview_header)
+        _aits_hdr.setContentsMargins(0, 0, 0, 0)
         self.lbl_aits_panel_title = QLabel("AITS AI Trading System")
         self.lbl_aits_panel_title.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self.lbl_aits_panel_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         _aits_hdr.addWidget(self.lbl_aits_panel_title)
         _aits_hdr.addStretch()
         self.btn_aits_overview_toggle = QPushButton("펼치기 ▼")
+        self.btn_aits_overview_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_aits_overview_toggle.clicked.connect(self._toggle_aits_overview)
         _aits_hdr.addWidget(self.btn_aits_overview_toggle)
-        aits_ly.addLayout(_aits_hdr)
+        aits_ly.addWidget(self._aits_overview_header)
         self.lbl_aits_overview_latest = QLabel("최신: 연결 대기")
         self.lbl_aits_overview_latest.setStyleSheet("font-size: 11px; color: #37474f;")
-        self.lbl_aits_overview_latest.setWordWrap(True)
+        self.lbl_aits_overview_latest.setWordWrap(False)
         aits_ly.addWidget(self.lbl_aits_overview_latest)
 
         self._aits_overview_body = QWidget()
@@ -2006,14 +2034,17 @@ class MainWindow(QMainWindow):
             "QFrame { border: 1px solid #cfd8dc; border-radius: 4px; background: #fafafa; }"
         )
         _chart_ly = QVBoxLayout(self._frm_ai_detail_chart)
-        _chart_ly.setContentsMargins(8, 8, 8, 8)
-        self.lbl_ai_detail_chart_ph = QLabel("차트 영역 (다음 단계에서 연결)")
-        self.lbl_ai_detail_chart_ph.setAlignment(Qt.AlignCenter)
-        self.lbl_ai_detail_chart_ph.setStyleSheet("color: #78909c; font-size: 11px;")
-        _chart_ly.addStretch()
-        _chart_ly.addWidget(self.lbl_ai_detail_chart_ph)
-        _chart_ly.addStretch()
+        _chart_ly.setContentsMargins(4, 4, 4, 4)
+        self.detail_chart_figure = Figure(figsize=(4, 2.2))
+        self.detail_chart_canvas = FigureCanvas(self.detail_chart_figure)
+        self.detail_chart_canvas.setMinimumHeight(180)
+        self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        _chart_ly.addWidget(self.detail_chart_canvas)
         _detail_inner.addWidget(self._frm_ai_detail_chart)
+        try:
+            self._refresh_ai_detail_chart()
+        except Exception:
+            pass
 
         _detail_inner.addWidget(_dh("[사용자 액션]"))
         _act_row = QHBoxLayout()
@@ -2048,6 +2079,9 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(400, self._load_market_explorer_initial_data)
         except Exception:
             pass
+        self._market_history_timer = QTimer(self)
+        self._market_history_timer.timeout.connect(self._tick_market_history_refresh)
+        self._market_history_timer.start(3000)
 
         # ---- Tabs
         # ✅ 탭 위젯도 central 아래로 귀속(레이아웃/표시 정상화)
@@ -3176,6 +3210,146 @@ class MainWindow(QMainWindow):
             self.btn_ai_detail_lock.setText("잠금 해제" if locked else "잠금 설정")
         except Exception:
             pass
+        finally:
+            try:
+                self._refresh_ai_detail_chart()
+            except Exception:
+                pass
+
+    def _update_market_price_history(self) -> None:
+        try:
+            for r in self.market_all_rows or []:
+                sym = (r.get("symbol") or "").strip()
+                if not sym:
+                    continue
+                try:
+                    price = float(r.get("price") or 0.0)
+                except Exception:
+                    continue
+                if price <= 0:
+                    continue
+                hist = self._market_price_history.setdefault(sym, [])
+                hist.append(price)
+                if len(hist) > 60:
+                    del hist[:-60]
+            print(f"[AITS] price history updated symbols={len(self._market_price_history)}")
+        except Exception:
+            pass
+
+    def _fetch_upbit_minute_candles(self, symbol: str, unit: int = 1, count: int = 50) -> list[dict]:
+        try:
+            sym = (symbol or "").strip()
+            if not sym:
+                return []
+            import requests
+
+            url = f"https://api.upbit.com/v1/candles/minutes/{int(unit)}"
+            resp = requests.get(
+                url,
+                params={"market": sym, "count": int(count)},
+                timeout=5,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if not isinstance(data, list):
+                return []
+            return data
+        except Exception:
+            return []
+
+    def _refresh_ai_detail_chart(self) -> None:
+        try:
+            fig = getattr(self, "detail_chart_figure", None)
+            canvas = getattr(self, "detail_chart_canvas", None)
+            if fig is None or canvas is None:
+                return
+            fig.clf()
+            ax = fig.add_subplot(111)
+            sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            row = None
+            for r in self.ai_managed_rows or []:
+                if (r.get("symbol") or "").strip() == sym:
+                    row = r
+                    break
+            if not sym or row is None:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "선택된 종목이 없습니다",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+                ax.set_axis_off()
+                canvas.draw()
+                return
+            name = (row.get("name") or "").strip() or sym
+            tp = float(row.get("target_price") or 0.0)
+            sl = float(row.get("stop_loss") or 0.0)
+            candles = self._fetch_upbit_minute_candles(sym, 1, 50)
+            print(f"[AITS] candle fetch symbol={sym} count={len(candles)}")
+            candles = list(reversed(candles))
+            closes: list[float] = []
+            for c in candles:
+                if not isinstance(c, dict):
+                    continue
+                try:
+                    closes.append(float(c.get("trade_price", 0.0) or 0.0))
+                except Exception:
+                    continue
+            if len(candles) == 0 or len(closes) < 2:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "캔들 데이터를 불러오지 못했습니다",
+                    ha="center",
+                    va="center",
+                    transform=ax.transAxes,
+                )
+                ax.set_axis_off()
+                canvas.draw()
+                return
+            x = list(range(len(closes)))
+            ax.plot(x, closes, color="C0", linewidth=1.8)
+            if tp > 0:
+                ax.axhline(tp, color="green", linestyle="--", linewidth=1.0, alpha=0.85)
+            if sl > 0:
+                ax.axhline(sl, color="red", linestyle="--", linewidth=1.0, alpha=0.85)
+            vals = [float(v) for v in closes]
+            if tp > 0:
+                vals.append(tp)
+            if sl > 0:
+                vals.append(sl)
+            ymin = min(vals)
+            ymax = max(vals)
+            if ymax > ymin:
+                pad = (ymax - ymin) * 0.15
+            else:
+                pad = max(ymax * 0.01, 1.0)
+            ax.set_ylim(ymin - pad, ymax + pad)
+            n = len(x)
+            if n <= 5:
+                ax.set_xticks(x)
+            else:
+                _ti = sorted(
+                    {0, n // 4, n // 2, (3 * n) // 4, n - 1}
+                )
+                ax.set_xticks(_ti)
+            ax.set_title(f"{name} ({sym}) - 1분봉 최근 50개"[:90])
+            ax.grid(True, alpha=0.25)
+            try:
+                fig.tight_layout()
+            except Exception:
+                pass
+            canvas.draw()
+        except Exception:
+            pass
+        finally:
+            try:
+                s = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+                print(f"[AITS] candle chart refreshed symbol={s}")
+            except Exception:
+                pass
 
     def _on_ai_managed_table_selection_changed(self) -> None:
         try:
@@ -3826,6 +4000,7 @@ class MainWindow(QMainWindow):
             self._ensure_demo_ai_rows()
             self._sync_ai_pool_market_fields()
             self._update_ai_pool_statuses()
+            self._update_market_price_history()
             self._refresh_ai_managed_table()
             self._refresh_market_all_table()
         except Exception:
@@ -3833,8 +4008,17 @@ class MainWindow(QMainWindow):
             self._ensure_demo_ai_rows()
             self._sync_ai_pool_market_fields()
             self._update_ai_pool_statuses()
+            self._update_market_price_history()
             self._refresh_ai_managed_table()
             self._refresh_market_all_table()
+
+    def _tick_market_history_refresh(self) -> None:
+        try:
+            self._load_market_explorer_initial_data()
+            if (getattr(self, "_selected_ai_pool_symbol", "") or "").strip():
+                self._refresh_ai_detail_chart()
+        except Exception as e:
+            print(f"[AITS] market history tick failed: {e}")
 
     def _add_symbol_to_ai_pool(self, row_or_symbol) -> None:
         sym = ""
@@ -8163,6 +8347,8 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self, '_wl_timer') and self._wl_timer.isActive():
                 self._wl_timer.stop()
+            if hasattr(self, "_market_history_timer") and self._market_history_timer.isActive():
+                self._market_history_timer.stop()
             self._polling_started = False
         except Exception:
             pass
