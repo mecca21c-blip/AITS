@@ -207,6 +207,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
@@ -1055,6 +1056,8 @@ class MainWindow(QMainWindow):
         }
         self._basic_ai_status_idx = 0
         self._selected_ai_pool_symbol = ""
+        self._detail_chart_tf = "1m"
+        self._detail_chart_count = 50
         self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
         self._polling_started = False
@@ -2029,13 +2032,32 @@ class MainWindow(QMainWindow):
         _detail_inner.addWidget(_dh("[차트]"))
         self._frm_ai_detail_chart = QFrame()
         self._frm_ai_detail_chart.setMinimumHeight(180)
-        self._frm_ai_detail_chart.setMaximumHeight(220)
+        self._frm_ai_detail_chart.setMaximumHeight(280)
         self._frm_ai_detail_chart.setStyleSheet(
             "QFrame { border: 1px solid #cfd8dc; border-radius: 4px; background: #fafafa; }"
         )
         _chart_ly = QVBoxLayout(self._frm_ai_detail_chart)
         _chart_ly.setContentsMargins(4, 4, 4, 4)
-        self.detail_chart_figure = Figure(figsize=(4, 2.2))
+        _chart_ctrl = QHBoxLayout()
+        self.cmb_detail_chart_tf = QComboBox()
+        for _lbl, _tf in (
+            ("1분", "1m"),
+            ("5분", "5m"),
+            ("1시간", "60m"),
+            ("일봉", "1d"),
+        ):
+            self.cmb_detail_chart_tf.addItem(_lbl, _tf)
+        self.cmb_detail_chart_count = QComboBox()
+        for _n in (30, 50, 100):
+            self.cmb_detail_chart_count.addItem(str(_n), _n)
+        self.cmb_detail_chart_count.setCurrentIndex(1)
+        self.cmb_detail_chart_tf.currentIndexChanged.connect(self._on_detail_chart_option_changed)
+        self.cmb_detail_chart_count.currentIndexChanged.connect(self._on_detail_chart_option_changed)
+        _chart_ctrl.addWidget(self.cmb_detail_chart_tf)
+        _chart_ctrl.addWidget(self.cmb_detail_chart_count)
+        _chart_ctrl.addStretch()
+        _chart_ly.addLayout(_chart_ctrl)
+        self.detail_chart_figure = Figure(figsize=(6.5, 3.5))
         self.detail_chart_canvas = FigureCanvas(self.detail_chart_figure)
         self.detail_chart_canvas.setMinimumHeight(180)
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -3237,13 +3259,27 @@ class MainWindow(QMainWindow):
             pass
 
     def _fetch_upbit_minute_candles(self, symbol: str, unit: int = 1, count: int = 50) -> list[dict]:
+        _m = {1: "1m", 5: "5m", 60: "60m"}.get(int(unit), "1m")
+        return self._fetch_upbit_candles(symbol, _m, count)
+
+    def _fetch_upbit_candles(self, symbol: str, tf: str = "1m", count: int = 50) -> list[dict]:
         try:
             sym = (symbol or "").strip()
             if not sym:
                 return []
             import requests
 
-            url = f"https://api.upbit.com/v1/candles/minutes/{int(unit)}"
+            _tf = (tf or "1m").strip()
+            if _tf == "1d":
+                url = "https://api.upbit.com/v1/candles/days"
+            elif _tf == "5m":
+                url = "https://api.upbit.com/v1/candles/minutes/5"
+            elif _tf == "60m":
+                url = "https://api.upbit.com/v1/candles/minutes/60"
+            elif _tf == "1m":
+                url = "https://api.upbit.com/v1/candles/minutes/1"
+            else:
+                url = "https://api.upbit.com/v1/candles/minutes/1"
             resp = requests.get(
                 url,
                 params={"market": sym, "count": int(count)},
@@ -3256,6 +3292,16 @@ class MainWindow(QMainWindow):
             return data
         except Exception:
             return []
+
+    def _on_detail_chart_option_changed(self, _idx: int = 0) -> None:
+        try:
+            _td = self.cmb_detail_chart_tf.currentData()
+            self._detail_chart_tf = str(_td) if _td is not None else "1m"
+            _cd = self.cmb_detail_chart_count.currentData()
+            self._detail_chart_count = int(_cd) if _cd is not None else 50
+            self._refresh_ai_detail_chart()
+        except Exception:
+            pass
 
     def _refresh_ai_detail_chart(self) -> None:
         try:
@@ -3286,18 +3332,24 @@ class MainWindow(QMainWindow):
             name = (row.get("name") or "").strip() or sym
             tp = float(row.get("target_price") or 0.0)
             sl = float(row.get("stop_loss") or 0.0)
-            candles = self._fetch_upbit_minute_candles(sym, 1, 50)
-            print(f"[AITS] candle fetch symbol={sym} count={len(candles)}")
+            _tf = str(getattr(self, "_detail_chart_tf", "1m") or "1m")
+            _cnt = int(getattr(self, "_detail_chart_count", 50) or 50)
+            candles = self._fetch_upbit_candles(sym, _tf, _cnt)
+            print(f"[AITS] candle fetch symbol={sym} tf={_tf} count={len(candles)}")
             candles = list(reversed(candles))
-            closes: list[float] = []
+            ohlc_rows: list[tuple[float, float, float, float]] = []
             for c in candles:
                 if not isinstance(c, dict):
                     continue
                 try:
-                    closes.append(float(c.get("trade_price", 0.0) or 0.0))
+                    o = float(c.get("opening_price", 0.0) or 0.0)
+                    h = float(c.get("high_price", 0.0) or 0.0)
+                    low = float(c.get("low_price", 0.0) or 0.0)
+                    cl = float(c.get("trade_price", 0.0) or 0.0)
                 except Exception:
                     continue
-            if len(candles) == 0 or len(closes) < 2:
+                ohlc_rows.append((o, h, low, cl))
+            if len(candles) == 0 or len(ohlc_rows) < 2:
                 ax.text(
                     0.5,
                     0.5,
@@ -3309,34 +3361,65 @@ class MainWindow(QMainWindow):
                 ax.set_axis_off()
                 canvas.draw()
                 return
-            x = list(range(len(closes)))
-            ax.plot(x, closes, color="C0", linewidth=1.8)
-            if tp > 0:
-                ax.axhline(tp, color="green", linestyle="--", linewidth=1.0, alpha=0.85)
-            if sl > 0:
-                ax.axhline(sl, color="red", linestyle="--", linewidth=1.0, alpha=0.85)
-            vals = [float(v) for v in closes]
-            if tp > 0:
-                vals.append(tp)
-            if sl > 0:
-                vals.append(sl)
-            ymin = min(vals)
-            ymax = max(vals)
-            if ymax > ymin:
-                pad = (ymax - ymin) * 0.15
+            _w = 0.85
+            lows = [t[2] for t in ohlc_rows]
+            highs = [t[1] for t in ohlc_rows]
+            closes = [t[3] for t in ohlc_rows]
+            for i, (o, h, low, cl) in enumerate(ohlc_rows):
+                _up = cl >= o
+                color = "#1e88e5" if _up else "#e53935"
+                ax.vlines(i, low, h, color=color, linewidth=1.5)
+                _lower = min(o, cl)
+                _height = abs(cl - o)
+                if _height == 0.0:
+                    ax.hlines(o, i - _w / 2, i + _w / 2, color=color, linewidth=1.5)
+                else:
+                    ax.add_patch(
+                        Rectangle(
+                            (i - _w / 2, _lower),
+                            _w,
+                            _height,
+                            facecolor=color,
+                            edgecolor=color,
+                            alpha=1.0,
+                        )
+                    )
+            ax.plot(closes, linewidth=1.2, alpha=0.4, color="0.35")
+            ymin = min(lows)
+            ymax = max(highs)
+            range_val = ymax - ymin
+            if ymax > 0 and range_val < ymax * 0.002:
+                center = (ymax + ymin) / 2
+                pad = center * 0.005 if center != 0 else 1.0
+                y_lo, y_hi = center - pad, center + pad
             else:
-                pad = max(ymax * 0.01, 1.0)
-            ax.set_ylim(ymin - pad, ymax + pad)
-            n = len(x)
+                pad = (range_val * 0.15) if range_val > 0 else max(abs(ymin) * 0.005, 1.0)
+                y_lo, y_hi = ymin - pad, ymax + pad
+            if tp > 0:
+                y_lo = min(y_lo, tp)
+                y_hi = max(y_hi, tp)
+            if sl > 0:
+                y_lo = min(y_lo, sl)
+                y_hi = max(y_hi, sl)
+            ax.set_ylim(y_lo, y_hi)
+            n = len(ohlc_rows)
+            ax.set_xlim(-0.5, n - 0.5)
             if n <= 5:
-                ax.set_xticks(x)
+                ax.set_xticks(list(range(n)))
             else:
                 _ti = sorted(
                     {0, n // 4, n // 2, (3 * n) // 4, n - 1}
                 )
                 ax.set_xticks(_ti)
-            ax.set_title(f"{name} ({sym}) - 1분봉 최근 50개"[:90])
-            ax.grid(True, alpha=0.25)
+            if tp > 0:
+                ax.axhline(tp, color="green", linestyle="--", linewidth=1.1, alpha=0.9)
+            if sl > 0:
+                ax.axhline(sl, color="red", linestyle="--", linewidth=1.1, alpha=0.9)
+            _tf_ko = {"1m": "1분봉", "5m": "5분봉", "60m": "1시간봉", "1d": "일봉"}.get(
+                _tf, "1분봉"
+            )
+            ax.set_title(f"{name} ({sym}) - {_tf_ko} 최근 {_cnt}개"[:90])
+            ax.grid(True, alpha=0.15)
             try:
                 fig.tight_layout()
             except Exception:
@@ -4015,8 +4098,6 @@ class MainWindow(QMainWindow):
     def _tick_market_history_refresh(self) -> None:
         try:
             self._load_market_explorer_initial_data()
-            if (getattr(self, "_selected_ai_pool_symbol", "") or "").strip():
-                self._refresh_ai_detail_chart()
         except Exception as e:
             print(f"[AITS] market history tick failed: {e}")
 
