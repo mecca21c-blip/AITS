@@ -209,6 +209,15 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
+try:
+    import pandas as pd
+except Exception:
+    pd = None
+try:
+    import mplfinance as mpf
+except Exception:
+    mpf = None
+
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
 
@@ -501,6 +510,84 @@ def _make_upbit_headers_from_settings(settings, source="unknown") -> dict:
         )
         return {}
 # === [PATCH-UI-HDR] end ===
+
+
+class AITSLargeChartDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("AITS 상세 차트")
+        self.resize(1100, 760)
+
+        self._symbol = ""
+        self._title_label = None
+        self._meta_label = None
+        self._reason_box = None
+
+        root = QVBoxLayout(self)
+
+        self.lbl_title = QLabel("AITS 상세 차트")
+        try:
+            self.lbl_title.setStyleSheet("font-size:16px; font-weight:600;")
+        except Exception:
+            pass
+        root.addWidget(self.lbl_title)
+
+        info_row = QHBoxLayout()
+
+        self.lbl_basic = QLabel("")
+        try:
+            self.lbl_basic.setTextFormat(Qt.TextFormat.PlainText)
+            self.lbl_basic.setWordWrap(True)
+        except Exception:
+            pass
+        info_row.addWidget(self.lbl_basic, 1)
+
+        self.lbl_price = QLabel("")
+        try:
+            self.lbl_price.setTextFormat(Qt.TextFormat.PlainText)
+            self.lbl_price.setWordWrap(True)
+        except Exception:
+            pass
+        info_row.addWidget(self.lbl_price, 1)
+
+        root.addLayout(info_row)
+
+        self.txt_ai = QTextEdit()
+        self.txt_ai.setReadOnly(True)
+        try:
+            self.txt_ai.setMaximumHeight(120)
+        except Exception:
+            pass
+        root.addWidget(self.txt_ai)
+
+        self.fig = Figure(figsize=(10, 6))
+        self.canvas = FigureCanvas(self.fig)
+        try:
+            self.canvas.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+        except Exception:
+            pass
+        root.addWidget(self.canvas, 1)
+
+    def set_summary(self, title_text="", basic_text="", price_text="", ai_text=""):
+        try:
+            self.lbl_title.setText(title_text or "AITS 상세 차트")
+        except Exception:
+            pass
+        try:
+            self.lbl_basic.setText(basic_text or "")
+        except Exception:
+            pass
+        try:
+            self.lbl_price.setText(price_text or "")
+        except Exception:
+            pass
+        try:
+            self.txt_ai.setPlainText(ai_text or "")
+        except Exception:
+            pass
+
 
 # --------- Main window ---------
 class MainWindow(QMainWindow):
@@ -1058,6 +1145,17 @@ class MainWindow(QMainWindow):
         self._selected_ai_pool_symbol = ""
         self._detail_chart_tf = "1m"
         self._detail_chart_count = 50
+        self._detail_chart_render_mode = "mplfinance" if mpf is not None else "legacy"
+        self._detail_chart_press_pos = None
+        self._detail_chart_dragging = False
+        self._detail_chart_xlim_default = None
+        self._detail_chart_ylim_default = None
+        self._detail_chart_ohlc_rows = None
+        self._detail_chart_tp = 0.0
+        self._detail_chart_sl = 0.0
+        self._detail_chart_mpl_cids = None
+        self._aits_large_chart_dialog = None
+        self._aits_large_chart_symbol = ""
         self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
         self._polling_started = False
@@ -1970,6 +2068,12 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed.setMinimumHeight(140)
         self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
         self.tbl_ai_managed.itemSelectionChanged.connect(self._on_ai_managed_table_selection_changed)
+        try:
+            self.tbl_ai_managed.itemDoubleClicked.connect(
+                self._on_aits_pool_item_double_clicked
+            )
+        except Exception:
+            pass
         _managed_inner.addWidget(self.tbl_ai_managed)
         _managed_top_ly.addWidget(_gb_managed, 3)
 
@@ -2062,6 +2166,27 @@ class MainWindow(QMainWindow):
         self.detail_chart_canvas.setMinimumHeight(180)
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         _chart_ly.addWidget(self.detail_chart_canvas)
+        self.lbl_detail_chart_zoom_hint = QLabel(
+            "드래그 확대 / 더블클릭·우클릭으로 초기화 · 휠 확대·축소"
+        )
+        self.lbl_detail_chart_zoom_hint.setStyleSheet("font-size: 10px; color: #78909c;")
+        self.lbl_detail_chart_zoom_hint.setWordWrap(True)
+        _chart_ly.addWidget(self.lbl_detail_chart_zoom_hint)
+        if self._detail_chart_mpl_cids is None:
+            self._detail_chart_mpl_cids = [
+                self.detail_chart_canvas.mpl_connect(
+                    "button_press_event", self._on_detail_chart_mouse_press
+                ),
+                self.detail_chart_canvas.mpl_connect(
+                    "button_release_event", self._on_detail_chart_mouse_release
+                ),
+                self.detail_chart_canvas.mpl_connect(
+                    "motion_notify_event", self._on_detail_chart_mouse_move
+                ),
+                self.detail_chart_canvas.mpl_connect(
+                    "scroll_event", self._on_detail_chart_mouse_scroll
+                ),
+            ]
         _detail_inner.addWidget(self._frm_ai_detail_chart)
         try:
             self._refresh_ai_detail_chart()
@@ -3303,7 +3428,780 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _detail_chart_current_ax(self):
+        try:
+            fig = getattr(self, "detail_chart_figure", None)
+            if fig is None or not getattr(fig, "axes", None):
+                return None
+            return fig.axes[0]
+        except Exception:
+            return None
+
+    def _detail_chart_idx_range_for_xlim(self, x0, x1, n: int):
+        import math
+
+        xa, xb = sorted([float(x0), float(x1)])
+        i0 = int(math.floor(xa + 0.5))
+        i1 = int(math.ceil(xb - 0.5))
+        i0 = max(0, min(n - 1, i0))
+        i1 = max(0, min(n - 1, i1))
+        if i0 > i1:
+            i0, i1 = i1, i0
+        return i0, i1
+
+    def _detail_chart_recompute_ylim(self, ohlc_rows, i0: int, i1: int, tp: float, sl: float):
+        try:
+            n = len(ohlc_rows or [])
+            if n == 0:
+                return None, None
+            i0 = max(0, min(n - 1, int(i0)))
+            i1 = max(0, min(n - 1, int(i1)))
+            if i0 > i1:
+                i0, i1 = i1, i0
+            slc = ohlc_rows[i0 : i1 + 1]
+            if not slc:
+                return None, None
+            lows = [t[2] for t in slc]
+            highs = [t[1] for t in slc]
+            ymin = min(lows)
+            ymax = max(highs)
+            range_val = ymax - ymin
+            if ymax > 0 and range_val < ymax * 0.002:
+                center = (ymax + ymin) / 2
+                pad = center * 0.005 if center != 0 else 1.0
+                y_lo, y_hi = center - pad, center + pad
+            else:
+                pad = (range_val * 0.15) if range_val > 0 else max(abs(ymin) * 0.005, 1.0)
+                y_lo, y_hi = ymin - pad, ymax + pad
+            if tp > 0:
+                y_lo = min(y_lo, tp)
+                y_hi = max(y_hi, tp)
+            if sl > 0:
+                y_lo = min(y_lo, sl)
+                y_hi = max(y_hi, sl)
+            return y_lo, y_hi
+        except Exception:
+            return None, None
+
+    def _detail_chart_zoom_reset(self) -> None:
+        try:
+            ax = self._detail_chart_current_ax()
+            xl = getattr(self, "_detail_chart_xlim_default", None)
+            yl = getattr(self, "_detail_chart_ylim_default", None)
+            if ax is None or xl is None or yl is None:
+                return
+            ax.set_xlim(xl)
+            ax.set_ylim(yl)
+            c = getattr(self, "detail_chart_canvas", None)
+            if c is not None:
+                c.draw_idle()
+            print("[AITS] chart zoom reset")
+        except Exception:
+            pass
+
+    def _on_detail_chart_mouse_press(self, event) -> None:
+        try:
+            ax = self._detail_chart_current_ax()
+            if ax is None or event.inaxes is None or event.inaxes != ax:
+                return
+            if event.xdata is None:
+                return
+            if getattr(event, "dblclick", False):
+                self._detail_chart_zoom_reset()
+                self._detail_chart_dragging = False
+                self._detail_chart_press_pos = None
+                return
+            if event.button == 3:
+                self._detail_chart_zoom_reset()
+                self._detail_chart_dragging = False
+                self._detail_chart_press_pos = None
+                return
+            if event.button == 1:
+                self._detail_chart_press_pos = (event.xdata, event.ydata)
+                self._detail_chart_dragging = True
+        except Exception:
+            pass
+
+    def _on_detail_chart_mouse_release(self, event) -> None:
+        try:
+            ax = self._detail_chart_current_ax()
+            if ax is None:
+                return
+            if event.button != 1:
+                self._detail_chart_dragging = False
+                self._detail_chart_press_pos = None
+                return
+            if not getattr(self, "_detail_chart_dragging", False):
+                return
+            self._detail_chart_dragging = False
+            pp = self._detail_chart_press_pos
+            self._detail_chart_press_pos = None
+            if pp is None or event.xdata is None:
+                return
+            if event.inaxes is None or event.inaxes != ax:
+                return
+            x0, _y0 = pp
+            x1 = event.xdata
+            xmin, xmax = sorted([float(x0), float(x1)])
+            if xmax - xmin < 0.4:
+                return
+            ohlc = getattr(self, "_detail_chart_ohlc_rows", None)
+            if not ohlc:
+                return
+            n = len(ohlc)
+            xmin = max(-0.5, xmin)
+            xmax = min(float(n) - 0.5, xmax)
+            if xmin >= xmax:
+                return
+            ax.set_xlim(xmin, xmax)
+            i0, i1 = self._detail_chart_idx_range_for_xlim(xmin, xmax, n)
+            tp = float(getattr(self, "_detail_chart_tp", 0.0) or 0.0)
+            sl = float(getattr(self, "_detail_chart_sl", 0.0) or 0.0)
+            y_lo, y_hi = self._detail_chart_recompute_ylim(ohlc, i0, i1, tp, sl)
+            if y_lo is not None and y_hi is not None:
+                ax.set_ylim(y_lo, y_hi)
+            c = getattr(self, "detail_chart_canvas", None)
+            if c is not None:
+                c.draw_idle()
+            print(f"[AITS] chart zoom applied x=({xmin:.2f},{xmax:.2f})")
+        except Exception:
+            pass
+
+    def _on_detail_chart_mouse_move(self, event) -> None:
+        try:
+            return
+        except Exception:
+            pass
+
+    def _on_detail_chart_mouse_scroll(self, event) -> None:
+        try:
+            ax = self._detail_chart_current_ax()
+            if ax is None or event.inaxes is None or event.inaxes != ax:
+                return
+            if event.xdata is None:
+                return
+            ohlc = getattr(self, "_detail_chart_ohlc_rows", None)
+            if not ohlc:
+                return
+            n = len(ohlc)
+            step = getattr(event, "step", 0)
+            if step == 0:
+                return
+            lo, hi = ax.get_xlim()
+            mid = (lo + hi) / 2
+            w = hi - lo
+            if step > 0:
+                w *= 0.88
+            else:
+                w /= 0.88
+            w = max(0.35, min(w, float(n)))
+            lo = mid - w / 2
+            hi = mid + w / 2
+            if lo < -0.5:
+                lo, hi = -0.5, -0.5 + w
+            if hi > n - 0.5:
+                hi, lo = n - 0.5, n - 0.5 - w
+            lo = max(-0.5, lo)
+            hi = min(n - 0.5, hi)
+            if lo >= hi:
+                return
+            ax.set_xlim(lo, hi)
+            i0, i1 = self._detail_chart_idx_range_for_xlim(lo, hi, n)
+            tp = float(getattr(self, "_detail_chart_tp", 0.0) or 0.0)
+            sl = float(getattr(self, "_detail_chart_sl", 0.0) or 0.0)
+            y_lo, y_hi = self._detail_chart_recompute_ylim(ohlc, i0, i1, tp, sl)
+            if y_lo is not None and y_hi is not None:
+                ax.set_ylim(y_lo, y_hi)
+            c = getattr(self, "detail_chart_canvas", None)
+            if c is not None:
+                c.draw_idle()
+        except Exception:
+            pass
+
+    def _aits_apply_detail_render_marker(
+        self, ax, render_kind: str, title_base: str = "", reason_text: str = ""
+    ):
+        try:
+            kind = str(render_kind or "").strip().upper()
+            if kind not in ("MPF", "LEGACY"):
+                kind = "UNKNOWN"
+
+            prefix = f"[{kind}] "
+            current_title = ""
+            try:
+                current_title = ax.get_title() or ""
+            except Exception:
+                current_title = ""
+
+            final_title = title_base or current_title or "AI Detail Chart"
+            if not str(final_title).startswith(prefix):
+                final_title = prefix + str(final_title).lstrip()
+
+            try:
+                ax.set_title(final_title, loc="left", fontsize=10, fontweight="bold")
+            except Exception:
+                try:
+                    ax.set_title(final_title)
+                except Exception:
+                    pass
+
+            badge_text = f"RENDER: {kind}"
+            _reason = str(reason_text or "").strip()
+            if _reason:
+                badge_text = f"{badge_text} / {_reason}"
+            badge_fc = "#1f2937" if kind == "MPF" else "#7f1d1d"
+            badge_ec = "#111827" if kind == "MPF" else "#450a0a"
+
+            try:
+                ax.text(
+                    0.012,
+                    0.985,
+                    badge_text,
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                    fontsize=8,
+                    fontweight="bold",
+                    color="white",
+                    bbox=dict(
+                        boxstyle="round,pad=0.28",
+                        fc=badge_fc,
+                        ec=badge_ec,
+                        alpha=0.92,
+                    ),
+                    zorder=50,
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _aits_log_detail_render_used(self, render_used: str, reason: str = ""):
+        try:
+            used = "legacy"
+            if str(render_used).strip().lower() in ("mpf", "mplfinance"):
+                used = "mplfinance"
+
+            _reason = str(reason or "").strip()
+            if _reason:
+                print(f"[AITS] detail chart render_used={used} reason={_reason}")
+            else:
+                print(f"[AITS] detail chart render_used={used}")
+        except Exception:
+            pass
+
+    def _aits_build_mpf_dataframe(self, candles):
+        try:
+            if candles is None or len(candles) == 0:
+                return None
+
+            if pd is None:
+                return None
+
+            rows = []
+
+            for c in candles:
+                try:
+                    if isinstance(c, dict):
+                        ts = c.get("candle_date_time_kst") or c.get("candle_date_time_utc")
+                        o = c.get("opening_price")
+                        h = c.get("high_price")
+                        l = c.get("low_price")
+                        cl = c.get("trade_price")
+                        v = c.get("candle_acc_trade_volume", 0)
+                    else:
+                        ts = getattr(c, "candle_date_time_kst", None) or getattr(
+                            c, "candle_date_time_utc", None
+                        )
+                        o = getattr(c, "opening_price", None)
+                        h = getattr(c, "high_price", None)
+                        l = getattr(c, "low_price", None)
+                        cl = getattr(c, "trade_price", None)
+                        v = getattr(c, "candle_acc_trade_volume", 0)
+
+                    if ts is None or o is None or h is None or l is None or cl is None:
+                        continue
+
+                    rows.append(
+                        {
+                            "Date": ts,
+                            "Open": float(o),
+                            "High": float(h),
+                            "Low": float(l),
+                            "Close": float(cl),
+                            "Volume": float(v),
+                        }
+                    )
+                except Exception:
+                    continue
+
+            if len(rows) < 2:
+                return None
+
+            df = pd.DataFrame(rows)
+
+            df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+            df = df.dropna(subset=["Date"]).copy()
+
+            for col in ["Open", "High", "Low", "Close", "Volume"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            df = df.dropna(subset=["Open", "High", "Low", "Close"]).copy()
+            if df.empty:
+                return None
+
+            df = df.sort_values("Date", ascending=True)
+            df = df.drop_duplicates(subset=["Date"], keep="last")
+            df = df.set_index("Date")
+            df.index.name = "Date"
+
+            if not isinstance(df.index, pd.DatetimeIndex):
+                return None
+
+            df = df[["Open", "High", "Low", "Close", "Volume"]]
+
+            if df.empty:
+                return None
+
+            return df
+
+        except Exception:
+            return None
+
+    def _aits_build_mpf_ma_addplots(self, mpf_df, ax_main=None):
+        try:
+            if mpf is None or pd is None or mpf_df is None or mpf_df.empty:
+                return []
+
+            close_s = mpf_df["Close"]
+
+            ma20 = close_s.rolling(window=20, min_periods=1).mean()
+            ma40 = close_s.rolling(window=40, min_periods=1).mean()
+            ma80 = close_s.rolling(window=80, min_periods=1).mean()
+
+            addplots = [
+                mpf.make_addplot(ma20, ax=ax_main, width=1.0),
+                mpf.make_addplot(ma40, ax=ax_main, width=1.0),
+                mpf.make_addplot(ma80, ax=ax_main, width=1.0),
+            ]
+            return addplots
+        except Exception:
+            return []
+
+    def _aits_build_mpf_rsi_panel_addplots(self, mpf_df, ax_rsi):
+        try:
+            if (
+                mpf is None
+                or pd is None
+                or mpf_df is None
+                or mpf_df.empty
+                or ax_rsi is None
+            ):
+                return []
+
+            close_s = pd.to_numeric(mpf_df["Close"], errors="coerce")
+            delta = close_s.diff()
+
+            gain = delta.clip(lower=0.0)
+            loss = -delta.clip(upper=0.0)
+
+            avg_gain = gain.rolling(window=14, min_periods=14).mean()
+            avg_loss = loss.rolling(window=14, min_periods=14).mean()
+
+            rs = avg_gain / avg_loss.replace(0, pd.NA)
+            rsi = 100 - (100 / (1 + rs))
+            rsi = rsi.bfill().fillna(50.0)
+
+            addplots = [
+                mpf.make_addplot(rsi, ax=ax_rsi, ylabel="RSI", width=1.0),
+                mpf.make_addplot(
+                    pd.Series(70.0, index=mpf_df.index), ax=ax_rsi, width=0.8
+                ),
+                mpf.make_addplot(
+                    pd.Series(30.0, index=mpf_df.index), ax=ax_rsi, width=0.8
+                ),
+            ]
+            return addplots
+        except Exception:
+            return []
+
+    def _aits_ensure_chart_runtime_deps(self):
+        global mpf, pd
+
+        if mpf is None:
+            try:
+                import mplfinance as _mpf
+
+                mpf = _mpf
+            except Exception:
+                mpf = None
+
+        if pd is None:
+            try:
+                import pandas as _pd
+
+                pd = _pd
+            except Exception:
+                pd = None
+
+    def _on_aits_pool_item_double_clicked(self, item):
+        try:
+            table = None
+            candidates = [
+                "tbl_ai_managed",
+                "tbl_aits_pool",
+                "table_aits_pool",
+                "tbl_ai_pool",
+                "table_ai_pool",
+                "tbl_managed_pool",
+                "table_managed_pool",
+            ]
+            for name in candidates:
+                obj = getattr(self, name, None)
+                if obj is not None:
+                    table = obj
+                    break
+
+            if table is None:
+                return
+
+            row = -1
+            try:
+                row = item.row()
+            except Exception:
+                try:
+                    row = table.currentRow()
+                except Exception:
+                    row = -1
+
+            if row is None or row < 0:
+                return
+
+            try:
+                table.selectRow(row)
+            except Exception:
+                pass
+
+            self._open_aits_large_chart_dialog_for_row(row)
+        except Exception:
+            pass
+
+    def _open_aits_large_chart_dialog_for_row(self, row: int):
+        try:
+            table = None
+            candidates = [
+                "tbl_ai_managed",
+                "tbl_aits_pool",
+                "table_aits_pool",
+                "tbl_ai_pool",
+                "table_ai_pool",
+                "tbl_managed_pool",
+                "table_managed_pool",
+            ]
+            for name in candidates:
+                obj = getattr(self, name, None)
+                if obj is not None:
+                    table = obj
+                    break
+
+            if table is None or row < 0:
+                return
+
+            def _cell_text(col):
+                try:
+                    it = table.item(row, col)
+                    return (
+                        it.text().strip()
+                        if it is not None and it.text() is not None
+                        else ""
+                    )
+                except Exception:
+                    return ""
+
+            coin_name = _cell_text(0)
+            current_price = _cell_text(1)
+            change_rate = _cell_text(2)
+            category = _cell_text(3)
+            ai_score = _cell_text(4)
+            ai_state = _cell_text(5)
+            target_price = _cell_text(6)
+
+            symbol_text = ""
+            name_text = coin_name
+
+            row_data = None
+            if 0 <= row < len(self.ai_managed_rows or []):
+                row_data = self.ai_managed_rows[row]
+                symbol_text = (row_data.get("symbol") or "").strip()
+                name_text = (row_data.get("name") or "").strip() or symbol_text
+            if not symbol_text:
+                try:
+                    it0 = table.item(row, 0)
+                    if it0 is not None:
+                        ud = it0.data(Qt.ItemDataRole.UserRole)
+                        if ud is not None:
+                            symbol_text = str(ud).strip()
+                except Exception:
+                    pass
+            if not symbol_text:
+                symbol_text = coin_name
+
+            try:
+                detail_text = self._extract_current_aits_detail_symbol_text()
+                if detail_text:
+                    for tok in detail_text.replace(",", " ").split():
+                        t = tok.strip()
+                        if "KRW-" in t:
+                            symbol_text = t
+                            break
+            except Exception:
+                pass
+
+            if self._aits_large_chart_dialog is None:
+                self._aits_large_chart_dialog = AITSLargeChartDialog(self)
+
+            dlg = self._aits_large_chart_dialog
+            self._aits_large_chart_symbol = symbol_text
+
+            basic_text = (
+                f"종목명: {name_text}\n"
+                f"심볼: {symbol_text}\n"
+                f"구분: {category}\n"
+                f"AI 상태: {ai_state}\n"
+                f"AI 점수: {ai_score}"
+            )
+
+            price_text = (
+                f"현재가: {current_price}\n"
+                f"변동률: {change_rate}\n"
+                f"목표가: {target_price}"
+            )
+
+            ai_text = ""
+            try:
+                ai_text = self._extract_current_aits_ai_reason_text()
+            except Exception:
+                ai_text = ""
+
+            dlg.set_summary(
+                title_text=f"AITS 상세 차트 - {name_text}",
+                basic_text=basic_text,
+                price_text=price_text,
+                ai_text=ai_text,
+            )
+
+            self._render_aits_large_chart_dialog(symbol_text, dlg)
+
+            try:
+                dlg.show()
+                dlg.raise_()
+                dlg.activateWindow()
+            except Exception:
+                dlg.exec()
+
+        except Exception:
+            pass
+
+    def _extract_current_aits_detail_symbol_text(self):
+        try:
+            candidates = [
+                "lbl_ai_detail_name",
+                "lbl_ai_symbol",
+                "lbl_detail_symbol",
+                "txt_ai_detail",
+                "te_ai_detail",
+            ]
+            for name in candidates:
+                obj = getattr(self, name, None)
+                if obj is None:
+                    continue
+
+                text_val = ""
+                try:
+                    text_val = obj.text()
+                except Exception:
+                    try:
+                        text_val = obj.toPlainText()
+                    except Exception:
+                        text_val = ""
+
+                text_val = str(text_val or "").strip()
+                if "KRW-" in text_val:
+                    return text_val
+
+            return ""
+        except Exception:
+            return ""
+
+    def _extract_current_aits_ai_reason_text(self):
+        try:
+            candidates = [
+                "txt_ai_detail_reason",
+                "txt_ai_reason",
+                "te_ai_reason",
+                "te_ai_detail_reason",
+            ]
+            for name in candidates:
+                obj = getattr(self, name, None)
+                if obj is None:
+                    continue
+                try:
+                    txt = obj.toPlainText()
+                except Exception:
+                    try:
+                        txt = obj.text()
+                    except Exception:
+                        txt = ""
+                txt = str(txt or "").strip()
+                if txt:
+                    return txt
+            return ""
+        except Exception:
+            return ""
+
+    def _render_aits_large_chart_dialog(self, symbol_text: str, dlg):
+        try:
+            if dlg is None:
+                return
+
+            fig = dlg.canvas.figure
+            fig.clf()
+
+            candles = []
+            tf = "60m"
+            count = 120
+
+            try:
+                candles = self._fetch_upbit_candles(symbol_text, tf, count)
+            except Exception:
+                candles = []
+
+            try:
+                candles = list(reversed(candles))
+            except Exception:
+                pass
+
+            self._aits_ensure_chart_runtime_deps()
+
+            mpf_df = None
+            try:
+                mpf_df = self._aits_build_mpf_dataframe(candles)
+            except Exception:
+                mpf_df = None
+
+            if mpf is not None and pd is not None and mpf_df is not None and not mpf_df.empty:
+                gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.0)
+                ax = fig.add_subplot(gs[0])
+                ax_rsi = fig.add_subplot(gs[1], sharex=ax)
+
+                mpf_addplots = []
+                try:
+                    mpf_addplots = self._aits_build_mpf_ma_addplots(mpf_df, ax)
+                except Exception:
+                    mpf_addplots = []
+
+                mpf_rsi_addplots = []
+                try:
+                    mpf_rsi_addplots = self._aits_build_mpf_rsi_panel_addplots(
+                        mpf_df, ax_rsi
+                    )
+                except Exception:
+                    mpf_rsi_addplots = []
+
+                mc = mpf.make_marketcolors(
+                    up="red",
+                    down="blue",
+                    edge="inherit",
+                    wick="inherit",
+                    volume="inherit",
+                )
+                s = mpf.make_mpf_style(
+                    base_mpf_style="yahoo",
+                    marketcolors=mc,
+                )
+
+                all_addplots = []
+                if mpf_addplots:
+                    all_addplots.extend(mpf_addplots)
+                if mpf_rsi_addplots:
+                    all_addplots.extend(mpf_rsi_addplots)
+
+                mpf.plot(
+                    mpf_df,
+                    type="candle",
+                    ax=ax,
+                    volume=False,
+                    style=s,
+                    addplot=all_addplots,
+                    panel_ratios=(4, 1),
+                    main_panel=0,
+                    num_panels=2,
+                    returnfig=False,
+                    warn_too_much_data=10000,
+                    ylabel="Price",
+                    ylabel_lower="RSI",
+                )
+
+                try:
+                    ax_rsi.set_ylim(0, 100)
+                except Exception:
+                    pass
+
+                try:
+                    self._aits_apply_detail_render_marker(
+                        ax,
+                        "MPF",
+                        f"{symbol_text} - 60분봉 최근 120개",
+                        "",
+                    )
+                except Exception:
+                    pass
+
+                dlg.canvas.draw_idle()
+                return
+
+            ax = fig.add_subplot(111)
+            try:
+                ax.set_title(f"[LEGACY] {symbol_text} - 60분봉 최근 120개")
+            except Exception:
+                pass
+            try:
+                ax.text(
+                    0.02,
+                    0.98,
+                    "RENDER: LEGACY",
+                    transform=ax.transAxes,
+                    ha="left",
+                    va="top",
+                )
+            except Exception:
+                pass
+            try:
+                ax.text(
+                    0.5,
+                    0.5,
+                    "차트 데이터를 불러올 수 없습니다.",
+                    transform=ax.transAxes,
+                    ha="center",
+                    va="center",
+                )
+            except Exception:
+                pass
+            dlg.canvas.draw_idle()
+
+        except Exception:
+            try:
+                dlg.canvas.draw_idle()
+            except Exception:
+                pass
+
     def _refresh_ai_detail_chart(self) -> None:
+        render_used = "legacy"
+        mpf_rendered = False
+        render_reason = ""
+        mpf_addplots = []
+        mpf_rsi_addplots = []
+        _detail_title_base = "AI Detail Chart"
         try:
             fig = getattr(self, "detail_chart_figure", None)
             canvas = getattr(self, "detail_chart_canvas", None)
@@ -3318,6 +4216,11 @@ class MainWindow(QMainWindow):
                     row = r
                     break
             if not sym or row is None:
+                self._detail_chart_ohlc_rows = None
+                self._detail_chart_xlim_default = None
+                self._detail_chart_ylim_default = None
+                self._detail_chart_press_pos = None
+                self._detail_chart_dragging = False
                 ax.text(
                     0.5,
                     0.5,
@@ -3335,8 +4238,10 @@ class MainWindow(QMainWindow):
             _tf = str(getattr(self, "_detail_chart_tf", "1m") or "1m")
             _cnt = int(getattr(self, "_detail_chart_count", 50) or 50)
             candles = self._fetch_upbit_candles(sym, _tf, _cnt)
-            print(f"[AITS] candle fetch symbol={sym} tf={_tf} count={len(candles)}")
-            candles = list(reversed(candles))
+            try:
+                candles = list(reversed(candles))
+            except Exception:
+                pass
             ohlc_rows: list[tuple[float, float, float, float]] = []
             for c in candles:
                 if not isinstance(c, dict):
@@ -3350,6 +4255,11 @@ class MainWindow(QMainWindow):
                     continue
                 ohlc_rows.append((o, h, low, cl))
             if len(candles) == 0 or len(ohlc_rows) < 2:
+                self._detail_chart_ohlc_rows = None
+                self._detail_chart_xlim_default = None
+                self._detail_chart_ylim_default = None
+                self._detail_chart_press_pos = None
+                self._detail_chart_dragging = False
                 ax.text(
                     0.5,
                     0.5,
@@ -3361,76 +4271,259 @@ class MainWindow(QMainWindow):
                 ax.set_axis_off()
                 canvas.draw()
                 return
-            _w = 0.85
-            lows = [t[2] for t in ohlc_rows]
-            highs = [t[1] for t in ohlc_rows]
-            closes = [t[3] for t in ohlc_rows]
-            for i, (o, h, low, cl) in enumerate(ohlc_rows):
-                _up = cl >= o
-                color = "#1e88e5" if _up else "#e53935"
-                ax.vlines(i, low, h, color=color, linewidth=1.5)
-                _lower = min(o, cl)
-                _height = abs(cl - o)
-                if _height == 0.0:
-                    ax.hlines(o, i - _w / 2, i + _w / 2, color=color, linewidth=1.5)
-                else:
+            _tf_ko = {"1m": "1분봉", "5m": "5분봉", "60m": "1시간봉", "1d": "일봉"}.get(
+                _tf, "1분봉"
+            )
+            _detail_title_base = f"{name} ({sym}) - {_tf_ko} 최근 {_cnt}개"[:90]
+
+            global mpf, pd
+
+            if mpf is None:
+                try:
+                    import mplfinance as _mpf
+
+                    mpf = _mpf
+                except Exception:
+                    mpf = None
+
+            if pd is None:
+                try:
+                    import pandas as _pd
+
+                    pd = _pd
+                except Exception:
+                    pd = None
+
+            mpf_df = None
+            try:
+                mpf_df = self._aits_build_mpf_dataframe(candles)
+            except Exception:
+                mpf_df = None
+
+            if mpf is None:
+                render_reason = "mpf_import_none"
+            elif pd is None:
+                render_reason = "pandas_import_none"
+            elif mpf_df is None or mpf_df.empty:
+                render_reason = "mpf_df_invalid"
+            else:
+                try:
+                    try:
+                        fig = canvas.figure
+                    except Exception:
+                        fig = None
+
+                    if fig is None:
+                        raise RuntimeError("detail_chart_figure_missing")
+
+                    fig.clf()
+
+                    gs = fig.add_gridspec(2, 1, height_ratios=[3, 1], hspace=0.0)
+                    ax = fig.add_subplot(gs[0])
+                    ax_rsi = fig.add_subplot(gs[1], sharex=ax)
+
+                    try:
+                        self.detail_chart_ax = ax
+                    except Exception:
+                        pass
+
+                    try:
+                        self.detail_chart_rsi_ax = ax_rsi
+                    except Exception:
+                        pass
+
+                    try:
+                        mpf_addplots = self._aits_build_mpf_ma_addplots(mpf_df, ax)
+                    except Exception:
+                        mpf_addplots = []
+
+                    try:
+                        mpf_rsi_addplots = self._aits_build_mpf_rsi_panel_addplots(
+                            mpf_df, ax_rsi
+                        )
+                    except Exception:
+                        mpf_rsi_addplots = []
+
+                    mc = mpf.make_marketcolors(
+                        up="red",
+                        down="blue",
+                        edge="inherit",
+                        wick="inherit",
+                        volume="inherit",
+                    )
+                    s = mpf.make_mpf_style(
+                        base_mpf_style="yahoo",
+                        marketcolors=mc,
+                    )
+
+                    all_addplots = []
+                    if mpf_addplots:
+                        all_addplots.extend(mpf_addplots)
+                    if mpf_rsi_addplots:
+                        all_addplots.extend(mpf_rsi_addplots)
+
+                    mpf.plot(
+                        mpf_df,
+                        type="candle",
+                        ax=ax,
+                        volume=False,
+                        style=s,
+                        addplot=all_addplots,
+                        panel_ratios=(3, 1),
+                        main_panel=0,
+                        num_panels=2,
+                        returnfig=False,
+                        warn_too_much_data=10000,
+                        ylabel="Price",
+                        ylabel_lower="RSI",
+                    )
+
+                    try:
+                        ax_rsi.set_ylim(0, 100)
+                    except Exception:
+                        pass
+
+                    if tp > 0:
+                        ax.axhline(tp, color="green", linestyle="--", linewidth=1.1, alpha=0.9)
+                    if sl > 0:
+                        ax.axhline(sl, color="red", linestyle="--", linewidth=1.1, alpha=0.9)
+
+                    render_used = "mpf"
+                    mpf_rendered = True
+                    try:
+                        self._aits_apply_detail_render_marker(
+                            ax, "MPF", _detail_title_base, ""
+                        )
+                    except Exception:
+                        pass
+
+                    try:
+                        canvas.draw_idle()
+                    except Exception:
+                        pass
+                    return
+                except Exception as e:
+                    render_reason = f"mpf_plot_exception:{type(e).__name__}"
+                    try:
+                        fig.clf()
+                        ax = fig.add_subplot(111)
+                    except Exception:
+                        pass
+
+            if not mpf_rendered:
+                _w = 0.85
+                lows = [t[2] for t in ohlc_rows]
+                highs = [t[1] for t in ohlc_rows]
+                closes = [t[3] for t in ohlc_rows]
+
+                def _sma(values, period):
+                    out = []
+                    for i in range(len(values)):
+                        if i + 1 < period:
+                            out.append(float("nan"))
+                        else:
+                            window = values[i - period + 1 : i + 1]
+                            out.append(sum(window) / period)
+                    return out
+
+                ma20 = _sma(closes, 20)
+                ma40 = _sma(closes, 40)
+                ma80 = _sma(closes, 80)
+                for i, (o, h, low, cl) in enumerate(ohlc_rows):
+                    _up = cl >= o
+                    wick_color = "#2e7d32" if _up else "#c62828"
+                    body_face = "#4caf50" if _up else "#ef5350"
+                    body_edge = "#2e7d32" if _up else "#c62828"
+
+                    ax.vlines(i, low, h, color=wick_color, linewidth=1.1)
+
+                    _lower = min(o, cl)
+                    _height = abs(cl - o)
+                    if _height < 0.8:
+                        _height = 0.8
+
                     ax.add_patch(
                         Rectangle(
                             (i - _w / 2, _lower),
                             _w,
                             _height,
-                            facecolor=color,
-                            edgecolor=color,
-                            alpha=1.0,
+                            facecolor=body_face,
+                            edgecolor=body_edge,
+                            linewidth=0.8,
                         )
                     )
-            ax.plot(closes, linewidth=1.2, alpha=0.4, color="0.35")
-            ymin = min(lows)
-            ymax = max(highs)
-            range_val = ymax - ymin
-            if ymax > 0 and range_val < ymax * 0.002:
-                center = (ymax + ymin) / 2
-                pad = center * 0.005 if center != 0 else 1.0
-                y_lo, y_hi = center - pad, center + pad
-            else:
-                pad = (range_val * 0.15) if range_val > 0 else max(abs(ymin) * 0.005, 1.0)
-                y_lo, y_hi = ymin - pad, ymax + pad
-            if tp > 0:
-                y_lo = min(y_lo, tp)
-                y_hi = max(y_hi, tp)
-            if sl > 0:
-                y_lo = min(y_lo, sl)
-                y_hi = max(y_hi, sl)
-            ax.set_ylim(y_lo, y_hi)
-            n = len(ohlc_rows)
-            ax.set_xlim(-0.5, n - 0.5)
-            if n <= 5:
-                ax.set_xticks(list(range(n)))
-            else:
-                _ti = sorted(
-                    {0, n // 4, n // 2, (3 * n) // 4, n - 1}
-                )
-                ax.set_xticks(_ti)
-            if tp > 0:
-                ax.axhline(tp, color="green", linestyle="--", linewidth=1.1, alpha=0.9)
-            if sl > 0:
-                ax.axhline(sl, color="red", linestyle="--", linewidth=1.1, alpha=0.9)
-            _tf_ko = {"1m": "1분봉", "5m": "5분봉", "60m": "1시간봉", "1d": "일봉"}.get(
-                _tf, "1분봉"
-            )
-            ax.set_title(f"{name} ({sym}) - {_tf_ko} 최근 {_cnt}개"[:90])
-            ax.grid(True, alpha=0.15)
-            try:
-                fig.tight_layout()
-            except Exception:
-                pass
-            canvas.draw()
+                xs = list(range(len(closes)))
+
+                ax.plot(xs, ma20, color="#f9a825", linewidth=1.2)
+                ax.plot(xs, ma40, color="#8e24aa", linewidth=1.2)
+                ax.plot(xs, ma80, color="#1565c0", linewidth=1.2)
+                ymin = min(lows)
+                ymax = max(highs)
+                range_val = ymax - ymin
+                if ymax > 0 and range_val < ymax * 0.002:
+                    center = (ymax + ymin) / 2
+                    pad = center * 0.005 if center != 0 else 1.0
+                    y_lo, y_hi = center - pad, center + pad
+                else:
+                    pad = (range_val * 0.15) if range_val > 0 else max(abs(ymin) * 0.005, 1.0)
+                    y_lo, y_hi = ymin - pad, ymax + pad
+                if tp > 0:
+                    y_lo = min(y_lo, tp)
+                    y_hi = max(y_hi, tp)
+                if sl > 0:
+                    y_lo = min(y_lo, sl)
+                    y_hi = max(y_hi, sl)
+                ax.set_ylim(y_lo, y_hi)
+                n = len(ohlc_rows)
+                ax.set_xlim(-0.5, n - 0.5)
+                ax.set_facecolor("#ffffff")
+
+                ax.grid(True, axis="y", linestyle="--", linewidth=0.6, alpha=0.2)
+                ax.grid(False, axis="x")
+
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
+
+                ax.tick_params(axis="x", labelsize=8)
+                ax.tick_params(axis="y", labelsize=8)
+                if n <= 5:
+                    ax.set_xticks(list(range(n)))
+                else:
+                    _ti = sorted(
+                        {0, n // 4, n // 2, (3 * n) // 4, n - 1}
+                    )
+                    ax.set_xticks(_ti)
+                if tp > 0:
+                    ax.axhline(tp, color="green", linestyle="--", linewidth=1.1, alpha=0.9)
+                if sl > 0:
+                    ax.axhline(sl, color="red", linestyle="--", linewidth=1.1, alpha=0.9)
+                render_used = "legacy"
+                try:
+                    self._aits_apply_detail_render_marker(
+                        ax, "LEGACY", _detail_title_base, render_reason
+                    )
+                except Exception:
+                    pass
+                try:
+                    fig.tight_layout()
+                except Exception:
+                    pass
+                self._detail_chart_ohlc_rows = ohlc_rows
+                self._detail_chart_tp = tp
+                self._detail_chart_sl = sl
+                self._detail_chart_xlim_default = ax.get_xlim()
+                self._detail_chart_ylim_default = ax.get_ylim()
+                self._detail_chart_press_pos = None
+                self._detail_chart_dragging = False
+                try:
+                    canvas.draw_idle()
+                except Exception:
+                    pass
         except Exception:
             pass
         finally:
             try:
-                s = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
-                print(f"[AITS] candle chart refreshed symbol={s}")
+                self._aits_log_detail_render_used(render_used, render_reason)
             except Exception:
                 pass
 
