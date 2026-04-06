@@ -205,6 +205,7 @@ from PySide6.QtGui import (
 )
 import matplotlib
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -1338,7 +1339,7 @@ class MainWindow(QMainWindow):
         }
         self._basic_ai_status_idx = 0
         self._selected_ai_pool_symbol = ""
-        self._detail_chart_tf = "1m"
+        self._detail_chart_tf = "60m"
         self._detail_chart_count = 50
         self._detail_chart_render_mode = "mplfinance" if mpf is not None else "legacy"
         self._detail_chart_press_pos = None
@@ -2259,6 +2260,12 @@ class MainWindow(QMainWindow):
         )
         self.tbl_ai_managed.verticalHeader().setVisible(False)
         self.tbl_ai_managed.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        try:
+            self.tbl_ai_managed.setSelectionMode(
+                QAbstractItemView.SelectionMode.SingleSelection
+            )
+        except Exception:
+            pass
         self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_ai_managed.setMinimumHeight(140)
         try:
@@ -2268,12 +2275,56 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
         self.tbl_ai_managed.itemSelectionChanged.connect(self._on_ai_managed_table_selection_changed)
         try:
+            self.tbl_ai_managed.cellDoubleClicked.connect(
+                self._on_ai_managed_cell_double_clicked
+            )
+        except Exception:
+            pass
+        try:
             self.tbl_ai_managed.itemDoubleClicked.connect(
                 self._on_aits_pool_item_double_clicked
             )
         except Exception:
             pass
         _managed_inner.addWidget(self.tbl_ai_managed)
+        self.btn_ai_managed_up = QPushButton("▲ 위로")
+        self.btn_ai_managed_down = QPushButton("▼ 아래로")
+        try:
+            self.btn_ai_managed_up.setMinimumHeight(28)
+            self.btn_ai_managed_down.setMinimumHeight(28)
+            self.btn_ai_managed_up.setMaximumHeight(28)
+            self.btn_ai_managed_down.setMaximumHeight(28)
+        except Exception:
+            pass
+        try:
+            self.btn_ai_managed_up.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            self.btn_ai_managed_down.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        try:
+            self.btn_ai_managed_up.setStyleSheet("padding:4px 8px;")
+            self.btn_ai_managed_down.setStyleSheet("padding:4px 8px;")
+        except Exception:
+            pass
+        _ai_managed_ctrl_row = QHBoxLayout()
+        _ai_managed_ctrl_row.setContentsMargins(0, 4, 0, 0)
+        _ai_managed_ctrl_row.setSpacing(6)
+        _ai_managed_ctrl_row.addWidget(self.btn_ai_managed_up, 1)
+        _ai_managed_ctrl_row.addWidget(self.btn_ai_managed_down, 1)
+        _managed_inner.addLayout(_ai_managed_ctrl_row)
+        try:
+            self.btn_ai_managed_up.clicked.connect(self._on_ai_managed_move_up)
+        except Exception:
+            pass
+        try:
+            self.btn_ai_managed_down.clicked.connect(self._on_ai_managed_move_down)
+        except Exception:
+            pass
+        self._ai_managed_lock_col = 9
         _managed_top_ly.addWidget(_gb_managed, 3)
 
         self._gb_ai_detail = QGroupBox("AI 종목 상세")
@@ -2315,6 +2366,12 @@ class MainWindow(QMainWindow):
             ("일봉", "1d"),
         ):
             self.cmb_detail_chart_tf.addItem(_lbl, _tf)
+        try:
+            _idx60 = self.cmb_detail_chart_tf.findData("60m")
+            if _idx60 >= 0:
+                self.cmb_detail_chart_tf.setCurrentIndex(_idx60)
+        except Exception:
+            pass
         self.cmb_detail_chart_count = QComboBox()
         for _n in (30, 50, 100):
             self.cmb_detail_chart_count.addItem(str(_n), _n)
@@ -2334,12 +2391,6 @@ class MainWindow(QMainWindow):
             pass
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         _chart_ly.addWidget(self.detail_chart_canvas)
-        self.lbl_detail_chart_zoom_hint = QLabel(
-            "드래그 확대 / 더블클릭·우클릭으로 초기화 · 휠 확대·축소"
-        )
-        self.lbl_detail_chart_zoom_hint.setStyleSheet("font-size: 10px; color: #78909c;")
-        self.lbl_detail_chart_zoom_hint.setWordWrap(True)
-        _chart_ly.addWidget(self.lbl_detail_chart_zoom_hint)
         if self._detail_chart_mpl_cids is None:
             self._detail_chart_mpl_cids = [
                 self.detail_chart_canvas.mpl_connect(
@@ -2367,7 +2418,7 @@ class MainWindow(QMainWindow):
         _basic_col = QWidget()
         _bly = QVBoxLayout(_basic_col)
         _bly.setContentsMargins(0, 0, 0, 0)
-        _bly.setSpacing(2)
+        _bly.setSpacing(1)
         _lbl_basic_title = QLabel("[기본 정보]")
         try:
             _lbl_basic_title.setStyleSheet(
@@ -2391,7 +2442,22 @@ class MainWindow(QMainWindow):
         _fb.addRow("구분", self.lbl_ai_detail_source)
         _fb.addRow("AI 상태", self.lbl_ai_detail_status)
         _fb.addRow("잠금 여부", self.lbl_ai_detail_lock)
-        _bly.addLayout(_fb)
+        _basic_form_widget = QWidget()
+        _basic_form_widget.setLayout(_fb)
+        _bly.addWidget(_basic_form_widget)
+        self.lbl_ai_detail_basic_summary = QLabel("")
+        try:
+            self.lbl_ai_detail_basic_summary.setWordWrap(True)
+            self.lbl_ai_detail_basic_summary.setStyleSheet(
+                "font-size:12px; padding:0px; margin:0px;"
+            )
+        except Exception:
+            pass
+        _bly.addWidget(self.lbl_ai_detail_basic_summary)
+        try:
+            _basic_form_widget.setVisible(False)
+        except Exception:
+            pass
         try:
             _basic_col.setStyleSheet("font-size:12px;")
         except Exception:
@@ -2400,7 +2466,7 @@ class MainWindow(QMainWindow):
         _price_col = QWidget()
         _ply = QVBoxLayout(_price_col)
         _ply.setContentsMargins(0, 0, 0, 0)
-        _ply.setSpacing(2)
+        _ply.setSpacing(1)
         _lbl_price_title = QLabel("[가격 정보]")
         try:
             _lbl_price_title.setStyleSheet(
@@ -2426,14 +2492,29 @@ class MainWindow(QMainWindow):
         _fp.addRow("목표가", self.lbl_ai_detail_target)
         _fp.addRow("손절가", self.lbl_ai_detail_stop)
         _fp.addRow("수익률", self.lbl_ai_detail_pnl)
-        _ply.addLayout(_fp)
+        _price_form_widget = QWidget()
+        _price_form_widget.setLayout(_fp)
+        _ply.addWidget(_price_form_widget)
+        self.lbl_ai_detail_price_summary = QLabel("")
+        try:
+            self.lbl_ai_detail_price_summary.setWordWrap(True)
+            self.lbl_ai_detail_price_summary.setStyleSheet(
+                "font-size:12px; padding:0px; margin:0px;"
+            )
+        except Exception:
+            pass
+        _ply.addWidget(self.lbl_ai_detail_price_summary)
+        try:
+            _price_form_widget.setVisible(False)
+        except Exception:
+            pass
         try:
             _price_col.setStyleSheet("font-size:12px;")
         except Exception:
             pass
 
         _info_row = QHBoxLayout()
-        _info_row.setSpacing(8)
+        _info_row.setSpacing(6)
         _info_row.addWidget(_basic_col, 1)
         _info_row.addWidget(_price_col, 1)
         _detail_inner.addLayout(_info_row)
@@ -2456,6 +2537,20 @@ class MainWindow(QMainWindow):
         self.lbl_ai_detail_score = QLabel("—")
         _fa.addRow("AI 점수", self.lbl_ai_detail_score)
         _detail_inner.addLayout(_fa)
+        self.lbl_ai_card_1 = QLabel("")
+        self.lbl_ai_card_2 = QLabel("")
+        self.lbl_ai_card_3 = QLabel("")
+        for _card in [self.lbl_ai_card_1, self.lbl_ai_card_2, self.lbl_ai_card_3]:
+            try:
+                _card.setWordWrap(True)
+                _card.setStyleSheet(
+                    "font-size:12px; font-weight:600; padding:6px; border:1px solid #d8dde6; background:#f6f8fb;"
+                )
+                _card.setMinimumHeight(34)
+                _card.setMaximumHeight(54)
+            except Exception:
+                pass
+            _detail_inner.addWidget(_card)
         self.txt_ai_detail_reason = QPlainTextEdit()
         self.txt_ai_detail_reason.setReadOnly(True)
         self.txt_ai_detail_reason.setPlaceholderText("AI 판단 요약")
@@ -2478,7 +2573,7 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        _detail_inner.addWidget(_lbl_action_title)
+        _lbl_action_title.setVisible(False)
         _act_row = QHBoxLayout()
         try:
             _act_row.setContentsMargins(0, 2, 0, 0)
@@ -2489,9 +2584,10 @@ class MainWindow(QMainWindow):
         self.btn_ai_detail_lock = QPushButton("잠금 설정")
         self.btn_ai_detail_remove.clicked.connect(self._on_ai_detail_remove_clicked)
         self.btn_ai_detail_lock.clicked.connect(self._on_ai_detail_lock_clicked)
+        self.btn_ai_detail_remove.setVisible(False)
+        self.btn_ai_detail_lock.setVisible(False)
         _act_row.addWidget(self.btn_ai_detail_remove)
         _act_row.addWidget(self.btn_ai_detail_lock)
-        _detail_inner.addLayout(_act_row)
 
         _managed_top_ly.addWidget(self._gb_ai_detail, 2)
         _aits_pool_ly.addWidget(_managed_top_split, 3)
@@ -3602,12 +3698,29 @@ class MainWindow(QMainWindow):
                 self.lbl_ai_detail_source.setText("—")
                 self.lbl_ai_detail_status.setText("—")
                 self.lbl_ai_detail_lock.setText("—")
+                try:
+                    self.lbl_ai_detail_basic_summary.setText("—")
+                except Exception:
+                    pass
                 self.lbl_ai_detail_price.setText("—")
                 self.lbl_ai_detail_change.setText("—")
                 self.lbl_ai_detail_target.setText("—")
                 self.lbl_ai_detail_stop.setText("—")
                 self.lbl_ai_detail_pnl.setText("—")
+                try:
+                    self.lbl_ai_detail_price_summary.setText("—")
+                except Exception:
+                    pass
                 self.lbl_ai_detail_score.setText("—")
+                try:
+                    self.lbl_ai_card_1.setText("")
+                    self.lbl_ai_card_2.setText("")
+                    self.lbl_ai_card_3.setText("")
+                    self.lbl_ai_card_1.setVisible(False)
+                    self.lbl_ai_card_2.setVisible(False)
+                    self.lbl_ai_card_3.setVisible(False)
+                except Exception:
+                    pass
                 self.txt_ai_detail_reason.setPlainText("")
                 self.btn_ai_detail_remove.setEnabled(False)
                 self.btn_ai_detail_lock.setEnabled(False)
@@ -3632,6 +3745,42 @@ class MainWindow(QMainWindow):
             self.lbl_ai_detail_stop.setText(f"{sl:,.0f}" if sl > 0 else "—")
             pnl = float(row.get("pnl") or 0.0)
             self.lbl_ai_detail_pnl.setText(f"{pnl:.2f}%" if pr > 0 else "—")
+            try:
+                _lock_txt = "잠김" if locked else "해제"
+                _source_txt = "AI" if src == "AI" else "USER"
+                _status_txt = str(row.get("ai_status") or "Watching")
+                _price_txt = f"{pr:,.0f}" if pr > 0 else "—"
+                _chg_txt = self._fmt_change_pct(float(row.get("change_rate") or 0.0))
+                _tp_txt = f"{tp:,.0f}" if tp > 0 else "—"
+                _sl_txt = f"{sl:,.0f}" if sl > 0 else "—"
+                _pnl_txt = f"{pnl:.2f}%" if pr > 0 else "—"
+                basic_summary = (
+                    f"{display_name} | {_source_txt} | {_status_txt} | {_lock_txt}"
+                )
+                if len(basic_summary) > 80:
+                    basic_summary = basic_summary[:80] + "..."
+                self.lbl_ai_detail_basic_summary.setText(basic_summary)
+
+                _cur = str(_price_txt or "").strip()
+                _chg = str(_chg_txt or "").strip()
+                _tgt = str(_tp_txt or "").strip()
+                _stp = str(_sl_txt or "").strip()
+                _pft = str(_pnl_txt or "").strip()
+
+                left_part = f"현재 {_cur}"
+                if _chg:
+                    left_part += f" ({_chg})"
+
+                price_summary = left_part
+                if _tgt:
+                    price_summary += f" | 목표 {_tgt}"
+                if _stp:
+                    price_summary += f" | 손절 {_stp}"
+                if _pft:
+                    price_summary += f" | 수익 {_pft}"
+                self.lbl_ai_detail_price_summary.setText(price_summary)
+            except Exception:
+                pass
             if src == "AI" and row.get("ai_score") is not None:
                 try:
                     self.lbl_ai_detail_score.setText(str(int(row.get("ai_score"))))
@@ -3647,6 +3796,36 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.txt_ai_detail_reason.setPlainText("—")
+            try:
+                _ai_score_text = ""
+                try:
+                    _ai_score_text = str(int(row.get("ai_score")))
+                except Exception:
+                    _ai_score_text = str(row.get("ai_score") or "")
+                cards = self._build_ai_strategy_cards(
+                    ai_reason_text=str(rs or ""),
+                    ai_state_text=str(row.get("ai_status") or ""),
+                    ai_score_text=_ai_score_text,
+                )
+            except Exception:
+                cards = [("", ""), ("", ""), ("", "")]
+
+            try:
+                c1 = cards[0] if len(cards) > 0 else ("", "")
+                c2 = cards[1] if len(cards) > 1 else ("", "")
+                c3 = cards[2] if len(cards) > 2 else ("", "")
+                self.lbl_ai_card_1.setText(f"{c1[0]}\n{c1[1]}".strip() if c1[0] else "")
+                self.lbl_ai_card_2.setText(f"{c2[0]}\n{c2[1]}".strip() if c2[0] else "")
+                self.lbl_ai_card_3.setText(f"{c3[0]}\n{c3[1]}".strip() if c3[0] else "")
+            except Exception:
+                pass
+
+            try:
+                for _card in [self.lbl_ai_card_1, self.lbl_ai_card_2, self.lbl_ai_card_3]:
+                    txt = str(_card.text() or "").strip()
+                    _card.setVisible(bool(txt))
+            except Exception:
+                pass
             self.btn_ai_detail_remove.setEnabled(True)
             self.btn_ai_detail_lock.setEnabled(True)
             self.btn_ai_detail_lock.setText("잠금 해제" if locked else "잠금 설정")
@@ -3726,7 +3905,7 @@ class MainWindow(QMainWindow):
     def _on_detail_chart_option_changed(self, _idx: int = 0) -> None:
         try:
             _td = self.cmb_detail_chart_tf.currentData()
-            self._detail_chart_tf = str(_td) if _td is not None else "1m"
+            self._detail_chart_tf = str(_td) if _td is not None else "60m"
             _cd = self.cmb_detail_chart_count.currentData()
             self._detail_chart_count = int(_cd) if _cd is not None else 50
             self._refresh_ai_detail_chart()
@@ -4619,6 +4798,49 @@ class MainWindow(QMainWindow):
             except Exception:
                 return ""
 
+    def _build_ai_strategy_cards(
+        self, ai_reason_text: str, ai_state_text: str = "", ai_score_text: str = ""
+    ):
+        try:
+            reason = str(ai_reason_text or "").strip()
+            state = str(ai_state_text or "").strip()
+            score = str(ai_score_text or "").strip()
+
+            cards = []
+
+            state_l = state.lower()
+
+            if "drop" in state_l:
+                cards.append(("관망 우세", "현재 조건에서는 즉시 진입보다 제외/대기 가능성이 높음"))
+            elif "watch" in state_l:
+                cards.append(("조건 대기", "추가 신호 확인 전까지 관찰 우세"))
+            elif "hold" in state_l:
+                cards.append(("보유 관찰", "현재 포지션 유지 여부를 확인 중"))
+            elif "buy" in state_l:
+                cards.append(("진입 검토", "조건 충족 시 진입 가능성 확인 중"))
+
+            if "거래대금 부족" in reason:
+                cards.append(("유동성 주의", "체결/추격 매수보다 대기 가능성이 높음"))
+
+            if "시장 평균 약세" in reason:
+                cards.append(("시장 약세 반영", "보수적 대응이 우선될 가능성"))
+
+            if "보수" in reason:
+                cards.append(("보수 전략", "분할 접근 또는 추가 확인 후 대응"))
+
+            if score:
+                cards.append((f"AI 점수 {score}", "현재 평가 점수 기준 상태 유지"))
+
+            cards = cards[:3]
+
+            while len(cards) < 3:
+                cards.append(("", ""))
+
+            return cards
+
+        except Exception:
+            return [("", ""), ("", ""), ("", "")]
+
     def _get_aits_popup_action_badge(self, row: int):
         try:
             levels = self._get_aits_popup_price_levels(row)
@@ -5233,7 +5455,7 @@ class MainWindow(QMainWindow):
             name = (row.get("name") or "").strip() or sym
             tp = float(row.get("target_price") or 0.0)
             sl = float(row.get("stop_loss") or 0.0)
-            _tf = str(getattr(self, "_detail_chart_tf", "1m") or "1m")
+            _tf = str(getattr(self, "_detail_chart_tf", "60m") or "60m")
             _cnt = int(getattr(self, "_detail_chart_count", 50) or 50)
             candles = self._fetch_upbit_candles(sym, _tf, _cnt)
             try:
@@ -5378,6 +5600,38 @@ class MainWindow(QMainWindow):
 
                     try:
                         ax_rsi.set_ylim(0, 100)
+                    except Exception:
+                        pass
+
+                    try:
+                        ax.tick_params(axis="x", labelbottom=False)
+                    except Exception:
+                        pass
+
+                    try:
+                        ax_rsi.tick_params(axis="x", labelsize=8, rotation=0)
+                        try:
+                            ax_rsi.xaxis.set_major_locator(mticker.MaxNLocator(4))
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    try:
+                        try:
+                            ax.yaxis.set_major_locator(mticker.MaxNLocator(4))
+                        except Exception:
+                            pass
+                        ax.tick_params(axis="y", labelsize=8)
+                    except Exception:
+                        pass
+
+                    try:
+                        try:
+                            ax_rsi.yaxis.set_major_locator(mticker.MaxNLocator(3))
+                        except Exception:
+                            pass
+                        ax_rsi.tick_params(axis="y", labelsize=8)
                     except Exception:
                         pass
 
@@ -5566,6 +5820,124 @@ class MainWindow(QMainWindow):
                 return
             self._toggle_ai_pool_lock_by_symbol(sym)
             self._refresh_ai_managed_table()
+        except Exception:
+            pass
+
+    def _get_ai_managed_current_row(self):
+        try:
+            row = self.tbl_ai_managed.currentRow()
+            if row is not None and int(row) >= 0:
+                return int(row)
+        except Exception:
+            pass
+
+        try:
+            items = self.tbl_ai_managed.selectedItems()
+            if items:
+                return int(items[0].row())
+        except Exception:
+            pass
+
+        return -1
+
+    def _on_ai_managed_move_up(self):
+        try:
+            row = self._get_ai_managed_current_row()
+            if row <= 0:
+                return
+
+            rows = getattr(self, "ai_managed_rows", None)
+            if not rows or row >= len(rows):
+                return
+
+            rows[row - 1], rows[row] = rows[row], rows[row - 1]
+
+            self.ai_managed_rows = rows
+
+            try:
+                self._refresh_ai_managed_table()
+            except Exception:
+                pass
+
+            try:
+                self.tbl_ai_managed.clearSelection()
+            except Exception:
+                pass
+
+            new_row = row - 1
+
+            try:
+                self.tbl_ai_managed.selectRow(new_row)
+            except Exception:
+                pass
+
+            try:
+                self.tbl_ai_managed.scrollToItem(
+                    self.tbl_ai_managed.item(max(new_row, 0), 0)
+                )
+            except Exception:
+                pass
+
+            try:
+                self._refresh_ai_detail_panel()
+            except Exception:
+                pass
+
+            try:
+                self._refresh_ai_detail_chart()
+            except Exception:
+                pass
+
+        except Exception:
+            pass
+
+    def _on_ai_managed_move_down(self):
+        try:
+            row = self._get_ai_managed_current_row()
+            rows = getattr(self, "ai_managed_rows", None)
+            if row < 0 or not rows:
+                return
+            if row >= len(rows) - 1:
+                return
+
+            rows[row + 1], rows[row] = rows[row], rows[row + 1]
+
+            self.ai_managed_rows = rows
+
+            try:
+                self._refresh_ai_managed_table()
+            except Exception:
+                pass
+
+            try:
+                self.tbl_ai_managed.clearSelection()
+            except Exception:
+                pass
+
+            new_row = row + 1
+
+            try:
+                self.tbl_ai_managed.selectRow(new_row)
+            except Exception:
+                pass
+
+            try:
+                self.tbl_ai_managed.scrollToItem(
+                    self.tbl_ai_managed.item(max(new_row, 0), 0)
+                )
+            except Exception:
+                pass
+
+            try:
+                self._refresh_ai_detail_panel()
+            except Exception:
+                pass
+
+            try:
+                self._refresh_ai_detail_chart()
+            except Exception:
+                pass
+
         except Exception:
             pass
 
@@ -6439,11 +6811,48 @@ class MainWindow(QMainWindow):
         if row < 0 or row >= len(self.ai_managed_rows):
             return
         sym = (self.ai_managed_rows[row].get("symbol") or "").strip()
-        if col == self._AI_M_COL_LOCK:
-            self._toggle_ai_pool_lock_by_symbol(sym)
-            self._refresh_ai_managed_table()
-        elif col == self._AI_M_COL_ACTION:
+        if col == self._AI_M_COL_ACTION:
             self._remove_symbol_from_ai_pool(sym)
+
+    def _on_ai_managed_cell_double_clicked(self, row, col):
+        try:
+            lock_col = int(getattr(self, "_ai_managed_lock_col", -1))
+            if col != lock_col:
+                return
+
+            rows = getattr(self, "ai_managed_rows", None)
+            if not rows or row < 0 or row >= len(rows):
+                return
+
+            row_obj = rows[row]
+
+            if isinstance(row_obj, dict):
+                current_locked = bool(row_obj.get("locked", False))
+                row_obj["locked"] = not current_locked
+            else:
+                current_locked = bool(getattr(row_obj, "locked", False))
+                try:
+                    setattr(row_obj, "locked", not current_locked)
+                except Exception:
+                    return
+
+            try:
+                self._refresh_ai_managed_table()
+            except Exception:
+                pass
+
+            try:
+                self.tbl_ai_managed.selectRow(row)
+            except Exception:
+                pass
+
+            try:
+                self._refresh_ai_detail_panel()
+            except Exception:
+                pass
+
+        except Exception:
+            pass
 
     def _on_market_all_table_cell_clicked(self, row: int, col: int) -> None:
         if col != self._MKT_COL_ADD:
