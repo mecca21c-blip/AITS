@@ -1312,6 +1312,8 @@ class MainWindow(QMainWindow):
         # 하단 row 예: symbol, name, price, change_rate, volume_24h
         self.ai_managed_rows: list[dict] = []
         self.market_all_rows: list[dict] = []
+        self._market_all_rows: list[dict] = []
+        self._market_all_last_query = ""
         self.basic_ai_settings = {
             "risk_mode": "중립",
             "target_profit_pct": 3.0,
@@ -2259,6 +2261,10 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_ai_managed.setMinimumHeight(140)
+        try:
+            self.tbl_ai_managed.setColumnWidth(0, 130)
+        except Exception:
+            pass
         self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
         self.tbl_ai_managed.itemSelectionChanged.connect(self._on_ai_managed_table_selection_changed)
         try:
@@ -2501,6 +2507,10 @@ class MainWindow(QMainWindow):
         self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_market_all.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_market_all.setMinimumHeight(120)
+        try:
+            self.tbl_market_all.setColumnWidth(0, 150)
+        except Exception:
+            pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
         _market_inner.addWidget(self.tbl_market_all)
         _aits_pool_ly.addWidget(_gb_market, 2)
@@ -3604,8 +3614,10 @@ class MainWindow(QMainWindow):
                 self.btn_ai_detail_lock.setText("잠금 설정")
                 return
             self.lbl_ai_detail_hint.setVisible(False)
-            name = (row.get("name") or "").strip() or sym
-            self.lbl_ai_detail_name.setText(f"{name} ({sym})" if name != sym else sym)
+            display_name = self._format_aits_coin_display_name(sym)
+            self.lbl_ai_detail_name.setText(
+                f"{display_name} ({sym})" if display_name else sym
+            )
             src = (row.get("source") or "USER").strip().upper()
             self.lbl_ai_detail_source.setText("AI" if src == "AI" else "USER")
             self.lbl_ai_detail_status.setText(str(row.get("ai_status") or "Watching"))
@@ -4298,8 +4310,12 @@ class MainWindow(QMainWindow):
 
             self._aits_large_chart_symbol = symbol_text
 
+            display_name = self._format_aits_coin_display_name(symbol_text)
+            if not display_name:
+                display_name = (name_text or "").strip() or symbol_text
+
             basic_text = (
-                f"종목명: {name_text}\n"
+                f"종목명: {display_name}\n"
                 f"심볼: {symbol_text}\n"
                 f"구분: {category}\n"
                 f"AI 상태: {ai_state}\n"
@@ -4342,7 +4358,7 @@ class MainWindow(QMainWindow):
                 ai_banner_text = ""
 
             dlg.set_summary(
-                title_text=f"AITS 상세 차트 - {name_text}",
+                title_text=f"AITS 상세 차트 - {display_name}",
                 basic_text=basic_text,
                 price_text=price_text,
                 ai_text=ai_text,
@@ -4526,6 +4542,82 @@ class MainWindow(QMainWindow):
                 return f"{prefix}{value}"
             except Exception:
                 return str(prefix or "")
+
+    def _get_aits_korean_coin_name(self, symbol_text: str):
+        try:
+            s = str(symbol_text or "").strip().upper()
+            if not s:
+                return ""
+
+            if s.startswith("KRW-"):
+                s = s.split("-", 1)[1].strip()
+
+            name_map = {
+                "BTC": "비트코인",
+                "ETH": "이더리움",
+                "XRP": "리플",
+                "DOGE": "도지코인",
+                "SOL": "솔라나",
+                "ADA": "에이다",
+                "TRX": "트론",
+                "AVAX": "아발란체",
+                "SUI": "수이",
+                "LINK": "체인링크",
+                "HBAR": "헤데라",
+                "ONDO": "온도",
+                "POLYX": "폴리매쉬",
+                "BERA": "베라체인",
+                "USDT": "테더",
+                "XLM": "스텔라루멘",
+                "BCH": "비트코인캐시",
+                "ETC": "이더리움클래식",
+                "APT": "앱토스",
+                "SEI": "세이",
+                "WIF": "도그위프햇",
+                "BONK": "봉크",
+                "NEAR": "니어프로토콜",
+                "ARB": "아비트럼",
+                "OP": "옵티미즘",
+                "ATOM": "코스모스",
+                "TIA": "셀레스티아",
+                "JUP": "주피터",
+                "PEPE": "페페",
+                "SHIB": "시바이누",
+                "MNT": "맨틀",
+                "STX": "스택스",
+                "IMX": "이뮤터블엑스",
+                "RNDR": "렌더",
+                "AERO": "에어로드롬",
+                "FIL": "파일코인",
+                "INJ": "인젝티브",
+                "WLD": "월드코인",
+            }
+
+            return str(name_map.get(s, "") or "")
+        except Exception:
+            return ""
+
+    def _format_aits_coin_display_name(self, symbol_text: str):
+        try:
+            raw = str(symbol_text or "").strip()
+            if not raw:
+                return ""
+
+            short_symbol = raw
+            if raw.upper().startswith("KRW-"):
+                short_symbol = raw.split("-", 1)[1].strip().upper()
+            else:
+                short_symbol = raw.upper()
+
+            ko = self._get_aits_korean_coin_name(short_symbol)
+            if ko:
+                return f"{short_symbol} {ko}"
+            return short_symbol
+        except Exception:
+            try:
+                return str(symbol_text or "")
+            except Exception:
+                return ""
 
     def _get_aits_popup_action_badge(self, row: int):
         try:
@@ -5487,7 +5579,8 @@ class MainWindow(QMainWindow):
             t.insertRow(i)
             sym = (row.get("symbol") or "").strip()
             name = (row.get("name") or "").strip() or sym
-            label = f"{name}\n{sym}" if name and sym and name != sym else (sym or name)
+            display_coin = self._format_aits_coin_display_name(sym)
+            label = display_coin if display_coin else (name or sym or "—")
             c0 = QTableWidgetItem(label)
             c0.setData(Qt.ItemDataRole.UserRole, sym)
             t.setItem(i, 0, c0)
@@ -6023,29 +6116,218 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _ensure_market_all_rows(self):
+        try:
+            cached = getattr(self, "_market_all_rows", None)
+            if cached:
+                return cached
+
+            all_rows: list = []
+
+            candidate_calls = [
+                "_fetch_upbit_all_tickers",
+                "_fetch_upbit_all_markets",
+                "_load_upbit_all_markets",
+                "_get_upbit_all_markets",
+            ]
+            for fn_name in candidate_calls:
+                fn = getattr(self, fn_name, None)
+                if callable(fn):
+                    try:
+                        data = fn()
+                        if data:
+                            all_rows = data
+                            break
+                    except Exception:
+                        pass
+
+            if not all_rows:
+                try:
+                    meta = get_markets_with_names("KRW") or []
+                    for d in meta:
+                        if not isinstance(d, dict):
+                            continue
+                        sym = str(d.get("market") or "").strip()
+                        if not sym.startswith("KRW-"):
+                            continue
+                        kn = str(d.get("korean_name") or "").strip()
+                        en = str(d.get("english_name") or "").strip()
+                        nm = kn or en or (sym.split("-")[-1] if "-" in sym else sym)
+                        all_rows.append(
+                            {
+                                "symbol": sym,
+                                "name": nm,
+                                "korean_name": kn,
+                                "english_name": en,
+                                "price": 0.0,
+                                "change_rate": 0.0,
+                                "volume_24h": 0.0,
+                            }
+                        )
+                except Exception:
+                    all_rows = []
+
+            if not all_rows:
+                try:
+                    c2 = getattr(self, "market_all_rows", None)
+                    if c2:
+                        all_rows = [dict(x) if isinstance(x, dict) else x for x in c2]
+                except Exception:
+                    pass
+
+            filtered: list = []
+            for r in all_rows or []:
+                try:
+                    if isinstance(r, dict):
+                        sym = str(
+                            r.get("symbol")
+                            or r.get("market")
+                            or r.get("code")
+                            or ""
+                        ).strip()
+                    else:
+                        sym = str(
+                            getattr(r, "symbol", None)
+                            or getattr(r, "market", None)
+                            or getattr(r, "code", None)
+                            or ""
+                        ).strip()
+                    if sym.startswith("KRW-"):
+                        filtered.append(r)
+                except Exception:
+                    continue
+
+            if filtered and isinstance(filtered[0], dict):
+                mkts = [str(x.get("symbol") or "").strip() for x in filtered if x.get("symbol")]
+                try:
+                    tick_list = get_tickers(mkts) or []
+                    tick_by_m = {}
+                    for t in tick_list:
+                        if not isinstance(t, dict):
+                            continue
+                        m = str(t.get("market") or "").strip()
+                        if m:
+                            tick_by_m[m] = t
+                    for row in filtered:
+                        sym = str(row.get("symbol") or "").strip()
+                        td = tick_by_m.get(sym) or {}
+                        row["price"] = float(td.get("trade_price") or 0.0)
+                        row["change_rate"] = float(td.get("signed_change_rate") or 0.0)
+                        row["volume_24h"] = float(td.get("acc_trade_volume_24h") or 0.0)
+                except Exception:
+                    pass
+
+            self._market_all_rows = filtered
+            return filtered
+
+        except Exception:
+            self._market_all_rows = []
+            return []
+
+    def _match_market_row_query(self, row_obj, query_text: str):
+        try:
+            q = str(query_text or "").strip().lower()
+            if not q:
+                return True
+
+            symbol_text = ""
+            name_text = ""
+            display_text = ""
+
+            try:
+                if isinstance(row_obj, dict):
+                    symbol_text = str(
+                        row_obj.get("symbol")
+                        or row_obj.get("market")
+                        or row_obj.get("code")
+                        or ""
+                    ).strip()
+                    name_text = str(
+                        row_obj.get("name")
+                        or row_obj.get("korean_name")
+                        or row_obj.get("english_name")
+                        or ""
+                    ).strip()
+                else:
+                    symbol_text = str(
+                        getattr(row_obj, "symbol", None)
+                        or getattr(row_obj, "market", None)
+                        or getattr(row_obj, "code", None)
+                        or ""
+                    ).strip()
+                    name_text = str(
+                        getattr(row_obj, "name", None)
+                        or getattr(row_obj, "korean_name", None)
+                        or getattr(row_obj, "english_name", None)
+                        or ""
+                    ).strip()
+            except Exception:
+                pass
+
+            try:
+                display_text = self._format_aits_coin_display_name(symbol_text)
+            except Exception:
+                display_text = symbol_text
+
+            try:
+                ko_extra = ""
+                if isinstance(row_obj, dict):
+                    ko_extra = str(row_obj.get("korean_name") or "").strip()
+            except Exception:
+                ko_extra = ""
+
+            bucket = " | ".join(
+                [
+                    symbol_text.lower(),
+                    name_text.lower(),
+                    display_text.lower(),
+                    ko_extra.lower(),
+                ]
+            )
+
+            return q in bucket
+
+        except Exception:
+            return False
+
     def _refresh_market_all_table(self) -> None:
         if not hasattr(self, "tbl_market_all") or self.tbl_market_all is None:
             return
-        q = ""
+        query = ""
         try:
-            q = (self.ed_market_search.text() or "").strip().lower()
+            query = (self.ed_market_search.text() or "").strip()
         except Exception:
-            q = ""
-        rows = list(self.market_all_rows)
-        if q:
-            rows = [
-                r
-                for r in self.market_all_rows
-                if q in (r.get("symbol") or "").lower() or q in (r.get("name") or "").lower()
+            query = ""
+
+        try:
+            self._market_all_last_query = query
+        except Exception:
+            pass
+
+        rows_to_render = []
+
+        if not query:
+            try:
+                rows_to_render = list(getattr(self, "market_all_rows", []) or [])
+            except Exception:
+                rows_to_render = []
+        else:
+            all_rows = self._ensure_market_all_rows()
+            rows_to_render = [
+                r for r in all_rows if self._match_market_row_query(r, query)
             ]
-        self._market_display_rows = rows
+            if len(rows_to_render) > 300:
+                rows_to_render = rows_to_render[:300]
+
+        self._market_display_rows = rows_to_render
         t = self.tbl_market_all
         t.setRowCount(0)
-        for i, r in enumerate(rows):
+        for i, r in enumerate(rows_to_render):
             t.insertRow(i)
             sym = (r.get("symbol") or "").strip()
             name = (r.get("name") or "").strip() or sym
-            c0 = QTableWidgetItem(f"{name} ({sym})" if sym else name)
+            display_coin = self._format_aits_coin_display_name(sym)
+            c0 = QTableWidgetItem(display_coin if display_coin else (sym or name))
             c0.setData(Qt.ItemDataRole.UserRole, sym)
             t.setItem(i, 0, c0)
             t.setItem(i, 1, QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}"))
