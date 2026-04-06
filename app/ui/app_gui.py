@@ -206,6 +206,7 @@ from PySide6.QtGui import (
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 
@@ -524,20 +525,32 @@ class AITSLargeChartDialog(QDialog):
         self._reason_box = None
 
         root = QVBoxLayout(self)
+        root.setSpacing(6)
+        root.setContentsMargins(8, 8, 8, 8)
 
         self.lbl_title = QLabel("AITS 상세 차트")
         try:
             self.lbl_title.setStyleSheet("font-size:16px; font-weight:600;")
         except Exception:
             pass
+        try:
+            self.lbl_title.setContentsMargins(0, 0, 0, 5)
+        except Exception:
+            pass
         root.addWidget(self.lbl_title)
 
         info_row = QHBoxLayout()
+        info_row.setContentsMargins(0, 0, 0, 0)
+        info_row.setSpacing(10)
 
         self.lbl_basic = QLabel("")
         try:
             self.lbl_basic.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_basic.setWordWrap(True)
+        except Exception:
+            pass
+        try:
+            self.lbl_basic.setStyleSheet("font-size:12px;")
         except Exception:
             pass
         info_row.addWidget(self.lbl_basic, 1)
@@ -548,6 +561,10 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_price.setWordWrap(True)
         except Exception:
             pass
+        try:
+            self.lbl_price.setStyleSheet("font-size:12px;")
+        except Exception:
+            pass
         info_row.addWidget(self.lbl_price, 1)
 
         root.addLayout(info_row)
@@ -555,19 +572,73 @@ class AITSLargeChartDialog(QDialog):
         self.txt_ai = QTextEdit()
         self.txt_ai.setReadOnly(True)
         try:
-            self.txt_ai.setMaximumHeight(120)
+            self.txt_ai.setMaximumHeight(70)
+        except Exception:
+            pass
+        try:
+            self.txt_ai.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        try:
+            self.txt_ai.setStyleSheet("padding:4px;")
         except Exception:
             pass
         root.addWidget(self.txt_ai)
 
+        self.cmb_tf = QComboBox()
+        self.cmb_count = QComboBox()
+        self.btn_refresh = QPushButton("새로고침")
+        self.toolbar = None
+
+        self.cmb_tf.clear()
+        self.cmb_tf.addItem("1분", "1m")
+        self.cmb_tf.addItem("5분", "5m")
+        self.cmb_tf.addItem("30분", "30m")
+        self.cmb_tf.addItem("1시간", "60m")
+        self.cmb_tf.addItem("4시간", "240m")
+        self.cmb_tf.addItem("일봉", "day")
+        self.cmb_tf.addItem("주봉", "week")
+        self.cmb_tf.addItem("월봉", "month")
+
+        try:
+            idx = self.cmb_tf.findData("60m")
+            if idx >= 0:
+                self.cmb_tf.setCurrentIndex(idx)
+        except Exception:
+            pass
+
+        for _c in ("120", "240", "360"):
+            self.cmb_count.addItem(_c)
+        self.cmb_count.setCurrentIndex(0)
+
         self.fig = Figure(figsize=(10, 6))
         self.canvas = FigureCanvas(self.fig)
+        try:
+            self.canvas.setMinimumHeight(400)
+        except Exception:
+            pass
         try:
             self.canvas.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
         except Exception:
             pass
+
+        self.toolbar = NavigationToolbar(self.canvas, self)
+
+        control_bar = QHBoxLayout()
+        control_bar.setContentsMargins(0, 0, 0, 0)
+        control_bar.addWidget(QLabel("시간봉"))
+        control_bar.addWidget(self.cmb_tf)
+        control_bar.addWidget(QLabel("개수"))
+        control_bar.addWidget(self.cmb_count)
+        control_bar.addWidget(self.btn_refresh)
+        control_bar.addStretch()
+        control_bar.addWidget(self.toolbar)
+        root.addLayout(control_bar)
+
         root.addWidget(self.canvas, 1)
 
     def set_summary(self, title_text="", basic_text="", price_text="", ai_text=""):
@@ -587,6 +658,18 @@ class AITSLargeChartDialog(QDialog):
             self.txt_ai.setPlainText(ai_text or "")
         except Exception:
             pass
+
+    def get_selected_tf(self):
+        try:
+            return str(self.cmb_tf.currentData() or "60m")
+        except Exception:
+            return "60m"
+
+    def get_selected_count(self):
+        try:
+            return int(str(self.cmb_count.currentText()).strip())
+        except Exception:
+            return 120
 
 
 # --------- Main window ---------
@@ -3395,10 +3478,20 @@ class MainWindow(QMainWindow):
             import requests
 
             _tf = (tf or "1m").strip()
-            if _tf == "1d":
+            if _tf in ("1d", "day", "daily"):
                 url = "https://api.upbit.com/v1/candles/days"
+            elif _tf in ("week", "1w", "weekly"):
+                url = "https://api.upbit.com/v1/candles/weeks"
+            elif _tf in ("month", "1mo", "mon"):
+                url = "https://api.upbit.com/v1/candles/months"
             elif _tf == "5m":
                 url = "https://api.upbit.com/v1/candles/minutes/5"
+            elif _tf in ("30m", "minute30", "30"):
+                url = "https://api.upbit.com/v1/candles/minutes/30"
+            elif _tf == "15m":
+                url = "https://api.upbit.com/v1/candles/minutes/15"
+            elif _tf == "240m":
+                url = "https://api.upbit.com/v1/candles/minutes/240"
             elif _tf == "60m":
                 url = "https://api.upbit.com/v1/candles/minutes/60"
             elif _tf == "1m":
@@ -3926,14 +4019,37 @@ class MainWindow(QMainWindow):
             ai_state = _cell_text(5)
             target_price = _cell_text(6)
 
-            symbol_text = ""
             name_text = coin_name
-
-            row_data = None
             if 0 <= row < len(self.ai_managed_rows or []):
-                row_data = self.ai_managed_rows[row]
-                symbol_text = (row_data.get("symbol") or "").strip()
-                name_text = (row_data.get("name") or "").strip() or symbol_text
+                _rd = self.ai_managed_rows[row]
+                if isinstance(_rd, dict):
+                    name_text = (str(_rd.get("name") or "").strip() or name_text)
+
+            symbol_text = ""
+
+            try:
+                rows = getattr(self, "ai_managed_rows", None)
+                if rows is not None and 0 <= row < len(rows):
+                    row_obj = rows[row]
+                    if isinstance(row_obj, dict):
+                        symbol_text = (
+                            str(
+                                row_obj.get("symbol")
+                                or row_obj.get("market")
+                                or row_obj.get("code")
+                                or ""
+                            ).strip()
+                        )
+                    else:
+                        symbol_text = str(
+                            getattr(row_obj, "symbol", None)
+                            or getattr(row_obj, "market", None)
+                            or getattr(row_obj, "code", None)
+                            or ""
+                        ).strip()
+            except Exception:
+                symbol_text = ""
+
             if not symbol_text:
                 try:
                     it0 = table.item(row, 0)
@@ -3943,24 +4059,43 @@ class MainWindow(QMainWindow):
                             symbol_text = str(ud).strip()
                 except Exception:
                     pass
+
+            if not symbol_text:
+                try:
+                    detail_text = self._extract_current_aits_detail_symbol_text()
+                    if detail_text:
+                        symbol_text = detail_text
+                except Exception:
+                    symbol_text = ""
+
             if not symbol_text:
                 symbol_text = coin_name
-
-            try:
-                detail_text = self._extract_current_aits_detail_symbol_text()
-                if detail_text:
-                    for tok in detail_text.replace(",", " ").split():
-                        t = tok.strip()
-                        if "KRW-" in t:
-                            symbol_text = t
-                            break
-            except Exception:
-                pass
 
             if self._aits_large_chart_dialog is None:
                 self._aits_large_chart_dialog = AITSLargeChartDialog(self)
 
             dlg = self._aits_large_chart_dialog
+
+            try:
+                dlg._aits_row_index = row
+            except Exception:
+                pass
+
+            try:
+                if not getattr(dlg, "_aits_signals_bound", False):
+                    dlg.cmb_tf.currentIndexChanged.connect(
+                        self._on_aits_large_chart_control_changed
+                    )
+                    dlg.cmb_count.currentIndexChanged.connect(
+                        self._on_aits_large_chart_control_changed
+                    )
+                    dlg.btn_refresh.clicked.connect(
+                        self._on_aits_large_chart_control_changed
+                    )
+                    dlg._aits_signals_bound = True
+            except Exception:
+                pass
+
             self._aits_large_chart_symbol = symbol_text
 
             basic_text = (
@@ -4059,22 +4194,177 @@ class MainWindow(QMainWindow):
         except Exception:
             return ""
 
+    def _get_aits_popup_price_levels(self, row: int):
+        try:
+            rows = getattr(self, "ai_managed_rows", None)
+            if rows is None or row < 0 or row >= len(rows):
+                return {
+                    "current_price": None,
+                    "target_price": None,
+                    "stop_price": None,
+                    "ai_state": "",
+                    "ai_score": "",
+                }
+
+            row_obj = rows[row]
+
+            def _pick(obj, *names):
+                if obj is None:
+                    return None
+                if isinstance(obj, dict):
+                    for n in names:
+                        if n in obj and obj.get(n) is not None:
+                            return obj.get(n)
+                    return None
+                for n in names:
+                    try:
+                        val = getattr(obj, n, None)
+                        if val is not None:
+                            return val
+                    except Exception:
+                        pass
+                return None
+
+            def _to_float(v):
+                try:
+                    if v is None:
+                        return None
+                    if isinstance(v, str):
+                        vv = v.replace(",", "").replace("원", "").strip()
+                        if not vv:
+                            return None
+                        return float(vv)
+                    return float(v)
+                except Exception:
+                    return None
+
+            current_price = _to_float(
+                _pick(row_obj, "current_price", "price", "trade_price")
+            )
+            target_price = _to_float(
+                _pick(row_obj, "target_price", "tp_price", "goal_price")
+            )
+            stop_price = _to_float(
+                _pick(
+                    row_obj,
+                    "stop_loss",
+                    "stop_price",
+                    "sl_price",
+                    "loss_price",
+                    "stop_loss_price",
+                )
+            )
+            ai_state = str(
+                _pick(row_obj, "ai_status", "ai_state", "status", "state") or ""
+            ).strip()
+            ai_score = str(_pick(row_obj, "ai_score", "score") or "").strip()
+
+            return {
+                "current_price": current_price,
+                "target_price": target_price,
+                "stop_price": stop_price,
+                "ai_state": ai_state,
+                "ai_score": ai_score,
+            }
+
+        except Exception:
+            return {
+                "current_price": None,
+                "target_price": None,
+                "stop_price": None,
+                "ai_state": "",
+                "ai_score": "",
+            }
+
+    def _fetch_aits_large_chart_candles(
+        self, symbol_text: str, tf: str = "60m", count: int = 120
+    ):
+        s = str(tf or "60m").strip().lower()
+        if s in ("day", "1d", "daily"):
+            candidates = [("1d", "day")]
+        elif s in ("week", "1w", "weekly"):
+            candidates = [("week", "week")]
+        elif s in ("month", "1mo", "mon"):
+            candidates = [("month", "month")]
+        elif s in ("240m", "minute240", "4h"):
+            candidates = [("240m", "240m")]
+        elif s in ("30m", "minute30", "30"):
+            candidates = [("30m", "30m")]
+        elif s in ("15m", "minute15", "15"):
+            candidates = [("15m", "15m")]
+        elif s in ("60m", "minute60", "60", "1h"):
+            candidates = [("60m", "60m")]
+        elif s in ("5m", "minute5"):
+            candidates = [("5m", "5m")]
+        elif s in ("1m", "minute1"):
+            candidates = [("1m", "1m")]
+        else:
+            candidates = [("60m", "60m")]
+
+        for api_tf, ret_tf in candidates:
+            try:
+                candles = self._fetch_upbit_candles(
+                    symbol_text, tf=api_tf, count=count
+                )
+                if candles:
+                    return candles, ret_tf
+            except TypeError:
+                try:
+                    candles = self._fetch_upbit_candles(
+                        symbol_text, api_tf, count
+                    )
+                    if candles:
+                        return candles, ret_tf
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        return [], str(tf or "")
+
     def _render_aits_large_chart_dialog(self, symbol_text: str, dlg):
         try:
             if dlg is None:
                 return
 
+            selected_tf = "60m"
+            selected_count = 120
+            try:
+                if dlg is not None and hasattr(dlg, "get_selected_tf"):
+                    selected_tf = dlg.get_selected_tf()
+            except Exception:
+                pass
+            try:
+                if dlg is not None and hasattr(dlg, "get_selected_count"):
+                    selected_count = dlg.get_selected_count()
+            except Exception:
+                pass
+
+            count = selected_count
+
+            row_index = -1
+            try:
+                row_index = int(getattr(dlg, "_aits_row_index", -1))
+            except Exception:
+                row_index = -1
+
+            price_levels = self._get_aits_popup_price_levels(row_index)
+            current_price = price_levels.get("current_price")
+            target_price = price_levels.get("target_price")
+            stop_price = price_levels.get("stop_price")
+            ai_state = str(price_levels.get("ai_state") or "").strip()
+
             fig = dlg.canvas.figure
             fig.clf()
 
             candles = []
-            tf = "60m"
-            count = 120
+            tf = ""
 
             try:
-                candles = self._fetch_upbit_candles(symbol_text, tf, count)
+                candles, tf = self._fetch_aits_large_chart_candles(
+                    symbol_text, tf=selected_tf, count=count
+                )
             except Exception:
-                candles = []
+                candles, tf = [], ""
 
             try:
                 candles = list(reversed(candles))
@@ -4089,10 +4379,46 @@ class MainWindow(QMainWindow):
             except Exception:
                 mpf_df = None
 
+            tl = str(tf or "").strip().lower()
+            if tl in ("1m", "minute1"):
+                tf_label = "1분봉"
+            elif tl in ("5m", "minute5"):
+                tf_label = "5분봉"
+            elif tl in ("30m", "minute30", "30"):
+                tf_label = "30분봉"
+            elif tl in ("15m", "minute15", "15"):
+                tf_label = "15분봉"
+            elif tl in ("60m", "minute60", "60", "1h"):
+                tf_label = "60분봉"
+            elif tl in ("240m", "minute240", "4h"):
+                tf_label = "4시간봉"
+            elif tl in ("day", "1d", "daily"):
+                tf_label = "일봉"
+            elif tl in ("week", "1w", "weekly"):
+                tf_label = "주봉"
+            elif tl in ("month", "1mo", "mon"):
+                tf_label = "월봉"
+            else:
+                tf_label = "60분봉"
+
             if mpf is not None and pd is not None and mpf_df is not None and not mpf_df.empty:
+                fig.clf()
+
                 gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.0)
                 ax = fig.add_subplot(gs[0])
                 ax_rsi = fig.add_subplot(gs[1], sharex=ax)
+
+                mc = mpf.make_marketcolors(
+                    up="red",
+                    down="blue",
+                    edge="inherit",
+                    wick="inherit",
+                    volume="inherit",
+                )
+                s = mpf.make_mpf_style(
+                    base_mpf_style="yahoo",
+                    marketcolors=mc,
+                )
 
                 mpf_addplots = []
                 try:
@@ -4107,18 +4433,6 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     mpf_rsi_addplots = []
-
-                mc = mpf.make_marketcolors(
-                    up="red",
-                    down="blue",
-                    edge="inherit",
-                    wick="inherit",
-                    volume="inherit",
-                )
-                s = mpf.make_mpf_style(
-                    base_mpf_style="yahoo",
-                    marketcolors=mc,
-                )
 
                 all_addplots = []
                 if mpf_addplots:
@@ -4148,10 +4462,99 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
+                    if current_price is not None:
+                        ax.axhline(
+                            current_price,
+                            linestyle="--",
+                            linewidth=1.0,
+                            alpha=0.9,
+                        )
+                        ax.text(
+                            0.995,
+                            current_price,
+                            " 현재가",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="bottom",
+                            fontsize=8,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    if target_price is not None:
+                        ax.axhline(
+                            target_price,
+                            linestyle="--",
+                            linewidth=1.0,
+                            alpha=0.9,
+                        )
+                        ax.text(
+                            0.995,
+                            target_price,
+                            " 목표가",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="bottom",
+                            fontsize=8,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    if stop_price is not None:
+                        ax.axhline(
+                            stop_price,
+                            linestyle="--",
+                            linewidth=1.0,
+                            alpha=0.9,
+                        )
+                        ax.text(
+                            0.995,
+                            stop_price,
+                            " 손절가",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="top",
+                            fontsize=8,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    state_note = ""
+                    st = ai_state.lower()
+                    if "drop" in st:
+                        state_note = "AI 상태: Dropped / 관망 우세"
+                    elif "watch" in st:
+                        state_note = "AI 상태: Watching / 조건 대기"
+                    elif "hold" in st:
+                        state_note = "AI 상태: Hold / 유지 관찰"
+                    elif "buy" in st:
+                        state_note = "AI 상태: Buy-ready / 진입 검토"
+                    elif ai_state:
+                        state_note = f"AI 상태: {ai_state}"
+
+                    if state_note:
+                        ax.text(
+                            0.012,
+                            0.90,
+                            state_note,
+                            transform=ax.transAxes,
+                            ha="left",
+                            va="top",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.25", alpha=0.18),
+                            zorder=60,
+                        )
+                except Exception:
+                    pass
+
+                try:
                     self._aits_apply_detail_render_marker(
                         ax,
                         "MPF",
-                        f"{symbol_text} - 60분봉 최근 120개",
+                        f"{symbol_text} - {tf_label} 최근 {count}개",
                         "",
                     )
                 except Exception:
@@ -4162,7 +4565,9 @@ class MainWindow(QMainWindow):
 
             ax = fig.add_subplot(111)
             try:
-                ax.set_title(f"[LEGACY] {symbol_text} - 60분봉 최근 120개")
+                ax.set_title(
+                    f"[LEGACY] {symbol_text} - {tf_label} 최근 {count}개"
+                )
             except Exception:
                 pass
             try:
@@ -4180,7 +4585,7 @@ class MainWindow(QMainWindow):
                 ax.text(
                     0.5,
                     0.5,
-                    "차트 데이터를 불러올 수 없습니다.",
+                    "차트 데이터를 불러올 수 없거나 렌더링에 실패했습니다.",
                     transform=ax.transAxes,
                     ha="center",
                     va="center",
@@ -4194,6 +4599,18 @@ class MainWindow(QMainWindow):
                 dlg.canvas.draw_idle()
             except Exception:
                 pass
+
+    def _on_aits_large_chart_control_changed(self, *args):
+        try:
+            dlg = getattr(self, "_aits_large_chart_dialog", None)
+            symbol_text = str(
+                getattr(self, "_aits_large_chart_symbol", "") or ""
+            ).strip()
+            if dlg is None or not symbol_text:
+                return
+            self._render_aits_large_chart_dialog(symbol_text, dlg)
+        except Exception:
+            pass
 
     def _refresh_ai_detail_chart(self) -> None:
         render_used = "legacy"

@@ -3542,3 +3542,28 @@ NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?
 2026-04-05 18:51:13,653 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-05 18:51:13,653 | INFO | aits | AITS orchestrator initialized
 2026-04-05 18:51:16,283 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-05 20:17:22,534 | INFO | aits | AITS bootstrap start
+2026-04-05 20:17:22,540 | INFO | aits | AITS orchestrator initialized
+2026-04-05 20:17:22,541 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-05 20:17:22,541 | INFO | aits | AITS orchestrator initialized
+2026-04-05 20:17:28,039 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-05 21:30:04,586 | INFO | aits | AITS bootstrap start
+2026-04-05 21:30:04,594 | INFO | aits | AITS orchestrator initialized
+2026-04-05 21:30:04,594 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-05 21:30:04,594 | INFO | aits | AITS orchestrator initialized
+2026-04-05 21:30:12,222 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 08:58:30,948 | INFO | aits | AITS bootstrap start
+2026-04-06 08:58:30,958 | INFO | aits | AITS orchestrator initialized
+2026-04-06 08:58:30,958 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 08:58:30,958 | INFO | aits | AITS orchestrator initialized
+2026-04-06 08:58:38,153 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 10:46:16,835 | INFO | aits | AITS bootstrap start
+2026-04-06 10:46:16,842 | INFO | aits | AITS orchestrator initialized
+2026-04-06 10:46:16,842 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 10:46:16,844 | INFO | aits | AITS orchestrator initialized
+2026-04-06 10:46:24,044 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 11:28:33,663 | INFO | aits | AITS bootstrap start
+2026-04-06 11:28:33,670 | INFO | aits | AITS orchestrator initialized
+2026-04-06 11:28:33,670 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 11:28:33,671 | INFO | aits | AITS orchestrator initialized
+2026-04-06 11:28:36,607 | INFO | aits | UI launched via legacy-compatible entry
