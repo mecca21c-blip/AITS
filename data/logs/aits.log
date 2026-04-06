@@ -3567,3 +3567,23 @@ NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?
 2026-04-06 11:28:33,670 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-06 11:28:33,671 | INFO | aits | AITS orchestrator initialized
 2026-04-06 11:28:36,607 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 11:45:27,520 | INFO | aits | AITS bootstrap start
+2026-04-06 11:45:27,526 | INFO | aits | AITS orchestrator initialized
+2026-04-06 11:45:27,527 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 11:45:27,527 | INFO | aits | AITS orchestrator initialized
+2026-04-06 11:45:29,722 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 15:43:32,073 | INFO | aits | AITS bootstrap start
+2026-04-06 15:43:32,079 | INFO | aits | AITS orchestrator initialized
+2026-04-06 15:43:32,080 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 15:43:32,080 | INFO | aits | AITS orchestrator initialized
+2026-04-06 15:43:35,217 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 16:50:48,464 | INFO | aits | AITS bootstrap start
+2026-04-06 16:50:48,471 | INFO | aits | AITS orchestrator initialized
+2026-04-06 16:50:48,471 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 16:50:48,471 | INFO | aits | AITS orchestrator initialized
+2026-04-06 16:50:55,671 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-06 17:12:39,291 | INFO | aits | AITS bootstrap start
+2026-04-06 17:12:39,298 | INFO | aits | AITS orchestrator initialized
+2026-04-06 17:12:39,298 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-06 17:12:39,298 | INFO | aits | AITS orchestrator initialized
+2026-04-06 17:12:41,313 | INFO | aits | UI launched via legacy-compatible entry

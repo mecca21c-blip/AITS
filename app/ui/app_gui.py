@@ -587,6 +587,43 @@ class AITSLargeChartDialog(QDialog):
             pass
         root.addWidget(self.txt_ai)
 
+        self.lbl_ai_banner = QLabel("")
+        try:
+            self.lbl_ai_banner.setWordWrap(True)
+            self.lbl_ai_banner.setMinimumHeight(36)
+            self.lbl_ai_banner.setMaximumHeight(60)
+            self.lbl_ai_banner.setStyleSheet(
+                "font-size:14px; font-weight:800; padding:8px; border:1px solid #cfd6df; background:#eef3f8;"
+            )
+        except Exception:
+            pass
+
+        self.lbl_ai_plan = QLabel("")
+        try:
+            self.lbl_ai_plan.setWordWrap(True)
+            self.lbl_ai_plan.setMinimumHeight(34)
+            self.lbl_ai_plan.setMaximumHeight(70)
+            self.lbl_ai_plan.setStyleSheet(
+                "font-size:12px; padding:6px; border:1px solid #cfd6df; background:#fafafa;"
+            )
+        except Exception:
+            pass
+
+        self.lbl_ai_action = QLabel("")
+        try:
+            self.lbl_ai_action.setWordWrap(True)
+            self.lbl_ai_action.setMinimumHeight(42)
+            self.lbl_ai_action.setMaximumHeight(84)
+            self.lbl_ai_action.setStyleSheet(
+                "font-size:13px; font-weight:700; padding:8px; border:1px solid #cfd6df; background:#eef3f8;"
+            )
+        except Exception:
+            pass
+
+        root.addWidget(self.lbl_ai_banner)
+        root.addWidget(self.lbl_ai_action)
+        root.addWidget(self.lbl_ai_plan)
+
         self.cmb_tf = QComboBox()
         self.cmb_count = QComboBox()
         self.btn_refresh = QPushButton("새로고침")
@@ -641,7 +678,16 @@ class AITSLargeChartDialog(QDialog):
 
         root.addWidget(self.canvas, 1)
 
-    def set_summary(self, title_text="", basic_text="", price_text="", ai_text=""):
+    def set_summary(
+        self,
+        title_text="",
+        basic_text="",
+        price_text="",
+        ai_text="",
+        ai_plan_text="",
+        ai_action_text="",
+        ai_banner_text="",
+    ):
         try:
             self.lbl_title.setText(title_text or "AITS 상세 차트")
         except Exception:
@@ -658,6 +704,18 @@ class AITSLargeChartDialog(QDialog):
             self.txt_ai.setPlainText(ai_text or "")
         except Exception:
             pass
+        try:
+            self.lbl_ai_plan.setText(ai_plan_text or "")
+        except Exception:
+            pass
+        try:
+            self.lbl_ai_action.setText(ai_action_text or "")
+        except Exception:
+            pass
+        try:
+            self.lbl_ai_banner.setText(ai_banner_text or "")
+        except Exception:
+            pass
 
     def get_selected_tf(self):
         try:
@@ -670,6 +728,58 @@ class AITSLargeChartDialog(QDialog):
             return int(str(self.cmb_count.currentText()).strip())
         except Exception:
             return 120
+
+    def set_action_badge_variant(self, variant: str):
+        try:
+            v = str(variant or "").strip().lower()
+            if v == "buy":
+                self.lbl_ai_action.setStyleSheet(
+                    "font-size:13px; font-weight:700; padding:8px; border:1px solid #cfd6df; background:#eef6ee;"
+                )
+            elif v == "watch":
+                self.lbl_ai_action.setStyleSheet(
+                    "font-size:13px; font-weight:700; padding:8px; border:1px solid #cfd6df; background:#f6f4ea;"
+                )
+            elif v == "hold":
+                self.lbl_ai_action.setStyleSheet(
+                    "font-size:13px; font-weight:700; padding:8px; border:1px solid #cfd6df; background:#edf2f7;"
+                )
+            elif v == "risk":
+                self.lbl_ai_action.setStyleSheet(
+                    "font-size:13px; font-weight:700; padding:8px; border:1px solid #cfd6df; background:#f8eded;"
+                )
+            else:
+                self.lbl_ai_action.setStyleSheet(
+                    "font-size:13px; font-weight:700; padding:8px; border:1px solid #cfd6df; background:#eef3f8;"
+                )
+        except Exception:
+            pass
+
+    def set_decision_banner_variant(self, variant: str):
+        try:
+            v = str(variant or "").strip().lower()
+            if v == "buy":
+                self.lbl_ai_banner.setStyleSheet(
+                    "font-size:14px; font-weight:800; padding:8px; border:1px solid #cfd6df; background:#eaf6ea;"
+                )
+            elif v == "watch":
+                self.lbl_ai_banner.setStyleSheet(
+                    "font-size:14px; font-weight:800; padding:8px; border:1px solid #cfd6df; background:#f7f3e8;"
+                )
+            elif v == "hold":
+                self.lbl_ai_banner.setStyleSheet(
+                    "font-size:14px; font-weight:800; padding:8px; border:1px solid #cfd6df; background:#edf2f7;"
+                )
+            elif v == "risk":
+                self.lbl_ai_banner.setStyleSheet(
+                    "font-size:14px; font-weight:800; padding:8px; border:1px solid #cfd6df; background:#f8eaea;"
+                )
+            else:
+                self.lbl_ai_banner.setStyleSheet(
+                    "font-size:14px; font-weight:800; padding:8px; border:1px solid #cfd6df; background:#eef3f8;"
+                )
+        except Exception:
+            pass
 
 
 # --------- Main window ---------
@@ -2162,64 +2272,29 @@ class MainWindow(QMainWindow):
 
         self._gb_ai_detail = QGroupBox("AI 종목 상세")
         _detail_inner = QVBoxLayout(self._gb_ai_detail)
-        _detail_inner.setSpacing(4)
+        try:
+            _detail_inner.setContentsMargins(6, 6, 6, 6)
+            _detail_inner.setSpacing(6)
+        except Exception:
+            pass
         self.lbl_ai_detail_hint = QLabel(
             "선택된 종목이 없습니다.\nMarket Explorer에서 종목을 추가하거나 AI 종목을 확인하세요."
         )
         self.lbl_ai_detail_hint.setWordWrap(True)
         self.lbl_ai_detail_hint.setStyleSheet("color: #666; font-size: 11px;")
-        _detail_inner.addWidget(self.lbl_ai_detail_hint)
 
-        def _dh(txt: str) -> QLabel:
-            lb = QLabel(txt)
-            lb.setStyleSheet("font-weight: bold; font-size: 11px; color: #333; margin-top: 4px;")
-            return lb
-
-        _detail_inner.addWidget(_dh("[기본 정보]"))
-        _fb = QFormLayout()
-        _fb.setSpacing(4)
-        _fb.setHorizontalSpacing(8)
-        self.lbl_ai_detail_name = QLabel("—")
-        self.lbl_ai_detail_source = QLabel("—")
-        self.lbl_ai_detail_status = QLabel("—")
-        self.lbl_ai_detail_lock = QLabel("—")
-        _fb.addRow("종목명", self.lbl_ai_detail_name)
-        _fb.addRow("구분", self.lbl_ai_detail_source)
-        _fb.addRow("AI 상태", self.lbl_ai_detail_status)
-        _fb.addRow("잠금 여부", self.lbl_ai_detail_lock)
-        _detail_inner.addLayout(_fb)
-
-        _detail_inner.addWidget(_dh("[가격 정보]"))
-        _fp = QFormLayout()
-        _fp.setSpacing(4)
-        self.lbl_ai_detail_price = QLabel("—")
-        self.lbl_ai_detail_change = QLabel("—")
-        self.lbl_ai_detail_target = QLabel("—")
-        self.lbl_ai_detail_stop = QLabel("—")
-        self.lbl_ai_detail_pnl = QLabel("—")
-        _fp.addRow("현재가", self.lbl_ai_detail_price)
-        _fp.addRow("변동률", self.lbl_ai_detail_change)
-        _fp.addRow("목표가", self.lbl_ai_detail_target)
-        _fp.addRow("손절가", self.lbl_ai_detail_stop)
-        _fp.addRow("수익률", self.lbl_ai_detail_pnl)
-        _detail_inner.addLayout(_fp)
-
-        _detail_inner.addWidget(_dh("[AI 판단]"))
-        _fa = QFormLayout()
-        self.lbl_ai_detail_score = QLabel("—")
-        _fa.addRow("AI 점수", self.lbl_ai_detail_score)
-        _detail_inner.addLayout(_fa)
-        self.txt_ai_detail_reason = QPlainTextEdit()
-        self.txt_ai_detail_reason.setReadOnly(True)
-        self.txt_ai_detail_reason.setPlaceholderText("AI 판단 요약")
-        self.txt_ai_detail_reason.setMaximumHeight(100)
-        self.txt_ai_detail_reason.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        _detail_inner.addWidget(self.txt_ai_detail_reason)
-
-        _detail_inner.addWidget(_dh("[차트]"))
         self._frm_ai_detail_chart = QFrame()
-        self._frm_ai_detail_chart.setMinimumHeight(180)
-        self._frm_ai_detail_chart.setMaximumHeight(280)
+        try:
+            self._frm_ai_detail_chart.setMinimumHeight(200)
+            self._frm_ai_detail_chart.setMaximumHeight(260)
+        except Exception:
+            pass
+        try:
+            self._frm_ai_detail_chart.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+        except Exception:
+            pass
         self._frm_ai_detail_chart.setStyleSheet(
             "QFrame { border: 1px solid #cfd8dc; border-radius: 4px; background: #fafafa; }"
         )
@@ -2246,7 +2321,11 @@ class MainWindow(QMainWindow):
         _chart_ly.addLayout(_chart_ctrl)
         self.detail_chart_figure = Figure(figsize=(6.5, 3.5))
         self.detail_chart_canvas = FigureCanvas(self.detail_chart_figure)
-        self.detail_chart_canvas.setMinimumHeight(180)
+        try:
+            self.detail_chart_canvas.setMinimumHeight(180)
+            self.detail_chart_canvas.setMaximumHeight(240)
+        except Exception:
+            pass
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         _chart_ly.addWidget(self.detail_chart_canvas)
         self.lbl_detail_chart_zoom_hint = QLabel(
@@ -2270,14 +2349,136 @@ class MainWindow(QMainWindow):
                     "scroll_event", self._on_detail_chart_mouse_scroll
                 ),
             ]
-        _detail_inner.addWidget(self._frm_ai_detail_chart)
+        _detail_inner.addWidget(self._frm_ai_detail_chart, 1)
+
         try:
             self._refresh_ai_detail_chart()
         except Exception:
             pass
 
-        _detail_inner.addWidget(_dh("[사용자 액션]"))
+        _detail_inner.addWidget(self.lbl_ai_detail_hint)
+
+        _basic_col = QWidget()
+        _bly = QVBoxLayout(_basic_col)
+        _bly.setContentsMargins(0, 0, 0, 0)
+        _bly.setSpacing(2)
+        _lbl_basic_title = QLabel("[기본 정보]")
+        try:
+            _lbl_basic_title.setStyleSheet(
+                "font-size:12px; font-weight:600; margin:0px; padding:0px; color:#333;"
+            )
+        except Exception:
+            pass
+        _bly.addWidget(_lbl_basic_title)
+        _fb = QFormLayout()
+        try:
+            _fb.setVerticalSpacing(2)
+            _fb.setHorizontalSpacing(6)
+        except Exception:
+            _fb.setSpacing(4)
+            _fb.setHorizontalSpacing(6)
+        self.lbl_ai_detail_name = QLabel("—")
+        self.lbl_ai_detail_source = QLabel("—")
+        self.lbl_ai_detail_status = QLabel("—")
+        self.lbl_ai_detail_lock = QLabel("—")
+        _fb.addRow("종목명", self.lbl_ai_detail_name)
+        _fb.addRow("구분", self.lbl_ai_detail_source)
+        _fb.addRow("AI 상태", self.lbl_ai_detail_status)
+        _fb.addRow("잠금 여부", self.lbl_ai_detail_lock)
+        _bly.addLayout(_fb)
+        try:
+            _basic_col.setStyleSheet("font-size:12px;")
+        except Exception:
+            pass
+
+        _price_col = QWidget()
+        _ply = QVBoxLayout(_price_col)
+        _ply.setContentsMargins(0, 0, 0, 0)
+        _ply.setSpacing(2)
+        _lbl_price_title = QLabel("[가격 정보]")
+        try:
+            _lbl_price_title.setStyleSheet(
+                "font-size:12px; font-weight:600; margin:0px; padding:0px; color:#333;"
+            )
+        except Exception:
+            pass
+        _ply.addWidget(_lbl_price_title)
+        _fp = QFormLayout()
+        try:
+            _fp.setVerticalSpacing(2)
+            _fp.setHorizontalSpacing(6)
+        except Exception:
+            _fp.setSpacing(4)
+            _fp.setHorizontalSpacing(6)
+        self.lbl_ai_detail_price = QLabel("—")
+        self.lbl_ai_detail_change = QLabel("—")
+        self.lbl_ai_detail_target = QLabel("—")
+        self.lbl_ai_detail_stop = QLabel("—")
+        self.lbl_ai_detail_pnl = QLabel("—")
+        _fp.addRow("현재가", self.lbl_ai_detail_price)
+        _fp.addRow("변동률", self.lbl_ai_detail_change)
+        _fp.addRow("목표가", self.lbl_ai_detail_target)
+        _fp.addRow("손절가", self.lbl_ai_detail_stop)
+        _fp.addRow("수익률", self.lbl_ai_detail_pnl)
+        _ply.addLayout(_fp)
+        try:
+            _price_col.setStyleSheet("font-size:12px;")
+        except Exception:
+            pass
+
+        _info_row = QHBoxLayout()
+        _info_row.setSpacing(8)
+        _info_row.addWidget(_basic_col, 1)
+        _info_row.addWidget(_price_col, 1)
+        _detail_inner.addLayout(_info_row)
+
+        _lbl_ai_title = QLabel("[AI 판단]")
+        try:
+            _lbl_ai_title.setStyleSheet(
+                "font-size:12px; font-weight:600; margin:0px; padding:0px; color:#333;"
+            )
+        except Exception:
+            pass
+        _detail_inner.addWidget(_lbl_ai_title)
+        _fa = QFormLayout()
+        try:
+            _fa.setVerticalSpacing(2)
+            _fa.setHorizontalSpacing(6)
+        except Exception:
+            _fa.setSpacing(4)
+            _fa.setHorizontalSpacing(6)
+        self.lbl_ai_detail_score = QLabel("—")
+        _fa.addRow("AI 점수", self.lbl_ai_detail_score)
+        _detail_inner.addLayout(_fa)
+        self.txt_ai_detail_reason = QPlainTextEdit()
+        self.txt_ai_detail_reason.setReadOnly(True)
+        self.txt_ai_detail_reason.setPlaceholderText("AI 판단 요약")
+        try:
+            self.txt_ai_detail_reason.setMaximumHeight(72)
+            self.txt_ai_detail_reason.setMinimumHeight(54)
+        except Exception:
+            pass
+        try:
+            self.txt_ai_detail_reason.setStyleSheet("padding:4px; font-size:12px;")
+        except Exception:
+            pass
+        self.txt_ai_detail_reason.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        _detail_inner.addWidget(self.txt_ai_detail_reason)
+
+        _lbl_action_title = QLabel("[사용자 액션]")
+        try:
+            _lbl_action_title.setStyleSheet(
+                "font-size:12px; font-weight:600; margin:0px; padding:0px; color:#333;"
+            )
+        except Exception:
+            pass
+        _detail_inner.addWidget(_lbl_action_title)
         _act_row = QHBoxLayout()
+        try:
+            _act_row.setContentsMargins(0, 2, 0, 0)
+            _act_row.setSpacing(6)
+        except Exception:
+            pass
         self.btn_ai_detail_remove = QPushButton("제거")
         self.btn_ai_detail_lock = QPushButton("잠금 설정")
         self.btn_ai_detail_remove.clicked.connect(self._on_ai_detail_remove_clicked)
@@ -2285,7 +2486,6 @@ class MainWindow(QMainWindow):
         _act_row.addWidget(self.btn_ai_detail_remove)
         _act_row.addWidget(self.btn_ai_detail_lock)
         _detail_inner.addLayout(_act_row)
-        _detail_inner.addStretch()
 
         _managed_top_ly.addWidget(self._gb_ai_detail, 2)
         _aits_pool_ly.addWidget(_managed_top_split, 3)
@@ -4118,12 +4318,52 @@ class MainWindow(QMainWindow):
             except Exception:
                 ai_text = ""
 
+            badge_info = None
+            ai_action_text = ""
+            try:
+                badge_info = self._get_aits_popup_action_badge(row)
+                badge_title = str(badge_info.get("title") or "").strip()
+                badge_sub = str(badge_info.get("subtitle") or "").strip()
+                if badge_title and badge_sub:
+                    ai_action_text = f"AI 행동 배지: {badge_title}\n{badge_sub}"
+                elif badge_title:
+                    ai_action_text = f"AI 행동 배지: {badge_title}"
+            except Exception:
+                ai_action_text = ""
+                badge_info = None
+
+            banner_info = {}
+            ai_banner_text = ""
+            try:
+                banner_info = self._get_aits_popup_decision_banner(row)
+                ai_banner_text = str((banner_info or {}).get("text") or "").strip()
+            except Exception:
+                banner_info = {}
+                ai_banner_text = ""
+
             dlg.set_summary(
                 title_text=f"AITS 상세 차트 - {name_text}",
                 basic_text=basic_text,
                 price_text=price_text,
                 ai_text=ai_text,
+                ai_plan_text="",
+                ai_action_text=ai_action_text,
+                ai_banner_text=ai_banner_text,
             )
+
+            try:
+                dlg.set_decision_banner_variant(
+                    str((banner_info or {}).get("variant") or "neutral")
+                )
+            except Exception:
+                pass
+
+            try:
+                dlg.set_action_badge_variant(
+                    str((badge_info or {}).get("variant") or "neutral")
+                )
+            except Exception:
+                pass
 
             self._render_aits_large_chart_dialog(symbol_text, dlg)
 
@@ -4274,6 +4514,180 @@ class MainWindow(QMainWindow):
                 "stop_price": None,
                 "ai_state": "",
                 "ai_score": "",
+            }
+
+    def _format_aits_price_label(self, value, prefix=""):
+        try:
+            if value is None:
+                return ""
+            return f"{prefix}{int(round(float(value))):,}"
+        except Exception:
+            try:
+                return f"{prefix}{value}"
+            except Exception:
+                return str(prefix or "")
+
+    def _get_aits_popup_action_badge(self, row: int):
+        try:
+            levels = self._get_aits_popup_price_levels(row)
+            ai_state = str(levels.get("ai_state") or "").strip()
+            current_price = levels.get("current_price")
+            target_price = levels.get("target_price")
+            stop_price = levels.get("stop_price")
+
+            reason_text = ""
+            try:
+                reason_text = self._extract_current_aits_ai_reason_text()
+            except Exception:
+                reason_text = ""
+
+            state_lower = ai_state.lower()
+
+            badge_title = "AI 판단 대기"
+            badge_sub = "상태 변화 시 판단이 갱신됩니다."
+            badge_variant = "neutral"
+
+            if "drop" in state_lower:
+                badge_title = "관망 우세"
+                badge_sub = "즉시 진입보다 대기/제외 가능성이 높습니다."
+                badge_variant = "risk"
+            elif "watch" in state_lower:
+                badge_title = "조건 대기"
+                badge_sub = "신호 확인 전까지 관찰 우세입니다."
+                badge_variant = "watch"
+            elif "hold" in state_lower:
+                badge_title = "보유 관찰"
+                badge_sub = "기존 흐름 유지 여부를 관찰 중입니다."
+                badge_variant = "hold"
+            elif "buy" in state_lower:
+                badge_title = "진입 검토"
+                badge_sub = "조건 충족 시 진입 가능성을 보고 있습니다."
+                badge_variant = "buy"
+
+            if "거래대금 부족" in reason_text:
+                badge_title = "유동성 주의"
+                badge_sub = "거래대금 부족으로 공격적 진입보다 대기 가능성이 높습니다."
+                badge_variant = "risk"
+
+            elif "시장 평균 약세" in reason_text:
+                badge_title = "시장 약세 반영"
+                badge_sub = "시장 평균 약세로 보수적 대응 가능성이 높습니다."
+                badge_variant = "watch"
+
+            elif "보수" in reason_text:
+                badge_title = "보수 운용"
+                badge_sub = "분할 접근 또는 추가 확인 대기 시나리오가 우세합니다."
+                badge_variant = "watch"
+
+            try:
+                if current_price is not None and target_price is not None:
+                    up_pct = (
+                        (float(target_price) - float(current_price))
+                        / float(current_price)
+                    ) * 100.0
+                    if up_pct <= 0:
+                        badge_sub = "현재가가 목표가 부근이거나 상회 구간입니다."
+                    elif up_pct < 1.0 and badge_variant == "buy":
+                        badge_sub = (
+                            "목표 여지가 크지 않아 추격 진입보다 확인이 우선일 수 있습니다."
+                        )
+            except Exception:
+                pass
+
+            try:
+                if current_price is not None and stop_price is not None:
+                    dn_pct = (
+                        (float(stop_price) - float(current_price))
+                        / float(current_price)
+                    ) * 100.0
+                    if dn_pct > -1.0:
+                        badge_title = "리스크 주의"
+                        badge_sub = (
+                            "손절 여유가 좁아 진입보다 리스크 관리가 우선일 수 있습니다."
+                        )
+                        badge_variant = "risk"
+            except Exception:
+                pass
+
+            return {
+                "title": badge_title,
+                "subtitle": badge_sub,
+                "variant": badge_variant,
+                "state": ai_state,
+            }
+
+        except Exception:
+            return {
+                "title": "AI 판단 대기",
+                "subtitle": "상태 변화 시 판단이 갱신됩니다.",
+                "variant": "neutral",
+                "state": "",
+            }
+
+    def _get_aits_popup_decision_banner(self, row: int):
+        try:
+            badge = self._get_aits_popup_action_badge(row)
+            levels = self._get_aits_popup_price_levels(row)
+
+            title = str((badge or {}).get("title") or "").strip()
+            variant = str((badge or {}).get("variant") or "neutral").strip().lower()
+
+            current_price = levels.get("current_price")
+            target_price = levels.get("target_price")
+            stop_price = levels.get("stop_price")
+
+            banner_text = "현재는 추가 판단 대기 구간입니다."
+            banner_variant = "neutral"
+
+            if variant == "buy":
+                banner_text = "지금은 진입 검토 구간입니다."
+                banner_variant = "buy"
+            elif variant == "watch":
+                banner_text = "지금은 조건 확인 후 대기 구간입니다."
+                banner_variant = "watch"
+            elif variant == "hold":
+                banner_text = "지금은 보유 흐름 관찰 구간입니다."
+                banner_variant = "hold"
+            elif variant == "risk":
+                banner_text = "지금은 리스크 관리 우선 구간입니다."
+                banner_variant = "risk"
+
+            try:
+                if current_price is not None and target_price is not None:
+                    up_pct = (
+                        (float(target_price) - float(current_price))
+                        / float(current_price)
+                    ) * 100.0
+                    if variant == "buy" and up_pct < 1.0:
+                        banner_text = "지금은 추격 진입보다 확인이 우선입니다."
+                        banner_variant = "watch"
+            except Exception:
+                pass
+
+            try:
+                if current_price is not None and stop_price is not None:
+                    dn_pct = (
+                        (float(stop_price) - float(current_price))
+                        / float(current_price)
+                    ) * 100.0
+                    if dn_pct > -1.0:
+                        banner_text = "지금은 손절 여유가 좁아 주의가 필요합니다."
+                        banner_variant = "risk"
+            except Exception:
+                pass
+
+            if not banner_text and title:
+                banner_text = f"현재 판단: {title}"
+
+            return {
+                "text": banner_text,
+                "variant": banner_variant,
+            }
+
+        except Exception:
+            return {
+                "text": "현재는 추가 판단 대기 구간입니다.",
+                "variant": "neutral",
             }
 
     def _fetch_aits_large_chart_candles(
@@ -4462,21 +4876,35 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
+                    y_min, y_max = ax.get_ylim()
+                except Exception:
+                    y_min, y_max = None, None
+
+                # 1) 위험 구간 / 목표 구간을 먼저 얇게 깔아준다
+                try:
+                    if stop_price is not None and current_price is not None:
+                        lo = min(stop_price, current_price)
+                        hi = max(stop_price, current_price)
+                        ax.axhspan(lo, hi, alpha=0.08)
+                except Exception:
+                    pass
+
+                try:
+                    if current_price is not None and target_price is not None:
+                        lo = min(current_price, target_price)
+                        hi = max(current_price, target_price)
+                        ax.axhspan(lo, hi, alpha=0.06)
+                except Exception:
+                    pass
+
+                # 2) 기준선 3개를 서로 다른 스타일로 표시
+                try:
                     if current_price is not None:
                         ax.axhline(
                             current_price,
-                            linestyle="--",
-                            linewidth=1.0,
-                            alpha=0.9,
-                        )
-                        ax.text(
-                            0.995,
-                            current_price,
-                            " 현재가",
-                            transform=ax.get_yaxis_transform(),
-                            ha="right",
-                            va="bottom",
-                            fontsize=8,
+                            linestyle="-",
+                            linewidth=1.2,
+                            alpha=0.95,
                         )
                 except Exception:
                     pass
@@ -4486,17 +4914,8 @@ class MainWindow(QMainWindow):
                         ax.axhline(
                             target_price,
                             linestyle="--",
-                            linewidth=1.0,
-                            alpha=0.9,
-                        )
-                        ax.text(
-                            0.995,
-                            target_price,
-                            " 목표가",
-                            transform=ax.get_yaxis_transform(),
-                            ha="right",
-                            va="bottom",
-                            fontsize=8,
+                            linewidth=1.1,
+                            alpha=0.95,
                         )
                 except Exception:
                     pass
@@ -4505,47 +4924,117 @@ class MainWindow(QMainWindow):
                     if stop_price is not None:
                         ax.axhline(
                             stop_price,
-                            linestyle="--",
-                            linewidth=1.0,
-                            alpha=0.9,
+                            linestyle=":",
+                            linewidth=1.2,
+                            alpha=0.95,
                         )
+                except Exception:
+                    pass
+
+                # 3) 우측 라벨을 가격 포함 형태로 더 명확하게
+                try:
+                    if current_price is not None:
                         ax.text(
                             0.995,
-                            stop_price,
-                            " 손절가",
+                            current_price,
+                            f" 현재가 {self._format_aits_price_label(current_price)}",
                             transform=ax.get_yaxis_transform(),
                             ha="right",
-                            va="top",
+                            va="bottom",
                             fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.18", alpha=0.18),
+                            zorder=80,
                         )
                 except Exception:
                     pass
 
                 try:
-                    state_note = ""
-                    st = ai_state.lower()
-                    if "drop" in st:
-                        state_note = "AI 상태: Dropped / 관망 우세"
-                    elif "watch" in st:
-                        state_note = "AI 상태: Watching / 조건 대기"
-                    elif "hold" in st:
-                        state_note = "AI 상태: Hold / 유지 관찰"
-                    elif "buy" in st:
-                        state_note = "AI 상태: Buy-ready / 진입 검토"
-                    elif ai_state:
-                        state_note = f"AI 상태: {ai_state}"
+                    if target_price is not None:
+                        ax.text(
+                            0.995,
+                            target_price,
+                            f" 목표가 {self._format_aits_price_label(target_price)}",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="bottom",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.18", alpha=0.14),
+                            zorder=80,
+                        )
+                except Exception:
+                    pass
 
+                try:
+                    if stop_price is not None:
+                        ax.text(
+                            0.995,
+                            stop_price,
+                            f" 손절가 {self._format_aits_price_label(stop_price)}",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="top",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.18", alpha=0.14),
+                            zorder=80,
+                        )
+                except Exception:
+                    pass
+
+                # 4) 목표/리스크 퍼센트 보조 문구
+                try:
+                    if current_price is not None and target_price is not None:
+                        up_pct = (
+                            (float(target_price) - float(current_price))
+                            / float(current_price)
+                        ) * 100.0
+                        ax.text(
+                            0.012,
+                            0.84,
+                            f"목표 여지: {up_pct:+.2f}%",
+                            transform=ax.transAxes,
+                            ha="left",
+                            va="top",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.22", alpha=0.14),
+                            zorder=70,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    if current_price is not None and stop_price is not None:
+                        dn_pct = (
+                            (float(stop_price) - float(current_price))
+                            / float(current_price)
+                        ) * 100.0
+                        ax.text(
+                            0.012,
+                            0.78,
+                            f"손절 거리: {dn_pct:+.2f}%",
+                            transform=ax.transAxes,
+                            ha="left",
+                            va="top",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.22", alpha=0.14),
+                            zorder=70,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    badge_info = self._get_aits_popup_action_badge(row_index)
+                    state_note = str(badge_info.get("title") or "").strip()
                     if state_note:
                         ax.text(
                             0.012,
                             0.90,
-                            state_note,
+                            f"AI 행동: {state_note}",
                             transform=ax.transAxes,
                             ha="left",
                             va="top",
                             fontsize=8,
                             bbox=dict(boxstyle="round,pad=0.25", alpha=0.18),
-                            zorder=60,
+                            zorder=90,
                         )
                 except Exception:
                     pass
