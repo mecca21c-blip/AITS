@@ -1354,6 +1354,7 @@ class MainWindow(QMainWindow):
         self._aits_large_chart_symbol = ""
         self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
+        self._ai_reason_expanded = False
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
@@ -2526,7 +2527,23 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        _detail_inner.addWidget(_lbl_ai_title)
+        self.btn_ai_reason_toggle = QPushButton("원문 보기")
+        try:
+            self.btn_ai_reason_toggle.setMinimumHeight(24)
+            self.btn_ai_reason_toggle.setMaximumHeight(24)
+        except Exception:
+            pass
+        try:
+            self.btn_ai_reason_toggle.setStyleSheet("padding:2px 8px; font-size:12px;")
+        except Exception:
+            pass
+        _ai_header_row = QHBoxLayout()
+        _ai_header_row.setContentsMargins(0, 0, 0, 0)
+        _ai_header_row.setSpacing(6)
+        _ai_header_row.addWidget(_lbl_ai_title)
+        _ai_header_row.addStretch(1)
+        _ai_header_row.addWidget(self.btn_ai_reason_toggle)
+        _detail_inner.addLayout(_ai_header_row)
         _fa = QFormLayout()
         try:
             _fa.setVerticalSpacing(2)
@@ -2563,8 +2580,18 @@ class MainWindow(QMainWindow):
             self.txt_ai_detail_reason.setStyleSheet("padding:4px; font-size:12px;")
         except Exception:
             pass
-        self.txt_ai_detail_reason.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.txt_ai_detail_reason.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         _detail_inner.addWidget(self.txt_ai_detail_reason)
+        try:
+            self.btn_ai_reason_toggle.clicked.connect(self._on_ai_reason_toggle_clicked)
+        except Exception:
+            pass
+        try:
+            self._apply_ai_reason_expanded_state()
+        except Exception:
+            pass
 
         _lbl_action_title = QLabel("[사용자 액션]")
         try:
@@ -2597,6 +2624,14 @@ class MainWindow(QMainWindow):
         self.ed_market_search.setPlaceholderText("코인 검색 (예: BTC, XRP, KRW-BTC)")
         self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
         _market_inner.addWidget(self.ed_market_search)
+        self.lbl_market_search_status = QLabel("")
+        try:
+            self.lbl_market_search_status.setStyleSheet(
+                "font-size:11px; color:#666; padding:2px 0px;"
+            )
+        except Exception:
+            pass
+        _market_inner.addWidget(self.lbl_market_search_status)
         self.tbl_market_all = QTableWidget(0, 5)
         self.tbl_market_all.setHorizontalHeaderLabels(["코인명", "현재가", "변동률", "거래량", "추가"])
         self.tbl_market_all.verticalHeader().setVisible(False)
@@ -3681,6 +3716,43 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _apply_ai_reason_expanded_state(self):
+        try:
+            expanded = bool(getattr(self, "_ai_reason_expanded", False))
+
+            if expanded:
+                try:
+                    self.txt_ai_detail_reason.setVisible(True)
+                    self.txt_ai_detail_reason.setMinimumHeight(72)
+                    self.txt_ai_detail_reason.setMaximumHeight(120)
+                except Exception:
+                    pass
+
+                try:
+                    self.btn_ai_reason_toggle.setText("원문 접기")
+                except Exception:
+                    pass
+            else:
+                try:
+                    self.txt_ai_detail_reason.setVisible(False)
+                except Exception:
+                    pass
+
+                try:
+                    self.btn_ai_reason_toggle.setText("원문 보기")
+                except Exception:
+                    pass
+
+        except Exception:
+            pass
+
+    def _on_ai_reason_toggle_clicked(self):
+        try:
+            self._ai_reason_expanded = not bool(getattr(self, "_ai_reason_expanded", False))
+            self._apply_ai_reason_expanded_state()
+        except Exception:
+            pass
+
     def _refresh_ai_detail_panel(self) -> None:
         try:
             if not hasattr(self, "lbl_ai_detail_name"):
@@ -3722,6 +3794,10 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 self.txt_ai_detail_reason.setPlainText("")
+                try:
+                    self._apply_ai_reason_expanded_state()
+                except Exception:
+                    pass
                 self.btn_ai_detail_remove.setEnabled(False)
                 self.btn_ai_detail_lock.setEnabled(False)
                 self.btn_ai_detail_lock.setText("잠금 설정")
@@ -3732,10 +3808,15 @@ class MainWindow(QMainWindow):
                 f"{display_name} ({sym})" if display_name else sym
             )
             src = (row.get("source") or "USER").strip().upper()
-            self.lbl_ai_detail_source.setText("AI" if src == "AI" else "USER")
-            self.lbl_ai_detail_status.setText(str(row.get("ai_status") or "Watching"))
+            self.lbl_ai_detail_source.setText(
+                self._format_aits_user_kind_text(src)
+            )
+            _raw_status = str(row.get("ai_status") or "Watching")
+            self.lbl_ai_detail_status.setText(
+                self._format_aits_user_state_text(_raw_status)
+            )
             locked = bool(row.get("locked"))
-            self.lbl_ai_detail_lock.setText("잠김" if locked else "해제")
+            self.lbl_ai_detail_lock.setText("잠금" if locked else "잠금 해제")
             pr = float(row.get("price") or 0.0)
             self.lbl_ai_detail_price.setText(f"{pr:,.0f}" if pr > 0 else "—")
             self.lbl_ai_detail_change.setText(self._fmt_change_pct(float(row.get("change_rate") or 0.0)))
@@ -3746,9 +3827,11 @@ class MainWindow(QMainWindow):
             pnl = float(row.get("pnl") or 0.0)
             self.lbl_ai_detail_pnl.setText(f"{pnl:.2f}%" if pr > 0 else "—")
             try:
-                _lock_txt = "잠김" if locked else "해제"
-                _source_txt = "AI" if src == "AI" else "USER"
-                _status_txt = str(row.get("ai_status") or "Watching")
+                _lock_txt = "잠금" if locked else "잠금 해제"
+                _source_txt = self._format_aits_user_kind_text(src)
+                _status_txt = self._format_aits_user_state_text(
+                    str(row.get("ai_status") or "Watching")
+                )
                 _price_txt = f"{pr:,.0f}" if pr > 0 else "—"
                 _chg_txt = self._fmt_change_pct(float(row.get("change_rate") or 0.0))
                 _tp_txt = f"{tp:,.0f}" if tp > 0 else "—"
@@ -3796,6 +3879,10 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.txt_ai_detail_reason.setPlainText("—")
+            try:
+                self._apply_ai_reason_expanded_state()
+            except Exception:
+                pass
             try:
                 _ai_score_text = ""
                 try:
@@ -4493,11 +4580,28 @@ class MainWindow(QMainWindow):
             if not display_name:
                 display_name = (name_text or "").strip() or symbol_text
 
+            src_for_label = (category or "").strip()
+            st_for_label = (ai_state or "").strip()
+            try:
+                if 0 <= row < len(self.ai_managed_rows or []):
+                    _rd = self.ai_managed_rows[row]
+                    if isinstance(_rd, dict):
+                        src_for_label = (
+                            str(_rd.get("source") or "USER").strip().upper()
+                        )
+                        st_for_label = str(_rd.get("ai_status") or "").strip()
+            except Exception:
+                pass
+            display_kind = self._format_aits_user_kind_text(src_for_label)
+            display_state = self._format_aits_user_state_text(
+                st_for_label or "Watching"
+            )
+
             basic_text = (
                 f"종목명: {display_name}\n"
                 f"심볼: {symbol_text}\n"
-                f"구분: {category}\n"
-                f"AI 상태: {ai_state}\n"
+                f"구분: {display_kind}\n"
+                f"AI 상태: {display_state}\n"
                 f"AI 점수: {ai_score}"
             )
 
@@ -4770,6 +4874,24 @@ class MainWindow(QMainWindow):
                 "FIL": "파일코인",
                 "INJ": "인젝티브",
                 "WLD": "월드코인",
+                "ORDER": "오더",
+                "DRIFT": "드리프트",
+                "AVNT": "아벤트",
+                "ESP": "이아이",
+                "FLUID": "플루이드",
+                "SAHARA": "사하라",
+                "RED": "레드",
+                "TREE": "트리",
+                "ZETA": "제타",
+                "CFG": "센트리퓨즈",
+                "MMT": "메타마스",
+                "ONG": "온톨로지가스",
+                "AXL": "엑셀라",
+                "SUPER": "슈퍼",
+                "BREV": "브레브",
+                "XPL": "엑스플",
+                "TAO": "비텐서",
+                "FLOCK": "플록",
             }
 
             return str(name_map.get(s, "") or "")
@@ -4798,6 +4920,66 @@ class MainWindow(QMainWindow):
             except Exception:
                 return ""
 
+    def _normalize_aits_market_symbol(self, symbol_text: str):
+        try:
+            s = str(symbol_text or "").strip().upper()
+            if not s:
+                return ""
+
+            if s.startswith("KRW-"):
+                return s
+
+            return f"KRW-{s}"
+        except Exception:
+            try:
+                return str(symbol_text or "").strip()
+            except Exception:
+                return ""
+
+    def _format_aits_user_kind_text(self, kind_text):
+        try:
+            k = str(kind_text or "").strip()
+            kl = k.lower()
+
+            if kl == "ai":
+                return "AI"
+            if kl == "user":
+                return "사용자 추가"
+            if not k:
+                return ""
+            return k
+        except Exception:
+            try:
+                return str(kind_text or "")
+            except Exception:
+                return ""
+
+    def _format_aits_user_state_text(self, state_text):
+        try:
+            s = str(state_text or "").strip()
+            sl = s.lower()
+
+            if "drop" in sl:
+                return "관망"
+            if "watch" in sl:
+                return "조건 대기"
+            if "hold" in sl:
+                return "보유 관찰"
+            if "buy" in sl:
+                return "진입 검토"
+            if "sell" in sl:
+                return "매도 검토"
+            if "lock" in sl:
+                return "잠금"
+            if not s:
+                return ""
+            return s
+        except Exception:
+            try:
+                return str(state_text or "")
+            except Exception:
+                return ""
+
     def _build_ai_strategy_cards(
         self, ai_reason_text: str, ai_state_text: str = "", ai_score_text: str = ""
     ):
@@ -4818,6 +5000,8 @@ class MainWindow(QMainWindow):
                 cards.append(("보유 관찰", "현재 포지션 유지 여부를 확인 중"))
             elif "buy" in state_l:
                 cards.append(("진입 검토", "조건 충족 시 진입 가능성 확인 중"))
+            elif "sell" in state_l:
+                cards.append(("매도 검토", "조건 충족 시 정리·매도 시나리오를 확인 중"))
 
             if "거래대금 부족" in reason:
                 cards.append(("유동성 주의", "체결/추격 매수보다 대기 가능성이 높음"))
@@ -4877,6 +5061,10 @@ class MainWindow(QMainWindow):
                 badge_title = "진입 검토"
                 badge_sub = "조건 충족 시 진입 가능성을 보고 있습니다."
                 badge_variant = "buy"
+            elif "sell" in state_lower:
+                badge_title = "매도 검토"
+                badge_sub = "조건 충족 시 정리·매도 가능성을 검토 중입니다."
+                badge_variant = "watch"
 
             if "거래대금 부족" in reason_text:
                 badge_title = "유동성 주의"
@@ -4889,8 +5077,8 @@ class MainWindow(QMainWindow):
                 badge_variant = "watch"
 
             elif "보수" in reason_text:
-                badge_title = "보수 운용"
-                badge_sub = "분할 접근 또는 추가 확인 대기 시나리오가 우세합니다."
+                badge_title = "보수 전략"
+                badge_sub = "분할 접근 또는 추가 확인 후 대응이 우선될 수 있습니다."
                 badge_variant = "watch"
 
             try:
@@ -5840,103 +6028,45 @@ class MainWindow(QMainWindow):
 
         return -1
 
+    def _get_market_explorer_current_row(self):
+        try:
+            items = self.tbl_market_all.selectedItems()
+            if items:
+                return int(items[0].row())
+        except Exception:
+            pass
+
+        try:
+            row = self.tbl_market_all.currentRow()
+            if row is not None and int(row) >= 0:
+                return int(row)
+        except Exception:
+            pass
+
+        return -1
+
     def _on_ai_managed_move_up(self):
         try:
-            row = self._get_ai_managed_current_row()
-            if row <= 0:
+            row = self._get_market_explorer_current_row()
+            if row < 0:
                 return
-
-            rows = getattr(self, "ai_managed_rows", None)
-            if not rows or row >= len(rows):
-                return
-
-            rows[row - 1], rows[row] = rows[row], rows[row - 1]
-
-            self.ai_managed_rows = rows
-
-            try:
-                self._refresh_ai_managed_table()
-            except Exception:
-                pass
-
-            try:
-                self.tbl_ai_managed.clearSelection()
-            except Exception:
-                pass
-
-            new_row = row - 1
-
-            try:
-                self.tbl_ai_managed.selectRow(new_row)
-            except Exception:
-                pass
-
-            try:
-                self.tbl_ai_managed.scrollToItem(
-                    self.tbl_ai_managed.item(max(new_row, 0), 0)
-                )
-            except Exception:
-                pass
-
-            try:
-                self._refresh_ai_detail_panel()
-            except Exception:
-                pass
-
-            try:
-                self._refresh_ai_detail_chart()
-            except Exception:
-                pass
-
+            # Market Explorer「추가」컬럼 클릭과 동일 경로 (`_add_symbol_to_ai_pool`)
+            self._on_market_all_table_cell_clicked(int(row), int(self._MKT_COL_ADD))
         except Exception:
             pass
 
     def _on_ai_managed_move_down(self):
         try:
             row = self._get_ai_managed_current_row()
-            rows = getattr(self, "ai_managed_rows", None)
-            if row < 0 or not rows:
-                return
-            if row >= len(rows) - 1:
+            managed_rows = getattr(self, "ai_managed_rows", None) or []
+            if row < 0 or row >= len(managed_rows):
                 return
 
-            rows[row + 1], rows[row] = rows[row], rows[row + 1]
+            sym = (managed_rows[row].get("symbol") or "").strip()
+            if not sym:
+                return
 
-            self.ai_managed_rows = rows
-
-            try:
-                self._refresh_ai_managed_table()
-            except Exception:
-                pass
-
-            try:
-                self.tbl_ai_managed.clearSelection()
-            except Exception:
-                pass
-
-            new_row = row + 1
-
-            try:
-                self.tbl_ai_managed.selectRow(new_row)
-            except Exception:
-                pass
-
-            try:
-                self.tbl_ai_managed.scrollToItem(
-                    self.tbl_ai_managed.item(max(new_row, 0), 0)
-                )
-            except Exception:
-                pass
-
-            try:
-                self._refresh_ai_detail_panel()
-            except Exception:
-                pass
-
-            try:
-                self._refresh_ai_detail_chart()
-            except Exception:
-                pass
+            self._remove_symbol_from_ai_pool(sym)
 
         except Exception:
             pass
@@ -5959,7 +6089,8 @@ class MainWindow(QMainWindow):
             t.setItem(i, 1, QTableWidgetItem(f"{float(row.get('price') or 0.0):,.0f}"))
             t.setItem(i, 2, QTableWidgetItem(self._fmt_change_pct(float(row.get("change_rate") or 0.0))))
             src = (row.get("source") or "USER").strip().upper()
-            c3 = QTableWidgetItem("AI" if src == "AI" else "USER")
+            display_kind = self._format_aits_user_kind_text(src)
+            c3 = QTableWidgetItem(display_kind)
             if src == "AI":
                 c3.setForeground(QColor("#1565c0"))
             else:
@@ -5975,7 +6106,8 @@ class MainWindow(QMainWindow):
                 cscore = QTableWidgetItem("—")
             t.setItem(i, 4, cscore)
             status_txt = str(row.get("ai_status") or "Watching")
-            c5 = QTableWidgetItem(status_txt)
+            display_state = self._format_aits_user_state_text(status_txt)
+            c5 = QTableWidgetItem(display_state)
             _status_color = {
                 "Watching": "#757575",
                 "Buy Ready": "#1565c0",
@@ -5989,12 +6121,24 @@ class MainWindow(QMainWindow):
             t.setItem(i, 7, QTableWidgetItem(f"{float(row.get('stop_loss') or 0.0):,.0f}"))
             t.setItem(i, 8, QTableWidgetItem(f"{float(row.get('pnl') or 0.0):.2f}%"))
             locked = bool(row.get("locked"))
-            t.setItem(i, 9, QTableWidgetItem("🔒" if locked else "🔓"))
+            lock_item = QTableWidgetItem("🔒 잠금" if locked else "잠금 해제")
+            try:
+                lock_item.setTextAlignment(
+                    int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+                )
+            except Exception:
+                pass
+            t.setItem(i, 9, lock_item)
             t.setItem(i, 10, QTableWidgetItem("제거"))  # TODO: 상세 패널/차트 연결
             _sum = (row.get("ai_reason_summary") or "").strip()
             if len(_sum) > 48:
                 _sum = _sum[:45] + "…"
             t.setItem(i, 11, QTableWidgetItem(_sum if _sum else "—"))
+        try:
+            lc = int(getattr(self, "_ai_managed_lock_col", 9))
+            t.setColumnWidth(lc, 72)
+        except Exception:
+            pass
         if not self.ai_managed_rows:
             self._set_selected_ai_pool_symbol("")
             t.clearSelection()
@@ -6691,6 +6835,16 @@ class MainWindow(QMainWindow):
             if len(rows_to_render) > 300:
                 rows_to_render = rows_to_render[:300]
 
+        try:
+            if not query:
+                self.lbl_market_search_status.setText("기본 목록 표시 중")
+            else:
+                self.lbl_market_search_status.setText(f"검색 결과 {len(rows_to_render)}건")
+            if query and not rows_to_render:
+                self.lbl_market_search_status.setText(f"검색 결과 0건 · '{query}'")
+        except Exception:
+            pass
+
         self._market_display_rows = rows_to_render
         t = self.tbl_market_all
         t.setRowCount(0)
@@ -6698,9 +6852,32 @@ class MainWindow(QMainWindow):
             t.insertRow(i)
             sym = (r.get("symbol") or "").strip()
             name = (r.get("name") or "").strip() or sym
-            display_coin = self._format_aits_coin_display_name(sym)
+            display_coin = ""
+            try:
+                row_name = ""
+                if isinstance(r, dict):
+                    row_name = str(
+                        r.get("korean_name") or r.get("name") or ""
+                    ).strip()
+                else:
+                    row_name = str(
+                        getattr(r, "korean_name", None)
+                        or getattr(r, "name", None)
+                        or ""
+                    ).strip()
+
+                if row_name:
+                    raw_sym = str(sym or "").strip().upper()
+                    if raw_sym.startswith("KRW-"):
+                        raw_sym = raw_sym.split("-", 1)[1]
+                    display_coin = f"{raw_sym} {row_name}"
+                else:
+                    display_coin = self._format_aits_coin_display_name(sym)
+            except Exception:
+                display_coin = self._format_aits_coin_display_name(sym)
+            norm_sym = self._normalize_aits_market_symbol(sym)
             c0 = QTableWidgetItem(display_coin if display_coin else (sym or name))
-            c0.setData(Qt.ItemDataRole.UserRole, sym)
+            c0.setData(Qt.ItemDataRole.UserRole, norm_sym or sym)
             t.setItem(i, 0, c0)
             t.setItem(i, 1, QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}"))
             t.setItem(i, 2, QTableWidgetItem(self._fmt_change_pct(float(r.get("change_rate") or 0.0))))
@@ -6757,28 +6934,74 @@ class MainWindow(QMainWindow):
     def _add_symbol_to_ai_pool(self, row_or_symbol) -> None:
         sym = ""
         src_row = None
+
+        def _pick(obj, *names):
+            if obj is None:
+                return None
+            if isinstance(obj, dict):
+                for n in names:
+                    if n in obj and obj.get(n) is not None:
+                        return obj.get(n)
+                return None
+            for n in names:
+                try:
+                    val = getattr(obj, n, None)
+                    if val is not None:
+                        return val
+                except Exception:
+                    pass
+            return None
+
         if isinstance(row_or_symbol, str):
-            sym = row_or_symbol.strip()
-            for r in self.market_all_rows:
-                if (r.get("symbol") or "").strip() == sym:
+            raw = str(row_or_symbol or "").strip()
+            sym = self._normalize_aits_market_symbol(raw)
+            if not sym:
+                return
+            for r in self.market_all_rows or []:
+                if not isinstance(r, dict):
+                    continue
+                rs = self._normalize_aits_market_symbol(
+                    r.get("symbol") or r.get("market") or ""
+                )
+                if rs == sym:
                     src_row = r
                     break
         elif isinstance(row_or_symbol, dict):
-            sym = (row_or_symbol.get("symbol") or "").strip()
+            raw = str(
+                _pick(row_or_symbol, "symbol", "market", "code") or ""
+            ).strip()
+            sym = self._normalize_aits_market_symbol(raw)
+            if not sym:
+                return
             src_row = row_or_symbol
-        if not sym:
+        else:
             return
-        for ex in self.ai_managed_rows:
-            if (ex.get("symbol") or "").strip() == sym:
+
+        for ex in self.ai_managed_rows or []:
+            rsym = self._normalize_aits_market_symbol(
+                _pick(ex, "symbol", "market", "code") or ""
+            )
+            if rsym == sym:
                 QMessageBox.information(self, "관리 종목", "이미 관리 종목에 있습니다.")
                 return
-        name = (src_row.get("name") if src_row else None) or (sym.split("-")[-1] if "-" in sym else sym)
+
+        raw_name = _pick(src_row, "korean_name", "name", "english_name") if src_row else None
+        display_name = str(raw_name).strip() if raw_name is not None else ""
+        if not display_name:
+            try:
+                display_name = self._get_aits_korean_coin_name(sym) or ""
+            except Exception:
+                display_name = ""
+        if not display_name:
+            display_name = sym.split("-")[-1] if "-" in sym else sym
+
         price = float(src_row.get("price", 0.0)) if src_row else 0.0
         chg = float(src_row.get("change_rate", 0.0)) if src_row else 0.0
         self.ai_managed_rows.append(
             {
                 "symbol": sym,
-                "name": name,
+                "market": sym,
+                "name": display_name,
                 "price": price,
                 "change_rate": chg,
                 "source": "USER",
@@ -6786,7 +7009,7 @@ class MainWindow(QMainWindow):
                 "target_price": 0.0,
                 "stop_loss": 0.0,
                 "pnl": 0.0,
-                "locked": True,
+                "locked": False,
             }
         )
         self._refresh_ai_managed_table()
@@ -6848,6 +7071,11 @@ class MainWindow(QMainWindow):
 
             try:
                 self._refresh_ai_detail_panel()
+            except Exception:
+                pass
+
+            try:
+                self._refresh_ai_detail_chart()
             except Exception:
                 pass
 
