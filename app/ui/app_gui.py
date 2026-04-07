@@ -13,6 +13,7 @@ import logging
 import warnings
 import time
 import json
+import math
 import concurrent.futures
 from PySide6 import QtGui
 
@@ -827,13 +828,13 @@ class MainWindow(QMainWindow):
         if lb is None:
             return
         if s == "TRADING":
-            lb.setText("AI Status: Trading")
+            lb.setText("AITS 상태: 자동 매매 중")
             lb.setStyleSheet("color:#ef6c00; font-weight:600;")
         elif s == "SCANNING":
-            lb.setText("AI Status: Scanning")
+            lb.setText("AITS 상태: 시장 스캔 중")
             lb.setStyleSheet("color:#1565c0; font-weight:600;")
         else:
-            lb.setText("AI Status: Idle")
+            lb.setText("AITS 상태: 대기 중")
             lb.setStyleSheet("color:#607d8b; font-weight:600;")
 
     def _set_running_ui(self, running: bool):
@@ -1355,6 +1356,9 @@ class MainWindow(QMainWindow):
         self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
         self._ai_reason_expanded = False
+        self._market_view_mode = "quick"   # "quick" | "all"
+        self._market_sort_key = "volume"   # volume | change | price
+        self._market_sort_order = "desc"   # desc | asc
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
@@ -2031,7 +2035,7 @@ class MainWindow(QMainWindow):
         self.lbl_aits_state.setStyleSheet("color:#9e9e9e; font-weight:bold;")
         top_outer.addWidget(self.lbl_aits_state)
         self.set_aits_state("STOPPED")
-        self.lbl_ai_status = QLabel("AI Status: Idle")
+        self.lbl_ai_status = QLabel("AITS 상태: 대기 중")
         self.lbl_ai_status.setStyleSheet("color:#607d8b; font-weight:600;")
         top_outer.addWidget(self.lbl_ai_status)
         self.set_ai_status("IDLE")
@@ -2270,7 +2274,13 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_ai_managed.setMinimumHeight(140)
         try:
-            self.tbl_ai_managed.setColumnWidth(0, 130)
+            self.tbl_ai_managed.setColumnWidth(0, 140)  # 코인명
+            self.tbl_ai_managed.setColumnWidth(1, 100)  # 현재가
+            self.tbl_ai_managed.setColumnWidth(2, 80)   # 변동률
+            self.tbl_ai_managed.setColumnWidth(3, 90)   # 구분
+            self.tbl_ai_managed.setColumnWidth(4, 70)   # AI 점수
+            self.tbl_ai_managed.setColumnWidth(5, 80)   # AI 상태
+            self.tbl_ai_managed.setColumnWidth(6, 110)  # 목표가
         except Exception:
             pass
         self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
@@ -2450,7 +2460,7 @@ class MainWindow(QMainWindow):
         try:
             self.lbl_ai_detail_basic_summary.setWordWrap(True)
             self.lbl_ai_detail_basic_summary.setStyleSheet(
-                "font-size:12px; padding:0px; margin:0px;"
+                "font-size:12px; padding:0px; margin:0px; color:#222;"
             )
         except Exception:
             pass
@@ -2561,7 +2571,7 @@ class MainWindow(QMainWindow):
             try:
                 _card.setWordWrap(True)
                 _card.setStyleSheet(
-                    "font-size:12px; font-weight:600; padding:6px; border:1px solid #d8dde6; background:#f6f8fb;"
+                    "font-size:12px; font-weight:600; padding:6px; border:1px solid #dddddd; background:#fafafa;"
                 )
                 _card.setMinimumHeight(34)
                 _card.setMaximumHeight(54)
@@ -2623,7 +2633,53 @@ class MainWindow(QMainWindow):
         self.ed_market_search = QLineEdit()
         self.ed_market_search.setPlaceholderText("코인 검색 (예: BTC, XRP, KRW-BTC)")
         self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
-        _market_inner.addWidget(self.ed_market_search)
+        try:
+            self.ed_market_search.setMaximumWidth(420)
+            self.ed_market_search.setMinimumWidth(260)
+        except Exception:
+            pass
+        self.btn_market_quick = QPushButton("빠른 보기")
+        self.btn_market_all = QPushButton("전체 보기")
+        try:
+            self.btn_market_quick.setMinimumHeight(24)
+            self.btn_market_quick.setMaximumHeight(24)
+            self.btn_market_all.setMinimumHeight(24)
+            self.btn_market_all.setMaximumHeight(24)
+        except Exception:
+            pass
+        try:
+            self.btn_market_quick.setStyleSheet("padding:2px 8px; font-size:12px;")
+            self.btn_market_all.setStyleSheet("padding:2px 8px; font-size:12px;")
+        except Exception:
+            pass
+        self.cmb_market_sort = QComboBox()
+        self.cmb_market_sort.addItem("거래대금순", "volume")
+        self.cmb_market_sort.addItem("변동률순", "change")
+        self.cmb_market_sort.addItem("가격순", "price")
+        self.btn_market_sort_toggle = QPushButton("↓")
+        try:
+            self.cmb_market_sort.setMinimumHeight(24)
+            self.cmb_market_sort.setMaximumHeight(24)
+            self.btn_market_sort_toggle.setMinimumHeight(24)
+            self.btn_market_sort_toggle.setMaximumHeight(24)
+            self.btn_market_sort_toggle.setMaximumWidth(28)
+        except Exception:
+            pass
+        try:
+            self.cmb_market_sort.setStyleSheet("font-size:12px; padding:2px;")
+            self.btn_market_sort_toggle.setStyleSheet("font-size:12px; padding:0px;")
+        except Exception:
+            pass
+        _market_top_row = QHBoxLayout()
+        _market_top_row.setContentsMargins(0, 0, 0, 0)
+        _market_top_row.setSpacing(6)
+        _market_top_row.addWidget(self.ed_market_search, 0)
+        _market_top_row.addWidget(self.btn_market_quick, 0)
+        _market_top_row.addWidget(self.btn_market_all, 0)
+        _market_top_row.addWidget(self.cmb_market_sort, 0)
+        _market_top_row.addWidget(self.btn_market_sort_toggle, 0)
+        _market_top_row.addStretch(1)
+        _market_inner.addLayout(_market_top_row)
         self.lbl_market_search_status = QLabel("")
         try:
             self.lbl_market_search_status.setStyleSheet(
@@ -2632,19 +2688,56 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_search_status)
-        self.tbl_market_all = QTableWidget(0, 5)
-        self.tbl_market_all.setHorizontalHeaderLabels(["코인명", "현재가", "변동률", "거래량", "추가"])
+        self.tbl_market_all = QTableWidget(0, 7)
+        self.tbl_market_all.setHorizontalHeaderLabels(["순위", "코인명", "현재가", "변동률", "거래대금", "거래량", "추가"])
         self.tbl_market_all.verticalHeader().setVisible(False)
         self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_market_all.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_market_all.setMinimumHeight(120)
         try:
-            self.tbl_market_all.setColumnWidth(0, 150)
+            self.tbl_market_all.setColumnWidth(0, 52)
+            self.tbl_market_all.setColumnWidth(1, 160)
+            self.tbl_market_all.setColumnWidth(2, 90)
+            self.tbl_market_all.setColumnWidth(3, 80)
+            self.tbl_market_all.setColumnWidth(4, 110)
+            self.tbl_market_all.setColumnWidth(5, 90)
+            self.tbl_market_all.setColumnWidth(6, 60)
         except Exception:
             pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
         _market_inner.addWidget(self.tbl_market_all)
         _aits_pool_ly.addWidget(_gb_market, 2)
+        try:
+            self.btn_market_quick.clicked.connect(self._on_market_view_mode_quick)
+        except Exception:
+            pass
+        try:
+            self.btn_market_all.clicked.connect(self._on_market_view_mode_all)
+        except Exception:
+            pass
+        try:
+            self.cmb_market_sort.currentIndexChanged.connect(self._on_market_sort_changed)
+        except Exception:
+            pass
+        try:
+            self.btn_market_sort_toggle.clicked.connect(self._on_market_sort_toggle)
+        except Exception:
+            pass
+        try:
+            idx = self.cmb_market_sort.findData("volume")
+            if idx >= 0:
+                self.cmb_market_sort.setCurrentIndex(idx)
+        except Exception:
+            pass
+        try:
+            self._market_sort_order = "desc"
+            self.btn_market_sort_toggle.setText("↓")
+        except Exception:
+            pass
+        try:
+            self._apply_market_view_mode_button_state()
+        except Exception:
+            pass
         try:
             self._refresh_ai_managed_table()
             QTimer.singleShot(400, self._load_market_explorer_initial_data)
@@ -3695,7 +3788,7 @@ class MainWindow(QMainWindow):
     # --- AITS Managed Pool / Market Explorer (Qt 테이블 골격, ag-Grid 스타일 상태·이벤트 분리) ---
     _AI_M_COL_LOCK = 9
     _AI_M_COL_ACTION = 10
-    _MKT_COL_ADD = 4
+    _MKT_COL_ADD = 6
 
     def _fmt_change_pct(self, rate: float) -> str:
         try:
@@ -4826,6 +4919,18 @@ class MainWindow(QMainWindow):
             except Exception:
                 return str(prefix or "")
 
+    def _apply_aits_change_color(self, item, value):
+        try:
+            v = float(value or 0)
+            if v > 0:
+                item.setForeground(QColor("#d84a4a"))
+            elif v < 0:
+                item.setForeground(QColor("#2a6fdb"))
+            else:
+                item.setForeground(QColor("#666666"))
+        except Exception:
+            pass
+
     def _get_aits_korean_coin_name(self, symbol_text: str):
         try:
             s = str(symbol_text or "").strip().upper()
@@ -4914,6 +5019,35 @@ class MainWindow(QMainWindow):
             if ko:
                 return f"{short_symbol} {ko}"
             return short_symbol
+        except Exception:
+            try:
+                return str(symbol_text or "")
+            except Exception:
+                return ""
+
+    def _merge_aits_symbol_and_name(self, symbol_text: str, name_text: str = ""):
+        try:
+            raw = str(symbol_text or "").strip().upper()
+            if raw.startswith("KRW-"):
+                raw = raw.split("-", 1)[1].strip().upper()
+
+            name_val = str(name_text or "").strip()
+            ko_fallback = self._get_aits_korean_coin_name(raw)
+
+            if not name_val:
+                if ko_fallback:
+                    return f"{raw} {ko_fallback}"
+                return raw
+
+            if name_val.upper() == raw:
+                if ko_fallback:
+                    return f"{raw} {ko_fallback}"
+                return raw
+
+            if ko_fallback and name_val == ko_fallback:
+                return f"{raw} {ko_fallback}"
+
+            return f"{raw} {name_val}"
         except Exception:
             try:
                 return str(symbol_text or "")
@@ -6087,7 +6221,10 @@ class MainWindow(QMainWindow):
             c0.setData(Qt.ItemDataRole.UserRole, sym)
             t.setItem(i, 0, c0)
             t.setItem(i, 1, QTableWidgetItem(f"{float(row.get('price') or 0.0):,.0f}"))
-            t.setItem(i, 2, QTableWidgetItem(self._fmt_change_pct(float(row.get("change_rate") or 0.0))))
+            chg_val = float(row.get("change_rate") or 0.0)
+            c_change = QTableWidgetItem(self._fmt_change_pct(chg_val))
+            self._apply_aits_change_color(c_change, chg_val)
+            t.setItem(i, 2, c_change)
             src = (row.get("source") or "USER").strip().upper()
             display_kind = self._format_aits_user_kind_text(src)
             c3 = QTableWidgetItem(display_kind)
@@ -6729,6 +6866,8 @@ class MainWindow(QMainWindow):
                         td = tick_by_m.get(sym) or {}
                         row["price"] = float(td.get("trade_price") or 0.0)
                         row["change_rate"] = float(td.get("signed_change_rate") or 0.0)
+                        row["acc_trade_price_24h"] = float(td.get("acc_trade_price_24h") or 0.0)
+                        row["trade_price_24h"] = float(td.get("acc_trade_price_24h") or 0.0)
                         row["volume_24h"] = float(td.get("acc_trade_volume_24h") or 0.0)
                 except Exception:
                     pass
@@ -6806,6 +6945,196 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
+    def _safe_market_float(self, row_obj, *names):
+        try:
+            if isinstance(row_obj, dict):
+                for n in names:
+                    v = row_obj.get(n)
+                    if v is not None:
+                        try:
+                            return float(v)
+                        except Exception:
+                            pass
+                return 0.0
+
+            for n in names:
+                try:
+                    v = getattr(row_obj, n, None)
+                    if v is not None:
+                        try:
+                            return float(v)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            return 0.0
+        except Exception:
+            return 0.0
+
+    def _get_market_trade_value(self, row_obj):
+        try:
+            v = self._safe_market_float(
+                row_obj,
+                "acc_trade_price_24h",
+                "trade_price_24h",
+                "volume",
+                "acc_trade_price",
+                "trade_amount",
+            )
+            return float(v or 0.0)
+        except Exception:
+            return 0.0
+
+    def _score_market_candidate(self, row_obj):
+        try:
+            trade_value = self._get_market_trade_value(row_obj)
+            change = self._safe_market_float(
+                row_obj,
+                "change_rate",
+                "signed_change_rate",
+                "change",
+            )
+            price = self._safe_market_float(
+                row_obj,
+                "current_price",
+                "trade_price",
+                "price",
+            )
+
+            score = 0.0
+
+            # 거래대금은 shortlist 품질의 핵심 지표(매수/매도 신호 아님)
+            try:
+                score += math.log10(max(trade_value, 1.0))
+            except Exception:
+                pass
+
+            # 초저유동성/저유동성 방어
+            if trade_value < 10_000_000:
+                score -= 3.0
+            elif trade_value < 100_000_000:
+                score -= 1.5
+            elif trade_value < 500_000_000:
+                score -= 0.5
+            else:
+                score += 0.5
+
+            change_pct = change * 100.0
+            if change_pct >= 0:
+                if change_pct < 1.0:
+                    score += 0.2
+                elif change_pct < 3.0:
+                    score += 1.0
+                elif change_pct < 6.0:
+                    score += 1.8
+                elif change_pct < 10.0:
+                    score += 1.4
+                else:
+                    # 과열 급등 종목은 과도 가산 금지
+                    score += 0.8
+            else:
+                if change_pct > -2.0:
+                    score -= 0.2
+                elif change_pct > -5.0:
+                    score -= 0.8
+                else:
+                    score -= 1.6
+
+            price_bias = 0.0
+            if price > 0:
+                if price < 10:
+                    price_bias = -0.2
+                elif price > 100_000_000:
+                    price_bias = 0.1
+
+            score += price_bias
+            return float(score)
+        except Exception:
+            return 0.0
+
+    def _detect_market_regime(self, rows):
+        try:
+            total = len(rows or [])
+            if total <= 0:
+                return "sideways"
+
+            up_cnt = 0
+            dn_cnt = 0
+            change_sum = 0.0
+
+            for r in rows:
+                ch = self._safe_market_float(r, "change_rate", "signed_change_rate", "change")
+                change_sum += ch
+                if ch > 0:
+                    up_cnt += 1
+                elif ch < 0:
+                    dn_cnt += 1
+
+            up_ratio = up_cnt / max(total, 1)
+            avg_change = change_sum / max(total, 1)
+
+            if up_ratio >= 0.62 and avg_change >= 0.0025:
+                return "bull"
+
+            if up_ratio <= 0.38 and avg_change <= -0.0025:
+                return "bear"
+
+            return "sideways"
+
+        except Exception:
+            return "sideways"
+
+    def _apply_market_view_mode_button_state(self):
+        try:
+            mode = str(getattr(self, "_market_view_mode", "quick") or "quick").strip().lower()
+
+            if mode == "all":
+                self.btn_market_quick.setEnabled(True)
+                self.btn_market_all.setEnabled(False)
+            else:
+                self.btn_market_quick.setEnabled(False)
+                self.btn_market_all.setEnabled(True)
+        except Exception:
+            pass
+
+    def _on_market_view_mode_quick(self):
+        try:
+            self._market_view_mode = "quick"
+            self._apply_market_view_mode_button_state()
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
+    def _on_market_view_mode_all(self):
+        try:
+            self._market_view_mode = "all"
+            # 전체 보기 누른 시점에만 전체 캐시 확보
+            self._ensure_market_all_rows()
+            self._apply_market_view_mode_button_state()
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
+    def _on_market_sort_changed(self):
+        try:
+            self._market_sort_key = self.cmb_market_sort.currentData()
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
+    def _on_market_sort_toggle(self):
+        try:
+            if self._market_sort_order == "desc":
+                self._market_sort_order = "asc"
+                self.btn_market_sort_toggle.setText("↑")
+            else:
+                self._market_sort_order = "desc"
+                self.btn_market_sort_toggle.setText("↓")
+
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
     def _refresh_market_all_table(self) -> None:
         if not hasattr(self, "tbl_market_all") or self.tbl_market_all is None:
             return
@@ -6822,34 +7151,165 @@ class MainWindow(QMainWindow):
 
         rows_to_render = []
 
-        if not query:
-            try:
-                rows_to_render = list(getattr(self, "market_all_rows", []) or [])
-            except Exception:
-                rows_to_render = []
-        else:
+        mode = str(getattr(self, "_market_view_mode", "quick") or "quick").strip().lower()
+
+        regime = "sideways"
+        if query:
             all_rows = self._ensure_market_all_rows()
-            rows_to_render = [
-                r for r in all_rows if self._match_market_row_query(r, query)
-            ]
+            regime = self._detect_market_regime(all_rows)
+            rows_to_render = [r for r in all_rows if self._match_market_row_query(r, query)]
             if len(rows_to_render) > 300:
                 rows_to_render = rows_to_render[:300]
+        else:
+            if mode == "all":
+                rows_to_render = list(self._ensure_market_all_rows() or [])
+                regime = self._detect_market_regime(rows_to_render)
+                if len(rows_to_render) > 300:
+                    rows_to_render = rows_to_render[:300]
+            else:
+                all_rows = self._ensure_market_all_rows()
+                if all_rows:
+                    regime = self._detect_market_regime(all_rows)
+                    rows_scored = []
+                    for r in all_rows:
+                        try:
+                            base_score = self._score_market_candidate(r)
+                        except Exception:
+                            base_score = 0.0
+                        change_val = self._safe_market_float(
+                            r, "change_rate", "signed_change_rate", "change"
+                        )
+                        trade_value = self._get_market_trade_value(r)
+                        adjusted_score = float(base_score)
+
+                        if regime == "bear":
+                            if change_val > 0:
+                                adjusted_score *= 0.92
+                            else:
+                                adjusted_score *= 0.85
+                            if trade_value >= 10_000_000_000:
+                                adjusted_score += 0.3
+                        elif regime == "bull":
+                            if change_val > 0:
+                                adjusted_score *= 1.08
+                        rows_scored.append((adjusted_score, r))
+                    rows_scored.sort(key=lambda x: x[0], reverse=True)
+                    rows_to_render = [r for _, r in rows_scored[:30]]
+                else:
+                    try:
+                        rows_to_render = list(getattr(self, "market_all_rows", []) or [])
+                    except Exception:
+                        rows_to_render = []
 
         try:
-            if not query:
-                self.lbl_market_search_status.setText("기본 목록 표시 중")
-            else:
-                self.lbl_market_search_status.setText(f"검색 결과 {len(rows_to_render)}건")
-            if query and not rows_to_render:
-                self.lbl_market_search_status.setText(f"검색 결과 0건 · '{query}'")
+            key = str(getattr(self, "_market_sort_key", "volume") or "volume")
+        except Exception:
+            key = "volume"
+        try:
+            order = str(getattr(self, "_market_sort_order", "desc") or "desc").lower()
+        except Exception:
+            order = "desc"
+        reverse = (order != "asc")
+
+        try:
+            def _get_val(r):
+                try:
+                    if key == "volume":
+                        return self._get_market_trade_value(r)
+                    if key == "change":
+                        return self._safe_market_float(
+                            r,
+                            "change_rate",
+                            "signed_change_rate",
+                            "change",
+                        )
+                    if key == "price":
+                        return self._safe_market_float(
+                            r,
+                            "current_price",
+                            "trade_price",
+                            "price",
+                        )
+                    return 0.0
+                except Exception:
+                    return 0.0
+
+            rows_to_render = sorted(rows_to_render, key=_get_val, reverse=reverse)
         except Exception:
             pass
 
-        self._market_display_rows = rows_to_render
+        try:
+            total_all = len(getattr(self, "_market_all_rows", []) or [])
+        except Exception:
+            total_all = 0
+
+        try:
+            sort_name = self.cmb_market_sort.currentText()
+            order_txt = "내림차순" if self._market_sort_order == "desc" else "오름차순"
+            regime_txt = {
+                "bull": "상승장",
+                "bear": "하락장",
+                "sideways": "횡보장",
+            }.get(regime, "횡보장")
+            sort_suffix = f" · {sort_name} {order_txt}"
+            if query:
+                self.lbl_market_search_status.setText(
+                    f"검색 결과 {len(rows_to_render)}건 · {regime_txt}{sort_suffix}"
+                )
+                if not rows_to_render:
+                    self.lbl_market_search_status.setText(
+                        f"검색 결과 0건 · '{query}' · {regime_txt}{sort_suffix}"
+                    )
+            else:
+                if mode == "all":
+                    if total_all > 0:
+                        shown = len(rows_to_render)
+                        if shown < total_all:
+                            self.lbl_market_search_status.setText(
+                                f"전체 종목 모드 · {shown}/{total_all}건 표시 · {regime_txt}{sort_suffix}"
+                            )
+                        else:
+                            self.lbl_market_search_status.setText(
+                                f"전체 종목 모드 · {total_all}건 표시 · {regime_txt}{sort_suffix}"
+                            )
+                    else:
+                        self.lbl_market_search_status.setText(
+                            f"전체 종목 모드 · {regime_txt}{sort_suffix}"
+                        )
+                else:
+                    self.lbl_market_search_status.setText(
+                        f"빠른 탐색 모드 · 후보 30개 · {regime_txt}{sort_suffix}"
+                    )
+        except Exception:
+            pass
+
+        # NOTE:
+        # quick 후보 30개는 AI가 먼저 볼 shortlist일 뿐이며,
+        # 사용자 수동 추가 종목(USER)은 이 점수만으로 자동 제거하지 않는다.
+        display_rows = []
+        for _r in rows_to_render:
+            try:
+                if isinstance(_r, dict):
+                    _d = dict(_r)
+                    _d["_candidate_score"] = float(self._score_market_candidate(_r))
+                    _d["_market_regime"] = regime
+                    display_rows.append(_d)
+                else:
+                    display_rows.append(_r)
+            except Exception:
+                display_rows.append(_r)
+
+        self._market_display_rows = display_rows
         t = self.tbl_market_all
         t.setRowCount(0)
-        for i, r in enumerate(rows_to_render):
+        for i, r in enumerate(display_rows):
             t.insertRow(i)
+            c_rank = QTableWidgetItem(str(i + 1))
+            try:
+                c_rank.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                pass
+            t.setItem(i, 0, c_rank)
             sym = (r.get("symbol") or "").strip()
             name = (r.get("name") or "").strip() or sym
             display_coin = ""
@@ -6857,32 +7317,43 @@ class MainWindow(QMainWindow):
                 row_name = ""
                 if isinstance(r, dict):
                     row_name = str(
-                        r.get("korean_name") or r.get("name") or ""
+                        r.get("korean_name") or r.get("name") or r.get("english_name") or ""
                     ).strip()
                 else:
                     row_name = str(
                         getattr(r, "korean_name", None)
                         or getattr(r, "name", None)
+                        or getattr(r, "english_name", None)
                         or ""
                     ).strip()
-
-                if row_name:
-                    raw_sym = str(sym or "").strip().upper()
-                    if raw_sym.startswith("KRW-"):
-                        raw_sym = raw_sym.split("-", 1)[1]
-                    display_coin = f"{raw_sym} {row_name}"
-                else:
-                    display_coin = self._format_aits_coin_display_name(sym)
+                display_coin = self._merge_aits_symbol_and_name(sym, row_name)
             except Exception:
                 display_coin = self._format_aits_coin_display_name(sym)
             norm_sym = self._normalize_aits_market_symbol(sym)
             c0 = QTableWidgetItem(display_coin if display_coin else (sym or name))
             c0.setData(Qt.ItemDataRole.UserRole, norm_sym or sym)
-            t.setItem(i, 0, c0)
-            t.setItem(i, 1, QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}"))
-            t.setItem(i, 2, QTableWidgetItem(self._fmt_change_pct(float(r.get("change_rate") or 0.0))))
-            t.setItem(i, 3, QTableWidgetItem(f"{float(r.get('volume_24h') or 0.0):,.0f}"))
-            t.setItem(i, 4, QTableWidgetItem("추가"))
+            t.setItem(i, 1, c0)
+            t.setItem(i, 2, QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}"))
+            chg_val = float(r.get("change_rate") or 0.0)
+            c_change = QTableWidgetItem(self._fmt_change_pct(chg_val))
+            self._apply_aits_change_color(c_change, chg_val)
+            t.setItem(i, 3, c_change)
+            trade_value = self._get_market_trade_value(r)
+            t.setItem(i, 4, QTableWidgetItem(f"{int(round(trade_value)):,}"))
+            trade_volume = self._safe_market_float(
+                r,
+                "trade_volume",
+                "acc_trade_volume_24h",
+                "volume_24h",
+                "volume",
+            )
+            t.setItem(i, 5, QTableWidgetItem(f"{int(round(trade_volume)):,}"))
+            c_add = QTableWidgetItem("추가")
+            try:
+                c_add.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                pass
+            t.setItem(i, 6, c_add)
 
     def _on_market_search_text_changed(self, _t: str = "") -> None:
         try:
@@ -6907,6 +7378,8 @@ class MainWindow(QMainWindow):
                         "name": tail,
                         "price": float(r.get("trade_price") or 0.0),
                         "change_rate": float(r.get("signed_change_rate") or 0.0),
+                        "acc_trade_price_24h": float(r.get("acc_trade_price_24h") or 0.0),
+                        "trade_price_24h": float(r.get("acc_trade_price_24h") or 0.0),
                         "volume_24h": float(r.get("acc_trade_volume_24h") or 0.0),
                     }
                 )
