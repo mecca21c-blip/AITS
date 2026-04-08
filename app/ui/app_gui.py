@@ -837,6 +837,171 @@ class MainWindow(QMainWindow):
             lb.setText("AITS 상태: 대기 중")
             lb.setStyleSheet("color:#607d8b; font-weight:600;")
 
+    def _parse_aits_ai_response(self, raw_text: str) -> dict:
+        """
+        AI 응답을 decision / reason / next_action 구조로 파싱
+        실패 시 fallback 구조 반환
+        """
+        try:
+            s = str(raw_text or "").strip()
+            if s.startswith("```"):
+                lines = s.split("\n")
+                if len(lines) >= 3 and lines[-1].strip() == "```":
+                    s = "\n".join(lines[1:-1]).strip()
+                elif len(lines) >= 2:
+                    s = "\n".join(lines[1:]).strip()
+                    if s.endswith("```"):
+                        s = s[:-3].strip()
+            data = json.loads(s)
+            decision = data.get("decision", "판단 불가")
+            if decision is None:
+                decision = "판단 불가"
+            reason = data.get("reason", [])
+            if isinstance(reason, str):
+                reason = [reason] if str(reason).strip() else []
+            elif not isinstance(reason, list):
+                reason = []
+            next_action = data.get("next_action", [])
+            if isinstance(next_action, str):
+                next_action = [next_action] if str(next_action).strip() else []
+            elif not isinstance(next_action, list):
+                next_action = []
+            # rotation 등 추가 키가 있어도 json.loads는 성공하며, 아래는 decision/reason/next_action만 반환.
+            return {
+                "decision": decision,
+                "reason": reason,
+                "next_action": next_action,
+            }
+        except Exception:
+            return {
+                "decision": "판단 불가",
+                "reason": [str(raw_text or "")[:200]],
+                "next_action": [],
+            }
+
+    def _render_aits_ai_explanation(self):
+        """
+        우측 패널에 AI 판단 설명 출력
+        """
+        data = getattr(self, "_aits_last_ai_explanation", None)
+        if not data:
+            return
+
+        decision = data.get("decision", "")
+        reasons = data.get("reason", [])
+        nexts = data.get("next_action", [])
+        if isinstance(reasons, str):
+            reasons = [reasons] if reasons else []
+        if isinstance(nexts, str):
+            nexts = [nexts] if nexts else []
+
+        decision_text = f"[AI 판단] {decision}"
+
+        reason_text = "\n".join([f"- {r}" for r in reasons[:5]])
+        next_text = "\n".join([f"→ {n}" for n in nexts[:3]])
+
+        final_text = f"""
+{decision_text}
+
+[판단 근거]
+{reason_text}
+
+[다음 행동]
+{next_text}
+"""
+
+        if hasattr(self, "lbl_ai_status"):
+            try:
+                self.lbl_ai_status.setWordWrap(True)
+            except Exception:
+                pass
+            self.lbl_ai_status.setText(final_text.strip())
+
+    # NOTE:
+    # AITS는 단순 규칙 매매 시스템이 아니라,
+    # AI가 왜 지금 관망/진입/보유/매도 판단을 했는지,
+    # 그리고 다음에 어떤 조건에서 행동할지를 사용자가 이해할 수 있어야 한다.
+    # 이 설명 계층은 최종 판단을 대체하지 않고, AI 판단을 "설명 가능"하게 만드는 목적이다.
+
+    def _get_aits_ai_explanation_payload(self):
+        try:
+            data = getattr(self, "_aits_last_ai_explanation", None) or {}
+            decision = str(data.get("decision", "") or "").strip()
+            reasons = data.get("reason", []) or []
+            next_actions = data.get("next_action", []) or []
+
+            if isinstance(reasons, str):
+                reasons = [reasons]
+            if isinstance(next_actions, str):
+                next_actions = [next_actions]
+
+            reasons = [str(x).strip() for x in reasons if str(x).strip()]
+            next_actions = [str(x).strip() for x in next_actions if str(x).strip()]
+
+            return {
+                "decision": decision,
+                "reason": reasons[:5],
+                "next_action": next_actions[:3],
+            }
+        except Exception:
+            return {
+                "decision": "",
+                "reason": [],
+                "next_action": [],
+            }
+
+    def _build_aits_chart_overlay_text(self):
+        try:
+            payload = self._get_aits_ai_explanation_payload()
+            decision = str(payload.get("decision", "") or "").strip()
+            reasons = payload.get("reason", []) or []
+            next_actions = payload.get("next_action", []) or []
+
+            lines = []
+
+            if decision:
+                lines.append(f"[AI 판단] {decision}")
+
+            if reasons:
+                lines.append("")
+                lines.append("[판단 근거]")
+                for r in reasons[:3]:
+                    lines.append(f"- {r}")
+
+            if next_actions:
+                lines.append("")
+                lines.append("[다음 행동]")
+                for n in next_actions[:2]:
+                    lines.append(f"→ {n}")
+
+            return "\n".join(lines).strip()
+        except Exception:
+            return ""
+
+    def _get_aits_decision_variant(self):
+        try:
+            payload = self._get_aits_ai_explanation_payload()
+            decision = str(payload.get("decision", "") or "").strip().lower()
+
+            if not decision:
+                return "neutral"
+
+            if ("매수" in decision) or ("진입" in decision) or ("buy" in decision):
+                return "buy"
+
+            if ("관망" in decision) or ("대기" in decision) or ("watch" in decision):
+                return "watch"
+
+            if ("보유" in decision) or ("유지" in decision) or ("hold" in decision):
+                return "hold"
+
+            if ("매도" in decision) or ("익절" in decision) or ("손절" in decision) or ("sell" in decision):
+                return "risk"
+
+            return "neutral"
+        except Exception:
+            return "neutral"
+
     def _set_running_ui(self, running: bool):
         """RUNNING/IDLE 표시 + KPI 자동 갱신 on/off + 버튼/라벨 동기화."""
         self._ensure_run_widgets()
@@ -1356,6 +1521,14 @@ class MainWindow(QMainWindow):
         self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
         self._ai_reason_expanded = False
+        self._aits_last_ai_explanation = {
+            "decision": "",
+            "reason": [],
+            "next_action": [],
+        }
+        self._aits_last_ai_prompt = ""
+        self._aits_last_ai_raw_response = ""
+        self._aits_main_reco_inflight = False
         self._market_view_mode = "quick"   # "quick" | "all"
         self._market_sort_key = "volume"   # volume | change | price
         self._market_sort_order = "desc"   # desc | asc
@@ -4738,7 +4911,7 @@ class MainWindow(QMainWindow):
                 basic_text=basic_text,
                 price_text=price_text,
                 ai_text=ai_text,
-                ai_plan_text="",
+                ai_plan_text=self._build_aits_popup_ai_plan_text(row),
                 ai_action_text=ai_action_text,
                 ai_banner_text=ai_banner_text,
             )
@@ -5118,11 +5291,22 @@ class MainWindow(QMainWindow):
         self, ai_reason_text: str, ai_state_text: str = "", ai_score_text: str = ""
     ):
         try:
+            payload = self._get_aits_ai_explanation_payload()
+            payload_decision = str(payload.get("decision", "") or "").strip()
+            payload_reasons = payload.get("reason", []) or []
+
             reason = str(ai_reason_text or "").strip()
             state = str(ai_state_text or "").strip()
             score = str(ai_score_text or "").strip()
 
             cards = []
+
+            if payload_decision:
+                cards.append((payload_decision, "AI 최종 판단 기준"))
+            for r in payload_reasons[:2]:
+                rt = str(r).strip()
+                if rt:
+                    cards.append((rt, "AI 판단 근거"))
 
             state_l = state.lower()
 
@@ -5173,6 +5357,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 reason_text = ""
 
+            payload = self._get_aits_ai_explanation_payload()
+            payload_reasons = payload.get("reason", []) or []
+            if isinstance(payload_reasons, str):
+                payload_reasons = [payload_reasons] if str(payload_reasons).strip() else []
+
             state_lower = ai_state.lower()
 
             badge_title = "AI 판단 대기"
@@ -5214,6 +5403,13 @@ class MainWindow(QMainWindow):
                 badge_title = "보수 전략"
                 badge_sub = "분할 접근 또는 추가 확인 후 대응이 우선될 수 있습니다."
                 badge_variant = "watch"
+
+            if payload_reasons:
+                top2 = " · ".join(
+                    str(x).strip() for x in payload_reasons[:2] if str(x).strip()
+                )
+                if top2:
+                    badge_sub = f"{top2} — {badge_sub}"
 
             try:
                 if current_price is not None and target_price is not None:
@@ -5262,6 +5458,9 @@ class MainWindow(QMainWindow):
 
     def _get_aits_popup_decision_banner(self, row: int):
         try:
+            payload = self._get_aits_ai_explanation_payload()
+            decision_text = str(payload.get("decision", "") or "").strip()
+
             badge = self._get_aits_popup_action_badge(row)
             levels = self._get_aits_popup_price_levels(row)
 
@@ -5315,6 +5514,20 @@ class MainWindow(QMainWindow):
             if not banner_text and title:
                 banner_text = f"현재 판단: {title}"
 
+            if decision_text:
+                banner_text = decision_text
+                dv = self._get_aits_decision_variant()
+                if dv == "buy":
+                    banner_variant = "buy"
+                elif dv == "watch":
+                    banner_variant = "watch"
+                elif dv == "hold":
+                    banner_variant = "hold"
+                elif dv == "risk":
+                    banner_variant = "risk"
+                else:
+                    banner_variant = "neutral"
+
             return {
                 "text": banner_text,
                 "variant": banner_variant,
@@ -5325,6 +5538,19 @@ class MainWindow(QMainWindow):
                 "text": "현재는 추가 판단 대기 구간입니다.",
                 "variant": "neutral",
             }
+
+    def _build_aits_popup_ai_plan_text(self, row: int) -> str:
+        try:
+            _ = row
+            payload = self._get_aits_ai_explanation_payload()
+            next_actions = payload.get("next_action", []) or []
+            if next_actions:
+                return "AI 계획 요약: " + " | ".join(
+                    [str(x).strip() for x in next_actions[:2] if str(x).strip()]
+                )
+        except Exception:
+            pass
+        return ""
 
     def _fetch_aits_large_chart_candles(
         self, symbol_text: str, tf: str = "60m", count: int = 120
@@ -5671,6 +5897,26 @@ class MainWindow(QMainWindow):
                             fontsize=8,
                             bbox=dict(boxstyle="round,pad=0.25", alpha=0.18),
                             zorder=90,
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    overlay_text = self._build_aits_chart_overlay_text()
+                    if overlay_text and len(overlay_text) > 220:
+                        overlay_text = overlay_text[:220].rstrip() + "..."
+                    if overlay_text:
+                        ax.text(
+                            0.012,
+                            0.70,
+                            overlay_text,
+                            transform=ax.transAxes,
+                            ha="left",
+                            va="top",
+                            fontsize=8,
+                            linespacing=1.35,
+                            bbox=dict(boxstyle="round,pad=0.28", alpha=0.16),
+                            zorder=95,
                         )
                 except Exception:
                     pass
@@ -7084,6 +7330,854 @@ class MainWindow(QMainWindow):
         except Exception:
             return "sideways"
 
+    def _safe_row_pick(self, row_obj, *names, default=None):
+        try:
+            if row_obj is None:
+                return default
+
+            if isinstance(row_obj, dict):
+                for n in names:
+                    if n in row_obj and row_obj.get(n) is not None:
+                        return row_obj.get(n)
+                return default
+
+            for n in names:
+                try:
+                    val = getattr(row_obj, n, None)
+                    if val is not None:
+                        return val
+                except Exception:
+                    pass
+
+            return default
+        except Exception:
+            return default
+
+    def _safe_to_float(self, value, default=0.0):
+        try:
+            if value is None:
+                return default
+            if isinstance(value, str):
+                v = value.replace(",", "").replace("원", "").replace("%", "").strip()
+                if not v:
+                    return default
+                return float(v)
+            return float(value)
+        except Exception:
+            return default
+
+    def _safe_to_bool(self, value, default=False):
+        try:
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return default
+            if isinstance(value, str):
+                s = value.strip().lower()
+                if s in ("1", "true", "y", "yes", "on", "locked", "잠금"):
+                    return True
+                if s in ("0", "false", "n", "no", "off", "해제", "잠금 해제"):
+                    return False
+            return bool(value)
+        except Exception:
+            return default
+
+    def _build_market_candidate_context(self, row_obj, market_regime="sideways"):
+        try:
+            sym = str(
+                self._safe_row_pick(row_obj, "symbol", "market", "code", default="")
+                or ""
+            ).strip()
+            sym = self._normalize_aits_market_symbol(sym)
+
+            raw_name = str(
+                self._safe_row_pick(
+                    row_obj, "korean_name", "name", "english_name", default=""
+                )
+                or ""
+            ).strip()
+            display_name = self._merge_aits_symbol_and_name(sym, raw_name)
+
+            trade_value = self._get_market_trade_value(row_obj)
+            change_rate = self._safe_market_float(
+                row_obj, "change_rate", "signed_change_rate", "change"
+            )
+            current_price = self._safe_market_float(
+                row_obj, "current_price", "trade_price", "price"
+            )
+            trade_volume = self._safe_market_float(
+                row_obj, "trade_volume", "acc_trade_volume_24h", "volume_24h", "volume"
+            )
+
+            candidate_score = self._safe_to_float(
+                self._safe_row_pick(row_obj, "_candidate_score", default=0.0),
+                default=0.0,
+            )
+
+            return {
+                "symbol": sym,
+                "display_name": display_name,
+                "market_regime": str(market_regime or "sideways"),
+                "candidate_score": round(candidate_score, 4),
+                "trade_value": float(trade_value),
+                "trade_value_text": f"{int(round(trade_value)):,}" if trade_value else "0",
+                "trade_volume": float(trade_volume),
+                "current_price": float(current_price),
+                "change_rate": float(change_rate),
+                "change_pct": round(float(change_rate) * 100.0, 4),
+            }
+        except Exception:
+            return {
+                "symbol": "",
+                "display_name": "",
+                "market_regime": str(market_regime or "sideways"),
+                "candidate_score": 0.0,
+                "trade_value": 0.0,
+                "trade_value_text": "0",
+                "trade_volume": 0.0,
+                "current_price": 0.0,
+                "change_rate": 0.0,
+                "change_pct": 0.0,
+            }
+
+    def _build_managed_pool_context(self, row_obj):
+        try:
+            sym = str(
+                self._safe_row_pick(row_obj, "symbol", "market", "code", default="")
+                or ""
+            ).strip()
+            sym = self._normalize_aits_market_symbol(sym)
+
+            raw_name = str(
+                self._safe_row_pick(
+                    row_obj, "korean_name", "name", "english_name", default=""
+                )
+                or ""
+            ).strip()
+            display_name = self._merge_aits_symbol_and_name(sym, raw_name)
+
+            kind_raw = self._safe_row_pick(row_obj, "kind", "source", default="")
+            state_raw = self._safe_row_pick(
+                row_obj, "ai_status", "ai_state", "status", "state", default=""
+            )
+            locked = self._safe_to_bool(
+                self._safe_row_pick(row_obj, "locked", default=False), default=False
+            )
+
+            current_price = self._safe_to_float(
+                self._safe_row_pick(
+                    row_obj, "current_price", "trade_price", "price", default=0.0
+                ),
+                default=0.0,
+            )
+            target_price = self._safe_to_float(
+                self._safe_row_pick(
+                    row_obj, "target_price", "tp_price", "goal_price", default=0.0
+                ),
+                default=0.0,
+            )
+            stop_price = self._safe_to_float(
+                self._safe_row_pick(
+                    row_obj,
+                    "stop_price",
+                    "sl_price",
+                    "loss_price",
+                    "stop_loss_price",
+                    "stop_loss",
+                    default=0.0,
+                ),
+                default=0.0,
+            )
+            ai_score = self._safe_to_float(
+                self._safe_row_pick(row_obj, "ai_score", "score", default=0.0),
+                default=0.0,
+            )
+            change_rate = self._safe_to_float(
+                self._safe_row_pick(
+                    row_obj, "change_rate", "signed_change_rate", "change", default=0.0
+                ),
+                default=0.0,
+            )
+
+            opportunity_gap_pct = 0.0
+            if current_price > 0 and target_price > 0:
+                try:
+                    opportunity_gap_pct = (
+                        (target_price - current_price) / current_price
+                    ) * 100.0
+                except Exception:
+                    opportunity_gap_pct = 0.0
+
+            risk_gap_pct = 0.0
+            if current_price > 0 and stop_price > 0:
+                try:
+                    risk_gap_pct = ((stop_price - current_price) / current_price) * 100.0
+                except Exception:
+                    risk_gap_pct = 0.0
+
+            return {
+                "symbol": sym,
+                "display_name": display_name,
+                "kind_raw": str(kind_raw or ""),
+                "kind_text": self._format_aits_user_kind_text(kind_raw),
+                "ai_state_raw": str(state_raw or ""),
+                "ai_state_text": self._format_aits_user_state_text(state_raw),
+                "locked": bool(locked),
+                "locked_text": "잠금" if locked else "잠금 해제",
+                "ai_score": round(ai_score, 4),
+                "current_price": float(current_price),
+                "target_price": float(target_price),
+                "stop_price": float(stop_price),
+                "change_rate": float(change_rate),
+                "change_pct": round(float(change_rate) * 100.0, 4),
+                "opportunity_gap_pct": round(float(opportunity_gap_pct), 4),
+                "risk_gap_pct": round(float(risk_gap_pct), 4),
+                "is_user_added": str(kind_raw or "").strip().lower() == "user",
+            }
+        except Exception:
+            return {
+                "symbol": "",
+                "display_name": "",
+                "kind_raw": "",
+                "kind_text": "",
+                "ai_state_raw": "",
+                "ai_state_text": "",
+                "locked": False,
+                "locked_text": "잠금 해제",
+                "ai_score": 0.0,
+                "current_price": 0.0,
+                "target_price": 0.0,
+                "stop_price": 0.0,
+                "change_rate": 0.0,
+                "change_pct": 0.0,
+                "opportunity_gap_pct": 0.0,
+                "risk_gap_pct": 0.0,
+                "is_user_added": False,
+            }
+
+    def _build_quick_candidate_contexts(self):
+        try:
+            rows = list(getattr(self, "_market_display_rows", []) or [])
+            regime = "sideways"
+            try:
+                regime = self._detect_market_regime(
+                    getattr(self, "_market_all_rows", []) or rows
+                )
+            except Exception:
+                regime = "sideways"
+
+            contexts = []
+            for r in rows:
+                try:
+                    ctx = self._build_market_candidate_context(r, market_regime=regime)
+                    if ctx.get("symbol"):
+                        contexts.append(ctx)
+                except Exception:
+                    continue
+            return contexts
+        except Exception:
+            return []
+
+    def _build_managed_pool_contexts(self):
+        try:
+            rows = list(getattr(self, "ai_managed_rows", []) or [])
+            contexts = []
+            for r in rows:
+                try:
+                    ctx = self._build_managed_pool_context(r)
+                    if ctx.get("symbol"):
+                        contexts.append(ctx)
+                except Exception:
+                    continue
+            return contexts
+        except Exception:
+            return []
+
+    def _build_managed_position_analysis(self, rows: list) -> dict:
+        """
+        보유 종목 상태를 요약하여 AI가 판단할 수 있는 구조로 제공
+        """
+        try:
+            if not rows:
+                return {
+                    "count": 0,
+                    "avg_change": 0.0,
+                    "best": None,
+                    "worst": None,
+                    "weak_positions": [],
+                    "strong_positions": [],
+                }
+
+            changes = []
+            enriched = []
+
+            for r in rows:
+                try:
+                    raw = r.get("change_rate", "0") if isinstance(r, dict) else "0"
+                    if isinstance(raw, (int, float)):
+                        ch = float(raw)
+                    else:
+                        ch = float(
+                            str(raw).replace("%", "").replace("+", "").strip() or 0
+                        )
+                except Exception:
+                    ch = 0.0
+
+                changes.append(ch)
+                enriched.append((r, ch))
+
+            avg_change = sum(changes) / len(changes)
+
+            enriched_sorted = sorted(enriched, key=lambda x: x[1])
+
+            worst = enriched_sorted[0][0]
+            best = enriched_sorted[-1][0]
+
+            weak_positions = [r for r, ch in enriched if ch < avg_change]
+            strong_positions = [r for r, ch in enriched if ch >= avg_change]
+
+            return {
+                "count": len(rows),
+                "avg_change": avg_change,
+                "best": best,
+                "worst": worst,
+                "weak_positions": weak_positions[:3],
+                "strong_positions": strong_positions[:3],
+            }
+
+        except Exception:
+            return {
+                "count": 0,
+                "avg_change": 0.0,
+                "best": None,
+                "worst": None,
+                "weak_positions": [],
+                "strong_positions": [],
+            }
+
+    def _build_opportunity_comparison(self, quick_rows: list, managed_rows: list) -> dict:
+        """
+        후보 종목과 현재 보유 종목 간 기회비용 비교
+        """
+        try:
+            if not quick_rows:
+                return {"top_candidate": None, "has_better": False}
+
+            def _safe_change(r):
+                try:
+                    raw = r.get("change_rate", "0") if isinstance(r, dict) else "0"
+                    if isinstance(raw, (int, float)):
+                        return float(raw)
+                    return float(
+                        str(raw).replace("%", "").replace("+", "").strip() or 0
+                    )
+                except Exception:
+                    return 0.0
+
+            quick_sorted = sorted(quick_rows, key=_safe_change, reverse=True)
+            top_candidate = quick_sorted[0]
+
+            if not managed_rows:
+                return {
+                    "top_candidate": top_candidate,
+                    "has_better": True,
+                }
+
+            managed_changes = [_safe_change(r) for r in managed_rows]
+            avg_managed = (
+                sum(managed_changes) / len(managed_changes) if managed_changes else 0
+            )
+
+            has_better = _safe_change(top_candidate) > avg_managed
+
+            return {
+                "top_candidate": top_candidate,
+                "has_better": has_better,
+            }
+
+        except Exception:
+            return {"top_candidate": None, "has_better": False}
+
+    def _build_aits_ai_decision_context(self):
+        try:
+            quick_candidates = self._build_quick_candidate_contexts()
+            managed_pool = self._build_managed_pool_contexts()
+
+            regime = "sideways"
+            try:
+                regime = self._detect_market_regime(
+                    getattr(self, "_market_all_rows", []) or []
+                )
+            except Exception:
+                regime = "sideways"
+
+            quick_rows = list(getattr(self, "_market_display_rows", []) or [])
+            managed_rows = list(getattr(self, "ai_managed_rows", []) or [])
+            managed_analysis = self._build_managed_position_analysis(managed_rows)
+            opportunity = self._build_opportunity_comparison(quick_rows, managed_rows)
+
+            context = {
+                "market_regime": regime,
+                "market_regime_text": {
+                    "bull": "상승장",
+                    "bear": "하락장",
+                    "sideways": "횡보장",
+                }.get(regime, "횡보장"),
+                "candidate_count": len(quick_candidates),
+                "managed_count": len(managed_pool),
+                "quick_candidates": quick_candidates,
+                "managed_pool": managed_pool,
+                "locked_count": sum(1 for x in managed_pool if x.get("locked")),
+                "user_added_count": sum(
+                    1 for x in managed_pool if x.get("is_user_added")
+                ),
+                "portfolio_analysis": {
+                    "count": managed_analysis.get("count"),
+                    "avg_change": managed_analysis.get("avg_change"),
+                    "best_symbol": (managed_analysis.get("best") or {}).get("symbol")
+                    if isinstance(managed_analysis.get("best"), dict)
+                    else None,
+                    "worst_symbol": (managed_analysis.get("worst") or {}).get("symbol")
+                    if isinstance(managed_analysis.get("worst"), dict)
+                    else None,
+                    "weak_positions": [
+                        r.get("symbol")
+                        for r in (managed_analysis.get("weak_positions") or [])
+                        if isinstance(r, dict)
+                    ],
+                    "strong_positions": [
+                        r.get("symbol")
+                        for r in (managed_analysis.get("strong_positions") or [])
+                        if isinstance(r, dict)
+                    ],
+                },
+                "opportunity_analysis": {
+                    "top_candidate": (opportunity.get("top_candidate") or {}).get(
+                        "symbol"
+                    )
+                    if isinstance(opportunity.get("top_candidate"), dict)
+                    else None,
+                    "has_better_opportunity": opportunity.get("has_better"),
+                },
+            }
+            return context
+        except Exception:
+            return {
+                "market_regime": "sideways",
+                "market_regime_text": "횡보장",
+                "candidate_count": 0,
+                "managed_count": 0,
+                "quick_candidates": [],
+                "managed_pool": [],
+                "locked_count": 0,
+                "user_added_count": 0,
+                "portfolio_analysis": {
+                    "count": 0,
+                    "avg_change": 0.0,
+                    "best_symbol": None,
+                    "worst_symbol": None,
+                    "weak_positions": [],
+                    "strong_positions": [],
+                },
+                "opportunity_analysis": {
+                    "top_candidate": None,
+                    "has_better_opportunity": False,
+                },
+            }
+
+    # NOTE:
+    # `_build_aits_ai_decision_context()` 는 AITS가 AI에게 최종 판단을 요청할 때
+    # 시장 컨텍스트, quick shortlist, managed pool 상태를 구조화해 넘기기 위한 준비 단계이다.
+    # 이 단계에서는 최종 매수/매도 결정을 고정 규칙으로 만들지 않는다.
+
+    def _fmt_aits_prompt_number(self, value, digits=4):
+        try:
+            v = float(value)
+            if abs(v) >= 1000:
+                return f"{int(round(v)):,}"
+            return f"{v:.{digits}f}"
+        except Exception:
+            try:
+                return str(value)
+            except Exception:
+                return ""
+
+    def _build_aits_prompt_market_section(self, context: dict) -> str:
+        try:
+            regime = str(context.get("market_regime_text", "") or "").strip()
+            candidate_count = int(context.get("candidate_count", 0) or 0)
+            managed_count = int(context.get("managed_count", 0) or 0)
+            locked_count = int(context.get("locked_count", 0) or 0)
+            user_added_count = int(context.get("user_added_count", 0) or 0)
+
+            return (
+                "[시장 컨텍스트]\n"
+                f"- 시장 상태: {regime}\n"
+                f"- AI 후보 수: {candidate_count}\n"
+                f"- 관리 종목 수: {managed_count}\n"
+                f"- 잠금 종목 수: {locked_count}\n"
+                f"- 사용자 추가 종목 수: {user_added_count}\n"
+            )
+        except Exception:
+            return "[시장 컨텍스트]\n- 시장 상태: 횡보장\n"
+
+    def _build_aits_prompt_candidates_section(self, context: dict, limit: int = 5) -> str:
+        try:
+            rows = list(context.get("quick_candidates", []) or [])
+            lines = ["[AI 후보 shortlist]"]
+            if not rows:
+                lines.append("- 후보 없음")
+                return "\n".join(lines)
+
+            for idx, r in enumerate(rows[:limit], start=1):
+                sym = str(r.get("symbol", "") or "").strip()
+                name = str(r.get("display_name", "") or sym).strip()
+                trade_value = self._fmt_aits_prompt_number(
+                    r.get("trade_value", 0), digits=0
+                )
+                change_pct = self._fmt_aits_prompt_number(r.get("change_pct", 0), digits=2)
+                score = self._fmt_aits_prompt_number(r.get("candidate_score", 0), digits=4)
+
+                lines.append(
+                    f"- 후보{idx}: {name} ({sym}) | 변동률 {change_pct}% | 거래대금 {trade_value} | 후보점수 {score}"
+                )
+
+            return "\n".join(lines)
+        except Exception:
+            return "[AI 후보 shortlist]\n- 후보 없음"
+
+    def _build_aits_prompt_managed_section(self, context: dict, limit: int = 7) -> str:
+        try:
+            rows = list(context.get("managed_pool", []) or [])
+            lines = ["[현재 관리 종목]"]
+            if not rows:
+                lines.append("- 관리 종목 없음")
+                return "\n".join(lines)
+
+            for idx, r in enumerate(rows[:limit], start=1):
+                name = str(r.get("display_name", "") or r.get("symbol", "")).strip()
+                sym = str(r.get("symbol", "") or "").strip()
+                state = str(r.get("ai_state_text", "") or "").strip()
+                lock_text = str(r.get("locked_text", "") or "").strip()
+                kind_text = str(r.get("kind_text", "") or "").strip()
+                change_pct = self._fmt_aits_prompt_number(r.get("change_pct", 0), digits=2)
+                opp_gap = self._fmt_aits_prompt_number(
+                    r.get("opportunity_gap_pct", 0), digits=2
+                )
+                risk_gap = self._fmt_aits_prompt_number(r.get("risk_gap_pct", 0), digits=2)
+
+                lines.append(
+                    f"- 관리{idx}: {name} ({sym}) | 구분 {kind_text} | 상태 {state} | {lock_text} | 변동률 {change_pct}% | 목표여지 {opp_gap}% | 리스크간격 {risk_gap}%"
+                )
+
+            return "\n".join(lines)
+        except Exception:
+            return "[현재 관리 종목]\n- 관리 종목 없음"
+
+    def _build_aits_prompt_portfolio_section(self, context: dict) -> str:
+        try:
+            p = dict(context.get("portfolio_analysis", {}) or {})
+            o = dict(context.get("opportunity_analysis", {}) or {})
+
+            avg_change = self._fmt_aits_prompt_number(p.get("avg_change", 0), digits=4)
+            best_symbol = str(p.get("best_symbol", "") or "").strip()
+            worst_symbol = str(p.get("worst_symbol", "") or "").strip()
+            weak_positions = (
+                ", ".join(
+                    [str(x).strip() for x in p.get("weak_positions", []) if str(x).strip()]
+                )
+                or "-"
+            )
+            strong_positions = (
+                ", ".join(
+                    [str(x).strip() for x in p.get("strong_positions", []) if str(x).strip()]
+                )
+                or "-"
+            )
+            top_candidate = str(o.get("top_candidate", "") or "").strip()
+            has_better = bool(o.get("has_better_opportunity", False))
+
+            lines = [
+                "[포지션/기회비용 분석]",
+                f"- 관리 종목 평균 변동률: {avg_change}",
+                f"- 상대적 강세 종목: {strong_positions}",
+                f"- 상대적 약세 종목: {weak_positions}",
+                f"- 최고 상태 종목: {best_symbol or '-'}",
+                f"- 최저 상태 종목: {worst_symbol or '-'}",
+                f"- 상위 교체 후보: {top_candidate or '-'}",
+                f"- 더 나은 기회 존재 여부: {'예' if has_better else '아니오'}",
+            ]
+            return "\n".join(lines)
+        except Exception:
+            return "[포지션/기회비용 분석]\n- 정보 없음"
+
+    def _build_aits_ai_output_contract(self) -> str:
+        return (
+            "[응답 형식]\n"
+            "반드시 아래 JSON 객체 하나만 반환:\n"
+            "{\n"
+            '  "decision": "관망 | 진입 검토 | 보유 유지 | 매도 검토 | 교체 검토 | 일부 익절 검토",\n'
+            '  "reason": ["판단 근거1", "판단 근거2", "판단 근거3"],\n'
+            '  "next_action": ["다음 행동1", "다음 행동2"],\n'
+            '  "rotation": {\n'
+            '    "needed": true,\n'
+            '    "from_symbol": "KRW-XXX 또는 빈 문자열",\n'
+            '    "to_symbol": "KRW-YYY 또는 빈 문자열",\n'
+            '    "why": "교체 필요 또는 불필요 이유"\n'
+            "  }\n"
+            "}\n"
+            "\n"
+            "[작성 규칙]\n"
+            "- 한국어로 작성\n"
+            "- 단순 규칙 매매처럼 쓰지 말고 현재 시장 상태와 기회비용을 설명\n"
+            "- 하락장에서는 무지성 신규 진입을 경계하고, 상승장에서는 상대적 약세 종목의 기회비용을 고려\n"
+            "- USER 수동 추가 종목과 잠금 종목은 임의 제거 대상으로 보지 말 것\n"
+            "- 확신이 낮으면 관망 또는 조건 대기라고 명확히 말할 것\n"
+        )
+
+    # NOTE:
+    # AITS의 존재 이유는 단순 조건 매매가 아니라,
+    # AI가 시장 상태, 후보 종목, 현재 포지션, 기회비용을 함께 읽고
+    # 왜 지금 관망/진입/보유/교체 판단을 하는지 설명 가능한 형태로 결정하게 만드는 것이다.
+    # 이 프롬프트는 AI를 대체하지 않고, AI가 제대로 사고할 재료를 정리하는 역할만 수행한다.
+
+    def _build_aits_ai_decision_prompt(self) -> str:
+        try:
+            context = self._build_aits_ai_decision_context()
+
+            sections = [
+                "[AITS 목적]",
+                "AITS는 단순 규칙 매매 시스템이 아니다.",
+                "최종 판단은 AI가 하되, 시장 상태, 후보 품질, 현재 관리 종목 상태, 기회비용을 함께 고려한다.",
+                "",
+                self._build_aits_prompt_market_section(context),
+                "",
+                self._build_aits_prompt_candidates_section(context, limit=5),
+                "",
+                self._build_aits_prompt_managed_section(context, limit=7),
+                "",
+                self._build_aits_prompt_portfolio_section(context),
+                "",
+                "[판단 요청]",
+                "1) 지금 시점의 최종 판단을 내려라.",
+                "2) 왜 그런 판단인지 핵심 근거를 3개 이내로 정리하라.",
+                "3) 다음에 어떤 조건이 되면 행동이 바뀌는지 제시하라.",
+                "4) 관리 종목 중 교체가 필요한 포지션이 있는지 판단하라.",
+                "5) 교체가 필요하면 어떤 종목에서 어떤 후보로 바꾸는 것이 합리적인지 설명하라.",
+                "",
+                self._build_aits_ai_output_contract(),
+            ]
+
+            return "\n".join([str(x) for x in sections if str(x) != ""])
+        except Exception:
+            return (
+                "[AITS 목적]\n"
+                "시장 상태와 기회비용을 고려해 최종 판단을 내려라.\n\n"
+                + self._build_aits_ai_output_contract()
+            )
+
+    # NOTE:
+    # AITS는 단순 규칙 매매가 아니라,
+    # 시장 상태 / 후보 종목 / 현재 포지션 / 기회비용을 AI가 함께 읽고
+    # "왜 지금 관망/진입/유지/교체 판단을 하는지" 설명 가능한 형태로 결정하는 시스템이다.
+    # 이 연결 단계의 목적은 테스트용 프롬프트가 아니라, 실제 추천/판단 경로가 이 컨텍스트를 사용하게 만드는 것이다.
+
+    def _build_aits_ai_messages(self, extra_user_text: str = ""):
+        try:
+            prompt_text = self._build_aits_ai_decision_prompt()
+            if extra_user_text:
+                prompt_text = (
+                    prompt_text.rstrip()
+                    + "\n\n[추가 사용자 지시]\n"
+                    + str(extra_user_text).strip()
+                )
+
+            self._aits_last_ai_prompt = prompt_text
+
+            return [
+                {
+                    "role": "system",
+                    "content": (
+                        "너는 AITS의 능동적 트레이딩 판단 엔진이다. "
+                        "단순 규칙 매매처럼 답하지 말고, 시장 상태/후보/보유 포지션/기회비용을 함께 고려해 설명 가능한 판단을 내려라."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": prompt_text,
+                },
+            ]
+        except Exception:
+            fb = ""
+            try:
+                fb = self._build_aits_ai_decision_prompt()
+            except Exception:
+                fb = "시장 상태를 고려해 판단하라."
+            try:
+                self._aits_last_ai_prompt = fb
+            except Exception:
+                pass
+            return [
+                {"role": "system", "content": "너는 AITS의 트레이딩 판단 엔진이다."},
+                {"role": "user", "content": fb},
+            ]
+
+    def _run_aits_main_gpt_reco_and_publish(self) -> None:
+        """
+        실운용: STEP 41 프롬프트로 OpenAI 호출 후 ai.reco.updated 에 원문·rotation 포함 publish.
+        app.services.ai_reco 는 raw 키를 보존하지 않으므로 eventbus 로만 전달한다.
+        """
+        if getattr(self, "_aits_main_reco_inflight", False):
+            return
+        try:
+            prov = (
+                getattr(self, "cb_ai_provider", None)
+                and self.cb_ai_provider.currentText()
+                or ""
+            ).strip().lower()
+            if prov != "gpt":
+                return
+
+            api_key = ""
+            try:
+                st = getattr(self._settings, "strategy", None) if getattr(self, "_settings", None) else None
+                if st is not None:
+                    api_key = (getattr(st, "ai_openai_api_key", "") or "").strip()
+                if not api_key and hasattr(self, "ed_openai_key"):
+                    api_key = (self.ed_openai_key.text() or "").strip()
+            except Exception:
+                pass
+            if not api_key or api_key.startswith("•"):
+                return
+
+            model = ""
+            if hasattr(self, "cb_custom_model") and self.cb_custom_model.isChecked():
+                custom_model = (self.inp_custom_model.text() or "").strip()
+                if custom_model:
+                    model = custom_model
+            if not model and hasattr(self, "ed_openai_model"):
+                model_id = self.ed_openai_model.currentData()
+                if model_id:
+                    model = model_id
+                else:
+                    current_text = (self.ed_openai_model.currentText() or "").strip()
+                    for model_info in getattr(self, "KMTS_GPT_MODELS", []):
+                        if model_info.get("label") == current_text:
+                            model = model_info.get("id", "")
+                            break
+            if not model:
+                model = "gpt-4o-mini"
+
+            self._aits_main_reco_inflight = True
+            try:
+                messages = self._build_aits_ai_messages()
+            except Exception:
+                messages = [
+                    {"role": "user", "content": self._build_aits_ai_decision_prompt()},
+                ]
+
+            import requests
+
+            url = "https://api.openai.com/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            body = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": 1200,
+            }
+            resp = requests.post(url, headers=headers, json=body, timeout=90)
+            if resp.status_code != 200:
+                try:
+                    self._log.warning(
+                        "[AITS-RECO-MAIN] http=%s", int(resp.status_code)
+                    )
+                except Exception:
+                    pass
+                return
+
+            try:
+                rj = resp.json()
+            except Exception:
+                rj = {}
+            choices = rj.get("choices") or []
+            ai_raw_text = ""
+            if choices and isinstance(choices[0], dict):
+                delta = choices[0].get("message") or choices[0].get("delta") or {}
+                ai_raw_text = (delta.get("content") or "").strip()
+
+            self._aits_last_ai_raw_response = ai_raw_text
+
+            rotation_d: dict = {}
+            try:
+                srot = str(ai_raw_text or "").strip()
+                if srot.startswith("```"):
+                    lines = srot.split("\n")
+                    if len(lines) >= 3 and lines[-1].strip() == "```":
+                        srot = "\n".join(lines[1:-1]).strip()
+                    elif len(lines) >= 2:
+                        srot = "\n".join(lines[1:]).strip()
+                        if srot.endswith("```"):
+                            srot = srot[:-3].strip()
+                pj = json.loads(srot)
+                if isinstance(pj, dict) and isinstance(pj.get("rotation"), dict):
+                    rotation_d = pj.get("rotation") or {}
+            except Exception:
+                pass
+
+            pr = self._parse_aits_ai_response(ai_raw_text)
+            decision = str(pr.get("decision") or "").strip()
+            reasons = pr.get("reason") or []
+            if isinstance(reasons, str):
+                reasons = [reasons] if reasons else []
+
+            ctx = self._build_aits_ai_decision_context()
+            items: list[dict] = []
+            for qc in (ctx.get("quick_candidates") or [])[:12]:
+                if not isinstance(qc, dict):
+                    continue
+                sym = str(qc.get("symbol") or "").strip()
+                if not sym:
+                    continue
+                items.append(
+                    {
+                        "symbol": sym,
+                        "title": str(qc.get("display_name") or sym).strip(),
+                    }
+                )
+
+            reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[
+                :2000
+            ]
+
+            reco_payload = {
+                "ok": True,
+                "source": "gpt",
+                "fallback": False,
+                "items": items,
+                "decision_summary": decision[:500] if decision else "AITS 판단",
+                "reason_code": reason_code,
+                "raw_ai_response": ai_raw_text,
+                "ai_raw_text": ai_raw_text,
+                "rotation": rotation_d,
+                "actual_engine": f"gpt-{model}",
+                "selected_engine": "gpt",
+            }
+            eventbus.publish("ai.reco.updated", reco_payload)
+            try:
+                self._log.info("[AITS-RECO-MAIN] published ok=1 items=%s", len(items))
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self._log.warning("[AITS-RECO-MAIN] fail")
+            except Exception:
+                pass
+        finally:
+            try:
+                self._aits_main_reco_inflight = False
+            except Exception:
+                pass
+
     def _apply_market_view_mode_button_state(self):
         try:
             mode = str(getattr(self, "_market_view_mode", "quick") or "quick").strip().lower()
@@ -7277,8 +8371,20 @@ class MainWindow(QMainWindow):
                             f"전체 종목 모드 · {regime_txt}{sort_suffix}"
                         )
                 else:
+                    try:
+                        opp = self._build_opportunity_comparison(
+                            rows_to_render,
+                            list(getattr(self, "ai_managed_rows", []) or []),
+                        )
+                        extra = (
+                            " · 교체 후보 존재"
+                            if opp.get("has_better")
+                            else ""
+                        )
+                    except Exception:
+                        extra = ""
                     self.lbl_market_search_status.setText(
-                        f"빠른 탐색 모드 · 후보 30개 · {regime_txt}{sort_suffix}"
+                        f"빠른 탐색 모드 · AI 후보 30개 · {regime_txt}{sort_suffix}{extra}"
                     )
         except Exception:
             pass
@@ -10060,6 +11166,11 @@ class MainWindow(QMainWindow):
     def _on_ai_reco_updated(self, _payload=None):
         """ai.reco.updated/items/strategy_suggested 수신. payload normalize(advice 래퍼 또는 본문) 후 SSOT 엔진 1곳만 갱신."""
         try:
+            try:
+                self._aits_last_ai_prompt = self._build_aits_ai_decision_prompt()
+            except Exception:
+                self._aits_last_ai_prompt = ""
+
             _raw = _payload
             _pl = (_raw.get("advice") if isinstance(_raw, dict) and "advice" in _raw else _raw) or {}
             _src = _pl.get("source", "")
@@ -10091,6 +11202,45 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             QTimer.singleShot(0, _apply)
+
+            ai_raw_text = ""
+            if isinstance(_pl, dict):
+                for _k in ("raw_ai_response", "ai_raw_text", "raw_response"):
+                    _v = _pl.get(_k)
+                    if isinstance(_v, str) and _v.strip():
+                        ai_raw_text = _v.strip()
+                        try:
+                            self._aits_last_ai_raw_response = ai_raw_text
+                        except Exception:
+                            pass
+                        break
+            if not ai_raw_text:
+                _next_parts: list[str] = []
+                if isinstance(_items, list):
+                    for _it in _items[:3]:
+                        if isinstance(_it, dict):
+                            _next_parts.append(
+                                str(_it.get("symbol") or _it.get("title") or _it)[:80]
+                            )
+                        else:
+                            _next_parts.append(str(_it)[:80])
+                _reason_list: list[str] = []
+                if _reason:
+                    _reason_list.append(_reason)
+                _dec = (_summary or "").strip() or (
+                    "판단 불가" if not (_reason_list or _next_parts) else "추천 갱신"
+                )
+                ai_raw_text = json.dumps(
+                    {
+                        "decision": _dec,
+                        "reason": _reason_list,
+                        "next_action": _next_parts,
+                    },
+                    ensure_ascii=False,
+                )
+            parsed = self._parse_aits_ai_response(ai_raw_text)
+            self._aits_last_ai_explanation = parsed
+            self._render_aits_ai_explanation()
         except Exception:
             pass
 
@@ -10197,14 +11347,23 @@ class MainWindow(QMainWindow):
 
         out(f"[1/3] API Key 로드 OK (len={key_len}), model={model}")
 
+        try:
+            messages = self._build_aits_ai_messages()
+        except Exception:
+            messages = [
+                {"role": "user", "content": self._build_aits_ai_decision_prompt()},
+            ]
+        _msg_len = sum(len(str(m.get("content", ""))) for m in messages)
+        _max_tokens = 600 if _msg_len > 40 else 5
+
         # (2) 네트워크/인증 단계 + (3) 토큰 소모 단계 (짧은 completion 1회)
         import requests
         url = "https://api.openai.com/v1/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {
             "model": model,
-            "messages": [{"role": "user", "content": "Say OK only."}],
-            "max_tokens": 5,
+            "messages": messages,
+            "max_tokens": _max_tokens,
         }
         t0 = time.time()
         try:
@@ -10222,6 +11381,7 @@ class MainWindow(QMainWindow):
                 if hasattr(self, "_update_ai_status"):
                     self._update_ai_status()
                 return
+            ai_raw_text = ""
             out(f"[2/3] Request start → HTTP 200 OK (latency={latency_ms} ms)")
 
             # (3) usage 및 생성 텍스트 확인
@@ -10230,6 +11390,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 data = {}
             choices = data.get("choices") or []
+            if choices and isinstance(choices[0], dict):
+                _delta = choices[0].get("message") or choices[0].get("delta") or {}
+                ai_raw_text = (_delta.get("content") or "").strip()
             usage = data.get("usage") or {}
             if isinstance(usage, dict):
                 inp = usage.get("input_tokens") or usage.get("prompt_tokens") or usage.get("total_tokens")
@@ -10264,6 +11427,73 @@ class MainWindow(QMainWindow):
                 set_header("🟢 READY")
             if hasattr(self, "_update_ai_status"):
                 self._update_ai_status()
+            if ai_raw_text:
+                try:
+                    self._aits_last_ai_raw_response = ai_raw_text
+                except Exception:
+                    pass
+                try:
+                    parsed = self._parse_aits_ai_response(ai_raw_text)
+                    self._aits_last_ai_explanation = parsed
+                    self._render_aits_ai_explanation()
+                except Exception:
+                    pass
+                try:
+                    rot = {}
+                    try:
+                        srot = str(ai_raw_text or "").strip()
+                        if srot.startswith("```"):
+                            lines = srot.split("\n")
+                            if len(lines) >= 3 and lines[-1].strip() == "```":
+                                srot = "\n".join(lines[1:-1]).strip()
+                            elif len(lines) >= 2:
+                                srot = "\n".join(lines[1:]).strip()
+                                if srot.endswith("```"):
+                                    srot = srot[:-3].strip()
+                        _pj = json.loads(srot)
+                        if isinstance(_pj, dict) and isinstance(_pj.get("rotation"), dict):
+                            rot = _pj.get("rotation") or {}
+                    except Exception:
+                        rot = {}
+                    pr = self._parse_aits_ai_response(ai_raw_text)
+                    _dec = str(pr.get("decision") or "").strip()
+                    _rsn = pr.get("reason") or []
+                    if isinstance(_rsn, str):
+                        _rsn = [_rsn] if _rsn else []
+                    _ctx = self._build_aits_ai_decision_context()
+                    _items: list[dict] = []
+                    for _qc in (_ctx.get("quick_candidates") or [])[:12]:
+                        if not isinstance(_qc, dict):
+                            continue
+                        _sym = str(_qc.get("symbol") or "").strip()
+                        if not _sym:
+                            continue
+                        _items.append(
+                            {
+                                "symbol": _sym,
+                                "title": str(_qc.get("display_name") or _sym).strip(),
+                            }
+                        )
+                    eventbus.publish(
+                        "ai.reco.updated",
+                        {
+                            "ok": True,
+                            "source": "gpt",
+                            "fallback": False,
+                            "items": _items,
+                            "decision_summary": (_dec[:500] if _dec else "GPT 테스트"),
+                            "reason_code": " · ".join(
+                                str(x) for x in (_rsn if isinstance(_rsn, list) else [])[:5]
+                            )[:2000],
+                            "raw_ai_response": ai_raw_text,
+                            "ai_raw_text": ai_raw_text,
+                            "rotation": rot,
+                            "actual_engine": f"gpt-{model}",
+                            "selected_engine": "gpt",
+                        },
+                    )
+                except Exception:
+                    pass
             # READY = 실제 OpenAI 호출 1회 성공 완료. 엔진 적용은 실행 후 ai.reco.updated에서 별도 표시
             self._gpt_status_stage = "connect_ok"
         except requests.exceptions.Timeout:
@@ -11800,6 +13030,11 @@ class MainWindow(QMainWindow):
                 # payload 구조: {"markets": [...]}
                 payload = {"markets": markets} if markets else {}
                 ai_reco.update(payload)
+                # STEP 42: 실운용 GPT 판단(STEP 41 프롬프트) — UI 스레드 부담을 줄이기 위해 지연 1회
+                try:
+                    QTimer.singleShot(200, self._run_aits_main_gpt_reco_and_publish)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
