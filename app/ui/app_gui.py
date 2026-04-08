@@ -1529,6 +1529,13 @@ class MainWindow(QMainWindow):
         self._aits_last_ai_prompt = ""
         self._aits_last_ai_raw_response = ""
         self._aits_main_reco_inflight = False
+        self._aits_main_reco_cooldown_sec = 20.0
+        self._aits_main_reco_last_started_ts = 0.0
+        self._aits_main_reco_last_completed_ts = 0.0
+        self._aits_main_reco_request_seq = 0
+        self._aits_main_reco_latest_applied_seq = 0
+        self._aits_main_reco_latest_payload_fp = ""
+        self._aits_main_reco_min_change_sec = 8.0
         self._market_view_mode = "quick"   # "quick" | "all"
         self._market_sort_key = "volume"   # volume | change | price
         self._market_sort_order = "desc"   # desc | asc
@@ -8022,13 +8029,112 @@ class MainWindow(QMainWindow):
                 {"role": "user", "content": fb},
             ]
 
+    def _build_aits_reco_payload_fingerprint(self):
+        try:
+            context = self._build_aits_ai_decision_context()
+
+            regime = str(context.get("market_regime", "") or "")
+            cand = list(context.get("quick_candidates", []) or [])
+            managed = list(context.get("managed_pool", []) or [])
+
+            cand_part = []
+            for x in cand[:5]:
+                cand_part.append(
+                    "|".join(
+                        [
+                            str(x.get("symbol", "") or ""),
+                            str(round(float(x.get("candidate_score", 0.0) or 0.0), 4)),
+                            str(round(float(x.get("change_pct", 0.0) or 0.0), 2)),
+                        ]
+                    )
+                )
+
+            managed_part = []
+            for x in managed[:7]:
+                managed_part.append(
+                    "|".join(
+                        [
+                            str(x.get("symbol", "") or ""),
+                            str(x.get("ai_state_raw", "") or ""),
+                            str(int(bool(x.get("locked", False)))),
+                            str(round(float(x.get("change_pct", 0.0) or 0.0), 2)),
+                        ]
+                    )
+                )
+
+            return "##".join(
+                [
+                    regime,
+                    "C:" + ";".join(cand_part),
+                    "M:" + ";".join(managed_part),
+                ]
+            )
+        except Exception:
+            return ""
+
+    def _should_run_aits_main_gpt_reco(self):
+        try:
+            now_ts = time.time()
+
+            if bool(getattr(self, "_aits_main_reco_inflight", False)):
+                return False, "inflight"
+
+            cooldown = float(
+                getattr(self, "_aits_main_reco_cooldown_sec", 20.0) or 20.0
+            )
+            last_started = float(
+                getattr(self, "_aits_main_reco_last_started_ts", 0.0) or 0.0
+            )
+
+            if last_started > 0 and (now_ts - last_started) < cooldown:
+                return False, "cooldown"
+
+            new_fp = self._build_aits_reco_payload_fingerprint()
+            old_fp = str(getattr(self, "_aits_main_reco_latest_payload_fp", "") or "")
+            min_change_sec = float(
+                getattr(self, "_aits_main_reco_min_change_sec", 8.0) or 8.0
+            )
+            last_completed = float(
+                getattr(self, "_aits_main_reco_last_completed_ts", 0.0) or 0.0
+            )
+
+            if (
+                new_fp
+                and old_fp
+                and new_fp == old_fp
+                and last_completed > 0
+                and (now_ts - last_completed) < min_change_sec
+            ):
+                return False, "same_context"
+
+            return True, "ok"
+        except Exception:
+            return True, "fallback_ok"
+
+    def _schedule_aits_main_gpt_reco(self, delay_ms=200):
+        try:
+            should_run, _why = self._should_run_aits_main_gpt_reco()
+            if not should_run:
+                return
+
+            QTimer.singleShot(int(delay_ms), self._run_aits_main_gpt_reco_and_publish)
+        except Exception:
+            pass
+
     def _run_aits_main_gpt_reco_and_publish(self) -> None:
         """
         실운용: STEP 41 프롬프트로 OpenAI 호출 후 ai.reco.updated 에 원문·rotation 포함 publish.
         app.services.ai_reco 는 raw 키를 보존하지 않으므로 eventbus 로만 전달한다.
         """
-        if getattr(self, "_aits_main_reco_inflight", False):
-            return
+        now_ts = time.time()
+
+        try:
+            should_run, _why = self._should_run_aits_main_gpt_reco()
+            if not should_run:
+                return
+        except Exception:
+            pass
+
         try:
             prov = (
                 getattr(self, "cb_ai_provider", None)
@@ -8069,6 +8175,22 @@ class MainWindow(QMainWindow):
                 model = "gpt-4o-mini"
 
             self._aits_main_reco_inflight = True
+            self._aits_main_reco_last_started_ts = now_ts
+            self._aits_main_reco_request_seq = (
+                int(getattr(self, "_aits_main_reco_request_seq", 0) or 0) + 1
+            )
+            current_seq = self._aits_main_reco_request_seq
+
+            try:
+                self._aits_last_ai_prompt = self._build_aits_ai_decision_prompt()
+            except Exception:
+                pass
+
+            try:
+                current_fp = self._build_aits_reco_payload_fingerprint()
+            except Exception:
+                current_fp = ""
+
             try:
                 messages = self._build_aits_ai_messages()
             except Exception:
@@ -8162,6 +8284,21 @@ class MainWindow(QMainWindow):
                 "actual_engine": f"gpt-{model}",
                 "selected_engine": "gpt",
             }
+
+            try:
+                latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
+                if current_seq < latest_seq:
+                    return
+            except Exception:
+                pass
+
+            try:
+                self._aits_main_reco_latest_applied_seq = current_seq
+                self._aits_main_reco_latest_payload_fp = current_fp
+                self._aits_main_reco_last_completed_ts = time.time()
+            except Exception:
+                pass
+
             eventbus.publish("ai.reco.updated", reco_payload)
             try:
                 self._log.info("[AITS-RECO-MAIN] published ok=1 items=%s", len(items))
@@ -13030,9 +13167,12 @@ class MainWindow(QMainWindow):
                 # payload 구조: {"markets": [...]}
                 payload = {"markets": markets} if markets else {}
                 ai_reco.update(payload)
-                # STEP 42: 실운용 GPT 판단(STEP 41 프롬프트) — UI 스레드 부담을 줄이기 위해 지연 1회
+                # NOTE:
+                # ai_reco.update(payload)는 즉시형/기본 추천 상태를 갱신하는 기존 경로이고,
+                # GPT reco는 설명 가능한 능동 판단을 보강하는 후속 경로다.
+                # STEP 43에서는 GPT 호출의 과다/중복/지연 덮어쓰기를 막는 안정화만 수행한다.
                 try:
-                    QTimer.singleShot(200, self._run_aits_main_gpt_reco_and_publish)
+                    self._schedule_aits_main_gpt_reco(200)
                 except Exception:
                     pass
             except Exception:
