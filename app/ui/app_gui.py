@@ -4146,18 +4146,22 @@ class MainWindow(QMainWindow):
                         except Exception:
                             pass
                 self._engine_ui_unified_done = True
-            selected = ""
+            provider = self._get_aits_engine_ssot()
+            if provider == "gpt":
+                provider_label = "OpenAI"
+            elif provider == "gemini":
+                provider_label = "Gemini"
+            else:
+                provider_label = "Basic AI"
             sel_eng = ""
             cloud_model = ""
             try:
                 st = getattr(self._settings, "strategy", None) if getattr(self, "_settings", None) else None
                 st_dict = st.model_dump() if hasattr(st, "model_dump") else (st if isinstance(st, dict) else {})
-                selected = (st_dict.get("ai_provider") or "").strip().lower() if isinstance(st_dict, dict) else ""
                 sel_eng = (st_dict.get("ai_local_model") or "").strip() if isinstance(st_dict, dict) else ""
                 cloud_model = (st_dict.get("ai_openai_model") or "").strip() if isinstance(st_dict, dict) else ""
             except Exception:
                 pass
-            selected = selected if selected in ("gpt", "gemini", "local") else "local"
             actual = ""
             try:
                 from app.services import ai_reco
@@ -4168,31 +4172,31 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
-            if selected == "local" and hasattr(self, "cmb_local_model") and self.cmb_local_model.currentText():
+            if provider == "basic" and hasattr(self, "cmb_local_model") and self.cmb_local_model.currentText():
                 local_label = (self.cmb_local_model.currentText() or "").strip() or sel_eng
             else:
                 local_label = sel_eng or (actual if actual and not actual.startswith("gpt-") else "—")
             if not cloud_model and hasattr(self, "ed_openai_model"):
                 cloud_model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
-            if actual.startswith("gpt-"):
+            if provider == "gpt" and actual.startswith("gpt-"):
                 cloud_model = actual
             if not cloud_model:
                 cloud_model = "—"
 
             # provider 3분기 + 상태 텍스트(내부 명칭 노출 금지)
             if stage == "degraded":
-                if selected == "gpt":
-                    box_txt = "AI Engine | OpenAI (%s)" % cloud_model
-                elif selected == "gemini":
-                    box_txt = "AI Engine | Gemini (%s)" % cloud_model
+                if provider == "gpt":
+                    box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
+                elif provider == "gemini":
+                    box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
                 else:
-                    box_txt = "AI Engine | Basic AI (%s)" % local_label
-            elif selected == "gpt":
-                box_txt = "AI Engine | OpenAI (%s)" % cloud_model
-            elif selected == "gemini":
-                box_txt = "AI Engine | Gemini (%s)" % cloud_model
+                    box_txt = "AI Engine | %s (%s)" % (provider_label, local_label)
+            elif provider == "gpt":
+                box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
+            elif provider == "gemini":
+                box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
             else:
-                box_txt = "AI Engine | Basic AI (%s)" % local_label
+                box_txt = "AI Engine | %s (%s)" % (provider_label, local_label)
 
             if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
                 self.lbl_engine_status.setText(box_txt)
@@ -4200,7 +4204,7 @@ class MainWindow(QMainWindow):
                     "padding: 6px 14px; border-radius: 8px; font-weight: 700; color: #111; background: #F3F4F6;"
                     " border: 1px solid rgba(0,0,0,0.15); margin-left: 8px;"
                 )
-            self._log.info("[ENGINE-UI] selected=%s actual=%s stage=%s", selected, actual or "—", stage or "—")
+            self._log.info("[ENGINE-UI] provider=%s actual=%s stage=%s", provider, actual or "—", stage or "—")
         except Exception as e:
             self._log.debug("[ENGINE-UI] box err=%s", str(e)[:80])
 
@@ -4229,26 +4233,12 @@ class MainWindow(QMainWindow):
     def _update_active_engine_label(self):
         """실제 적용 엔진(연결 성공 기준)을 새로고침 버튼 옆 라벨에 반영."""
         try:
-            active = (getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
-            if active == "gpt":
-                model = ""
-                if hasattr(self, "ed_openai_model"):
-                    model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
-                if not model:
-                    model = "gpt-4o-mini"
-                txt = f"Active Engine: OpenAI ({model})"
+            provider = self._get_aits_engine_ssot()
+            if provider == "gpt":
+                txt = "Active Engine: OpenAI"
                 color = "#2e7d32"
-            elif active == "gemini":
-                model = ""
-                if hasattr(self, "cmb_gemini_model"):
-                    model = (self.cmb_gemini_model.currentText() or "").strip()
-                if not model and hasattr(self, "cmb_ai_model"):
-                    model = (self.cmb_ai_model.currentText() or "").strip()
-                if not model and hasattr(self, "ed_openai_model"):
-                    model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
-                if not model:
-                    model = "gemini"
-                txt = f"Active Engine: Gemini ({model})"
+            elif provider == "gemini":
+                txt = "Active Engine: Gemini"
                 color = "#1565c0"
             else:
                 txt = "Active Engine: Basic AI"
@@ -8664,88 +8654,53 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _get_aits_selected_engine_mode(self) -> str:
+    def _get_aits_engine_ssot(self) -> str:
         """
-        공통설정의 엔진 선택값을 정규화해서 반환한다.
-        반환값:
+        AITS/KMTS 공통 엔진 선택 SSOT.
+        최종 기준은 self._settings.strategy.ai_provider 이다.
+        반환값은 항상 아래 중 하나로 정규화:
         - "gpt"
         - "gemini"
         - "basic"
-        기본값은 "gpt"
         """
-        candidates = []
+        raw = ""
 
+        # 1) 최우선: 저장된 strategy.ai_provider
         try:
-            ae = getattr(self, "_active_ai_engine", None)
-            if ae is not None:
-                candidates.append(str(ae))
+            st = getattr(getattr(self, "_settings", None), "strategy", None)
+            if st is not None:
+                if hasattr(st, "ai_provider"):
+                    raw = str(getattr(st, "ai_provider") or "").strip().lower()
+                elif isinstance(st, dict):
+                    raw = str(st.get("ai_provider") or "").strip().lower()
         except Exception:
-            pass
+            raw = ""
 
-        for helper_name in [
-            "_get_aits_ai_provider",
-            "_get_ai_provider",
-            "_get_aits_provider",
-        ]:
+        # 2) 보정: cb_ai_provider (하위 호환)
+        if not raw:
             try:
-                helper = getattr(self, helper_name, None)
-                if callable(helper):
-                    v = helper()
-                    if v is not None:
-                        candidates.append(str(v))
-            except Exception:
-                pass
-
-        for attr_name in [
-            "cb_ai_provider",
-            "cmb_aits_ai_provider",
-            "cmb_ai_provider",
-            "cmb_aits_engine",
-            "cmb_engine",
-            "cmb_aits_provider",
-        ]:
-            try:
-                obj = getattr(self, attr_name, None)
+                obj = getattr(self, "cb_ai_provider", None)
                 if obj is not None and hasattr(obj, "currentText"):
-                    v = obj.currentText()
-                    if v is not None:
-                        candidates.append(str(v))
+                    raw = str(obj.currentText() or "").strip().lower()
             except Exception:
-                pass
+                raw = ""
 
-        for attr_name in [
-            "app_settings",
-            "settings",
-            "_settings",
-            "aits_settings",
-        ]:
-            try:
-                d = getattr(self, attr_name, None)
-                if isinstance(d, dict):
-                    for key in [
-                        "ai_provider",
-                        "provider",
-                        "engine",
-                        "engine_mode",
-                        "decision_engine",
-                    ]:
-                        if key in d and d.get(key) is not None:
-                            candidates.append(str(d.get(key)))
-            except Exception:
-                pass
-
-        raw = " ".join([str(x).strip() for x in candidates if str(x).strip()]).lower()
-
-        if "basic" in raw or "베이직" in raw or "기본" in raw:
+        # 3) 정규화
+        if raw in ("local", "basic", "basic ai", "basic_ai"):
             return "basic"
-        try:
-            if "local" in raw.split():
-                return "basic"
-        except Exception:
-            pass
-        if "gemini" in raw or "제미나이" in raw:
+        if raw in ("gemini", "google", "google gemini"):
             return "gemini"
         return "gpt"
+
+    def _get_aits_selected_engine_mode(self) -> str:
+        """
+        엔진 선택 조회용 wrapper.
+        실제 기준은 _get_aits_engine_ssot() 하나만 사용한다.
+        """
+        try:
+            return self._get_aits_engine_ssot()
+        except Exception:
+            return "gpt"
 
     def _build_aits_basic_engine_payload_for_reco(self):
         """
@@ -9246,12 +9201,18 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
+                _basic_cfg = {}
+                try:
+                    _basic_cfg = self._collect_aits_basic_engine_settings()
+                except Exception:
+                    _basic_cfg = {}
                 ai_reco.update(
                     payload={
                         "use_basic_engine": True,
                         "basic_fallback": True,
                         "market_rows": market_rows_fb,
                         "positions": positions_fb,
+                        "basic_config": _basic_cfg,
                     },
                     from_boot=True,
                 )
@@ -9282,18 +9243,30 @@ class MainWindow(QMainWindow):
 
                 try:
                     basic_payload = self._build_aits_basic_engine_payload_for_reco()
+                    try:
+                        basic_payload["basic_config"] = (
+                            self._collect_aits_basic_engine_settings()
+                        )
+                    except Exception:
+                        basic_payload["basic_config"] = {}
                     ai_reco.update(
                         payload=basic_payload,
                         from_boot=True,
                     )
                 except Exception:
                     try:
+                        _basic_cfg_ex = {}
+                        try:
+                            _basic_cfg_ex = self._collect_aits_basic_engine_settings()
+                        except Exception:
+                            _basic_cfg_ex = {}
                         ai_reco.update(
                             payload={
                                 "use_basic_engine": True,
                                 "basic_fallback": True,
                                 "market_rows": [],
                                 "positions": [],
+                                "basic_config": _basic_cfg_ex,
                             },
                             from_boot=True,
                         )
@@ -9312,6 +9285,12 @@ class MainWindow(QMainWindow):
 
                 try:
                     basic_payload = self._build_aits_basic_engine_payload_for_reco()
+                    try:
+                        basic_payload["basic_config"] = (
+                            self._collect_aits_basic_engine_settings()
+                        )
+                    except Exception:
+                        basic_payload["basic_config"] = {}
                     basic_payload["engine_mode"] = "gemini"
                     basic_payload["reason"] = "Gemini path not wired yet"
                     ai_reco.update(
@@ -9320,6 +9299,11 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     try:
+                        _basic_cfg_ex = {}
+                        try:
+                            _basic_cfg_ex = self._collect_aits_basic_engine_settings()
+                        except Exception:
+                            _basic_cfg_ex = {}
                         ai_reco.update(
                             payload={
                                 "use_basic_engine": True,
@@ -9327,6 +9311,7 @@ class MainWindow(QMainWindow):
                                 "market_rows": [],
                                 "positions": [],
                                 "engine_mode": "gemini",
+                                "basic_config": _basic_cfg_ex,
                             },
                             from_boot=True,
                         )
