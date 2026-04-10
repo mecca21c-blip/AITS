@@ -8664,6 +8664,521 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _get_aits_selected_engine_mode(self) -> str:
+        """
+        공통설정의 엔진 선택값을 정규화해서 반환한다.
+        반환값:
+        - "gpt"
+        - "gemini"
+        - "basic"
+        기본값은 "gpt"
+        """
+        candidates = []
+
+        try:
+            ae = getattr(self, "_active_ai_engine", None)
+            if ae is not None:
+                candidates.append(str(ae))
+        except Exception:
+            pass
+
+        for helper_name in [
+            "_get_aits_ai_provider",
+            "_get_ai_provider",
+            "_get_aits_provider",
+        ]:
+            try:
+                helper = getattr(self, helper_name, None)
+                if callable(helper):
+                    v = helper()
+                    if v is not None:
+                        candidates.append(str(v))
+            except Exception:
+                pass
+
+        for attr_name in [
+            "cb_ai_provider",
+            "cmb_aits_ai_provider",
+            "cmb_ai_provider",
+            "cmb_aits_engine",
+            "cmb_engine",
+            "cmb_aits_provider",
+        ]:
+            try:
+                obj = getattr(self, attr_name, None)
+                if obj is not None and hasattr(obj, "currentText"):
+                    v = obj.currentText()
+                    if v is not None:
+                        candidates.append(str(v))
+            except Exception:
+                pass
+
+        for attr_name in [
+            "app_settings",
+            "settings",
+            "_settings",
+            "aits_settings",
+        ]:
+            try:
+                d = getattr(self, attr_name, None)
+                if isinstance(d, dict):
+                    for key in [
+                        "ai_provider",
+                        "provider",
+                        "engine",
+                        "engine_mode",
+                        "decision_engine",
+                    ]:
+                        if key in d and d.get(key) is not None:
+                            candidates.append(str(d.get(key)))
+            except Exception:
+                pass
+
+        raw = " ".join([str(x).strip() for x in candidates if str(x).strip()]).lower()
+
+        if "basic" in raw or "베이직" in raw or "기본" in raw:
+            return "basic"
+        try:
+            if "local" in raw.split():
+                return "basic"
+        except Exception:
+            pass
+        if "gemini" in raw or "제미나이" in raw:
+            return "gemini"
+        return "gpt"
+
+    def _build_aits_basic_engine_payload_for_reco(self):
+        """
+        basic engine 직접 실행용 payload 생성.
+        기존 fallback payload 구성 로직을 최대한 재사용할 수 있게
+        market_rows / positions 구조만 만든다.
+        """
+        market_rows_fb = []
+        positions_fb = []
+
+        try:
+            ctx = self._build_aits_ai_decision_context()
+            quick_candidates = ctx.get("quick_candidates") if isinstance(ctx, dict) else []
+            if isinstance(quick_candidates, list):
+                for row in quick_candidates[:50]:
+                    if not isinstance(row, dict):
+                        continue
+                    symbol = row.get("symbol") or row.get("market") or row.get("ticker") or ""
+                    if not symbol:
+                        continue
+                    market_rows_fb.append(
+                        {
+                            "symbol": symbol,
+                            "change_pct": row.get(
+                                "change_pct", row.get("change_rate", 0.0)
+                            ),
+                            "trade_value": row.get(
+                                "trade_value", row.get("volume_krw", 0.0)
+                            ),
+                            "volume_krw": row.get(
+                                "trade_value", row.get("volume_krw", 0.0)
+                            ),
+                        }
+                    )
+        except Exception:
+            market_rows_fb = []
+
+        try:
+            rows = getattr(self, "ai_managed_rows", None)
+            if isinstance(rows, list):
+                for row in rows[:50]:
+                    if not isinstance(row, dict):
+                        continue
+                    symbol = (
+                        row.get("symbol") or row.get("market") or row.get("ticker") or ""
+                    )
+                    if not symbol:
+                        continue
+
+                    pnl_pct_val = None
+                    for k in [
+                        "pnl_pct",
+                        "profit_pct",
+                        "unrealized_pnl_pct",
+                        "change_pct",
+                        "change_rate",
+                    ]:
+                        if k in row and row.get(k) is not None:
+                            try:
+                                pnl_pct_val = float(row.get(k))
+                                break
+                            except Exception:
+                                pass
+
+                    item = {
+                        "symbol": symbol,
+                        "market": symbol,
+                    }
+                    if pnl_pct_val is not None:
+                        item["pnl_pct"] = pnl_pct_val
+
+                    positions_fb.append(item)
+        except Exception:
+            positions_fb = []
+
+        return {
+            "use_basic_engine": True,
+            "basic_fallback": True,
+            "market_rows": market_rows_fb,
+            "positions": positions_fb,
+        }
+
+    def _collect_aits_basic_engine_settings(self) -> dict:
+        """
+        Basic AI 설정 UI 값을 안전하게 수집해서 내부 표준 dict로 반환한다.
+
+        주의:
+        - UI에 보이는 한글 텍스트는 그대로 유지한다.
+        - 내부 로직용 영문 정규화 키를 함께 제공한다.
+        - 실제 위젯이 없거나 읽기 실패하면 기본값을 사용한다.
+        """
+
+        def _safe_text_from_widget(obj, default=""):
+            try:
+                if obj is None:
+                    return default
+                if hasattr(obj, "currentText"):
+                    v = obj.currentText()
+                    return str(v).strip() if v is not None else default
+                if hasattr(obj, "text"):
+                    v = obj.text()
+                    return str(v).strip() if v is not None else default
+                if hasattr(obj, "toPlainText"):
+                    v = obj.toPlainText()
+                    return str(v).strip() if v is not None else default
+                return default
+            except Exception:
+                return default
+
+        def _safe_bool_from_widget(obj, default=False):
+            try:
+                if obj is None:
+                    return default
+                if hasattr(obj, "isChecked"):
+                    return bool(obj.isChecked())
+                return default
+            except Exception:
+                return default
+
+        def _safe_int_from_widget(obj, default=0):
+            try:
+                if obj is None:
+                    return default
+                if hasattr(obj, "value"):
+                    return int(obj.value())
+                raw = _safe_text_from_widget(obj, str(default))
+                raw = raw.replace(",", "").strip()
+                if raw == "":
+                    return default
+                return int(float(raw))
+            except Exception:
+                return default
+
+        def _safe_float_from_widget(obj, default=0.0):
+            try:
+                if obj is None:
+                    return default
+                if hasattr(obj, "value"):
+                    return float(obj.value())
+                raw = _safe_text_from_widget(obj, str(default))
+                raw = raw.replace(",", "").strip()
+                if raw == "":
+                    return default
+                return float(raw)
+            except Exception:
+                return default
+
+        def _find_widget(candidates):
+            for name in candidates:
+                try:
+                    obj = getattr(self, name, None)
+                    if obj is not None:
+                        return obj
+                except Exception:
+                    pass
+            return None
+
+        def _norm_risk_profile(v: str) -> str:
+            s = str(v).strip()
+            if s == "보수적":
+                return "conservative"
+            if s == "공격적":
+                return "aggressive"
+            return "neutral"
+
+        def _norm_level3(v: str) -> str:
+            s = str(v).strip()
+            if s == "낮음":
+                return "low"
+            if s == "높음":
+                return "high"
+            return "medium"
+
+        def _norm_sell_sensitivity(v: str) -> str:
+            s = str(v).strip()
+            if s == "느림":
+                return "slow"
+            if s == "빠름":
+                return "fast"
+            return "medium"
+
+        def _norm_trend_filter(v: str) -> str:
+            s = str(v).strip()
+            if s == "약함":
+                return "weak"
+            if s == "강함":
+                return "strong"
+            return "medium"
+
+        # 1) 위젯 찾기
+        w_risk_profile = _find_widget(
+            [
+                "cmb_basic_ai_risk",
+                "cmb_basic_risk_profile",
+                "cmb_aits_basic_risk_profile",
+                "cmb_basic_operating_style",
+                "cmb_aits_basic_operating_style",
+                "cmb_basic_ai_risk_profile",
+            ]
+        )
+        w_selection_strength = _find_widget(
+            [
+                "cmb_basic_ai_selection",
+                "cmb_basic_selection_strength",
+                "cmb_aits_basic_selection_strength",
+                "cmb_basic_pick_strength",
+                "cmb_aits_basic_pick_strength",
+            ]
+        )
+        w_max_positions = _find_widget(
+            [
+                "sp_basic_ai_max_positions",
+                "spn_basic_max_positions",
+                "spin_basic_max_positions",
+                "spn_aits_basic_max_positions",
+                "edt_basic_max_positions",
+                "txt_basic_max_positions",
+            ]
+        )
+
+        w_take_profit_pct = _find_widget(
+            [
+                "sp_basic_ai_target_profit",
+                "spn_basic_take_profit_pct",
+                "spin_basic_take_profit_pct",
+                "edt_basic_take_profit_pct",
+                "txt_basic_take_profit_pct",
+            ]
+        )
+        w_stop_loss_pct = _find_widget(
+            [
+                "sp_basic_ai_stop_loss",
+                "spn_basic_stop_loss_pct",
+                "spin_basic_stop_loss_pct",
+                "edt_basic_stop_loss_pct",
+                "txt_basic_stop_loss_pct",
+            ]
+        )
+        w_max_hold_minutes = _find_widget(
+            [
+                "sp_basic_ai_max_hold_min",
+                "spn_basic_max_hold_minutes",
+                "spin_basic_max_hold_minutes",
+                "spn_basic_max_hold_time",
+                "edt_basic_max_hold_minutes",
+                "txt_basic_max_hold_minutes",
+            ]
+        )
+
+        w_buy_sensitivity = _find_widget(
+            [
+                "cmb_basic_ai_buy_sensitivity",
+                "cmb_basic_buy_sensitivity",
+                "cmb_aits_basic_buy_sensitivity",
+            ]
+        )
+        w_sell_sensitivity = _find_widget(
+            [
+                "cmb_basic_ai_sell_sensitivity",
+                "cmb_basic_sell_sensitivity",
+                "cmb_aits_basic_sell_sensitivity",
+            ]
+        )
+        w_split_buy_enabled = _find_widget(
+            [
+                "cb_basic_ai_split_buy",
+                "chk_basic_split_buy",
+                "chk_aits_basic_split_buy",
+            ]
+        )
+        w_split_sell_enabled = _find_widget(
+            [
+                "cb_basic_ai_split_sell",
+                "chk_basic_split_sell",
+                "chk_aits_basic_split_sell",
+            ]
+        )
+
+        w_min_trade_value_krw = _find_widget(
+            [
+                "sp_basic_ai_min_volume",
+                "spn_basic_min_trade_value",
+                "spin_basic_min_trade_value",
+                "edt_basic_min_trade_value",
+                "txt_basic_min_trade_value",
+            ]
+        )
+        w_trend_filter_strength = _find_widget(
+            [
+                "cmb_basic_ai_trend_filter",
+                "cmb_basic_trend_filter_strength",
+                "cmb_aits_basic_trend_filter_strength",
+                "cmb_basic_trend_filter",
+                "cmb_aits_basic_trend_filter",
+            ]
+        )
+        w_avoid_bear_market = _find_widget(
+            [
+                "cb_basic_ai_avoid_bear",
+                "chk_basic_avoid_bear_market",
+                "chk_aits_basic_avoid_bear_market",
+                "chk_basic_bear_avoid",
+            ]
+        )
+        w_avoid_sharp_drop = _find_widget(
+            [
+                "cb_basic_ai_avoid_sudden_drop",
+                "chk_basic_avoid_sharp_drop",
+                "chk_aits_basic_avoid_sharp_drop",
+                "chk_basic_drop_avoid",
+            ]
+        )
+        w_exclude_overheated = _find_widget(
+            [
+                "cb_basic_ai_exclude_overheated",
+                "chk_basic_exclude_overheated",
+                "chk_aits_basic_exclude_overheated",
+                "chk_basic_overheat_exclude",
+            ]
+        )
+
+        w_entry_score_threshold = _find_widget(
+            [
+                "sp_basic_ai_entry_score",
+                "spn_basic_entry_score_threshold",
+                "spin_basic_entry_score_threshold",
+                "edt_basic_entry_score_threshold",
+                "txt_basic_entry_score_threshold",
+            ]
+        )
+        w_exit_score_threshold = _find_widget(
+            [
+                "sp_basic_ai_exit_score",
+                "spn_basic_exit_score_threshold",
+                "spin_basic_exit_score_threshold",
+                "edt_basic_exit_score_threshold",
+                "txt_basic_exit_score_threshold",
+            ]
+        )
+        w_decision_speed = _find_widget(
+            [
+                "cmb_basic_ai_decision_speed",
+                "cmb_basic_decision_speed",
+                "cmb_aits_basic_decision_speed",
+            ]
+        )
+        w_reentry_cooldown_minutes = _find_widget(
+            [
+                "sp_basic_ai_reentry_cooldown",
+                "spn_basic_reentry_cooldown_minutes",
+                "spin_basic_reentry_cooldown_minutes",
+                "edt_basic_reentry_cooldown_minutes",
+                "txt_basic_reentry_cooldown_minutes",
+            ]
+        )
+        w_max_concurrent_buys = _find_widget(
+            [
+                "sp_basic_ai_max_new_entries",
+                "spn_basic_max_concurrent_buys",
+                "spin_basic_max_concurrent_buys",
+                "edt_basic_max_concurrent_buys",
+                "txt_basic_max_concurrent_buys",
+            ]
+        )
+
+        # 2) 한글 원문값 수집
+        risk_profile_kr = _safe_text_from_widget(w_risk_profile, "중립")
+        selection_strength_kr = _safe_text_from_widget(w_selection_strength, "보통")
+        buy_sensitivity_kr = _safe_text_from_widget(w_buy_sensitivity, "보통")
+        sell_sensitivity_kr = _safe_text_from_widget(w_sell_sensitivity, "보통")
+        trend_filter_strength_kr = _safe_text_from_widget(w_trend_filter_strength, "보통")
+        decision_speed_kr = _safe_text_from_widget(w_decision_speed, "보통")
+
+        # 3) 내부 표준 dict 구성
+        cfg = {
+            "engine_mode": "basic",
+
+            # 한글 원문 보존
+            "ui_labels_kr": {
+                "운용 성향": risk_profile_kr,
+                "종목 선별 강도": selection_strength_kr,
+                "최대 보유 종목 수": _safe_int_from_widget(w_max_positions, 5),
+                "목표 수익률 (%)": _safe_float_from_widget(w_take_profit_pct, 3.5),
+                "손절 기준 (%)": _safe_float_from_widget(w_stop_loss_pct, 1.5),
+                "최대 보유 시간 (분)": _safe_int_from_widget(w_max_hold_minutes, 90),
+                "매수 민감도": buy_sensitivity_kr,
+                "매도 민감도": sell_sensitivity_kr,
+                "분할 매수": _safe_bool_from_widget(w_split_buy_enabled, True),
+                "분할 매도": _safe_bool_from_widget(w_split_sell_enabled, True),
+                "최소 거래대금 (원)": _safe_int_from_widget(w_min_trade_value_krw, 100000000),
+                "추세 필터": trend_filter_strength_kr,
+                "하락장 회피": _safe_bool_from_widget(w_avoid_bear_market, True),
+                "급락 회피": _safe_bool_from_widget(w_avoid_sharp_drop, True),
+                "과열 종목 제외": _safe_bool_from_widget(w_exclude_overheated, True),
+                "AI 진입 기준 점수": _safe_int_from_widget(w_entry_score_threshold, 60),
+                "AI 청산 기준 점수": _safe_int_from_widget(w_exit_score_threshold, 45),
+                "AI 판단 속도": decision_speed_kr,
+                "재진입 제한 시간 (분)": _safe_int_from_widget(w_reentry_cooldown_minutes, 30),
+                "동시 매수 제한 수": _safe_int_from_widget(w_max_concurrent_buys, 1),
+            },
+
+            # 내부 영문 정규화 키
+            "risk_profile": _norm_risk_profile(risk_profile_kr),
+            "selection_strength": _norm_level3(selection_strength_kr),
+            "max_positions": _safe_int_from_widget(w_max_positions, 5),
+
+            "take_profit_pct": _safe_float_from_widget(w_take_profit_pct, 3.5),
+            "stop_loss_pct": _safe_float_from_widget(w_stop_loss_pct, 1.5),
+            "max_hold_minutes": _safe_int_from_widget(w_max_hold_minutes, 90),
+
+            "buy_sensitivity": _norm_level3(buy_sensitivity_kr),
+            "sell_sensitivity": _norm_sell_sensitivity(sell_sensitivity_kr),
+            "split_buy_enabled": _safe_bool_from_widget(w_split_buy_enabled, True),
+            "split_sell_enabled": _safe_bool_from_widget(w_split_sell_enabled, True),
+
+            "min_trade_value_krw": _safe_int_from_widget(w_min_trade_value_krw, 100000000),
+            "trend_filter_strength": _norm_trend_filter(trend_filter_strength_kr),
+            "avoid_bear_market": _safe_bool_from_widget(w_avoid_bear_market, True),
+            "avoid_sharp_drop": _safe_bool_from_widget(w_avoid_sharp_drop, True),
+            "exclude_overheated": _safe_bool_from_widget(w_exclude_overheated, True),
+
+            "entry_score_threshold": _safe_int_from_widget(w_entry_score_threshold, 60),
+            "exit_score_threshold": _safe_int_from_widget(w_exit_score_threshold, 45),
+            "decision_speed_kr": decision_speed_kr,
+            "decision_speed": _norm_sell_sensitivity(decision_speed_kr)
+            if decision_speed_kr in ("느림", "보통", "빠름")
+            else "medium",
+            "reentry_cooldown_minutes": _safe_int_from_widget(w_reentry_cooldown_minutes, 30),
+            "max_concurrent_buys": _safe_int_from_widget(w_max_concurrent_buys, 1),
+        }
+
+        return cfg
+
     def _run_aits_main_gpt_reco_and_publish(self) -> None:
         """
         실운용: STEP 41 프롬프트로 OpenAI 호출 후 ai.reco.updated 에 원문·rotation 포함 publish.
@@ -8749,7 +9264,77 @@ class MainWindow(QMainWindow):
                 and self.cb_ai_provider.currentText()
                 or ""
             ).strip().lower()
-            if prov != "gpt":
+
+            engine_mode = "gpt"
+            try:
+                engine_mode = self._get_aits_selected_engine_mode()
+            except Exception:
+                engine_mode = "gpt"
+
+            if engine_mode == "basic":
+                try:
+                    if hasattr(self, "_log") and self._log:
+                        self._log.info(
+                            "[AITS][EngineMode] basic selected -> direct basic engine reco"
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    basic_payload = self._build_aits_basic_engine_payload_for_reco()
+                    ai_reco.update(
+                        payload=basic_payload,
+                        from_boot=True,
+                    )
+                except Exception:
+                    try:
+                        ai_reco.update(
+                            payload={
+                                "use_basic_engine": True,
+                                "basic_fallback": True,
+                                "market_rows": [],
+                                "positions": [],
+                            },
+                            from_boot=True,
+                        )
+                    except Exception:
+                        pass
+                return
+
+            if engine_mode == "gemini":
+                try:
+                    if hasattr(self, "_log") and self._log:
+                        self._log.info(
+                            "[AITS][EngineMode] gemini selected -> gemini path not wired yet, using safe fallback"
+                        )
+                except Exception:
+                    pass
+
+                try:
+                    basic_payload = self._build_aits_basic_engine_payload_for_reco()
+                    basic_payload["engine_mode"] = "gemini"
+                    basic_payload["reason"] = "Gemini path not wired yet"
+                    ai_reco.update(
+                        payload=basic_payload,
+                        from_boot=True,
+                    )
+                except Exception:
+                    try:
+                        ai_reco.update(
+                            payload={
+                                "use_basic_engine": True,
+                                "basic_fallback": True,
+                                "market_rows": [],
+                                "positions": [],
+                                "engine_mode": "gemini",
+                            },
+                            from_boot=True,
+                        )
+                    except Exception:
+                        pass
+                return
+
+            if prov != "gpt" and engine_mode == "gpt":
                 _fallback_reco_update_basic_engine()
                 return
 

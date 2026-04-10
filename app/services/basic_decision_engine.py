@@ -120,6 +120,33 @@ def _mean(values: List[float]) -> float:
     return sum(values) / float(len(values))
 
 
+def _normalize_ui_score_to_internal(v: Any, default: float) -> float:
+    try:
+        fv = float(v)
+        if fv < 0:
+            return 0.0
+        if fv > 100:
+            fv = 100.0
+        return fv / 100.0
+    except Exception:
+        return default
+
+
+def _extract_trade_value_base(row: Dict[str, Any]) -> float:
+    candidates = [
+        row.get("trade_value"),
+        row.get("volume_krw"),
+        row.get("acc_trade_price_24h"),
+        row.get("acc_trade_price"),
+    ]
+    best = 0.0
+    for v in candidates:
+        fv = _safe_float(v, 0.0)
+        if fv > best:
+            best = fv
+    return best
+
+
 def _regime_from_market(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not rows:
         return {
@@ -245,6 +272,7 @@ def build_basic_decision(
     market_rows: List[Dict[str, Any]],
     positions: Optional[List[Dict[str, Any]]] = None,
     max_positions: int = 3,
+    config: Optional[Dict[str, Any]] = None,
 ) -> DecisionDict:
     """
     규칙 기반 기본 매매 엔진.
@@ -265,6 +293,10 @@ def build_basic_decision(
         최대 보유 개수 기준. max_positions 미만이면 ENTER 여지,
         꽉 차 있으면 ROTATE/HOLD/STAY 중심으로 판단.
 
+    config : dict | None
+        UI 등에서 전달하는 Basic 설정. 일부 키(max_positions, min_trade_value_krw 등)가
+        있으면 해당 값이 우선 적용된다.
+
     Returns
     -------
     dict
@@ -280,10 +312,44 @@ def build_basic_decision(
     """
     positions = positions or []
 
-    regime_info = _regime_from_market(market_rows)
+    config = config or {}
+
+    cfg_max_positions = int(_safe_float(config.get("max_positions"), max_positions))
+    if cfg_max_positions <= 0:
+        cfg_max_positions = max_positions if max_positions > 0 else 3
+
+    min_trade_value_krw = _safe_float(config.get("min_trade_value_krw"), 0.0)
+    avoid_bear_market = bool(config.get("avoid_bear_market", True))
+
+    entry_score_threshold = _normalize_ui_score_to_internal(
+        config.get("entry_score_threshold"),
+        0.64,
+    )
+    exit_score_threshold = _normalize_ui_score_to_internal(
+        config.get("exit_score_threshold"),
+        0.45,
+    )
+
+    max_concurrent_buys = int(_safe_float(config.get("max_concurrent_buys"), 1))
+    if max_concurrent_buys <= 0:
+        max_concurrent_buys = 1
+
+    max_positions = cfg_max_positions
+
+    filtered_market_rows: List[Dict[str, Any]] = []
+    for row in market_rows or []:
+        if not isinstance(row, dict):
+            continue
+        if min_trade_value_krw > 0:
+            trade_value = _extract_trade_value_base(row)
+            if trade_value < min_trade_value_krw:
+                continue
+        filtered_market_rows.append(row)
+
+    regime_info = _regime_from_market(filtered_market_rows)
     regime = regime_info["regime"]
 
-    candidates = _score_candidates(market_rows)
+    candidates = _score_candidates(filtered_market_rows)
     candidate_map = {c["symbol"]: c for c in candidates}
     top = candidates[0] if candidates else None
 
@@ -297,7 +363,7 @@ def build_basic_decision(
     if not candidates:
         return {
             "decision": "STAY",
-            "reason": "후보 데이터 부족으로 관망",
+            "reason": "후보 데이터 부족 또는 거래대금 필터 조건 미충족으로 관망",
             "next_action": "시장 데이터 수집 대기",
             "rotation": {
                 "needed": False
@@ -309,15 +375,20 @@ def build_basic_decision(
     top_change = _safe_float(top["change_pct"])
 
     # 자연스러운 진입 억제를 위한 기준
-    enter_threshold = 0.64 if regime == "bull" else 0.72 if regime == "neutral" else 0.86
+    enter_threshold = entry_score_threshold
+    if regime == "neutral":
+        enter_threshold = max(enter_threshold, 0.72)
+    elif regime == "bear":
+        enter_threshold = max(enter_threshold, 0.86)
+
     rotate_gap_threshold = 0.18 if regime == "bull" else 0.24 if regime == "neutral" else 0.32
 
     # ===== 보유 없음 =====
     if not positions:
-        if regime == "bear":
+        if regime == "bear" and avoid_bear_market:
             return {
                 "decision": "STAY",
-                "reason": "하락장 우세로 신규 진입 보류",
+                "reason": "하락장 회피 설정 활성 + 신규 진입 보류",
                 "next_action": "관망 유지",
                 "rotation": {
                     "needed": False
@@ -328,7 +399,11 @@ def build_basic_decision(
             return {
                 "decision": "ENTER",
                 "reason": f"{'상승 흐름' if regime == 'bull' else '중립장 내 선도 후보'} + 거래 활성도 우수 + 후보 우위",
-                "next_action": f"{top_symbol} 소액 진입",
+                "next_action": (
+                    f"{top_symbol} 소액 진입"
+                    if max_concurrent_buys == 1
+                    else f"{top_symbol} 소액 진입 (동시 매수 제한 {max_concurrent_buys})"
+                ),
                 "rotation": {
                     "needed": False
                 }
@@ -370,7 +445,11 @@ def build_basic_decision(
             return {
                 "decision": "ENTER",
                 "reason": "보유 여유 슬롯 존재 + 신규 후보 우위",
-                "next_action": f"{top_symbol} 분할 진입",
+                "next_action": (
+                    f"{top_symbol} 분할 진입"
+                    if max_concurrent_buys == 1
+                    else f"{top_symbol} 분할 진입 (동시 매수 제한 {max_concurrent_buys})"
+                ),
                 "rotation": {
                     "needed": False
                 }
@@ -398,7 +477,7 @@ def build_basic_decision(
             regime != "bear"
             and top_change > 0
             and gap >= rotate_gap_threshold
-            and (worst_pnl < -0.8 or worst_score < 0.52)
+            and (worst_pnl < -0.8 or worst_score < exit_score_threshold)
         ):
             return {
                 "decision": "ROTATE",

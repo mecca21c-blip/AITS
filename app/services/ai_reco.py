@@ -28,14 +28,17 @@ def _build_basic_fallback_decision(
     market_rows: Optional[List[Dict[str, Any]]] = None,
     positions: Optional[List[Dict[str, Any]]] = None,
     max_positions: int = 3,
+    config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     try:
         market_rows = market_rows or []
         positions = positions or []
+        config = config or {}
         return build_basic_decision(
             market_rows=market_rows,
             positions=positions,
             max_positions=max_positions,
+            config=config or {},
         )
     except Exception as e:
         return {
@@ -121,7 +124,13 @@ def start_scheduler(settings_getter: Any = None, publish_fn: Any = None) -> bool
 
 def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
     global _LAST_ADVICE, _LAST_DECISION
+    basic_config: Dict[str, Any] = {}
     try:
+        try:
+            if isinstance(payload, dict):
+                basic_config = payload.get("basic_config") or {}
+        except Exception:
+            basic_config = {}
         out: Dict[str, Any] = {
             "ok": True,
             "source": "local",
@@ -163,6 +172,7 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
                 market_rows=market_rows,
                 positions=positions,
                 max_positions=max_positions,
+                config=basic_config,
             )
             merged = _basic_dict_to_reco_payload(basic)
             for k, v in merged.items():
@@ -183,7 +193,7 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
         _safe_publish("ai.reco.strategy_suggested", out)
         return out
     except Exception:
-        basic = _build_basic_fallback_decision([], [], 3)
+        basic = _build_basic_fallback_decision([], [], 3, config=basic_config)
         fallback = _basic_dict_to_reco_payload(basic)
         _LAST_ADVICE = dict(fallback)
         _safe_publish("ai.reco.updated", fallback)

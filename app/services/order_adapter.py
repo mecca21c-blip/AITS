@@ -300,6 +300,90 @@ class AITSOrderAdapter:
                                 "volume": c.quantity,
                                 "order_type": "market",
                             }
+                            decision_val = ""
+                            next_action_val = ""
+                            rotation_needed = False
+                            rotation_out = ""
+                            rotation_in = ""
+                            engine_mode_val = ""
+                            decision_payload = {}
+                            try:
+                                if not isinstance(decision_payload, dict):
+                                    decision_payload = {}
+                            except Exception:
+                                decision_payload = {}
+                            try:
+                                if bridge is not None:
+                                    decision_payload["decision_summary"] = str(
+                                        getattr(bridge, "summary", "") or ""
+                                    )
+                            except Exception:
+                                pass
+                            try:
+                                rsn_c = str(getattr(c, "reason", "") or "")
+                                if rsn_c:
+                                    decision_payload["reason"] = rsn_c
+                            except Exception:
+                                pass
+                            try:
+                                sp_c = str(getattr(c, "source_provider", "") or "")
+                                sm_c = str(getattr(c, "source_module", "") or "")
+                                if sp_c:
+                                    decision_payload["source"] = sp_c
+                                if sm_c:
+                                    decision_payload["source_module"] = sm_c
+                            except Exception:
+                                pass
+                            try:
+                                decision_val = str(
+                                    decision_payload.get("decision")
+                                    or decision_payload.get("decision_summary")
+                                    or decision_payload.get("reason")
+                                    or ""
+                                )
+                            except Exception:
+                                decision_val = ""
+                            try:
+                                next_action_val = str(
+                                    decision_payload.get("next_action") or ""
+                                )
+                            except Exception:
+                                next_action_val = ""
+                            try:
+                                rotation_obj = decision_payload.get("rotation") or {}
+                                if not isinstance(rotation_obj, dict):
+                                    rotation_obj = {}
+                                rotation_needed = bool(rotation_obj.get("needed", False))
+                                rotation_out = str(
+                                    rotation_obj.get("out_symbol")
+                                    or rotation_obj.get("from_symbol")
+                                    or ""
+                                )
+                                rotation_in = str(
+                                    rotation_obj.get("in_symbol")
+                                    or rotation_obj.get("to_symbol")
+                                    or ""
+                                )
+                            except Exception:
+                                rotation_needed = False
+                                rotation_out = ""
+                                rotation_in = ""
+                            try:
+                                engine_mode_val = str(
+                                    decision_payload.get("engine_mode")
+                                    or decision_payload.get("provider")
+                                    or decision_payload.get("source")
+                                    or ""
+                                )
+                            except Exception:
+                                engine_mode_val = ""
+                            self._safe_log_info(
+                                f"[AITS][DecisionTrace] pre_order | engine={engine_mode_val} | "
+                                f"action={c.action_type} | symbol={symbol} | "
+                                f"decision={decision_val} | next_action={next_action_val} | "
+                                f"rotation_needed={rotation_needed} | rotation_out={rotation_out} | "
+                                f"rotation_in={rotation_in}"
+                            )
                             if c.action_type == "buy":
                                 print(f"[AITS][OrderAdapter] buy_order_request | symbol={order_request.get('symbol')} | amount_krw={order_request.get('amount_krw')}")
                             po_result = order_service.place_order(order_request)
