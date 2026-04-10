@@ -1,6 +1,7 @@
 """Order execution interface skeleton (Phase 1). No real exchange calls."""
 
 import os
+import time
 import uuid
 
 import jwt
@@ -14,6 +15,11 @@ class OrderService:
         self._settings = None
         self._simulate = True
         self._trading_enabled = True
+        self._aits_last_exec = {
+            "action": None,
+            "symbol": None,
+            "ts": 0.0,
+        }
 
     def set_settings(self, settings) -> bool:
         try:
@@ -119,6 +125,34 @@ class OrderService:
             if side == "sell":
                 if not isinstance(volume, (int, float)) or volume <= 0:
                     return _fail("invalid_volume")
+
+            now_ts = time.time()
+            current_action = str(side or "").strip().lower()
+            current_symbol = str(symbol or "").strip().upper()
+
+            last_action = str(self._aits_last_exec.get("action") or "").strip().lower()
+            last_symbol = str(self._aits_last_exec.get("symbol") or "").strip().upper()
+            last_ts = float(self._aits_last_exec.get("ts", 0.0) or 0.0)
+
+            # 동일 액션 + 동일 심볼 + 10초 이내 중복 실행 차단
+            if (
+                last_action == current_action
+                and last_symbol == current_symbol
+                and (now_ts - last_ts) < 10.0
+            ):
+                try:
+                    print(
+                        f"[AITS][ExecGuard] duplicate_block | action={current_action} | symbol={current_symbol}"
+                    )
+                except Exception:
+                    pass
+                return _fail("duplicate_blocked")
+
+            self._aits_last_exec = {
+                "action": current_action,
+                "symbol": current_symbol,
+                "ts": now_ts,
+            }
 
             return {
                 "success": True,

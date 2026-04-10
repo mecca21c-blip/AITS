@@ -879,32 +879,347 @@ class MainWindow(QMainWindow):
                 "next_action": [],
             }
 
+    def _normalize_aits_decision_text(self, decision_text: str):
+        try:
+            d = str(decision_text or "").strip()
+            dl = d.lower()
+
+            if ("관망" in d) or ("watch" in dl) or ("대기" in d):
+                return "관망"
+            if ("진입 검토" in d) or ("매수" in d) or ("buy" in dl):
+                return "진입 검토"
+            if ("보유" in d) or ("유지" in d) or ("hold" in dl):
+                return "보유 관찰"
+            if ("매도" in d) or ("익절" in d) or ("손절" in d) or ("sell" in dl):
+                return "매도 검토"
+            if ("교체" in d) or ("rotation" in dl) or ("switch" in dl):
+                return "교체 검토"
+
+            return d or "판단 불가"
+        except Exception:
+            return "판단 불가"
+
+    def _extract_rotation_payload(self, raw_payload: dict):
+        try:
+            if not isinstance(raw_payload, dict):
+                return {
+                    "needed": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "why": "",
+                }
+
+            rot = raw_payload.get("rotation", {}) or {}
+            if not isinstance(rot, dict):
+                rot = {}
+
+            return {
+                "needed": bool(rot.get("needed", False)),
+                "from_symbol": str(rot.get("from_symbol", "") or "").strip(),
+                "to_symbol": str(rot.get("to_symbol", "") or "").strip(),
+                "why": str(rot.get("why", "") or "").strip(),
+            }
+        except Exception:
+            return {
+                "needed": False,
+                "from_symbol": "",
+                "to_symbol": "",
+                "why": "",
+            }
+
+    def _build_aits_base_reco_snapshot(self, payload: dict):
+        try:
+            if not isinstance(payload, dict):
+                payload = {}
+
+            return {
+                "decision_summary": str(payload.get("decision_summary", "") or "").strip(),
+                "reason_code": str(payload.get("reason_code", "") or "").strip(),
+                "items": list(payload.get("items", []) or []),
+                "raw_ai_response": str(
+                    payload.get("raw_ai_response", "")
+                    or payload.get("ai_raw_text", "")
+                    or payload.get("raw_response", "")
+                    or ""
+                ).strip(),
+                "rotation": self._extract_rotation_payload(payload),
+            }
+        except Exception:
+            return {
+                "decision_summary": "",
+                "reason_code": "",
+                "items": [],
+                "raw_ai_response": "",
+                "rotation": {
+                    "needed": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "why": "",
+                },
+            }
+
+    def _build_aits_gpt_reco_snapshot(self, payload: dict):
+        try:
+            if not isinstance(payload, dict):
+                payload = {}
+
+            raw_text = str(
+                payload.get("raw_ai_response", "")
+                or payload.get("ai_raw_text", "")
+                or payload.get("raw_response", "")
+                or ""
+            ).strip()
+            parsed = self._parse_aits_ai_response(raw_text)
+
+            return {
+                "decision_summary": self._normalize_aits_decision_text(
+                    parsed.get("decision", "")
+                ),
+                "reason": list(parsed.get("reason", []) or []),
+                "next_action": list(parsed.get("next_action", []) or []),
+                "raw_ai_response": raw_text,
+                "rotation": self._extract_rotation_payload(payload),
+            }
+        except Exception:
+            return {
+                "decision_summary": "판단 불가",
+                "reason": [],
+                "next_action": [],
+                "raw_ai_response": "",
+                "rotation": {
+                    "needed": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "why": "",
+                },
+            }
+
+    def _merge_aits_reco_payloads(self, base_payload: dict, gpt_payload: dict):
+        try:
+            base = self._build_aits_base_reco_snapshot(base_payload or {})
+            gpt = self._build_aits_gpt_reco_snapshot(gpt_payload or {})
+
+            final_decision = ""
+            gpt_dec = str(gpt.get("decision_summary", "") or "").strip()
+            if gpt_dec and gpt_dec != "판단 불가":
+                final_decision = gpt_dec
+            else:
+                final_decision = self._normalize_aits_decision_text(
+                    base.get("decision_summary", "")
+                )
+
+            final_reason = []
+            if gpt.get("reason"):
+                final_reason = list(gpt.get("reason", []) or [])
+            else:
+                base_reason = str(base.get("reason_code", "") or "").strip()
+                if base_reason:
+                    final_reason = [base_reason]
+
+            final_next_action = list(gpt.get("next_action", []) or [])
+
+            final_rotation = dict(gpt.get("rotation", {}) or {})
+            if not final_rotation.get("needed", False):
+                base_rotation = base.get("rotation", {}) or {}
+                if isinstance(base_rotation, dict) and base_rotation.get(
+                    "needed", False
+                ):
+                    final_rotation = dict(base_rotation)
+
+            merged = {
+                "decision_summary": final_decision,
+                "reason": final_reason,
+                "next_action": final_next_action,
+                "rotation": final_rotation,
+                "rotation_mode": "soft",
+                "items": list(base.get("items", []) or []),
+                "raw_ai_response": str(
+                    gpt.get("raw_ai_response", "")
+                    or base.get("raw_ai_response", "")
+                    or ""
+                ).strip(),
+                "source": "gpt" if gpt.get("raw_ai_response") else "base",
+            }
+
+            return merged
+
+        except Exception:
+            return {
+                "decision_summary": "판단 불가",
+                "reason": [],
+                "next_action": [],
+                "rotation": {
+                    "needed": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "why": "",
+                },
+                "rotation_mode": "soft",
+                "items": [],
+                "raw_ai_response": "",
+                "source": "base",
+            }
+
+    def _apply_final_aits_reco_payload(self, final_payload: dict):
+        try:
+            if not isinstance(final_payload, dict):
+                return
+
+            self._aits_last_final_reco_payload = dict(final_payload)
+
+            try:
+                self._aits_last_rotation_payload = dict(
+                    final_payload.get("rotation", {}) or {}
+                )
+            except Exception:
+                self._aits_last_rotation_payload = {}
+
+            parsed = {
+                "decision": str(final_payload.get("decision_summary", "") or "").strip(),
+                "reason": list(final_payload.get("reason", []) or []),
+                "next_action": list(final_payload.get("next_action", []) or []),
+            }
+
+            try:
+                rot = getattr(self, "_aits_last_rotation_payload", {}) or {}
+                if rot.get("needed", False):
+                    decision_txt = str(parsed.get("decision", "") or "")
+                    if "교체" not in decision_txt:
+                        parsed["decision"] = f"{decision_txt} (교체 검토)"
+            except Exception:
+                pass
+
+            self._aits_last_ai_explanation = parsed
+
+            try:
+                rot_dbg = getattr(self, "_aits_last_rotation_payload", {}) or {}
+                if rot_dbg.get("needed", False):
+                    print(f"[AITS][ROT] {rot_dbg}")
+            except Exception:
+                pass
+
+            self._render_aits_ai_explanation()
+
+            try:
+                rot = getattr(self, "_aits_last_rotation_payload", {}) or {}
+                if rot.get("needed", False) and hasattr(
+                    self, "lbl_market_search_status"
+                ):
+                    base_txt = self.lbl_market_search_status.text()
+                    if "교체" not in base_txt:
+                        self.lbl_market_search_status.setText(
+                            base_txt + " · 교체신호"
+                        )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    # NOTE:
+    # STEP 46은 rotation을 실제 주문 강제 로직에 연결하지 않는다.
+    # rotation은 AI가 포지션 교체/유지/관망을 더 정교하게 판단하도록 돕는 soft signal일 뿐이다.
+    # AITS의 최종 행동은 여전히 AI 판단 + 설명 가능성 기준으로 결정되어야 한다.
+
+    def _get_aits_rotation_soft_weights(self):
+        try:
+            rot = getattr(self, "_aits_last_rotation_payload", {}) or {}
+            if not isinstance(rot, dict):
+                rot = {}
+
+            needed = bool(rot.get("needed", False))
+            from_symbol = str(rot.get("from_symbol", "") or "").strip()
+            to_symbol = str(rot.get("to_symbol", "") or "").strip()
+
+            if not needed:
+                return {
+                    "enabled": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "sell_bias": 0.0,
+                    "buy_bias": 0.0,
+                }
+
+            return {
+                "enabled": True,
+                "from_symbol": from_symbol,
+                "to_symbol": to_symbol,
+                "sell_bias": 0.35,
+                "buy_bias": 0.45,
+            }
+
+        except Exception:
+            return {
+                "enabled": False,
+                "from_symbol": "",
+                "to_symbol": "",
+                "sell_bias": 0.0,
+                "buy_bias": 0.0,
+            }
+
+    def _build_rotation_explanation_lines(self):
+        try:
+            payload = self._get_aits_final_explanation_payload()
+            rot = dict(payload.get("rotation", {}) or {})
+
+            needed = bool(rot.get("needed", False))
+            from_sym = str(rot.get("from_symbol", "") or "").strip()
+            to_sym = str(rot.get("to_symbol", "") or "").strip()
+            why = str(rot.get("why", "") or "").strip()
+
+            if not needed:
+                return []
+
+            lines = []
+
+            if from_sym and to_sym:
+                lines.append(
+                    f"보유 종목 {from_sym} → {to_sym} 교체 검토 (soft 신호)"
+                )
+            elif to_sym:
+                lines.append(f"{to_sym} 신규 진입 우선 검토 (soft 신호)")
+            else:
+                lines.append("포지션 교체 기회 발생 (soft 신호)")
+
+            if why:
+                lines.append(f"이유: {why}")
+
+            return lines
+
+        except Exception:
+            return []
+
     def _render_aits_ai_explanation(self):
         """
         우측 패널에 AI 판단 설명 출력
         """
-        data = getattr(self, "_aits_last_ai_explanation", None)
-        if not data:
-            return
+        data = self._get_aits_final_explanation_payload()
+        decision = str(data.get("decision", "") or "").strip()
+        reasons = list(data.get("reason", []) or [])
+        nexts = list(data.get("next_action", []) or [])
 
-        decision = data.get("decision", "")
-        reasons = data.get("reason", [])
-        nexts = data.get("next_action", [])
-        if isinstance(reasons, str):
-            reasons = [reasons] if reasons else []
-        if isinstance(nexts, str):
-            nexts = [nexts] if nexts else []
+        try:
+            rot_lines = self._build_rotation_explanation_lines()
+        except Exception:
+            rot_lines = []
 
         decision_text = f"[AI 판단] {decision}"
 
         reason_text = "\n".join([f"- {r}" for r in reasons[:5]])
         next_text = "\n".join([f"→ {n}" for n in nexts[:3]])
 
+        rotation_block = ""
+        if rot_lines:
+            rotation_block = (
+                "\n\n🔁 교체매매 신호\n"
+                + "\n".join(f"• {rl}" for rl in rot_lines)
+                + "\n• 교체 신호는 참고 가중치이며 즉시 실행 명령은 아님"
+            )
+
         final_text = f"""
 {decision_text}
 
 [판단 근거]
-{reason_text}
+{reason_text}{rotation_block}
 
 [다음 행동]
 {next_text}
@@ -950,12 +1265,130 @@ class MainWindow(QMainWindow):
                 "next_action": [],
             }
 
+    def _get_aits_final_explanation_payload(self):
+        try:
+            final_payload = getattr(self, "_aits_last_final_reco_payload", {}) or {}
+            rotation_payload = getattr(self, "_aits_last_rotation_payload", {}) or {}
+
+            decision = str(final_payload.get("decision_summary", "") or "").strip()
+            reasons = list(final_payload.get("reason", []) or [])
+            next_actions = list(final_payload.get("next_action", []) or [])
+
+            if isinstance(reasons, str):
+                reasons = [reasons]
+            if isinstance(next_actions, str):
+                next_actions = [next_actions]
+
+            reasons = [str(x).strip() for x in reasons if str(x).strip()]
+            next_actions = [str(x).strip() for x in next_actions if str(x).strip()]
+
+            rot_needed = bool(rotation_payload.get("needed", False))
+            rot_from = str(rotation_payload.get("from_symbol", "") or "").strip()
+            rot_to = str(rotation_payload.get("to_symbol", "") or "").strip()
+            rot_why = str(rotation_payload.get("why", "") or "").strip()
+            rot_mode = str(final_payload.get("rotation_mode", "") or "soft").strip()
+
+            decision_norm = self._normalize_aits_decision_text(decision)
+            if rot_needed and "교체" not in decision_norm:
+                decision_norm = f"{decision_norm} (교체 검토)"
+
+            return {
+                "decision": decision_norm,
+                "reason": reasons[:5],
+                "next_action": next_actions[:3],
+                "rotation": {
+                    "needed": rot_needed,
+                    "from_symbol": rot_from,
+                    "to_symbol": rot_to,
+                    "why": rot_why,
+                    "mode": rot_mode or "soft",
+                },
+            }
+        except Exception:
+            return {
+                "decision": "",
+                "reason": [],
+                "next_action": [],
+                "rotation": {
+                    "needed": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "why": "",
+                    "mode": "soft",
+                },
+            }
+
+    def _build_aits_unified_decision_banner(self):
+        try:
+            p = self._get_aits_final_explanation_payload()
+            decision = str(p.get("decision", "") or "").strip()
+            rot = dict(p.get("rotation", {}) or {})
+            if not decision:
+                return "", "neutral"
+
+            variant = self._get_aits_decision_variant()
+            if rot.get("needed", False) and "교체" not in decision:
+                decision = f"{decision} (교체 검토)"
+            return decision, variant
+        except Exception:
+            return "", "neutral"
+
+    def _build_aits_unified_action_badge(self):
+        try:
+            p = self._get_aits_final_explanation_payload()
+            decision = str(p.get("decision", "") or "").strip()
+            reasons = list(p.get("reason", []) or [])
+            rot = dict(p.get("rotation", {}) or {})
+
+            title = decision or "판단 불가"
+            subtitle_parts = []
+
+            if reasons:
+                subtitle_parts.extend(reasons[:2])
+
+            if rot.get("needed", False):
+                rot_from = str(rot.get("from_symbol", "") or "").strip()
+                rot_to = str(rot.get("to_symbol", "") or "").strip()
+                if rot_from and rot_to:
+                    subtitle_parts.append(f"{rot_from} → {rot_to} 교체 soft 신호")
+                elif rot_to:
+                    subtitle_parts.append(f"{rot_to} 우선 검토 soft 신호")
+                else:
+                    subtitle_parts.append("교체 soft 신호")
+
+            subtitle = " · ".join(
+                [str(x).strip() for x in subtitle_parts if str(x).strip()]
+            )
+            variant = self._get_aits_decision_variant()
+            return title, subtitle, variant
+        except Exception:
+            return "", "", "neutral"
+
+    def _build_aits_unified_plan_text(self):
+        try:
+            p = self._get_aits_final_explanation_payload()
+            next_actions = list(p.get("next_action", []) or [])
+            rot = dict(p.get("rotation", {}) or {})
+
+            parts = [str(x).strip() for x in next_actions[:2] if str(x).strip()]
+            if rot.get("needed", False):
+                why = str(rot.get("why", "") or "").strip()
+                if why:
+                    parts.append(f"교체 근거: {why}")
+
+            if not parts:
+                return ""
+            return "AI 계획 요약: " + " | ".join(parts)
+        except Exception:
+            return ""
+
     def _build_aits_chart_overlay_text(self):
         try:
-            payload = self._get_aits_ai_explanation_payload()
+            payload = self._get_aits_final_explanation_payload()
             decision = str(payload.get("decision", "") or "").strip()
-            reasons = payload.get("reason", []) or []
-            next_actions = payload.get("next_action", []) or []
+            reasons = list(payload.get("reason", []) or [])
+            next_actions = list(payload.get("next_action", []) or [])
+            rot = dict(payload.get("rotation", {}) or {})
 
             lines = []
 
@@ -974,13 +1407,28 @@ class MainWindow(QMainWindow):
                 for n in next_actions[:2]:
                     lines.append(f"→ {n}")
 
+            if rot.get("needed", False):
+                lines.append("")
+                lines.append("[교체 신호]")
+                rot_from = str(rot.get("from_symbol", "") or "").strip()
+                rot_to = str(rot.get("to_symbol", "") or "").strip()
+                rot_why = str(rot.get("why", "") or "").strip()
+                if rot_from and rot_to:
+                    lines.append(f"- {rot_from} → {rot_to} 교체 soft 신호")
+                elif rot_to:
+                    lines.append(f"- {rot_to} 우선 검토 soft 신호")
+                else:
+                    lines.append("- 교체 soft 신호")
+                if rot_why:
+                    lines.append(f"- 이유: {rot_why}")
+
             return "\n".join(lines).strip()
         except Exception:
             return ""
 
     def _get_aits_decision_variant(self):
         try:
-            payload = self._get_aits_ai_explanation_payload()
+            payload = self._get_aits_final_explanation_payload()
             decision = str(payload.get("decision", "") or "").strip().lower()
 
             if not decision:
@@ -1536,6 +1984,10 @@ class MainWindow(QMainWindow):
         self._aits_main_reco_latest_applied_seq = 0
         self._aits_main_reco_latest_payload_fp = ""
         self._aits_main_reco_min_change_sec = 8.0
+        self._aits_last_base_reco_payload = {}
+        self._aits_last_gpt_reco_payload = {}
+        self._aits_last_final_reco_payload = {}
+        self._aits_last_rotation_payload = {}
         self._market_view_mode = "quick"   # "quick" | "all"
         self._market_sort_key = "volume"   # volume | change | price
         self._market_sort_order = "desc"   # desc | asc
@@ -5298,9 +5750,9 @@ class MainWindow(QMainWindow):
         self, ai_reason_text: str, ai_state_text: str = "", ai_score_text: str = ""
     ):
         try:
-            payload = self._get_aits_ai_explanation_payload()
+            payload = self._get_aits_final_explanation_payload()
             payload_decision = str(payload.get("decision", "") or "").strip()
-            payload_reasons = payload.get("reason", []) or []
+            payload_reasons = list(payload.get("reason", []) or [])
 
             reason = str(ai_reason_text or "").strip()
             state = str(ai_state_text or "").strip()
@@ -5352,6 +5804,15 @@ class MainWindow(QMainWindow):
 
     def _get_aits_popup_action_badge(self, row: int):
         try:
+            title, subtitle, variant = self._build_aits_unified_action_badge()
+            if title:
+                return {
+                    "title": title,
+                    "subtitle": subtitle,
+                    "variant": variant,
+                    "state": "",
+                }
+
             levels = self._get_aits_popup_price_levels(row)
             ai_state = str(levels.get("ai_state") or "").strip()
             current_price = levels.get("current_price")
@@ -5364,7 +5825,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 reason_text = ""
 
-            payload = self._get_aits_ai_explanation_payload()
+            payload = self._get_aits_final_explanation_payload()
             payload_reasons = payload.get("reason", []) or []
             if isinstance(payload_reasons, str):
                 payload_reasons = [payload_reasons] if str(payload_reasons).strip() else []
@@ -5465,7 +5926,14 @@ class MainWindow(QMainWindow):
 
     def _get_aits_popup_decision_banner(self, row: int):
         try:
-            payload = self._get_aits_ai_explanation_payload()
+            banner_text, banner_variant = self._build_aits_unified_decision_banner()
+            if banner_text:
+                return {
+                    "text": banner_text,
+                    "variant": banner_variant,
+                }
+
+            payload = self._get_aits_final_explanation_payload()
             decision_text = str(payload.get("decision", "") or "").strip()
 
             badge = self._get_aits_popup_action_badge(row)
@@ -5548,8 +6016,12 @@ class MainWindow(QMainWindow):
 
     def _build_aits_popup_ai_plan_text(self, row: int) -> str:
         try:
+            unified_plan = self._build_aits_unified_plan_text()
+            if unified_plan:
+                return unified_plan
+
             _ = row
-            payload = self._get_aits_ai_explanation_payload()
+            payload = self._get_aits_final_explanation_payload()
             next_actions = payload.get("next_action", []) or []
             if next_actions:
                 return "AI 계획 요약: " + " | ".join(
@@ -7421,6 +7893,12 @@ class MainWindow(QMainWindow):
                 default=0.0,
             )
 
+            rotw = self._get_aits_rotation_soft_weights()
+            rot_to = str(rotw.get("to_symbol", "") or "").strip()
+            is_rotation_target = bool(
+                rotw.get("enabled", False) and sym and rot_to and sym == rot_to
+            )
+
             return {
                 "symbol": sym,
                 "display_name": display_name,
@@ -7432,6 +7910,10 @@ class MainWindow(QMainWindow):
                 "current_price": float(current_price),
                 "change_rate": float(change_rate),
                 "change_pct": round(float(change_rate) * 100.0, 4),
+                "rotation_target": is_rotation_target,
+                "rotation_buy_bias": float(
+                    rotw.get("buy_bias", 0.0) if is_rotation_target else 0.0
+                ),
             }
         except Exception:
             return {
@@ -7445,6 +7927,8 @@ class MainWindow(QMainWindow):
                 "current_price": 0.0,
                 "change_rate": 0.0,
                 "change_pct": 0.0,
+                "rotation_target": False,
+                "rotation_buy_bias": 0.0,
             }
 
     def _build_managed_pool_context(self, row_obj):
@@ -7462,6 +7946,16 @@ class MainWindow(QMainWindow):
                 or ""
             ).strip()
             display_name = self._merge_aits_symbol_and_name(sym, raw_name)
+
+            rotw = self._get_aits_rotation_soft_weights()
+            rot_from = str(rotw.get("from_symbol", "") or "").strip()
+            rot_to = str(rotw.get("to_symbol", "") or "").strip()
+            is_rotation_from = bool(
+                rotw.get("enabled", False) and sym and rot_from and sym == rot_from
+            )
+            is_rotation_to = bool(
+                rotw.get("enabled", False) and sym and rot_to and sym == rot_to
+            )
 
             kind_raw = self._safe_row_pick(row_obj, "kind", "source", default="")
             state_raw = self._safe_row_pick(
@@ -7540,6 +8034,14 @@ class MainWindow(QMainWindow):
                 "opportunity_gap_pct": round(float(opportunity_gap_pct), 4),
                 "risk_gap_pct": round(float(risk_gap_pct), 4),
                 "is_user_added": str(kind_raw or "").strip().lower() == "user",
+                "rotation_from_candidate": is_rotation_from,
+                "rotation_to_candidate": is_rotation_to,
+                "rotation_sell_bias": float(
+                    rotw.get("sell_bias", 0.0) if is_rotation_from else 0.0
+                ),
+                "rotation_buy_bias": float(
+                    rotw.get("buy_bias", 0.0) if is_rotation_to else 0.0
+                ),
             }
         except Exception:
             return {
@@ -7560,6 +8062,10 @@ class MainWindow(QMainWindow):
                 "opportunity_gap_pct": 0.0,
                 "risk_gap_pct": 0.0,
                 "is_user_added": False,
+                "rotation_from_candidate": False,
+                "rotation_to_candidate": False,
+                "rotation_sell_bias": 0.0,
+                "rotation_buy_bias": 0.0,
             }
 
     def _build_quick_candidate_contexts(self):
@@ -7723,6 +8229,8 @@ class MainWindow(QMainWindow):
             managed_analysis = self._build_managed_position_analysis(managed_rows)
             opportunity = self._build_opportunity_comparison(quick_rows, managed_rows)
 
+            rotw = self._get_aits_rotation_soft_weights()
+
             context = {
                 "market_regime": regime,
                 "market_regime_text": {
@@ -7766,6 +8274,13 @@ class MainWindow(QMainWindow):
                     else None,
                     "has_better_opportunity": opportunity.get("has_better"),
                 },
+                "rotation_soft_integration": {
+                    "enabled": bool(rotw.get("enabled", False)),
+                    "from_symbol": str(rotw.get("from_symbol", "") or "").strip(),
+                    "to_symbol": str(rotw.get("to_symbol", "") or "").strip(),
+                    "sell_bias": float(rotw.get("sell_bias", 0.0)),
+                    "buy_bias": float(rotw.get("buy_bias", 0.0)),
+                },
             }
             return context
         except Exception:
@@ -7789,6 +8304,13 @@ class MainWindow(QMainWindow):
                 "opportunity_analysis": {
                     "top_candidate": None,
                     "has_better_opportunity": False,
+                },
+                "rotation_soft_integration": {
+                    "enabled": False,
+                    "from_symbol": "",
+                    "to_symbol": "",
+                    "sell_bias": 0.0,
+                    "buy_bias": 0.0,
                 },
             }
 
@@ -7914,6 +8436,25 @@ class MainWindow(QMainWindow):
                 f"- 상위 교체 후보: {top_candidate or '-'}",
                 f"- 더 나은 기회 존재 여부: {'예' if has_better else '아니오'}",
             ]
+
+            rot = dict(context.get("rotation_soft_integration", {}) or {})
+            rot_enabled = bool(rot.get("enabled", False))
+            rot_from = str(rot.get("from_symbol", "") or "").strip()
+            rot_to = str(rot.get("to_symbol", "") or "").strip()
+            rot_sell_bias = self._fmt_aits_prompt_number(
+                rot.get("sell_bias", 0.0), digits=2
+            )
+            rot_buy_bias = self._fmt_aits_prompt_number(
+                rot.get("buy_bias", 0.0), digits=2
+            )
+            lines.append(
+                f"- 교체 soft signal 사용 여부: {'예' if rot_enabled else '아니오'}"
+            )
+            if rot_enabled:
+                lines.append(f"- 교체 검토 출발 종목: {rot_from or '-'}")
+                lines.append(f"- 교체 검토 목표 종목: {rot_to or '-'}")
+                lines.append(f"- soft bias: 매도 {rot_sell_bias} / 매수 {rot_buy_bias}")
+
             return "\n".join(lines)
         except Exception:
             return "[포지션/기회비용 분석]\n- 정보 없음"
@@ -7940,6 +8481,8 @@ class MainWindow(QMainWindow):
             "- 하락장에서는 무지성 신규 진입을 경계하고, 상승장에서는 상대적 약세 종목의 기회비용을 고려\n"
             "- USER 수동 추가 종목과 잠금 종목은 임의 제거 대상으로 보지 말 것\n"
             "- 확신이 낮으면 관망 또는 조건 대기라고 명확히 말할 것\n"
+            "- rotation은 즉시 실행 명령이 아니라 포지션 교체 검토 신호로 해석할 것\n"
+            "- 교체가 필요하다고 판단해도 시장 상태, 잠금 종목, 사용자 추가 종목, 기회비용을 함께 설명할 것\n"
         )
 
     # NOTE:
@@ -8135,6 +8678,71 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        def _fallback_reco_update_basic_engine():
+            market_rows_fb = []
+            positions_fb = []
+            try:
+                ctx_fb = self._build_aits_ai_decision_context()
+                for qc in (ctx_fb.get("quick_candidates") or [])[:50]:
+                    if not isinstance(qc, dict):
+                        continue
+                    sym = str(qc.get("symbol") or "").strip()
+                    if not sym:
+                        continue
+                    row = {"symbol": sym}
+                    try:
+                        if "change_pct" in qc:
+                            row["change_pct"] = qc.get("change_pct")
+                        tv = qc.get("trade_value")
+                        if tv is not None:
+                            row["trade_value"] = float(tv)
+                    except Exception:
+                        pass
+                    market_rows_fb.append(row)
+                for pos in (getattr(self, "ai_managed_rows", []) or [])[:50]:
+                    if not isinstance(pos, dict):
+                        continue
+                    psym = str(
+                        pos.get("symbol") or pos.get("market") or ""
+                    ).strip()
+                    if not psym:
+                        continue
+                    prow = {"symbol": psym}
+                    for k in (
+                        "pnl_pct",
+                        "profit_pct",
+                        "unrealized_pnl_pct",
+                        "change_pct",
+                        "change_rate",
+                    ):
+                        if pos.get(k) is None:
+                            continue
+                        try:
+                            prow[k] = float(pos.get(k))
+                        except (TypeError, ValueError):
+                            pass
+                    positions_fb.append(prow)
+            except Exception:
+                pass
+            try:
+                self._log.info(
+                    "[AITS][BasicFallback] GPT unavailable -> reco update with market_rows"
+                )
+            except Exception:
+                pass
+            try:
+                ai_reco.update(
+                    payload={
+                        "use_basic_engine": True,
+                        "basic_fallback": True,
+                        "market_rows": market_rows_fb,
+                        "positions": positions_fb,
+                    },
+                    from_boot=True,
+                )
+            except Exception:
+                pass
+
         try:
             prov = (
                 getattr(self, "cb_ai_provider", None)
@@ -8142,6 +8750,7 @@ class MainWindow(QMainWindow):
                 or ""
             ).strip().lower()
             if prov != "gpt":
+                _fallback_reco_update_basic_engine()
                 return
 
             api_key = ""
@@ -8154,6 +8763,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             if not api_key or api_key.startswith("•"):
+                _fallback_reco_update_basic_engine()
                 return
 
             model = ""
@@ -8215,6 +8825,7 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     pass
+                _fallback_reco_update_basic_engine()
                 return
 
             try:
@@ -8226,6 +8837,10 @@ class MainWindow(QMainWindow):
             if choices and isinstance(choices[0], dict):
                 delta = choices[0].get("message") or choices[0].get("delta") or {}
                 ai_raw_text = (delta.get("content") or "").strip()
+
+            if not str(ai_raw_text or "").strip():
+                _fallback_reco_update_basic_engine()
+                return
 
             self._aits_last_ai_raw_response = ai_raw_text
 
@@ -8284,6 +8899,7 @@ class MainWindow(QMainWindow):
                 "actual_engine": f"gpt-{model}",
                 "selected_engine": "gpt",
             }
+            reco_payload["source"] = "gpt"
 
             try:
                 latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
@@ -8305,6 +8921,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         except Exception:
+            try:
+                _fallback_reco_update_basic_engine()
+            except Exception:
+                pass
             try:
                 self._log.warning("[AITS-RECO-MAIN] fail")
             except Exception:
@@ -11310,6 +11930,22 @@ class MainWindow(QMainWindow):
 
             _raw = _payload
             _pl = (_raw.get("advice") if isinstance(_raw, dict) and "advice" in _raw else _raw) or {}
+
+            try:
+                raw_text_probe = str(
+                    _pl.get("raw_ai_response", "")
+                    or _pl.get("ai_raw_text", "")
+                    or _pl.get("raw_response", "")
+                    or ""
+                ).strip()
+            except Exception:
+                raw_text_probe = ""
+
+            if raw_text_probe:
+                self._aits_last_gpt_reco_payload = dict(_pl)
+            else:
+                self._aits_last_base_reco_payload = dict(_pl)
+
             _src = _pl.get("source", "")
             _fb = _pl.get("fallback", False)
             _items = _pl.get("items") or []
@@ -11378,6 +12014,15 @@ class MainWindow(QMainWindow):
             parsed = self._parse_aits_ai_response(ai_raw_text)
             self._aits_last_ai_explanation = parsed
             self._render_aits_ai_explanation()
+
+            try:
+                final_payload = self._merge_aits_reco_payloads(
+                    getattr(self, "_aits_last_base_reco_payload", {}) or {},
+                    getattr(self, "_aits_last_gpt_reco_payload", {}) or {},
+                )
+                self._apply_final_aits_reco_payload(final_payload)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -13168,8 +13813,9 @@ class MainWindow(QMainWindow):
                 payload = {"markets": markets} if markets else {}
                 ai_reco.update(payload)
                 # NOTE:
-                # ai_reco.update(payload)는 즉시형/기본 추천 상태를 갱신하는 기존 경로이고,
-                # GPT reco는 설명 가능한 능동 판단을 보강하는 후속 경로다.
+                # base reco는 즉시형 추천 상태를 갱신하고,
+                # GPT reco는 같은 상황을 설명 가능한 판단으로 보강한다.
+                # STEP 44에서는 두 결과를 병합해 사용자에게는 하나의 final reco로 보이게 한다.
                 # STEP 43에서는 GPT 호출의 과다/중복/지연 덮어쓰기를 막는 안정화만 수행한다.
                 try:
                     self._schedule_aits_main_gpt_reco(200)
