@@ -2463,7 +2463,7 @@ class MainWindow(QMainWindow):
 
         global_status_layout.addWidget(self.global_status_icon)
         global_status_layout.addWidget(self.global_status_text)
-        self.lbl_aits_ai_engine_status = QLabel("AITS AI Status: Market Scanning")
+        self.lbl_aits_ai_engine_status = QLabel("AITS AI 상태: 시장 확인 중")
         self.lbl_aits_ai_engine_status.setStyleSheet(
             "font-size: 11px; color: #37474f; font-weight: 600; padding: 0 8px;"
         )
@@ -4101,29 +4101,35 @@ class MainWindow(QMainWindow):
                 pass
 
     def _update_top_badge(self):
-        """상단 라운드 배지 = 최종 적용 엔진만. actual_engine(매매기록과 동일). 연결중 표시 금지."""
+        """상단 배지: 엔진명 미노출, AI 상태 요약만."""
         try:
             actual = ""
+            selected = ""
             try:
                 from app.services import ai_reco
                 last_dec = ai_reco.get_last_decision() or {}
                 actual = (last_dec.get("actual_engine") or "").strip()
+                selected = (last_dec.get("selected_engine") or "").strip()
             except Exception:
                 pass
-            c_blue, c_green, c_orange = "#2F6FED", "#2E8B57", "#F57C00"
+            stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
             c_white = "#fff"
-            if actual == "simple_momo" or (getattr(self, "_gpt_status_stage", "") or "").strip().lower() == "degraded":
-                badge_txt = "SIMPLE_MOMO"
+            c_orange = "#F57C00"
+            c_green = "#2E8B57"
+            c_gray = "#757575"
+            c_bg_wait = "#ECEFF1"
+
+            has_signal = bool(actual or selected)
+
+            if actual == "simple_momo" or stage == "degraded":
+                badge_txt = "AI 상태 | 주의"
                 badge_bg, badge_fg = c_orange, c_white
-            elif actual.startswith("gpt-"):
-                badge_txt = "GPT | %s" % actual
-                badge_bg, badge_fg = c_blue, c_white
-            elif actual:
-                badge_txt = "LOCAL | %s" % actual
+            elif has_signal:
+                badge_txt = "AI 상태 | 준비됨"
                 badge_bg, badge_fg = c_green, c_white
             else:
-                badge_txt = "LOCAL | —"
-                badge_bg, badge_fg = c_green, c_white
+                badge_txt = "AI 상태 | 대기"
+                badge_bg, badge_fg = c_bg_wait, c_gray
             if hasattr(self, "ai_status_text") and self.ai_status_text is not None:
                 self.ai_status_text.setVisible(True)
                 self.ai_status_text.setText(badge_txt)
@@ -4231,21 +4237,17 @@ class MainWindow(QMainWindow):
             self._log.debug("[ENGINE-UI] update err=%s", str(e)[:80])
 
     def _update_active_engine_label(self):
-        """실제 적용 엔진(연결 성공 기준)을 새로고침 버튼 옆 라벨에 반영."""
+        """
+        엔진 중복 표기를 줄이기 위해 Active 라벨은 기본적으로 숨긴다.
+        메인 엔진 표시는 lbl_engine_status(큰 박스) 1곳만 사용한다.
+        """
         try:
-            provider = self._get_aits_engine_ssot()
-            if provider == "gpt":
-                txt = "Active Engine: OpenAI"
-                color = "#2e7d32"
-            elif provider == "gemini":
-                txt = "Active Engine: Gemini"
-                color = "#1565c0"
-            else:
-                txt = "Active Engine: Basic AI"
-                color = "#9e9e9e"
-            if hasattr(self, "lbl_active_engine") and self.lbl_active_engine is not None:
-                self.lbl_active_engine.setText(txt)
-                self.lbl_active_engine.setStyleSheet(f"font-size: 11px; color: {color}; font-weight: bold;")
+            obj = getattr(self, "lbl_active_engine", None)
+            if obj is not None:
+                if hasattr(obj, "setText"):
+                    obj.setText("")
+                if hasattr(obj, "setVisible"):
+                    obj.setVisible(False)
         except Exception:
             pass
 
@@ -7269,7 +7271,7 @@ class MainWindow(QMainWindow):
                 f"[AITS] ai score update total={len(rows)} buy_ready={buy_ready_count} watching={watching_count}"
             )
 
-            status_text = "AITS AI Status: Market Scanning"
+            status_text = "AITS AI 상태: 시장 확인 중"
             has_buy = any(
                 str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Buy Ready"
                 for r in rows
@@ -7279,13 +7281,13 @@ class MainWindow(QMainWindow):
                 for r in rows
             )
             if position_limit_blocked:
-                status_text = "AITS AI Status: Position Limit Reached"
+                status_text = "AITS AI 상태: 보유 한도 도달"
             elif has_buy:
-                status_text = "AITS AI Status: Opportunity Scoring"
+                status_text = "AITS AI 상태: 추천 준비"
             elif has_hold:
-                status_text = "AITS AI Status: Position Monitoring"
+                status_text = "AITS AI 상태: 포지션 모니터링"
             else:
-                status_text = "AITS AI Status: Market Scanning"
+                status_text = "AITS AI 상태: 시장 확인 중"
 
             if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                 self.lbl_aits_ai_engine_status.setText(status_text)
@@ -7325,9 +7327,9 @@ class MainWindow(QMainWindow):
     def _advance_basic_ai_status_line(self) -> None:
         try:
             msgs = (
-                "AITS AI Status: Market Scanning",
-                "AITS AI Status: Opportunity Scoring",
-                "AITS AI Status: Risk Filtering",
+                "AITS AI 상태: 시장 확인 중",
+                "AITS AI 상태: 추천 준비",
+                "AITS AI 상태: 리스크 필터링",
             )
             self._basic_ai_status_idx = (int(getattr(self, "_basic_ai_status_idx", 0)) + 1) % len(msgs)
             if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
