@@ -7068,7 +7068,7 @@ class MainWindow(QMainWindow):
 
     def _calc_basic_ai_score(self, row: dict) -> dict:
         """Basic AI 규칙 기반 점수(0~100)."""
-        st = self.basic_ai_settings
+        st = self._sync_legacy_basic_ai_settings_from_ssot()
         reasons: list[str] = []
         trend_score = 0
         volume_score = 0
@@ -7229,6 +7229,10 @@ class MainWindow(QMainWindow):
     def _update_ai_pool_statuses(self) -> None:
         """AI 종목: 규칙 기반 점수로 상태 갱신. USER는 목표/손절만 반영·상태 Watching."""
         try:
+            try:
+                self._sync_legacy_basic_ai_settings_from_ssot()
+            except Exception:
+                pass
             st = self.basic_ai_settings
             max_pos = int(st.get("max_positions", 5) or 5)
             max_new = max(0, int(st.get("max_new_entries", 2) or 2))
@@ -7428,46 +7432,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _sync_basic_ai_settings_from_ui(self) -> None:
+    def _sync_basic_ai_settings_from_ui(self) -> dict:
         try:
-            if not hasattr(self, "cmb_basic_ai_risk") or not hasattr(self, "sp_basic_ai_entry_score"):
-                return
-            self.basic_ai_settings["risk_mode"] = str(self.cmb_basic_ai_risk.currentText()).strip() or "중립"
-            self.basic_ai_settings["target_profit_pct"] = float(self.sp_basic_ai_target_profit.value())
-            self.basic_ai_settings["stop_loss_pct"] = float(self.sp_basic_ai_stop_loss.value())
-            self.basic_ai_settings["max_positions"] = int(self.sp_basic_ai_max_positions.value())
-            self.basic_ai_settings["selection_strength"] = (
-                str(self.cmb_basic_ai_selection.currentText()).strip() or "보통"
-            )
-            self.basic_ai_settings["avoid_bear_market"] = bool(self.cb_basic_ai_avoid_bear.isChecked())
-            self.basic_ai_settings["buy_sensitivity"] = (
-                str(self.cmb_basic_ai_buy_sensitivity.currentText()).strip() or "보통"
-            )
-            self.basic_ai_settings["sell_sensitivity"] = (
-                str(self.cmb_basic_ai_sell_sensitivity.currentText()).strip() or "보통"
-            )
-            self.basic_ai_settings["split_buy"] = bool(self.cb_basic_ai_split_buy.isChecked())
-            self.basic_ai_settings["split_sell"] = bool(self.cb_basic_ai_split_sell.isChecked())
-            self.basic_ai_settings["max_hold_time"] = int(self.sp_basic_ai_max_hold_min.value())
-            self.basic_ai_settings["min_volume"] = int(self.sp_basic_ai_min_volume.value())
-            self.basic_ai_settings["exclude_overheated"] = bool(
-                self.cb_basic_ai_exclude_overheated.isChecked()
-            )
-            self.basic_ai_settings["avoid_sudden_drop"] = bool(
-                self.cb_basic_ai_avoid_sudden_drop.isChecked()
-            )
-            self.basic_ai_settings["trend_filter"] = (
-                str(self.cmb_basic_ai_trend_filter.currentText()).strip() or "약함"
-            )
-            self.basic_ai_settings["entry_score_threshold"] = int(self.sp_basic_ai_entry_score.value())
-            self.basic_ai_settings["exit_score_threshold"] = int(self.sp_basic_ai_exit_score.value())
-            self.basic_ai_settings["decision_speed"] = (
-                str(self.cmb_basic_ai_decision_speed.currentText()).strip() or "보통"
-            )
-            self.basic_ai_settings["reentry_cooldown_min"] = int(self.sp_basic_ai_reentry_cooldown.value())
-            self.basic_ai_settings["max_new_entries"] = int(self.sp_basic_ai_max_new_entries.value())
+            return self._sync_legacy_basic_ai_settings_from_ssot()
         except Exception:
-            pass
+            self.basic_ai_settings = getattr(self, "basic_ai_settings", {}) or {}
+            return self.basic_ai_settings
 
     def _load_basic_ai_settings_to_ui(self) -> None:
         try:
@@ -7518,6 +7488,10 @@ class MainWindow(QMainWindow):
                 self.cmb_basic_ai_decision_speed.setCurrentText("보통")
             self.sp_basic_ai_reentry_cooldown.setValue(int(d.get("reentry_cooldown_min", 30) or 30))
             self.sp_basic_ai_max_new_entries.setValue(int(d.get("max_new_entries", 2) or 2))
+            try:
+                self._sync_legacy_basic_ai_settings_from_ssot()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -9191,6 +9165,185 @@ class MainWindow(QMainWindow):
         }
 
         return cfg
+
+    def _get_aits_basic_config_ssot(self) -> dict:
+        """
+        Basic 설정의 단일 기준(SSOT)을 반환한다.
+        현재는 UI에서 즉시 수집한 값을 기준으로 하고,
+        실패 시 기존 basic_ai_settings를 하위 호환용으로 보정 사용한다.
+        """
+        try:
+            cfg = self._collect_aits_basic_engine_settings()
+            if isinstance(cfg, dict) and cfg:
+                return cfg
+        except Exception:
+            pass
+
+        legacy = {}
+        try:
+            legacy = getattr(self, "basic_ai_settings", None) or {}
+        except Exception:
+            legacy = {}
+
+        if not isinstance(legacy, dict):
+            legacy = {}
+
+        def _norm_risk(v):
+            s = str(v).strip()
+            if s == "보수적":
+                return "conservative"
+            if s == "공격적":
+                return "aggressive"
+            return "neutral"
+
+        def _norm_level3(v):
+            s = str(v).strip()
+            if s == "낮음":
+                return "low"
+            if s == "높음":
+                return "high"
+            return "medium"
+
+        def _norm_sell(v):
+            s = str(v).strip()
+            if s == "느림":
+                return "slow"
+            if s == "빠름":
+                return "fast"
+            return "medium"
+
+        def _norm_trend(v):
+            s = str(v).strip()
+            if s == "약함":
+                return "weak"
+            if s == "강함":
+                return "strong"
+            return "medium"
+
+        _tp = float(legacy.get("take_profit_pct", legacy.get("target_profit_pct", 3.5)) or 3.5)
+        _min_krw = int(legacy.get("min_trade_value_krw", legacy.get("min_volume", 100000000)) or 100000000)
+        _max_conc = int(legacy.get("max_concurrent_buys", legacy.get("max_new_entries", 1)) or 1)
+        _risk_kr = str(legacy.get("risk_profile_kr", legacy.get("risk_mode", "중립"))).strip() or "중립"
+        _sel_kr = str(
+            legacy.get("selection_strength_kr", legacy.get("selection_strength", "보통"))
+        ).strip() or "보통"
+        _buy_kr = str(legacy.get("buy_sensitivity_kr", legacy.get("buy_sensitivity", "보통"))).strip() or "보통"
+        _sell_kr = str(legacy.get("sell_sensitivity_kr", legacy.get("sell_sensitivity", "보통"))).strip() or "보통"
+        _trend_kr = str(
+            legacy.get("trend_filter_strength_kr", legacy.get("trend_filter", "보통"))
+        ).strip() or "보통"
+        _dec_kr = str(legacy.get("decision_speed_kr", legacy.get("decision_speed", "보통"))).strip() or "보통"
+
+        return {
+            "engine_mode": "basic",
+            "ui_labels_kr": {
+                "운용 성향": _risk_kr,
+                "종목 선별 강도": _sel_kr,
+                "최대 보유 종목 수": legacy.get("max_positions", 5),
+                "목표 수익률 (%)": _tp,
+                "손절 기준 (%)": legacy.get("stop_loss_pct", 1.5),
+                "최대 보유 시간 (분)": legacy.get("max_hold_minutes", legacy.get("max_hold_time", 90)),
+                "매수 민감도": _buy_kr,
+                "매도 민감도": _sell_kr,
+                "분할 매수": legacy.get("split_buy_enabled", legacy.get("split_buy", True)),
+                "분할 매도": legacy.get("split_sell_enabled", legacy.get("split_sell", True)),
+                "최소 거래대금 (원)": _min_krw,
+                "추세 필터": _trend_kr,
+                "하락장 회피": legacy.get("avoid_bear_market", True),
+                "급락 회피": legacy.get("avoid_sharp_drop", legacy.get("avoid_sudden_drop", True)),
+                "과열 종목 제외": legacy.get("exclude_overheated", True),
+                "AI 진입 기준 점수": legacy.get("entry_score_threshold", 60),
+                "AI 청산 기준 점수": legacy.get("exit_score_threshold", 45),
+                "AI 판단 속도": _dec_kr,
+                "재진입 제한 시간 (분)": legacy.get(
+                    "reentry_cooldown_minutes", legacy.get("reentry_cooldown_min", 30)
+                ),
+                "동시 매수 제한 수": _max_conc,
+            },
+            "risk_profile": _norm_risk(_risk_kr),
+            "selection_strength": _norm_level3(_sel_kr),
+            "max_positions": int(legacy.get("max_positions", 5) or 5),
+            "take_profit_pct": _tp,
+            "stop_loss_pct": float(legacy.get("stop_loss_pct", 1.5) or 1.5),
+            "max_hold_minutes": int(
+                legacy.get("max_hold_minutes", legacy.get("max_hold_time", 90)) or 90
+            ),
+            "buy_sensitivity": _norm_level3(_buy_kr),
+            "sell_sensitivity": _norm_sell(_sell_kr),
+            "split_buy_enabled": bool(legacy.get("split_buy_enabled", legacy.get("split_buy", True))),
+            "split_sell_enabled": bool(legacy.get("split_sell_enabled", legacy.get("split_sell", True))),
+            "min_trade_value_krw": _min_krw,
+            "trend_filter_strength": _norm_trend(_trend_kr),
+            "avoid_bear_market": bool(legacy.get("avoid_bear_market", True)),
+            "avoid_sharp_drop": bool(legacy.get("avoid_sharp_drop", legacy.get("avoid_sudden_drop", True))),
+            "exclude_overheated": bool(legacy.get("exclude_overheated", True)),
+            "entry_score_threshold": int(legacy.get("entry_score_threshold", 60) or 60),
+            "exit_score_threshold": int(legacy.get("exit_score_threshold", 45) or 45),
+            "decision_speed_kr": _dec_kr,
+            "decision_speed": _norm_sell(_dec_kr),
+            "reentry_cooldown_minutes": int(
+                legacy.get("reentry_cooldown_minutes", legacy.get("reentry_cooldown_min", 30)) or 30
+            ),
+            "max_concurrent_buys": _max_conc,
+        }
+
+    def _sync_legacy_basic_ai_settings_from_ssot(self) -> dict:
+        """
+        basic_config SSOT를 기존 basic_ai_settings cache 형태로 동기화한다.
+        이번 단계에서는 하위 호환용 cache 유지 목적이다.
+        """
+        cfg = self._get_aits_basic_config_ssot()
+        legacy = {
+            "risk_profile": cfg.get("risk_profile", "neutral"),
+            "risk_profile_kr": (cfg.get("ui_labels_kr") or {}).get("운용 성향", "중립"),
+            "selection_strength": cfg.get("selection_strength", "medium"),
+            "selection_strength_kr": (cfg.get("ui_labels_kr") or {}).get("종목 선별 강도", "보통"),
+            "max_positions": cfg.get("max_positions", 5),
+            "take_profit_pct": cfg.get("take_profit_pct", 3.5),
+            "stop_loss_pct": cfg.get("stop_loss_pct", 1.5),
+            "max_hold_minutes": cfg.get("max_hold_minutes", 90),
+            "buy_sensitivity": cfg.get("buy_sensitivity", "medium"),
+            "buy_sensitivity_kr": (cfg.get("ui_labels_kr") or {}).get("매수 민감도", "보통"),
+            "sell_sensitivity": cfg.get("sell_sensitivity", "medium"),
+            "sell_sensitivity_kr": (cfg.get("ui_labels_kr") or {}).get("매도 민감도", "보통"),
+            "split_buy_enabled": cfg.get("split_buy_enabled", True),
+            "split_sell_enabled": cfg.get("split_sell_enabled", True),
+            "min_volume": cfg.get("min_trade_value_krw", 100000000),
+            "min_trade_value_krw": cfg.get("min_trade_value_krw", 100000000),
+            "trend_filter_strength": cfg.get("trend_filter_strength", "medium"),
+            "trend_filter_strength_kr": (cfg.get("ui_labels_kr") or {}).get("추세 필터", "보통"),
+            "avoid_bear_market": cfg.get("avoid_bear_market", True),
+            "avoid_sharp_drop": cfg.get("avoid_sharp_drop", True),
+            "exclude_overheated": cfg.get("exclude_overheated", True),
+            "entry_score_threshold": cfg.get("entry_score_threshold", 60),
+            "exit_score_threshold": cfg.get("exit_score_threshold", 45),
+            "decision_speed": cfg.get("decision_speed", "medium"),
+            "decision_speed_kr": cfg.get(
+                "decision_speed_kr",
+                (cfg.get("ui_labels_kr") or {}).get("AI 판단 속도", "보통"),
+            ),
+            "reentry_cooldown_minutes": cfg.get("reentry_cooldown_minutes", 30),
+            "max_new_entries": cfg.get("max_concurrent_buys", 1),
+            "max_concurrent_buys": cfg.get("max_concurrent_buys", 1),
+        }
+        ui_kr = cfg.get("ui_labels_kr") or {}
+        legacy["risk_mode"] = str(ui_kr.get("운용 성향", legacy.get("risk_profile_kr", "중립")))
+        legacy["selection_strength"] = str(ui_kr.get("종목 선별 강도", "보통"))
+        legacy["buy_sensitivity"] = str(ui_kr.get("매수 민감도", "보통"))
+        legacy["sell_sensitivity"] = str(ui_kr.get("매도 민감도", "보통"))
+        legacy["trend_filter"] = str(ui_kr.get("추세 필터", "보통"))
+        legacy["decision_speed"] = str(
+            legacy.get("decision_speed_kr") or ui_kr.get("AI 판단 속도", "보통")
+        )
+        legacy["split_buy"] = bool(legacy.get("split_buy_enabled", True))
+        legacy["split_sell"] = bool(legacy.get("split_sell_enabled", True))
+        legacy["max_hold_time"] = int(legacy.get("max_hold_minutes", 90) or 90)
+        legacy["reentry_cooldown_min"] = int(legacy.get("reentry_cooldown_minutes", 30) or 30)
+        legacy["avoid_sudden_drop"] = bool(legacy.get("avoid_sharp_drop", True))
+        _tp = float(legacy.get("take_profit_pct", 3.5) or 3.5)
+        legacy["target_profit_pct"] = _tp
+        self.basic_ai_settings = legacy
+        return legacy
 
     def _run_aits_main_gpt_reco_and_publish(self) -> None:
         """
