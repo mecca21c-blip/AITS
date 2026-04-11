@@ -4536,7 +4536,8 @@ class MainWindow(QMainWindow):
             self.lbl_ai_detail_lock.setText("잠금" if locked else "잠금 해제")
             pr = float(row.get("price") or 0.0)
             self.lbl_ai_detail_price.setText(f"{pr:,.0f}" if pr > 0 else "—")
-            self.lbl_ai_detail_change.setText(self._fmt_change_pct(float(row.get("change_rate") or 0.0)))
+            _chg_v = float(row.get("change_rate", row.get("change_pct", 0.0)) or 0.0)
+            self.lbl_ai_detail_change.setText(self._fmt_change_pct(_chg_v))
             tp = float(row.get("target_price") or 0.0)
             sl = float(row.get("stop_loss") or 0.0)
             self.lbl_ai_detail_target.setText(f"{tp:,.0f}" if tp > 0 else "—")
@@ -4550,7 +4551,9 @@ class MainWindow(QMainWindow):
                     str(row.get("ai_status") or "Watching")
                 )
                 _price_txt = f"{pr:,.0f}" if pr > 0 else "—"
-                _chg_txt = self._fmt_change_pct(float(row.get("change_rate") or 0.0))
+                _chg_txt = self._fmt_change_pct(
+                    float(row.get("change_rate", row.get("change_pct", 0.0)) or 0.0)
+                )
                 _tp_txt = f"{tp:,.0f}" if tp > 0 else "—"
                 _sl_txt = f"{sl:,.0f}" if sl > 0 else "—"
                 _pnl_txt = f"{pnl:.2f}%" if pr > 0 else "—"
@@ -4581,7 +4584,7 @@ class MainWindow(QMainWindow):
                 self.lbl_ai_detail_price_summary.setText(price_summary)
             except Exception:
                 pass
-            if src == "AI" and row.get("ai_score") is not None:
+            if row.get("ai_score") is not None:
                 try:
                     self.lbl_ai_detail_score.setText(str(int(row.get("ai_score"))))
                 except Exception:
@@ -6950,7 +6953,7 @@ class MainWindow(QMainWindow):
             else:
                 c3.setForeground(QColor("#2e7d32"))
             t.setItem(i, 3, c3)
-            if src == "AI" and row.get("ai_score") is not None:
+            if row.get("ai_score") is not None:
                 _sc = row.get("ai_score")
                 try:
                     cscore = QTableWidgetItem(str(int(_sc)))
@@ -7021,20 +7024,21 @@ class MainWindow(QMainWindow):
             for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP"):
                 if sym in existing:
                     continue
-                self.ai_managed_rows.append(
-                    {
-                        "symbol": sym,
-                        "name": sym.split("-")[-1],
-                        "price": 0.0,
-                        "change_rate": 0.0,
-                        "source": "AI",
-                        "ai_status": "Watching",
-                        "target_price": 0.0,
-                        "stop_loss": 0.0,
-                        "pnl": 0.0,
-                        "locked": False,
-                    }
-                )
+                demo_row = {
+                    "symbol": sym,
+                    "name": sym.split("-")[-1],
+                    "price": 0.0,
+                    "change_rate": 0.0,
+                    "source": "AI",
+                    "ai_status": "Watching",
+                    "target_price": 0.0,
+                    "stop_loss": 0.0,
+                    "pnl": 0.0,
+                    "locked": False,
+                }
+                demo_row = self._ensure_aits_managed_pool_row_shape(demo_row)
+                demo_row["source_type"] = "system_default"
+                self.ai_managed_rows.append(demo_row)
                 existing.add(sym)
             print(f"[AITS] demo ai rows injected count={len([r for r in self.ai_managed_rows if str(r.get('source')) == 'AI'])}")
         except Exception:
@@ -7188,6 +7192,40 @@ class MainWindow(QMainWindow):
             "risk_penalty": int(risk_penalty),
         }
 
+    def _is_aits_pool_row_candidate_eligible(self, row: dict) -> bool:
+        """
+        Managed Pool 내부 row가 자동 판단 후보 큐에 들어갈 수 있는지 판단한다.
+        출처(source/source_type)는 참고만 하고, 1차 기준으로 쓰지 않는다.
+        """
+        if not isinstance(row, dict):
+            return False
+
+        symbol = str(row.get("symbol") or row.get("market") or "").strip()
+        if not symbol:
+            return False
+
+        ai_score = row.get("ai_score")
+        try:
+            if ai_score is None:
+                return False
+            float(ai_score)
+        except Exception:
+            return False
+
+        status = str(row.get("ai_status") or row.get("status") or "").strip()
+        allowed_status = {
+            "Buy Ready",
+            "Watching",
+            "Holding",
+            "Sell Ready",
+        }
+        if not status:
+            return False
+        if status not in allowed_status:
+            return False
+
+        return True
+
     def _update_ai_pool_statuses(self) -> None:
         """AI 종목: 규칙 기반 점수로 상태 갱신. USER는 목표/손절만 반영·상태 Watching."""
         try:
@@ -7203,7 +7241,22 @@ class MainWindow(QMainWindow):
             position_limit_blocked = False
 
             for row in rows:
+                try:
+                    if str(row.get("source") or "").upper() == "AI" and not str(
+                        row.get("source_type") or ""
+                    ).strip():
+                        row["source_type"] = "ai_selected"
+                except Exception:
+                    pass
+
+            for row in rows:
                 src = str(row.get("source") or "").upper()
+                stype = str(row.get("source_type") or "").strip()
+                pool_analyze = stype in (
+                    "system_default",
+                    "user_added",
+                    "ai_selected",
+                ) or src == "AI"
                 prev_status = str(row.get("ai_status") or "Watching")
                 price = float(row.get("price") or 0.0)
                 pnl = float(row.get("pnl") or 0.0)
@@ -7217,7 +7270,7 @@ class MainWindow(QMainWindow):
                     row["target_price"] = 0.0
                     row["stop_loss"] = 0.0
 
-                if src != "AI":
+                if not pool_analyze:
                     row["ai_status"] = "Watching"
                     row.pop("ai_score", None)
                     row.pop("ai_reason_summary", None)
@@ -7248,10 +7301,15 @@ class MainWindow(QMainWindow):
             holding_count = sum(
                 1
                 for r in rows
-                if str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Holding"
+                if str(r.get("ai_status") or "") == "Holding"
             )
 
-            buy_rows = [r for r in rows if str(r.get("source") or "").upper() == "AI" and r.get("ai_status") == "Buy Ready"]
+            buy_rows = [
+                r
+                for r in rows
+                if r.get("ai_status") == "Buy Ready"
+                and self._is_aits_pool_row_candidate_eligible(r)
+            ]
 
             if holding_count >= max_pos and buy_rows:
                 position_limit_blocked = True
@@ -7273,13 +7331,11 @@ class MainWindow(QMainWindow):
 
             status_text = "AITS AI 상태: 시장 확인 중"
             has_buy = any(
-                str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Buy Ready"
+                r.get("ai_status") == "Buy Ready"
+                and self._is_aits_pool_row_candidate_eligible(r)
                 for r in rows
             )
-            has_hold = any(
-                str(r.get("source") or "").upper() == "AI" and str(r.get("ai_status") or "") == "Holding"
-                for r in rows
-            )
+            has_hold = any(str(r.get("ai_status") or "") == "Holding" for r in rows)
             if position_limit_blocked:
                 status_text = "AITS AI 상태: 보유 한도 도달"
             elif has_buy:
@@ -9796,6 +9852,47 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _ensure_aits_managed_pool_row_shape(self, row: dict) -> dict:
+        """
+        Managed Pool에 들어가는 행의 최소 공통 shape를 맞춘다.
+        수동 추가 종목도 기본 종목과 동일한 분석/표시 파이프라인을 탈 수 있게
+        필수 키를 채운다.
+        """
+        if not isinstance(row, dict):
+            row = {}
+
+        symbol = str(
+            row.get("symbol") or row.get("market") or row.get("ticker") or ""
+        ).strip()
+
+        normalized = dict(row)
+        normalized["symbol"] = symbol
+        normalized["market"] = symbol
+
+        # 출처 구분
+        if not normalized.get("source_type"):
+            normalized["source_type"] = "user_added"
+
+        # 점수/표시 관련 기본 키
+        normalized.setdefault("ai_score", None)
+        normalized.setdefault("score", None)
+        normalized.setdefault("decision", "")
+        normalized.setdefault("reason", "")
+        normalized.setdefault("next_action", "")
+        normalized.setdefault("status", "분석 대기")
+        normalized.setdefault("rotation_needed", False)
+
+        # UI 표시/정렬용 안전 키
+        _cr = float(normalized.get("change_rate") or normalized.get("change_pct") or 0.0)
+        normalized.setdefault("change_pct", _cr)
+        normalized.setdefault("change_rate", _cr)
+        normalized.setdefault("trade_value", float(normalized.get("trade_value") or 0.0))
+        normalized.setdefault("volume_krw", float(normalized.get("volume_krw") or 0.0))
+
+        normalized.setdefault("ai_status", str(normalized.get("status") or "분석 대기"))
+
+        return normalized
+
     def _load_market_explorer_initial_data(self) -> None:
         try:
             raw = get_top_markets_by_volume(limit=30) or []
@@ -9905,21 +10002,42 @@ class MainWindow(QMainWindow):
 
         price = float(src_row.get("price", 0.0)) if src_row else 0.0
         chg = float(src_row.get("change_rate", 0.0)) if src_row else 0.0
-        self.ai_managed_rows.append(
-            {
-                "symbol": sym,
-                "market": sym,
-                "name": display_name,
-                "price": price,
-                "change_rate": chg,
-                "source": "USER",
-                "ai_status": "Watching",
-                "target_price": 0.0,
-                "stop_loss": 0.0,
-                "pnl": 0.0,
-                "locked": False,
-            }
-        )
+        tv = 0.0
+        if src_row and isinstance(src_row, dict):
+            try:
+                tv = float(
+                    src_row.get("acc_trade_price_24h")
+                    or src_row.get("trade_value")
+                    or src_row.get("volume_krw")
+                    or 0.0
+                )
+            except Exception:
+                tv = 0.0
+        new_row = {
+            "symbol": sym,
+            "market": sym,
+            "name": display_name,
+            "price": price,
+            "change_rate": chg,
+            "source": "USER",
+            "target_price": 0.0,
+            "stop_loss": 0.0,
+            "pnl": 0.0,
+            "locked": False,
+            "trade_value": tv,
+            "volume_krw": tv,
+        }
+        new_row = self._ensure_aits_managed_pool_row_shape(new_row)
+        new_row["source_type"] = new_row.get("source_type") or "user_added"
+        self.ai_managed_rows.append(new_row)
+        try:
+            self._sync_ai_pool_market_fields()
+        except Exception:
+            pass
+        try:
+            self._update_ai_pool_statuses()
+        except Exception:
+            pass
         self._refresh_ai_managed_table()
 
     def _remove_symbol_from_ai_pool(self, symbol: str) -> None:
