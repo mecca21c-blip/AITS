@@ -3722,3 +3722,8 @@ NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?
 2026-04-11 19:17:49,379 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-11 19:17:49,379 | INFO | aits | AITS orchestrator initialized
 2026-04-11 19:17:56,686 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-12 07:34:59,726 | INFO | aits | AITS bootstrap start
+2026-04-12 07:34:59,733 | INFO | aits | AITS orchestrator initialized
+2026-04-12 07:34:59,734 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-12 07:34:59,734 | INFO | aits | AITS orchestrator initialized
+2026-04-12 07:35:07,994 | INFO | aits | UI launched via legacy-compatible entry
