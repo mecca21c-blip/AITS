@@ -3456,9 +3456,18 @@ class MainWindow(QMainWindow):
 
         if not already:
             self.tabs.addTab(self._wrap_tab_scroll(self.tab_strategy), "전략설정")
-            
             # ✅ P0-UI-GLOBAL-STATUS: StrategyTab에 parent_window 참조 전달
             self.tab_strategy._parent_window = self
+        _strategy_tab_tooltip = (
+            "이 탭은 엔진 종류와 무관하게 적용되는 공통 운용 정책을 설정합니다."
+        )
+        for _ti in range(self.tabs.count()):
+            _tw = self.tabs.widget(_ti)
+            if _tw is self.tab_strategy or (
+                isinstance(_tw, QScrollArea) and _tw.widget() is self.tab_strategy
+            ):
+                self.tabs.setTabToolTip(_ti, _strategy_tab_tooltip)
+                break
 
         # Settings
         self.tab_settings = QWidget()
@@ -4103,13 +4112,13 @@ class MainWindow(QMainWindow):
     def _update_top_badge(self):
         """상단 배지: 엔진명 미노출, AI 상태 요약만."""
         try:
-            actual = ""
-            selected = ""
+            selected_provider = self._get_aits_engine_ssot()
+            actual_provider = self._get_aits_last_response_provider()
+            actual_engine_raw = ""
             try:
                 from app.services import ai_reco
                 last_dec = ai_reco.get_last_decision() or {}
-                actual = (last_dec.get("actual_engine") or "").strip()
-                selected = (last_dec.get("selected_engine") or "").strip()
+                actual_engine_raw = (last_dec.get("actual_engine") or "").strip()
             except Exception:
                 pass
             stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
@@ -4119,14 +4128,29 @@ class MainWindow(QMainWindow):
             c_gray = "#757575"
             c_bg_wait = "#ECEFF1"
 
-            has_signal = bool(actual or selected)
-
-            if actual == "simple_momo" or stage == "degraded":
+            if actual_engine_raw == "simple_momo" or stage == "degraded":
                 badge_txt = "AI 상태 | 주의"
                 badge_bg, badge_fg = c_orange, c_white
-            elif has_signal:
-                badge_txt = "AI 상태 | 준비됨"
-                badge_bg, badge_fg = c_green, c_white
+            elif selected_provider == "basic":
+                if actual_provider in ("gpt", "gemini"):
+                    badge_txt = "AI 상태 | 주의"
+                    badge_bg, badge_fg = c_orange, c_white
+                elif actual_provider == "basic":
+                    badge_txt = "AI 상태 | 준비됨"
+                    badge_bg, badge_fg = c_green, c_white
+                else:
+                    badge_txt = "AI 상태 | 대기"
+                    badge_bg, badge_fg = c_bg_wait, c_gray
+            elif selected_provider in ("gpt", "gemini"):
+                if actual_provider == selected_provider:
+                    badge_txt = "AI 상태 | 준비됨"
+                    badge_bg, badge_fg = c_green, c_white
+                elif actual_provider:
+                    badge_txt = "AI 상태 | 주의"
+                    badge_bg, badge_fg = c_orange, c_white
+                else:
+                    badge_txt = "AI 상태 | 대기"
+                    badge_bg, badge_fg = c_bg_wait, c_gray
             else:
                 badge_txt = "AI 상태 | 대기"
                 badge_bg, badge_fg = c_bg_wait, c_gray
@@ -4140,8 +4164,14 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    # [PATCH 5-1]
+    # 엔진 표시 기준은 _get_aits_engine_ssot() 단일값을 사용한다.
+    # 실제 연결 성공 여부 / 모델명 / API 응답 모델명은
+    # 이후 5-2 단계에서 별도 처리한다.
+    # 현재 단계는 "무슨 엔진을 선택했는지" 정확히 보여주는 것이 목적이다.
+
     def _update_engine_status_box(self):
-        """새로고침 오른쪽 큰 박스 = 실시간 연결/전환 상태. 배경 연회색 고정, 신호등 아이콘만."""
+        """새로고침 오른쪽 큰 박스: 선택 엔진 종류(SSOT)만 표시. 모델명은 표기하지 않음."""
         try:
             if not getattr(self, "_engine_ui_unified_done", False):
                 for name in ("gpt_test_header_status", "gpt_decision_summary"):
@@ -4159,50 +4189,9 @@ class MainWindow(QMainWindow):
                 provider_label = "Gemini"
             else:
                 provider_label = "Basic AI"
-            sel_eng = ""
-            cloud_model = ""
-            try:
-                st = getattr(self._settings, "strategy", None) if getattr(self, "_settings", None) else None
-                st_dict = st.model_dump() if hasattr(st, "model_dump") else (st if isinstance(st, dict) else {})
-                sel_eng = (st_dict.get("ai_local_model") or "").strip() if isinstance(st_dict, dict) else ""
-                cloud_model = (st_dict.get("ai_openai_model") or "").strip() if isinstance(st_dict, dict) else ""
-            except Exception:
-                pass
-            actual = ""
-            try:
-                from app.services import ai_reco
-                last_dec = ai_reco.get_last_decision() or {}
-                actual = (last_dec.get("actual_engine") or "").strip()
-                if not sel_eng:
-                    sel_eng = (last_dec.get("selected_engine") or "").strip()
-            except Exception:
-                pass
-            stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
-            if provider == "basic" and hasattr(self, "cmb_local_model") and self.cmb_local_model.currentText():
-                local_label = (self.cmb_local_model.currentText() or "").strip() or sel_eng
-            else:
-                local_label = sel_eng or (actual if actual and not actual.startswith("gpt-") else "—")
-            if not cloud_model and hasattr(self, "ed_openai_model"):
-                cloud_model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
-            if provider == "gpt" and actual.startswith("gpt-"):
-                cloud_model = actual
-            if not cloud_model:
-                cloud_model = "—"
 
-            # provider 3분기 + 상태 텍스트(내부 명칭 노출 금지)
-            if stage == "degraded":
-                if provider == "gpt":
-                    box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
-                elif provider == "gemini":
-                    box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
-                else:
-                    box_txt = "AI Engine | %s (%s)" % (provider_label, local_label)
-            elif provider == "gpt":
-                box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
-            elif provider == "gemini":
-                box_txt = "AI Engine | %s (%s)" % (provider_label, cloud_model)
-            else:
-                box_txt = "AI Engine | %s (%s)" % (provider_label, local_label)
+            stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
+            box_txt = "AI Engine | %s" % provider_label
 
             if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
                 self.lbl_engine_status.setText(box_txt)
@@ -4210,7 +4199,7 @@ class MainWindow(QMainWindow):
                     "padding: 6px 14px; border-radius: 8px; font-weight: 700; color: #111; background: #F3F4F6;"
                     " border: 1px solid rgba(0,0,0,0.15); margin-left: 8px;"
                 )
-            self._log.info("[ENGINE-UI] provider=%s actual=%s stage=%s", provider, actual or "—", stage or "—")
+            self._log.info("[ENGINE-UI] provider=%s stage=%s", provider, stage or "—")
         except Exception as e:
             self._log.debug("[ENGINE-UI] box err=%s", str(e)[:80])
 
@@ -4242,6 +4231,7 @@ class MainWindow(QMainWindow):
         메인 엔진 표시는 lbl_engine_status(큰 박스) 1곳만 사용한다.
         """
         try:
+            self._get_aits_engine_ssot()  # 향후 라벨 재노출 시에도 동일 SSOT 기준
             obj = getattr(self, "lbl_active_engine", None)
             if obj is not None:
                 if hasattr(obj, "setText"):
@@ -4252,7 +4242,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _update_ai_status(self):
-        """우측상단 표시 1곳 통일: actual_engine SSOT만 lbl_engine_status에 반영."""
+        """우측상단 표시: 엔진 종류는 _get_aits_engine_ssot() 기준으로 lbl_engine_status에 반영."""
         try:
             self._update_engine_ui_ssot()
         except Exception:
@@ -4328,7 +4318,7 @@ class MainWindow(QMainWindow):
                 f"QGroupBox {{ background-color: {local_bg}; border: 1px solid {local_border}; border-radius: 6px; padding: 8px; }}"
             )
 
-        # 우측상단 배지 + 현재 엔진: actual_engine SSOT로 2곳 갱신
+        # 우측상단 배지 + 큰 박스: 선택 엔진 SSOT 기준으로 갱신
         try:
             self._update_engine_ui_ssot()
         except Exception as e:
@@ -4387,8 +4377,10 @@ class MainWindow(QMainWindow):
                 self._on_test_gpt()
             except Exception:
                 pass
-            if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
-                self.lbl_engine_status.setText(f"AI Engine | OpenAI ({model or 'gpt-4o-mini'})")
+            try:
+                self._update_engine_status_box()
+            except Exception:
+                pass
             return
         if eng == "Gemini":
             print("[AITS] Gemini connection test")
@@ -4398,16 +4390,20 @@ class MainWindow(QMainWindow):
                 self._on_test_gemini()
             except Exception:
                 pass
-            if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
-                self.lbl_engine_status.setText(f"AI Engine | Gemini ({model or 'gemini-1.5-pro'})")
+            try:
+                self._update_engine_status_box()
+            except Exception:
+                pass
             return
         print("[AITS] Basic AI connection test")
         try:
             self._on_test_local_ai()
         except Exception:
             pass
-        if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
-            self.lbl_engine_status.setText("AI Engine | Basic AI")
+        try:
+            self._update_engine_status_box()
+        except Exception:
+            pass
 
     # --- AITS Managed Pool / Market Explorer (Qt 테이블 골격, ag-Grid 스타일 상태·이벤트 분리) ---
     _AI_M_COL_LOCK = 9
@@ -7333,6 +7329,21 @@ class MainWindow(QMainWindow):
                 f"[AITS] ai score update total={len(rows)} buy_ready={buy_ready_count} watching={watching_count}"
             )
 
+            sel_p = self._get_aits_engine_ssot()
+            act_p = self._get_aits_last_response_provider()
+            mismatch_status = None
+            if sel_p in ("gpt", "gemini"):
+                if act_p and act_p != sel_p:
+                    mismatch_status = "AITS AI 상태: 선택 엔진과 응답 엔진 불일치"
+                elif not act_p:
+                    mismatch_status = "AITS AI 상태: 응답 대기 중"
+            if mismatch_status:
+                status_text = mismatch_status
+                if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                    self.lbl_aits_ai_engine_status.setText(status_text)
+                print(f"[AITS] ai engine status={status_text}")
+                return
+
             status_text = "AITS AI 상태: 시장 확인 중"
             has_buy = any(
                 r.get("ai_status") == "Buy Ready"
@@ -8724,6 +8735,79 @@ class MainWindow(QMainWindow):
             return "gemini"
         return "gpt"
 
+    def _get_aits_last_response_provider(self) -> str:
+        """
+        마지막 판단/응답이 어느 엔진에서 왔는지 추정한다.
+        반환값:
+        - "gpt"
+        - "gemini"
+        - "basic"
+        - ""
+        """
+        try:
+            if str(getattr(self, "_last_response_provider", "") or "").strip().lower() == "gemini":
+                return "gemini"
+        except Exception:
+            pass
+
+        last = {}
+        try:
+            from app.services import ai_reco
+
+            last = ai_reco.get_last_decision() or {}
+        except Exception:
+            last = {}
+
+        if isinstance(last, dict) and last:
+            raw_text = str(
+                last.get("actual_engine")
+                or last.get("raw_ai_response")
+                or last.get("ai_raw_text")
+                or ""
+            ).strip().lower()
+            if "gemini" in raw_text:
+                return "gemini"
+            if "gpt" in raw_text or "openai" in raw_text:
+                return "gpt"
+            if "basic" in raw_text or "local" in raw_text:
+                return "basic"
+
+            for key in ("source", "provider", "engine_mode", "source_module"):
+                raw = str(last.get(key) or "").strip().lower()
+                if "gemini" in raw:
+                    return "gemini"
+                if raw in ("basic", "local") or "basic" in raw:
+                    return "basic"
+                if "gpt" in raw or "openai" in raw:
+                    return "gpt"
+
+            sel = str(last.get("selected_engine") or "").strip().lower()
+            if sel == "gemini":
+                return "gemini"
+            if sel == "gpt":
+                return "gpt"
+            if sel in ("local", "basic"):
+                return "basic"
+
+        for attr_name in (
+            "_last_response_provider",
+            "_active_ai_engine",
+            "_last_ai_provider",
+            "_last_aits_provider",
+        ):
+            try:
+                raw = str(getattr(self, attr_name, "") or "").strip().lower()
+                if raw in ("gemini",):
+                    return "gemini"
+                if raw in ("basic", "local"):
+                    return "basic"
+                if raw in ("gpt", "openai"):
+                    return "gpt"
+            except Exception:
+                pass
+
+        return ""
+
     def _get_aits_selected_engine_mode(self) -> str:
         """
         엔진 선택 조회용 wrapper.
@@ -9345,6 +9429,88 @@ class MainWindow(QMainWindow):
         self.basic_ai_settings = legacy
         return legacy
 
+    def _call_aits_gemini_reco(self, prompt_text: str) -> dict:
+        """
+        Gemini 메인 reco 호출.
+        반환:
+        {
+            "ok": bool,
+            "text": str,
+            "error": str,
+            "model": str,
+        }
+        """
+        import requests
+
+        api_key = ""
+        try:
+            api_key = str(getattr(self, "ed_gemini_key", None).text() or "").strip()
+        except Exception:
+            api_key = ""
+        if not api_key or (len(api_key) > 0 and api_key.startswith("•")):
+            return {"ok": False, "text": "", "error": "Gemini API 키 없음", "model": ""}
+
+        model_name = "gemini-1.5-flash"
+        try:
+            obj = getattr(self, "cmb_gemini_model", None)
+            if obj is not None and hasattr(obj, "currentText"):
+                v = str(obj.currentText() or "").strip().replace(" ", "")
+                if v:
+                    model_name = v
+        except Exception:
+            pass
+
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model_name}:generateContent"
+        )
+        headers = {"Content-Type": "application/json"}
+        payload = {"contents": [{"parts": [{"text": prompt_text}]}]}
+
+        try:
+            resp = requests.post(
+                url, headers=headers, params={"key": api_key}, json=payload, timeout=90
+            )
+        except Exception as e:
+            return {"ok": False, "text": "", "error": f"Gemini 요청 실패: {e}", "model": model_name}
+
+        if resp.status_code != 200:
+            return {
+                "ok": False,
+                "text": "",
+                "error": f"Gemini HTTP {resp.status_code}: {(resp.text or '')[:300]}",
+                "model": model_name,
+            }
+
+        try:
+            body = resp.json()
+        except Exception:
+            return {"ok": False, "text": "", "error": "Gemini JSON 파싱 실패", "model": model_name}
+
+        text_out = ""
+        try:
+            candidates = body.get("candidates") or []
+            if candidates:
+                content = (candidates[0] or {}).get("content") or {}
+                parts = content.get("parts") or []
+                texts = []
+                for p in parts:
+                    if isinstance(p, dict) and p.get("text"):
+                        texts.append(str(p.get("text")))
+                text_out = "\n".join(texts).strip()
+        except Exception:
+            text_out = ""
+
+        if not text_out:
+            return {
+                "ok": False,
+                "text": "",
+                "error": "Gemini 응답 본문 비어 있음",
+                "model": model_name,
+            }
+
+        return {"ok": True, "text": text_out, "error": "", "model": model_name}
+
     def _run_aits_main_gpt_reco_and_publish(self) -> None:
         """
         실운용: STEP 41 프롬프트로 OpenAI 호출 후 ai.reco.updated 에 원문·rotation 포함 publish.
@@ -9486,49 +9652,224 @@ class MainWindow(QMainWindow):
                 return
 
             if engine_mode == "gemini":
+                # [PATCH 5-4]
+                # Gemini 선택 시 메인 reco를 실제 Gemini API로 호출한다.
+                # 실패 시에만 기존 Basic fallback 경로로 내려간다.
                 try:
                     if hasattr(self, "_log") and self._log:
                         self._log.info(
-                            "[AITS][EngineMode] gemini selected -> gemini path not wired yet, using safe fallback"
+                            "[AITS][EngineMode] gemini selected -> live gemini reco path"
                         )
                 except Exception:
                     pass
 
                 try:
-                    basic_payload = self._build_aits_basic_engine_payload_for_reco()
-                    try:
-                        basic_payload["basic_config"] = (
-                            self._collect_aits_basic_engine_settings()
-                        )
-                    except Exception:
-                        basic_payload["basic_config"] = {}
-                    basic_payload["engine_mode"] = "gemini"
-                    basic_payload["reason"] = "Gemini path not wired yet"
-                    ai_reco.update(
-                        payload=basic_payload,
-                        from_boot=True,
+                    self._aits_main_reco_inflight = True
+                    self._aits_main_reco_last_started_ts = now_ts
+                    self._aits_main_reco_request_seq = (
+                        int(getattr(self, "_aits_main_reco_request_seq", 0) or 0) + 1
                     )
-                except Exception:
+                    current_seq = self._aits_main_reco_request_seq
+
+                    ctx = self._build_aits_ai_decision_context()
+                    prompt_text = ""
                     try:
-                        _basic_cfg_ex = {}
+                        prompt_text = (self._build_aits_ai_decision_prompt() or "").strip()
+                    except Exception:
+                        prompt_text = ""
+                    if not prompt_text:
                         try:
-                            _basic_cfg_ex = self._collect_aits_basic_engine_settings()
+                            prompt_text = json.dumps(ctx, ensure_ascii=False, indent=2)
                         except Exception:
-                            _basic_cfg_ex = {}
-                        ai_reco.update(
-                            payload={
-                                "use_basic_engine": True,
-                                "basic_fallback": True,
-                                "market_rows": [],
-                                "positions": [],
-                                "engine_mode": "gemini",
-                                "basic_config": _basic_cfg_ex,
-                            },
-                            from_boot=True,
+                            prompt_text = str(ctx)
+                    if not str(prompt_text).strip():
+                        raise RuntimeError("Gemini용 프롬프트 생성 실패")
+
+                    try:
+                        current_fp = self._build_aits_reco_payload_fingerprint()
+                    except Exception:
+                        current_fp = ""
+
+                    gemini_ret = self._call_aits_gemini_reco(prompt_text)
+                    if not gemini_ret.get("ok"):
+                        raise RuntimeError(gemini_ret.get("error") or "Gemini reco 실패")
+
+                    ai_raw_text = str(gemini_ret.get("text") or "").strip()
+                    if not ai_raw_text:
+                        raise RuntimeError("Gemini 응답 텍스트 비어 있음")
+
+                    g_model = str(gemini_ret.get("model") or "gemini-1.5-flash").strip()
+
+                    self._aits_last_ai_raw_response = ai_raw_text
+
+                    rotation_d: dict = {}
+                    try:
+                        srot = str(ai_raw_text or "").strip()
+                        if srot.startswith("```"):
+                            lines = srot.split("\n")
+                            if len(lines) >= 3 and lines[-1].strip() == "```":
+                                srot = "\n".join(lines[1:-1]).strip()
+                            elif len(lines) >= 2:
+                                srot = "\n".join(lines[1:]).strip()
+                                if srot.endswith("```"):
+                                    srot = srot[:-3].strip()
+                        pj = json.loads(srot)
+                        if isinstance(pj, dict) and isinstance(pj.get("rotation"), dict):
+                            rotation_d = pj.get("rotation") or {}
+                    except Exception:
+                        pass
+
+                    pr = self._parse_aits_ai_response(ai_raw_text)
+                    decision = str(pr.get("decision") or "").strip()
+                    reasons = pr.get("reason") or []
+                    if isinstance(reasons, str):
+                        reasons = [reasons] if reasons else []
+
+                    items: list[dict] = []
+                    for qc in (ctx.get("quick_candidates") or [])[:12]:
+                        if not isinstance(qc, dict):
+                            continue
+                        sym = str(qc.get("symbol") or "").strip()
+                        if not sym:
+                            continue
+                        items.append(
+                            {
+                                "symbol": sym,
+                                "title": str(qc.get("display_name") or sym).strip(),
+                            }
+                        )
+
+                    reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[
+                        :2000
+                    ]
+
+                    reco_payload = {
+                        "ok": True,
+                        "source": "gemini",
+                        "fallback": False,
+                        "items": items,
+                        "decision_summary": decision[:500] if decision else "AITS 판단",
+                        "reason_code": reason_code,
+                        "raw_ai_response": ai_raw_text,
+                        "ai_raw_text": ai_raw_text,
+                        "rotation": rotation_d,
+                        "actual_engine": f"gemini-{g_model}",
+                        "selected_engine": "gemini",
+                    }
+
+                    try:
+                        latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
+                        if current_seq < latest_seq:
+                            return
+                    except Exception:
+                        pass
+
+                    try:
+                        self._aits_main_reco_latest_applied_seq = current_seq
+                        self._aits_main_reco_latest_payload_fp = current_fp
+                        self._aits_main_reco_last_completed_ts = time.time()
+                    except Exception:
+                        pass
+
+                    try:
+                        self._last_response_provider = "gemini"
+                    except Exception:
+                        pass
+
+                    try:
+                        self._gpt_status_stage = "ready"
+                    except Exception:
+                        pass
+
+                    try:
+                        if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                            self.lbl_aits_ai_engine_status.setText(
+                                "AITS AI 상태: Gemini 응답 정상"
+                            )
+                    except Exception:
+                        pass
+
+                    try:
+                        self._update_top_badge()
+                    except Exception:
+                        pass
+
+                    try:
+                        self._update_engine_ui_ssot()
+                    except Exception:
+                        pass
+
+                    eventbus.publish("ai.reco.updated", reco_payload)
+                    try:
+                        self._log.info(
+                            "[AITS-RECO-MAIN][Gemini] published ok=1 items=%s",
+                            len(items),
                         )
                     except Exception:
                         pass
-                return
+                    return
+
+                except Exception as e:
+                    try:
+                        if hasattr(self, "_log") and self._log:
+                            self._log.warning("[AITS][GeminiReco] fallback to basic | %s", e)
+                    except Exception:
+                        pass
+
+                    try:
+                        self._gpt_status_stage = "waiting"
+                    except Exception:
+                        pass
+
+                    try:
+                        if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                            self.lbl_aits_ai_engine_status.setText(
+                                "AITS AI 상태: Gemini 응답 대기 중"
+                            )
+                    except Exception:
+                        pass
+
+                    try:
+                        self._update_top_badge()
+                    except Exception:
+                        pass
+
+                    try:
+                        basic_payload = self._build_aits_basic_engine_payload_for_reco()
+                        try:
+                            basic_payload["basic_config"] = (
+                                self._collect_aits_basic_engine_settings()
+                            )
+                        except Exception:
+                            basic_payload["basic_config"] = {}
+                        basic_payload["engine_mode"] = "gemini"
+                        basic_payload["reason"] = f"Gemini fallback: {e}"
+                        ai_reco.update(
+                            payload=basic_payload,
+                            from_boot=True,
+                        )
+                    except Exception:
+                        try:
+                            _basic_cfg_ex = {}
+                            try:
+                                _basic_cfg_ex = self._collect_aits_basic_engine_settings()
+                            except Exception:
+                                _basic_cfg_ex = {}
+                            ai_reco.update(
+                                payload={
+                                    "use_basic_engine": True,
+                                    "basic_fallback": True,
+                                    "market_rows": [],
+                                    "positions": [],
+                                    "engine_mode": "gemini",
+                                    "basic_config": _basic_cfg_ex,
+                                    "reason": f"Gemini fallback: {e}",
+                                },
+                                from_boot=True,
+                            )
+                        except Exception:
+                            pass
+                    return
 
             if prov != "gpt" and engine_mode == "gpt":
                 _fallback_reco_update_basic_engine()
@@ -10737,10 +11078,26 @@ class MainWindow(QMainWindow):
         self.sp_topNmin = QSpinBox(); self.sp_topNmin.setRange(1, 180)
 
         # ✅ TP/SL 위젯(설정 탭에 유지 — '사용자 지정' 모드에서만 활성)
+        # [PATCH 4-2]
+        # 공통설정의 TP/SL 등은 공통 운용 정책 성격을 유지한다.
+        # Basic AI 섹션의 점수/필터는 Basic 엔진 전용 규칙이다.
+        # 이번 단계에서는 항목 이동 없이 표시 우선순위만 정리한다.
         self.sp_sl = QDoubleSpinBox(); self.sp_sl.setRange(0.0, 50.0); self.sp_sl.setDecimals(2); self.sp_sl.setSingleStep(0.1)
         self.sp_tp = QDoubleSpinBox(); self.sp_tp.setRange(0.0, 100.0); self.sp_tp.setDecimals(2); self.sp_tp.setSingleStep(0.1)
-        self.sp_sl.setToolTip("손절 기준(%) — '전략' 탭에서 '사용자 손절/익절' 선택 시 적용")
-        self.sp_tp.setToolTip("익절 기준(%) — '전략' 탭에서 '사용자 손절/익절' 선택 시 적용")
+        self.sp_sl.setToolTip(
+            "공통 운용 정책용 기준입니다. Basic 엔진 전용 점수 규칙과는 별개입니다.\n"
+            "기본 위험 관리·연동 참고용이며, 전략 탭에서 '사용자 손절/익절' 선택 시 적용됩니다."
+        )
+        self.sp_tp.setToolTip(
+            "공통 운용 정책용 기준입니다. Basic 엔진 전용 점수 규칙과는 별개입니다.\n"
+            "기본 위험 관리·연동 참고용이며, 전략 탭에서 '사용자 손절/익절' 선택 시 적용됩니다."
+        )
+        self.sp_sl.setStyleSheet(
+            "QDoubleSpinBox { font-size: 11px; color: #444; background: #fafafa; }"
+        )
+        self.sp_tp.setStyleSheet(
+            "QDoubleSpinBox { font-size: 11px; color: #444; background: #fafafa; }"
+        )
 
         # ⚠️ 투자금/관심종목/주문금 관련 항목은
         #    - 전략설정/Watchlist 탭으로 역할을 이전
@@ -11016,16 +11373,23 @@ class MainWindow(QMainWindow):
 
         # [LOCAL 박스] LOCAL (Basic AI) — URL, Model, 테스트, 가이드
         self.local_box = ClickableGroupBox("")  # 제목은 내부 라벨로 처리
+        self.local_box.setObjectName("aits_local_basic_engine_box")
+        self.local_box.setStyleSheet(
+            "#aits_local_basic_engine_box { margin-top: 12px; padding-top: 4px; "
+            "border-top: 1px solid #dcdcdc; }"
+        )
         self.local_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.local_box.setMinimumHeight(0)
 
         local_layout = QVBoxLayout()
-        local_layout.setSpacing(4)
-        local_layout.setContentsMargins(2, 2, 2, 2)
+        local_layout.setSpacing(6)
+        local_layout.setContentsMargins(2, 6, 2, 2)
         # 제목 영역: "Basic AI" + ⓘ 버튼
         local_title_row = QHBoxLayout()
-        local_title_label = QLabel("Basic AI")
-        local_title_label.setStyleSheet("font-weight: bold; font-size: 13px;")
+        local_title_label = QLabel("Basic AI 엔진 설정")
+        local_title_label.setStyleSheet(
+            "font-weight: bold; font-size: 14px; color: #1a1a1a;"
+        )
         self.btn_local_info = QPushButton("i")
         self.btn_local_info.setMaximumWidth(30)
         self.btn_local_info.setToolTip("LOCAL AI 사용 안내")
@@ -11035,8 +11399,12 @@ class MainWindow(QMainWindow):
         local_title_row.addStretch()
         local_layout.addLayout(local_title_row)
         self.btn_local_info.setVisible(False)
-        self.lbl_basic_ai_subtitle = QLabel("AITS 기본 자동매매 엔진 (설정 기반 AI)")
-        self.lbl_basic_ai_subtitle.setStyleSheet("font-size: 11px; color: #555; padding: 0 0 6px 0;")
+        self.lbl_basic_ai_subtitle = QLabel(
+            "이 영역의 값은 Basic 엔진 선택 시 판단 기준으로 사용됩니다."
+        )
+        self.lbl_basic_ai_subtitle.setStyleSheet(
+            "font-size: 10px; color: #757575; padding: 0 0 8px 0;"
+        )
         self.lbl_basic_ai_subtitle.setWordWrap(True)
         local_layout.addWidget(self.lbl_basic_ai_subtitle)
         # 레거시 Local/Ollama 행만 유지 (숨김 처리용, 메인 설정은 아래 그룹박스)
@@ -11067,6 +11435,9 @@ class MainWindow(QMainWindow):
         self.cmb_basic_ai_selection.setCurrentText("보통")
         self.cb_basic_ai_avoid_bear = QCheckBox("하락장 회피")
         self.cb_basic_ai_avoid_bear.setChecked(True)
+        self.cb_basic_ai_avoid_bear.setToolTip(
+            "Basic 엔진이 약세장 신규 진입을 억제할지 결정합니다."
+        )
         self.cmb_basic_ai_buy_sensitivity = QComboBox()
         self.cmb_basic_ai_buy_sensitivity.addItems(["낮음", "보통", "높음"])
         self.cmb_basic_ai_buy_sensitivity.setCurrentText("보통")
@@ -11110,6 +11481,15 @@ class MainWindow(QMainWindow):
         self.btn_save_basic_ai_settings = QPushButton("Basic AI 설정 저장")
         self.btn_save_basic_ai_settings.clicked.connect(self._save_basic_ai_settings)
 
+        # [PATCH 4-1]
+        # 공통설정:
+        # - 엔진 선택 / 모델 / API / Basic 엔진 전용 규칙
+        # 전략설정:
+        # - 엔진 종류와 무관한 상위 운용 정책
+        # 주의:
+        # - 비슷해 보이는 값(TP/SL, 보유 수 등)이 있어도 역할 계층이 다를 수 있으므로
+        #   이후 4-x 단계에서 실제 중복 항목 정리를 진행한다.
+
         def _basic_ai_grid(gb: QGroupBox) -> QGridLayout:
             g = QGridLayout(gb)
             g.setContentsMargins(6, 6, 6, 6)
@@ -11151,7 +11531,12 @@ class MainWindow(QMainWindow):
 
         gb_filter = QGroupBox("시장 필터")
         gf = _basic_ai_grid(gb_filter)
-        gf.addWidget(QLabel("최소 거래대금 (원)"), 0, 0)
+        lbl_basic_min_volume = QLabel("최소 거래대금 (원)")
+        lbl_basic_min_volume.setToolTip(
+            "Basic 엔진이 후보 종목을 필터링할 때 사용하는 최소 거래대금 기준입니다."
+        )
+        self.sp_basic_ai_min_volume.setToolTip(lbl_basic_min_volume.toolTip())
+        gf.addWidget(lbl_basic_min_volume, 0, 0)
         gf.addWidget(self.sp_basic_ai_min_volume, 0, 1)
         gf.addWidget(QLabel("추세 필터"), 0, 2)
         gf.addWidget(self.cmb_basic_ai_trend_filter, 0, 3)
@@ -11160,17 +11545,32 @@ class MainWindow(QMainWindow):
         gf.addWidget(self.cb_basic_ai_avoid_sudden_drop, 2, 0, 1, 2)
         local_layout.addWidget(gb_filter)
 
-        gb_ai_logic = QGroupBox("AI 판단 로직")
+        gb_ai_logic = QGroupBox("AI 판단 로직 · Basic 엔진 전용")
         gl = _basic_ai_grid(gb_ai_logic)
-        gl.addWidget(QLabel("AI 진입 기준 점수"), 0, 0)
+        lbl_basic_entry_score = QLabel("AI 진입 기준 점수")
+        lbl_basic_entry_score.setToolTip(
+            "Basic 엔진이 신규 진입을 판단할 때 사용하는 기준 점수입니다."
+        )
+        self.sp_basic_ai_entry_score.setToolTip(lbl_basic_entry_score.toolTip())
+        gl.addWidget(lbl_basic_entry_score, 0, 0)
         gl.addWidget(self.sp_basic_ai_entry_score, 0, 1)
-        gl.addWidget(QLabel("AI 청산 기준 점수"), 0, 2)
+        lbl_basic_exit_score = QLabel("AI 청산 기준 점수")
+        lbl_basic_exit_score.setToolTip(
+            "Basic 엔진이 보유 유지/교체를 판단할 때 참고하는 기준 점수입니다."
+        )
+        self.sp_basic_ai_exit_score.setToolTip(lbl_basic_exit_score.toolTip())
+        gl.addWidget(lbl_basic_exit_score, 0, 2)
         gl.addWidget(self.sp_basic_ai_exit_score, 0, 3)
         gl.addWidget(QLabel("AI 판단 속도"), 1, 0)
         gl.addWidget(self.cmb_basic_ai_decision_speed, 1, 1)
         gl.addWidget(QLabel("재진입 제한 시간 (분)"), 1, 2)
         gl.addWidget(self.sp_basic_ai_reentry_cooldown, 1, 3)
-        gl.addWidget(QLabel("동시 매수 제한 수"), 2, 0)
+        lbl_basic_max_new = QLabel("동시 매수 제한 수")
+        lbl_basic_max_new.setToolTip(
+            "Basic 엔진이 한 사이클에서 새로 진입할 수 있는 종목 수 제한입니다."
+        )
+        self.sp_basic_ai_max_new_entries.setToolTip(lbl_basic_max_new.toolTip())
+        gl.addWidget(lbl_basic_max_new, 2, 0)
         gl.addWidget(self.sp_basic_ai_max_new_entries, 2, 1)
         local_layout.addWidget(gb_ai_logic)
 
@@ -11232,6 +11632,15 @@ class MainWindow(QMainWindow):
         self.btn_install_llama.clicked.connect(lambda: self._on_install_ollama_model("llama3.1"))
         self.btn_install_mistral.clicked.connect(lambda: self._on_install_ollama_model("mistral"))
 
+        lbl_ai_engine_scope = QLabel(
+            "이 영역은 엔진 선택, 모델, API 키, 연결 환경을 설정합니다."
+        )
+        lbl_ai_engine_scope.setWordWrap(True)
+        lbl_ai_engine_scope.setStyleSheet(
+            "font-size: 11px; color: #444; padding: 4px 0 14px 0; font-weight: 500;"
+        )
+        v.addRow(lbl_ai_engine_scope)
+
         # OpenAI / Gemini 1행 2열 + Basic AI 하단 전체폭
         row_ai_top = QWidget()
         row_ai_top_layout = QHBoxLayout(row_ai_top)
@@ -11255,6 +11664,27 @@ class MainWindow(QMainWindow):
         self.btn_ip_retry.clicked.connect(self._update_external_ip)
         ip_row.addWidget(self.btn_ip_retry)
         v.addRow(ip_row)
+
+        _tp_sl_ref_wrap = QWidget()
+        _tp_sl_ref_lay = QVBoxLayout(_tp_sl_ref_wrap)
+        _tp_sl_ref_lay.setContentsMargins(0, 4, 0, 0)
+        _tp_sl_ref_lay.setSpacing(4)
+        _tp_sl_row = QHBoxLayout()
+        _tp_sl_row.setSpacing(10)
+        _tp_sl_row.addWidget(QLabel("익절 (%)"))
+        _tp_sl_row.addWidget(self.sp_tp)
+        _tp_sl_row.addSpacing(8)
+        _tp_sl_row.addWidget(QLabel("손절 (%)"))
+        _tp_sl_row.addWidget(self.sp_sl)
+        _tp_sl_row.addStretch()
+        _tp_sl_ref_lay.addLayout(_tp_sl_row)
+        self.lbl_tp_sl_common_hint = QLabel(
+            "연동·참고: 공통 운용 정책용 기준입니다. Basic 엔진 전용 점수 규칙과는 별개입니다."
+        )
+        self.lbl_tp_sl_common_hint.setWordWrap(True)
+        self.lbl_tp_sl_common_hint.setStyleSheet("font-size: 10px; color: #888;")
+        _tp_sl_ref_lay.addWidget(self.lbl_tp_sl_common_hint)
+        v.addRow("전략 연동 손익 기준 (공통)", _tp_sl_ref_wrap)
         
         # IP 확인 즉시 실행
         try:
@@ -12184,9 +12614,12 @@ class MainWindow(QMainWindow):
             use_user = bool(self.rb_exit4.isChecked())
             self.sp_sl.setEnabled(use_user)
             self.sp_tp.setEnabled(use_user)
+            _tp_sl_active_ss = (
+                "QDoubleSpinBox { font-size: 11px; color: #444; background: #fafafa; }"
+            )
             if use_user:
-                self.sp_sl.setStyleSheet("")
-                self.sp_tp.setStyleSheet("")
+                self.sp_sl.setStyleSheet(_tp_sl_active_ss)
+                self.sp_tp.setStyleSheet(_tp_sl_active_ss)
             else:
                 self.sp_sl.setStyleSheet("QDoubleSpinBox { background:#f3f3f3; }")
                 self.sp_tp.setStyleSheet("QDoubleSpinBox { background:#f3f3f3; }")
@@ -12328,8 +12761,9 @@ class MainWindow(QMainWindow):
         ok, msg = self._call_local_ollama(prompt, model, base_url, timeout_sec=60)
         if ok:
             self._active_ai_engine = "local"
+            self._last_response_provider = "basic"
             self._update_active_engine_label()
-            QMessageBox.information(self, "로컬 AI 테스트", "Basic AI 연결 성공.")
+            QMessageBox.information(self, "로컬 AI 테스트", "Basic AI 준비 확인 완료")
         else:
             QMessageBox.warning(self, "로컬 AI 테스트", f"Basic AI 호출 실패: {msg}")
 
@@ -12897,18 +13331,13 @@ class MainWindow(QMainWindow):
 
         stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
         if stage == "ready":
-            actual = ""
-            try:
-                from app.services import ai_reco
-                last_dec = ai_reco.get_last_decision() or {}
-                actual = (last_dec.get("actual_engine") or "").strip()
-            except Exception:
-                pass
             self._active_ai_engine = "gpt"
+            self._last_response_provider = "gpt"
             self._update_active_engine_label()
             QMessageBox.information(
-                self, "GPT 연결 테스트",
-                "GPT가 이미 연결되어 있습니다.\n현재 엔진: %s" % (actual or "gpt-*")
+                self,
+                "GPT 연결 테스트",
+                "OpenAI 연결 확인 완료",
             )
             self._log.info("[GPT-TEST] already_ready")
             return
@@ -13027,6 +13456,7 @@ class MainWindow(QMainWindow):
                     self._gpt_test_ok = True
                     self._gpt_last_in, self._gpt_last_out = inp or 0, out_tok or 0
                     self._active_ai_engine = "gpt"
+                    self._last_response_provider = "gpt"
                     self._update_active_engine_label()
                     set_header("🟢 READY")
                     self._log.warning("[DIAG] gpt_test status=READY in=%s out=%s", inp or 0, out_tok or 0)
@@ -13038,6 +13468,7 @@ class MainWindow(QMainWindow):
                     out(f"[3/3] usage 없음, 생성 텍스트: {snippet or '(없음)'} — ✅ 응답 성공 (토큰 수 미표시)")
                     self._gpt_test_ok = True
                     self._active_ai_engine = "gpt"
+                    self._last_response_provider = "gpt"
                     self._update_active_engine_label()
                     set_header("🟢 READY")
             else:
@@ -13048,6 +13479,7 @@ class MainWindow(QMainWindow):
                 out(f"[3/3] usage 없음, 생성: {snippet or '(없음)'} — ✅ 응답 성공")
                 self._gpt_test_ok = True
                 self._active_ai_engine = "gpt"
+                self._last_response_provider = "gpt"
                 self._update_active_engine_label()
                 set_header("🟢 READY")
             if hasattr(self, "_update_ai_status"):
@@ -13121,6 +13553,14 @@ class MainWindow(QMainWindow):
                     pass
             # READY = 실제 OpenAI 호출 1회 성공 완료. 엔진 적용은 실행 후 ai.reco.updated에서 별도 표시
             self._gpt_status_stage = "connect_ok"
+            try:
+                if getattr(self, "_gpt_test_ok", False):
+                    self._last_response_provider = "gpt"
+                    QMessageBox.information(
+                        self, "GPT 연결 테스트", "OpenAI 연결 확인 완료"
+                    )
+            except Exception:
+                pass
         except requests.exceptions.Timeout:
             out("[2/3] timeout ❌ 네트워크/타임아웃 확인")
             self._gpt_test_ok = False
@@ -13151,7 +13591,7 @@ class MainWindow(QMainWindow):
                 self._update_ai_status()
 
     def _on_test_gemini(self):
-        """Gemini 박스: 연결 테스트(임시 최소 버전). API Key 유무 확인 후 성공/실패만 반영."""
+        """Gemini 박스: REST generateContent 최소 호출로 응답 검증 후 UI·상태 동기화."""
         provider = (self.cb_ai_provider.currentText() or "local").strip().lower() if hasattr(self, "cb_ai_provider") else "local"
         if provider != "gemini":
             QMessageBox.information(self, "Gemini 연결 테스트", "AI Provider가 gemini일 때만 테스트할 수 있습니다.")
@@ -13159,22 +13599,97 @@ class MainWindow(QMainWindow):
 
         api_key = (self.ed_gemini_key.text() or "").strip() if hasattr(self, "ed_gemini_key") else ""
         if not api_key:
+            try:
+                if self._get_aits_engine_ssot() == "gemini":
+                    self._gpt_status_stage = "waiting"
+                    if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                        self.lbl_aits_ai_engine_status.setText(
+                            "AITS AI 상태: Gemini 응답 대기 중"
+                        )
+                    self._update_top_badge()
+            except Exception:
+                pass
             QMessageBox.warning(self, "Gemini 연결 테스트", "API Key를 입력하세요.")
             return
 
+        model_id = "gemini-1.5-flash"
+        if hasattr(self, "cmb_gemini_model"):
+            model_id = (self.cmb_gemini_model.currentText() or "gemini-1.5-flash").strip().replace(" ", "")
+        if not model_id:
+            model_id = "gemini-1.5-flash"
+
         try:
-            # 임시 최소 테스트: 키 존재 시 성공 처리(실제 Gemini 서비스 연동은 다음 단계)
-            success = True
-            if success:
-                self._active_ai_engine = "gemini"
-                self._update_active_engine_label()
-                if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
-                    self.lbl_gemini_test_status.setText("🟢 CONNECTED")
-                    self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
-                QMessageBox.information(self, "Gemini 연결 테스트", "Gemini 연결 성공")
-            else:
-                raise Exception("fail")
+            import requests
+
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_id}:generateContent"
+            )
+            resp = requests.post(
+                url,
+                params={"key": api_key},
+                json={"contents": [{"parts": [{"text": "ping"}]}]},
+                timeout=45,
+            )
+            if resp.status_code != 200:
+                raise RuntimeError(f"HTTP {resp.status_code}")
+            rj = resp.json() if resp.content else {}
+            cands = rj.get("candidates") or []
+            text_out = ""
+            if cands and isinstance(cands[0], dict):
+                parts = ((cands[0].get("content") or {}).get("parts") or [])
+                for p in parts:
+                    if isinstance(p, dict) and p.get("text"):
+                        text_out += str(p.get("text") or "")
+            if not str(text_out).strip():
+                raise RuntimeError("empty response")
+
+            # [PATCH 5-3]
+            # Gemini 성공 응답 시 마지막 응답 provider를 기록한다.
+            # 선택 엔진과 실제 응답 엔진 UI 동기화를 위한 처리.
+            try:
+                self._last_response_provider = "gemini"
+            except Exception:
+                pass
+            try:
+                self._gpt_status_stage = "ready"
+            except Exception:
+                pass
+            try:
+                self._update_top_badge()
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                    self.lbl_aits_ai_engine_status.setText(
+                        "AITS AI 상태: Gemini 응답 정상"
+                    )
+            except Exception:
+                pass
+
+            self._active_ai_engine = "gemini"
+            self._update_active_engine_label()
+            if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
+                self.lbl_gemini_test_status.setText("🟢 CONNECTED")
+                self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
+            QMessageBox.information(
+                self, "Gemini 연결 테스트", "Gemini 연결 확인 완료"
+            )
+            try:
+                self._update_engine_ui_ssot()
+            except Exception:
+                pass
         except Exception as e:
+            try:
+                if self._get_aits_engine_ssot() == "gemini":
+                    self._gpt_status_stage = "waiting"
+                    if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                        self.lbl_aits_ai_engine_status.setText(
+                            "AITS AI 상태: Gemini 응답 대기 중"
+                        )
+                    self._update_top_badge()
+            except Exception:
+                pass
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🔴 FAILED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#c62828;")
@@ -13810,15 +14325,9 @@ class MainWindow(QMainWindow):
                 if selected_active != current_active:
                     active_label = "Basic AI"
                     if current_active == "gpt":
-                        model = ""
-                        if hasattr(self, "ed_openai_model"):
-                            model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
-                        active_label = f"OpenAI ({model or 'gpt-4o-mini'})"
+                        active_label = "OpenAI"
                     elif current_active == "gemini":
-                        model = ""
-                        if hasattr(self, "ed_openai_model"):
-                            model = (self.ed_openai_model.currentData() or "").strip() or (self.ed_openai_model.currentText() or "").strip()
-                        active_label = f"Gemini ({model or 'gemini'})"
+                        active_label = "Gemini"
                     QMessageBox.warning(
                         self,
                         "실행 전 확인",
