@@ -93,8 +93,8 @@ QTabWidget::pane {
     top: -1px;
 }
 QTabBar::tab {
-    min-height: 28px;
-    padding: 6px 12px;
+    min-height: 26px;
+    padding: 4px 10px;
     border: 1px solid #D9D9D9;
     border-bottom: none;
     background: #F7F7F7;
@@ -115,8 +115,8 @@ QWidget#runBar {
     background: #e9ecef;
     border: 0px;
     margin: 0px;
-    padding: 6px 8px;
-    border-radius: 10px;
+    padding: 3px 6px;
+    border-radius: 8px;
 }
 QWidget#runBar QPushButton {
     border: 1px solid #cfd4da;
@@ -131,8 +131,8 @@ QWidget#tabHeader, QTabBar#tabHeader {
     background: #f3f4f6;
     border: 0px;
     margin: 0px;
-    padding: 6px 8px;
-    border-radius: 10px;
+    padding: 3px 6px;
+    border-radius: 8px;
 }
 
 /* 런바/탭헤더 내부 프레임 테두리 제거(라인 방지) */
@@ -814,13 +814,13 @@ class MainWindow(QMainWindow):
             return
         if state == "RUNNING":
             lb.setText("AITS RUNNING")
-            lb.setStyleSheet("color:#2e7d32; font-weight:bold;")
+            lb.setStyleSheet("color:#2e7d32; font-weight:bold; margin:0; padding:0;")
         elif state == "ERROR":
             lb.setText("AITS ERROR")
-            lb.setStyleSheet("color:#c62828; font-weight:bold;")
+            lb.setStyleSheet("color:#c62828; font-weight:bold; margin:0; padding:0;")
         else:
             lb.setText("AITS STOPPED")
-            lb.setStyleSheet("color:#9e9e9e; font-weight:bold;")
+            lb.setStyleSheet("color:#9e9e9e; font-weight:bold; margin:0; padding:0;")
 
     def set_ai_status(self, status: str):
         s = str(status).strip().upper()
@@ -829,13 +829,19 @@ class MainWindow(QMainWindow):
             return
         if s == "TRADING":
             lb.setText("AITS 상태: 자동 매매 중")
-            lb.setStyleSheet("color:#ef6c00; font-weight:600;")
+            lb.setStyleSheet(
+                "color:#ef6c00; font-weight:600; margin:0; padding:2px 4px; font-size:11px;"
+            )
         elif s == "SCANNING":
             lb.setText("AITS 상태: 시장 스캔 중")
-            lb.setStyleSheet("color:#1565c0; font-weight:600;")
+            lb.setStyleSheet(
+                "color:#1565c0; font-weight:600; margin:0; padding:2px 4px; font-size:11px;"
+            )
         else:
             lb.setText("AITS 상태: 대기 중")
-            lb.setStyleSheet("color:#607d8b; font-weight:600;")
+            lb.setStyleSheet(
+                "color:#607d8b; font-weight:600; margin:0; padding:2px 4px; font-size:11px;"
+            )
 
     def _parse_aits_ai_response(self, raw_text: str) -> dict:
         """
@@ -2307,6 +2313,8 @@ class MainWindow(QMainWindow):
         central = QWidget(self)
         self.setCentralWidget(central)
         lay = QVBoxLayout(central)
+        lay.setContentsMargins(8, 4, 8, 4)
+        lay.setSpacing(6)
 
         # ==== 상단 정보 헤더 ====
         # ---- Header (상단 현황 카드)
@@ -2317,8 +2325,8 @@ class MainWindow(QMainWindow):
                 background: #ffffff;
                 border: 1px solid #e9ecef;
                 border-radius: 8px;
-                padding: 8px;
-                margin: 4px 0px;
+                padding: 6px;
+                margin: 2px 0px;
             }
         """)
         
@@ -2432,8 +2440,8 @@ class MainWindow(QMainWindow):
                 background: #f8f9fa;
                 border: 1px solid #dee2e6;
                 border-radius: 6px;
-                padding: 8px 12px;
-                margin: 4px 0px;
+                padding: 5px 10px;
+                margin: 2px 0px;
             }
         """)
         
@@ -2474,33 +2482,47 @@ class MainWindow(QMainWindow):
         
         lay.addWidget(self.global_status_frame)
 
+        # [UI MASTER PLAN Phase 1 / PATCH 1-1]
+        # 상단 세로 공간을 회수하기 위한 1차 압축 패치.
+        # - AITS AI Trading System = 기본 접힘 + 최대 높이 제한
+        # - AITS Control Panel = 요약 카드 높이 축소
+        # - 상단 버튼줄 = 한 줄 압축
+        # 이후 Phase 1-2에서 종목관리 탭 본문 가로 재배치를 진행한다.
+
         # --- AITS status panel (read-only, Phase 1) — 접힘 기본, 펼치면 스크롤 ---
         self._aits_status_group = QGroupBox("")
+        self._aits_status_group.setObjectName("aitsOverviewPanel")
+        self._aits_status_group.setStyleSheet(
+            "QGroupBox#aitsOverviewPanel { margin-top: 2px; font-size: 11px; }"
+        )
+        self._aits_status_group.setFlat(True)
         aits_ly = QVBoxLayout(self._aits_status_group)
-        aits_ly.setContentsMargins(8, 8, 8, 8)
-        aits_ly.setSpacing(4)
+        aits_ly.setContentsMargins(6, 4, 6, 4)
+        aits_ly.setSpacing(2)
         self._aits_overview_header = _AITSOverviewHeader(self)
         _aits_hdr = QHBoxLayout(self._aits_overview_header)
         _aits_hdr.setContentsMargins(0, 0, 0, 0)
         self.lbl_aits_panel_title = QLabel("AITS AI Trading System")
-        self.lbl_aits_panel_title.setStyleSheet("font-weight: bold; font-size: 13px;")
+        self.lbl_aits_panel_title.setStyleSheet("font-weight: bold; font-size: 12px;")
         self.lbl_aits_panel_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         _aits_hdr.addWidget(self.lbl_aits_panel_title)
         _aits_hdr.addStretch()
         self.btn_aits_overview_toggle = QPushButton("펼치기 ▼")
         self.btn_aits_overview_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_aits_overview_toggle.setFixedHeight(28)
         self.btn_aits_overview_toggle.clicked.connect(self._toggle_aits_overview)
         _aits_hdr.addWidget(self.btn_aits_overview_toggle)
         aits_ly.addWidget(self._aits_overview_header)
         self.lbl_aits_overview_latest = QLabel("최신: 연결 대기")
-        self.lbl_aits_overview_latest.setStyleSheet("font-size: 11px; color: #37474f;")
+        self.lbl_aits_overview_latest.setStyleSheet("font-size: 10px; color: #37474f;")
         self.lbl_aits_overview_latest.setWordWrap(False)
+        self.lbl_aits_overview_latest.setVisible(False)
         aits_ly.addWidget(self.lbl_aits_overview_latest)
 
         self._aits_overview_body = QWidget()
         self._aits_overview_body_ly = QVBoxLayout(self._aits_overview_body)
         self._aits_overview_body_ly.setContentsMargins(0, 0, 0, 0)
-        self._aits_overview_body_ly.setSpacing(4)
+        self._aits_overview_body_ly.setSpacing(2)
         self.lbl_aits_regime = QLabel("AITS Regime: 연결 대기")
         self.lbl_aits_action = QLabel("AITS Action: 연결 대기")
         self.lbl_aits_summary = QLabel("AITS Summary: AITS 상태 없음")
@@ -2555,10 +2577,14 @@ class MainWindow(QMainWindow):
         self._aits_overview_scroll = QScrollArea()
         self._aits_overview_scroll.setWidgetResizable(True)
         self._aits_overview_scroll.setWidget(self._aits_overview_body)
-        self._aits_overview_scroll.setMaximumHeight(240)
+        self._aits_overview_scroll.setMaximumHeight(168)
         self._aits_overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._aits_overview_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
         self._aits_overview_scroll.setVisible(False)
         aits_ly.addWidget(self._aits_overview_scroll)
+        self._aits_overview_expanded = False
         lay.addWidget(self._aits_status_group)
 
         # 5초마다 인포 갱신
@@ -2657,21 +2683,51 @@ class MainWindow(QMainWindow):
         self.top_control_widget.setObjectName("runBar")
         top_outer = QVBoxLayout()
         top_outer.setContentsMargins(0, 0, 0, 0)
-        top_outer.setSpacing(4)
+        top_outer.setSpacing(2)
         self.lbl_aits_control_panel = QLabel("AITS Control Panel")
         self.lbl_aits_control_panel.setStyleSheet(
-            "font-weight: bold; font-size: 12px; color: #111827;"
+            "font-weight: bold; font-size: 11px; color: #111827; margin: 0; padding: 0;"
         )
         top_outer.addWidget(self.lbl_aits_control_panel)
         self.lbl_aits_state = QLabel("AITS STOPPED")
-        self.lbl_aits_state.setStyleSheet("color:#9e9e9e; font-weight:bold;")
+        self.lbl_aits_state.setStyleSheet("color:#9e9e9e; font-weight:bold; margin:0; padding:0;")
         top_outer.addWidget(self.lbl_aits_state)
         self.set_aits_state("STOPPED")
         self.lbl_ai_status = QLabel("AITS 상태: 대기 중")
-        self.lbl_ai_status.setStyleSheet("color:#607d8b; font-weight:600;")
-        top_outer.addWidget(self.lbl_ai_status)
+        self.lbl_ai_status.setWordWrap(True)
+        self.lbl_ai_status.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+        )
+        self.lbl_ai_status.setStyleSheet(
+            "color:#607d8b; font-weight:600; margin:0; padding:1px 2px; font-size:11px;"
+        )
+        self._ai_status_scroll = QScrollArea()
+        self._ai_status_scroll.setWidgetResizable(True)
+        self._ai_status_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._ai_status_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._ai_status_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._ai_status_scroll.setMaximumHeight(84)
+        self._ai_status_scroll.setMinimumHeight(36)
+        self._ai_status_scroll.setWidget(self.lbl_ai_status)
+        try:
+            self._ai_status_scroll.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        top_outer.addWidget(self._ai_status_scroll)
         self.set_ai_status("IDLE")
         top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(4)
+        try:
+            top.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            pass
         # 실행/정지 토글 버튼
         self.btn_run_toggle = QPushButton("AITS ON")
         self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
@@ -2841,22 +2897,28 @@ class MainWindow(QMainWindow):
         self.lbl_engine_status.setToolTip("선택된 AI 엔진 및 연결 상태")
         top.addWidget(self.lbl_engine_status)
         self.lbl_active_engine = QLabel("Active Engine: Basic AI")
-        self.lbl_active_engine.setStyleSheet("font-size: 11px; color: #9e9e9e; font-weight: bold;")
+        self.lbl_active_engine.setStyleSheet("font-size: 10px; color: #9e9e9e; font-weight: bold;")
         self.lbl_active_engine.setToolTip("실제로 연결 완료되어 현재 적용 중인 AI 엔진")
         top.addWidget(self.lbl_active_engine)
-        self.btn_run_toggle.setMinimumHeight(30)
-        self.btn_sellall.setMinimumHeight(30)
-        self.btn_refresh.setMinimumHeight(28)
+        _btn_top_h = 36
+        self.btn_run_toggle.setFixedHeight(_btn_top_h)
+        self.btn_sellall.setFixedHeight(_btn_top_h)
+        self.btn_refresh.setFixedHeight(_btn_top_h)
+        try:
+            self.lbl_engine_status.setFixedHeight(_btn_top_h)
+            self.lbl_active_engine.setFixedHeight(28)
+        except Exception:
+            pass
         self.btn_run_toggle.setStyleSheet(
-            "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+            "padding: 4px 12px; font-weight: 600; min-height: 34px; max-height: 36px;"
             " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
         )
         self.btn_sellall.setStyleSheet(
-            "padding: 6px 14px; font-weight: 600; min-height: 30px;"
+            "padding: 4px 12px; font-weight: 600; min-height: 34px; max-height: 36px;"
             " background-color: #e3f2fd; color: #1e88e5; border: 1px solid #4da6ff; border-radius: 6px;"
         )
         self.btn_refresh.setStyleSheet(
-            "padding: 5px 12px; min-height: 28px; border-radius: 6px;"
+            "padding: 4px 10px; min-height: 34px; max-height: 36px; border-radius: 6px;"
             " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
         )
         top_outer.addLayout(top)
@@ -3964,11 +4026,15 @@ class MainWindow(QMainWindow):
             if self._aits_overview_expanded:
                 if hasattr(self, "_aits_overview_scroll"):
                     self._aits_overview_scroll.setVisible(True)
+                if hasattr(self, "lbl_aits_overview_latest"):
+                    self.lbl_aits_overview_latest.setVisible(True)
                 if hasattr(self, "btn_aits_overview_toggle"):
                     self.btn_aits_overview_toggle.setText("접기 ▲")
             else:
                 if hasattr(self, "_aits_overview_scroll"):
                     self._aits_overview_scroll.setVisible(False)
+                if hasattr(self, "lbl_aits_overview_latest"):
+                    self.lbl_aits_overview_latest.setVisible(False)
                 if hasattr(self, "btn_aits_overview_toggle"):
                     self.btn_aits_overview_toggle.setText("펼치기 ▼")
         except Exception:
@@ -4196,9 +4262,14 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_engine_status") and self.lbl_engine_status is not None:
                 self.lbl_engine_status.setText(box_txt)
                 self.lbl_engine_status.setStyleSheet(
-                    "padding: 6px 14px; border-radius: 8px; font-weight: 700; color: #111; background: #F3F4F6;"
-                    " border: 1px solid rgba(0,0,0,0.15); margin-left: 8px;"
+                    "padding: 4px 10px; border-radius: 6px; font-weight: 700; font-size: 11px;"
+                    " color: #111; background: #F3F4F6;"
+                    " border: 1px solid rgba(0,0,0,0.15); margin-left: 6px;"
                 )
+                try:
+                    self.lbl_engine_status.setFixedHeight(36)
+                except Exception:
+                    pass
             self._log.info("[ENGINE-UI] provider=%s stage=%s", provider, stage or "—")
         except Exception as e:
             self._log.debug("[ENGINE-UI] box err=%s", str(e)[:80])
