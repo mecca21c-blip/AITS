@@ -814,13 +814,19 @@ class MainWindow(QMainWindow):
             return
         if state == "RUNNING":
             lb.setText("AITS RUNNING")
-            lb.setStyleSheet("color:#2e7d32; font-weight:bold; margin:0; padding:0;")
+            lb.setStyleSheet(
+                "color:#2e7d32; font-weight:bold; font-size:10px; margin:0; padding:0;"
+            )
         elif state == "ERROR":
             lb.setText("AITS ERROR")
-            lb.setStyleSheet("color:#c62828; font-weight:bold; margin:0; padding:0;")
+            lb.setStyleSheet(
+                "color:#c62828; font-weight:bold; font-size:10px; margin:0; padding:0;"
+            )
         else:
             lb.setText("AITS STOPPED")
-            lb.setStyleSheet("color:#9e9e9e; font-weight:bold; margin:0; padding:0;")
+            lb.setStyleSheet(
+                "color:#9e9e9e; font-weight:bold; font-size:10px; margin:0; padding:0;"
+            )
 
     def set_ai_status(self, status: str):
         s = str(status).strip().upper()
@@ -828,20 +834,122 @@ class MainWindow(QMainWindow):
         if lb is None:
             return
         if s == "TRADING":
-            lb.setText("AITS 상태: 자동 매매 중")
+            full = "AITS 상태: 자동 매매 중"
             lb.setStyleSheet(
-                "color:#ef6c00; font-weight:600; margin:0; padding:2px 4px; font-size:11px;"
+                "color:#ef6c00; font-weight:600; margin:0px; padding:2px 6px; font-size:11px;"
             )
         elif s == "SCANNING":
-            lb.setText("AITS 상태: 시장 스캔 중")
+            full = "AITS 상태: 시장 스캔 중"
             lb.setStyleSheet(
-                "color:#1565c0; font-weight:600; margin:0; padding:2px 4px; font-size:11px;"
+                "color:#1565c0; font-weight:600; margin:0px; padding:2px 6px; font-size:11px;"
             )
         else:
-            lb.setText("AITS 상태: 대기 중")
+            full = "AITS 상태: 대기 중"
             lb.setStyleSheet(
-                "color:#607d8b; font-weight:600; margin:0; padding:2px 4px; font-size:11px;"
+                "color:#607d8b; font-weight:600; margin:0px; padding:2px 6px; font-size:11px;"
             )
+        try:
+            self._last_full_ai_status_text = full
+        except Exception:
+            pass
+        try:
+            lb.setText(self._compact_ai_status_text(full))
+        except Exception:
+            lb.setText(full)
+        try:
+            self._update_aits_ops_summary()
+            self._update_aits_briefing()
+        except Exception:
+            pass
+
+    def _compact_ai_status_text(self, text: str) -> str:
+        try:
+            raw = str(text or "").strip()
+            if not raw:
+                return "AI 판단: 정보 없음"
+
+            if raw.startswith("AITS 상태:") and "\n" not in raw:
+                return raw
+
+            lines = [ln.strip() for ln in raw.splitlines() if str(ln).strip()]
+            if not lines:
+                return "AI 판단: 정보 없음"
+
+            decision = ""
+            reason = ""
+            in_reason = False
+
+            for ln in lines:
+                low = ln.lower()
+                if "[ai 판단]" in low or "[AI 판단]" in ln:
+                    if "]" in ln:
+                        decision = ln.split("]", 1)[-1].strip()
+                    else:
+                        decision = ln
+                    decision = decision.strip(" :|-")
+                    continue
+                if "[판단 근거]" in ln:
+                    in_reason = True
+                    continue
+                if "[다음 행동]" in ln:
+                    break
+                if in_reason and ln.startswith("-") and not reason:
+                    reason = ln.lstrip("-• ").strip()
+                    if reason:
+                        break
+
+            if not decision:
+                decision = lines[0]
+
+            out = f"AI 판단: {decision}"
+            if reason:
+                out += f" | {reason[:80]}"
+            return out
+        except Exception:
+            return "AI 판단: 정보 없음"
+
+    def _show_ai_briefing_popup(self):
+        """
+        현재 AI 판단 / 근거 / 다음 행동 / 엔진 상태를 팝업으로 표시
+        """
+        try:
+            lines = []
+
+            txt = ""
+            try:
+                txt = str(getattr(self, "_last_full_ai_status_text", "") or "").strip()
+            except Exception:
+                txt = ""
+            if not txt:
+                try:
+                    txt = self.lbl_ai_status.text().strip()
+                except Exception:
+                    txt = ""
+
+            engine = self._get_aits_engine_ssot() if hasattr(self, "_get_aits_engine_ssot") else "basic"
+            engine = str(engine).upper()
+
+            state = ""
+            try:
+                state = self.lbl_aits_ai_engine_status.text().strip()
+            except Exception:
+                state = ""
+
+            lines.append(f"선택 엔진: {engine}")
+            if state:
+                lines.append(f"엔진 상태: {state}")
+
+            if txt:
+                lines.append("")
+                lines.append(txt)
+
+            QMessageBox.information(
+                self,
+                "AI 브리핑",
+                "\n".join(lines) if lines else "표시할 브리핑 정보가 없습니다."
+            )
+        except Exception:
+            pass
 
     def _parse_aits_ai_response(self, raw_text: str) -> dict:
         """
@@ -1232,11 +1340,24 @@ class MainWindow(QMainWindow):
 """
 
         if hasattr(self, "lbl_ai_status"):
+            _full = final_text.strip()
             try:
-                self.lbl_ai_status.setWordWrap(True)
+                self._last_full_ai_status_text = _full
             except Exception:
                 pass
-            self.lbl_ai_status.setText(final_text.strip())
+            try:
+                self.lbl_ai_status.setWordWrap(False)
+            except Exception:
+                pass
+            try:
+                self.lbl_ai_status.setText(self._compact_ai_status_text(_full))
+            except Exception:
+                self.lbl_ai_status.setText(_full)
+            try:
+                self._update_aits_ops_summary()
+                self._update_aits_briefing()
+            except Exception:
+                pass
 
     # NOTE:
     # AITS는 단순 규칙 매매 시스템이 아니라,
@@ -1547,6 +1668,12 @@ class MainWindow(QMainWindow):
                 self._run_timer.start()
             else:
                 self._run_timer.stop()
+        except Exception:
+            pass
+
+        try:
+            self._update_aits_ops_summary()
+            self._update_aits_briefing()
         except Exception:
             pass
 
@@ -2960,6 +3087,14 @@ class MainWindow(QMainWindow):
         header_layout.setColumnStretch(4, 1)
         
         lay.addWidget(header)
+        try:
+            lay.setSpacing(3)
+        except Exception:
+            pass
+
+        # [UI MASTER PLAN / Phase 3 / PATCH 3-1]
+        # 상단을 내부 로그판이 아닌 운영 대시보드 형태로 재구성.
+        # 사용자는 ON/OFF, 엔진, 현재 행동, 위험도만 즉시 이해한다.
 
         # ✅ P0-UI-GLOBAL-STATUS: 전역 상태바 생성
         self.global_status_frame = QFrame()
@@ -2969,14 +3104,14 @@ class MainWindow(QMainWindow):
                 background: #f8f9fa;
                 border: 1px solid #dee2e6;
                 border-radius: 6px;
-                padding: 5px 10px;
-                margin: 2px 0px;
+                padding: 3px 6px;
+                margin: 1px 0px;
             }
         """)
         
         global_status_layout = QHBoxLayout(self.global_status_frame)
-        global_status_layout.setContentsMargins(0, 0, 0, 0)
-        global_status_layout.setSpacing(8)
+        global_status_layout.setContentsMargins(2, 1, 2, 1)
+        global_status_layout.setSpacing(6)
         
         self.global_status_icon = QLabel("🟢")
         self.global_status_icon.setStyleSheet("font-size: 14px;")
@@ -3000,6 +3135,10 @@ class MainWindow(QMainWindow):
                 "color: #fff;"
                 "background: #999;"
             )
+        try:
+            self.ai_status_text.setFixedHeight(28)
+        except Exception:
+            pass
 
         global_status_layout.addWidget(self.global_status_icon)
         global_status_layout.addWidget(self.global_status_text)
@@ -3011,7 +3150,28 @@ class MainWindow(QMainWindow):
                 "font-size: 11px; color: #37474f; font-weight: 600; padding: 0 8px;"
             )
         global_status_layout.addWidget(self.lbl_aits_ai_engine_status)
-        global_status_layout.addStretch()
+
+        self.lbl_aits_ops_summary = QLabel("Basic | 확인중")
+        self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
+        self.lbl_aits_ops_summary.setStyleSheet(
+            "#aitsOpsSummary{"
+            "background:#ffffff;"
+            "border:1px solid #cfd8dc;"
+            "border-radius:12px;"
+            "padding:4px 12px;"
+            "font-size:12px;"
+            "font-weight:700;"
+            "color:#1f2d3d;"
+            "}"
+        )
+        try:
+            self.lbl_aits_ops_summary.setSizePolicy(
+                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+            )
+            self.lbl_aits_ops_summary.setMaximumWidth(300)
+        except Exception:
+            pass
+        global_status_layout.addWidget(self.lbl_aits_ops_summary)
         global_status_layout.addWidget(self.ai_status_text)
         global_status_layout.addWidget(self.global_status_time)
         
@@ -3024,6 +3184,12 @@ class MainWindow(QMainWindow):
         # - 상단 버튼줄 = 한 줄 압축
         # 이후 Phase 1-2에서 종목관리 탭 본문 가로 재배치를 진행한다.
 
+        # [UI MASTER PLAN / Phase 3 / PATCH 3-1c]
+        # 상단부 실제 collapse 패치.
+        # - overview는 헤더만 남기고 본문 높이 0
+        # - control panel은 한 줄 요약으로 축소
+        # - 종목관리 탭 시작 위치를 더 위로 끌어올린다.
+
         # --- AITS status panel (read-only, Phase 1) — 접힘 기본, 펼치면 스크롤 ---
         self._aits_status_group = QGroupBox("")
         self._aits_status_group.setObjectName("aitsOverviewPanel")
@@ -3032,7 +3198,7 @@ class MainWindow(QMainWindow):
         )
         self._aits_status_group.setFlat(True)
         aits_ly = QVBoxLayout(self._aits_status_group)
-        aits_ly.setContentsMargins(6, 4, 6, 4)
+        aits_ly.setContentsMargins(2, 1, 2, 1)
         aits_ly.setSpacing(2)
         self._aits_overview_header = _AITSOverviewHeader(self)
         _aits_hdr = QHBoxLayout(self._aits_overview_header)
@@ -3112,14 +3278,58 @@ class MainWindow(QMainWindow):
         self._aits_overview_scroll = QScrollArea()
         self._aits_overview_scroll.setWidgetResizable(True)
         self._aits_overview_scroll.setWidget(self._aits_overview_body)
-        self._aits_overview_scroll.setMaximumHeight(168)
+        self._aits_overview_scroll.setMaximumHeight(120)
         self._aits_overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._aits_overview_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
         self._aits_overview_scroll.setVisible(False)
-        aits_ly.addWidget(self._aits_overview_scroll)
+        self._aits_overview_scroll.setMaximumHeight(0)
+
+        self._aits_overview_scroll_host = QWidget()
+        _aits_ov_host_ly = QVBoxLayout(self._aits_overview_scroll_host)
+        _aits_ov_host_ly.setContentsMargins(0, 0, 0, 0)
+        _aits_ov_host_ly.setSpacing(0)
+        _aits_ov_host_ly.addWidget(self._aits_overview_scroll)
+        try:
+            self._aits_overview_scroll_host.setVisible(False)
+            self._aits_overview_scroll_host.setMaximumHeight(0)
+            self._aits_overview_scroll_host.setMinimumHeight(0)
+        except Exception:
+            pass
+        aits_ly.addWidget(self._aits_overview_scroll_host)
+
         self._aits_overview_expanded = False
+        try:
+            from app.utils.prefs import load_settings
+
+            _s_ov = getattr(self, "_settings", None) or load_settings()
+            _ui_ov = getattr(_s_ov, "ui_state", None) or {}
+            if hasattr(_ui_ov, "model_dump"):
+                _ui_ov = _ui_ov.model_dump()
+            elif not isinstance(_ui_ov, dict):
+                _ui_ov = {}
+            _exp = bool(_ui_ov.get("aits_overview_expanded", False))
+            self._aits_overview_expanded = _exp
+            try:
+                self._aits_overview_scroll_host.setVisible(_exp)
+                self._aits_overview_scroll_host.setMaximumHeight(120 if _exp else 0)
+                self._aits_overview_scroll_host.setMinimumHeight(0)
+            except Exception:
+                pass
+            self._aits_overview_scroll.setVisible(_exp)
+            self._aits_overview_scroll.setMaximumHeight(120 if _exp else 0)
+            if hasattr(self, "lbl_aits_overview_latest"):
+                self.lbl_aits_overview_latest.setVisible(_exp)
+            if hasattr(self, "btn_aits_overview_toggle"):
+                self.btn_aits_overview_toggle.setText("접기 ▲" if _exp else "펼치기 ▼")
+            try:
+                if not _exp:
+                    self._aits_overview_scroll.setMaximumHeight(0)
+            except Exception:
+                pass
+        except Exception:
+            pass
         lay.addWidget(self._aits_status_group)
 
         # 5초마다 인포 갱신
@@ -3213,40 +3423,54 @@ class MainWindow(QMainWindow):
             self._tables_timer.interval(),
         )
 
+        # [UI MASTER PLAN / Phase 3 / PATCH 3-1b]
+        # 상단부 공간을 실제로 줄이는 마감 패치.
+        # - 로그 패널 기본 접힘 + 높이 제한
+        # - Control Panel 높이 축소
+        # - 운영 상태 카드 축소
+        # - 버튼줄 중앙 정렬
+        # 목표는 종목관리 탭 시작 위치를 위로 끌어올리는 것.
         # ---- Top controls (런바: 배경으로 영역 구분)
         self.top_control_widget = QWidget(central)
         self.top_control_widget.setObjectName("runBar")
         top_outer = QVBoxLayout()
-        top_outer.setContentsMargins(0, 0, 0, 0)
-        top_outer.setSpacing(2)
+        top_outer.setContentsMargins(2, 1, 2, 1)
+        top_outer.setSpacing(1)
         self.lbl_aits_control_panel = QLabel("AITS Control Panel")
         self.lbl_aits_control_panel.setStyleSheet(
             "font-weight: bold; font-size: 11px; color: #111827; margin: 0; padding: 0;"
         )
         top_outer.addWidget(self.lbl_aits_control_panel)
         self.lbl_aits_state = QLabel("AITS STOPPED")
-        self.lbl_aits_state.setStyleSheet("color:#9e9e9e; font-weight:bold; margin:0; padding:0;")
+        self.lbl_aits_state.setStyleSheet(
+            "color:#9e9e9e; font-weight:bold; font-size:10px; margin:0; padding:0;"
+        )
         top_outer.addWidget(self.lbl_aits_state)
         self.set_aits_state("STOPPED")
         self.lbl_ai_status = QLabel("AITS 상태: 대기 중")
-        self.lbl_ai_status.setWordWrap(True)
+        self.lbl_ai_status.setWordWrap(False)
         self.lbl_ai_status.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         self.lbl_ai_status.setStyleSheet(
-            "color:#607d8b; font-weight:600; margin:0; padding:1px 2px; font-size:11px;"
+            "color:#607d8b; font-weight:600; margin:0px; padding:2px 6px; font-size:11px;"
         )
         self._ai_status_scroll = QScrollArea()
         self._ai_status_scroll.setWidgetResizable(True)
         self._ai_status_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        try:
+            self._ai_status_scroll.setViewportMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        self._ai_status_scroll.setStyleSheet("QScrollArea { margin: 0; padding: 0; border: none; }")
         self._ai_status_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self._ai_status_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self._ai_status_scroll.setMaximumHeight(84)
-        self._ai_status_scroll.setMinimumHeight(36)
+        self._ai_status_scroll.setMaximumHeight(28)
+        self._ai_status_scroll.setMinimumHeight(24)
         self._ai_status_scroll.setWidget(self.lbl_ai_status)
         try:
             self._ai_status_scroll.setSizePolicy(
@@ -3256,8 +3480,34 @@ class MainWindow(QMainWindow):
             pass
         top_outer.addWidget(self._ai_status_scroll)
         self.set_ai_status("IDLE")
+
+        # [UI MASTER PLAN / Phase 3 / PATCH 3-1] AI 한줄 브리핑 (버튼줄 직상단)
+        self.lbl_aits_briefing = QLabel("AI 브리핑: 시장 데이터 수집 중")
+        self.lbl_aits_briefing.setObjectName("aitsBriefing")
+        self.lbl_aits_briefing.setWordWrap(False)
+        self.lbl_aits_briefing.setStyleSheet(
+            "#aitsBriefing{"
+            "background:#f7fbff;"
+            "border:1px solid #d7e6f5;"
+            "border-radius:8px;"
+            "padding:6px 10px;"
+            "font-size:12px;"
+            "color:#33506b;"
+            "}"
+        )
+        try:
+            self.lbl_aits_briefing.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        try:
+            self.lbl_aits_briefing.setVisible(False)
+            self.lbl_aits_briefing.setMaximumHeight(0)
+        except Exception:
+            pass
         top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
+        top.setContentsMargins(0, 2, 0, 2)
         top.setSpacing(4)
         try:
             top.setAlignment(Qt.AlignmentFlag.AlignVCenter)
@@ -3332,6 +3582,12 @@ class MainWindow(QMainWindow):
         # 통합 새로고침
         self.btn_refresh = QPushButton("상태 새로고침")
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
+        self.btn_ai_briefing = QPushButton("브리핑 보기")
+        self.btn_ai_briefing.setFixedHeight(32)
+        self.btn_ai_briefing.setStyleSheet(
+            "padding: 6px 12px; min-width: 96px; min-height: 32px; max-height: 36px; border-radius: 6px;"
+            " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
+        )
         
         # P0-HITTEST: 창 표시 후에만 유효(표시 전이면 widgetAt이 None일 수 있음)
         try:
@@ -3422,38 +3678,49 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.installEventFilter(self._btn_event_filter)
             self.btn_sellall.installEventFilter(self._btn_event_filter)
             self.btn_refresh.installEventFilter(self._btn_event_filter)
+            self.btn_ai_briefing.installEventFilter(self._btn_event_filter)
             self._log.info("[BTN-EVENT] filter installed on top buttons")
         except Exception as e:
             self._log.error(f"[BTN-EVENT] install error={e}")
-        for b in (self.btn_run_toggle, self.btn_sellall, self.btn_refresh):
+        top.addStretch(1)
+        for idx, b in enumerate((self.btn_run_toggle, self.btn_sellall, self.btn_refresh, self.btn_ai_briefing)):
             top.addWidget(b)
+            if idx < 3:
+                top.addSpacing(6)
         self.lbl_engine_status = QLabel("AI Engine | —")
         self.lbl_engine_status.setStyleSheet("font-size: 11px; color: #555;")
         self.lbl_engine_status.setToolTip("선택된 AI 엔진 및 연결 상태")
-        top.addWidget(self.lbl_engine_status)
+        try:
+            self.lbl_engine_status.setVisible(False)
+        except Exception:
+            pass
+        top.addStretch(1)
         self.lbl_active_engine = QLabel("Active Engine: Basic AI")
         self.lbl_active_engine.setStyleSheet("font-size: 10px; color: #9e9e9e; font-weight: bold;")
         self.lbl_active_engine.setToolTip("실제로 연결 완료되어 현재 적용 중인 AI 엔진")
-        top.addWidget(self.lbl_active_engine)
-        _btn_top_h = 36
+        try:
+            self.lbl_active_engine.setVisible(False)
+        except Exception:
+            pass
+        _btn_top_h = 32
         self.btn_run_toggle.setFixedHeight(_btn_top_h)
         self.btn_sellall.setFixedHeight(_btn_top_h)
         self.btn_refresh.setFixedHeight(_btn_top_h)
+        self.btn_ai_briefing.setFixedHeight(_btn_top_h)
         try:
-            self.lbl_engine_status.setFixedHeight(_btn_top_h)
             self.lbl_active_engine.setFixedHeight(28)
         except Exception:
             pass
         self.btn_run_toggle.setStyleSheet(
-            "padding: 4px 12px; font-weight: 600; min-height: 34px; max-height: 36px;"
+            "padding: 4px 12px; font-weight: 600; min-height: 32px; max-height: 34px;"
             " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
         )
         self.btn_sellall.setStyleSheet(
-            "padding: 4px 12px; font-weight: 600; min-height: 34px; max-height: 36px;"
+            "padding: 4px 12px; font-weight: 600; min-height: 32px; max-height: 34px;"
             " background-color: #e3f2fd; color: #1e88e5; border: 1px solid #4da6ff; border-radius: 6px;"
         )
         self.btn_refresh.setStyleSheet(
-            "padding: 4px 10px; min-height: 34px; max-height: 36px; border-radius: 6px;"
+            "padding: 4px 10px; min-height: 32px; max-height: 34px; border-radius: 6px;"
             " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
         )
         top_outer.addLayout(top)
@@ -4481,6 +4748,10 @@ class MainWindow(QMainWindow):
             self.btn_refresh.clicked.connect(self.on_refresh)
         except Exception:
             pass
+        try:
+            self.btn_ai_briefing.clicked.connect(self._show_ai_briefing_popup)
+        except Exception:
+            pass
         
         # ✅ P0-TOGGLE-INIT: 초기 UI 상태 로깅 + 상태 고정
         try:
@@ -4882,21 +5153,44 @@ class MainWindow(QMainWindow):
 
     def _toggle_aits_overview(self) -> None:
         try:
-            self._aits_overview_expanded = not bool(getattr(self, "_aits_overview_expanded", False))
-            if self._aits_overview_expanded:
+            expanded = not bool(getattr(self, "_aits_overview_expanded", False))
+            self._aits_overview_expanded = expanded
+
+            try:
+                host = getattr(self, "_aits_overview_scroll_host", None)
+                if host is not None:
+                    host.setVisible(expanded)
+                    host.setMaximumHeight(120 if expanded else 0)
+                    host.setMinimumHeight(0)
+            except Exception:
+                pass
+
+            try:
                 if hasattr(self, "_aits_overview_scroll"):
-                    self._aits_overview_scroll.setVisible(True)
+                    self._aits_overview_scroll.setVisible(expanded)
+                    self._aits_overview_scroll.setMaximumHeight(120 if expanded else 0)
+            except Exception:
+                pass
+
+            try:
                 if hasattr(self, "lbl_aits_overview_latest"):
-                    self.lbl_aits_overview_latest.setVisible(True)
+                    self.lbl_aits_overview_latest.setVisible(expanded)
+            except Exception:
+                pass
+
+            try:
                 if hasattr(self, "btn_aits_overview_toggle"):
-                    self.btn_aits_overview_toggle.setText("접기 ▲")
-            else:
-                if hasattr(self, "_aits_overview_scroll"):
-                    self._aits_overview_scroll.setVisible(False)
-                if hasattr(self, "lbl_aits_overview_latest"):
-                    self.lbl_aits_overview_latest.setVisible(False)
-                if hasattr(self, "btn_aits_overview_toggle"):
-                    self.btn_aits_overview_toggle.setText("펼치기 ▼")
+                    self.btn_aits_overview_toggle.setText("접기 ▲" if expanded else "펼치기 ▼")
+            except Exception:
+                pass
+
+            try:
+                self._apply_settings_patch(
+                    {"ui_state": {"aits_overview_expanded": expanded}},
+                    reason="aits_overview_toggle",
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -5108,7 +5402,7 @@ class MainWindow(QMainWindow):
                     "border: 1px solid #e0b35b;"
                     "border-radius: 6px;"
                     "color: #7a5612;"
-                    "padding: 4px 10px;"
+                    "padding: 4px 8px;"
                     "font-weight: 600;"
                     "font-size: 11px;"
                     "}"
@@ -5120,7 +5414,7 @@ class MainWindow(QMainWindow):
                     "border: 1px solid #d8dee6;"
                     "border-radius: 6px;"
                     "color: #425466;"
-                    "padding: 4px 10px;"
+                    "padding: 4px 8px;"
                     "font-weight: 600;"
                     "font-size: 11px;"
                     "}"
@@ -5185,6 +5479,11 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     pass
+            try:
+                self._update_aits_ops_summary()
+                self._update_aits_briefing()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -5231,8 +5530,108 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             self._log.info("[ENGINE-UI] provider=%s stage=%s", provider, stage or "—")
+            try:
+                self._update_aits_ops_summary()
+                self._update_aits_briefing()
+            except Exception:
+                pass
         except Exception as e:
             self._log.debug("[ENGINE-UI] box err=%s", str(e)[:80])
+
+    def _update_aits_ops_summary(self):
+        try:
+            w = getattr(self, "lbl_aits_ops_summary", None)
+            if w is None:
+                return
+
+            provider = "Basic"
+            try:
+                p = str(self._get_aits_engine_ssot()).lower()
+                if p == "gpt":
+                    provider = "GPT"
+                elif p == "gemini":
+                    provider = "Gemini"
+            except Exception:
+                pass
+
+            status_source = ""
+            try:
+                status_source = self.lbl_aits_ai_engine_status.text().strip()
+            except Exception:
+                pass
+
+            lower = status_source.lower()
+            if "오류" in status_source or "fail" in lower or "실패" in status_source:
+                state_txt = "오류"
+            elif "대기" in status_source or "connecting" in lower or "연결중" in status_source:
+                state_txt = "연결중"
+            elif "준비" in status_source or "정상" in status_source or "ready" in lower:
+                state_txt = "준비완료"
+            else:
+                state_txt = "확인중"
+
+            out = f"{provider} | {state_txt}"
+
+            w.setText(out)
+
+            color = "#2e7d32"
+            border = "#81c784"
+
+            if "오류" in state_txt:
+                color = "#c62828"
+                border = "#ef9a9a"
+            elif "연결중" in state_txt:
+                color = "#ef6c00"
+                border = "#ffb74d"
+            elif "확인중" in state_txt:
+                color = "#1565c0"
+                border = "#64b5f6"
+
+            w.setStyleSheet(
+                f"""
+            background:#ffffff;
+            border:2px solid {border};
+            border-radius:12px;
+            padding:4px 12px;
+            font-size:12px;
+            font-weight:700;
+            color:{color};
+            """
+            )
+
+        except Exception:
+            pass
+
+    def _update_aits_briefing(self):
+        try:
+            lb = getattr(self, "lbl_aits_briefing", None)
+            if lb is None:
+                return
+
+            msg = "AI 브리핑: 시장 데이터 수집 중"
+
+            txt = ""
+            try:
+                txt = self.lbl_ai_status.text().strip()
+            except Exception:
+                txt = ""
+
+            if txt:
+                msg = "AI 브리핑: " + txt.replace("\n", " / ")
+
+            try:
+                from PySide6.QtGui import QFontMetrics
+
+                cw = int(lb.width() or 0)
+                if cw > 80:
+                    fm = QFontMetrics(lb.font())
+                    msg = fm.elidedText(msg, Qt.TextElideMode.ElideRight, cw - 8)
+            except Exception:
+                pass
+
+            lb.setText(msg)
+        except Exception:
+            pass
 
     def _update_engine_ui_ssot(self):
         """두 계층 분리: 상단 배지(actual만) + 하단 박스(실시간 상태)."""
@@ -5253,6 +5652,11 @@ class MainWindow(QMainWindow):
                     self._log.info("[ENGINE-SWITCH] actual_engine=%s", actual)
             else:
                 self._last_actual_engine = actual or ""
+            try:
+                self._update_aits_ops_summary()
+                self._update_aits_briefing()
+            except Exception:
+                pass
         except Exception as e:
             self._log.debug("[ENGINE-UI] update err=%s", str(e)[:80])
 
@@ -5280,6 +5684,11 @@ class MainWindow(QMainWindow):
             pass
         try:
             self._refresh_aits_status_view()
+        except Exception:
+            pass
+        try:
+            self._update_aits_ops_summary()
+            self._update_aits_briefing()
         except Exception:
             pass
 
@@ -8706,6 +9115,11 @@ class MainWindow(QMainWindow):
                     self.lbl_aits_ai_engine_status.setText(status_text)
                     self._apply_aits_ai_engine_status_line_style(status_text)
                 print(f"[AITS] ai engine status={status_text}")
+                try:
+                    self._update_aits_ops_summary()
+                    self._update_aits_briefing()
+                except Exception:
+                    pass
                 return
 
             status_text = "AITS AI 상태: 시장 확인 중"
@@ -8728,6 +9142,11 @@ class MainWindow(QMainWindow):
                 self.lbl_aits_ai_engine_status.setText(status_text)
                 self._apply_aits_ai_engine_status_line_style(status_text)
             print(f"[AITS] ai engine status={status_text}")
+            try:
+                self._update_aits_ops_summary()
+                self._update_aits_briefing()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -8772,6 +9191,11 @@ class MainWindow(QMainWindow):
                 _m = msgs[self._basic_ai_status_idx]
                 self.lbl_aits_ai_engine_status.setText(_m)
                 self._apply_aits_ai_engine_status_line_style(_m)
+            try:
+                self._update_aits_ops_summary()
+                self._update_aits_briefing()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -13639,18 +14063,24 @@ class MainWindow(QMainWindow):
                 and isinstance(_us, dict)
                 and set(_us.keys()) == {"aits_manage_splitter_sizes"}
             )
+            _overview_only_ui = (
+                set(_p.keys()) == {"ui_state"}
+                and isinstance(_us, dict)
+                and set(_us.keys()) == {"aits_overview_expanded"}
+            )
+            _ui_autosave_exempt = _splitter_only_ui or _overview_only_ui
             
-            # 부팅 후 10초간 모든 저장 차단 (종목관리 splitter 자동 저장은 예외)
+            # 부팅 후 10초간 모든 저장 차단 (splitter / overview UI 자동 저장은 예외)
             if (
                 hasattr(self, "_boot_start_time")
                 and current_time - self._boot_start_time < 10.0
-                and not _splitter_only_ui
+                and not _ui_autosave_exempt
             ):
                 self._log.info("[SETTINGS-PATCH] blocked during boot period (10s)")
                 return False
             
-            # 5초 이내 중복 저장 방지 (종목관리 splitter 자동 저장은 예외)
-            if current_time - self._last_save_time < 5.0 and not _splitter_only_ui:
+            # 5초 이내 중복 저장 방지 (splitter / overview UI 자동 저장은 예외)
+            if current_time - self._last_save_time < 5.0 and not _ui_autosave_exempt:
                 self._log.info("[SETTINGS-PATCH] throttled (too frequent)")
                 return False
                 
@@ -15918,6 +16348,38 @@ class MainWindow(QMainWindow):
 
             # 선택 엔진과 실제 적용 엔진이 다르면 시작 전에 경고(실행은 기존 엔진 기준으로 계속)
             if run:
+                selected = "BASIC"
+                try:
+                    selected = str(self._get_aits_engine_ssot()).upper()
+                except Exception:
+                    pass
+
+                status_txt = ""
+                try:
+                    status_txt = self.lbl_aits_ai_engine_status.text().strip()
+                except Exception:
+                    pass
+
+                if selected != "BASIC":
+                    ready = False
+                    chk = status_txt.lower()
+                    if ("준비" in status_txt) or ("정상" in status_txt) or ("ready" in chk):
+                        ready = True
+
+                    if not ready:
+                        QMessageBox.warning(
+                            self,
+                            "엔진 준비 필요",
+                            f"{selected} 엔진이 아직 준비되지 않았습니다.\n\n현재 상태: {status_txt or '확인중'}\n연결 완료 후 실행 가능합니다."
+                        )
+
+                        try:
+                            self.btn_run_toggle.setChecked(False)
+                        except Exception:
+                            pass
+
+                        return
+
                 selected_provider = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
                 if selected_provider not in ("gpt", "gemini", "local"):
                     selected_provider = (self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local")
