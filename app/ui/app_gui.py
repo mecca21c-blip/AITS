@@ -3844,7 +3844,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.lbl_ai_managed_scope = QLabel(
-            "AI가 선택한 실거래 종목입니다. 여기 포함된 종목만 자동매매 대상입니다."
+            "AI가 선택한 종목만 자동매매 대상입니다."
         )
         try:
             self.lbl_ai_managed_scope.setWordWrap(True)
@@ -3865,21 +3865,20 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _managed_inner.addWidget(self.lbl_ai_managed_summary)
-        self.tbl_ai_managed = QTableWidget(0, 12)
+        self.tbl_ai_managed = QTableWidget(0, 7)
+        try:
+            self.tbl_ai_managed.setObjectName("tblAiManagedCards")
+        except Exception:
+            pass
         self.tbl_ai_managed.setHorizontalHeaderLabels(
             [
-                "코인명",
-                "현재가",
-                "변동률",
-                "구분",
+                "종목명",
                 "AI 점수",
                 "AI 상태",
-                "목표가",
-                "손절가",
-                "수익률",
+                "비중",
                 "잠금",
                 "액션",
-                "AI 판단 요약",
+                "요약",
             ]
         )
         self.tbl_ai_managed.verticalHeader().setVisible(False)
@@ -3893,13 +3892,17 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_ai_managed.setMinimumHeight(280)
         try:
-            self.tbl_ai_managed.setAlternatingRowColors(True)
-            self.tbl_ai_managed.setShowGrid(True)
+            self.tbl_ai_managed.setWordWrap(True)
+        except Exception:
+            pass
+        try:
+            self.tbl_ai_managed.setAlternatingRowColors(False)
+            self.tbl_ai_managed.setShowGrid(False)
         except Exception:
             pass
         try:
             _vh_am = self.tbl_ai_managed.verticalHeader()
-            _vh_am.setDefaultSectionSize(44)
+            _vh_am.setDefaultSectionSize(62)
         except Exception:
             pass
         try:
@@ -3908,42 +3911,51 @@ class MainWindow(QMainWindow):
             _hh_am.setDefaultAlignment(
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
             )
+            _hh_am.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
         except Exception:
             pass
         try:
             self.tbl_ai_managed.setStyleSheet(
-                "QTableWidget {"
-                "  gridline-color: #e2e8f0;"
-                "  background: #ffffff;"
-                "  alternate-background-color: #f8fafc;"
-                "  selection-background-color: #bfdbfe;"
-                "  selection-color: #0f172a;"
+                "#tblAiManagedCards {"
+                "  background: #eef2f7;"
                 "  font-size: 12px;"
+                "  gridline-color: transparent;"
                 "}"
-                "QTableWidget::item { padding: 6px 6px; }"
-                "QTableWidget::item:selected {"
-                "  background-color: #93c5fd;"
+                "#tblAiManagedCards::item {"
+                "  padding: 8px 10px;"
+                "  margin: 3px 4px;"
+                "  border-radius: 10px;"
+                "  background: #ffffff;"
+                "  border: 1px solid #e2e8f0;"
+                "}"
+                "#tblAiManagedCards::item:selected {"
+                "  background-color: #dbeafe;"
                 "  color: #0f172a;"
+                "  border: 2px solid #2563eb;"
+                "}"
+                "#tblAiManagedCards::item:selected:!active {"
+                "  background-color: #e2e8f0;"
+                "  border: 2px solid #64748b;"
                 "}"
                 "QHeaderView::section {"
-                "  background: #f1f5f9;"
-                "  padding: 8px 6px;"
-                "  border: 1px solid #e2e8f0;"
+                "  background: #f8fafc;"
+                "  padding: 8px 8px;"
+                "  border: none;"
+                "  border-bottom: 1px solid #e2e8f0;"
                 "  font-weight: 700;"
                 "  font-size: 11px;"
-                "  color: #1e293b;"
+                "  color: #334155;"
                 "}"
             )
         except Exception:
             pass
         try:
-            self.tbl_ai_managed.setColumnWidth(0, 188)  # 코인명 (가장 넓게)
-            self.tbl_ai_managed.setColumnWidth(1, 82)   # 현재가
-            self.tbl_ai_managed.setColumnWidth(2, 68)   # 변동률
-            self.tbl_ai_managed.setColumnWidth(3, 70)   # 구분
-            self.tbl_ai_managed.setColumnWidth(4, 62)   # AI 점수
-            self.tbl_ai_managed.setColumnWidth(5, 92)   # AI 상태
-            self.tbl_ai_managed.setColumnWidth(6, 96)   # 목표가
+            self.tbl_ai_managed.setColumnWidth(0, 160)
+            self.tbl_ai_managed.setColumnWidth(1, 70)
+            self.tbl_ai_managed.setColumnWidth(2, 95)
+            self.tbl_ai_managed.setColumnWidth(3, 70)
+            self.tbl_ai_managed.setColumnWidth(4, 48)
+            self.tbl_ai_managed.setColumnWidth(5, 56)
         except Exception:
             pass
         # [UI MASTER PLAN / Phase 2 / PATCH 2-5]
@@ -4012,11 +4024,44 @@ class MainWindow(QMainWindow):
         try:
             self.lbl_ai_managed_ux_hint.setWordWrap(True)
             self.lbl_ai_managed_ux_hint.setStyleSheet(
-                "font-size: 11px; font-weight: 600; color: #475569; padding: 6px 0 0 0;"
+                "font-size: 11px; font-weight: 500; color: #64748b; padding: 8px 0 0 0;"
             )
         except Exception:
             pass
         _managed_inner.addWidget(self.lbl_ai_managed_ux_hint)
+        self._frm_ai_managed_add_hint = QFrame()
+        try:
+            self._frm_ai_managed_add_hint.setObjectName("frmAiManagedAddHint")
+        except Exception:
+            pass
+        try:
+            self._frm_ai_managed_add_hint.setStyleSheet(
+                "#frmAiManagedAddHint {"
+                "  background: #f8fafc;"
+                "  border: 1px dashed #cbd5e1;"
+                "  border-radius: 10px;"
+                "}"
+            )
+        except Exception:
+            pass
+        _ah_lay = QVBoxLayout(self._frm_ai_managed_add_hint)
+        try:
+            _ah_lay.setContentsMargins(12, 10, 12, 10)
+            _ah_lay.setSpacing(4)
+        except Exception:
+            pass
+        self.lbl_ai_managed_add_placeholder = QLabel(
+            "+ 종목 추가 (Market Explorer에서)"
+        )
+        try:
+            self.lbl_ai_managed_add_placeholder.setWordWrap(True)
+            self.lbl_ai_managed_add_placeholder.setStyleSheet(
+                "font-size: 12px; font-weight: 600; color: #94a3b8;"
+            )
+        except Exception:
+            pass
+        _ah_lay.addWidget(self.lbl_ai_managed_add_placeholder)
+        _managed_inner.addWidget(self._frm_ai_managed_add_hint)
         self.btn_ai_managed_up = QPushButton("▲ 위로")
         self.btn_ai_managed_down = QPushButton("▼ 아래로")
         try:
@@ -4060,7 +4105,7 @@ class MainWindow(QMainWindow):
             self.btn_ai_managed_down.clicked.connect(self._on_ai_managed_move_down)
         except Exception:
             pass
-        self._ai_managed_lock_col = 9
+        self._ai_managed_lock_col = 4
         try:
             _gb_managed.setMinimumHeight(300)
         except Exception:
@@ -6168,8 +6213,8 @@ class MainWindow(QMainWindow):
             pass
 
     # --- AITS Managed Pool / Market Explorer (Qt 테이블 골격, ag-Grid 스타일 상태·이벤트 분리) ---
-    _AI_M_COL_LOCK = 9
-    _AI_M_COL_ACTION = 10
+    _AI_M_COL_LOCK = 4
+    _AI_M_COL_ACTION = 5
     _MKT_COL_ADD = 6
 
     def _fmt_change_pct(self, rate: float) -> str:
@@ -9120,6 +9165,42 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _format_ai_managed_weight_cell(self, row: dict) -> tuple:
+        """비중 표시(행 dict 기존 키만 사용). 없으면 '—'."""
+        try:
+            if not isinstance(row, dict):
+                return "—", False
+            for k in (
+                "weight_pct",
+                "allocation_pct",
+                "position_weight_pct",
+                "target_weight",
+                "weight",
+            ):
+                v = row.get(k)
+                if v is None or str(v).strip() == "":
+                    continue
+                try:
+                    wv = float(v)
+                    wv = max(0.0, min(100.0, wv))
+                    bn = max(0, min(10, int(round(wv / 10.0))))
+                    bar = "▮" * bn + "░" * (10 - bn)
+                    return f"{wv:.1f}%\n{bar}", True
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return "—", False
+
+    def _parse_ai_managed_score_display(self, txt: str):
+        try:
+            s = str(txt or "").strip().replace("[", "").replace("]", "").replace("%", "")
+            if not s or s == "—":
+                return None
+            return float(s)
+        except Exception:
+            return None
+
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
             return
@@ -9133,35 +9214,50 @@ class MainWindow(QMainWindow):
                 sym = (row.get("symbol") or "").strip()
                 name = (row.get("name") or "").strip() or sym
                 display_coin = self._format_aits_coin_display_name(sym)
-                label = display_coin if display_coin else (name or sym or "—")
-                c0 = QTableWidgetItem(label)
-                c0.setData(Qt.ItemDataRole.UserRole, sym)
-                t.setItem(i, 0, c0)
-                t.setItem(i, 1, QTableWidgetItem(f"{float(row.get('price') or 0.0):,.0f}"))
-                chg_val = float(row.get("change_rate") or 0.0)
-                c_change = QTableWidgetItem(self._fmt_change_pct(chg_val))
-                self._apply_aits_change_color(c_change, chg_val)
-                t.setItem(i, 2, c_change)
-                src = (row.get("source") or "USER").strip().upper()
-                display_kind = self._format_aits_user_kind_text(src)
-                c3 = QTableWidgetItem(display_kind)
-                if src == "AI":
-                    c3.setForeground(QColor("#1565c0"))
+                tail = sym.split("-")[-1] if "-" in sym else sym
+                if not tail:
+                    tail = display_coin or name or sym or "—"
+                kn = ""
+                try:
+                    kn = str(self._get_aits_korean_coin_name(sym) or "").strip()
+                except Exception:
+                    kn = ""
+                if not kn:
+                    kn = str(name or "").strip()
+                if kn and kn.upper() != str(tail).upper():
+                    label_lines = f"{tail}\n{kn}"
                 else:
-                    c3.setForeground(QColor("#2e7d32"))
-                t.setItem(i, 3, c3)
+                    label_lines = display_coin if display_coin else (tail or "—")
+                c0 = QTableWidgetItem(label_lines)
+                c0.setData(Qt.ItemDataRole.UserRole, sym)
+                try:
+                    c0.setTextAlignment(
+                        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+                    )
+                except Exception:
+                    pass
+                t.setItem(i, 0, c0)
                 if row.get("ai_score") is not None:
                     _sc = row.get("ai_score")
                     try:
-                        cscore = QTableWidgetItem(str(int(_sc)))
+                        cscore = QTableWidgetItem(f"[{int(_sc)}]")
                     except Exception:
-                        cscore = QTableWidgetItem("—")
+                        cscore = QTableWidgetItem("[—]")
                 else:
-                    cscore = QTableWidgetItem("—")
-                t.setItem(i, 4, cscore)
+                    cscore = QTableWidgetItem("[—]")
+                try:
+                    cscore.setTextAlignment(
+                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+                    )
+                except Exception:
+                    pass
+                t.setItem(i, 1, cscore)
                 status_txt = str(row.get("ai_status") or "Watching")
                 display_state = self._format_aits_user_state_text(status_txt)
-                c5 = QTableWidgetItem(display_state)
+                chip = str(display_state or "").strip()
+                if len(chip) > 10:
+                    chip = chip[:10]
+                c_st = QTableWidgetItem(f"[{chip}]")
                 _status_color = {
                     "Watching": "#757575",
                     "Buy Ready": "#1565c0",
@@ -9169,28 +9265,61 @@ class MainWindow(QMainWindow):
                     "Sell Ready": "#c62828",
                     "Dropped": "#6d4c41",
                 }.get(status_txt, "#757575")
-                c5.setForeground(QColor(_status_color))
-                t.setItem(i, 5, c5)
-                t.setItem(i, 6, QTableWidgetItem(f"{float(row.get('target_price') or 0.0):,.0f}"))
-                t.setItem(i, 7, QTableWidgetItem(f"{float(row.get('stop_loss') or 0.0):,.0f}"))
-                t.setItem(i, 8, QTableWidgetItem(f"{float(row.get('pnl') or 0.0):.2f}%"))
+                c_st.setForeground(QColor(_status_color))
+                try:
+                    c_st.setTextAlignment(
+                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+                    )
+                except Exception:
+                    pass
+                t.setItem(i, 2, c_st)
+                wt_txt, _wt_on = self._format_ai_managed_weight_cell(row)
+                wt_it = QTableWidgetItem(wt_txt)
+                try:
+                    wt_it.setTextAlignment(
+                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+                    )
+                except Exception:
+                    pass
+                t.setItem(i, 3, wt_it)
                 locked = bool(row.get("locked"))
-                lock_item = QTableWidgetItem("🔒 잠금" if locked else "잠금 해제")
+                lock_item = QTableWidgetItem("🔒" if locked else "🔓")
+                try:
+                    lock_item.setToolTip(
+                        "잠금됨 — 더블클릭으로 해제"
+                        if locked
+                        else "잠금 해제 — 더블클릭으로 잠금"
+                    )
+                except Exception:
+                    pass
                 try:
                     lock_item.setTextAlignment(
                         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
                     )
                 except Exception:
                     pass
-                t.setItem(i, 9, lock_item)
-                t.setItem(i, 10, QTableWidgetItem("제거"))  # TODO: 상세 패널/차트 연결
+                t.setItem(i, 4, lock_item)
+                act_it = QTableWidgetItem("제거")
+                try:
+                    act_it.setForeground(QColor("#b45309"))
+                    act_it.setTextAlignment(
+                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+                    )
+                except Exception:
+                    pass
+                t.setItem(i, 5, act_it)
                 _sum = (row.get("ai_reason_summary") or "").strip()
-                if len(_sum) > 48:
-                    _sum = _sum[:45] + "…"
-                t.setItem(i, 11, QTableWidgetItem(_sum if _sum else "—"))
+                if len(_sum) > 64:
+                    _sum = _sum[:61] + "…"
+                sum_it = QTableWidgetItem(_sum if _sum else "—")
+                try:
+                    sum_it.setForeground(QColor("#64748b"))
+                except Exception:
+                    pass
+                t.setItem(i, 6, sum_it)
             try:
-                lc = int(getattr(self, "_ai_managed_lock_col", 9))
-                t.setColumnWidth(lc, 72)
+                lc = int(getattr(self, "_ai_managed_lock_col", 4))
+                t.setColumnWidth(lc, 48)
             except Exception:
                 pass
             if not self.ai_managed_rows:
@@ -9218,6 +9347,14 @@ class MainWindow(QMainWindow):
             t.blockSignals(False)
             self._refresh_ai_detail_panel()
         finally:
+            try:
+                ph = getattr(self, "_frm_ai_managed_add_hint", None)
+                if ph is not None:
+                    ph.setVisible(
+                        len(getattr(self, "ai_managed_rows", None) or []) == 0
+                    )
+            except Exception:
+                pass
             try:
                 self._update_ai_managed_summary()
             except Exception:
@@ -9261,7 +9398,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _apply_ai_managed_row_visual_state(self):
-        """PATCH B-1: 상태칩·점수 티어·행 tint·선택/상위3 종목명 강조 (잠금 열 비터치)."""
+        """Managed 카드형 행: 상태칩·점수 배지·행 tint·선택/상위3 종목명 강조 (잠금 열 비터치)."""
         try:
             table = getattr(self, "tbl_ai_managed", None)
             if table is None:
@@ -9269,11 +9406,16 @@ class MainWindow(QMainWindow):
 
             row_count = table.rowCount()
             col_count = table.columnCount()
-            _lock_col = int(getattr(self, "_ai_managed_lock_col", 9))
+            _lock_col = int(getattr(self, "_ai_managed_lock_col", 4))
             rows_data = getattr(self, "ai_managed_rows", None) or []
 
             def _state_bucket(state_text: str) -> str:
-                s = str(state_text or "").strip()
+                s = (
+                    str(state_text or "")
+                    .replace("[", "")
+                    .replace("]", "")
+                    .strip()
+                )
                 sl = s.lower()
                 if any(
                     k in s
@@ -9335,14 +9477,14 @@ class MainWindow(QMainWindow):
 
             def _score_paint(score_val: float):
                 if score_val >= 90:
-                    return ("#ecfdf5", "#14532d", True)
-                if score_val >= 75:
-                    return ("#f0fdf4", "#15803d", True)
+                    return ("#d1fae5", "#064e3b", True)
+                if score_val >= 80:
+                    return ("#dcfce7", "#166534", True)
+                if score_val >= 70:
+                    return ("#fef9c3", "#a16207", True)
                 if score_val >= 60:
-                    return ("#eff6ff", "#1d4ed8", False)
-                if score_val >= 45:
-                    return ("#fff7ed", "#ea580c", False)
-                return ("#f1f5f9", "#64748b", False)
+                    return ("#ffedd5", "#c2410c", True)
+                return ("#f1f5f9", "#64748b", True)
 
             state_col = None
             score_col = None
@@ -9367,10 +9509,7 @@ class MainWindow(QMainWindow):
                 if score_col is not None:
                     sit0 = table.item(r, score_col)
                     if sit0 is not None:
-                        try:
-                            sv = float(str(sit0.text()).replace("%", "").strip())
-                        except Exception:
-                            sv = None
+                        sv = self._parse_ai_managed_score_display(sit0.text())
                 if sv is not None:
                     score_pairs.append((sv, r))
             score_pairs.sort(key=lambda x: -x[0])
@@ -9407,51 +9546,54 @@ class MainWindow(QMainWindow):
 
                     if c == score_col:
                         sit = it
-                        score_val = None
-                        try:
-                            score_val = float(str(sit.text()).replace("%", "").strip())
-                        except Exception:
-                            score_val = None
+                        score_val = self._parse_ai_managed_score_display(sit.text())
                         if score_val is not None:
                             sbg, sfg, sbd = _score_paint(score_val)
                             sit.setBackground(QColor(sbg))
                             sit.setForeground(QColor(sfg))
                             f = sit.font()
                             f.setBold(bool(sbd))
+                            try:
+                                f.setWeight(QFont.Weight.Bold)
+                            except Exception:
+                                pass
                             sit.setFont(f)
                         else:
                             sit.setBackground(QColor(row_bg))
                             sit.setForeground(QColor("#64748b"))
                             f = sit.font()
                             f.setBold(False)
+                            try:
+                                f.setWeight(QFont.Weight.Normal)
+                            except Exception:
+                                pass
                             sit.setFont(f)
                         continue
 
-                    if c == 2:
-                        it.setBackground(QColor(row_bg))
-                        try:
-                            chg = float(row_dict.get("change_rate") or 0.0)
-                            self._apply_aits_change_color(it, chg)
-                        except Exception:
-                            pass
-                        continue
-
-                    if c == 3:
-                        it.setBackground(QColor(row_bg))
-                        src = (row_dict.get("source") or "USER").strip().upper()
-                        if src == "AI":
-                            it.setForeground(QColor("#1565c0"))
-                        else:
-                            it.setForeground(QColor("#2e7d32"))
-                        continue
-
                     it.setBackground(QColor(row_bg))
-                    it.setForeground(QColor("#1e293b"))
+                    if c not in (5, 6):
+                        it.setForeground(QColor("#1e293b"))
 
                     if c == 0:
                         f = it.font()
-                        name_bold = r == cur_row or r in top3_rows
-                        f.setBold(bool(name_bold))
+                        if r == cur_row:
+                            f.setBold(True)
+                            try:
+                                f.setWeight(QFont.Weight.Black)
+                            except Exception:
+                                f.setBold(True)
+                        elif r in top3_rows:
+                            f.setBold(True)
+                            try:
+                                f.setWeight(QFont.Weight.DemiBold)
+                            except Exception:
+                                pass
+                        else:
+                            f.setBold(False)
+                            try:
+                                f.setWeight(QFont.Weight.Normal)
+                            except Exception:
+                                pass
                         it.setFont(f)
 
             table.viewport().update()
@@ -9642,7 +9784,7 @@ class MainWindow(QMainWindow):
                 if item is None:
                     continue
                 sym = str(item.data(Qt.ItemDataRole.UserRole) or "").strip()
-                txt = item.text().strip()
+                txt = str(item.text() or "").strip().split("\n")[0].strip()
                 matched_index = None
                 for i, row in enumerate(rows):
                     if i in used:
@@ -13189,7 +13331,7 @@ class MainWindow(QMainWindow):
         """Managed 더블클릭: 잠금 열은 토글, 그 외 열은 상세 차트(기존 경로)."""
         try:
             lock_col = int(
-                getattr(self, "_ai_managed_lock_col", getattr(self, "_AI_M_COL_LOCK", 9))
+                getattr(self, "_ai_managed_lock_col", getattr(self, "_AI_M_COL_LOCK", 4))
             )
             if int(col) == lock_col:
                 self._on_ai_managed_cell_double_clicked(row, col)
