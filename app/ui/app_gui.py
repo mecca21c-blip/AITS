@@ -87,22 +87,37 @@ QCheckBox, QRadioButton {
     spacing: 6px;
 }
 
-/* 탭: 높이/여백 통일 */
+/* 탭: 높이/여백 통일 (PATCH A-2: 하단 내비 느낌) */
 QTabWidget::pane {
-    border: 1px solid #D9D9D9;
+    border: 1px solid #d8dee6;
     top: -1px;
+    background: #ffffff;
+    border-radius: 0 0 10px 10px;
 }
 QTabBar::tab {
-    min-height: 26px;
-    padding: 4px 10px;
-    border: 1px solid #D9D9D9;
+    min-height: 50px;
+    padding: 8px 18px;
+    border: 1px solid #d8dee6;
     border-bottom: none;
-    background: #F7F7F7;
-    color: #333333;
+    background: #eef2f7;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+    margin-right: 2px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
 }
 QTabBar::tab:selected {
-    background: #FFFFFF;
-    font-weight: 600;
+    background: #ffffff;
+    color: #0f172a;
+    font-weight: 700;
+    font-size: 13px;
+    border-bottom: 2px solid #2563eb;
+    margin-bottom: -1px;
+}
+QTabBar::tab:!selected:hover {
+    background: #e2e8f0;
+    color: #1e293b;
 }
 
 /* 구분선/프레임 — border만 제거, color 미지정(자식 텍스트 회색 상속 방지) */
@@ -156,6 +171,18 @@ QWidget#stopBox, QLabel#stopLabel {
 QWidget#stopBox {
     background: #f1e6f5;
     border-radius: 12px;
+}
+
+/* PATCH A-1: 상단 파워 카드 / 엔진 요약 */
+QWidget#aitsPowerCard {
+    background: #f7f8fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+}
+QFrame#aitsEngineSummaryCard {
+    background: #f7fbff;
+    border: 1px solid #d7e6f5;
+    border-radius: 10px;
 }
 
 /* 포커스 윤곽 제거(회색 라인 방지) */
@@ -917,9 +944,21 @@ class MainWindow(QMainWindow):
 
             txt = ""
             try:
-                txt = str(getattr(self, "_last_full_ai_status_text", "") or "").strip()
+                _sym_bp = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+                _row_bp = None
+                for _r in self.ai_managed_rows or []:
+                    if (str(_r.get("symbol") or "").strip()) == _sym_bp:
+                        _row_bp = _r
+                        break
+                if isinstance(_row_bp, dict):
+                    txt = self._get_center_symbol_context_text(_row_bp).strip()
             except Exception:
                 txt = ""
+            if not txt:
+                try:
+                    txt = str(getattr(self, "_last_full_ai_status_text", "") or "").strip()
+                except Exception:
+                    txt = ""
             if not txt:
                 try:
                     txt = self.lbl_ai_status.text().strip()
@@ -1590,31 +1629,22 @@ class MainWindow(QMainWindow):
             pass
 
         # 1) 상태 라벨들 동기화(여러 이름을 대비해 안전하게 시도)
-        txt_state = "RUNNING" if running else "STOP"
+        txt_state = "AITS ON" if running else "AITS OFF"
         for name in ("lbl_run_state", "lbl_status", "lbl_top_state", "lbl_state", "lbl_status_big"):
             try:
                 lb = getattr(self, name, None)
                 if lb is not None:
                     lb.setText(txt_state)
-                    # RUNNING 상태일 때 초록색으로 변경
                     if running:
-                        lb.setStyleSheet("""
-                            QLabel#stopLabel {
-                                font-size: 24px;
-                                font-weight: bold;
-                                color: #10b981;
-                                padding: 4px 8px;
-                            }
-                        """)
+                        lb.setStyleSheet(
+                            "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #047857; "
+                            "padding: 2px; background: transparent; }"
+                        )
                     else:
-                        lb.setStyleSheet("""
-                            QLabel#stopLabel {
-                                font-size: 24px;
-                                font-weight: bold;
-                                color: #6f42c1;
-                                padding: 4px 8px;
-                            }
-                        """)
+                        lb.setStyleSheet(
+                            "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #b91c1c; "
+                            "padding: 2px; background: transparent; }"
+                        )
             except Exception:
                 pass  # 라벨만 보유해도 무해
 
@@ -1657,7 +1687,7 @@ class MainWindow(QMainWindow):
                 lb = getattr(self, "lbl_status", None)
                 if lb is not None:
                     lb.setStyleSheet(
-                        "QLabel#stopLabel { font-size: 24px; font-weight: bold; color: #6f42c1; padding: 4px 8px; }"
+                        "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #b91c1c; padding: 2px; background: transparent; }"
                     )
         except Exception:
             pass
@@ -1681,16 +1711,21 @@ class MainWindow(QMainWindow):
         """실행중 점멸: RUNNING 박스(lbl_status) 배경/텍스트 색을 500ms마다 토글. 정지 버튼은 건드리지 않음."""
         try:
             lb = getattr(self, "lbl_status", None)
-            if lb is None or (lb.text() or "").strip() != "RUNNING":
+            if lb is None:
+                return
+            _t = (lb.text() or "").strip()
+            if _t not in ("RUNNING", "AITS ON"):
                 return
             self._run_blink_on = not getattr(self, "_run_blink_on", True)
             if self._run_blink_on:
                 lb.setStyleSheet(
-                    "QLabel#stopLabel { font-size: 24px; font-weight: bold; color: #10b981; padding: 4px 8px; background-color: #d1fae5; border-radius: 4px; }"
+                    "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #047857; padding: 2px 6px; "
+                    "background-color: #d1fae5; border-radius: 6px; }"
                 )
             else:
                 lb.setStyleSheet(
-                    "QLabel#stopLabel { font-size: 24px; font-weight: bold; color: #059669; padding: 4px 8px; background-color: #a7f3d0; border-radius: 4px; }"
+                    "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #059669; padding: 2px 6px; "
+                    "background-color: #a7f3d0; border-radius: 6px; }"
                 )
         except Exception:
             pass
@@ -1788,44 +1823,48 @@ class MainWindow(QMainWindow):
             if state == "ok":
                 card_style = """
                     QFrame#accountCard {
-                        background: #f0f9f0;
-                        border: 1px solid #c8e6c9;
-                        border-radius: 6px;
-                        padding: 8px;
+                        background: #f0fdf4;
+                        border: 1px solid #bbf7d0;
+                        border-radius: 10px;
+                        padding: 8px 12px;
+                        min-height: 66px;
+                        max-height: 72px;
                     }
                     QLabel#cardLabel {
                         font-size: 11px;
-                        color: #2e7d32;
-                        font-weight: normal;
+                        color: #166534;
+                        font-weight: 600;
                     }
                     QLabel#cardValue {
-                        font-size: 16px;
+                        font-size: 18px;
                         font-weight: bold;
-                        color: #1b5e20;
+                        color: #14532d;
                     }
                 """
-                pnl_color = "#2e7d32" if (pnl_krw is not None and pnl_krw > 0) else "#d32f2f" if (pnl_krw is not None and pnl_krw < 0) else "#212529"
-                ret_color = "#2e7d32" if (roi_pct is not None and roi_pct > 0) else "#d32f2f" if (roi_pct is not None and roi_pct < 0) else "#212529"
+                pnl_color = "#15803d" if (pnl_krw is not None and pnl_krw > 0) else "#b91c1c" if (pnl_krw is not None and pnl_krw < 0) else "#0f172a"
+                ret_color = "#15803d" if (roi_pct is not None and roi_pct > 0) else "#b91c1c" if (roi_pct is not None and roi_pct < 0) else "#0f172a"
             else:  # warn
                 card_style = """
                     QFrame#accountCard {
-                        background: #fff8e1;
-                        border: 1px solid #ffecb3;
-                        border-radius: 6px;
-                        padding: 8px;
+                        background: #fffbeb;
+                        border: 1px solid #fde68a;
+                        border-radius: 10px;
+                        padding: 8px 12px;
+                        min-height: 66px;
+                        max-height: 72px;
                     }
                     QLabel#cardLabel {
                         font-size: 11px;
-                        color: #f57c00;
-                        font-weight: normal;
+                        color: #b45309;
+                        font-weight: 600;
                     }
                     QLabel#cardValue {
-                        font-size: 16px;
+                        font-size: 18px;
                         font-weight: bold;
-                        color: #e65100;
+                        color: #92400e;
                     }
                 """
-                pnl_color = ret_color = "#e65100"
+                pnl_color = ret_color = "#c2410c"
             
             # 카드 스타일 적용
             for card in [self.card_asset, self.card_krw, self.card_pnl, self.card_ret]:
@@ -1838,8 +1877,8 @@ class MainWindow(QMainWindow):
             self.lbl_ret_value.setText(fmt_pct(roi_pct) if roi_pct is not None else "— %")
             
             # 손익/수익률 색상 적용
-            self.lbl_pnl_value.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {pnl_color};")
-            self.lbl_ret_value.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {ret_color};")
+            self.lbl_pnl_value.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {pnl_color};")
+            self.lbl_ret_value.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {ret_color};")
             
         except Exception as e:
             import logging
@@ -2102,6 +2141,8 @@ class MainWindow(QMainWindow):
         self._market_price_history: dict[str, list[float]] = {}
         self._aits_overview_expanded = False
         self._ai_reason_expanded = False
+        self._aits_recent_logs: list[str] = []
+        self._aits_last_detail_log_sym_status = ""
         self._aits_last_ai_explanation = {
             "decision": "",
             "reason": [],
@@ -2972,25 +3013,65 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(8, 4, 8, 4)
         lay.setSpacing(6)
 
-        # ==== 상단 정보 헤더 ====
-        # ---- Header (상단 현황 카드)
+        # ==== 상단 정보 헤더 (PATCH A-1: 1행 = 파워 ON/OFF + 자산4 + 엔진 요약) ====
         header = QFrame()
         header.setObjectName("accountSummaryFrame")
         header.setStyleSheet("""
             QFrame#accountSummaryFrame {
-                background: #ffffff;
-                border: 1px solid #e9ecef;
-                border-radius: 8px;
-                padding: 6px;
+                background: #fbfbfc;
+                border: 1px solid #e5e7eb;
+                border-radius: 10px;
+                padding: 4px 6px;
                 margin: 2px 0px;
             }
         """)
-        
-        header_layout = QGridLayout(header)
-        header_layout.setContentsMargins(12, 8, 12, 8)
-        header_layout.setSpacing(12)
-        
-        # 카드 4개 생성
+        header_row = QHBoxLayout(header)
+        header_row.setContentsMargins(10, 6, 10, 6)
+        header_row.setSpacing(10)
+
+        # --- 좌: AITS ON/OFF 파워 카드 (lbl_status + btn_run_toggle, 시그널은 파일 하단 단일 연결) ---
+        self.stop_box = QWidget(header)
+        self.stop_box.setObjectName("aitsPowerCard")
+        stop_box_ly = QVBoxLayout(self.stop_box)
+        stop_box_ly.setContentsMargins(10, 8, 10, 8)
+        stop_box_ly.setSpacing(6)
+        self.lbl_status = QLabel("AITS OFF")
+        self.lbl_status.setObjectName("stopLabel")
+        try:
+            self.lbl_status.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+        self.lbl_status.setStyleSheet(
+            "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #b91c1c; padding: 2px; background: transparent; }"
+        )
+        self.btn_run_toggle = QPushButton("AITS ON")
+        self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
+        self.btn_run_toggle.setObjectName("StopButton")
+        self.btn_run_toggle.setCheckable(True)
+        try:
+            self.btn_run_toggle.setFocusPolicy(Qt.StrongFocus)
+            self.btn_run_toggle.setAutoDefault(False)
+            self.btn_run_toggle.setDefault(False)
+            self.btn_run_toggle.blockSignals(False)
+            self.btn_run_toggle.setEnabled(True)
+        except Exception:
+            pass
+        self.btn_run_toggle.setFixedHeight(34)
+        self.btn_run_toggle.setStyleSheet(
+            "padding: 6px 12px; font-weight: 700; min-height: 32px; max-height: 36px;"
+            " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 8px;"
+        )
+        stop_box_ly.addWidget(self.lbl_status)
+        stop_box_ly.addWidget(self.btn_run_toggle)
+        try:
+            self.stop_box.setFixedWidth(156)
+        except Exception:
+            pass
+        header_row.addWidget(self.stop_box, 0)
+
+        # --- 중: 자산 카드 4 (얇고 넓게) ---
         self.card_asset = QFrame()
         self.card_asset.setObjectName("accountCard")
         self.card_krw = QFrame()
@@ -2999,93 +3080,95 @@ class MainWindow(QMainWindow):
         self.card_pnl.setObjectName("accountCard")
         self.card_ret = QFrame()
         self.card_ret.setObjectName("accountCard")
-        
-        # 카드 공통 스타일
         card_style = """
             QFrame#accountCard {
-                background: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 6px;
-                padding: 8px;
+                background: #f4f6f8;
+                border: 1px solid #d8dee6;
+                border-radius: 10px;
+                padding: 8px 12px;
+                min-height: 66px;
+                max-height: 72px;
             }
             QLabel#cardLabel {
                 font-size: 11px;
-                color: #6c757d;
-                font-weight: normal;
+                color: #64748b;
+                font-weight: 600;
             }
             QLabel#cardValue {
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: bold;
-                color: #212529;
+                color: #0f172a;
             }
         """
-        
-        for card in [self.card_asset, self.card_krw, self.card_pnl, self.card_ret]:
+        for card in (self.card_asset, self.card_krw, self.card_pnl, self.card_ret):
             card.setStyleSheet(card_style)
+            try:
+                card.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+            except Exception:
+                pass
             card_layout = QVBoxLayout(card)
             card_layout.setContentsMargins(8, 6, 8, 6)
-            card_layout.setSpacing(4)
-        
-        # 보유자산 카드
-        self.lbl_asset_label = QLabel("보유자산")
+            card_layout.setSpacing(2)
+        self.lbl_asset_label = QLabel("총자산")
         self.lbl_asset_label.setObjectName("cardLabel")
         self.lbl_asset_value = QLabel("— 원")
         self.lbl_asset_value.setObjectName("cardValue")
         self.card_asset.layout().addWidget(self.lbl_asset_label)
         self.card_asset.layout().addWidget(self.lbl_asset_value)
-        
-        # 주문가능 카드
         self.lbl_krw_label = QLabel("주문가능")
         self.lbl_krw_label.setObjectName("cardLabel")
         self.lbl_krw_value = QLabel("— 원")
         self.lbl_krw_value.setObjectName("cardValue")
         self.card_krw.layout().addWidget(self.lbl_krw_label)
         self.card_krw.layout().addWidget(self.lbl_krw_value)
-        
-        # 보유종목 손익 카드 (값 = PortfolioTab 평가손익)
-        self.lbl_pnl_label = QLabel("보유종목 손익")
+        self.lbl_pnl_label = QLabel("손익")
         self.lbl_pnl_label.setObjectName("cardLabel")
         self.lbl_pnl_value = QLabel("— 원")
         self.lbl_pnl_value.setObjectName("cardValue")
         self.card_pnl.layout().addWidget(self.lbl_pnl_label)
         self.card_pnl.layout().addWidget(self.lbl_pnl_value)
-        
-        # 보유종목 수익률 카드 (값 = PortfolioTab 수익률)
-        self.lbl_ret_label = QLabel("보유종목 수익률")
+        self.lbl_ret_label = QLabel("수익률")
         self.lbl_ret_label.setObjectName("cardLabel")
         self.lbl_ret_value = QLabel("— %")
         self.lbl_ret_value.setObjectName("cardValue")
         self.card_ret.layout().addWidget(self.lbl_ret_label)
         self.card_ret.layout().addWidget(self.lbl_ret_value)
-        
-        # 상태 라벨 (STOP 박스: 테두리/라인 제거용 stopBox·stopLabel)
-        self.lbl_status = QLabel("STOP")
-        self.lbl_status.setObjectName("stopLabel")
-        self.lbl_status.setStyleSheet("""
-            QLabel#stopLabel {
-                font-size: 24px;
-                font-weight: bold;
-                color: #6f42c1;
-                padding: 4px 8px;
-            }
-        """)
-        self.stop_box = QWidget(header)
-        self.stop_box.setObjectName("stopBox")
-        stop_box_ly = QHBoxLayout(self.stop_box)
-        stop_box_ly.setContentsMargins(0, 0, 0, 0)
-        stop_box_ly.addWidget(self.lbl_status)
-        # 카드 배치
-        header_layout.addWidget(self.stop_box, 0, 0, 1, 1)
-        header_layout.addWidget(self.card_asset, 0, 1, 1, 1)
-        header_layout.addWidget(self.card_krw, 0, 2, 1, 1)
-        header_layout.addWidget(self.card_pnl, 0, 3, 1, 1)
-        header_layout.addWidget(self.card_ret, 0, 4, 1, 1)
-        header_layout.setColumnStretch(0, 0)
-        header_layout.setColumnStretch(1, 1)
-        header_layout.setColumnStretch(2, 1)
-        header_layout.setColumnStretch(3, 1)
-        header_layout.setColumnStretch(4, 1)
-        
+        _mid_cards = QWidget(header)
+        _mid_cards_ly = QHBoxLayout(_mid_cards)
+        _mid_cards_ly.setContentsMargins(0, 0, 0, 0)
+        _mid_cards_ly.setSpacing(8)
+        for _c in (self.card_asset, self.card_krw, self.card_pnl, self.card_ret):
+            _mid_cards_ly.addWidget(_c, 1)
+        header_row.addWidget(_mid_cards, 1)
+
+        # --- 우: 엔진 요약 카드 ---
+        self._frame_aits_engine_card = QFrame()
+        self._frame_aits_engine_card.setObjectName("aitsEngineSummaryCard")
+        _eng_ly = QVBoxLayout(self._frame_aits_engine_card)
+        _eng_ly.setContentsMargins(10, 8, 10, 8)
+        _eng_ly.setSpacing(4)
+        self._lbl_aits_engine_card_title = QLabel("AI Engine")
+        self._lbl_aits_engine_card_title.setStyleSheet(
+            "font-size: 11px; font-weight: 800; color: #1e3a5f; letter-spacing: 0.5px;"
+        )
+        self._lbl_aits_engine_card_body = QLabel("선택: Basic\n실제: Basic\n상태: 확인중")
+        self._lbl_aits_engine_card_body.setWordWrap(True)
+        self._lbl_aits_engine_card_body.setStyleSheet(
+            "font-size: 11px; font-weight: 600; color: #334155; line-height: 1.35;"
+        )
+        _eng_ly.addWidget(self._lbl_aits_engine_card_title)
+        _eng_ly.addWidget(self._lbl_aits_engine_card_body)
+        try:
+            self._frame_aits_engine_card.setFixedWidth(200)
+            self._frame_aits_engine_card.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        header_row.addWidget(self._frame_aits_engine_card, 0)
+
         lay.addWidget(header)
         try:
             lay.setSpacing(3)
@@ -3096,33 +3179,39 @@ class MainWindow(QMainWindow):
         # 상단을 내부 로그판이 아닌 운영 대시보드 형태로 재구성.
         # 사용자는 ON/OFF, 엔진, 현재 행동, 위험도만 즉시 이해한다.
 
-        # ✅ P0-UI-GLOBAL-STATUS: 전역 상태바 생성
+        # ✅ P0-UI-GLOBAL-STATUS: 전역 상태바 (PATCH A-1: 운영 한 줄 + 우측 AI 배지)
         self.global_status_frame = QFrame()
         self.global_status_frame.setObjectName("globalStatusFrame")
         self.global_status_frame.setStyleSheet("""
             QFrame#globalStatusFrame {
-                background: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 6px;
-                padding: 3px 6px;
+                background: #f7f8fa;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 2px 6px;
                 margin: 1px 0px;
             }
         """)
-        
+
         global_status_layout = QHBoxLayout(self.global_status_frame)
-        global_status_layout.setContentsMargins(2, 1, 2, 1)
-        global_status_layout.setSpacing(6)
-        
+        global_status_layout.setContentsMargins(6, 4, 6, 4)
+        global_status_layout.setSpacing(8)
+
         self.global_status_icon = QLabel("🟢")
-        self.global_status_icon.setStyleSheet("font-size: 14px;")
-        
-        self.global_status_text = QLabel("정상")
-        self.global_status_text.setStyleSheet("font-weight: bold; font-size: 12px; color: #2e7d32;")
-        
+        self.global_status_icon.setStyleSheet("font-size: 13px;")
+
+        self.global_status_text = QLabel("시장 확인 중")
+        self.global_status_text.setStyleSheet(
+            "font-weight: 700; font-size: 11px; color: #1565c0; "
+            "padding: 3px 8px; background: #e3f2fd; border-radius: 8px; max-width: 200px;"
+        )
+        try:
+            self.global_status_text.setWordWrap(False)
+        except Exception:
+            pass
+
         self.global_status_time = QLabel("")
-        self.global_status_time.setStyleSheet("font-size: 11px; color: #666;")
-        
-        # AI Provider Status (우측상단: 색상 배지 + 모델명 표시)
+        self.global_status_time.setStyleSheet("font-size: 10px; color: #64748b;")
+
         self.ai_status_text = QLabel("AI: —")
         try:
             self.ai_status_text.setStyleSheet(self._get_aits_badge_style("idle"))
@@ -3140,8 +3229,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        global_status_layout.addWidget(self.global_status_icon)
-        global_status_layout.addWidget(self.global_status_text)
+        # SSOT용 상태 텍스트(요약 줄은 lbl_aits_ops_summary로 이동 — 레이아웃에는 숨김)
         self.lbl_aits_ai_engine_status = QLabel("AITS AI 상태: 시장 확인 중")
         try:
             self._apply_aits_ai_engine_status_line_style("AITS AI 상태: 시장 확인 중")
@@ -3149,32 +3237,41 @@ class MainWindow(QMainWindow):
             self.lbl_aits_ai_engine_status.setStyleSheet(
                 "font-size: 11px; color: #37474f; font-weight: 600; padding: 0 8px;"
             )
-        global_status_layout.addWidget(self.lbl_aits_ai_engine_status)
+        try:
+            self.lbl_aits_ai_engine_status.setParent(self.global_status_frame)
+            self.lbl_aits_ai_engine_status.setVisible(False)
+        except Exception:
+            pass
 
-        self.lbl_aits_ops_summary = QLabel("Basic | 확인중")
+        self.lbl_aits_ops_summary = QLabel(
+            "선택엔진 Basic | 실제엔진 Basic | 연결상태 확인중 | 모드 비활성"
+        )
         self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
         self.lbl_aits_ops_summary.setStyleSheet(
             "#aitsOpsSummary{"
             "background:#ffffff;"
-            "border:1px solid #cfd8dc;"
-            "border-radius:12px;"
-            "padding:4px 12px;"
-            "font-size:12px;"
+            "border:1px solid #d8dee6;"
+            "border-radius:10px;"
+            "padding:5px 10px;"
+            "font-size:11px;"
             "font-weight:700;"
-            "color:#1f2d3d;"
+            "color:#1f2937;"
             "}"
         )
         try:
             self.lbl_aits_ops_summary.setSizePolicy(
-                QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
-            self.lbl_aits_ops_summary.setMaximumWidth(300)
+            self.lbl_aits_ops_summary.setMinimumHeight(26)
         except Exception:
             pass
-        global_status_layout.addWidget(self.lbl_aits_ops_summary)
-        global_status_layout.addWidget(self.ai_status_text)
-        global_status_layout.addWidget(self.global_status_time)
-        
+
+        global_status_layout.addWidget(self.global_status_icon, 0)
+        global_status_layout.addWidget(self.global_status_text, 0)
+        global_status_layout.addWidget(self.lbl_aits_ops_summary, 1)
+        global_status_layout.addWidget(self.ai_status_text, 0)
+        global_status_layout.addWidget(self.global_status_time, 0)
+
         lay.addWidget(self.global_status_frame)
 
         # [UI MASTER PLAN Phase 1 / PATCH 1-1]
@@ -3440,12 +3537,20 @@ class MainWindow(QMainWindow):
         self.lbl_aits_control_panel.setStyleSheet(
             "font-weight: bold; font-size: 11px; color: #111827; margin: 0; padding: 0;"
         )
-        top_outer.addWidget(self.lbl_aits_control_panel)
+        self.lbl_aits_control_panel.setParent(self.top_control_widget)
+        try:
+            self.lbl_aits_control_panel.setVisible(False)
+        except Exception:
+            pass
         self.lbl_aits_state = QLabel("AITS STOPPED")
         self.lbl_aits_state.setStyleSheet(
             "color:#9e9e9e; font-weight:bold; font-size:10px; margin:0; padding:0;"
         )
-        top_outer.addWidget(self.lbl_aits_state)
+        self.lbl_aits_state.setParent(self.top_control_widget)
+        try:
+            self.lbl_aits_state.setVisible(False)
+        except Exception:
+            pass
         self.set_aits_state("STOPPED")
         self.lbl_ai_status = QLabel("AITS 상태: 대기 중")
         self.lbl_ai_status.setWordWrap(False)
@@ -3469,16 +3574,17 @@ class MainWindow(QMainWindow):
         self._ai_status_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
         )
-        self._ai_status_scroll.setMaximumHeight(28)
-        self._ai_status_scroll.setMinimumHeight(24)
+        self._ai_status_scroll.setMaximumHeight(0)
+        self._ai_status_scroll.setMinimumHeight(0)
         self._ai_status_scroll.setWidget(self.lbl_ai_status)
+        self._ai_status_scroll.setParent(self.top_control_widget)
         try:
+            self._ai_status_scroll.setVisible(False)
             self._ai_status_scroll.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored
             )
         except Exception:
             pass
-        top_outer.addWidget(self._ai_status_scroll)
         self.set_ai_status("IDLE")
 
         # [UI MASTER PLAN / Phase 3 / PATCH 3-1] AI 한줄 브리핑 (버튼줄 직상단)
@@ -3508,73 +3614,13 @@ class MainWindow(QMainWindow):
             pass
         top = QHBoxLayout()
         top.setContentsMargins(0, 2, 0, 2)
-        top.setSpacing(4)
+        top.setSpacing(8)
         try:
-            top.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+            top.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
         except Exception:
             pass
-        # 실행/정지 토글 버튼
-        self.btn_run_toggle = QPushButton("AITS ON")
-        self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
-        self.btn_run_toggle.setObjectName("StopButton")
-        self.btn_run_toggle.setCheckable(True)
+        # btn_run_toggle은 상단 헤더 파워 카드에서 생성됨 (시그널은 파일 하단 단일 연결)
 
-        # ✅ P0-DIAG: 버튼 실제 타입/속성 확정 로그
-        try:
-            cls = type(self.btn_run_toggle)
-            mod = getattr(cls, "__module__", "")
-            name = getattr(cls, "__name__", "")
-            inherits_qpush = False
-            try:
-                inherits_qpush = bool(self.btn_run_toggle.inherits("QPushButton"))
-            except Exception:
-                inherits_qpush = False
-
-            obj_name = ""
-            try:
-                obj_name = self.btn_run_toggle.objectName()
-            except Exception:
-                obj_name = ""
-
-            try:
-                fp = int(self.btn_run_toggle.focusPolicy())
-            except Exception:
-                fp = -1
-
-            self._log.info(
-                "[BTN-TYPE] "
-                f"type={mod}.{name} "
-                f"inherits_QPushButton={inherits_qpush} "
-                f"name={obj_name} "
-                f"enabled={self.btn_run_toggle.isEnabled()} "
-                f"visible={self.btn_run_toggle.isVisible()} "
-                f"checkable={self.btn_run_toggle.isCheckable()} "
-                f"autoDefault={getattr(self.btn_run_toggle, 'autoDefault', lambda: None)()} "
-                f"default={getattr(self.btn_run_toggle, 'isDefault', lambda: None)()} "
-                f"focusPolicy={fp} "
-                f"mouseTracking={self.btn_run_toggle.hasMouseTracking()}"
-            )
-        except Exception as e:
-            self._log.error(f"[BTN-TYPE] error={e}")
-
-        # ✅ QPushButton 타입과 clicked 시그널 강제 활성화 (clicked 미발생 방지)
-        try:
-            self._log.info(f"[BTN-TYPE] btn_run_toggle type={type(self.btn_run_toggle).__name__} is_QPushButton={isinstance(self.btn_run_toggle, QPushButton)}")
-            # clicked 시그널 강제 활성화(정책만 확인): 잘못된 setAttribute(int, bool) 호출 제거
-            self.btn_run_toggle.setFocusPolicy(Qt.StrongFocus)
-            self.btn_run_toggle.setAutoDefault(False)
-            self.btn_run_toggle.setDefault(False)
-        except Exception as e:
-            self._log.error(f"[BTN-TYPE] setup error={e}")
-
-        # ✅ 신호 차단/비활성 상태 방어(클릭이 "작동 안함"처럼 보이는 케이스 제거)
-        try:
-            self.btn_run_toggle.blockSignals(False)
-            self.btn_run_toggle.setEnabled(True)
-        except Exception:
-            pass
-        # 버튼 연결은 초기화 마지막에 한 번만 수행 (중복 방지)
-        
         # 전량매도
         self.btn_sellall = QPushButton("전량매도")
         self.btn_sellall.setToolTip("보유 코인을 모두 시장가로 매도합니다")
@@ -3583,12 +3629,24 @@ class MainWindow(QMainWindow):
         self.btn_refresh = QPushButton("상태 새로고침")
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
         self.btn_ai_briefing = QPushButton("브리핑 보기")
-        self.btn_ai_briefing.setFixedHeight(32)
+        self.btn_ai_briefing.setToolTip("AI 판단 브리핑 팝업")
+        self.btn_ai_briefing.setFixedHeight(34)
         self.btn_ai_briefing.setStyleSheet(
-            "padding: 6px 12px; min-width: 96px; min-height: 32px; max-height: 36px; border-radius: 6px;"
+            "padding: 6px 12px; min-width: 88px; min-height: 32px; max-height: 36px; border-radius: 8px;"
             " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
         )
-        
+        self.btn_top_open_logs = QPushButton("로그")
+        self.btn_top_open_logs.setToolTip("data/logs 폴더를 엽니다")
+        self.btn_top_open_logs.setFixedHeight(34)
+        self.btn_top_open_logs.setStyleSheet(
+            "padding: 6px 12px; min-width: 64px; min-height: 32px; max-height: 36px; border-radius: 8px;"
+            " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
+        )
+        try:
+            self.btn_top_open_logs.clicked.connect(self._on_open_logs)
+        except Exception:
+            pass
+
         # P0-HITTEST: 창 표시 후에만 유효(표시 전이면 widgetAt이 None일 수 있음)
         try:
             from PySide6.QtWidgets import QApplication
@@ -3679,48 +3737,49 @@ class MainWindow(QMainWindow):
             self.btn_sellall.installEventFilter(self._btn_event_filter)
             self.btn_refresh.installEventFilter(self._btn_event_filter)
             self.btn_ai_briefing.installEventFilter(self._btn_event_filter)
+            self.btn_top_open_logs.installEventFilter(self._btn_event_filter)
             self._log.info("[BTN-EVENT] filter installed on top buttons")
         except Exception as e:
             self._log.error(f"[BTN-EVENT] install error={e}")
         top.addStretch(1)
-        for idx, b in enumerate((self.btn_run_toggle, self.btn_sellall, self.btn_refresh, self.btn_ai_briefing)):
+        for idx, b in enumerate(
+            (self.btn_sellall, self.btn_refresh, self.btn_ai_briefing, self.btn_top_open_logs)
+        ):
             top.addWidget(b)
             if idx < 3:
-                top.addSpacing(6)
+                top.addSpacing(8)
         self.lbl_engine_status = QLabel("AI Engine | —")
         self.lbl_engine_status.setStyleSheet("font-size: 11px; color: #555;")
         self.lbl_engine_status.setToolTip("선택된 AI 엔진 및 연결 상태")
         try:
+            self.lbl_engine_status.setParent(self.top_control_widget)
             self.lbl_engine_status.setVisible(False)
         except Exception:
             pass
-        top.addStretch(1)
+        top.addStretch(0)
         self.lbl_active_engine = QLabel("Active Engine: Basic AI")
         self.lbl_active_engine.setStyleSheet("font-size: 10px; color: #9e9e9e; font-weight: bold;")
         self.lbl_active_engine.setToolTip("실제로 연결 완료되어 현재 적용 중인 AI 엔진")
         try:
+            self.lbl_active_engine.setParent(self.top_control_widget)
             self.lbl_active_engine.setVisible(False)
         except Exception:
             pass
-        _btn_top_h = 32
-        self.btn_run_toggle.setFixedHeight(_btn_top_h)
+        _btn_top_h = 34
         self.btn_sellall.setFixedHeight(_btn_top_h)
         self.btn_refresh.setFixedHeight(_btn_top_h)
         self.btn_ai_briefing.setFixedHeight(_btn_top_h)
+        self.btn_top_open_logs.setFixedHeight(_btn_top_h)
         try:
             self.lbl_active_engine.setFixedHeight(28)
         except Exception:
             pass
-        self.btn_run_toggle.setStyleSheet(
-            "padding: 4px 12px; font-weight: 600; min-height: 32px; max-height: 34px;"
-            " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-        )
         self.btn_sellall.setStyleSheet(
-            "padding: 4px 12px; font-weight: 600; min-height: 32px; max-height: 34px;"
-            " background-color: #e3f2fd; color: #1e88e5; border: 1px solid #4da6ff; border-radius: 6px;"
+            "padding: 6px 12px; font-weight: 600; min-height: 32px; max-height: 36px;"
+            " background-color: #e3f2fd; color: #1e88e5; border: 1px solid #4da6ff; border-radius: 8px;"
         )
         self.btn_refresh.setStyleSheet(
-            "padding: 4px 10px; min-height: 32px; max-height: 34px; border-radius: 6px;"
+            "padding: 6px 12px; min-height: 32px; max-height: 36px; border-radius: 8px;"
             " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
         )
         top_outer.addLayout(top)
@@ -3751,8 +3810,8 @@ class MainWindow(QMainWindow):
         _aits_watch_gb_card_qss = """
             QGroupBox {
                 border: 1px solid #d8dee6;
-                border-radius: 8px;
-                margin-top: 6px;
+                border-radius: 10px;
+                margin-top: 8px;
                 padding-top: 10px;
                 background: #ffffff;
             }
@@ -3761,18 +3820,18 @@ class MainWindow(QMainWindow):
                 subcontrol-position: top left;
                 left: 12px;
                 padding: 0 4px;
-                color: #2f3b48;
+                color: #0f172a;
                 font-weight: 700;
-                font-size: 13px;
+                font-size: 14px;
             }
         """
 
         # ---- AITS 종목 관리: Managed Pool / Market Explorer (위젯 생성만 — 배치는 첫 탭 내부)
         self._aits_pool_outer = QWidget(central)
         _aits_pool_ly = QVBoxLayout(self._aits_pool_outer)
-        _aits_pool_ly.setContentsMargins(0, 4, 0, 4)
-        _aits_pool_ly.setSpacing(6)
-        _gb_managed = QGroupBox("AITS Managed Pool")
+        _aits_pool_ly.setContentsMargins(8, 6, 8, 6)
+        _aits_pool_ly.setSpacing(10)
+        _gb_managed = QGroupBox("AI TRADE MANAGER")
         self._gb_managed = _gb_managed
         try:
             _gb_managed.setStyleSheet(_aits_watch_gb_card_qss)
@@ -3780,10 +3839,32 @@ class MainWindow(QMainWindow):
             pass
         _managed_inner = QVBoxLayout(_gb_managed)
         try:
-            _managed_inner.setContentsMargins(10, 4, 10, 10)
-            _managed_inner.setSpacing(6)
+            _managed_inner.setContentsMargins(10, 8, 10, 10)
+            _managed_inner.setSpacing(8)
         except Exception:
             pass
+        self.lbl_ai_managed_scope = QLabel(
+            "AI가 선택한 실거래 종목입니다. 여기 포함된 종목만 자동매매 대상입니다."
+        )
+        try:
+            self.lbl_ai_managed_scope.setWordWrap(True)
+            self.lbl_ai_managed_scope.setStyleSheet(
+                "font-size: 11px; color: #64748b; padding: 0 0 4px 0;"
+            )
+        except Exception:
+            pass
+        _managed_inner.addWidget(self.lbl_ai_managed_scope)
+        self.lbl_ai_managed_summary = QLabel("관리 0종목 | 보유 0 | 후보 0")
+        try:
+            self.lbl_ai_managed_summary.setWordWrap(False)
+            self.lbl_ai_managed_summary.setStyleSheet(
+                "font-size: 12px; font-weight: 700; color: #0f172a; "
+                "padding: 4px 10px; background: #f1f5f9; border: 1px solid #e2e8f0; "
+                "border-radius: 8px;"
+            )
+        except Exception:
+            pass
+        _managed_inner.addWidget(self.lbl_ai_managed_summary)
         self.tbl_ai_managed = QTableWidget(0, 12)
         self.tbl_ai_managed.setHorizontalHeaderLabels(
             [
@@ -3818,12 +3899,12 @@ class MainWindow(QMainWindow):
             pass
         try:
             _vh_am = self.tbl_ai_managed.verticalHeader()
-            _vh_am.setDefaultSectionSize(30)
+            _vh_am.setDefaultSectionSize(44)
         except Exception:
             pass
         try:
             _hh_am = self.tbl_ai_managed.horizontalHeader()
-            _hh_am.setFixedHeight(32)
+            _hh_am.setFixedHeight(35)
             _hh_am.setDefaultAlignment(
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
             )
@@ -3835,30 +3916,34 @@ class MainWindow(QMainWindow):
                 "  gridline-color: #e2e8f0;"
                 "  background: #ffffff;"
                 "  alternate-background-color: #f8fafc;"
-                "  selection-background-color: #dbeafe;"
-                "  selection-color: #1e3a5f;"
+                "  selection-background-color: #bfdbfe;"
+                "  selection-color: #0f172a;"
                 "  font-size: 12px;"
                 "}"
-                "QTableWidget::item { padding: 3px 4px; }"
+                "QTableWidget::item { padding: 6px 6px; }"
+                "QTableWidget::item:selected {"
+                "  background-color: #93c5fd;"
+                "  color: #0f172a;"
+                "}"
                 "QHeaderView::section {"
                 "  background: #f1f5f9;"
-                "  padding: 6px 4px;"
+                "  padding: 8px 6px;"
                 "  border: 1px solid #e2e8f0;"
-                "  font-weight: 600;"
+                "  font-weight: 700;"
                 "  font-size: 11px;"
-                "  color: #2f3b48;"
+                "  color: #1e293b;"
                 "}"
             )
         except Exception:
             pass
         try:
-            self.tbl_ai_managed.setColumnWidth(0, 140)  # 코인명
-            self.tbl_ai_managed.setColumnWidth(1, 100)  # 현재가
-            self.tbl_ai_managed.setColumnWidth(2, 80)   # 변동률
-            self.tbl_ai_managed.setColumnWidth(3, 90)   # 구분
-            self.tbl_ai_managed.setColumnWidth(4, 70)   # AI 점수
-            self.tbl_ai_managed.setColumnWidth(5, 80)   # AI 상태
-            self.tbl_ai_managed.setColumnWidth(6, 110)  # 목표가
+            self.tbl_ai_managed.setColumnWidth(0, 188)  # 코인명 (가장 넓게)
+            self.tbl_ai_managed.setColumnWidth(1, 82)   # 현재가
+            self.tbl_ai_managed.setColumnWidth(2, 68)   # 변동률
+            self.tbl_ai_managed.setColumnWidth(3, 70)   # 구분
+            self.tbl_ai_managed.setColumnWidth(4, 62)   # AI 점수
+            self.tbl_ai_managed.setColumnWidth(5, 92)   # AI 상태
+            self.tbl_ai_managed.setColumnWidth(6, 96)   # 목표가
         except Exception:
             pass
         # [UI MASTER PLAN / Phase 2 / PATCH 2-5]
@@ -3922,12 +4007,12 @@ class MainWindow(QMainWindow):
             pass
         _managed_inner.addWidget(self.tbl_ai_managed)
         self.lbl_ai_managed_ux_hint = QLabel(
-            "드래그: 순서 변경 / 더블클릭: 상세 차트 / Delete: 제거"
+            "더블클릭: 차트 분석 | Delete: 제거 | 드래그: 우선순위 변경"
         )
         try:
             self.lbl_ai_managed_ux_hint.setWordWrap(True)
             self.lbl_ai_managed_ux_hint.setStyleSheet(
-                "font-size: 11px; color: #7a8794; padding: 4px 0 0 0;"
+                "font-size: 11px; font-weight: 600; color: #475569; padding: 6px 0 0 0;"
             )
         except Exception:
             pass
@@ -3981,7 +4066,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        self._gb_ai_detail = QGroupBox("AI 종목 상세")
+        self._gb_ai_detail = QGroupBox("MAIN ANALYSIS CENTER")
         try:
             self._gb_ai_detail.setStyleSheet(_aits_watch_gb_card_qss)
         except Exception:
@@ -3992,6 +4077,45 @@ class MainWindow(QMainWindow):
             _detail_inner.setSpacing(8)
         except Exception:
             pass
+        self._frm_ai_center_header = QWidget()
+        _hdr_top = QHBoxLayout()
+        _hdr_top.setContentsMargins(0, 0, 0, 0)
+        _hdr_top.setSpacing(8)
+        self.lbl_ai_center_symbol = QLabel("—")
+        self.lbl_ai_center_symbol.setWordWrap(False)
+        try:
+            self.lbl_ai_center_symbol.setStyleSheet(
+                "font-size: 20px; font-weight: 800; color: #0f172a; padding: 0 4px 2px 0;"
+            )
+        except Exception:
+            pass
+        _hdr_top.addWidget(self.lbl_ai_center_symbol, 1)
+        self.btn_ai_reason_toggle = QPushButton("원문 보기")
+        self.btn_ai_reason_toggle.setToolTip("AI 판단 원문 표시/숨김")
+        try:
+            self.btn_ai_reason_toggle.setMinimumHeight(30)
+            self.btn_ai_reason_toggle.setMaximumHeight(32)
+            self.btn_ai_reason_toggle.setStyleSheet(
+                "padding:4px 12px; font-size:11px; font-weight:600;"
+            )
+        except Exception:
+            pass
+        _hdr_top.addWidget(self.btn_ai_reason_toggle, 0)
+        _center_hdr_ly = QVBoxLayout(self._frm_ai_center_header)
+        _center_hdr_ly.setContentsMargins(0, 0, 0, 0)
+        _center_hdr_ly.setSpacing(4)
+        _center_hdr_ly.addLayout(_hdr_top)
+        self.lbl_ai_detail_judgment_header = QLabel("AI 판단: — (종목을 선택하세요)")
+        self.lbl_ai_detail_judgment_header.setWordWrap(False)
+        try:
+            self.lbl_ai_detail_judgment_header.setStyleSheet(
+                "font-size: 15px; font-weight: 800; color: #64748b; padding: 0 2px 4px 2px;"
+            )
+        except Exception:
+            pass
+        _center_hdr_ly.addWidget(self.lbl_ai_detail_judgment_header)
+        _detail_inner.addWidget(self._frm_ai_center_header)
+
         self.lbl_ai_detail_hint = QLabel(
             "선택된 종목이 없습니다.\nMarket Explorer에서 종목을 추가하거나 AI 종목을 확인하세요."
         )
@@ -4002,8 +4126,8 @@ class MainWindow(QMainWindow):
 
         self._frm_ai_detail_chart = QFrame()
         try:
-            self._frm_ai_detail_chart.setMinimumHeight(200)
-            self._frm_ai_detail_chart.setMaximumHeight(260)
+            self._frm_ai_detail_chart.setMinimumHeight(350)
+            self._frm_ai_detail_chart.setMaximumHeight(460)
         except Exception:
             pass
         try:
@@ -4013,10 +4137,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._frm_ai_detail_chart.setStyleSheet(
-            "QFrame { border: 1px solid #d8dee6; border-radius: 8px; background: #fafafa; }"
+            "QFrame { border: 1px solid #d8dee6; border-radius: 10px; background: #ffffff; }"
         )
         _chart_ly = QVBoxLayout(self._frm_ai_detail_chart)
-        _chart_ly.setContentsMargins(4, 4, 4, 4)
+        _chart_ly.setContentsMargins(1, 1, 1, 1)
         _chart_ctrl = QHBoxLayout()
         self.cmb_detail_chart_tf = QComboBox()
         for _lbl, _tf in (
@@ -4027,6 +4151,11 @@ class MainWindow(QMainWindow):
         ):
             self.cmb_detail_chart_tf.addItem(_lbl, _tf)
         try:
+            self.cmb_detail_chart_tf.setMinimumHeight(32)
+            self.cmb_detail_chart_tf.setMaximumHeight(32)
+        except Exception:
+            pass
+        try:
             _idx60 = self.cmb_detail_chart_tf.findData("60m")
             if _idx60 >= 0:
                 self.cmb_detail_chart_tf.setCurrentIndex(_idx60)
@@ -4036,6 +4165,11 @@ class MainWindow(QMainWindow):
         for _n in (30, 50, 100):
             self.cmb_detail_chart_count.addItem(str(_n), _n)
         self.cmb_detail_chart_count.setCurrentIndex(1)
+        try:
+            self.cmb_detail_chart_count.setMinimumHeight(32)
+            self.cmb_detail_chart_count.setMaximumHeight(32)
+        except Exception:
+            pass
         self.cmb_detail_chart_tf.currentIndexChanged.connect(self._on_detail_chart_option_changed)
         self.cmb_detail_chart_count.currentIndexChanged.connect(self._on_detail_chart_option_changed)
         _chart_ctrl.addWidget(self.cmb_detail_chart_tf)
@@ -4045,8 +4179,8 @@ class MainWindow(QMainWindow):
         self.detail_chart_figure = Figure(figsize=(6.5, 3.5))
         self.detail_chart_canvas = FigureCanvas(self.detail_chart_figure)
         try:
-            self.detail_chart_canvas.setMinimumHeight(180)
-            self.detail_chart_canvas.setMaximumHeight(240)
+            self.detail_chart_canvas.setMinimumHeight(300)
+            self.detail_chart_canvas.setMaximumHeight(380)
         except Exception:
             pass
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -4173,39 +4307,99 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        _info_row = QHBoxLayout()
-        _info_row.setSpacing(8)
-        _info_row.addWidget(_basic_col, 1)
-        _info_row.addWidget(_price_col, 1)
-        _detail_inner.addLayout(_info_row)
+        self._frm_ai_detail_legacy_info = QWidget()
+        _legacy_info_lay = QHBoxLayout(self._frm_ai_detail_legacy_info)
+        _legacy_info_lay.setContentsMargins(0, 0, 0, 0)
+        _legacy_info_lay.setSpacing(8)
+        _legacy_info_lay.addWidget(_basic_col, 1)
+        _legacy_info_lay.addWidget(_price_col, 1)
+        _detail_inner.addWidget(self._frm_ai_detail_legacy_info)
+        try:
+            self._frm_ai_detail_legacy_info.setVisible(False)
+        except Exception:
+            pass
 
-        _lbl_ai_title = QLabel("[AI 판단]")
-        try:
-            _lbl_ai_title.setStyleSheet(
-                "font-size:13px; font-weight:700; margin:0px; padding:0px; color:#2f3b48;"
-            )
-        except Exception:
-            pass
-        self.btn_ai_reason_toggle = QPushButton("원문 보기")
-        try:
-            self.btn_ai_reason_toggle.setMinimumHeight(28)
-            self.btn_ai_reason_toggle.setMaximumHeight(28)
-        except Exception:
-            pass
-        try:
-            self.btn_ai_reason_toggle.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:600;"
-            )
-        except Exception:
-            pass
-        _ai_header_row = QHBoxLayout()
-        _ai_header_row.setContentsMargins(0, 0, 0, 0)
-        _ai_header_row.setSpacing(8)
-        _ai_header_row.addWidget(_lbl_ai_title)
-        _ai_header_row.addStretch(1)
-        _ai_header_row.addWidget(self.btn_ai_reason_toggle)
-        _detail_inner.addLayout(_ai_header_row)
-        _fa = QFormLayout()
+        self._frm_ai_briefing_card = QFrame()
+        self._frm_ai_briefing_card.setObjectName("aitsBriefingCard")
+        self._frm_ai_briefing_card.setStyleSheet(
+            "#aitsBriefingCard { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; }"
+        )
+        _bf_ly = QVBoxLayout(self._frm_ai_briefing_card)
+        _bf_ly.setContentsMargins(10, 10, 10, 10)
+        _bf_ly.setSpacing(6)
+        _lbl_bf_title = QLabel("AI BRIEFING")
+        _lbl_bf_title.setStyleSheet(
+            "font-size: 12px; font-weight: 800; color: #0369a1; letter-spacing: 0.5px;"
+        )
+        _bf_ly.addWidget(_lbl_bf_title)
+        self.lbl_ai_briefing_card = QLabel(
+            "- 시장 데이터 수집 중\n- AI 판단 대기\n- 종목을 선택하세요"
+        )
+        self.lbl_ai_briefing_card.setWordWrap(True)
+        self.lbl_ai_briefing_card.setStyleSheet(
+            "font-size: 12px; font-weight: 600; color: #0c4a6e; line-height: 1.55;"
+        )
+        _bf_ly.addWidget(self.lbl_ai_briefing_card)
+        _detail_inner.addWidget(self._frm_ai_briefing_card)
+
+        _why_next_row = QHBoxLayout()
+        _why_next_row.setSpacing(8)
+        self._frm_ai_why_card = QFrame()
+        self._frm_ai_why_card.setStyleSheet(
+            "QFrame { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }"
+        )
+        _wy_ly = QVBoxLayout(self._frm_ai_why_card)
+        _wy_ly.setContentsMargins(10, 8, 10, 10)
+        _wy_ly.setSpacing(4)
+        _lbl_why_t = QLabel("WHY")
+        _lbl_why_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #334155;")
+        _wy_ly.addWidget(_lbl_why_t)
+        self.lbl_ai_center_why = QLabel("—")
+        self.lbl_ai_center_why.setWordWrap(True)
+        self.lbl_ai_center_why.setStyleSheet(
+            "font-size: 11px; font-weight: 600; color: #475569; line-height: 1.45;"
+        )
+        _wy_ly.addWidget(self.lbl_ai_center_why)
+        self._frm_ai_next_card = QFrame()
+        self._frm_ai_next_card.setStyleSheet(
+            "QFrame { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; }"
+        )
+        _nx_ly = QVBoxLayout(self._frm_ai_next_card)
+        _nx_ly.setContentsMargins(10, 8, 10, 10)
+        _nx_ly.setSpacing(4)
+        _lbl_nx_t = QLabel("NEXT ACTION")
+        _lbl_nx_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #92400e;")
+        _nx_ly.addWidget(_lbl_nx_t)
+        self.lbl_ai_center_next = QLabel("—")
+        self.lbl_ai_center_next.setWordWrap(True)
+        self.lbl_ai_center_next.setStyleSheet(
+            "font-size: 11px; font-weight: 600; color: #78350f; line-height: 1.45;"
+        )
+        _nx_ly.addWidget(self.lbl_ai_center_next)
+        _why_next_row.addWidget(self._frm_ai_why_card, 1)
+        _why_next_row.addWidget(self._frm_ai_next_card, 1)
+        _detail_inner.addLayout(_why_next_row)
+
+        self._frm_ai_recent_log = QFrame()
+        self._frm_ai_recent_log.setStyleSheet(
+            "QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 10px; }"
+        )
+        _rl_ly = QVBoxLayout(self._frm_ai_recent_log)
+        _rl_ly.setContentsMargins(10, 8, 10, 10)
+        _rl_ly.setSpacing(4)
+        _lbl_rl_t = QLabel("RECENT AI LOG")
+        _lbl_rl_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #374151;")
+        _rl_ly.addWidget(_lbl_rl_t)
+        self.lbl_ai_recent_log = QLabel("—")
+        self.lbl_ai_recent_log.setWordWrap(True)
+        self.lbl_ai_recent_log.setStyleSheet(
+            "font-size: 11px; font-weight: 500; color: #4b5563; line-height: 1.45;"
+        )
+        _rl_ly.addWidget(self.lbl_ai_recent_log)
+        _detail_inner.addWidget(self._frm_ai_recent_log)
+
+        _fa_wrap = QWidget()
+        _fa = QFormLayout(_fa_wrap)
         try:
             _fa.setVerticalSpacing(4)
             _fa.setHorizontalSpacing(6)
@@ -4218,10 +4412,18 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _fa.addRow("AI 점수", self.lbl_ai_detail_score)
-        _detail_inner.addLayout(_fa)
+        _detail_inner.addWidget(_fa_wrap)
+        try:
+            _fa_wrap.setVisible(False)
+        except Exception:
+            pass
         self.lbl_ai_card_1 = QLabel("")
         self.lbl_ai_card_2 = QLabel("")
         self.lbl_ai_card_3 = QLabel("")
+        self._frm_ai_legacy_cards = QWidget()
+        _lcv = QVBoxLayout(self._frm_ai_legacy_cards)
+        _lcv.setContentsMargins(0, 0, 0, 0)
+        _lcv.setSpacing(4)
         for _card in [self.lbl_ai_card_1, self.lbl_ai_card_2, self.lbl_ai_card_3]:
             try:
                 _card.setWordWrap(True)
@@ -4233,7 +4435,12 @@ class MainWindow(QMainWindow):
                 _card.setMaximumHeight(54)
             except Exception:
                 pass
-            _detail_inner.addWidget(_card)
+            _lcv.addWidget(_card)
+        _detail_inner.addWidget(self._frm_ai_legacy_cards)
+        try:
+            self._frm_ai_legacy_cards.setVisible(False)
+        except Exception:
+            pass
         self.txt_ai_detail_reason = QPlainTextEdit()
         self.txt_ai_detail_reason.setReadOnly(True)
         self.txt_ai_detail_reason.setPlaceholderText("AI 판단 요약")
@@ -4292,7 +4499,7 @@ class MainWindow(QMainWindow):
         _act_row.addWidget(self.btn_ai_detail_lock)
 
         try:
-            self._gb_ai_detail.setMinimumWidth(420)
+            self._gb_ai_detail.setMinimumWidth(560)
         except Exception:
             pass
 
@@ -4310,26 +4517,39 @@ class MainWindow(QMainWindow):
         # except Exception:
         #     pass
 
-        _gb_market = QGroupBox("Market Explorer")
+        _gb_market = QGroupBox("MARKET EXPLORER (TOP 50)")
         self._gb_market = _gb_market
         try:
-            _gb_market.setStyleSheet(_aits_watch_gb_card_qss)
+            _gb_market.setObjectName("gbMarketExplorer")
+        except Exception:
+            pass
+        try:
+            _gb_market.setStyleSheet(
+                (_aits_watch_gb_card_qss or "")
+                + "\n#gbMarketExplorer::title {\n"
+                "  subcontrol-origin: margin;\n"
+                "  left: 8px;\n"
+                "  font-size: 14px;\n"
+                "  font-weight: 800;\n"
+                "  color: #0f172a;\n"
+                "}\n"
+            )
         except Exception:
             pass
         _market_inner = QVBoxLayout(_gb_market)
         try:
-            _market_inner.setContentsMargins(10, 4, 10, 10)
-            _market_inner.setSpacing(6)
+            _market_inner.setContentsMargins(10, 8, 10, 10)
+            _market_inner.setSpacing(8)
         except Exception:
             pass
         self.ed_market_search = QLineEdit()
-        self.ed_market_search.setPlaceholderText("코인 검색 (예: BTC, XRP, KRW-BTC)")
+        self.ed_market_search.setPlaceholderText("코인 검색 (BTC / XRP / SOL)")
         self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
         try:
             self.ed_market_search.setMaximumWidth(220)
             self.ed_market_search.setMinimumWidth(120)
-            self.ed_market_search.setMinimumHeight(30)
-            self.ed_market_search.setMaximumHeight(30)
+            self.ed_market_search.setMinimumHeight(32)
+            self.ed_market_search.setMaximumHeight(32)
         except Exception:
             pass
         try:
@@ -4338,21 +4558,25 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        self.btn_market_quick = QPushButton("빠른 보기")
+        self.btn_market_quick = QPushButton("급등 후보")
+        self.btn_market_quick.setToolTip("빠른 탐색: AI 후보 상위 50")
         self.btn_market_all = QPushButton("전체 보기")
+        self.btn_market_all.setToolTip("전체 종목 목록에서 탐색")
         try:
-            self.btn_market_quick.setMinimumHeight(30)
-            self.btn_market_quick.setMaximumHeight(30)
-            self.btn_market_all.setMinimumHeight(30)
-            self.btn_market_all.setMaximumHeight(30)
+            self.btn_market_quick.setMinimumHeight(32)
+            self.btn_market_quick.setMaximumHeight(32)
+            self.btn_market_all.setMinimumHeight(32)
+            self.btn_market_all.setMaximumHeight(32)
         except Exception:
             pass
         try:
             self.btn_market_quick.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:600; min-height:28px; max-height:30px;"
+                "padding:4px 10px; font-size:12px; font-weight:700; min-height:28px; max-height:30px;"
+                "background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;color:#065f46;"
             )
             self.btn_market_all.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:600; min-height:28px; max-height:30px;"
+                "padding:4px 10px; font-size:12px; font-weight:700; min-height:28px; max-height:30px;"
+                "background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;color:#1e40af;"
             )
         except Exception:
             pass
@@ -4362,10 +4586,10 @@ class MainWindow(QMainWindow):
         self.cmb_market_sort.addItem("가격순", "price")
         self.btn_market_sort_toggle = QPushButton("↓")
         try:
-            self.cmb_market_sort.setMinimumHeight(30)
-            self.cmb_market_sort.setMaximumHeight(30)
-            self.btn_market_sort_toggle.setMinimumHeight(30)
-            self.btn_market_sort_toggle.setMaximumHeight(30)
+            self.cmb_market_sort.setMinimumHeight(32)
+            self.cmb_market_sort.setMaximumHeight(32)
+            self.btn_market_sort_toggle.setMinimumHeight(32)
+            self.btn_market_sort_toggle.setMaximumHeight(32)
             self.btn_market_sort_toggle.setMaximumWidth(32)
         except Exception:
             pass
@@ -4396,15 +4620,26 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_search_status)
-        self.lbl_market_explorer_hint = QLabel("더블클릭하면 관리종목에 추가됩니다.")
+        self.lbl_market_explorer_hint = QLabel(
+            "AI 후보 탐색 영역입니다. 더블클릭 또는 +추가로 관리종목에 편입합니다."
+        )
         try:
             self.lbl_market_explorer_hint.setWordWrap(True)
             self.lbl_market_explorer_hint.setStyleSheet(
-                "font-size: 11px; color: #7a8794; padding: 0 0 4px 0;"
+                "font-size: 11px; color: #64748b; padding: 0 0 2px 0; font-weight: 500;"
             )
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_explorer_hint)
+        self.lbl_market_summary = QLabel("표시 0개")
+        try:
+            self.lbl_market_summary.setWordWrap(False)
+            self.lbl_market_summary.setStyleSheet(
+                "font-size: 11px; font-weight: 700; color: #334155; padding: 0 0 6px 0;"
+            )
+        except Exception:
+            pass
+        _market_inner.addWidget(self.lbl_market_summary)
 
         # [UI MASTER PLAN / Phase 2 / PATCH 2-4]
         # Explorer는 좁은 탐색 패널이므로
@@ -4412,24 +4647,67 @@ class MainWindow(QMainWindow):
         # 표시 열을 줄이고 Managed 폭을 소폭 확장한다.
         # (논리 열 인덱스·더블클릭 추가 경로 유지: 숨김 + 폭만 조정)
         self.tbl_market_all = QTableWidget(0, 7)
-        self.tbl_market_all.setHorizontalHeaderLabels(["순위", "코인명", "현재가", "변동률", "거래대금", "거래량", "추가"])
+        try:
+            self.tbl_market_all.setObjectName("tblMarketExplorer")
+        except Exception:
+            pass
+        self.tbl_market_all.setHorizontalHeaderLabels(["순위", "코인명", "현재가", "변동률", "거래대금", "거래량", "+추가"])
         self.tbl_market_all.verticalHeader().setVisible(False)
         self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_market_all.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tbl_market_all.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl_market_all.setMinimumHeight(160)
+        self.tbl_market_all.setShowGrid(True)
+        try:
+            self.tbl_market_all.setStyleSheet(
+                "#tblMarketExplorer {\n"
+                "  gridline-color: #e2e8f0;\n"
+                "  background: #ffffff;\n"
+                "}\n"
+                "#tblMarketExplorer::item {\n"
+                "  padding: 6px 8px;\n"
+                "}\n"
+                "#tblMarketExplorer::item:selected {\n"
+                "  background-color: #bfdbfe;\n"
+                "  color: #0f172a;\n"
+                "}\n"
+                "#tblMarketExplorer::item:selected:!active {\n"
+                "  background-color: #cbd5e1;\n"
+                "  color: #0f172a;\n"
+                "}\n"
+            )
+        except Exception:
+            pass
+        try:
+            _hh = self.tbl_market_all.horizontalHeader()
+            _hh.setFixedHeight(35)
+            _hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        except Exception:
+            pass
+        try:
+            _vh_mx = self.tbl_market_all.verticalHeader()
+            _vh_mx.setDefaultSectionSize(40)
+        except Exception:
+            pass
         try:
             self.tbl_market_all.setColumnWidth(0, 48)
-            self.tbl_market_all.setColumnWidth(1, 140)
-            self.tbl_market_all.setColumnWidth(2, 90)
+            self.tbl_market_all.setColumnWidth(1, 132)
+            self.tbl_market_all.setColumnWidth(2, 72)
             self.tbl_market_all.setColumnWidth(3, 72)
-            self.tbl_market_all.setColumnWidth(4, 110)
-            self.tbl_market_all.setColumnWidth(5, 90)
-            self.tbl_market_all.setColumnWidth(6, 60)
-            for _hc in (2, 4, 5, 6):
+            self.tbl_market_all.setColumnWidth(4, 84)
+            self.tbl_market_all.setColumnWidth(5, 68)
+            self.tbl_market_all.setColumnWidth(6, 56)
+            for _hc in (2, 4, 5):
                 self.tbl_market_all.setColumnHidden(_hc, True)
         except Exception:
             pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
+        try:
+            self.tbl_market_all.itemSelectionChanged.connect(
+                self._on_market_explorer_selection_changed
+            )
+        except Exception:
+            pass
         try:
             self.tbl_market_all.doubleClicked.connect(
                 self._on_aits_market_table_double_clicked
@@ -4437,6 +4715,17 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_inner.addWidget(self.tbl_market_all, 1)
+        self.lbl_market_explorer_footer = QLabel(
+            "더블클릭하면 관리종목으로 이동됩니다."
+        )
+        try:
+            self.lbl_market_explorer_footer.setWordWrap(True)
+            self.lbl_market_explorer_footer.setStyleSheet(
+                "font-size: 11px; color: #64748b; padding: 4px 0 0 0;"
+            )
+        except Exception:
+            pass
+        _market_inner.addWidget(self.lbl_market_explorer_footer)
         try:
             _gb_market.setMinimumHeight(240)
         except Exception:
@@ -4492,16 +4781,16 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            _gb_market.setMinimumWidth(260)
-            _gb_market.setMaximumWidth(420)
+            _gb_market.setMinimumWidth(340)
+            _gb_market.setMaximumWidth(480)
         except Exception:
             pass
         panel_split.addWidget(_gb_managed)
         panel_split.addWidget(self._gb_ai_detail)
         panel_split.addWidget(_gb_market)
-        panel_split.setStretchFactor(0, 40)
-        panel_split.setStretchFactor(1, 38)
-        panel_split.setStretchFactor(2, 22)
+        panel_split.setStretchFactor(0, 27)
+        panel_split.setStretchFactor(1, 45)
+        panel_split.setStretchFactor(2, 28)
         try:
             panel_split.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
@@ -5544,15 +5833,29 @@ class MainWindow(QMainWindow):
             if w is None:
                 return
 
-            provider = "Basic"
+            def _ko_engine(code: str) -> str:
+                c = str(code or "").strip().lower()
+                if c == "gpt":
+                    return "GPT"
+                if c == "gemini":
+                    return "Gemini"
+                if c in ("basic", "local", ""):
+                    return "Basic"
+                return str(code or "—").strip() or "—"
+
+            sel_code = "basic"
             try:
-                p = str(self._get_aits_engine_ssot()).lower()
-                if p == "gpt":
-                    provider = "GPT"
-                elif p == "gemini":
-                    provider = "Gemini"
+                sel_code = str(self._get_aits_engine_ssot()).lower()
             except Exception:
                 pass
+            sel_txt = _ko_engine(sel_code)
+
+            act_txt = "—"
+            try:
+                _ar = str(self._get_aits_last_response_provider() or "").strip()
+                act_txt = "—" if not _ar else _ko_engine(_ar)
+            except Exception:
+                act_txt = "—"
 
             status_source = ""
             try:
@@ -5570,35 +5873,54 @@ class MainWindow(QMainWindow):
             else:
                 state_txt = "확인중"
 
-            out = f"{provider} | {state_txt}"
-
-            w.setText(out)
-
-            color = "#2e7d32"
-            border = "#81c784"
-
-            if "오류" in state_txt:
-                color = "#c62828"
-                border = "#ef9a9a"
-            elif "연결중" in state_txt:
-                color = "#ef6c00"
-                border = "#ffb74d"
-            elif "확인중" in state_txt:
-                color = "#1565c0"
-                border = "#64b5f6"
-
-            w.setStyleSheet(
-                f"""
-            background:#ffffff;
-            border:2px solid {border};
-            border-radius:12px;
-            padding:4px 12px;
-            font-size:12px;
-            font-weight:700;
-            color:{color};
-            """
+            mode_raw = "disabled"
+            try:
+                mode_raw = str(self._get_aits_execution_mode() or "disabled").strip()
+            except Exception:
+                pass
+            if mode_raw not in ("disabled", "dry_run", "live"):
+                mode_raw = "disabled"
+            mode_kr = {"disabled": "비활성", "dry_run": "모의(보수)", "live": "실거래"}.get(
+                mode_raw, mode_raw
             )
 
+            out = (
+                f"선택엔진 {sel_txt} | 실제엔진 {act_txt} | 연결상태 {state_txt} | 모드 {mode_kr}"
+            )
+            w.setText(out)
+
+            color = "#1f2937"
+            border = "#d8dee6"
+            if "오류" in state_txt:
+                color = "#b91c1c"
+                border = "#fecaca"
+            elif "연결중" in state_txt:
+                color = "#c2410c"
+                border = "#fdba74"
+            elif "확인중" in state_txt:
+                color = "#1d4ed8"
+                border = "#93c5fd"
+            elif sel_txt.replace(" ", "") != act_txt.replace(" ", "") and act_txt != "—":
+                color = "#92400e"
+                border = "#fcd34d"
+
+            w.setStyleSheet(
+                f"""#aitsOpsSummary{{
+            background:#ffffff;
+            border:1px solid {border};
+            border-radius:10px;
+            padding:5px 10px;
+            font-size:11px;
+            font-weight:700;
+            color:{color};
+            }}"""
+            )
+
+            card_body = getattr(self, "_lbl_aits_engine_card_body", None)
+            if card_body is not None:
+                card_body.setText(
+                    f"선택: {sel_txt}\n실제: {act_txt}\n상태: {state_txt}"
+                )
         except Exception:
             pass
 
@@ -5906,6 +6228,274 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _center_judgment_tag(self, raw_status: str, disp_status: str) -> str:
+        u = f"{raw_status} {disp_status}".upper()
+        sl = f"{raw_status} {disp_status}".lower()
+        if "strong" in sl or "강한" in disp_status:
+            return "STRONG BUY"
+        if any(k in u for k in ("SELL", "매도", "청산", "손절", "RISK", "EXIT")):
+            return "SELL WATCH"
+        if any(k in u for k in ("BUY READY", "진입", "매수")) and "SELL" not in u:
+            return "BUY READY"
+        if any(k in u for k in ("HOLD", "보유", "유지")) and "관망" not in disp_status:
+            return "HOLD"
+        if any(k in sl for k in ("watch", "wait", "관망", "대기", "조건")):
+            return "STAY"
+        return "UNKNOWN"
+
+    def _apply_center_judgment_style(self, line: str) -> None:
+        lb = getattr(self, "lbl_ai_detail_judgment_header", None)
+        if lb is None:
+            return
+        up = (line or "").upper()
+        if any(k in up for k in ("STRONG BUY", "BUY READY", "BUY")):
+            color = "#15803d"
+        elif any(k in up for k in ("SELL WATCH", "SELL", "EXIT", "RISK")):
+            color = "#b91c1c"
+        elif "HOLD" in up:
+            color = "#1d4ed8"
+        elif "STAY" in up or "WAIT" in up or "UNKNOWN" in up:
+            color = "#c2410c" if ("STAY" in up or "WAIT" in up) else "#64748b"
+        else:
+            color = "#64748b"
+        lb.setStyleSheet(
+            f"font-size: 15px; font-weight: 800; color: {color}; padding: 0 2px 4px 2px;"
+        )
+
+    def _get_center_symbol_context_text(self, row=None):
+        """
+        중앙 카드용 맥락 문자열. 전역 AI 상태보다 선택 종목·상세 라벨을 앞에 둔다.
+        row가 없으면 빈 문자열(미선택 시 고정 브리핑 문구로 떨어지게).
+        """
+        try:
+            if not isinstance(row, dict):
+                return ""
+
+            parts = []
+            seen = set()
+
+            def _add(s):
+                t = str(s or "").strip()
+                if not t or t == "—":
+                    return
+                if t in seen:
+                    return
+                seen.add(t)
+                parts.append(t)
+
+            for attr in ("lbl_ai_detail_status",):
+                try:
+                    w = getattr(self, attr, None)
+                    if w is not None:
+                        _add(w.text())
+                except Exception:
+                    pass
+
+            _add(row.get("ai_reason_summary") or "")
+            for key in ("ai_status", "status", "decision", "summary"):
+                v = row.get(key, "")
+                if isinstance(v, (list, tuple)):
+                    v = " ".join(str(x).strip() for x in v if str(x).strip())
+                else:
+                    v = str(v or "").strip()
+                _add(v)
+
+            for key in ("reason", "next_action"):
+                v = row.get(key)
+                if isinstance(v, (list, tuple)):
+                    for x in v:
+                        _add(x)
+                else:
+                    _add(str(v or "").strip())
+
+            try:
+                w = getattr(self, "lbl_ai_detail_hint", None)
+                if w is not None and w.isVisible():
+                    _add(w.text())
+            except Exception:
+                pass
+
+            try:
+                st = getattr(self, "lbl_ai_status", None)
+                if st is not None:
+                    _add(st.text())
+            except Exception:
+                pass
+
+            return "\n".join(parts).strip()
+        except Exception:
+            return ""
+
+    def _build_center_briefing_lines(self, row=None):
+        try:
+            src = self._get_center_symbol_context_text(row)
+            lines = [ln.strip() for ln in str(src or "").splitlines() if str(ln).strip()]
+            if not lines:
+                return (
+                    "- 선택 종목 분석 데이터가 아직 충분하지 않습니다.\n"
+                    "- 시장/거래량/상태를 추가 확인 중입니다.\n"
+                    "- 상세 원문은 '원문 보기'에서 확인할 수 있습니다."
+                )
+            picked = []
+            for ln in lines:
+                x = ln.lstrip("-• ").strip() or ln
+                if x not in picked:
+                    picked.append(x)
+                if len(picked) >= 3:
+                    break
+            return "\n".join(f"- {p}" for p in picked[:3])
+        except Exception:
+            return (
+                "- 선택 종목 분석 정보를 정리하지 못했습니다.\n"
+                "- 상세 원문은 '원문 보기'에서 확인할 수 있습니다.\n"
+                "- 잠시 후 다시 확인해 주세요."
+            )
+
+    def _build_center_why_next(self, row=None):
+        try:
+            why_plain = []
+            next_plain = []
+            status = ""
+            disp = ""
+
+            if isinstance(row, dict):
+                status = str(row.get("ai_status") or row.get("status") or "").strip()
+                try:
+                    disp = self._format_aits_user_state_text(status) if status else ""
+                except Exception:
+                    disp = status or ""
+
+                reason = row.get("reason", "")
+                if isinstance(reason, (list, tuple)):
+                    for x in reason:
+                        t = str(x).strip()
+                        if t:
+                            why_plain.append(t)
+                else:
+                    for x in str(reason or "").splitlines():
+                        t = x.strip()
+                        if t:
+                            why_plain.append(t)
+
+                summary = row.get("summary", "")
+                if isinstance(summary, (list, tuple)):
+                    for x in summary:
+                        t = str(x).strip()
+                        if t:
+                            why_plain.append(t)
+                else:
+                    for x in str(summary or "").splitlines():
+                        t = x.strip()
+                        if t:
+                            why_plain.append(t)
+
+                rs_sum = str(row.get("ai_reason_summary") or "").strip()
+                if rs_sum:
+                    for p in [x.strip() for x in rs_sum.replace("，", ",").split(",") if x.strip()]:
+                        if p not in why_plain:
+                            why_plain.append(p)
+
+                na = row.get("next_action", "")
+                if isinstance(na, (list, tuple)):
+                    for x in na:
+                        t = str(x).strip()
+                        if t:
+                            next_plain.append(t)
+                else:
+                    for x in str(na or "").splitlines():
+                        t = x.strip()
+                        if t:
+                            next_plain.append(t)
+
+                dec = str(row.get("decision", "") or "").strip()
+                if dec:
+                    next_plain.append(f"현재 판단 기준: {dec}")
+
+            why_pick = []
+            for w in why_plain:
+                if w not in why_pick:
+                    why_pick.append(w)
+                if len(why_pick) >= 2:
+                    break
+
+            if len(why_pick) < 2:
+                src = self._get_center_symbol_context_text(row if isinstance(row, dict) else None)
+                for x in [ln.strip() for ln in src.splitlines() if ln.strip()]:
+                    x = x.lstrip("-• ").strip()
+                    if x and x not in why_pick:
+                        why_pick.append(x)
+                    if len(why_pick) >= 2:
+                        break
+
+            if not why_pick:
+                why_pick = ["이유 정보를 정리하지 못했습니다."]
+            elif len(why_pick) < 2:
+                why_pick.append("RSI·거래량·추세 재확인")
+
+            next_pick = []
+            for n in next_plain:
+                if n not in next_pick:
+                    next_pick.append(n)
+                if len(next_pick) >= 2:
+                    break
+
+            if len(next_pick) < 2:
+                s = (disp or status or "").lower()
+                u = f"{status} {disp}".upper()
+                if ("보유" in (disp or status)) or ("hold" in s) or ("HOLD" in u):
+                    next_pick = ["보유 유지 중", "익절/손절 기준 재평가"]
+                elif ("매도" in (disp or status)) or ("sell" in s) or ("exit" in s):
+                    next_pick = ["청산 조건 검토 중", "가격/리스크 재평가"]
+                elif ("진입" in (disp or status)) or ("buy" in s) or ("ready" in s):
+                    next_pick = ["진입 조건 확인 중", "거래량/추세 재평가"]
+                else:
+                    next_pick = ["추가 데이터 확인 중", "다음 판단을 준비 중"]
+
+            why_txt = "\n".join(f"- {w}" for w in why_pick[:2])
+            next_txt = "\n".join(f"- {n}" for n in next_pick[:2])
+            return why_txt, next_txt
+        except Exception:
+            return "- 이유 정보를 정리하지 못했습니다.", "- 다음 행동 정보를 정리하지 못했습니다."
+
+    def _append_aits_recent_log(self, sym: str, message: str) -> None:
+        try:
+            from datetime import datetime
+
+            sym = (sym or "").strip()
+            msg = (message or "").strip()
+            if not msg:
+                return
+            st_key = f"{sym}|{msg}"
+            if getattr(self, "_aits_last_detail_log_sym_status", "") == st_key:
+                return
+            self._aits_last_detail_log_sym_status = st_key
+            ts = datetime.now().strftime("%H:%M")
+            line = f"{ts} {sym + ' ' if sym else ''}{msg}".strip()
+            buf = getattr(self, "_aits_recent_logs", None)
+            if not isinstance(buf, list):
+                buf = []
+            buf.append(line)
+            self._aits_recent_logs = buf[-5:]
+        except Exception:
+            pass
+
+    def _sync_recent_log_label(self) -> None:
+        lb = getattr(self, "lbl_ai_recent_log", None)
+        if lb is None:
+            return
+        buf = getattr(self, "_aits_recent_logs", None) or []
+        if buf:
+            lb.setText("\n".join(buf[-5:]))
+        else:
+            try:
+                jh = getattr(self, "lbl_ai_detail_judgment_header", None)
+                jt = jh.text() if jh is not None else "—"
+            except Exception:
+                jt = "—"
+            from datetime import datetime
+
+            lb.setText(f"{datetime.now().strftime('%H:%M')} {jt}")
+
     def _refresh_ai_detail_panel(self) -> None:
         try:
             if not hasattr(self, "lbl_ai_detail_name"):
@@ -5918,6 +6508,39 @@ class MainWindow(QMainWindow):
                     row = r
                     break
             if not sym or row is None:
+                try:
+                    jh = getattr(self, "lbl_ai_detail_judgment_header", None)
+                    if jh is not None:
+                        jh.setText("AI 판단: — (종목을 선택하세요)")
+                except Exception:
+                    pass
+                try:
+                    self._apply_center_judgment_style("UNKNOWN")
+                except Exception:
+                    pass
+                try:
+                    cs = getattr(self, "lbl_ai_center_symbol", None)
+                    if cs is not None:
+                        cs.setText("—")
+                except Exception:
+                    pass
+                try:
+                    lb_b = getattr(self, "lbl_ai_briefing_card", None)
+                    if lb_b is not None:
+                        lb_b.setText(self._build_center_briefing_lines(None))
+                    _wy0, _nx0 = self._build_center_why_next(None)
+                    lw = getattr(self, "lbl_ai_center_why", None)
+                    if lw is not None:
+                        lw.setText(_wy0)
+                    nx = getattr(self, "lbl_ai_center_next", None)
+                    if nx is not None:
+                        nx.setText(_nx0)
+                except Exception:
+                    pass
+                try:
+                    self._sync_recent_log_label()
+                except Exception:
+                    pass
                 self.lbl_ai_detail_hint.setVisible(True)
                 self.lbl_ai_detail_name.setText("—")
                 self.lbl_ai_detail_source.setText("—")
@@ -5960,14 +6583,29 @@ class MainWindow(QMainWindow):
             self.lbl_ai_detail_name.setText(
                 f"{display_name} ({sym})" if display_name else sym
             )
+            try:
+                cs = getattr(self, "lbl_ai_center_symbol", None)
+                if cs is not None:
+                    cs.setText(
+                        f"{display_name} / {sym}" if display_name else sym
+                    )
+            except Exception:
+                pass
             src = (row.get("source") or "USER").strip().upper()
             self.lbl_ai_detail_source.setText(
                 self._format_aits_user_kind_text(src)
             )
             _raw_status = str(row.get("ai_status") or "Watching")
-            self.lbl_ai_detail_status.setText(
-                self._format_aits_user_state_text(_raw_status)
-            )
+            _st_disp = self._format_aits_user_state_text(_raw_status)
+            _judgment_tag = self._center_judgment_tag(_raw_status, _st_disp)
+            try:
+                jh = getattr(self, "lbl_ai_detail_judgment_header", None)
+                if jh is not None:
+                    jh.setText(f"AI 판단: {_judgment_tag}")
+                self._apply_center_judgment_style(f"AI 판단: {_judgment_tag}")
+            except Exception:
+                pass
+            self.lbl_ai_detail_status.setText(_st_disp)
             locked = bool(row.get("locked"))
             self.lbl_ai_detail_lock.setText("잠금" if locked else "잠금 해제")
             pr = float(row.get("price") or 0.0)
@@ -6037,6 +6675,21 @@ class MainWindow(QMainWindow):
                 self.txt_ai_detail_reason.setPlainText("—")
             try:
                 self._apply_ai_reason_expanded_state()
+            except Exception:
+                pass
+            try:
+                lb_b = getattr(self, "lbl_ai_briefing_card", None)
+                if lb_b is not None:
+                    lb_b.setText(self._build_center_briefing_lines(row))
+                _why_t, _next_t = self._build_center_why_next(row)
+                lw = getattr(self, "lbl_ai_center_why", None)
+                if lw is not None:
+                    lw.setText(_why_t)
+                nx = getattr(self, "lbl_ai_center_next", None)
+                if nx is not None:
+                    nx.setText(_next_t)
+                self._append_aits_recent_log(sym, (_st_disp or _judgment_tag).strip())
+                self._sync_recent_log_label()
             except Exception:
                 pass
             try:
@@ -6994,16 +7647,93 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _apply_explorer_change_pct_color(self, item, value):
-        """Explorer 변동률 열 전용(텍스트 유지, foreground만)."""
+    def _explorer_effective_change_pct(self, value) -> float:
+        """표시 %와 동일한 축으로 변동률을 정규화(소수·퍼센트 혼용 대비)."""
         try:
-            v = float(value or 0)
-            if v > 0:
-                item.setForeground(QColor("#c62828"))
-            elif v < 0:
-                item.setForeground(QColor("#1565c0"))
+            v = float(value or 0.0)
+            if -1.0 <= v <= 1.0:
+                return float(v * 100.0)
+            return float(v)
+        except Exception:
+            return 0.0
+
+    def _apply_explorer_change_pct_color(self, item, value):
+        """Explorer 변동률 열: 구간별 색·볼드·극단 구간 약한 배경."""
+        try:
+            p = self._explorer_effective_change_pct(value)
+            f = QFont(item.font())
+            f.setBold(p >= 3.0 or p <= -3.0)
+            item.setFont(f)
+            if p >= 3.0:
+                item.setForeground(QColor("#991b1b"))
+                item.setBackground(QBrush(QColor(254, 242, 242)))
+            elif p >= 1.0:
+                item.setForeground(QColor("#dc2626"))
+            elif p > 0:
+                item.setForeground(QColor("#94a3b8"))
+            elif p == 0.0:
+                item.setForeground(QColor("#64748b"))
+            elif p > -3.0:
+                item.setForeground(QColor("#2563eb"))
             else:
-                item.setForeground(QColor("#5f6b76"))
+                item.setForeground(QColor("#1e3a8a"))
+                item.setBackground(QBrush(QColor(239, 246, 255)))
+        except Exception:
+            pass
+
+    def _market_explorer_row_hot_heuristic(
+        self, row_idx: int, chg_val: float, query: str
+    ) -> bool:
+        """UI 전용 후보 강조. 매매 로직과 무관."""
+        try:
+            p = self._explorer_effective_change_pct(chg_val)
+            if p < 0.5:
+                return False
+            if row_idx >= 22:
+                return False
+            if query and not str(query).strip():
+                return False
+            return True
+        except Exception:
+            return False
+
+    def _update_market_explorer_summary(self, display_rows, sort_name: str) -> None:
+        lb = getattr(self, "lbl_market_summary", None)
+        if lb is None:
+            return
+        try:
+            n = len(display_rows or [])
+            up = down = 0
+            for r in display_rows or []:
+                if not isinstance(r, dict):
+                    continue
+                chg_val = float(r.get("change_rate") or 0.0)
+                pe = self._explorer_effective_change_pct(chg_val)
+                if pe > 0:
+                    up += 1
+                elif pe < 0:
+                    down += 1
+            sn = str(sort_name or "").strip() or "—"
+            lb.setText(f"표시 {n}개 | 상승 {up} | 하락 {down} | 정렬: {sn}")
+        except Exception:
+            try:
+                lb.setText(f"표시 {len(display_rows or [])}개")
+            except Exception:
+                pass
+
+    def _on_market_explorer_selection_changed(self) -> None:
+        try:
+            t = self.tbl_market_all
+            if t is None:
+                return
+            cur = int(t.currentRow())
+            for r in range(t.rowCount()):
+                it = t.item(r, 1)
+                if it is None:
+                    continue
+                f = QFont(it.font())
+                f.setBold(cur >= 0 and r == cur)
+                it.setFont(f)
         except Exception:
             pass
 
@@ -8279,10 +9009,20 @@ class MainWindow(QMainWindow):
             if r < 0 or r >= len(self.ai_managed_rows or []):
                 self._set_selected_ai_pool_symbol("")
                 self._refresh_ai_detail_panel()
+                if not getattr(self, "_ai_managed_table_refreshing", False):
+                    try:
+                        self._apply_ai_managed_row_visual_state()
+                    except Exception:
+                        pass
                 return
             sym = (self.ai_managed_rows[r].get("symbol") or "").strip()
             self._set_selected_ai_pool_symbol(sym)
             self._refresh_ai_detail_panel()
+            if not getattr(self, "_ai_managed_table_refreshing", False):
+                try:
+                    self._apply_ai_managed_row_visual_state()
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -8458,6 +9198,10 @@ class MainWindow(QMainWindow):
                 t.clearSelection()
                 t.blockSignals(False)
                 self._refresh_ai_detail_panel()
+                try:
+                    self._update_ai_managed_summary()
+                except Exception:
+                    pass
                 return
             target_sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
             sel_i = -1
@@ -8475,12 +9219,49 @@ class MainWindow(QMainWindow):
             self._refresh_ai_detail_panel()
         finally:
             try:
+                self._update_ai_managed_summary()
+            except Exception:
+                pass
+            try:
                 self._apply_ai_managed_row_visual_state()
             except Exception:
                 pass
             self._ai_managed_table_refreshing = False
 
+    def _update_ai_managed_summary(self) -> None:
+        """PATCH B-1: 좌측 관리종목 요약칩 (표시만, 데이터 구조 불변)."""
+        try:
+            lb = getattr(self, "lbl_ai_managed_summary", None)
+            if lb is None:
+                return
+            rows = getattr(self, "ai_managed_rows", None) or []
+            n = len(rows)
+            hold_n = 0
+            for row in rows:
+                disp = ""
+                raw_st = str(row.get("ai_status") or "").strip()
+                try:
+                    disp = self._format_aits_user_state_text(raw_st)
+                except Exception:
+                    disp = raw_st
+                raw_u = raw_st.upper()
+                rl = raw_st.lower()
+                if (
+                    "보유" in disp
+                    or "관찰" in disp
+                    or "유지" in disp
+                    or raw_u == "HOLD"
+                    or rl == "holding"
+                    or "holding" in rl
+                ):
+                    hold_n += 1
+            cand_n = max(0, n - hold_n)
+            lb.setText(f"관리 {n}종목 | 보유 {hold_n} | 후보 {cand_n}")
+        except Exception:
+            pass
+
     def _apply_ai_managed_row_visual_state(self):
+        """PATCH B-1: 상태칩·점수 티어·행 tint·선택/상위3 종목명 강조 (잠금 열 비터치)."""
         try:
             table = getattr(self, "tbl_ai_managed", None)
             if table is None:
@@ -8489,26 +9270,79 @@ class MainWindow(QMainWindow):
             row_count = table.rowCount()
             col_count = table.columnCount()
             _lock_col = int(getattr(self, "_ai_managed_lock_col", 9))
+            rows_data = getattr(self, "ai_managed_rows", None) or []
 
-            def _soft_state_colors(state_text: str):
-                s = str(state_text or "").strip().lower()
-                raw = str(state_text or "").strip()
+            def _state_bucket(state_text: str) -> str:
+                s = str(state_text or "").strip()
+                sl = s.lower()
+                if any(
+                    k in s
+                    for k in (
+                        "매도 검토",
+                        "SELL WATCH",
+                        "위험",
+                        "손절 검토",
+                        "손절",
+                    )
+                ) or any(
+                    k in sl
+                    for k in (
+                        "sell watch",
+                        "sell ready",
+                        "risk",
+                        "stop",
+                    )
+                ):
+                    return "red"
+                if any(
+                    k in s
+                    for k in (
+                        "진입 검토",
+                        "BUY READY",
+                        "매수 후보",
+                    )
+                ) or any(k in sl for k in ("buy ready", "진입")):
+                    return "blue"
+                if any(k in s for k in ("보유", "유지")) or any(
+                    k in sl for k in ("holding",)
+                ):
+                    return "green"
+                if "hold" in sl and "threshold" not in sl and "sell" not in sl:
+                    return "green"
+                if "관찰" in s and "관망" not in s:
+                    return "green"
+                if any(
+                    k in s
+                    for k in (
+                        "조건 대기",
+                        "관망",
+                        "WAIT",
+                    )
+                ) or any(k in sl for k in ("watching", "wait")):
+                    return "orange"
+                return "gray"
 
-                if any(k in raw for k in ("진입", "매수")) or any(
-                    k in s for k in ("buy ready", "enter")
-                ):
-                    return ("#edf8ee", "#1f6b2a")
-                if any(k in raw for k in ("조건 대기", "관망")) or any(
-                    k in s for k in ("watch", "대기")
-                ):
-                    return ("#f5f7fa", "#5f6b76")
-                if any(k in raw for k in ("보유",)) or any(k in s for k in ("holding", "hold")):
-                    return ("#edf4ff", "#1f4b87")
-                if any(k in raw for k in ("매도", "청산", "경계")) or any(
-                    k in s for k in ("sell", "exit", "risk")
-                ):
-                    return ("#fff4e8", "#8a4b12")
-                return ("#ffffff", "#2f3b48")
+            def _row_tint_and_state_chip(bucket: str):
+                if bucket == "green":
+                    return ("#f0fdf4", "#dcfce7", "#14532d", True)
+                if bucket == "blue":
+                    return ("#eff6ff", "#dbeafe", "#1d4ed8", True)
+                if bucket == "orange":
+                    return ("#fffbeb", "#ffedd5", "#c2410c", True)
+                if bucket == "red":
+                    return ("#fef2f2", "#fee2e2", "#b91c1c", True)
+                return ("#f8fafc", "#e2e8f0", "#475569", False)
+
+            def _score_paint(score_val: float):
+                if score_val >= 90:
+                    return ("#ecfdf5", "#14532d", True)
+                if score_val >= 75:
+                    return ("#f0fdf4", "#15803d", True)
+                if score_val >= 60:
+                    return ("#eff6ff", "#1d4ed8", False)
+                if score_val >= 45:
+                    return ("#fff7ed", "#ea580c", False)
+                return ("#f1f5f9", "#64748b", False)
 
             state_col = None
             score_col = None
@@ -8527,6 +9361,23 @@ class MainWindow(QMainWindow):
                 if score_col is None and ("점수" in h or "score" in hh):
                     score_col = i
 
+            score_pairs = []
+            for r in range(row_count):
+                sv = None
+                if score_col is not None:
+                    sit0 = table.item(r, score_col)
+                    if sit0 is not None:
+                        try:
+                            sv = float(str(sit0.text()).replace("%", "").strip())
+                        except Exception:
+                            sv = None
+                if sv is not None:
+                    score_pairs.append((sv, r))
+            score_pairs.sort(key=lambda x: -x[0])
+            top3_rows = {r for _, r in score_pairs[:3]}
+
+            cur_row = int(table.currentRow())
+
             for r in range(row_count):
                 state_text = ""
                 if state_col is not None:
@@ -8534,7 +9385,10 @@ class MainWindow(QMainWindow):
                     if it is not None:
                         state_text = it.text()
 
-                bg, fg = _soft_state_colors(state_text)
+                bucket = _state_bucket(state_text)
+                row_bg, chip_bg, chip_fg, chip_bold = _row_tint_and_state_chip(bucket)
+
+                row_dict = rows_data[r] if r < len(rows_data) else {}
 
                 for c in range(col_count):
                     it = table.item(r, c)
@@ -8542,32 +9396,63 @@ class MainWindow(QMainWindow):
                         continue
                     if c == _lock_col:
                         continue
-                    it.setBackground(QColor(bg))
-                    it.setForeground(QColor(fg))
 
-                if score_col is not None:
-                    sit = table.item(r, score_col)
-                    if sit is not None:
+                    if c == state_col:
+                        it.setBackground(QColor(chip_bg))
+                        it.setForeground(QColor(chip_fg))
+                        f = it.font()
+                        f.setBold(bool(chip_bold))
+                        it.setFont(f)
+                        continue
+
+                    if c == score_col:
+                        sit = it
+                        score_val = None
                         try:
-                            score_txt = sit.text().replace("%", "").strip()
-                            score_val = float(score_txt)
+                            score_val = float(str(sit.text()).replace("%", "").strip())
                         except Exception:
                             score_val = None
-
                         if score_val is not None:
+                            sbg, sfg, sbd = _score_paint(score_val)
+                            sit.setBackground(QColor(sbg))
+                            sit.setForeground(QColor(sfg))
                             f = sit.font()
-                            if score_val >= 80:
-                                f.setBold(True)
-                                sit.setFont(f)
-                                sit.setForeground(QColor("#14532d"))
-                            elif score_val >= 60:
-                                f.setBold(True)
-                                sit.setFont(f)
-                                sit.setForeground(QColor("#1f3b5b"))
-                            else:
-                                f.setBold(False)
-                                sit.setFont(f)
-                                sit.setForeground(QColor("#5f6b76"))
+                            f.setBold(bool(sbd))
+                            sit.setFont(f)
+                        else:
+                            sit.setBackground(QColor(row_bg))
+                            sit.setForeground(QColor("#64748b"))
+                            f = sit.font()
+                            f.setBold(False)
+                            sit.setFont(f)
+                        continue
+
+                    if c == 2:
+                        it.setBackground(QColor(row_bg))
+                        try:
+                            chg = float(row_dict.get("change_rate") or 0.0)
+                            self._apply_aits_change_color(it, chg)
+                        except Exception:
+                            pass
+                        continue
+
+                    if c == 3:
+                        it.setBackground(QColor(row_bg))
+                        src = (row_dict.get("source") or "USER").strip().upper()
+                        if src == "AI":
+                            it.setForeground(QColor("#1565c0"))
+                        else:
+                            it.setForeground(QColor("#2e7d32"))
+                        continue
+
+                    it.setBackground(QColor(row_bg))
+                    it.setForeground(QColor("#1e293b"))
+
+                    if c == 0:
+                        f = it.font()
+                        name_bold = r == cur_row or r in top3_rows
+                        f.setBold(bool(name_bold))
+                        it.setFont(f)
 
             table.viewport().update()
 
@@ -11964,7 +12849,7 @@ class MainWindow(QMainWindow):
                                 adjusted_score *= 1.08
                         rows_scored.append((adjusted_score, r))
                     rows_scored.sort(key=lambda x: x[0], reverse=True)
-                    rows_to_render = [r for _, r in rows_scored[:30]]
+                    rows_to_render = [r for _, r in rows_scored[:50]]
                 else:
                     try:
                         rows_to_render = list(getattr(self, "market_all_rows", []) or [])
@@ -12060,13 +12945,13 @@ class MainWindow(QMainWindow):
                     except Exception:
                         extra = ""
                     self.lbl_market_search_status.setText(
-                        f"빠른 탐색 모드 · AI 후보 30개 · {regime_txt}{sort_suffix}{extra}"
+                        f"빠른 탐색 모드 · AI 후보 50개 · {regime_txt}{sort_suffix}{extra}"
                     )
         except Exception:
             pass
 
         # NOTE:
-        # quick 후보 30개는 AI가 먼저 볼 shortlist일 뿐이며,
+        # quick 후보 50개는 AI가 먼저 볼 shortlist일 뿐이며,
         # 사용자 수동 추가 종목(USER)은 이 점수만으로 자동 제거하지 않는다.
         display_rows = []
         for _r in rows_to_render:
@@ -12084,13 +12969,24 @@ class MainWindow(QMainWindow):
         self._market_display_rows = display_rows
         t = self.tbl_market_all
         t.setRowCount(0)
+        _hot_bg = QColor(240, 253, 244)
         for i, r in enumerate(display_rows):
             t.insertRow(i)
+            chg_val = float(r.get("change_rate") or 0.0)
+            try:
+                _is_hot = self._market_explorer_row_hot_heuristic(i, chg_val, query)
+            except Exception:
+                _is_hot = False
             c_rank = QTableWidgetItem(str(i + 1))
             try:
                 c_rank.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             except Exception:
                 pass
+            if _is_hot:
+                try:
+                    c_rank.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
             t.setItem(i, 0, c_rank)
             sym = (r.get("symbol") or "").strip()
             name = (r.get("name") or "").strip() or sym
@@ -12111,17 +13007,43 @@ class MainWindow(QMainWindow):
                 display_coin = self._merge_aits_symbol_and_name(sym, row_name)
             except Exception:
                 display_coin = self._format_aits_coin_display_name(sym)
+            _sym_show = display_coin if display_coin else (sym or name)
+            if _is_hot:
+                _sym_show = f"★ {_sym_show}"
             norm_sym = self._normalize_aits_market_symbol(sym)
-            c0 = QTableWidgetItem(display_coin if display_coin else (sym or name))
+            c0 = QTableWidgetItem(_sym_show)
             c0.setData(Qt.ItemDataRole.UserRole, norm_sym or sym)
+            if _is_hot:
+                try:
+                    c0.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
             t.setItem(i, 1, c0)
-            t.setItem(i, 2, QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}"))
-            chg_val = float(r.get("change_rate") or 0.0)
+            _p2 = QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}")
+            if _is_hot:
+                try:
+                    _p2.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 2, _p2)
             c_change = QTableWidgetItem(self._fmt_change_pct(chg_val))
             self._apply_explorer_change_pct_color(c_change, chg_val)
+            if _is_hot:
+                try:
+                    _pchg = self._explorer_effective_change_pct(chg_val)
+                    if -3 < _pchg < 3:
+                        c_change.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
             t.setItem(i, 3, c_change)
             trade_value = self._get_market_trade_value(r)
-            t.setItem(i, 4, QTableWidgetItem(f"{int(round(trade_value)):,}"))
+            _it4 = QTableWidgetItem(f"{int(round(trade_value)):,}")
+            if _is_hot:
+                try:
+                    _it4.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 4, _it4)
             trade_volume = self._safe_market_float(
                 r,
                 "trade_volume",
@@ -12129,13 +13051,36 @@ class MainWindow(QMainWindow):
                 "volume_24h",
                 "volume",
             )
-            t.setItem(i, 5, QTableWidgetItem(f"{int(round(trade_volume)):,}"))
-            c_add = QTableWidgetItem("추가")
+            _it5 = QTableWidgetItem(f"{int(round(trade_volume)):,}")
+            if _is_hot:
+                try:
+                    _it5.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 5, _it5)
+            c_add = QTableWidgetItem("+ 추가")
             try:
                 c_add.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                _bf = QFont(c_add.font())
+                _bf.setBold(True)
+                c_add.setFont(_bf)
+                c_add.setBackground(QBrush(QColor(209, 250, 229)))
+                c_add.setForeground(QColor("#047857"))
             except Exception:
                 pass
             t.setItem(i, 6, c_add)
+        try:
+            _sn = self.cmb_market_sort.currentText()
+        except Exception:
+            _sn = "—"
+        try:
+            self._update_market_explorer_summary(display_rows, _sn)
+        except Exception:
+            pass
+        try:
+            self._on_market_explorer_selection_changed()
+        except Exception:
+            pass
 
     def _on_market_search_text_changed(self, _t: str = "") -> None:
         try:
