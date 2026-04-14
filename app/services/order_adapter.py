@@ -384,8 +384,33 @@ class AITSOrderAdapter:
                                 f"rotation_needed={rotation_needed} | rotation_out={rotation_out} | "
                                 f"rotation_in={rotation_in}"
                             )
+                            try:
+                                managed_flag = getattr(c, "managed_pool", None)
+                            except Exception:
+                                managed_flag = None
+
+                            try:
+                                source_flag = getattr(c, "source", None)
+                            except Exception:
+                                source_flag = None
+
+                            try:
+                                source_type_flag = getattr(c, "source_type", None)
+                            except Exception:
+                                source_type_flag = None
+
+                            self._safe_log_info(
+                                f"[AITS][OrderValidation] candidate_precheck | "
+                                f"symbol={symbol} | action={c.action_type} | "
+                                f"managed_pool={managed_flag} | source={source_flag} | source_type={source_type_flag}"
+                            )
                             if c.action_type == "buy":
                                 print(f"[AITS][OrderAdapter] buy_order_request | symbol={order_request.get('symbol')} | amount_krw={order_request.get('amount_krw')}")
+                            self._safe_log_info(
+                                f"[AITS][OrderValidation] place_order_ready | "
+                                f"symbol={symbol} | side={c.action_type} | amount_krw={order_request.get('amount_krw')} | "
+                                f"price={order_request.get('price')} | market={order_request.get('market')}"
+                            )
                             po_result = order_service.place_order(order_request)
                             if isinstance(po_result, dict) and po_result.get("success"):
                                 result.submitted_orders.append(

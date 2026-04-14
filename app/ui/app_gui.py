@@ -87,37 +87,76 @@ QCheckBox, QRadioButton {
     spacing: 6px;
 }
 
-/* 탭: 높이/여백 통일 (PATCH A-2: 하단 내비 느낌) */
+/* 탭: 중첩 QTabWidget(다이얼로그·서브탭) 기본 — 메인 하단과 구분 */
 QTabWidget::pane {
     border: 1px solid #d8dee6;
     top: -1px;
     background: #ffffff;
-    border-radius: 0 0 10px 10px;
+    border-radius: 8px;
 }
 QTabBar::tab {
-    min-height: 50px;
-    padding: 8px 18px;
+    min-height: 36px;
+    padding: 6px 14px;
     border: 1px solid #d8dee6;
-    border-bottom: none;
-    background: #eef2f7;
+    background: #f1f5f9;
     color: #475569;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 600;
     margin-right: 2px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
 }
 QTabBar::tab:selected {
     background: #ffffff;
     color: #0f172a;
     font-weight: 700;
-    font-size: 13px;
-    border-bottom: 2px solid #2563eb;
+    font-size: 12px;
+    border: 1px solid #cbd5e1;
+    border-bottom: 1px solid #ffffff;
     margin-bottom: -1px;
 }
-QTabBar::tab:!selected:hover {
+QTabBar::tab:hover:!selected {
     background: #e2e8f0;
     color: #1e293b;
+}
+
+/* PATCH D-3: 메인 하단 내비 — QTabBar#tabHeader 전용 카드형 (하단 파란 밑줄 없음) */
+QTabBar#tabHeader {
+    background: #f8fafc;
+    border: none;
+    margin: 0px;
+    padding: 4px 8px 8px 8px;
+}
+QTabBar#tabHeader::tab {
+    background: #f3f5f8;
+    border: 1px solid #d8dee6;
+    border-radius: 14px;
+    padding: 10px 18px;
+    margin: 8px 6px 10px 6px;
+    min-width: 120px;
+    min-height: 44px;
+    max-height: 56px;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+}
+QTabBar#tabHeader::tab:selected {
+    background: #ffffff;
+    border: 2px solid #60a5fa;
+    color: #0f172a;
+    font-weight: 700;
+}
+QTabBar#tabHeader::tab:hover:!selected {
+    background: #eef2f7;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+}
+
+/* 메인 탭 본문 스크롤 — 탭바와 간격 최소 */
+QScrollArea#contentArea {
+    border: none;
+    background: #ffffff;
+    margin-top: 0px;
 }
 
 /* 구분선/프레임 — border만 제거, color 미지정(자식 텍스트 회색 상속 방지) */
@@ -141,17 +180,8 @@ QWidget#runBar QPushButton:pressed {
     background: #eef1f4;
 }
 
-/* 탭 헤더(탭 버튼 줄) 영역 배경 — 런바보다 살짝 밝게 (탭바는 QTabBar이므로 둘 다 지정) */
-QWidget#tabHeader, QTabBar#tabHeader {
-    background: #f3f4f6;
-    border: 0px;
-    margin: 0px;
-    padding: 3px 6px;
-    border-radius: 8px;
-}
-
 /* 런바/탭헤더 내부 프레임 테두리 제거(라인 방지) */
-QWidget#runBar QFrame, QWidget#tabHeader QFrame {
+QWidget#runBar QFrame, QTabBar#tabHeader QFrame {
     border: 0px;
 }
 
@@ -1616,6 +1646,41 @@ class MainWindow(QMainWindow):
         except Exception:
             return "neutral"
 
+    def _compact_global_status_label(self, text: str) -> str:
+        """E-1: 글로벌 상태 칩용 짧은 문구(긴 설명 축약)."""
+        t = str(text or "").strip()
+        if not t:
+            return ""
+        if len(t) <= 14:
+            return t
+        for sep in ("｜", "|", ":", "—", "-", "·", "/"):
+            if sep in t:
+                frag = t.split(sep, 1)[0].strip()
+                return frag[:16] if frag else t[:14]
+        return t[:14].rstrip() + "…"
+
+    def _style_run_toggle_switch(self, running: bool) -> None:
+        """E-1: 파워 토글 시각(ON=연녹/OFF=연적). 시그널·실행 가드는 변경하지 않음."""
+        try:
+            btn = getattr(self, "btn_run_toggle", None)
+            if btn is None:
+                return
+            btn.setText("ON" if running else "OFF")
+            if running:
+                btn.setToolTip("AITS 자동매매 중 — 누르면 정지")
+                btn.setStyleSheet(
+                    "padding: 6px 14px; font-weight: 700; min-height: 30px; max-height: 34px;"
+                    "background:#dcfce7; border:1px solid #22c55e; color:#166534; border-radius:16px;"
+                )
+            else:
+                btn.setToolTip("자동매매 시작")
+                btn.setStyleSheet(
+                    "padding: 6px 14px; font-weight: 700; min-height: 30px; max-height: 34px;"
+                    "background:#fee2e2; border:1px solid #ef4444; color:#991b1b; border-radius:16px;"
+                )
+        except Exception:
+            pass
+
     def _set_running_ui(self, running: bool):
         """RUNNING/IDLE 표시 + KPI 자동 갱신 on/off + 버튼/라벨 동기화."""
         self._ensure_run_widgets()
@@ -1637,35 +1702,27 @@ class MainWindow(QMainWindow):
                     lb.setText(txt_state)
                     if running:
                         lb.setStyleSheet(
-                            "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #047857; "
+                            "QLabel#stopLabel { font-size: 16px; font-weight: 800; color: #047857; "
                             "padding: 2px; background: transparent; }"
                         )
                     else:
                         lb.setStyleSheet(
-                            "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #b91c1c; "
+                            "QLabel#stopLabel { font-size: 16px; font-weight: 800; color: #b91c1c; "
                             "padding: 2px; background: transparent; }"
                         )
             except Exception:
                 pass  # 라벨만 보유해도 무해
 
         # 2) 실행 버튼 텍스트/아이콘 동기화(여러 후보명을 안전 탐색)
-        btn_txt = "AITS STOP" if running else "AITS ON"
+        btn_txt = "ON" if running else "OFF"
         for name in ("btn_run", "btn_toggle_run", "btn_start_stop", "btn_execute", "btn_run_toggle"):
             try:
                 btn = getattr(self, name, None)
                 if btn is not None:
-                    btn.setText(btn_txt)
                     if name == "btn_run_toggle":
-                        if running:
-                            btn.setStyleSheet(
-                                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                                " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-                            )
-                        else:
-                            btn.setStyleSheet(
-                                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                                " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-                            )
+                        self._style_run_toggle_switch(running)
+                    else:
+                        btn.setText(btn_txt)
                     # Stop 완료 후에만 버튼 재활성화 (Stop inflight guard와 쌍)
                     if not running:
                         btn.setEnabled(True)
@@ -1687,7 +1744,7 @@ class MainWindow(QMainWindow):
                 lb = getattr(self, "lbl_status", None)
                 if lb is not None:
                     lb.setStyleSheet(
-                        "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #b91c1c; padding: 2px; background: transparent; }"
+                        "QLabel#stopLabel { font-size: 16px; font-weight: 800; color: #b91c1c; padding: 2px; background: transparent; }"
                     )
         except Exception:
             pass
@@ -1702,7 +1759,7 @@ class MainWindow(QMainWindow):
             pass
 
         try:
-            self._update_aits_ops_summary()
+            self._update_engine_ui_ssot()
             self._update_aits_briefing()
         except Exception:
             pass
@@ -1719,12 +1776,12 @@ class MainWindow(QMainWindow):
             self._run_blink_on = not getattr(self, "_run_blink_on", True)
             if self._run_blink_on:
                 lb.setStyleSheet(
-                    "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #047857; padding: 2px 6px; "
+                    "QLabel#stopLabel { font-size: 16px; font-weight: 800; color: #047857; padding: 2px 6px; "
                     "background-color: #d1fae5; border-radius: 6px; }"
                 )
             else:
                 lb.setStyleSheet(
-                    "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #059669; padding: 2px 6px; "
+                    "QLabel#stopLabel { font-size: 16px; font-weight: 800; color: #059669; padding: 2px 6px; "
                     "background-color: #a7f3d0; border-radius: 6px; }"
                 )
         except Exception:
@@ -3044,10 +3101,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.lbl_status.setStyleSheet(
-            "QLabel#stopLabel { font-size: 15px; font-weight: 800; color: #b91c1c; padding: 2px; background: transparent; }"
+            "QLabel#stopLabel { font-size: 16px; font-weight: 800; color: #b91c1c; padding: 2px; background: transparent; }"
         )
-        self.btn_run_toggle = QPushButton("AITS ON")
-        self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
+        self.btn_run_toggle = QPushButton("OFF")
+        self.btn_run_toggle.setToolTip("자동매매 시작")
         self.btn_run_toggle.setObjectName("StopButton")
         self.btn_run_toggle.setCheckable(True)
         try:
@@ -3058,10 +3115,10 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.setEnabled(True)
         except Exception:
             pass
-        self.btn_run_toggle.setFixedHeight(34)
+        self.btn_run_toggle.setFixedHeight(32)
         self.btn_run_toggle.setStyleSheet(
-            "padding: 6px 12px; font-weight: 700; min-height: 32px; max-height: 36px;"
-            " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 8px;"
+            "padding: 6px 14px; font-weight: 800; min-height: 30px; max-height: 34px;"
+            " background-color: #fee2e2; color: #991b1b; border: 1px solid #ef4444; border-radius: 16px;"
         )
         stop_box_ly.addWidget(self.lbl_status)
         stop_box_ly.addWidget(self.btn_run_toggle)
@@ -3149,7 +3206,7 @@ class MainWindow(QMainWindow):
         _eng_ly = QVBoxLayout(self._frame_aits_engine_card)
         _eng_ly.setContentsMargins(10, 8, 10, 8)
         _eng_ly.setSpacing(4)
-        self._lbl_aits_engine_card_title = QLabel("AI Engine")
+        self._lbl_aits_engine_card_title = QLabel("AI ENGINE")
         self._lbl_aits_engine_card_title.setStyleSheet(
             "font-size: 11px; font-weight: 800; color: #1e3a5f; letter-spacing: 0.5px;"
         )
@@ -3244,7 +3301,7 @@ class MainWindow(QMainWindow):
             pass
 
         self.lbl_aits_ops_summary = QLabel(
-            "선택엔진 Basic | 실제엔진 Basic | 연결상태 확인중 | 모드 비활성"
+            "선택엔진: Basic | 실제엔진: Basic | 연결상태: 확인중 | 모드: 비활성"
         )
         self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
         self.lbl_aits_ops_summary.setStyleSheet(
@@ -4111,26 +4168,38 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        self._gb_ai_detail = QGroupBox("MAIN ANALYSIS CENTER")
+        self._gb_ai_detail = QGroupBox("")
         try:
             self._gb_ai_detail.setStyleSheet(_aits_watch_gb_card_qss)
         except Exception:
             pass
         _detail_inner = QVBoxLayout(self._gb_ai_detail)
         try:
-            _detail_inner.setContentsMargins(10, 8, 10, 10)
-            _detail_inner.setSpacing(8)
+            _detail_inner.setContentsMargins(12, 10, 12, 10)
+            _detail_inner.setSpacing(10)
+        except Exception:
+            pass
+        self.lbl_ai_center_stage_title = QLabel("MAIN ANALYSIS CENTER")
+        try:
+            self.lbl_ai_center_stage_title.setStyleSheet(
+                "font-size: 10px; font-weight: 800; color: #94a3b8; "
+                "letter-spacing: 1.2px; padding: 0 0 2px 0;"
+            )
         except Exception:
             pass
         self._frm_ai_center_header = QWidget()
+        _center_hdr_ly = QVBoxLayout(self._frm_ai_center_header)
+        _center_hdr_ly.setContentsMargins(0, 0, 0, 0)
+        _center_hdr_ly.setSpacing(6)
+        _center_hdr_ly.addWidget(self.lbl_ai_center_stage_title)
         _hdr_top = QHBoxLayout()
         _hdr_top.setContentsMargins(0, 0, 0, 0)
-        _hdr_top.setSpacing(8)
+        _hdr_top.setSpacing(10)
         self.lbl_ai_center_symbol = QLabel("—")
-        self.lbl_ai_center_symbol.setWordWrap(False)
+        self.lbl_ai_center_symbol.setWordWrap(True)
         try:
             self.lbl_ai_center_symbol.setStyleSheet(
-                "font-size: 20px; font-weight: 800; color: #0f172a; padding: 0 4px 2px 0;"
+                "font-size: 19px; font-weight: 800; color: #0f172a; padding: 0 4px 0 0;"
             )
         except Exception:
             pass
@@ -4138,41 +4207,66 @@ class MainWindow(QMainWindow):
         self.btn_ai_reason_toggle = QPushButton("원문 보기")
         self.btn_ai_reason_toggle.setToolTip("AI 판단 원문 표시/숨김")
         try:
-            self.btn_ai_reason_toggle.setMinimumHeight(30)
-            self.btn_ai_reason_toggle.setMaximumHeight(32)
+            self.btn_ai_reason_toggle.setMinimumHeight(28)
+            self.btn_ai_reason_toggle.setMaximumHeight(30)
             self.btn_ai_reason_toggle.setStyleSheet(
-                "padding:4px 12px; font-size:11px; font-weight:600;"
+                "padding: 4px 10px; font-size: 10px; font-weight: 600;"
+                "background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;"
+                "border-radius: 8px;"
             )
         except Exception:
             pass
         _hdr_top.addWidget(self.btn_ai_reason_toggle, 0)
-        _center_hdr_ly = QVBoxLayout(self._frm_ai_center_header)
-        _center_hdr_ly.setContentsMargins(0, 0, 0, 0)
-        _center_hdr_ly.setSpacing(4)
         _center_hdr_ly.addLayout(_hdr_top)
+        _detail_inner.addWidget(self._frm_ai_center_header)
+
+        self._frm_ai_judgment_banner = QFrame()
+        try:
+            self._frm_ai_judgment_banner.setObjectName("frmAiJudgmentBanner")
+        except Exception:
+            pass
+        _jb_ly = QVBoxLayout(self._frm_ai_judgment_banner)
+        try:
+            _jb_ly.setContentsMargins(14, 12, 14, 12)
+            _jb_ly.setSpacing(6)
+        except Exception:
+            pass
         self.lbl_ai_detail_judgment_header = QLabel("AI 판단: — (종목을 선택하세요)")
-        self.lbl_ai_detail_judgment_header.setWordWrap(False)
+        self.lbl_ai_detail_judgment_header.setWordWrap(True)
         try:
             self.lbl_ai_detail_judgment_header.setStyleSheet(
-                "font-size: 15px; font-weight: 800; color: #64748b; padding: 0 2px 4px 2px;"
+                "font-size: 16px; font-weight: 800; color: #0f172a; "
+                "background: transparent; border: none; padding: 0px;"
             )
         except Exception:
             pass
-        _center_hdr_ly.addWidget(self.lbl_ai_detail_judgment_header)
-        _detail_inner.addWidget(self._frm_ai_center_header)
+        _jb_ly.addWidget(self.lbl_ai_detail_judgment_header)
+        self.lbl_ai_judgment_banner_sub = QLabel(
+            "종목을 선택하면 AI 분석이 표시됩니다."
+        )
+        self.lbl_ai_judgment_banner_sub.setWordWrap(True)
+        try:
+            self.lbl_ai_judgment_banner_sub.setStyleSheet(
+                "font-size: 12px; font-weight: 600; color: #64748b; "
+                "background: transparent; border: none; padding: 0px; line-height: 1.4;"
+            )
+        except Exception:
+            pass
+        _jb_ly.addWidget(self.lbl_ai_judgment_banner_sub)
+        _detail_inner.addWidget(self._frm_ai_judgment_banner)
 
         self.lbl_ai_detail_hint = QLabel(
-            "선택된 종목이 없습니다.\nMarket Explorer에서 종목을 추가하거나 AI 종목을 확인하세요."
+            "종목을 선택하면 AI 분석이 표시됩니다."
         )
         self.lbl_ai_detail_hint.setWordWrap(True)
         self.lbl_ai_detail_hint.setStyleSheet(
-            "color: #4c5b68; font-size: 12px; line-height: 1.35;"
+            "color: #64748b; font-size: 11px; line-height: 1.45; font-weight: 500;"
         )
 
         self._frm_ai_detail_chart = QFrame()
         try:
-            self._frm_ai_detail_chart.setMinimumHeight(350)
-            self._frm_ai_detail_chart.setMaximumHeight(460)
+            self._frm_ai_detail_chart.setMinimumHeight(380)
+            self._frm_ai_detail_chart.setMaximumHeight(520)
         except Exception:
             pass
         try:
@@ -4182,11 +4276,20 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._frm_ai_detail_chart.setStyleSheet(
-            "QFrame { border: 1px solid #d8dee6; border-radius: 10px; background: #ffffff; }"
+            "QFrame { border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; }"
         )
         _chart_ly = QVBoxLayout(self._frm_ai_detail_chart)
-        _chart_ly.setContentsMargins(1, 1, 1, 1)
+        _chart_ly.setContentsMargins(8, 8, 8, 8)
         _chart_ctrl = QHBoxLayout()
+        _chart_ctrl.setSpacing(8)
+        _pill_qss = (
+            "QComboBox {"
+            "  min-height: 32px; max-height: 32px;"
+            "  padding: 4px 12px; font-size: 11px; font-weight: 600;"
+            "  border: 1px solid #e2e8f0; border-radius: 8px;"
+            "  background: #f8fafc; color: #1e293b;"
+            "}"
+        )
         self.cmb_detail_chart_tf = QComboBox()
         for _lbl, _tf in (
             ("1분", "1m"),
@@ -4198,6 +4301,7 @@ class MainWindow(QMainWindow):
         try:
             self.cmb_detail_chart_tf.setMinimumHeight(32)
             self.cmb_detail_chart_tf.setMaximumHeight(32)
+            self.cmb_detail_chart_tf.setStyleSheet(_pill_qss)
         except Exception:
             pass
         try:
@@ -4213,19 +4317,34 @@ class MainWindow(QMainWindow):
         try:
             self.cmb_detail_chart_count.setMinimumHeight(32)
             self.cmb_detail_chart_count.setMaximumHeight(32)
+            self.cmb_detail_chart_count.setStyleSheet(_pill_qss)
         except Exception:
             pass
         self.cmb_detail_chart_tf.currentIndexChanged.connect(self._on_detail_chart_option_changed)
         self.cmb_detail_chart_count.currentIndexChanged.connect(self._on_detail_chart_option_changed)
         _chart_ctrl.addWidget(self.cmb_detail_chart_tf)
         _chart_ctrl.addWidget(self.cmb_detail_chart_count)
+        self.btn_detail_chart_indicators = QPushButton("지표")
+        self.btn_detail_chart_indicators.setToolTip("지표 선택 (준비 중)")
+        try:
+            self.btn_detail_chart_indicators.setEnabled(False)
+            self.btn_detail_chart_indicators.setMinimumHeight(32)
+            self.btn_detail_chart_indicators.setMaximumHeight(32)
+            self.btn_detail_chart_indicators.setStyleSheet(
+                "padding: 4px 14px; font-size: 11px; font-weight: 600;"
+                "background: #f1f5f9; color: #64748b; border: 1px dashed #cbd5e1;"
+                "border-radius: 8px;"
+            )
+        except Exception:
+            pass
+        _chart_ctrl.addWidget(self.btn_detail_chart_indicators, 0)
         _chart_ctrl.addStretch()
         _chart_ly.addLayout(_chart_ctrl)
         self.detail_chart_figure = Figure(figsize=(6.5, 3.5))
         self.detail_chart_canvas = FigureCanvas(self.detail_chart_figure)
         try:
-            self.detail_chart_canvas.setMinimumHeight(300)
-            self.detail_chart_canvas.setMaximumHeight(380)
+            self.detail_chart_canvas.setMinimumHeight(330)
+            self.detail_chart_canvas.setMaximumHeight(420)
         except Exception:
             pass
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -4367,22 +4486,43 @@ class MainWindow(QMainWindow):
         self._frm_ai_briefing_card = QFrame()
         self._frm_ai_briefing_card.setObjectName("aitsBriefingCard")
         self._frm_ai_briefing_card.setStyleSheet(
-            "#aitsBriefingCard { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; }"
+            "#aitsBriefingCard { background: #e0f2fe; border: 1px solid #7dd3fc; border-radius: 10px; }"
         )
         _bf_ly = QVBoxLayout(self._frm_ai_briefing_card)
         _bf_ly.setContentsMargins(10, 10, 10, 10)
-        _bf_ly.setSpacing(6)
-        _lbl_bf_title = QLabel("AI BRIEFING")
+        _bf_ly.setSpacing(8)
+        _bf_title_row = QHBoxLayout()
+        _bf_title_row.setContentsMargins(0, 0, 0, 0)
+        _bf_title_row.setSpacing(6)
+        _lbl_bf_title = QLabel("AI BRIEFING (요약)")
         _lbl_bf_title.setStyleSheet(
-            "font-size: 12px; font-weight: 800; color: #0369a1; letter-spacing: 0.5px;"
+            "font-size: 12px; font-weight: 800; color: #0369a1; letter-spacing: 0.3px;"
         )
-        _bf_ly.addWidget(_lbl_bf_title)
+        _bf_title_row.addWidget(_lbl_bf_title, 1)
+        self.btn_ai_center_briefing_detail = QPushButton("상세 브리핑")
+        self.btn_ai_center_briefing_detail.setToolTip("AI 브리핑 팝업")
+        try:
+            self.btn_ai_center_briefing_detail.setMinimumHeight(26)
+            self.btn_ai_center_briefing_detail.setMaximumHeight(28)
+            self.btn_ai_center_briefing_detail.setStyleSheet(
+                "padding: 2px 10px; font-size: 10px; font-weight: 600;"
+                "background: #ffffff; color: #0369a1; border: 1px solid #bae6fd;"
+                "border-radius: 8px;"
+            )
+        except Exception:
+            pass
+        try:
+            self.btn_ai_center_briefing_detail.clicked.connect(self._show_ai_briefing_popup)
+        except Exception:
+            pass
+        _bf_title_row.addWidget(self.btn_ai_center_briefing_detail, 0)
+        _bf_ly.addLayout(_bf_title_row)
         self.lbl_ai_briefing_card = QLabel(
             "- 시장 데이터 수집 중\n- AI 판단 대기\n- 종목을 선택하세요"
         )
         self.lbl_ai_briefing_card.setWordWrap(True)
         self.lbl_ai_briefing_card.setStyleSheet(
-            "font-size: 12px; font-weight: 600; color: #0c4a6e; line-height: 1.55;"
+            "font-size: 12px; font-weight: 600; color: #0c4a6e; line-height: 1.55; padding-top: 2px;"
         )
         _bf_ly.addWidget(self.lbl_ai_briefing_card)
         _detail_inner.addWidget(self._frm_ai_briefing_card)
@@ -4390,11 +4530,15 @@ class MainWindow(QMainWindow):
         _why_next_row = QHBoxLayout()
         _why_next_row.setSpacing(8)
         self._frm_ai_why_card = QFrame()
+        try:
+            self._frm_ai_why_card.setMinimumHeight(108)
+        except Exception:
+            pass
         self._frm_ai_why_card.setStyleSheet(
-            "QFrame { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }"
+            "QFrame { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; }"
         )
         _wy_ly = QVBoxLayout(self._frm_ai_why_card)
-        _wy_ly.setContentsMargins(10, 8, 10, 10)
+        _wy_ly.setContentsMargins(10, 10, 10, 10)
         _wy_ly.setSpacing(4)
         _lbl_why_t = QLabel("WHY")
         _lbl_why_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #334155;")
@@ -4406,11 +4550,15 @@ class MainWindow(QMainWindow):
         )
         _wy_ly.addWidget(self.lbl_ai_center_why)
         self._frm_ai_next_card = QFrame()
+        try:
+            self._frm_ai_next_card.setMinimumHeight(108)
+        except Exception:
+            pass
         self._frm_ai_next_card.setStyleSheet(
             "QFrame { background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; }"
         )
         _nx_ly = QVBoxLayout(self._frm_ai_next_card)
-        _nx_ly.setContentsMargins(10, 8, 10, 10)
+        _nx_ly.setContentsMargins(10, 10, 10, 10)
         _nx_ly.setSpacing(4)
         _lbl_nx_t = QLabel("NEXT ACTION")
         _lbl_nx_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #92400e;")
@@ -4427,18 +4575,19 @@ class MainWindow(QMainWindow):
 
         self._frm_ai_recent_log = QFrame()
         self._frm_ai_recent_log.setStyleSheet(
-            "QFrame { background: #fafafa; border: 1px solid #e5e7eb; border-radius: 10px; }"
+            "QFrame { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }"
         )
         _rl_ly = QVBoxLayout(self._frm_ai_recent_log)
-        _rl_ly.setContentsMargins(10, 8, 10, 10)
-        _rl_ly.setSpacing(4)
+        _rl_ly.setContentsMargins(10, 10, 10, 10)
+        _rl_ly.setSpacing(6)
         _lbl_rl_t = QLabel("RECENT AI LOG")
-        _lbl_rl_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #374151;")
+        _lbl_rl_t.setStyleSheet("font-size: 11px; font-weight: 800; color: #475569;")
         _rl_ly.addWidget(_lbl_rl_t)
         self.lbl_ai_recent_log = QLabel("—")
         self.lbl_ai_recent_log.setWordWrap(True)
         self.lbl_ai_recent_log.setStyleSheet(
-            "font-size: 11px; font-weight: 500; color: #4b5563; line-height: 1.45;"
+            "font-size: 11px; font-weight: 500; color: #475569; line-height: 1.45;"
+            "font-family: Consolas, 'Cascadia Mono', 'Segoe UI Mono', monospace;"
         )
         _rl_ly.addWidget(self.lbl_ai_recent_log)
         _detail_inner.addWidget(self._frm_ai_recent_log)
@@ -5000,6 +5149,10 @@ class MainWindow(QMainWindow):
         # 상단 고정 + 탭 본문만 스크롤: 탭바와 스택을 분리해 스택만 QScrollArea에 넣음
         tab_bar = self.tabs.tabBar()
         tab_bar.setObjectName("tabHeader")
+        try:
+            tab_bar.setExpandsTabs(False)
+        except Exception:
+            pass
         stack = None
         for c in self.tabs.children():
             if isinstance(c, QStackedWidget):
@@ -5091,7 +5244,7 @@ class MainWindow(QMainWindow):
         try:
             # ✅ 후보 A) 버튼 초기 체크상태가 이미 True로 시작하는 문제 해결
             self.btn_run_toggle.setChecked(False)  # 반드시 False로 시작
-            self.btn_run_toggle.setText("AITS ON")  # 반드시 실행 텍스트로 시작
+            self._style_run_toggle_switch(False)
             btn_text = getattr(self.btn_run_toggle, 'text', lambda: '')()
             btn_checked = getattr(self.btn_run_toggle, 'isChecked', lambda: False)()
             btn_enabled = getattr(self.btn_run_toggle, 'isEnabled', lambda: True)()
@@ -5706,9 +5859,9 @@ class MainWindow(QMainWindow):
             bd = "#d85b63"
             fg = "#8b2029"
         else:
-            bg = "#eceff3"
-            bd = "#9aa5b1"
-            fg = "#4d5966"
+            bg = "#eff6ff"
+            bd = "#93c5fd"
+            fg = "#1e3a8a"
 
         return (
             "QLabel {"
@@ -5776,9 +5929,19 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
+            _hid_st = ""
+            try:
+                _hid_st = self.lbl_aits_ai_engine_status.text().strip()
+            except Exception:
+                pass
+            _hid_l = _hid_st.lower()
+            _hid_err = ("오류" in _hid_st) or ("fail" in _hid_l) or ("실패" in _hid_st)
 
             badge_state = "idle"
-            if actual_engine_raw == "simple_momo" or stage == "degraded":
+            if _hid_err or stage in ("error", "failed", "fail"):
+                badge_txt = "AI 상태 | 오류"
+                badge_state = "error"
+            elif actual_engine_raw == "simple_momo" or stage == "degraded":
                 badge_txt = "AI 상태 | 주의"
                 badge_state = "warn"
             elif selected_provider == "basic":
@@ -5873,6 +6036,7 @@ class MainWindow(QMainWindow):
             self._log.debug("[ENGINE-UI] box err=%s", str(e)[:80])
 
     def _update_aits_ops_summary(self):
+        """E-1: 선택/실제/연결/모드 한 줄 운영 신뢰 바 + 우측 엔진 카드 동기화."""
         try:
             w = getattr(self, "lbl_aits_ops_summary", None)
             if w is None:
@@ -5888,35 +6052,86 @@ class MainWindow(QMainWindow):
                     return "Basic"
                 return str(code or "—").strip() or "—"
 
+            def _norm_eng(c: str) -> str:
+                x = str(c or "").strip().lower()
+                if x in ("", "local"):
+                    return "basic"
+                return x
+
             sel_code = "basic"
             try:
                 sel_code = str(self._get_aits_engine_ssot()).lower()
             except Exception:
                 pass
             sel_txt = _ko_engine(sel_code)
+            s_norm = _norm_eng(sel_code)
 
-            act_txt = "—"
+            act_raw = ""
             try:
-                _ar = str(self._get_aits_last_response_provider() or "").strip()
-                act_txt = "—" if not _ar else _ko_engine(_ar)
+                act_raw = str(self._get_aits_last_response_provider() or "").strip().lower()
             except Exception:
-                act_txt = "—"
+                act_raw = ""
+            if not act_raw:
+                act_txt = "Basic" if s_norm == "basic" else "확인중"
+                a_norm = "basic" if s_norm == "basic" else ""
+            else:
+                act_txt = _ko_engine(act_raw)
+                a_norm = _norm_eng(act_raw)
 
             status_source = ""
             try:
                 status_source = self.lbl_aits_ai_engine_status.text().strip()
             except Exception:
                 pass
+            low = status_source.lower()
+            err = (
+                ("오류" in status_source)
+                or ("fail" in low)
+                or ("실패" in status_source)
+                or ("mismatch" in low)
+            )
+            wait = (
+                ("대기" in status_source)
+                or ("connecting" in low)
+                or ("연결중" in status_source)
+            )
+            ready = ("준비" in status_source) or ("정상" in status_source) or ("ready" in low)
 
-            lower = status_source.lower()
-            if "오류" in status_source or "fail" in lower or "실패" in status_source:
-                state_txt = "오류"
-            elif "대기" in status_source or "connecting" in lower or "연결중" in status_source:
-                state_txt = "연결중"
-            elif "준비" in status_source or "정상" in status_source or "ready" in lower:
-                state_txt = "준비완료"
+            stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
+            if s_norm == "gpt" and ("error" in stage or "fail" in stage):
+                err = True
+
+            conn = "확인중"
+            if s_norm == "basic":
+                conn = "준비완료"
+            elif s_norm == a_norm and a_norm and ready and not err:
+                conn = "준비완료"
+            elif s_norm in ("gemini", "gpt") and a_norm == "basic":
+                lab = "Gemini" if s_norm == "gemini" else "GPT"
+                if err:
+                    conn = f"{lab} 연결오류 (Basic 대기)"
+                elif wait or not ready:
+                    conn = f"{lab} 연결중"
+                else:
+                    conn = f"{lab} 연결중"
+            elif s_norm in ("gemini", "gpt") and a_norm == s_norm:
+                if err:
+                    conn = f"{sel_txt} 연결오류 (Basic 대기)"
+                elif wait and not ready:
+                    conn = f"{sel_txt} 연결중"
+                elif ready:
+                    conn = "준비완료"
+                else:
+                    conn = "확인중"
             else:
-                state_txt = "확인중"
+                if err:
+                    conn = "오류"
+                elif wait:
+                    conn = "연결중"
+                elif ready:
+                    conn = "준비완료"
+                else:
+                    conn = "확인중"
 
             mode_raw = "disabled"
             try:
@@ -5925,47 +6140,97 @@ class MainWindow(QMainWindow):
                 pass
             if mode_raw not in ("disabled", "dry_run", "live"):
                 mode_raw = "disabled"
-            mode_kr = {"disabled": "비활성", "dry_run": "모의(보수)", "live": "실거래"}.get(
+            mode_kr = {"disabled": "비활성", "dry_run": "모의", "live": "실거래"}.get(
                 mode_raw, mode_raw
             )
 
             out = (
-                f"선택엔진 {sel_txt} | 실제엔진 {act_txt} | 연결상태 {state_txt} | 모드 {mode_kr}"
+                f"선택엔진: {sel_txt} | 실제엔진: {act_txt} | 연결상태: {conn} | 모드: {mode_kr}"
             )
             w.setText(out)
 
-            color = "#1f2937"
-            border = "#d8dee6"
-            if "오류" in state_txt:
-                color = "#b91c1c"
-                border = "#fecaca"
-            elif "연결중" in state_txt:
-                color = "#c2410c"
-                border = "#fdba74"
-            elif "확인중" in state_txt:
-                color = "#1d4ed8"
-                border = "#93c5fd"
-            elif sel_txt.replace(" ", "") != act_txt.replace(" ", "") and act_txt != "—":
-                color = "#92400e"
-                border = "#fcd34d"
+            tier = "ok"
+            if err or ("연결오류" in conn) or (conn == "오류"):
+                tier = "err"
+            elif ("연결중" in conn) or (conn == "확인중") or (sel_txt != act_txt):
+                tier = "warn"
+            elif conn == "준비완료" and s_norm == "basic":
+                tier = "basic_ok"
+
+            if tier == "err":
+                bg, bd, fg = "#fef2f2", "#ef4444", "#991b1b"
+            elif tier == "warn":
+                bg, bd, fg = "#fffbeb", "#f97316", "#92400e"
+            elif tier == "basic_ok":
+                bg, bd, fg = "#f0fdf4", "#86efac", "#14532d"
+            else:
+                bg, bd, fg = "#f0fdf4", "#22c55e", "#14532d"
 
             w.setStyleSheet(
-                f"""#aitsOpsSummary{{
-            background:#ffffff;
-            border:1px solid {border};
-            border-radius:10px;
-            padding:5px 10px;
-            font-size:11px;
-            font-weight:700;
-            color:{color};
-            }}"""
+                f"#aitsOpsSummary{{"
+                f"background:{bg};"
+                f"border:1px solid {bd};"
+                f"border-radius:10px;"
+                f"padding:5px 10px;"
+                f"font-size:11px;"
+                f"font-weight:700;"
+                f"color:{fg};"
+                f"}}"
             )
 
             card_body = getattr(self, "_lbl_aits_engine_card_body", None)
             if card_body is not None:
-                card_body.setText(
-                    f"선택: {sel_txt}\n실제: {act_txt}\n상태: {state_txt}"
+                if s_norm == "basic":
+                    card_body.setText(f"선택: {sel_txt}\n상태: {conn}")
+                else:
+                    card_body.setText(
+                        f"선택: {sel_txt}\n실제: {act_txt}\n상태: {conn}"
+                    )
+
+            frame = getattr(self, "_frame_aits_engine_card", None)
+            if frame is not None:
+                topc = "#22c55e" if tier in ("ok", "basic_ok") else (
+                    "#f97316" if tier == "warn" else "#ef4444"
                 )
+                frame.setStyleSheet(
+                    "QFrame#aitsEngineSummaryCard {"
+                    "background:#ffffff;"
+                    "border:1px solid #e5e7eb;"
+                    f"border-top:3px solid {topc};"
+                    "border-radius:8px;"
+                    "}"
+                )
+        except Exception:
+            pass
+
+    def _log_aits_validation_summary(self, tag: str = ""):
+        try:
+            selected_engine = ""
+            actual_engine = ""
+
+            try:
+                selected_engine = str(self._get_aits_engine_ssot() or "")
+            except Exception:
+                pass
+
+            try:
+                actual_engine = str(self._get_aits_last_response_provider() or "")
+            except Exception:
+                pass
+
+            managed = getattr(self, "ai_managed_rows", None) or []
+            managed_syms = []
+            for row in managed:
+                if isinstance(row, dict):
+                    sym = str(row.get("symbol", "") or row.get("market", "") or "").strip()
+                    if sym:
+                        managed_syms.append(sym)
+
+            self._safe_log_info(
+                f"[AITS][Validation] summary{('|' + tag) if tag else ''} | "
+                f"selected_engine={selected_engine} | actual_engine={actual_engine} | "
+                f"managed_count={len(managed_syms)} | managed_symbols={','.join(managed_syms[:20])}"
+            )
         except Exception:
             pass
 
@@ -6022,6 +6287,10 @@ class MainWindow(QMainWindow):
             try:
                 self._update_aits_ops_summary()
                 self._update_aits_briefing()
+            except Exception:
+                pass
+            try:
+                self._log_aits_validation_summary("engine_ui")
             except Exception:
                 pass
         except Exception as e:
@@ -6288,24 +6557,56 @@ class MainWindow(QMainWindow):
             return "STAY"
         return "UNKNOWN"
 
-    def _apply_center_judgment_style(self, line: str) -> None:
+    def _apply_center_judgment_style(self, tag_or_key: str) -> None:
+        """판단 배너 카드 배경·본문 색 (태그: STRONG BUY, BUY READY, …)."""
+        fr = getattr(self, "_frm_ai_judgment_banner", None)
         lb = getattr(self, "lbl_ai_detail_judgment_header", None)
+        sub = getattr(self, "lbl_ai_judgment_banner_sub", None)
         if lb is None:
             return
-        up = (line or "").upper()
-        if any(k in up for k in ("STRONG BUY", "BUY READY", "BUY")):
-            color = "#15803d"
-        elif any(k in up for k in ("SELL WATCH", "SELL", "EXIT", "RISK")):
-            color = "#b91c1c"
-        elif "HOLD" in up:
-            color = "#1d4ed8"
-        elif "STAY" in up or "WAIT" in up or "UNKNOWN" in up:
-            color = "#c2410c" if ("STAY" in up or "WAIT" in up) else "#64748b"
-        else:
-            color = "#64748b"
-        lb.setStyleSheet(
-            f"font-size: 15px; font-weight: 800; color: {color}; padding: 0 2px 4px 2px;"
-        )
+        u = str(tag_or_key or "").upper()
+        bg = "#f1f5f9"
+        br = "#e2e8f0"
+        fg = "#0f172a"
+        sfg = "#64748b"
+        if any(k in u for k in ("STRONG BUY", "BUY READY", "BUY")) and "SELL" not in u:
+            bg, br, fg = "#ecfdf5", "#86efac", "#14532d"
+        elif "RISK" in u:
+            bg, br, fg = "#fef2f2", "#fecaca", "#7f1d1d"
+        elif any(k in u for k in ("SELL WATCH", "SELL", "EXIT")):
+            bg, br, fg = "#fef2f2", "#fca5a5", "#991b1b"
+        elif "HOLD" in u:
+            bg, br, fg = "#eff6ff", "#93c5fd", "#1e3a8a"
+        elif "WAIT" in u:
+            bg, br, fg = "#f8fafc", "#cbd5e1", "#475569"
+        elif "STAY" in u:
+            bg, br, fg = "#fff7ed", "#fdba74", "#9a3412"
+        elif "UNKNOWN" in u:
+            bg, br, fg = "#f8fafc", "#e2e8f0", "#64748b"
+        try:
+            if fr is not None:
+                fr.setStyleSheet(
+                    f"#frmAiJudgmentBanner {{"
+                    f" background: {bg}; border: 1px solid {br}; border-radius: 10px;"
+                    f" }}"
+                )
+        except Exception:
+            pass
+        try:
+            lb.setStyleSheet(
+                f"font-size: 16px; font-weight: 800; color: {fg}; "
+                f"background: transparent; border: none; padding: 0px;"
+            )
+        except Exception:
+            pass
+        try:
+            if sub is not None:
+                sub.setStyleSheet(
+                    f"font-size: 12px; font-weight: 600; color: {sfg}; "
+                    f"background: transparent; border: none; padding: 0px; line-height: 1.4;"
+                )
+        except Exception:
+            pass
 
     def _get_center_symbol_context_text(self, row=None):
         """
@@ -6530,7 +6831,7 @@ class MainWindow(QMainWindow):
             return
         buf = getattr(self, "_aits_recent_logs", None) or []
         if buf:
-            lb.setText("\n".join(buf[-5:]))
+            lb.setText("\n".join(buf[-3:]))
         else:
             try:
                 jh = getattr(self, "lbl_ai_detail_judgment_header", None)
@@ -6552,11 +6853,26 @@ class MainWindow(QMainWindow):
                 if (r.get("symbol") or "").strip() == sym:
                     row = r
                     break
+            try:
+                _st_log = ""
+                if isinstance(row, dict):
+                    _st_log = str(row.get("ai_status") or row.get("status") or "").strip()
+                self._safe_log_info(
+                    f"[AITS][Detail] refresh | symbol={sym} | status={_st_log}"
+                )
+            except Exception:
+                pass
             if not sym or row is None:
                 try:
                     jh = getattr(self, "lbl_ai_detail_judgment_header", None)
                     if jh is not None:
-                        jh.setText("AI 판단: — (종목을 선택하세요)")
+                        jh.setText("AI 판단: —")
+                except Exception:
+                    pass
+                try:
+                    js = getattr(self, "lbl_ai_judgment_banner_sub", None)
+                    if js is not None:
+                        js.setText("종목을 선택하면 AI 분석이 표시됩니다.")
                 except Exception:
                     pass
                 try:
@@ -6584,6 +6900,12 @@ class MainWindow(QMainWindow):
                     pass
                 try:
                     self._sync_recent_log_label()
+                except Exception:
+                    pass
+                try:
+                    self.lbl_ai_detail_hint.setText(
+                        "종목을 선택하면 AI 분석이 표시됩니다."
+                    )
                 except Exception:
                     pass
                 self.lbl_ai_detail_hint.setVisible(True)
@@ -6625,15 +6947,24 @@ class MainWindow(QMainWindow):
                 return
             self.lbl_ai_detail_hint.setVisible(False)
             display_name = self._format_aits_coin_display_name(sym)
+            _tail_sym = sym.split("-")[-1] if sym and "-" in sym else (sym or "")
+            _kn_sym = ""
+            try:
+                _kn_sym = str(self._get_aits_korean_coin_name(sym) or "").strip()
+            except Exception:
+                _kn_sym = ""
             self.lbl_ai_detail_name.setText(
                 f"{display_name} ({sym})" if display_name else sym
             )
             try:
                 cs = getattr(self, "lbl_ai_center_symbol", None)
                 if cs is not None:
-                    cs.setText(
-                        f"{display_name} / {sym}" if display_name else sym
-                    )
+                    if _kn_sym:
+                        cs.setText(f"{_tail_sym} {_kn_sym} / {sym}")
+                    else:
+                        cs.setText(
+                            f"{display_name} / {sym}" if display_name else sym
+                        )
             except Exception:
                 pass
             src = (row.get("source") or "USER").strip().upper()
@@ -6643,11 +6974,33 @@ class MainWindow(QMainWindow):
             _raw_status = str(row.get("ai_status") or "Watching")
             _st_disp = self._format_aits_user_state_text(_raw_status)
             _judgment_tag = self._center_judgment_tag(_raw_status, _st_disp)
+            rs = (row.get("ai_reason_summary") or "").strip()
+            _sub_parts = []
+            if rs:
+                _pp = [p.strip() for p in rs.replace("，", ",").split(",") if p.strip()]
+                _sub_parts = _pp[:2]
+            _banner_sub = (
+                " / ".join(_sub_parts)
+                if _sub_parts
+                else "거래량·추세·조건을 교차 검토 중입니다."
+            )
+            try:
+                _jsb = getattr(self, "lbl_ai_judgment_banner_sub", None)
+                if _jsb is not None:
+                    _jsb.setText(_banner_sub)
+            except Exception:
+                pass
+            _style_tag = str(_judgment_tag or "UNKNOWN").strip()
+            _rls = _raw_status.lower()
+            if "risk" in _rls:
+                _style_tag = "RISK"
+            elif "wait" in _rls or "대기" in (_st_disp or ""):
+                _style_tag = "WAIT"
             try:
                 jh = getattr(self, "lbl_ai_detail_judgment_header", None)
                 if jh is not None:
-                    jh.setText(f"AI 판단: {_judgment_tag}")
-                self._apply_center_judgment_style(f"AI 판단: {_judgment_tag}")
+                    jh.setText(f"AI 판단: {_judgment_tag} ({_st_disp})")
+                self._apply_center_judgment_style(_style_tag)
             except Exception:
                 pass
             self.lbl_ai_detail_status.setText(_st_disp)
@@ -6710,7 +7063,6 @@ class MainWindow(QMainWindow):
                     self.lbl_ai_detail_score.setText("—")
             else:
                 self.lbl_ai_detail_score.setText("—")
-            rs = (row.get("ai_reason_summary") or "").strip()
             if rs:
                 parts = [p.strip() for p in rs.replace("，", ",").split(",") if p.strip()]
                 self.txt_ai_detail_reason.setPlainText(
@@ -9201,6 +9553,34 @@ class MainWindow(QMainWindow):
         except Exception:
             return None
 
+    def _log_aits_managed_pool_snapshot(self, tag: str = ""):
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            if not isinstance(rows, list):
+                return
+
+            items = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                sym = str(row.get("symbol", "") or row.get("market", "") or "").strip()
+                status = str(row.get("ai_status", "") or row.get("status", "") or "").strip()
+                score = str(row.get("ai_score", "") or row.get("score", "") or "").strip()
+                source_type = str(row.get("source_type", "") or "").strip()
+                if sym:
+                    items.append(f"{sym}|{status}|{score}|{source_type}")
+
+            msg = ", ".join(items[:20])
+            print(f"[AITS][ManagedPool] snapshot{('|' + tag) if tag else ''} | count={len(items)} | items={msg}")
+            try:
+                self._safe_log_info(
+                    f"[AITS][ManagedPool] snapshot{('|' + tag) if tag else ''} | count={len(items)} | items={msg}"
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
             return
@@ -9361,6 +9741,10 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self._apply_ai_managed_row_visual_state()
+            except Exception:
+                pass
+            try:
+                self._log_aits_validation_summary("managed_refresh")
             except Exception:
                 pass
             self._ai_managed_table_refreshing = False
@@ -10147,6 +10531,22 @@ class MainWindow(QMainWindow):
                     self._update_aits_briefing()
                 except Exception:
                     pass
+                try:
+                    cand_syms = []
+                    for r in (buy_rows or []):
+                        if isinstance(r, dict):
+                            sym = str(r.get("symbol", "") or r.get("market", "") or "").strip()
+                            if sym:
+                                cand_syms.append(sym)
+                    self._safe_log_info(
+                        f"[AITS][Candidates] managed_buy_rows | count={len(cand_syms)} | symbols={','.join(cand_syms[:20])} | holding_count={holding_count}"
+                    )
+                except Exception:
+                    pass
+                try:
+                    self._log_aits_validation_summary("pool_status")
+                except Exception:
+                    pass
                 return
 
             status_text = "AITS AI 상태: 시장 확인 중"
@@ -10170,8 +10570,24 @@ class MainWindow(QMainWindow):
                 self._apply_aits_ai_engine_status_line_style(status_text)
             print(f"[AITS] ai engine status={status_text}")
             try:
+                cand_syms = []
+                for r in (buy_rows or []):
+                    if isinstance(r, dict):
+                        sym = str(r.get("symbol", "") or r.get("market", "") or "").strip()
+                        if sym:
+                            cand_syms.append(sym)
+                self._safe_log_info(
+                    f"[AITS][Candidates] managed_buy_rows | count={len(cand_syms)} | symbols={','.join(cand_syms[:20])} | holding_count={holding_count}"
+                )
+            except Exception:
+                pass
+            try:
                 self._update_aits_ops_summary()
                 self._update_aits_briefing()
+            except Exception:
+                pass
+            try:
+                self._log_aits_validation_summary("pool_status")
             except Exception:
                 pass
         except Exception:
@@ -13323,6 +13739,18 @@ class MainWindow(QMainWindow):
             disp = getattr(self, "_market_display_rows", None) or []
             if row < 0 or row >= len(disp):
                 return
+            symbol = ""
+            try:
+                picked = disp[row] if isinstance(disp[row], dict) else {}
+                symbol = str(picked.get("symbol") or picked.get("market") or "").strip()
+            except Exception:
+                symbol = ""
+            try:
+                self._safe_log_info(
+                    f"[AITS][Explorer] double_click_add | symbol={symbol} | row={row}"
+                )
+            except Exception:
+                pass
             self._add_symbol_to_ai_pool(disp[row])
         except Exception:
             pass
@@ -13372,6 +13800,13 @@ class MainWindow(QMainWindow):
     def _add_symbol_to_ai_pool(self, row_or_symbol) -> None:
         sym = ""
         src_row = None
+        try:
+            print(f"[AITS][ManagedPool] add_request | payload={type(row_or_symbol).__name__}")
+            self._safe_log_info(
+                f"[AITS][ManagedPool] add_request | payload={type(row_or_symbol).__name__}"
+            )
+        except Exception:
+            pass
 
         def _pick(obj, *names):
             if obj is None:
@@ -13433,6 +13868,17 @@ class MainWindow(QMainWindow):
         if not display_name:
             display_name = sym.split("-")[-1] if "-" in sym else sym
 
+        try:
+            src = str(_pick(src_row, "source", "provider", "origin") or "").strip()
+            source_type = str(_pick(src_row, "source_type") or "").strip()
+            ai_score_val = _pick(src_row, "ai_score", "score")
+            self._safe_log_info(
+                f"[AITS][ManagedPool] add_symbol_resolved | symbol={sym} | "
+                f"source={src} | source_type={source_type} | ai_score={ai_score_val if ai_score_val is not None else ''}"
+            )
+        except Exception:
+            pass
+
         price = float(src_row.get("price", 0.0)) if src_row else 0.0
         chg = float(src_row.get("change_rate", 0.0)) if src_row else 0.0
         tv = 0.0
@@ -13463,6 +13909,16 @@ class MainWindow(QMainWindow):
         new_row = self._ensure_aits_managed_pool_row_shape(new_row)
         new_row["source_type"] = new_row.get("source_type") or "user_added"
         self.ai_managed_rows.append(new_row)
+        try:
+            self._safe_log_info(
+                f"[AITS][ManagedPool] appended | symbol={sym} | source_type={new_row.get('source_type','')}"
+            )
+        except Exception:
+            pass
+        try:
+            self._log_aits_managed_pool_snapshot("after_append")
+        except Exception:
+            pass
         try:
             self._sync_ai_pool_market_fields()
         except Exception:
@@ -13890,9 +14346,23 @@ class MainWindow(QMainWindow):
             display_icon = msg_icon if msg_icon else config["icon"]
             self.global_status_icon.setText(display_icon)
             
-            # ✅ 텍스트 표시: 이모지 제거된 순수 텍스트
-            self.global_status_text.setText(clean_text)
-            self.global_status_text.setStyleSheet(f"font-weight: bold; font-size: 12px; color: {config['color']};")
+            # ✅ E-1: 짧은 칩 문구 + pill 스타일
+            compact = self._compact_global_status_label(clean_text)
+            self.global_status_text.setText(compact)
+            chip_bg = {"ok": "#e0f2fe", "busy": "#fff7ed", "warn": "#fff7ed", "err": "#fee2e2"}.get(
+                level, "#f1f5f9"
+            )
+            chip_bd = {"ok": "#7dd3fc", "busy": "#fdba74", "warn": "#fdba74", "err": "#fecaca"}.get(
+                level, "#cbd5e1"
+            )
+            self.global_status_text.setStyleSheet(
+                "font-weight: 700; font-size: 10px; "
+                f"color: {config['color']}; "
+                f"background: {chip_bg}; "
+                f"border: 1px solid {chip_bd}; "
+                "border-radius: 12px; "
+                "padding: 4px 10px;"
+            )
             
             # ✅ [boot] 태그: debug_ui 모드에서만 표시
             if cat and getattr(self, '_debug_ui', False):
@@ -17204,20 +17674,7 @@ class MainWindow(QMainWindow):
         self._update_info_box()
 
     def _sync_run_toggle_text(self):
-        if getattr(self.state, "is_running", False):
-            self.btn_run_toggle.setText("AITS STOP")
-            self.btn_run_toggle.setToolTip("AITS 자동매매를 중지합니다")
-            self.btn_run_toggle.setStyleSheet(
-                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-            )
-        else:
-            self.btn_run_toggle.setText("AITS ON")
-            self.btn_run_toggle.setToolTip("AITS 자동매매를 시작합니다")
-            self.btn_run_toggle.setStyleSheet(
-                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-            )
+        self._style_run_toggle_switch(bool(getattr(self.state, "is_running", False)))
 
     def _on_toggle_run_toggled(self, checked: bool):
         """Start/Stop 토글 엔트리포인트(단일): toggled 시그널만 사용"""
@@ -17233,15 +17690,7 @@ class MainWindow(QMainWindow):
                 self.btn_run_toggle.blockSignals(True)
                 desired = getattr(self, "_is_running", False)
                 self.btn_run_toggle.setChecked(desired)
-                self.btn_run_toggle.setText("AITS STOP" if desired else "AITS ON")
-                self.btn_run_toggle.setStyleSheet(
-                    "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                    + (
-                        " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-                        if desired
-                        else " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-                    )
-                )
+                self._style_run_toggle_switch(bool(desired))
                 self.btn_run_toggle.blockSignals(False)
             except Exception:
                 pass
@@ -17290,16 +17739,8 @@ class MainWindow(QMainWindow):
         # - STOP 경로에서는 setEnabled(True) 금지 → _on_toggle_run에서 disabled 유지, STOP-ACK 후 _set_running_ui(False)에서만 재활성화
         try:
             self.btn_run_toggle.blockSignals(True)
-            new_text = "AITS STOP" if checked else "AITS ON"
-            self.btn_run_toggle.setText(new_text)
-            self.btn_run_toggle.setStyleSheet(
-                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                + (
-                    " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-                    if checked
-                    else " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-                )
-            )
+            self._style_run_toggle_switch(bool(checked))
+            new_text = self.btn_run_toggle.text()
             if checked:
                 self.btn_run_toggle.setEnabled(True)
             # else: Stop 경로 → 버튼은 _on_toggle_run에서 disabled, STOP-ACK 후 _set_running_ui(False)에서 재활성화
@@ -17325,16 +17766,14 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self.btn_run_toggle.blockSignals(True)
-                revert_text = "AITS ON" if bool(checked) else "AITS STOP"
-                self.btn_run_toggle.setText(revert_text)
-                self.btn_run_toggle.setStyleSheet(
-                    "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                    + (
-                        " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-                        if bool(checked)
-                        else " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-                    )
-                )
+                try:
+                    from app.strategy.runner import _RUNNING as _rr
+                    _sync_run = bool(_rr)
+                except Exception:
+                    _sync_run = not bool(checked)
+                self._style_run_toggle_switch(_sync_run)
+                self.btn_run_toggle.setChecked(_sync_run)
+                revert_text = self.btn_run_toggle.text()
                 self.btn_run_toggle.setEnabled(True)
                 self.btn_run_toggle.blockSignals(False)
                 try:
@@ -17371,16 +17810,8 @@ class MainWindow(QMainWindow):
         # ✅ P0-TOGGLE-IMMEDIATE: 즉시 UI 토글 (사용자 체감 우선)
         try:
             self.btn_run_toggle.blockSignals(True)
-            new_text = "AITS STOP" if desired_run else "AITS ON"
-            self.btn_run_toggle.setText(new_text)
-            self.btn_run_toggle.setStyleSheet(
-                "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                + (
-                    " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-                    if desired_run
-                    else " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-                )
-            )
+            self._style_run_toggle_switch(bool(desired_run))
+            new_text = self.btn_run_toggle.text()
             self.btn_run_toggle.setChecked(desired_run)
             self.btn_run_toggle.blockSignals(False)
             
@@ -17454,14 +17885,41 @@ class MainWindow(QMainWindow):
                         ready = True
 
                     if not ready:
+                        sel_key = str(self._get_aits_engine_ssot() or "basic").strip().lower()
+                        sel_disp = {
+                            "gemini": "Gemini",
+                            "gpt": "GPT",
+                            "basic": "Basic",
+                            "local": "Basic",
+                        }.get(sel_key, selected.title())
+                        ap = ""
+                        try:
+                            ap = str(self._get_aits_last_response_provider() or "").strip().lower()
+                        except Exception:
+                            ap = ""
+                        if not ap:
+                            act_disp = "Basic" if sel_key in ("basic", "local", "") else "확인중"
+                        else:
+                            act_disp = (
+                                "GPT"
+                                if ap == "gpt"
+                                else ("Gemini" if ap == "gemini" else "Basic")
+                            )
+                        st_disp = status_txt.strip() if status_txt else "확인중"
                         QMessageBox.warning(
                             self,
                             "엔진 준비 필요",
-                            f"{selected} 엔진이 아직 준비되지 않았습니다.\n\n현재 상태: {status_txt or '확인중'}\n연결 완료 후 실행 가능합니다."
+                            f"선택 엔진: {sel_disp}\n"
+                            f"현재 상태: {st_disp}\n"
+                            f"실제 엔진: {act_disp}\n\n"
+                            "선택 엔진이 준비 완료되기 전에는 자동매매를 시작할 수 없습니다.",
                         )
 
                         try:
+                            self.btn_run_toggle.blockSignals(True)
                             self.btn_run_toggle.setChecked(False)
+                            self.btn_run_toggle.blockSignals(False)
+                            self._set_running_ui(False)
                         except Exception:
                             pass
 
@@ -17898,9 +18356,6 @@ class MainWindow(QMainWindow):
                                     self._desired_running = False
                                 except Exception:
                                     pass
-
-                                except Exception:
-                                    pass
                                 return
                             QTimer.singleShot(100, lambda: _check_stopped(attempt + 1))
                         except Exception:
@@ -17924,20 +18379,13 @@ class MainWindow(QMainWindow):
                 # 실패 시 UI 되돌리기
                 try:
                     self.btn_run_toggle.blockSignals(True)
-                    revert_text = "AITS ON" if run else "AITS STOP"
                     revert_checked = not run
-                    self.btn_run_toggle.setText(revert_text)
-                    self.btn_run_toggle.setStyleSheet(
-                        "padding: 6px 14px; font-weight: 600; min-height: 30px;"
-                        + (
-                            " background-color: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; border-radius: 6px;"
-                            if run
-                            else " background-color: #fff1f0; color: #c62828; border: 1px solid #ff4d4f; border-radius: 6px;"
-                        )
-                    )
                     self.btn_run_toggle.setChecked(revert_checked)
+                    self._style_run_toggle_switch(bool(revert_checked))
                     self.btn_run_toggle.blockSignals(False)
-                    self._log.info(f"[UI] toggle reverted: text={revert_text} checked={revert_checked}")
+                    self._log.info(
+                        f"[UI] toggle reverted: text={self.btn_run_toggle.text()} checked={revert_checked}"
+                    )
                 except Exception as revert_error:
                     self._log.error(f"[UI] revert error={revert_error}")
                 
