@@ -1746,6 +1746,9 @@ class MainWindow(QMainWindow):
         try:
             btn = getattr(self, "btn_run_toggle", None)
             card = getattr(self, "stop_box", None)
+            p_title = getattr(self, "lbl_power_title", None)
+            p_sub = getattr(self, "lbl_power_sub", None)
+            lb_status = getattr(self, "lbl_status", None)
             if btn is None:
                 return
             btn.setText("ON" if running else "OFF")
@@ -1754,60 +1757,70 @@ class MainWindow(QMainWindow):
                 if card is not None:
                     card.setStyleSheet(
                         "QWidget#aitsPowerCard {"
-                        "background: #ffffff;"
-                        "border: 1px solid #dbe3ef;"
+                        "background: #f0fdf4;"
+                        "border: 1px solid #bbf7d0;"
                         "border-radius: 16px;"
                         "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
                         "}"
                     )
-                try:
-                    sub = getattr(self, "lbl_status_sub", None)
-                    if sub is not None:
-                        sub.setText("실행 중")
-                        sub.setStyleSheet(
-                            "QLabel#stopSubLabel {"
-                            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                            "font-size: 12px; font-weight: 800; color: #15803d; padding: 0px;"
-                            "background: transparent;"
-                            "}"
-                        )
-                except Exception:
-                    pass
+                if p_title is not None:
+                    p_title.setText("AITS ON")
+                    p_title.setStyleSheet(
+                        "QLabel#powerTitle {"
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 16px; font-weight: 900; color: #15803d; padding: 0px;"
+                        "}"
+                    )
+                if p_sub is not None:
+                    p_sub.setText("실행중")
+                    p_sub.setStyleSheet(
+                        "QLabel#powerSub {"
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 11px; font-weight: 600; color: #166534; padding: 0px;"
+                        "}"
+                    )
+                if lb_status is not None:
+                    lb_status.setText("AITS ON")
                 btn.setStyleSheet(
                     "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                    "padding: 8px 14px; font-size: 13px; font-weight: 900; min-height: 38px; max-height: 42px;"
-                    "background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #f1f5f9, stop:0.49 #f1f5f9, stop:0.5 #22c55e, stop:1 #86efac);"
-                    "color:#14532d; border:1px solid #dbe3ef; border-radius:20px;"
+                    "padding: 5px 10px; font-size: 13px; font-weight: 900; min-height: 34px; max-height: 36px;"
+                    "background:#dcfce7;"
+                    "color:#166534; border:1px solid #4ade80; border-radius:18px;"
                 )
             else:
                 btn.setToolTip("자동매매 시작")
                 if card is not None:
                     card.setStyleSheet(
                         "QWidget#aitsPowerCard {"
-                        "background: #ffffff;"
-                        "border: 1px solid #dbe3ef;"
+                        "background: #fff7f7;"
+                        "border: 1px solid #fecaca;"
                         "border-radius: 16px;"
                         "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
                         "}"
                     )
-                try:
-                    sub = getattr(self, "lbl_status_sub", None)
-                    if sub is not None:
-                        sub.setText("대기중")
-                        sub.setStyleSheet(
-                            "QLabel#stopSubLabel {"
-                            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                            "font-size: 12px; font-weight: 700; color: #64748b; padding: 0px;"
-                            "background: transparent;"
-                            "}"
-                        )
-                except Exception:
-                    pass
+                if p_title is not None:
+                    p_title.setText("AITS OFF")
+                    p_title.setStyleSheet(
+                        "QLabel#powerTitle {"
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 16px; font-weight: 900; color: #b91c1c; padding: 0px;"
+                        "}"
+                    )
+                if p_sub is not None:
+                    p_sub.setText("대기중")
+                    p_sub.setStyleSheet(
+                        "QLabel#powerSub {"
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 11px; font-weight: 600; color: #991b1b; padding: 0px;"
+                        "}"
+                    )
+                if lb_status is not None:
+                    lb_status.setText("AITS OFF")
                 btn.setStyleSheet(
                     "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                    "padding: 8px 14px; font-size: 13px; font-weight: 900; min-height: 38px; max-height: 42px;"
-                    "background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #ef4444, stop:0.49 #f87171, stop:0.5 #f1f5f9, stop:1 #f1f5f9);"
-                    "color:#991b1b; border:1px solid #dbe3ef; border-radius:20px;"
+                    "padding: 5px 10px; font-size: 13px; font-weight: 900; min-height: 34px; max-height: 36px;"
+                    "background:#fee2e2;"
+                    "color:#991b1b; border:1px solid #f87171; border-radius:18px;"
                 )
         except Exception:
             pass
@@ -1830,18 +1843,21 @@ class MainWindow(QMainWindow):
             try:
                 lb = getattr(self, name, None)
                 if lb is not None:
-                    lb.setText(txt_state)
+                    if name == "lbl_status":
+                        lb.setText(txt_state)
+                    else:
+                        lb.setText(txt_state)
                     if running:
                         lb.setStyleSheet(
                             "QLabel#stopLabel { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                            "font-size: 20px; font-weight: 900; color: #166534; "
-                            "padding: 2px 0px; background: transparent; }"
+                            "font-size: 16px; font-weight: 900; color: #166534; "
+                            "padding: 1px 0px; background: transparent; }"
                         )
                     else:
                         lb.setStyleSheet(
                             "QLabel#stopLabel { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                            "font-size: 20px; font-weight: 900; color: #991b1b; "
-                            "padding: 2px 0px; background: transparent; }"
+                            "font-size: 16px; font-weight: 900; color: #991b1b; "
+                            "padding: 1px 0px; background: transparent; }"
                         )
             except Exception:
                 pass  # 라벨만 보유해도 무해
@@ -1878,7 +1894,7 @@ class MainWindow(QMainWindow):
                 if lb is not None:
                     lb.setStyleSheet(
                         "QLabel#stopLabel { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                        "font-size: 20px; font-weight: 900; color: #991b1b; padding: 2px 0px; background: transparent; }"
+                        "font-size: 16px; font-weight: 900; color: #991b1b; padding: 1px 0px; background: transparent; }"
                     )
         except Exception:
             pass
@@ -1905,21 +1921,43 @@ class MainWindow(QMainWindow):
             if lb is None:
                 return
             _t = (lb.text() or "").strip()
-            if _t not in ("RUNNING", "AITS ON"):
+            if _t != "RUNNING" and not _t.startswith("AITS ON"):
                 return
             self._run_blink_on = not getattr(self, "_run_blink_on", True)
             if self._run_blink_on:
                 lb.setStyleSheet(
                     "QLabel#stopLabel { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                    "font-size: 20px; font-weight: 900; color: #047857; padding: 2px 8px; "
-                    "background-color: #dcfce7; border-radius: 8px; }"
+                    "font-size: 16px; font-weight: 900; color: #047857; padding: 1px 0px; "
+                    "background-color: transparent; border-radius: 0px; }"
                 )
+                try:
+                    p_title = getattr(self, "lbl_power_title", None)
+                    if p_title is not None:
+                        p_title.setStyleSheet(
+                            "QLabel#powerTitle {"
+                            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                            "font-size: 16px; font-weight: 900; color: #15803d; padding: 0px;"
+                            "}"
+                        )
+                except Exception:
+                    pass
             else:
                 lb.setStyleSheet(
                     "QLabel#stopLabel { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                    "font-size: 20px; font-weight: 900; color: #15803d; padding: 2px 8px; "
-                    "background-color: #bbf7d0; border-radius: 8px; }"
+                    "font-size: 16px; font-weight: 900; color: #15803d; padding: 1px 0px; "
+                    "background-color: transparent; border-radius: 0px; }"
                 )
+                try:
+                    p_title = getattr(self, "lbl_power_title", None)
+                    if p_title is not None:
+                        p_title.setStyleSheet(
+                            "QLabel#powerTitle {"
+                            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                            "font-size: 16px; font-weight: 900; color: #166534; padding: 0px;"
+                            "}"
+                        )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -2019,9 +2057,9 @@ class MainWindow(QMainWindow):
                         background: #ffffff;
                         border: 1px solid #e5e7eb;
                         border-radius: 16px;
-                        padding: 16px;
-                        min-height: 96px;
-                        max-height: 96px;
+                        padding: 14px;
+                        min-height: 88px;
+                        max-height: 90px;
                         font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
                     }
                     QLabel#cardLabel {
@@ -2030,7 +2068,7 @@ class MainWindow(QMainWindow):
                         font-weight: 600;
                     }
                     QLabel#cardValue {
-                        font-size: 32px;
+                        font-size: 30px;
                         font-weight: 900;
                         color: #0f172a;
                     }
@@ -2043,9 +2081,9 @@ class MainWindow(QMainWindow):
                         background: #ffffff;
                         border: 1px solid #e5e7eb;
                         border-radius: 16px;
-                        padding: 16px;
-                        min-height: 96px;
-                        max-height: 96px;
+                        padding: 14px;
+                        min-height: 88px;
+                        max-height: 90px;
                         font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
                     }
                     QLabel#cardLabel {
@@ -2054,7 +2092,7 @@ class MainWindow(QMainWindow):
                         font-weight: 600;
                     }
                     QLabel#cardValue {
-                        font-size: 32px;
+                        font-size: 30px;
                         font-weight: 900;
                         color: #0f172a;
                     }
@@ -2074,11 +2112,11 @@ class MainWindow(QMainWindow):
             # 손익/수익률 색상 적용
             self.lbl_pnl_value.setStyleSheet(
                 "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                f"font-size: 32px; font-weight: 900; color: {pnl_color};"
+                f"font-size: 30px; font-weight: 900; color: {pnl_color};"
             )
             self.lbl_ret_value.setStyleSheet(
                 "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                f"font-size: 32px; font-weight: 900; color: {ret_color};"
+                f"font-size: 30px; font-weight: 900; color: {ret_color};"
             )
             
         except Exception as e:
@@ -3229,24 +3267,24 @@ class MainWindow(QMainWindow):
                 background: #ffffff;
                 border: 1px solid #e5e7eb;
                 border-radius: 16px;
-                padding: 4px 8px;
+                padding: 3px 8px;
                 margin: 0px;
             }
         """)
         header_row = QHBoxLayout(self._shell_top_header)
-        header_row.setContentsMargins(8, 8, 8, 8)
+        header_row.setContentsMargins(8, 6, 8, 6)
         header_row.setSpacing(10)
 
         # --- 좌: AITS ON/OFF 파워 카드 (lbl_status + btn_run_toggle, 시그널은 파일 하단 단일 연결) ---
         self.stop_box = QWidget(self._shell_top_header)
         self.stop_box.setObjectName("aitsPowerCard")
         stop_box_ly = QVBoxLayout(self.stop_box)
-        stop_box_ly.setContentsMargins(14, 10, 14, 10)
-        stop_box_ly.setSpacing(4)
+        stop_box_ly.setContentsMargins(10, 8, 10, 8)
+        stop_box_ly.setSpacing(2)
         self.stop_box.setStyleSheet(
             "QWidget#aitsPowerCard {"
-            "background: #ffffff;"
-            "border: 1px solid #dbe3ef;"
+            "background: #fff7f7;"
+            "border: 1px solid #fecaca;"
             "border-radius: 16px;"
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
             "}"
@@ -3262,23 +3300,41 @@ class MainWindow(QMainWindow):
         self.lbl_status.setStyleSheet(
             "QLabel#stopLabel {"
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 20px; font-weight: 900; color: #991b1b; padding: 2px 0px;"
+            "font-size: 13px; font-weight: 700; color: #991b1b; padding: 0px;"
             "background: transparent;"
             "}"
         )
-        self.lbl_status_sub = QLabel("대기중")
-        self.lbl_status_sub.setObjectName("stopSubLabel")
         try:
-            self.lbl_status_sub.setAlignment(
+            self.lbl_status.setVisible(False)
+            self.lbl_status.setMaximumHeight(0)
+        except Exception:
+            pass
+        self.lbl_power_title = QLabel("AITS OFF")
+        self.lbl_power_title.setObjectName("powerTitle")
+        try:
+            self.lbl_power_title.setAlignment(
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
             )
         except Exception:
             pass
-        self.lbl_status_sub.setStyleSheet(
-            "QLabel#stopSubLabel {"
+        self.lbl_power_title.setStyleSheet(
+            "QLabel#powerTitle {"
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 12px; font-weight: 700; color: #64748b; padding: 0px;"
-            "background: transparent;"
+            "font-size: 16px; font-weight: 900; color: #b91c1c; padding: 0px;"
+            "}"
+        )
+        self.lbl_power_sub = QLabel("대기중")
+        self.lbl_power_sub.setObjectName("powerSub")
+        try:
+            self.lbl_power_sub.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+        self.lbl_power_sub.setStyleSheet(
+            "QLabel#powerSub {"
+            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+            "font-size: 11px; font-weight: 600; color: #991b1b; padding: 0px;"
             "}"
         )
         self.btn_run_toggle = QPushButton("OFF")
@@ -3293,20 +3349,30 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.setEnabled(True)
         except Exception:
             pass
-        self.btn_run_toggle.setFixedHeight(40)
+        self.btn_run_toggle.setFixedHeight(35)
         self.btn_run_toggle.setStyleSheet(
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "padding: 8px 14px; font-size: 13px; font-weight: 900; min-height: 38px; max-height: 42px;"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #fee2e2, stop:0.49 #fee2e2, stop:0.5 #f0fdf4, stop:1 #f0fdf4);"
-            "color: #991b1b; border: 1px solid #dbe3ef; border-radius: 20px;"
+            "padding: 5px 10px; font-size: 13px; font-weight: 900; min-height: 34px; max-height: 36px;"
+            "background: #fee2e2;"
+            "color: #991b1b; border: 1px solid #f87171; border-radius: 18px;"
         )
+        self.btn_run_toggle.setFixedWidth(156)
         stop_box_ly.addWidget(self.lbl_status)
-        stop_box_ly.addWidget(self.lbl_status_sub)
+        stop_box_ly.addWidget(self.lbl_power_title)
+        stop_box_ly.addWidget(self.lbl_power_sub)
+        stop_box_ly.addStretch(1)
+        try:
+            stop_box_ly.setAlignment(self.lbl_status, Qt.AlignmentFlag.AlignHCenter)
+            stop_box_ly.setAlignment(self.lbl_power_title, Qt.AlignmentFlag.AlignHCenter)
+            stop_box_ly.setAlignment(self.lbl_power_sub, Qt.AlignmentFlag.AlignHCenter)
+            stop_box_ly.setAlignment(self.btn_run_toggle, Qt.AlignmentFlag.AlignHCenter)
+        except Exception:
+            pass
         stop_box_ly.addWidget(self.btn_run_toggle)
         try:
-            self.stop_box.setFixedWidth(196)
-            self.stop_box.setMinimumHeight(96)
-            self.stop_box.setMaximumHeight(96)
+            self.stop_box.setFixedWidth(192)
+            self.stop_box.setMinimumHeight(88)
+            self.stop_box.setMaximumHeight(90)
         except Exception:
             pass
         header_row.addWidget(self.stop_box, 0)
@@ -3325,9 +3391,9 @@ class MainWindow(QMainWindow):
                 background: #ffffff;
                 border: 1px solid #e5e7eb;
                 border-radius: 16px;
-                padding: 16px;
-                min-height: 96px;
-                max-height: 96px;
+                padding: 14px;
+                min-height: 88px;
+                max-height: 90px;
                 font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
             }
             QLabel#cardLabel {
@@ -3336,7 +3402,7 @@ class MainWindow(QMainWindow):
                 font-weight: 600;
             }
             QLabel#cardValue {
-                font-size: 32px;
+                font-size: 30px;
                 font-weight: 900;
                 color: #0f172a;
             }
@@ -3350,8 +3416,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(14, 10, 14, 10)
-            card_layout.setSpacing(4)
+            card_layout.setContentsMargins(14, 8, 14, 8)
+            card_layout.setSpacing(1)
         self.lbl_asset_label = QLabel("총자산")
         self.lbl_asset_label.setObjectName("cardLabel")
         self.lbl_asset_value = QLabel("— 원")
@@ -3402,7 +3468,7 @@ class MainWindow(QMainWindow):
         self._lbl_aits_engine_card_title = QLabel("AI ENGINE")
         self._lbl_aits_engine_card_title.setStyleSheet(
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 12px; font-weight: 900; color: #0f172a; letter-spacing: 0.2px;"
+            "font-size: 13px; font-weight: 900; color: #0f172a; letter-spacing: 0.2px;"
         )
         self._lbl_aits_engine_card_body = QLabel("AI Engine: Basic\n모델: qwen2.5\n상태: 확인중 ●")
         self._lbl_aits_engine_card_body.setWordWrap(True)
@@ -3412,14 +3478,14 @@ class MainWindow(QMainWindow):
             pass
         self._lbl_aits_engine_card_body.setStyleSheet(
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 12px; font-weight: 800; color: #1e293b; line-height: 1.45;"
+            "font-size: 12px; font-weight: 700; color: #1e293b; line-height: 1.45;"
         )
         _eng_ly.addWidget(self._lbl_aits_engine_card_title)
         _eng_ly.addWidget(self._lbl_aits_engine_card_body)
         try:
             self._frame_aits_engine_card.setFixedWidth(236)
-            self._frame_aits_engine_card.setMinimumHeight(96)
-            self._frame_aits_engine_card.setMaximumHeight(96)
+            self._frame_aits_engine_card.setMinimumHeight(88)
+            self._frame_aits_engine_card.setMaximumHeight(90)
             self._frame_aits_engine_card.setSizePolicy(
                 QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
             )
@@ -3428,7 +3494,7 @@ class MainWindow(QMainWindow):
         header_row.addWidget(self._frame_aits_engine_card, 0)
 
         try:
-            self._shell_top_header.setMinimumHeight(108)
+            self._shell_top_header.setMinimumHeight(94)
         except Exception:
             pass
         self._shell_root_ly.addWidget(self._shell_top_header)
@@ -3486,7 +3552,7 @@ class MainWindow(QMainWindow):
                 "background: #f0fdf4;"
             )
         try:
-            self.ai_status_text.setFixedHeight(32)
+            self.ai_status_text.setFixedHeight(30)
         except Exception:
             pass
 
@@ -3511,20 +3577,20 @@ class MainWindow(QMainWindow):
         self.lbl_aits_ops_summary.setStyleSheet(
             "#aitsOpsSummary{"
             "font-family:'Noto Sans KR','Malgun Gothic',sans-serif;"
-            "background:#f8fafc;"
-            "border:1px solid #dbeafe;"
-            "border-radius:12px;"
-            "padding:7px 14px;"
+            "background:#ffffff;"
+            "border:1px solid #e5e7eb;"
+            "border-radius:14px;"
+            "padding:6px 12px;"
             "font-size:12px;"
-            "font-weight:800;"
-            "color:#1e293b;"
+            "font-weight:700;"
+            "color:#334155;"
             "}"
         )
         try:
             self.lbl_aits_ops_summary.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
-            self.lbl_aits_ops_summary.setMinimumHeight(32)
+            self.lbl_aits_ops_summary.setMinimumHeight(30)
         except Exception:
             pass
 
@@ -3543,15 +3609,15 @@ class MainWindow(QMainWindow):
         self._shell_status_row = QFrame()
         self._shell_status_row.setObjectName("shellStatusRow")
         self._shell_status_row.setStyleSheet(
-            "QFrame#shellStatusRow { background: #ffffff; border: 1px solid #e5e7eb; "
+            "QFrame#shellStatusRow { background: #ffffff; border: 1px solid #dfe7ef; "
             "border-radius: 14px; }"
         )
         _ssr_ly = QHBoxLayout(self._shell_status_row)
-        _ssr_ly.setContentsMargins(14, 6, 14, 6)
+        _ssr_ly.setContentsMargins(12, 4, 12, 4)
         _ssr_ly.setSpacing(8)
         try:
-            self._shell_status_row.setMinimumHeight(48)
-            self._shell_status_row.setMaximumHeight(48)
+            self._shell_status_row.setMinimumHeight(42)
+            self._shell_status_row.setMaximumHeight(42)
         except Exception:
             pass
 
@@ -6464,11 +6530,11 @@ class MainWindow(QMainWindow):
             "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
             f"background: {bg};"
             f"border: 1px solid {bd};"
-            "border-radius: 16px;"
+            "border-radius: 15px;"
             f"color: {fg};"
             "font-weight: 800;"
             "font-size: 12px;"
-            "padding: 6px 14px;"
+            "padding: 5px 14px;"
             "}"
         )
 
@@ -6770,9 +6836,9 @@ class MainWindow(QMainWindow):
                 "background:#ffffff;"
                 "border:1px solid #e5e7eb;"
                 "border-radius:14px;"
-                "padding:8px 16px;"
+                "padding:6px 12px;"
                 "font-size:12px;"
-                "font-weight:800;"
+                "font-weight:700;"
                 "color:#334155;"
                 "}"
             )
@@ -6786,9 +6852,12 @@ class MainWindow(QMainWindow):
                 else:
                     dot_color = "#22c55e"
                 card_body.setText(
-                    f"AI Engine: {sel_txt}<br>"
-                    "모델: qwen2.5<br>"
-                    f"상태: {conn} <span style='color:{dot_color}; font-weight:900'>●</span>"
+                    "<span style='font-size:12px; font-weight:800; color:#0f172a'>선택:</span> "
+                    f"<span style='font-size:12px; font-weight:700; color:#1e293b'>{sel_txt}</span><br>"
+                    "<span style='font-size:11.5px; color:#64748b'>모델: qwen2.5</span><br>"
+                    "<span style='font-size:11.8px; font-weight:800; color:#1e293b'>상태:</span> "
+                    f"<span style='font-size:11.8px; font-weight:800; color:#1e293b'>{conn}</span> "
+                    f"<span style='color:{dot_color}; font-weight:900'>●</span>"
                 )
 
             frame = getattr(self, "_frame_aits_engine_card", None)
