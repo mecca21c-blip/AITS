@@ -297,6 +297,63 @@ class ClickableGroupBox(QGroupBox):
         super().mousePressEvent(event)
 
 
+class _AitsColorChip(QWidget):
+    """Slim status bar: 14x14 색 블록 + 텍스트."""
+
+    def __init__(self, box_hex: str, text: str, text_prop: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("aitsTopSubColorChip")
+        try:
+            self.setProperty("colorChipWrap", True)
+        except Exception:
+            pass
+        try:
+            self.setAutoFillBackground(False)
+            self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        except Exception:
+            pass
+        ly = QHBoxLayout(self)
+        ly.setContentsMargins(0, 0, 0, 0)
+        ly.setSpacing(4)
+        self._chip = QLabel(self)
+        self._chip.setFixedSize(14, 14)
+        self._chip.setProperty("topChipColorBox", True)
+        self._chip.setStyleSheet(
+            "background-color: %s; border: none; border-radius: 3px;" % (box_hex,)
+        )
+        self._text = QLabel(text, self)
+        self._text.setProperty(text_prop, True)
+        try:
+            self._text.setStyleSheet("background: transparent; border: none;")
+        except Exception:
+            pass
+        try:
+            ly.addWidget(self._chip, 0, Qt.AlignmentFlag.AlignVCenter)
+            ly.addWidget(self._text, 0, Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            ly.addWidget(self._chip)
+            ly.addWidget(self._text)
+
+
+class _AitsTopBarDivider(QFrame):
+    """Slim status bar 세로 구분선."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("aitsTopSubDividerWidget")
+        self.setProperty("topBarDivider", True)
+        try:
+            self.setFrameShape(QFrame.Shape.NoFrame)
+        except Exception:
+            pass
+        try:
+            self.setFixedWidth(1)
+            self.setMinimumHeight(20)
+            self.setMaximumHeight(20)
+        except Exception:
+            pass
+
+
 class _AITSOverviewHeader(QWidget):
     """현황판 상단 헤더: 제목·여백 클릭 시 펼치기/접기(토글 버튼과 동일 동작)."""
 
@@ -1766,11 +1823,23 @@ class MainWindow(QMainWindow):
                 )
                 if ok:
                     self._lbl_header_toggle_png.show()
+                    try:
+                        self._lbl_header_toggle_png.setGeometry(0, 0, 146, 56)
+                    except Exception:
+                        pass
+                    try:
+                        self._lbl_header_toggle_png.raise_()
+                    except Exception:
+                        pass
                     if hasattr(self, "frm_power_switch"):
                         self.frm_power_switch.hide()
                     if hasattr(self, "btn_run_toggle"):
                         self.btn_run_toggle.hide()
                 else:
+                    try:
+                        self._lbl_header_toggle_png.clear()
+                    except Exception:
+                        pass
                     self._lbl_header_toggle_png.hide()
                     if hasattr(self, "frm_power_switch"):
                         self.frm_power_switch.show()
@@ -1799,6 +1868,491 @@ class MainWindow(QMainWindow):
                         )
                     except Exception:
                         pass
+        except Exception:
+            pass
+
+    def _hide_legacy_top_sections(self) -> None:
+        """KPI 아래 레거시 상단(제목줄·버튼줄·펼침 패널)을 화면에서만 숨긴다."""
+        for _name in ("_shell_action_row", "_aits_status_group"):
+            try:
+                _w = getattr(self, _name, None)
+                if _w is not None:
+                    _w.hide()
+            except Exception:
+                pass
+        try:
+            self._sweep_shell_status_row_strays()
+        except Exception:
+            pass
+
+    def _ensure_hidden_legacy_parking(self):
+        try:
+            if (
+                hasattr(self, "_hidden_legacy_parking")
+                and self._hidden_legacy_parking is not None
+            ):
+                return self._hidden_legacy_parking
+            _par = getattr(self, "_shell_root", None)
+            if _par is None:
+                try:
+                    _par = self.centralWidget()
+                except Exception:
+                    _par = None
+            if _par is None:
+                _par = self
+            self._hidden_legacy_parking = QWidget(_par)
+            self._hidden_legacy_parking.setObjectName("hiddenLegacyParking")
+            self._hidden_legacy_parking.hide()
+            return self._hidden_legacy_parking
+        except Exception:
+            return None
+
+    def _dump_top_level_children_geometry(self, tag="TOP_GEOM"):
+        try:
+            roots = []
+            for obj_name in (
+                "_shell_root",
+                "_shell_top_header",
+                "_shell_header_host",
+                "_shell_outer",
+                "centralWidget",
+            ):
+                try:
+                    if obj_name == "centralWidget":
+                        w = self.centralWidget()
+                    else:
+                        w = getattr(self, obj_name, None)
+                    if w is not None:
+                        roots.append((obj_name, w))
+                except Exception:
+                    pass
+            try:
+                roots.append(("MainWindow(self)", self))
+            except Exception:
+                pass
+
+            seen = set()
+            for root_name, root in roots:
+                if root is None:
+                    continue
+                key = id(root)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                try:
+                    print(
+                        f"[AITS][{tag}] ROOT {root_name} class={root.__class__.__name__} "
+                        f"geom={root.geometry().getRect()} visible={root.isVisible()}"
+                    )
+                except Exception:
+                    pass
+
+                try:
+                    _kids = root.findChildren(
+                        QWidget,
+                        "",
+                        Qt.FindChildOption.FindDirectChildrenOnly,
+                    )
+                    for ch in _kids:
+                        try:
+                            g = ch.geometry().getRect()
+                            _tx = ""
+                            try:
+                                if hasattr(ch, "text") and callable(ch.text):
+                                    _tx = ch.text() or ""
+                            except Exception:
+                                _tx = ""
+                            _dbg = ""
+                            try:
+                                _dv = ch.property("aitsDebugShellRoot")
+                                if _dv is not None and str(_dv):
+                                    _dbg = f" dbgRole={_dv!r}"
+                            except Exception:
+                                _dbg = ""
+                            print(
+                                f"[AITS][{tag}] CHILD root={root_name} class={ch.__class__.__name__} "
+                                f"name={ch.objectName()!r} geom={g} visible={ch.isVisible()} "
+                                f"text={_tx!r}{_dbg}"
+                            )
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _fix_top_left_ghost_box(self):
+        try:
+            targets = []
+            roots = []
+
+            for obj_name in (
+                "_shell_root",
+                "_shell_top_header",
+                "_shell_header_host",
+                "_shell_outer",
+            ):
+                try:
+                    w = getattr(self, obj_name, None)
+                    if w is not None:
+                        roots.append(w)
+                except Exception:
+                    pass
+
+            try:
+                cw = self.centralWidget()
+                if cw is not None:
+                    roots.append(cw)
+            except Exception:
+                pass
+            try:
+                roots.append(self)
+            except Exception:
+                pass
+
+            _never_touch = {
+                getattr(self, "_shell_top_header", None),
+                getattr(self, "stop_box", None),
+                getattr(self, "card_asset", None),
+                getattr(self, "card_krw", None),
+                getattr(self, "card_pnl", None),
+                getattr(self, "card_ret", None),
+                getattr(self, "_frame_aits_engine_card", None),
+                getattr(self, "_shell_status_row", None),
+                getattr(self, "btn_refresh", None),
+                getattr(self, "btn_top_open_logs", None),
+                getattr(self, "_shell_root", None),
+                getattr(self, "_hidden_legacy_parking", None),
+            }
+            try:
+                _never_touch.discard(None)
+            except Exception:
+                pass
+            try:
+                _cw = self.centralWidget()
+                if _cw is not None:
+                    _never_touch.add(_cw)
+            except Exception:
+                pass
+
+            seen = set()
+            for root in roots:
+                if root is None:
+                    continue
+                rk = id(root)
+                if rk in seen:
+                    continue
+                seen.add(rk)
+
+                try:
+                    _kids = root.findChildren(
+                        QWidget,
+                        "",
+                        Qt.FindChildOption.FindDirectChildrenOnly,
+                    )
+                    for ch in _kids:
+                        try:
+                            if ch is None:
+                                continue
+                            if ch in _never_touch:
+                                continue
+                            if not ch.isVisible():
+                                continue
+
+                            g = ch.geometry()
+                            x, y, w, h = g.x(), g.y(), g.width(), g.height()
+
+                            if (
+                                x <= 140
+                                and y <= 50
+                                and 60 <= w <= 140
+                                and 24 <= h <= 40
+                            ):
+                                if ch is getattr(self, "_shell_top_header", None):
+                                    continue
+                                if ch is getattr(self, "stop_box", None):
+                                    continue
+                                if ch is getattr(self, "_shell_status_row", None):
+                                    continue
+
+                                targets.append(ch)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
+            parking = None
+            try:
+                parking = self._ensure_hidden_legacy_parking()
+            except Exception:
+                parking = None
+
+            for ch in targets:
+                try:
+                    print(
+                        f"[AITS][GHOST_FIX] hide class={ch.__class__.__name__} "
+                        f"name={ch.objectName()!r} geom={ch.geometry().getRect()}"
+                    )
+                except Exception:
+                    pass
+                try:
+                    ch.hide()
+                except Exception:
+                    pass
+                try:
+                    if parking is not None:
+                        ch.setParent(parking)
+                    else:
+                        ch.setParent(None)
+                except Exception:
+                    pass
+
+            try:
+                pk = getattr(self, "_hidden_legacy_parking", None)
+                if pk is not None:
+                    try:
+                        _p = pk.parent()
+                    except Exception:
+                        _p = None
+                    if _p is self:
+                        _sr = getattr(self, "_shell_root", None) or self.centralWidget()
+                        if _sr is not None:
+                            pk.setParent(_sr)
+                        try:
+                            pk.hide()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _sweep_shell_status_row_strays(self) -> None:
+        """_shell_status_row 아래 레거시 시각 위젯을 parking으로 옮기거나 제거한다."""
+        row = getattr(self, "_shell_status_row", None)
+        if row is None:
+            return
+        parking = self._ensure_hidden_legacy_parking()
+        br = getattr(self, "btn_refresh", None)
+        logb = getattr(self, "btn_top_open_logs", None)
+        left = getattr(self, "_shell_status_left_host", None)
+        _protected = {x for x in (br, logb, left) if x is not None}
+        _legacy_keep = (
+            getattr(self, "lbl_aits_ops_summary", None),
+            getattr(self, "ai_status_text", None),
+            getattr(self, "lbl_aits_ai_engine_status", None),
+            getattr(self, "global_status_icon", None),
+            getattr(self, "global_status_text", None),
+            getattr(self, "global_status_time", None),
+        )
+        _legacy_set = {x for x in _legacy_keep if x is not None}
+        try:
+            for _ch in list(row.children()):
+                if not isinstance(_ch, QWidget):
+                    continue
+                if _ch in _protected:
+                    continue
+                if _ch is row:
+                    continue
+                if _ch in _legacy_set:
+                    try:
+                        _ch.hide()
+                    except Exception:
+                        pass
+                    if parking is not None:
+                        try:
+                            _ch.setParent(parking)
+                        except Exception:
+                            pass
+                    continue
+                try:
+                    _ch.hide()
+                    _ch.setParent(None)
+                    _ch.deleteLater()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _rebuild_shell_status_row(self) -> None:
+        """Slim status bar 1줄: 좌측 칩/텍스트 + stretch + 새로고침/로그."""
+        row = getattr(self, "_shell_status_row", None)
+        ly = getattr(self, "_shell_status_layout", None)
+        if row is None or ly is None:
+            return
+        try:
+            row.setMinimumHeight(44)
+            row.setMaximumHeight(44)
+        except Exception:
+            pass
+        try:
+            ly.setContentsMargins(20, 0, 16, 0)
+            ly.setSpacing(8)
+        except Exception:
+            pass
+        br = getattr(self, "btn_refresh", None)
+        logb = getattr(self, "btn_top_open_logs", None)
+        _protected = {x for x in (br, logb) if x is not None}
+        while ly.count() > 0:
+            try:
+                _it = ly.takeAt(0)
+                _w = _it.widget() if _it is not None else None
+                if _w is None:
+                    continue
+                try:
+                    ly.removeWidget(_w)
+                except Exception:
+                    pass
+                if _w in _protected:
+                    try:
+                        _w.setParent(None)
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        _w.hide()
+                        _w.setParent(None)
+                        _w.deleteLater()
+                    except Exception:
+                        pass
+            except Exception:
+                break
+
+        parking = self._ensure_hidden_legacy_parking()
+        _legacy_keep = (
+            getattr(self, "lbl_aits_ops_summary", None),
+            getattr(self, "ai_status_text", None),
+            getattr(self, "lbl_aits_ai_engine_status", None),
+            getattr(self, "global_status_icon", None),
+            getattr(self, "global_status_text", None),
+            getattr(self, "global_status_time", None),
+        )
+        try:
+            for _ch in list(row.children()):
+                if not isinstance(_ch, QWidget):
+                    continue
+                if _ch in _protected:
+                    continue
+                if _ch is row:
+                    continue
+                try:
+                    ly.removeWidget(_ch)
+                except Exception:
+                    pass
+                if _ch in _legacy_keep:
+                    try:
+                        _ch.hide()
+                    except Exception:
+                        pass
+                    if parking is not None:
+                        try:
+                            _ch.setParent(parking)
+                        except Exception:
+                            pass
+                    try:
+                        _ch.setStyleSheet("background:transparent; border:none;")
+                    except Exception:
+                        pass
+                    continue
+                try:
+                    _ch.hide()
+                    _ch.setParent(None)
+                    _ch.deleteLater()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        left = QWidget(row)
+        try:
+            left.setObjectName("shellStatusLeftHost")
+            left.setProperty("topSubBarHost", True)
+            left.setAutoFillBackground(False)
+            left.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        except Exception:
+            pass
+        self._shell_status_left_host = left
+        h = QHBoxLayout(left)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+
+        def _bar_lbl(txt: str, prop: str = "topBarLabel") -> QLabel:
+            lb = QLabel(txt, left)
+            lb.setProperty(prop, True)
+            try:
+                lb.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
+            except Exception:
+                pass
+            return lb
+
+        h.addWidget(_bar_lbl("선택 엔진"))
+        h.addWidget(_AitsColorChip("#3B82F6", "Basic", "topChipTextBlue", left))
+        h.addSpacing(12)
+        h.addWidget(_bar_lbl("실제 엔진"))
+        h.addWidget(_AitsColorChip("#22C55E", "Basic", "topChipTextGreen", left))
+        h.addSpacing(12)
+        h.addWidget(_bar_lbl("연결 상태"))
+        h.addWidget(_AitsColorChip("#F59E0B", "확인중", "topChipTextOrange", left))
+        h.addSpacing(8)
+        h.addWidget(_AitsTopBarDivider(left))
+        h.addSpacing(8)
+        h.addWidget(_bar_lbl("실행 모드"))
+        _mode = QLabel("Conservative", left)
+        _mode.setProperty("topBarMode", True)
+        try:
+            _mode.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+        h.addWidget(_mode)
+        h.addSpacing(16)
+        _strat = QLabel(
+            "전략  -  현금 비중 우선  -  자동매수  -  위험관리 켜짐",
+            left,
+        )
+        _strat.setProperty("topBarMuted", True)
+        try:
+            _strat.setWordWrap(False)
+            _strat.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+        h.addWidget(_strat, 0)
+
+        try:
+            ly.addWidget(left, 0, Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            ly.addWidget(left, 0)
+        ly.addStretch(1)
+        if br is not None:
+            try:
+                br.setText("상태 새로고침")
+                br.setParent(row)
+                ly.addWidget(br, 0, Qt.AlignmentFlag.AlignVCenter)
+            except Exception:
+                pass
+        ly.addSpacing(6)
+        if logb is not None:
+            try:
+                logb.setText("로그 열기")
+                logb.setParent(row)
+                ly.addWidget(logb, 0, Qt.AlignmentFlag.AlignVCenter)
+            except Exception:
+                pass
+        try:
+            br = getattr(self, "btn_refresh", None)
+            logb = getattr(self, "btn_top_open_logs", None)
+            if br is not None:
+                br.setMinimumHeight(30)
+                br.setMaximumHeight(30)
+            if logb is not None:
+                logb.setMinimumHeight(30)
+                logb.setMaximumHeight(30)
         except Exception:
             pass
 
@@ -3386,6 +3940,10 @@ class MainWindow(QMainWindow):
         # ==== 상단 정보 헤더 (PATCH A-1: 1행 = 파워 ON/OFF + 자산4 + 엔진 요약) ====
         self._shell_top_header = QFrame()
         self._shell_top_header.setObjectName("accountSummaryFrame")
+        try:
+            self._shell_top_header.setProperty("aitsDebugShellRoot", "shellTopHeader")
+        except Exception:
+            pass
         self._shell_top_header.setStyleSheet("""
             QFrame#accountSummaryFrame {
                 background: #ffffff;
@@ -3402,6 +3960,10 @@ class MainWindow(QMainWindow):
         # --- 좌: 통합 토글 + 상태 (HEADER REAL BUILD: 단일 블록 폭 300) ---
         self.stop_box = QWidget(self._shell_top_header)
         self.stop_box.setObjectName("aitsPowerCard")
+        try:
+            self.stop_box.setProperty("aitsDebugShellRoot", "shellToggleBlock")
+        except Exception:
+            pass
         self.stop_box.setProperty("headerToggleBlock", True)
         self.stop_box.setStyleSheet("")
         try:
@@ -3526,6 +4088,12 @@ class MainWindow(QMainWindow):
         self._lbl_header_toggle_png = QLabel(self._frm_header_toggle_wrap)
         self._lbl_header_toggle_png.setObjectName("lbl_header_toggle_png")
         try:
+            self._lbl_header_toggle_png.setStyleSheet(
+                "background: transparent; border: none;"
+            )
+        except Exception:
+            pass
+        try:
             self._lbl_header_toggle_png.setAlignment(
                 Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
             )
@@ -3554,16 +4122,19 @@ class MainWindow(QMainWindow):
         _wrap_pw_ly.setSpacing(0)
         _wrap_pw_ly.addStretch(1)
         _wrap_pw_ly.addWidget(
-            self._lbl_header_toggle_png,
-            0,
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
-        )
-        _wrap_pw_ly.addWidget(
             self.frm_power_switch,
             0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
         )
         _wrap_pw_ly.addStretch(1)
+        try:
+            self._lbl_header_toggle_png.setGeometry(0, 0, 146, 56)
+        except Exception:
+            pass
+        try:
+            self._lbl_header_toggle_png.raise_()
+        except Exception:
+            pass
         stop_h = QHBoxLayout(self.stop_box)
         stop_h.setContentsMargins(18, 10, 18, 10)
         stop_h.setSpacing(14)
@@ -3678,6 +4249,12 @@ class MainWindow(QMainWindow):
         # --- 우: 엔진 요약 카드 ---
         self._frame_aits_engine_card = QFrame()
         self._frame_aits_engine_card.setObjectName("aitsEngineSummaryCard")
+        try:
+            self._frame_aits_engine_card.setProperty(
+                "aitsDebugShellRoot", "shellEngineCard"
+            )
+        except Exception:
+            pass
         self._frame_aits_engine_card.setProperty("kpiEngine", True)
         self._frame_aits_engine_card.setStyleSheet("")
         _eng_ly = QHBoxLayout(self._frame_aits_engine_card)
@@ -3873,14 +4450,18 @@ class MainWindow(QMainWindow):
         # [UI SHELL / S-1-3] 한 줄 상태줄 — 레거시 frame은 비표시, 자식만 shell row로 이전
         self._shell_status_row = QFrame()
         self._shell_status_row.setObjectName("shellStatusRow")
+        try:
+            self._shell_status_row.setProperty("aitsDebugShellRoot", "shellStatusRow")
+        except Exception:
+            pass
         self._shell_status_row.setProperty("topSubBar", True)
         self._shell_status_row.setStyleSheet("")
         _ssr_ly = QHBoxLayout(self._shell_status_row)
-        _ssr_ly.setContentsMargins(14, 0, 14, 0)
-        _ssr_ly.setSpacing(6)
+        _ssr_ly.setContentsMargins(20, 0, 16, 0)
+        _ssr_ly.setSpacing(8)
         try:
-            self._shell_status_row.setMinimumHeight(40)
-            self._shell_status_row.setMaximumHeight(40)
+            self._shell_status_row.setMinimumHeight(44)
+            self._shell_status_row.setMaximumHeight(44)
         except Exception:
             pass
 
@@ -3911,12 +4492,13 @@ class MainWindow(QMainWindow):
             self.global_status_time.setVisible(False)
         except Exception:
             pass
-        _ssr_ly.addWidget(self.lbl_aits_ops_summary, 0)
-        _ssr_ly.addWidget(self.ai_status_text, 0)
-        _ssr_ly.addStretch(1)
         self._shell_status_layout = _ssr_ly
         try:
             self.ai_status_text.hide()
+        except Exception:
+            pass
+        try:
+            self.lbl_aits_ops_summary.hide()
         except Exception:
             pass
         try:
@@ -4509,6 +5091,20 @@ class MainWindow(QMainWindow):
             pass
         try:
             self._update_engine_ui_ssot()
+        except Exception:
+            pass
+        try:
+            self._rebuild_shell_status_row()
+        except Exception:
+            pass
+        try:
+            self._hide_legacy_top_sections()
+        except Exception:
+            pass
+        try:
+            self._dump_top_level_children_geometry("BEFORE_GHOST_FIX")
+            self._fix_top_left_ghost_box()
+            self._dump_top_level_children_geometry("AFTER_GHOST_FIX")
         except Exception:
             pass
 
@@ -19891,6 +20487,11 @@ class MainWindow(QMainWindow):
             self._geometry_restored = True
             self._log.debug("[WIN] showEvent restore failed: %s", e)
             self._clamp_window_onscreen()
+        finally:
+            try:
+                self._fix_top_left_ghost_box()
+            except Exception:
+                pass
 
     def _clamp_window_onscreen(self):
         """창이 화면 밖(오프스크린)이면 availableGeometry 안으로 이동."""
@@ -21166,6 +21767,169 @@ QLabel[kpiEngineValue="true"]{
     font-size:10px;
     font-weight:600;
     color:#667085;
+}
+
+/* ==================================================
+   AITS SLIM STATUS REAL BUILD
+================================================== */
+
+QFrame[topSubBar="true"],
+QWidget[topSubBar="true"]{
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:10px;
+}
+
+QLabel[topBarLabel="true"]{
+    color:#1F2937;
+    font-size:13px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[topBarMuted="true"]{
+    color:#6B7280;
+    font-size:13px;
+    font-weight:500;
+    background:transparent;
+    border:none;
+}
+
+QLabel[topBarMode="true"]{
+    color:#3B82F6;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QFrame[topBarDivider="true"]{
+    background:#D1D5DB;
+    border:none;
+    min-width:1px;
+    max-width:1px;
+}
+
+QLabel[topChipColorBox="true"]{
+    border:none;
+    border-radius:3px;
+    min-width:14px;
+    max-width:14px;
+    min-height:14px;
+    max-height:14px;
+}
+
+QLabel[topChipTextBlue="true"]{
+    color:#3B82F6;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[topChipTextGreen="true"]{
+    color:#22C55E;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[topChipTextOrange="true"]{
+    color:#F59E0B;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QPushButton[topSubBarAction="true"]{
+    background:#FFFFFF;
+    color:#374151;
+    border:1px solid #D1D5DB;
+    border-radius:6px;
+    padding:4px 14px;
+    font-size:12px;
+    font-weight:500;
+    min-height:30px;
+}
+
+QPushButton[topSubBarAction="true"]:hover{
+    background:#F9FAFB;
+    border-color:#9CA3AF;
+}
+
+/* ==================================================
+   AITS SLIM STATUS CLEANUP-01
+================================================== */
+
+/* 바깥 slim row는 한 장의 흰 판만 유지 */
+QFrame[topSubBar="true"],
+QWidget[topSubBar="true"]{
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:10px;
+}
+
+/* 내부 host/container는 배경 제거 */
+QFrame[topSubBarHost="true"],
+QWidget[topSubBarHost="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* 레거시 라벨(레이아웃 밖 잔존) 박스 제거 */
+QLabel[legacyTopSubInner="true"],
+QWidget[legacyTopSubInner="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* 칩 helper 래퍼 */
+#aitsTopSubColorChip,
+QWidget[colorChipWrap="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* 구분선: 1px 막대만 유지 */
+QFrame#aitsTopSubDividerWidget[topBarDivider="true"]{
+    background:#D1D5DB;
+    border:none;
+    min-width:1px;
+    max-width:1px;
+    min-height:20px;
+    max-height:20px;
+}
+
+/* ==================================================
+   AITS HEADER CRITICAL CLEANUP-02
+================================================== */
+
+QWidget#hiddenLegacyParking{
+    background:transparent;
+    border:none;
+}
+
+QWidget#shellStatusLeftHost{
+    background:transparent;
+    border:none;
+}
+
+QLabel#lbl_header_toggle_png{
+    background:transparent;
+    border:none;
+}
+
+QWidget[topSubBarHost="true"]{
+    background:transparent;
+    border:none;
+}
+
+QWidget[colorChipWrap="true"]{
+    background:transparent;
+    border:none;
 }
 """
 
