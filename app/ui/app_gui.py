@@ -247,7 +247,7 @@ QLineEdit[readOnly="true"] {
 """
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStyle,
     QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QFormLayout, QHeaderView,
     QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
     QAbstractItemView, QMenu, QSizePolicy, QScrollArea, QCheckBox,
@@ -285,6 +285,337 @@ except Exception:
 
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
+
+
+class _AitsManagedCard(QFrame):
+    """좌측 관리 패널용 카드 컨테이너 (padding 14)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        try:
+            self.setProperty("aitsManagedCard", True)
+        except Exception:
+            pass
+        self._body = QVBoxLayout(self)
+        try:
+            self._body.setContentsMargins(14, 14, 14, 14)
+            self._body.setSpacing(8)
+        except Exception:
+            pass
+
+    def body_layout(self) -> QVBoxLayout:
+        return self._body
+
+
+class _AitsManagedCoinIcon(QLabel):
+    """심볼 이니셜 원형 배지 (26px, QPainter)."""
+
+    _PALETTE = {
+        "BTC": ("#F7931A", "#FFFFFF"),
+        "ETH": ("#627EEA", "#FFFFFF"),
+        "XRP": ("#23292F", "#FFFFFF"),
+        "SOL": ("#9945FF", "#FFFFFF"),
+        "AVAX": ("#E84142", "#FFFFFF"),
+        "MATIC": ("#8247E5", "#FFFFFF"),
+        "LINK": ("#2A5ADA", "#FFFFFF"),
+    }
+
+    def __init__(self, symbol_key: str, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(26, 26)
+        self._key = str(symbol_key or "").replace("KRW-", "").upper().strip()[:8]
+        self._letter = (self._key[:1] or "?").upper()
+        self._bg, self._fg = self._PALETTE.get(
+            self._key, ("#CBD5E1", "#1E293B")
+        )
+
+    def paintEvent(self, event):
+        try:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            rect = self.rect().adjusted(1, 1, -1, -1)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(self._bg)))
+            p.drawEllipse(rect)
+            p.setPen(QPen(QColor(self._fg)))
+            f = self.font()
+            f.setBold(True)
+            f.setPixelSize(11)
+            p.setFont(f)
+            p.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), self._letter)
+        except Exception:
+            try:
+                super().paintEvent(event)
+            except Exception:
+                pass
+
+
+class _AitsManagedRankBadge(QLabel):
+    """순위 컬러 배지 (26x24 rounded rect)."""
+
+    _COLORS = (
+        "#E53935",
+        "#1565C0",
+        "#283593",
+        "#2E7D32",
+        "#8E24AA",
+        "#546E7A",
+        "#0277BD",
+    )
+
+    def __init__(self, rank: int, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(26, 24)
+        self._rank = max(1, int(rank))
+        self._bg = self._COLORS[(self._rank - 1) % len(self._COLORS)]
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setText(str(self._rank))
+
+    def paintEvent(self, event):
+        try:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            rect = self.rect().adjusted(0, 0, 0, 0)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QBrush(QColor(self._bg)))
+            p.drawRoundedRect(rect, 6, 6)
+            p.setPen(QPen(QColor("#FFFFFF")))
+            f = self.font()
+            f.setBold(True)
+            f.setPixelSize(12)
+            p.setFont(f)
+            p.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), str(self._rank))
+        except Exception:
+            try:
+                super().paintEvent(event)
+            except Exception:
+                pass
+
+
+class _AitsManagedScoreCell(QWidget):
+    """점수 숫자 + 4px 게이지 (>=75 녹색, 미만 빨강)."""
+
+    def __init__(self, score: int, parent=None):
+        super().__init__(parent)
+        self._score = max(0, min(100, int(score)))
+        lay = QVBoxLayout(self)
+        try:
+            lay.setContentsMargins(0, 2, 0, 2)
+            lay.setSpacing(2)
+        except Exception:
+            pass
+        self._val = QLabel(str(self._score))
+        self._val.setAlignment(
+            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        )
+        try:
+            self._val.setStyleSheet(
+                "font-size:15px;font-weight:800;color:#0F172A;background:transparent;"
+            )
+        except Exception:
+            pass
+        bar_bg = QFrame()
+        bar_bg.setFixedHeight(4)
+        try:
+            bar_bg.setStyleSheet(
+                "background:#E5E7EB;border:none;border-radius:2px;"
+            )
+        except Exception:
+            pass
+        fill_w = max(3, int(56 * self._score / 100.0))
+        good = self._score >= 75
+        fill_c = "#22C55E" if good else "#EF4444"
+        self._fill = QFrame(bar_bg)
+        self._fill.setFixedSize(fill_w, 4)
+        try:
+            self._fill.setStyleSheet(
+                f"background:{fill_c};border:none;border-radius:2px;"
+            )
+        except Exception:
+            pass
+        inner = QHBoxLayout(bar_bg)
+        try:
+            inner.setContentsMargins(0, 0, 0, 0)
+            inner.setSpacing(0)
+        except Exception:
+            pass
+        inner.addWidget(self._fill, 0, Qt.AlignmentFlag.AlignLeft)
+        inner.addStretch(1)
+        bar_bg.setFixedWidth(56)
+        lay.addWidget(self._val)
+        lay.addWidget(bar_bg, 0, Qt.AlignmentFlag.AlignHCenter)
+
+
+class _AitsManagedStatusCell(QWidget):
+    """상태 1줄(핵심) + 선택적 보조 1줄."""
+
+    def __init__(self, main_text: str, sub_text: str, kind: str, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        try:
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+        except Exception:
+            pass
+        if kind == "positive":
+            col = "#16A34A"
+        elif kind == "neutral":
+            col = "#D97706"
+        else:
+            col = "#DC2626"
+        m = QLabel(str(main_text or "—"))
+        try:
+            m.setAlignment(
+                int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            )
+            m.setWordWrap(True)
+            m.setStyleSheet(
+                f"font-size:13px;font-weight:800;color:{col};background:transparent;"
+            )
+        except Exception:
+            pass
+        lay.addWidget(m)
+        st = str(sub_text or "").strip()
+        if st:
+            s = QLabel(st)
+            try:
+                s.setAlignment(
+                    int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+                )
+                s.setStyleSheet(
+                    "font-size:10px;font-weight:600;color:#94A3B8;background:transparent;"
+                )
+            except Exception:
+                pass
+            lay.addWidget(s)
+
+
+class _AitsManagedRowCard(QFrame):
+    """관리종목 한 행 카드 (높이 54px, 클릭/더블클릭 → MainWindow 콜백)."""
+
+    def __init__(
+        self,
+        main_win,
+        row_index: int,
+        raw_symbol: str,
+        rank: int,
+        coin_key: str,
+        title: str,
+        sub: str,
+        score: int,
+        status_cell: QWidget,
+        weight_text: str,
+        parent=None,
+    ):
+        super().__init__(parent)
+        self._mw = main_win
+        self._row_index = int(row_index)
+        self._raw_symbol = str(raw_symbol or "").strip()
+        try:
+            self.setProperty("managedRowCard", True)
+            self.setFixedHeight(54)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        except Exception:
+            pass
+        self._selected = False
+        lay = QHBoxLayout(self)
+        try:
+            lay.setContentsMargins(8, 4, 8, 4)
+            lay.setSpacing(6)
+        except Exception:
+            pass
+        rb = _AitsManagedRankBadge(rank, self)
+        lay.addWidget(rb, 0, Qt.AlignmentFlag.AlignVCenter)
+        coin_col = QWidget()
+        cly = QHBoxLayout(coin_col)
+        try:
+            cly.setContentsMargins(0, 0, 0, 0)
+            cly.setSpacing(6)
+        except Exception:
+            pass
+        icon = _AitsManagedCoinIcon(coin_key, coin_col)
+        vv = QVBoxLayout()
+        try:
+            vv.setSpacing(0)
+            vv.setContentsMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        lt = QLabel(title)
+        lt.setProperty("managedCoinTitle", True)
+        vv.addWidget(lt)
+        if sub:
+            lb = QLabel(sub)
+            lb.setProperty("managedCoinSub", True)
+            vv.addWidget(lb)
+        cly.addWidget(icon, 0, Qt.AlignmentFlag.AlignVCenter)
+        cly.addLayout(vv, 1)
+        coin_col.setFixedWidth(130)
+        lay.addWidget(coin_col, 0)
+        sc = _AitsManagedScoreCell(score, self)
+        sc.setFixedWidth(74)
+        lay.addWidget(sc, 0, Qt.AlignmentFlag.AlignVCenter)
+        status_cell.setFixedWidth(82)
+        lay.addWidget(status_cell, 0, Qt.AlignmentFlag.AlignVCenter)
+        wt = QLabel(weight_text)
+        wt.setProperty("managedWeightText", True)
+        wt.setAlignment(
+            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        )
+        wt.setFixedWidth(60)
+        lay.addWidget(wt, 0, Qt.AlignmentFlag.AlignVCenter)
+        act = QPushButton("⋯")
+        try:
+            act.setFixedSize(30, 30)
+            act.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            act.setEnabled(False)
+            act.setProperty("managedHeaderAction", True)
+        except Exception:
+            pass
+        aw = QWidget()
+        aly = QHBoxLayout(aw)
+        try:
+            aly.setContentsMargins(0, 0, 0, 0)
+            aly.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        except Exception:
+            pass
+        aly.addWidget(act)
+        aw.setFixedWidth(42)
+        lay.addWidget(aw, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._apply_sel_style()
+
+    def _apply_sel_style(self):
+        try:
+            self.setProperty("managedRowActive", bool(self._selected))
+            self.style().unpolish(self)
+            self.style().polish(self)
+        except Exception:
+            pass
+
+    def set_card_selected(self, sel: bool) -> None:
+        self._selected = bool(sel)
+        self._apply_sel_style()
+
+    def mousePressEvent(self, event):
+        try:
+            if event.button() == Qt.MouseButton.LeftButton and self._mw is not None:
+                self._mw._on_left_managed_row_clicked(self._raw_symbol)
+        except Exception:
+            pass
+        try:
+            super().mousePressEvent(event)
+        except Exception:
+            pass
+
+    def mouseDoubleClickEvent(self, event):
+        try:
+            if event.button() == Qt.MouseButton.LeftButton and self._mw is not None:
+                self._mw._on_left_managed_row_double_clicked(self._row_index)
+        except Exception:
+            pass
+        try:
+            super().mouseDoubleClickEvent(event)
+        except Exception:
+            pass
 
 
 class ClickableGroupBox(QGroupBox):
@@ -371,14 +702,23 @@ class _AITSOverviewHeader(QWidget):
 
 
 class _AitsBottomNavTile(QFrame):
-    """하단 다크 내비: 2줄 라벨 + 카드형 활성 표현 (클릭만 탭 전환 시그널로 연결)."""
+    """하단 다크 내비: 아이콘 + 2줄 라벨 + 카드형 활성 표현 (클릭만 탭 전환 시그널로 연결)."""
     clicked = Signal()
 
-    def __init__(self, line1: str, line2: str, parent=None):
+    def __init__(
+        self,
+        icon: str,
+        title: str,
+        line2: str,
+        parent=None,
+        min_tile_width: int = 158,
+    ):
         super().__init__(parent)
         self.setObjectName("aitsBottomNavTile")
         try:
             self.setProperty("bottomTab", True)
+            self.setProperty("bottomNavTab", True)
+            self.setProperty("bottomNavActive", False)
         except Exception:
             pass
         try:
@@ -386,32 +726,54 @@ class _AitsBottomNavTile(QFrame):
         except Exception:
             pass
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        ly = QVBoxLayout(self)
-        ly.setContentsMargins(8, 4, 8, 4)
-        ly.setSpacing(1)
-        self._line1 = QLabel(line1)
+        _outer = QHBoxLayout(self)
+        _outer.setContentsMargins(18, 8, 18, 8)
+        _outer.setSpacing(12)
+        self._icon_lbl = QLabel(icon)
+        try:
+            self._icon_lbl.setFixedSize(28, 28)
+            self._icon_lbl.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            )
+            self._icon_lbl.setProperty("bottomNavIcon", True)
+        except Exception:
+            pass
+        self._line1 = QLabel(title)
         try:
             self._line1.setObjectName("aitsBottomNavLine1")
+            self._line1.setProperty("bottomNavTitle", True)
         except Exception:
             pass
         self._line2 = QLabel(line2)
         try:
             self._line2.setObjectName("aitsBottomNavLine2")
+            self._line2.setProperty("bottomNavSub", True)
             self._line2.setProperty("bottomNavText", True)
         except Exception:
             pass
         try:
+            self._icon_lbl.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+            )
             self._line1.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             self._line2.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         except Exception:
             pass
-        ly.addWidget(self._line1)
-        ly.addWidget(self._line2)
+        _v = QVBoxLayout()
+        _v.setContentsMargins(0, 0, 0, 0)
+        _v.setSpacing(2)
+        _v.addWidget(self._line1)
+        _v.addWidget(self._line2)
+        _outer.addWidget(self._icon_lbl, 0)
+        _outer.addLayout(_v, 0)
+        _outer.addStretch(1)
         try:
-            self.setMinimumHeight(40)
-            self.setMaximumHeight(48)
-            self.setMinimumWidth(108)
-            self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
+            self.setMinimumHeight(70)
+            self.setMaximumHeight(70)
+            self.setMinimumWidth(int(min_tile_width))
+            self.setSizePolicy(
+                QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed
+            )
         except Exception:
             pass
         self.set_tile_active(False)
@@ -420,17 +782,33 @@ class _AitsBottomNavTile(QFrame):
         a = bool(active)
         try:
             self.setProperty("bottomTabActive", a)
+            self.setProperty("bottomNavActive", a)
             self.setStyleSheet("")
             self._line1.setStyleSheet("")
             self._line2.setStyleSheet("")
+            try:
+                self._icon_lbl.setStyleSheet("")
+            except Exception:
+                pass
+            for _w in (getattr(self, "_icon_lbl", None), self._line1, self._line2):
+                if _w is None:
+                    continue
+                try:
+                    _w.setProperty("bottomNavActiveChild", a)
+                except Exception:
+                    pass
             _sty = self.style()
             if _sty is not None:
                 _sty.unpolish(self)
                 _sty.polish(self)
-                _sty.unpolish(self._line1)
-                _sty.polish(self._line1)
-                _sty.unpolish(self._line2)
-                _sty.polish(self._line2)
+                for _w in (getattr(self, "_icon_lbl", None), self._line1, self._line2):
+                    if _w is None:
+                        continue
+                    try:
+                        _sty.unpolish(_w)
+                        _sty.polish(_w)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
@@ -2193,6 +2571,21 @@ class MainWindow(QMainWindow):
             pass
         br = getattr(self, "btn_refresh", None)
         logb = getattr(self, "btn_top_open_logs", None)
+        try:
+            _st = self.style()
+            if _st is not None:
+                _ic_ref = _st.standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+                _ic_log = _st.standardIcon(QStyle.StandardPixmap.SP_FileIcon)
+                if br is not None:
+                    br.setIcon(_ic_ref)
+                    br.setIconSize(QSize(14, 14))
+                    br.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+                if logb is not None:
+                    logb.setIcon(_ic_log)
+                    logb.setIconSize(QSize(14, 14))
+                    logb.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        except Exception:
+            pass
         _protected = {x for x in (br, logb) if x is not None}
         while ly.count() > 0:
             try:
@@ -4288,33 +4681,69 @@ class MainWindow(QMainWindow):
             0,
             Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
         )
-        self._lbl_aits_engine_card_title = QLabel("AI ENGINE")
+        _eng_text_host = QWidget(self._frame_aits_engine_card)
+        _eng_text_v = QVBoxLayout(_eng_text_host)
+        _eng_text_v.setContentsMargins(0, 0, 0, 0)
+        _eng_text_v.setSpacing(0)
+
+        self._lbl_aits_engine_card_title = QLabel("AI ENGINE", _eng_text_host)
         self._lbl_aits_engine_card_title.setProperty("kpiEngineLabel", True)
         self._lbl_aits_engine_card_title.setStyleSheet("")
-        self._lbl_aits_engine_card_body = QLabel("AI Engine: Basic\n모델: qwen2.5\n상태: 확인중 ●")
-        self._lbl_aits_engine_card_body.setProperty("kpiEngineValue", True)
-        self._lbl_aits_engine_card_body.setWordWrap(True)
+        self._lbl_engine_card_title = self._lbl_aits_engine_card_title
+
+        self._lbl_engine_card_selected = QLabel("선택: Basic", _eng_text_host)
+        self._lbl_engine_card_selected.setProperty("kpiEngineValue", True)
+        self._lbl_engine_card_selected.setWordWrap(False)
         try:
-            self._lbl_aits_engine_card_body.setTextFormat(Qt.TextFormat.RichText)
+            self._lbl_engine_card_selected.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
         except Exception:
             pass
-        self._lbl_aits_engine_card_body.setStyleSheet("")
+
+        self._eng_card_model_row = QWidget(_eng_text_host)
+        _eng_mrow_ly = QHBoxLayout(self._eng_card_model_row)
+        _eng_mrow_ly.setContentsMargins(0, 0, 0, 0)
+        _eng_mrow_ly.setSpacing(4)
+        try:
+            _eng_mrow_ly.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+
+        self._lbl_engine_card_model = QLabel("모델: qwen2.5", self._eng_card_model_row)
+        self._lbl_engine_card_model.setProperty("kpiEngineValue", True)
+        self._lbl_engine_card_sep = QLabel(" | ", self._eng_card_model_row)
+        self._lbl_engine_card_sep.setProperty("kpiEngineValue", True)
+        self._lbl_engine_card_status = QLabel("상태: 확인중", self._eng_card_model_row)
+        self._lbl_engine_card_status.setProperty("engineStatusText", True)
+        self._lbl_engine_card_status_dot = QLabel("●", self._eng_card_model_row)
+        self._lbl_engine_card_status_dot.setProperty("engineStatusDot", True)
         try:
             self._lbl_aits_engine_card_title.setAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
-            self._lbl_aits_engine_card_body.setAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-            )
+            for _lw in (
+                self._lbl_engine_card_model,
+                self._lbl_engine_card_sep,
+                self._lbl_engine_card_status,
+                self._lbl_engine_card_status_dot,
+            ):
+                _lw.setAlignment(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+                )
         except Exception:
             pass
-        _eng_text_v = QVBoxLayout()
-        _eng_text_v.setContentsMargins(0, 0, 0, 0)
-        _eng_text_v.setSpacing(0)
+        _eng_mrow_ly.addWidget(self._lbl_engine_card_model, 0)
+        _eng_mrow_ly.addWidget(self._lbl_engine_card_sep, 0)
+        _eng_mrow_ly.addWidget(self._lbl_engine_card_status, 0)
+        _eng_mrow_ly.addStretch(1)
+        _eng_mrow_ly.addWidget(self._lbl_engine_card_status_dot, 0)
+
         _eng_text_v.addWidget(self._lbl_aits_engine_card_title)
-        _eng_text_v.addWidget(self._lbl_aits_engine_card_body)
-        _eng_text_host = QWidget(self._frame_aits_engine_card)
-        _eng_text_host.setLayout(_eng_text_v)
+        _eng_text_v.addWidget(self._lbl_engine_card_selected)
+        _eng_text_v.addWidget(self._eng_card_model_row)
         try:
             _eng_text_host.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
@@ -5145,65 +5574,190 @@ class MainWindow(QMainWindow):
         _aits_pool_ly = QVBoxLayout(self._aits_pool_outer)
         _aits_pool_ly.setContentsMargins(6, 0, 6, 2)
         _aits_pool_ly.setSpacing(4)
-        _gb_managed = QGroupBox("AI MANAGED CANDIDATES")
+        _gb_managed = QGroupBox("")
         self._gb_managed = _gb_managed
         try:
             _gb_managed.setProperty("managedPanel", True)
+            _gb_managed.setProperty("leftManagedReal", True)
         except Exception:
             pass
         try:
-            _gb_managed.setStyleSheet(_aits_watch_gb_card_qss)
+            _gb_managed.setStyleSheet("")
         except Exception:
             pass
         _managed_inner = QVBoxLayout(_gb_managed)
         try:
-            _managed_inner.setContentsMargins(12, 12, 12, 12)
-            _managed_inner.setSpacing(10)
+            _managed_inner.setContentsMargins(16, 14, 16, 14)
+            _managed_inner.setSpacing(12)
         except Exception:
             pass
-        self.lbl_ai_managed_title = QLabel("AI Watchlist Command Center")
+        self._managed_header_card = _AitsManagedCard(_gb_managed)
+        _mh = self._managed_header_card.body_layout()
+        self.lbl_ai_managed_title = QLabel("AI MANAGED CANDIDATES")
         try:
-            self.lbl_ai_managed_title.setProperty("managedTitle", True)
+            self.lbl_ai_managed_title.setProperty("managedTitleMain", True)
         except Exception:
             pass
-        _managed_inner.addWidget(self.lbl_ai_managed_title)
-        self.lbl_ai_managed_scope = QLabel(
-            "AI가 선택한 종목만 자동매매 대상입니다."
-        )
+        self.lbl_managed_title_sub = QLabel("[실거래 관리종목]")
         try:
-            self.lbl_ai_managed_scope.setProperty("managedSub", True)
+            self.lbl_managed_title_sub.setProperty("managedTitleSub", True)
+        except Exception:
+            pass
+        self.lbl_ai_managed_scope = QLabel("AI가 선별한 종목만 매매 대상\n(총 0개)")
+        try:
+            self.lbl_ai_managed_scope.setProperty("managedDesc", True)
             self.lbl_ai_managed_scope.setWordWrap(True)
-            self.lbl_ai_managed_scope.setStyleSheet("background: transparent; border: none;")
         except Exception:
             pass
-        _managed_inner.addWidget(self.lbl_ai_managed_scope)
         self.lbl_ai_managed_summary = QLabel("관리 0종목 | 보유 0 | 후보 0")
         try:
             self.lbl_ai_managed_summary.setProperty("managedBadge", True)
             self.lbl_ai_managed_summary.setWordWrap(False)
-            self.lbl_ai_managed_summary.setStyleSheet("background: transparent; border: none;")
         except Exception:
             pass
-        _managed_inner.addWidget(self.lbl_ai_managed_summary)
-        self.tbl_ai_managed = QTableWidget(0, 5)
+        _hdr_btns = QHBoxLayout()
+        try:
+            _hdr_btns.setSpacing(8)
+            _hdr_btns.setContentsMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        self.btn_managed_add = QPushButton("+ 추가")
+        self.btn_managed_sort = QPushButton("⇅")
+        self.btn_managed_more = QPushButton("⋯")
+        for _b in (self.btn_managed_add, self.btn_managed_sort, self.btn_managed_more):
+            try:
+                _b.setProperty("managedHeaderAction", True)
+                _b.setFixedHeight(28)
+                _b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            except Exception:
+                pass
+        try:
+            self.btn_managed_add.setMinimumWidth(56)
+            self.btn_managed_sort.setFixedWidth(34)
+            self.btn_managed_more.setFixedWidth(34)
+        except Exception:
+            pass
+        try:
+            self.btn_managed_sort.setToolTip("순서 변경: Alt+↑/↓ (카드 포커스 시)")
+            self.btn_managed_more.setToolTip("더보기")
+        except Exception:
+            pass
+        _hdr_btns.addWidget(self.btn_managed_add, 0)
+        _hdr_btns.addWidget(self.btn_managed_sort, 0)
+        _hdr_btns.addWidget(self.btn_managed_more, 0)
+        _mh.addWidget(self.lbl_ai_managed_title)
+        _mh.addWidget(self.lbl_managed_title_sub)
+        _hdr_scope_row = QHBoxLayout()
+        try:
+            _hdr_scope_row.setSpacing(8)
+            _hdr_scope_row.setContentsMargins(0, 0, 0, 0)
+        except Exception:
+            pass
+        _hdr_scope_row.addWidget(self.lbl_ai_managed_scope, 1)
+        _hdr_scope_row.addLayout(_hdr_btns, 0)
+        _mh.addLayout(_hdr_scope_row)
+        _mh.addWidget(self.lbl_ai_managed_summary)
+        _managed_inner.addWidget(self._managed_header_card)
+        try:
+            self.btn_managed_add.clicked.connect(self._focus_market_explorer_for_managed_add)
+        except Exception:
+            pass
+
+        self._frm_managed_column_header = QFrame()
+        try:
+            self._frm_managed_column_header.setProperty("managedHeaderRow", True)
+        except Exception:
+            pass
+        _col_hdr = QHBoxLayout(self._frm_managed_column_header)
+        try:
+            _col_hdr.setContentsMargins(8, 6, 8, 6)
+            _col_hdr.setSpacing(6)
+        except Exception:
+            pass
+
+        def _mk_col_lbl(txt: str, w: int) -> QLabel:
+            lb = QLabel(txt)
+            try:
+                lb.setProperty("managedHeaderCell", True)
+                lb.setFixedWidth(w)
+                lb.setAlignment(
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter)
+                )
+            except Exception:
+                pass
+            return lb
+
+        _col_hdr.addWidget(_mk_col_lbl("순위", 42))
+        _col_hdr.addWidget(_mk_col_lbl("종목 / 심볼", 130))
+        _col_hdr.addWidget(_mk_col_lbl("AI 점수", 74))
+        _col_hdr.addWidget(_mk_col_lbl("상대", 82))
+        _col_hdr.addWidget(_mk_col_lbl("비중", 60))
+        _col_hdr.addWidget(_mk_col_lbl("액션", 42))
+        _managed_inner.addWidget(self._frm_managed_column_header)
+
+        self._managed_rows_scroll = QScrollArea(_gb_managed)
+        try:
+            self._managed_rows_scroll.setWidgetResizable(True)
+            self._managed_rows_scroll.setFrameShape(QFrame.Shape.NoFrame)
+            self._managed_rows_scroll.setHorizontalScrollBarPolicy(
+                Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+        except Exception:
+            pass
+        self._managed_rows_host = QWidget()
+        try:
+            self._managed_rows_host.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+            self._managed_rows_host.setMinimumHeight(0)
+            self._managed_rows_host.setMaximumHeight(16777215)
+        except Exception:
+            pass
+        self._managed_rows_layout = QVBoxLayout(self._managed_rows_host)
+        try:
+            self._managed_rows_layout.setContentsMargins(0, 0, 0, 0)
+            self._managed_rows_layout.setSpacing(0)
+            self._managed_rows_layout.setAlignment(
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+            )
+        except Exception:
+            pass
+        self._managed_rows_scroll.setWidget(self._managed_rows_host)
+        try:
+            self._managed_rows_scroll.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            self._managed_rows_scroll.setAlignment(
+                Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+            )
+            self._managed_rows_scroll.setMinimumHeight(220)
+        except Exception:
+            pass
+        _managed_inner.addWidget(self._managed_rows_scroll, 1)
+        self._managed_row_card_widgets = []
+
+        self.tbl_ai_managed = QTableWidget(0, 6)
         try:
             self.tbl_ai_managed.setObjectName("tblAiManagedIntent")
             self.tbl_ai_managed.setProperty("managedTable", True)
+            self.tbl_ai_managed.setProperty("managedRankTable", True)
         except Exception:
             pass
         self.tbl_ai_managed.setHorizontalHeaderLabels(
             [
-                "#",
-                "종목",
-                "AI 상태",
-                "확신",
-                "남은시간",
+                "순위",
+                "종목 / 심볼",
+                "AI 점수",
+                "상대",
+                "비중",
+                "액션",
             ]
         )
         try:
             _hdr_al = (
                 int(Qt.AlignmentFlag.AlignCenter),
                 int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                int(Qt.AlignmentFlag.AlignCenter),
                 int(Qt.AlignmentFlag.AlignCenter),
                 int(Qt.AlignmentFlag.AlignCenter),
                 int(Qt.AlignmentFlag.AlignCenter),
@@ -5223,43 +5777,37 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.tbl_ai_managed.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.tbl_ai_managed.setMinimumHeight(280)
+        try:
+            self.tbl_ai_managed.setMinimumHeight(0)
+        except Exception:
+            pass
         try:
             self.tbl_ai_managed.setWordWrap(False)
         except Exception:
             pass
         try:
-            self.tbl_ai_managed.setAlternatingRowColors(True)
+            self.tbl_ai_managed.setAlternatingRowColors(False)
             self.tbl_ai_managed.setShowGrid(True)
         except Exception:
             pass
         try:
             _vh_am = self.tbl_ai_managed.verticalHeader()
             _vh_am.setDefaultSectionSize(78)
+            _vh_am.setMinimumSectionSize(72)
         except Exception:
             pass
         try:
             _hh_am = self.tbl_ai_managed.horizontalHeader()
-            _hh_am.setFixedHeight(30)
-            for _ci in range(5):
-                _hh_am.setSectionResizeMode(_ci, QHeaderView.ResizeMode.Fixed)
+            _hh_am.setFixedHeight(34)
+            _hh_am.setStretchLastSection(False)
+            for _ci in range(6):
+                if _ci == 1:
+                    _hh_am.setSectionResizeMode(_ci, QHeaderView.ResizeMode.Stretch)
+                else:
+                    _hh_am.setSectionResizeMode(_ci, QHeaderView.ResizeMode.Fixed)
             _hh_am.setDefaultAlignment(
                 Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
             )
-            try:
-                _hh_am.setStyleSheet(
-                    "QHeaderView::section {"
-                    "  background: #f1f5f9;"
-                    "  padding: 6px 8px;"
-                    "  border: none;"
-                    "  border-bottom: 1px solid #e2e8f0;"
-                    "  font-weight: 700;"
-                    "  font-size: 11px;"
-                    "  color: #475569;"
-                    "}"
-                )
-            except Exception:
-                pass
         except Exception:
             pass
         try:
@@ -5267,11 +5815,11 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            self.tbl_ai_managed.setColumnWidth(0, 36)
-            self.tbl_ai_managed.setColumnWidth(1, 210)
-            self.tbl_ai_managed.setColumnWidth(2, 95)
-            self.tbl_ai_managed.setColumnWidth(3, 70)
-            self.tbl_ai_managed.setColumnWidth(4, 75)
+            self.tbl_ai_managed.setColumnWidth(0, 52)
+            self.tbl_ai_managed.setColumnWidth(2, 92)
+            self.tbl_ai_managed.setColumnWidth(3, 118)
+            self.tbl_ai_managed.setColumnWidth(4, 76)
+            self.tbl_ai_managed.setColumnWidth(5, 44)
         except Exception:
             pass
         # [UI MASTER PLAN / Phase 2 / PATCH 2-5]
@@ -5307,9 +5855,9 @@ class MainWindow(QMainWindow):
         try:
             self._sc_ai_managed_delete = QShortcut(
                 QKeySequence(QKeySequence.StandardKey.Delete),
-                self.tbl_ai_managed,
+                _gb_managed,
             )
-            self._sc_ai_managed_delete.setContext(Qt.ShortcutContext.WidgetShortcut)
+            self._sc_ai_managed_delete.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             self._sc_ai_managed_delete.activated.connect(
                 self._on_ai_managed_delete_shortcut
             )
@@ -5322,67 +5870,95 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            self._sc_ai_up = QShortcut(QKeySequence("Alt+Up"), self.tbl_ai_managed)
-            self._sc_ai_up.setContext(Qt.ShortcutContext.WidgetShortcut)
+            self._sc_ai_up = QShortcut(QKeySequence("Alt+Up"), _gb_managed)
+            self._sc_ai_up.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             self._sc_ai_up.activated.connect(self._on_ai_managed_move_up)
         except Exception:
             pass
         try:
-            self._sc_ai_down = QShortcut(QKeySequence("Alt+Down"), self.tbl_ai_managed)
-            self._sc_ai_down.setContext(Qt.ShortcutContext.WidgetShortcut)
+            self._sc_ai_down = QShortcut(QKeySequence("Alt+Down"), _gb_managed)
+            self._sc_ai_down.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             self._sc_ai_down.activated.connect(self._on_ai_managed_move_down)
         except Exception:
             pass
-        _managed_inner.addWidget(self.tbl_ai_managed)
+        _managed_inner.addWidget(self.tbl_ai_managed, 0)
+        try:
+            self.tbl_ai_managed.hide()
+            self.tbl_ai_managed.setMaximumHeight(0)
+            self.tbl_ai_managed.setMinimumHeight(0)
+            self.tbl_ai_managed.setSizePolicy(
+                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored
+            )
+        except Exception:
+            pass
+        self._frm_ai_managed_add_hint = QFrame()
+        try:
+            self._frm_ai_managed_add_hint.setObjectName("frmAiManagedAddHint")
+            self._frm_ai_managed_add_hint.setProperty("managedAddBox", True)
+            self._frm_ai_managed_add_hint.setStyleSheet("")
+            self._frm_ai_managed_add_hint.setMinimumHeight(60)
+        except Exception:
+            pass
+        _ah_lay = QVBoxLayout(self._frm_ai_managed_add_hint)
+        try:
+            _ah_lay.setContentsMargins(14, 14, 14, 14)
+            _ah_lay.setSpacing(4)
+        except Exception:
+            pass
+        self.lbl_ai_managed_add_placeholder = QLabel(
+            "+ 종목 추가 (Market Explorer에서)"
+        )
+        try:
+            self.lbl_ai_managed_add_placeholder.setWordWrap(True)
+            self.lbl_ai_managed_add_placeholder.setProperty("managedAddBoxText", True)
+        except Exception:
+            pass
+        _ah_lay.addWidget(self.lbl_ai_managed_add_placeholder)
+        _managed_inner.addWidget(self._frm_ai_managed_add_hint)
         self._frm_managed_footer = QFrame()
         self._frm_managed_footer.setObjectName("frmManagedFooter")
         try:
-            self._frm_managed_footer.setStyleSheet("#frmManagedFooter { background: transparent; }")
+            self._frm_managed_footer.setProperty("managedSummaryWrap", True)
+            self._frm_managed_footer.setStyleSheet("")
         except Exception:
             pass
         _mf_lay = QHBoxLayout(self._frm_managed_footer)
         try:
-            _mf_lay.setContentsMargins(0, 6, 0, 0)
-            _mf_lay.setSpacing(8)
+            _mf_lay.setContentsMargins(0, 0, 0, 0)
+            _mf_lay.setSpacing(0)
         except Exception:
             pass
 
         def _managed_foot_card(_title: str):
             _bx = QFrame()
             try:
-                _bx.setStyleSheet(
-                    "QFrame { background: #ffffff; border: 1px solid #e2e8f0; "
-                    "border-radius: 12px; }"
-                )
+                _bx.setProperty("managedSummaryItem", True)
+                _bx.setStyleSheet("")
             except Exception:
                 pass
             _vl = QVBoxLayout(_bx)
             try:
-                _vl.setContentsMargins(8, 6, 8, 6)
-                _vl.setSpacing(2)
+                _vl.setContentsMargins(12, 10, 12, 10)
+                _vl.setSpacing(4)
             except Exception:
                 pass
             _lt = QLabel(_title)
             try:
-                _lt.setStyleSheet(
-                    "font-size: 10px; font-weight: 800; color: #64748b;"
-                )
+                _lt.setProperty("managedSummaryTitle", True)
             except Exception:
                 pass
             _lv = QLabel("—")
             try:
-                _lv.setStyleSheet(
-                    "font-size: 12px; font-weight: 900; color: #0f172a;"
-                )
+                _lv.setProperty("managedSummaryValue", True)
             except Exception:
                 pass
             _vl.addWidget(_lt)
             _vl.addWidget(_lv)
             return _bx, _lv
 
-        _bx_e, self._lbl_managed_foot_eval = _managed_foot_card("총 평가")
-        _bx_w, self._lbl_managed_foot_wsum = _managed_foot_card("Σ 비중")
-        _bx_c, self._lbl_managed_foot_cash = _managed_foot_card("현금 추정")
+        _bx_e, self._lbl_managed_foot_eval = _managed_foot_card("총 평가금액")
+        _bx_w, self._lbl_managed_foot_wsum = _managed_foot_card("총 비중")
+        _bx_c, self._lbl_managed_foot_cash = _managed_foot_card("현금 비중")
         _mf_lay.addWidget(_bx_e, 1)
         _mf_lay.addWidget(_bx_w, 1)
         _mf_lay.addWidget(_bx_c, 1)
@@ -5398,39 +5974,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _managed_inner.addWidget(self.lbl_ai_managed_ux_hint)
-        self._frm_ai_managed_add_hint = QFrame()
-        try:
-            self._frm_ai_managed_add_hint.setObjectName("frmAiManagedAddHint")
-        except Exception:
-            pass
-        try:
-            self._frm_ai_managed_add_hint.setStyleSheet(
-                "#frmAiManagedAddHint {"
-                "  background: #f8fafc;"
-                "  border: 1px dashed #cbd5e1;"
-                "  border-radius: 10px;"
-                "}"
-            )
-        except Exception:
-            pass
-        _ah_lay = QVBoxLayout(self._frm_ai_managed_add_hint)
-        try:
-            _ah_lay.setContentsMargins(12, 10, 12, 10)
-            _ah_lay.setSpacing(4)
-        except Exception:
-            pass
-        self.lbl_ai_managed_add_placeholder = QLabel(
-            "+ 종목 추가 (Market Explorer에서)"
-        )
-        try:
-            self.lbl_ai_managed_add_placeholder.setWordWrap(True)
-            self.lbl_ai_managed_add_placeholder.setStyleSheet(
-                "font-size: 12px; font-weight: 600; color: #94a3b8;"
-            )
-        except Exception:
-            pass
-        _ah_lay.addWidget(self.lbl_ai_managed_add_placeholder)
-        _managed_inner.addWidget(self._frm_ai_managed_add_hint)
         self.btn_ai_managed_up = QPushButton("▲ 위로")
         self.btn_ai_managed_down = QPushButton("▼ 아래로")
         try:
@@ -6601,15 +7144,21 @@ class MainWindow(QMainWindow):
         self._aits_bottom_nav_frame.setObjectName("aitsBottomNavFrame")
         try:
             self._aits_bottom_nav_frame.setProperty("bottomNav", True)
+            self._aits_bottom_nav_frame.setProperty("bottomDock", True)
         except Exception:
             pass
         try:
             self._aits_bottom_nav_frame.setStyleSheet("")
         except Exception:
             pass
+        try:
+            self._aits_bottom_nav_frame.setMinimumHeight(88)
+            self._aits_bottom_nav_frame.setMaximumHeight(88)
+        except Exception:
+            pass
         _nav_ly = QHBoxLayout(self._aits_bottom_nav_frame)
-        _nav_ly.setContentsMargins(10, 8, 10, 8)
-        _nav_ly.setSpacing(8)
+        _nav_ly.setContentsMargins(20, 8, 20, 8)
+        _nav_ly.setSpacing(10)
 
         self._bottom_nav_left_wrap = QWidget(self._aits_bottom_nav_frame)
         try:
@@ -6621,19 +7170,35 @@ class MainWindow(QMainWindow):
         _nav_left_ly.setSpacing(8)
 
         self.btn_nav_watchlist = _AitsBottomNavTile(
-            "◆  AITS 종목관리", "AI 선별 · 관리 · 분석", self._bottom_nav_left_wrap
+            "◆",
+            "AITS 종목관리",
+            "AI 선별 · 관리 · 분석",
+            self._bottom_nav_left_wrap,
+            min_tile_width=188,
         )
         self.btn_nav_trades = _AitsBottomNavTile(
-            "◇  매매기록", "주문 · 체결 · 로그", self._bottom_nav_left_wrap
+            "▤",
+            "매매기록",
+            "주문 · 체결 · 로그",
+            self._bottom_nav_left_wrap,
         )
         self.btn_nav_portfolio = _AitsBottomNavTile(
-            "◇  투자현황", "잔고 · 포지션 · 수익률", self._bottom_nav_left_wrap
+            "◫",
+            "투자현황",
+            "잔고 · 포지션 · 수익률",
+            self._bottom_nav_left_wrap,
         )
         self.btn_nav_strategy = _AitsBottomNavTile(
-            "◇  전략설정", "정책 · 리스크 · 규칙", self._bottom_nav_left_wrap
+            "✣",
+            "전략설정",
+            "정책 · 리스크 · 규칙",
+            self._bottom_nav_left_wrap,
         )
         self.btn_nav_settings = _AitsBottomNavTile(
-            "◇  공통설정", "AI · 연결 · 엔진", self._bottom_nav_left_wrap
+            "⚙",
+            "공통설정",
+            "AI · 연결 · 엔진",
+            self._bottom_nav_left_wrap,
         )
         self._bottom_nav_buttons = [
             self.btn_nav_watchlist,
@@ -6642,8 +7207,13 @@ class MainWindow(QMainWindow):
             self.btn_nav_strategy,
             self.btn_nav_settings,
         ]
-        for _b in self._bottom_nav_buttons:
+        for _i, _b in enumerate(self._bottom_nav_buttons):
             _nav_left_ly.addWidget(_b, 0)
+            if _i < len(self._bottom_nav_buttons) - 1:
+                try:
+                    _nav_left_ly.addWidget(self._make_bottom_nav_divider(), 0)
+                except Exception:
+                    pass
         _nav_ly.addWidget(self._bottom_nav_left_wrap, 0)
 
         _nav_ly.addStretch(1)
@@ -6659,14 +7229,20 @@ class MainWindow(QMainWindow):
 
         self.btn_nav_save = QPushButton("파일 저장")
         self.btn_nav_logout = QPushButton("로그아웃")
+        try:
+            self._setup_bottom_nav_action_button_innards(
+                self.btn_nav_save, "파일 저장", use_save_icon=True
+            )
+            self._setup_bottom_nav_action_button_innards(
+                self.btn_nav_logout, "로그아웃", use_save_icon=False
+            )
+        except Exception:
+            pass
         for _sb in (self.btn_nav_save, self.btn_nav_logout):
             try:
-                _sb.setProperty("bottomAction", True)
-            except Exception:
-                pass
-            try:
-                _sb.setMinimumHeight(34)
-                _sb.setMaximumHeight(34)
+                _sb.setMinimumHeight(44)
+                _sb.setMaximumHeight(44)
+                _sb.setMinimumWidth(118)
             except Exception:
                 pass
             try:
@@ -6697,11 +7273,6 @@ class MainWindow(QMainWindow):
             self._set_bottom_nav_active(int(self.tabs.currentIndex()))
         except Exception:
             self._set_bottom_nav_active(0)
-        try:
-            self._aits_bottom_nav_frame.setMinimumHeight(56)
-            self._aits_bottom_nav_frame.setMaximumHeight(64)
-        except Exception:
-            pass
         self._shell_root_ly.addWidget(self._aits_bottom_nav_frame, 0)
 
         # ---- 하단 상태바 (숨김 처리 - 전역 상태바로 단일화)
@@ -6774,6 +7345,81 @@ class MainWindow(QMainWindow):
         # ✅ P0-A: Start boot sequence after UI is built
         QTimer.singleShot(100, self._boot_sequence_step1)
 
+    def _make_bottom_nav_divider(self) -> QLabel:
+        lbl = QLabel("|")
+        try:
+            lbl.setProperty("bottomNavDivider", True)
+            lbl.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            )
+            lbl.setFixedWidth(12)
+        except Exception:
+            pass
+        return lbl
+
+    def _setup_bottom_nav_action_button_innards(
+        self, btn: QPushButton, title: str, *, use_save_icon: bool
+    ) -> None:
+        """하단 우측 액션 버튼: 아이콘 + 한 줄 텍스트(clicked는 버튼에 유지)."""
+        try:
+            if btn.layout() is not None:
+                return
+        except Exception:
+            return
+        try:
+            btn.setText("")
+            btn.setProperty("bottomAction", False)
+            btn.setProperty("bottomActionButton", True)
+            btn.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
+        except Exception:
+            pass
+        try:
+            h = QHBoxLayout(btn)
+            h.setContentsMargins(8, 0, 10, 0)
+            h.setSpacing(6)
+            ic = QLabel(btn)
+            ic.setFixedSize(18, 18)
+            ic.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            )
+            ic.setProperty("bottomActionIcon", True)
+            try:
+                ic.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+                )
+            except Exception:
+                pass
+            _pix_ok = False
+            try:
+                st = self.style()
+                if st is not None and use_save_icon:
+                    pm = st.standardIcon(
+                        QStyle.StandardPixmap.SP_DialogSaveButton
+                    ).pixmap(QSize(18, 18))
+                    if pm is not None and not pm.isNull():
+                        ic.setPixmap(pm)
+                        _pix_ok = True
+            except Exception:
+                pass
+            if not _pix_ok:
+                try:
+                    ic.setText("□" if use_save_icon else "⇪")
+                except Exception:
+                    pass
+            tx = QLabel(title, btn)
+            tx.setProperty("bottomActionText", True)
+            try:
+                tx.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+                )
+            except Exception:
+                pass
+            h.addWidget(ic, 0)
+            h.addWidget(tx, 0)
+            h.addStretch(1)
+        except Exception:
+            pass
+
     def _on_bottom_nav_clicked(self, idx: int):
         try:
             if not hasattr(self, "tabs") or self.tabs is None:
@@ -6795,6 +7441,10 @@ class MainWindow(QMainWindow):
                 if hasattr(b, "set_tile_active"):
                     try:
                         b.set_tile_active(active)
+                        try:
+                            b.update()
+                        except Exception:
+                            pass
                     except Exception:
                         pass
                 elif isinstance(b, QPushButton):
@@ -7764,33 +8414,59 @@ class MainWindow(QMainWindow):
                 "}"
             )
 
-            card_body = getattr(self, "_lbl_aits_engine_card_body", None)
-            if card_body is not None:
+            _sel_lb = getattr(self, "_lbl_engine_card_selected", None)
+            _mod_lb = getattr(self, "_lbl_engine_card_model", None)
+            _st_lb = getattr(self, "_lbl_engine_card_status", None)
+            _dot_lb = getattr(self, "_lbl_engine_card_status_dot", None)
+            if _sel_lb is not None:
+                try:
+                    _sel_lb.setText(f"선택: {sel_txt}")
+                except Exception:
+                    pass
+            _model_nm = "qwen2.5"
+            try:
+                if hasattr(self, "cmb_local_model") and self.cmb_local_model is not None:
+                    _model_nm = (
+                        (self.cmb_local_model.currentText() or "").strip() or _model_nm
+                    )
+            except Exception:
+                pass
+            if _mod_lb is not None:
+                try:
+                    _mod_lb.setText(f"모델: {_model_nm}")
+                except Exception:
+                    pass
+            _eng_stat = (conn or "").strip() or "확인중"
+            if _st_lb is not None:
+                try:
+                    _st_lb.setText(f"상태: {_eng_stat}")
+                except Exception:
+                    pass
+            if _dot_lb is not None:
+                try:
+                    _dot_lb.setText("●")
+                except Exception:
+                    pass
                 if tier == "err":
                     dot_color = "#ef4444"
                 elif tier == "warn":
                     dot_color = "#f97316"
                 else:
                     dot_color = "#22c55e"
-                card_body.setText(
-                    "<span style='font-size:12px; font-weight:800; color:#0f172a'>선택:</span> "
-                    f"<span style='font-size:12px; font-weight:700; color:#1e293b'>{sel_txt}</span><br>"
-                    "<span style='font-size:11.5px; color:#64748b'>모델: qwen2.5</span><br>"
-                    "<span style='font-size:11.8px; font-weight:800; color:#1e293b'>상태:</span> "
-                    f"<span style='font-size:11.8px; font-weight:800; color:#1e293b'>{conn}</span> "
-                    f"<span style='color:{dot_color}; font-weight:900'>●</span>"
-                )
+                try:
+                    _dot_lb.setStyleSheet(
+                        f"color:{dot_color}; font-size:11px; font-weight:800; "
+                        "background:transparent; border:none;"
+                    )
+                except Exception:
+                    pass
 
             frame = getattr(self, "_frame_aits_engine_card", None)
             if frame is not None:
-                topc = "#22c55e" if tier in ("ok", "basic_ok") else (
-                    "#f97316" if tier == "warn" else "#ef4444"
-                )
                 frame.setStyleSheet(
                     "QFrame#aitsEngineSummaryCard {"
                     "background:#ffffff;"
                     "border:1px solid #e5e7eb;"
-                    f"border-top:4px solid {topc};"
                     "border-radius:16px;"
                     "font-family:'Noto Sans KR','Malgun Gothic',sans-serif;"
                     "}"
@@ -11328,6 +12004,363 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _focus_market_explorer_for_managed_add(self) -> None:
+        try:
+            t = getattr(self, "tbl_market_all", None)
+            if t is None:
+                return
+            t.setFocus(Qt.FocusReason.OtherFocusReason)
+        except Exception:
+            pass
+
+    def _refresh_managed_summary_cards(self) -> None:
+        """LEFT MANAGED: 하단 3칸 요약 값 재적용 래퍼."""
+        try:
+            self._refresh_managed_footer_metrics()
+        except Exception:
+            pass
+
+    def _managed_card_status_display(self, row: dict, st_code: str) -> tuple[str, str]:
+        """카드 상태 1줄 텍스트 + kind(positive|neutral|negative)."""
+        try:
+            u = str(st_code or "").strip().upper()
+            if u == "ENTRY":
+                return "매수대기", "neutral"
+            if u == "HOLD":
+                return "보유", "positive"
+            if u == "WATCH":
+                return "관망", "positive"
+            if u == "EXIT":
+                return "매도", "negative"
+            if u == "COOL":
+                return "대기", "neutral"
+            raw = str(row.get("ai_status") or "").strip()
+            ft = self._format_aits_user_state_text(raw)
+            if ft:
+                if any(x in ft for x in ("매수", "진입")):
+                    return ft, "neutral"
+                if any(x in ft for x in ("매도", "위험", "하락")):
+                    return ft, "negative"
+                return ft, "positive"
+            return (u or "—"), "neutral"
+        except Exception:
+            return "—", "neutral"
+
+    def _managed_card_status_subline(self, row: dict) -> str:
+        """상태 보조 1줄(실데이터 있을 때만)."""
+        try:
+            nm = str(row.get("name") or "").strip()
+            if nm and len(nm) <= 28:
+                return nm
+        except Exception:
+            pass
+        return ""
+
+    def _extract_managed_rows_fallback_from_table(self) -> list[dict]:
+        """`ai_managed_rows` 추출이 비었을 때 숨김 테이블에서 최소 행 정보만 복원."""
+        out: list[dict] = []
+        try:
+            t = getattr(self, "tbl_ai_managed", None)
+            if t is None:
+                return out
+            rc = int(t.rowCount())
+            if rc <= 0:
+                return out
+            for r in range(rc):
+                it = t.item(r, 1)
+                raw_symbol = ""
+                if it is not None:
+                    raw_symbol = str(
+                        it.data(Qt.ItemDataRole.UserRole) or it.text() or ""
+                    ).strip()
+                if not raw_symbol:
+                    continue
+                key = raw_symbol.replace("KRW-", "").upper().strip()
+                out.append(
+                    {
+                        "rank": len(out) + 1,
+                        "symbol": key or raw_symbol,
+                        "korean": "",
+                        "score": 0,
+                        "status_text": "",
+                        "status_kind": "neutral",
+                        "status_sub": "",
+                        "weight_text": "—",
+                        "raw_symbol": raw_symbol,
+                        "coin_key": key or raw_symbol,
+                    }
+                )
+        except Exception:
+            pass
+        return out
+
+    def _extract_managed_rows_for_left_panel(self) -> list[dict]:
+        """`ai_managed_rows` 기반 카드 렌더용 페이로드(표시만, 새 SSOT 없음)."""
+        out: list[dict] = []
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            rank_c = 0
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                raw_symbol = str(
+                    row.get("symbol")
+                    or row.get("market")
+                    or row.get("ticker")
+                    or row.get("code")
+                    or ""
+                ).strip()
+                if not raw_symbol:
+                    continue
+                rank_c += 1
+                key = raw_symbol.replace("KRW-", "").upper().strip()
+                lab = self._aits_symbol_label(raw_symbol)
+                parts = str(lab or "").strip().split()
+                title = parts[0] if parts else key
+                korean = " ".join(parts[1:]) if len(parts) > 1 else ""
+                sc_txt = self._get_ai_confidence(row)
+                try:
+                    score = int(float(str(sc_txt).replace("%", "")))
+                except Exception:
+                    score = 0
+                st_code = self._get_ai_state_for_row(row)
+                st_main, st_kind = self._managed_card_status_display(row, st_code)
+                st_sub = self._managed_card_status_subline(row)
+                wt_txt, _has = self._format_ai_managed_weight_cell(row)
+                wline = (wt_txt or "—").split("\n", 1)[0].strip()
+                out.append(
+                    {
+                        "rank": rank_c,
+                        "symbol": title,
+                        "korean": korean,
+                        "score": score,
+                        "status_text": st_main,
+                        "status_kind": st_kind,
+                        "status_sub": st_sub,
+                        "weight_text": wline,
+                        "raw_symbol": raw_symbol,
+                        "coin_key": key,
+                    }
+                )
+        except Exception:
+            pass
+        if not out:
+            try:
+                t = getattr(self, "tbl_ai_managed", None)
+                if t is not None and int(t.rowCount()) > 0:
+                    out = self._extract_managed_rows_fallback_from_table()
+            except Exception:
+                pass
+        return out
+
+    def _clear_managed_rows_layout_completely(self, lay: QVBoxLayout) -> None:
+        """stretch/spacer 포함 레이아웃 항목을 모두 제거하고 위젯은 부모에서 분리."""
+        try:
+            while lay.count():
+                item = lay.takeAt(0)
+                if item is None:
+                    continue
+                w = item.widget()
+                if w is not None:
+                    try:
+                        w.hide()
+                        w.setParent(None)
+                    except Exception:
+                        pass
+                    try:
+                        w.deleteLater()
+                    except Exception:
+                        pass
+                    try:
+                        del item
+                    except Exception:
+                        pass
+                    continue
+                child_layout = item.layout()
+                if child_layout is not None:
+                    try:
+                        while child_layout.count():
+                            sub = child_layout.takeAt(0)
+                            if sub is None:
+                                continue
+                            sw = sub.widget()
+                            if sw is not None:
+                                try:
+                                    sw.hide()
+                                    sw.setParent(None)
+                                except Exception:
+                                    pass
+                                try:
+                                    sw.deleteLater()
+                                except Exception:
+                                    pass
+                            try:
+                                del sub
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    try:
+                        del item
+                    except Exception:
+                        pass
+                    continue
+                try:
+                    del item
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _apply_managed_row_cards_selection(self) -> None:
+        try:
+            t = getattr(self, "tbl_ai_managed", None)
+            cards = getattr(self, "_managed_row_card_widgets", None) or []
+            cr = int(t.currentRow()) if t is not None else -1
+            for i, c in enumerate(cards):
+                try:
+                    c.set_card_selected(i == cr)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _rebuild_left_managed_real_panel(self) -> None:
+        """좌측 관리 패널 카드 리스트 재구성(표시 전용)."""
+        try:
+            print(
+                f"[AITS][LEFT] rebuild start | ai_managed_rows={len(getattr(self, 'ai_managed_rows', []) or [])}"
+            )
+            lay = getattr(self, "_managed_rows_layout", None)
+            if lay is None:
+                print("[AITS][LEFT] rebuild abort | no layout")
+                return
+            self._clear_managed_rows_layout_completely(lay)
+            self._managed_row_card_widgets = []
+            rows = self._extract_managed_rows_for_left_panel()
+            print(f"[AITS][LEFT] extracted rows={len(rows)}")
+            host = getattr(self, "_managed_rows_host", None)
+            for p in rows:
+                print(
+                    f"[AITS][LEFT] add row | rank={p.get('rank')} symbol={p.get('symbol')} raw={p.get('raw_symbol')}"
+                )
+                st_cell = _AitsManagedStatusCell(
+                    str(p.get("status_text") or "—"),
+                    str(p.get("status_sub") or ""),
+                    str(p.get("status_kind") or "neutral"),
+                )
+                card = _AitsManagedRowCard(
+                    self,
+                    int(p.get("rank", 1)) - 1,
+                    str(p.get("raw_symbol") or ""),
+                    int(p.get("rank", 1)),
+                    str(p.get("coin_key") or ""),
+                    str(p.get("symbol") or ""),
+                    str(p.get("korean") or ""),
+                    int(p.get("score") or 0),
+                    st_cell,
+                    str(p.get("weight_text") or "—"),
+                    host,
+                )
+                try:
+                    card.setVisible(True)
+                    card.setMinimumHeight(54)
+                    card.setMaximumHeight(54)
+                    card.setSizePolicy(
+                        QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                    )
+                except Exception:
+                    pass
+                lay.addWidget(card, 0)
+                self._managed_row_card_widgets.append(card)
+            lay.addStretch(1)
+            try:
+                if host is not None:
+                    host.adjustSize()
+                    host.updateGeometry()
+                scr = getattr(self, "_managed_rows_scroll", None)
+                if scr is not None:
+                    ww = scr.widget()
+                    if ww is not None:
+                        ww.adjustSize()
+                    scr.viewport().update()
+            except Exception:
+                pass
+            try:
+                self.tbl_ai_managed.hide()
+            except Exception:
+                pass
+            try:
+                self._apply_managed_row_cards_selection()
+            except Exception:
+                pass
+            print(
+                f"[AITS][LEFT] rebuild done | layout_count={lay.count()}"
+            )
+            try:
+                if host is not None:
+                    print(
+                        f"[AITS][LEFT][FINAL] host_size={host.size().width()}x{host.size().height()} "
+                        f"hint={host.sizeHint().width()}x{host.sizeHint().height()}"
+                    )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_left_managed_row_clicked(self, raw_symbol: str) -> None:
+        try:
+            t = getattr(self, "tbl_ai_managed", None)
+            rows = getattr(self, "ai_managed_rows", None) or []
+            if t is None:
+                return
+            target = (raw_symbol or "").strip()
+            idx = -1
+
+            def _n(x):
+                try:
+                    return str(
+                        self._normalize_aits_market_symbol(x) or ""
+                    ).strip()
+                except Exception:
+                    return str(x or "").strip()
+
+            tn = _n(target)
+            for i, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                rs = str(row.get("symbol") or row.get("market") or "").strip()
+                if not rs:
+                    continue
+                if rs == target or _n(rs) == tn:
+                    idx = i
+                    break
+            if idx < 0:
+                return
+            try:
+                t.setCurrentCell(idx, 1)
+            except Exception:
+                try:
+                    t.selectRow(idx)
+                except Exception:
+                    pass
+            try:
+                t.setFocus(Qt.FocusReason.MouseFocusReason)
+            except Exception:
+                pass
+            try:
+                self._apply_managed_row_cards_selection()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _on_left_managed_row_double_clicked(self, row_index: int) -> None:
+        try:
+            self._on_ai_managed_table_double_clicked(int(row_index), 1)
+        except Exception:
+            pass
+
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
             return
@@ -11338,62 +12371,16 @@ class MainWindow(QMainWindow):
             t.setRowCount(0)
             for i, row in enumerate(self.ai_managed_rows):
                 t.insertRow(i)
-                raw_symbol = str(row.get("symbol") or row.get("market") or "")
+                if not isinstance(row, dict):
+                    continue
+                raw_symbol = str(row.get("symbol") or row.get("market") or "").strip()
                 sym = raw_symbol.strip()
-                c_rank = QTableWidgetItem(str(i + 1))
-                try:
-                    c_rank.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-                    )
-                except Exception:
-                    pass
-                t.setItem(i, 0, c_rank)
-                c_sym = QTableWidgetItem(self._aits_symbol_label(raw_symbol))
-                c_sym.setData(Qt.ItemDataRole.UserRole, sym)
-                try:
-                    c_sym.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-                    )
-                except Exception:
-                    pass
-                t.setItem(i, 1, c_sym)
-                st = self._get_ai_state_for_row(row if isinstance(row, dict) else None)
-                c_state = QTableWidgetItem(st)
-                try:
-                    c_state.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-                    )
-                except Exception:
-                    pass
-                t.setItem(i, 2, c_state)
-                c_conf = QTableWidgetItem(
-                    self._get_ai_confidence(row if isinstance(row, dict) else None)
+                it1 = QTableWidgetItem(sym or raw_symbol or "—")
+                it1.setData(Qt.ItemDataRole.UserRole, sym)
+                it1.setFlags(
+                    Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                 )
-                try:
-                    c_conf.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-                    )
-                except Exception:
-                    pass
-                t.setItem(i, 3, c_conf)
-                c_eta = QTableWidgetItem(
-                    self._get_ai_eta(row if isinstance(row, dict) else None)
-                )
-                try:
-                    c_eta.setTextAlignment(
-                        int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
-                    )
-                except Exception:
-                    pass
-                t.setItem(i, 4, c_eta)
-            try:
-                t.setColumnWidth(0, 36)
-                t.setColumnWidth(1, 210)
-                t.setColumnWidth(2, 95)
-                t.setColumnWidth(3, 70)
-                t.setColumnWidth(4, 75)
-            except Exception:
-                pass
+                t.setItem(i, 1, it1)
             if not self.ai_managed_rows:
                 self._set_selected_ai_pool_symbol("")
                 t.clearSelection()
@@ -11436,6 +12423,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
+                self._rebuild_left_managed_real_panel()
+            except Exception:
+                pass
+            try:
                 self._log_aits_validation_summary("managed_refresh")
             except Exception:
                 pass
@@ -11444,36 +12435,43 @@ class MainWindow(QMainWindow):
     def _update_ai_managed_summary(self) -> None:
         """PATCH B-1: 좌측 관리종목 요약칩 (표시만, 데이터 구조 불변)."""
         try:
-            lb = getattr(self, "lbl_ai_managed_summary", None)
-            if lb is None:
-                return
             rows = getattr(self, "ai_managed_rows", None) or []
             n = len(rows)
-            hold_n = 0
-            for row in rows:
-                disp = ""
-                raw_st = str(row.get("ai_status") or "").strip()
-                try:
-                    disp = self._format_aits_user_state_text(raw_st)
-                except Exception:
-                    disp = raw_st
-                raw_u = raw_st.upper()
-                rl = raw_st.lower()
-                if (
-                    "보유" in disp
-                    or "관찰" in disp
-                    or "유지" in disp
-                    or raw_u == "HOLD"
-                    or rl == "holding"
-                    or "holding" in rl
-                ):
-                    hold_n += 1
-            cand_n = max(0, n - hold_n)
-            lb.setText(f"관리 {n}종목 | 보유 {hold_n} | 후보 {cand_n}")
+            sc = getattr(self, "lbl_ai_managed_scope", None)
+            if sc is not None:
+                sc.setText(f"AI가 선별한 종목만 매매 대상\n(총 {n}개)")
         except Exception:
             pass
         try:
-            self._refresh_managed_footer_metrics()
+            lb = getattr(self, "lbl_ai_managed_summary", None)
+            rows = getattr(self, "ai_managed_rows", None) or []
+            n = len(rows)
+            if lb is not None:
+                hold_n = 0
+                for row in rows:
+                    disp = ""
+                    raw_st = str(row.get("ai_status") or "").strip()
+                    try:
+                        disp = self._format_aits_user_state_text(raw_st)
+                    except Exception:
+                        disp = raw_st
+                    raw_u = raw_st.upper()
+                    rl = raw_st.lower()
+                    if (
+                        "보유" in disp
+                        or "관찰" in disp
+                        or "유지" in disp
+                        or raw_u == "HOLD"
+                        or rl == "holding"
+                        or "holding" in rl
+                    ):
+                        hold_n += 1
+                cand_n = max(0, n - hold_n)
+                lb.setText(f"관리 {n}종목 | 보유 {hold_n} | 후보 {cand_n}")
+        except Exception:
+            pass
+        try:
+            self._refresh_managed_summary_cards()
         except Exception:
             pass
 
@@ -11537,68 +12535,9 @@ class MainWindow(QMainWindow):
             pass
 
     def _apply_ai_managed_row_visual_state(self):
-        """Managed 5열: 줄무늬 배경 + 선택 하이라이트 + AI 상태 열 텍스트 색."""
+        """Managed: 숨김 테이블 + 카드 리스트 선택 하이라이트."""
         try:
-            table = getattr(self, "tbl_ai_managed", None)
-            if table is None:
-                return
-
-            row_count = table.rowCount()
-            col_count = table.columnCount()
-            cur_row = int(table.currentRow())
-            rows_data = getattr(self, "ai_managed_rows", None) or []
-
-            def _state_fg(st: str) -> QColor:
-                u = str(st or "").strip().upper()
-                if u == "WATCH":
-                    return QColor("#64748b")
-                if u == "ENTRY":
-                    return QColor("#16a34a")
-                if u == "HOLD":
-                    return QColor("#2563eb")
-                if u == "EXIT":
-                    return QColor("#ea580c")
-                if u == "COOL":
-                    return QColor("#9333ea")
-                return QColor("#0f172a")
-
-            for r in range(row_count):
-                row_sel = r == cur_row
-                row_obj = rows_data[r] if r < len(rows_data) else None
-                st = (
-                    self._get_ai_state_for_row(row_obj)
-                    if isinstance(row_obj, dict)
-                    else "WATCH"
-                )
-                alt_bg = QColor("#f1f5f9") if (r % 2 == 1) else QColor("#ffffff")
-                sel_bg = QColor("#dbeafe")
-                for c in range(col_count):
-                    it = table.item(r, c)
-                    if it is None:
-                        continue
-                    try:
-                        it.setBackground(sel_bg if row_sel else alt_bg)
-                    except Exception:
-                        pass
-                    if c == 2:
-                        try:
-                            it.setForeground(_state_fg(st))
-                        except Exception:
-                            pass
-                        f = it.font()
-                        f.setBold(True)
-                        it.setFont(f)
-                    else:
-                        try:
-                            it.setForeground(QColor("#0f172a"))
-                        except Exception:
-                            pass
-                        f = it.font()
-                        f.setBold(False)
-                        it.setFont(f)
-
-            table.viewport().update()
-
+            self._apply_managed_row_cards_selection()
         except Exception:
             pass
 
@@ -11808,6 +12747,10 @@ class MainWindow(QMainWindow):
             if len(new_rows) != len(rows):
                 return
             self.ai_managed_rows = new_rows
+            try:
+                self._rebuild_left_managed_real_panel()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -20595,7 +21538,6 @@ QWidget#aitsPowerCard {
 QFrame#aitsEngineSummaryCard {
     background: #ffffff;
     border: 1px solid #e5e7eb;
-    border-top: 4px solid #22c55e;
     border-radius: 16px;
 }
 QFrame#shellStatusRow {
@@ -20604,12 +21546,12 @@ QFrame#shellStatusRow {
     border-radius: 14px;
 }
 #tblAiManagedIntent {
-    background: #f8fafc;
-    gridline-color: #e2e8f0;
+    background: #ffffff;
+    gridline-color: #eef2f7;
 }
 #tblAiManagedIntent::item:selected {
-    background-color: #dbeafe;
-    color: #0f172a;
+    background-color: #eef4ff;
+    color: #111827;
 }
 #tblMarketExplorer {
     background: #f8fafc;
@@ -21086,8 +22028,8 @@ QWidget[footerNav="true"]{
     background:#07152D;
     border:1px solid #0F274A;
     border-radius:18px;
-    min-height:56px;
-    max-height:64px;
+    min-height:72px;
+    max-height:120px;
     padding:6px 10px;
 }
 
@@ -21182,8 +22124,8 @@ QFrame#aitsBottomNavTile[bottomTab="true"]{
     color:#D8E3F0;
     border:1px solid rgba(255,255,255,0.08);
     border-radius:12px;
-    min-height:36px;
-    max-height:48px;
+    min-height:56px;
+    max-height:96px;
 }
 
 QFrame#aitsBottomNavTile[bottomTab="true"]:hover{
@@ -21195,8 +22137,8 @@ QFrame#aitsBottomNavTile[bottomTabActive="true"]{
     background:#0F274A;
     border:1px solid #4DA3FF;
     border-radius:12px;
-    min-height:36px;
-    max-height:48px;
+    min-height:56px;
+    max-height:96px;
 }
 
 QFrame#aitsBottomNavTile[bottomTabActive="true"]:hover{
@@ -21208,7 +22150,6 @@ QFrame#aitsBottomNavTile[bottomTab="true"] QLabel#aitsBottomNavLine1{
     background:transparent;
     border:none;
     color:#D8E3F0;
-    font-size:11px;
     font-weight:800;
 }
 
@@ -21216,7 +22157,6 @@ QFrame#aitsBottomNavTile[bottomTab="true"] QLabel#aitsBottomNavLine2{
     background:transparent;
     border:none;
     color:#9FB0C6;
-    font-size:10px;
     font-weight:700;
 }
 
@@ -21226,7 +22166,6 @@ QFrame#aitsBottomNavTile[bottomTabActive="true"] QLabel#aitsBottomNavLine1{
 
 QFrame#aitsBottomNavTile[bottomTabActive="true"] QLabel#aitsBottomNavLine2{
     color:rgba(255,255,255,0.82);
-    font-size:10px;
     font-weight:700;
 }
 
@@ -21235,8 +22174,8 @@ QFrame#aitsBottomNavFrame[bottomNav="true"]{
     background:#07152D;
     border:1px solid #0F274A;
     border-radius:18px;
-    min-height:56px;
-    max-height:64px;
+    min-height:72px;
+    max-height:120px;
     padding:6px 10px;
 }
 
@@ -21849,7 +22788,7 @@ QPushButton[topSubBarAction="true"]{
     color:#374151;
     border:1px solid #D1D5DB;
     border-radius:6px;
-    padding:4px 14px;
+    padding:4px 12px;
     font-size:12px;
     font-weight:500;
     min-height:30px;
@@ -21928,6 +22867,295 @@ QWidget[topSubBarHost="true"]{
 }
 
 QWidget[colorChipWrap="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* ==================================================
+   AITS HEADER AI ENGINE STATUS RESTORE
+================================================== */
+
+QLabel[engineStatusText="true"]{
+    color:#6B7280;
+    font-size:10px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[engineStatusDot="true"]{
+    color:#22C55E;
+    font-size:11px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* ==================================================
+   AITS BOTTOM NAV REAL BUILD
+================================================== */
+
+QFrame#aitsBottomNavFrame[bottomDock="true"]{
+    background:qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #162338,
+        stop:1 #0F1B2D
+    );
+    border-top:1px solid #1E2A3F;
+    border-radius:14px;
+}
+
+QFrame[bottomDock="true"],
+QWidget[bottomDock="true"]{
+    background:qlineargradient(
+        x1:0, y1:0, x2:0, y2:1,
+        stop:0 #162338,
+        stop:1 #0F1B2D
+    );
+    border-top:1px solid #1E2A3F;
+    border-radius:14px;
+}
+
+QPushButton[bottomNavTab="true"],
+QFrame#aitsBottomNavTile[bottomNavTab="true"]{
+    background:transparent;
+    border:none;
+    border-radius:10px;
+    text-align:left;
+}
+
+QPushButton[bottomNavTab="true"]:hover,
+QFrame#aitsBottomNavTile[bottomNavTab="true"]:hover{
+    background:rgba(255,255,255,0.05);
+}
+
+QPushButton[bottomNavTab="true"][bottomNavActive="true"],
+QFrame#aitsBottomNavTile[bottomNavTab="true"][bottomNavActive="true"]{
+    background:#1E3A5F;
+    border:1px solid rgba(91,163,245,0.18);
+}
+
+QPushButton[bottomNavTab="true"][bottomNavActive="true"]:hover,
+QFrame#aitsBottomNavTile[bottomNavTab="true"][bottomNavActive="true"]:hover{
+    background:#244672;
+}
+
+QLabel[bottomNavTitle="true"]{
+    color:#E5E7EB;
+    font-size:17px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[bottomNavSub="true"]{
+    color:#6B7280;
+    font-size:12px;
+    font-weight:500;
+    background:transparent;
+    border:none;
+}
+
+QLabel[bottomNavActiveChild="true"][bottomNavTitle="true"]{
+    color:#5BA3F5;
+}
+
+QLabel[bottomNavActiveChild="true"][bottomNavSub="true"]{
+    color:#7FB8F7;
+}
+
+QLabel[bottomNavIcon="true"]{
+    color:#D1D5DB;
+    font-size:18px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[bottomNavActiveChild="true"][bottomNavIcon="true"]{
+    color:#5BA3F5;
+}
+
+QLabel[bottomNavDivider="true"]{
+    color:#3A4A5F;
+    font-size:18px;
+    font-weight:400;
+    background:transparent;
+    border:none;
+    padding:0px;
+}
+
+QPushButton[bottomActionButton="true"]{
+    background:transparent;
+    border:1px solid #3A4A5F;
+    border-radius:8px;
+}
+
+QPushButton[bottomActionButton="true"]:hover{
+    background:#1E2A3F;
+    border-color:#5A6B82;
+}
+
+QLabel[bottomActionText="true"]{
+    color:#E5E7EB;
+    font-size:14px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[bottomActionIcon="true"]{
+    color:#E5E7EB;
+    font-size:14px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* ==================================================
+   AITS LEFT MANAGED REBUILD-02
+================================================== */
+
+QFrame[leftManagedReal="true"],
+QWidget[leftManagedReal="true"]{
+    background:#F2F3F5;
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+}
+
+QFrame[aitsManagedCard="true"]{
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+}
+
+QLabel[managedTitleMain="true"]{
+    color:#0F172A;
+    font-size:15px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+QLabel[managedTitleSub="true"]{
+    color:#6B7280;
+    font-size:12px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[managedDesc="true"]{
+    color:#6B7280;
+    font-size:12px;
+    font-weight:500;
+    background:transparent;
+    border:none;
+}
+
+QPushButton[managedHeaderAction="true"]{
+    background:#FFFFFF;
+    color:#6B7280;
+    border:1px solid #E5E7EB;
+    border-radius:8px;
+    font-size:12px;
+    font-weight:700;
+    min-height:28px;
+    padding:2px 12px;
+}
+
+QPushButton[managedHeaderAction="true"]:hover{
+    background:#FAFBFC;
+}
+
+QFrame[managedHeaderRow="true"]{
+    background:#F1F2F4;
+    border:none;
+    border-radius:8px;
+}
+
+QLabel[managedHeaderCell="true"]{
+    color:#6B7280;
+    font-size:12px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QFrame[managedRowCard="true"]{
+    background:#FFFFFF;
+    border-bottom:1px solid #E5E7EB;
+    border-left:none;
+    border-right:none;
+    border-top:1px solid rgba(59,130,246,0.08);
+    border-radius:0px;
+}
+
+QFrame[managedRowCard="true"]:hover{
+    background:#FAFBFC;
+}
+
+QFrame[managedRowCard="true"][managedRowActive="true"]{
+    background:#EEF4FF;
+    border-bottom:1px solid #CBD5E1;
+}
+
+QLabel[managedCoinTitle="true"]{
+    color:#0F172A;
+    font-size:15px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+QLabel[managedCoinSub="true"]{
+    color:#6B7280;
+    font-size:11px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[managedWeightText="true"]{
+    color:#374151;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QFrame[managedAddBox="true"]{
+    background:#FFFFFF;
+    border:2px dashed #D7DEE8;
+    border-radius:12px;
+}
+
+QLabel[managedAddBoxText="true"]{
+    color:#6B7280;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QFrame[managedSummaryWrap="true"]{
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:14px;
+}
+
+QLabel[managedSummaryTitle="true"]{
+    color:#6B7280;
+    font-size:12px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[managedSummaryValue="true"]{
+    color:#0F172A;
+    font-size:18px;
+    font-weight:800;
     background:transparent;
     border:none;
 }
