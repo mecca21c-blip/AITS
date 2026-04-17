@@ -14,6 +14,7 @@ import warnings
 import time
 import json
 import math
+from pathlib import Path
 import concurrent.futures
 from PySide6 import QtGui
 
@@ -320,15 +321,28 @@ class _AitsBottomNavTile(QFrame):
         super().__init__(parent)
         self.setObjectName("aitsBottomNavTile")
         try:
+            self.setProperty("bottomTab", True)
+        except Exception:
+            pass
+        try:
             self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         except Exception:
             pass
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         ly = QVBoxLayout(self)
-        ly.setContentsMargins(10, 6, 10, 6)
+        ly.setContentsMargins(8, 4, 8, 4)
         ly.setSpacing(1)
         self._line1 = QLabel(line1)
+        try:
+            self._line1.setObjectName("aitsBottomNavLine1")
+        except Exception:
+            pass
         self._line2 = QLabel(line2)
+        try:
+            self._line2.setObjectName("aitsBottomNavLine2")
+            self._line2.setProperty("bottomNavText", True)
+        except Exception:
+            pass
         try:
             self._line1.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
             self._line2.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
@@ -337,7 +351,8 @@ class _AitsBottomNavTile(QFrame):
         ly.addWidget(self._line1)
         ly.addWidget(self._line2)
         try:
-            self.setMinimumHeight(56)
+            self.setMinimumHeight(40)
+            self.setMaximumHeight(48)
             self.setMinimumWidth(108)
             self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed)
         except Exception:
@@ -346,40 +361,21 @@ class _AitsBottomNavTile(QFrame):
 
     def set_tile_active(self, active: bool) -> None:
         a = bool(active)
-        if a:
-            try:
-                self.setStyleSheet(
-                    "#aitsBottomNavTile {"
-                    " background: #111827;"
-                    " border: 2px solid #3b82f6;"
-                    " border-radius: 16px;"
-                    "}"
-                )
-                self._line1.setStyleSheet(
-                    "color: #ffffff; font-size: 14px; font-weight: 900; letter-spacing: -0.2px;"
-                )
-                self._line2.setStyleSheet(
-                    "color: #cbd5e1; font-size: 10px; font-weight: 700;"
-                )
-            except Exception:
-                pass
-        else:
-            try:
-                self.setStyleSheet(
-                    "#aitsBottomNavTile {"
-                    " background: transparent;"
-                    " border: 1px solid transparent;"
-                    " border-radius: 14px;"
-                    "}"
-                )
-                self._line1.setStyleSheet(
-                    "color: #e5e7eb; font-size: 13px; font-weight: 900; letter-spacing: -0.2px;"
-                )
-                self._line2.setStyleSheet(
-                    "color: #94a3b8; font-size: 10px; font-weight: 600;"
-                )
-            except Exception:
-                pass
+        try:
+            self.setProperty("bottomTabActive", a)
+            self.setStyleSheet("")
+            self._line1.setStyleSheet("")
+            self._line2.setStyleSheet("")
+            _sty = self.style()
+            if _sty is not None:
+                _sty.unpolish(self)
+                _sty.polish(self)
+                _sty.unpolish(self._line1)
+                _sty.polish(self._line1)
+                _sty.unpolish(self._line2)
+                _sty.polish(self._line2)
+        except Exception:
+            pass
 
     def mousePressEvent(self, event):
         try:
@@ -1728,6 +1724,102 @@ class MainWindow(QMainWindow):
         except Exception:
             return "neutral"
 
+    def _aits_ui_asset_path(self, filename: str) -> str:
+        try:
+            base_dir = Path(__file__).resolve().parents[2]
+        except Exception:
+            base_dir = Path.cwd()
+        return str(base_dir / "assets" / "ui" / filename)
+
+    def _set_label_png_if_exists(self, label, filename: str) -> bool:
+        """PNG가 있으면 1:1 원본 픽스맵만 적용한다(스케일 없음, 선명도 유지)."""
+        try:
+            if label is None:
+                return False
+            path = self._aits_ui_asset_path(filename)
+            if not Path(path).exists():
+                return False
+            pm = QPixmap(path)
+            if pm.isNull():
+                return False
+            try:
+                label.setScaledContents(False)
+            except Exception:
+                pass
+            label.setPixmap(pm)
+            return True
+        except Exception:
+            return False
+
+    def _refresh_header_png_slots(self) -> None:
+        try:
+            btn = getattr(self, "btn_run_toggle", None)
+            is_running = bool(btn is not None and btn.isChecked())
+        except Exception:
+            is_running = False
+
+        try:
+            if hasattr(self, "_lbl_header_toggle_png"):
+                ok = self._set_label_png_if_exists(
+                    self._lbl_header_toggle_png,
+                    "header_toggle_on.png" if is_running else "header_toggle_off.png",
+                )
+                if ok:
+                    self._lbl_header_toggle_png.show()
+                    if hasattr(self, "frm_power_switch"):
+                        self.frm_power_switch.hide()
+                    if hasattr(self, "btn_run_toggle"):
+                        self.btn_run_toggle.hide()
+                else:
+                    self._lbl_header_toggle_png.hide()
+                    if hasattr(self, "frm_power_switch"):
+                        self.frm_power_switch.show()
+                    if hasattr(self, "btn_run_toggle"):
+                        self.btn_run_toggle.show()
+        except Exception:
+            pass
+
+        try:
+            if hasattr(self, "_lbl_header_engine_icon"):
+                ok = self._set_label_png_if_exists(
+                    self._lbl_header_engine_icon,
+                    "header_ai_engine_icon.png",
+                )
+                if ok:
+                    try:
+                        self._lbl_header_engine_icon.setText("")
+                    except Exception:
+                        pass
+                else:
+                    self._lbl_header_engine_icon.clear()
+                    self._lbl_header_engine_icon.setText("AI")
+                    try:
+                        self._lbl_header_engine_icon.setAlignment(
+                            Qt.AlignmentFlag.AlignCenter
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def eventFilter(self, obj, event):
+        try:
+            if obj is getattr(self, "_lbl_header_toggle_png", None):
+                from PySide6.QtCore import QEvent
+
+                if event.type() == QEvent.Type.MouseButtonPress:
+                    if self._lbl_header_toggle_png.isVisible():
+                        _btn = getattr(self, "btn_run_toggle", None)
+                        if _btn is not None:
+                            _btn.click()
+                            return True
+        except Exception:
+            pass
+        try:
+            return super().eventFilter(obj, event)
+        except Exception:
+            return False
+
     def _compact_global_status_label(self, text: str) -> str:
         """E-1: 글로벌 상태 칩용 짧은 문구(긴 설명 축약)."""
         t = str(text or "").strip()
@@ -1749,79 +1841,117 @@ class MainWindow(QMainWindow):
             p_title = getattr(self, "lbl_power_title", None)
             p_sub = getattr(self, "lbl_power_sub", None)
             lb_status = getattr(self, "lbl_status", None)
+            sw = getattr(self, "frm_power_switch", None)
+            sw_ly = getattr(self, "_power_switch_layout", None)
+            lb_off = getattr(self, "lbl_power_off", None)
+            lb_on = getattr(self, "lbl_power_on", None)
             if btn is None:
+                try:
+                    self._refresh_header_png_slots()
+                except Exception:
+                    pass
                 return
             btn.setText("ON" if running else "OFF")
             if running:
                 btn.setToolTip("AITS 자동매매 중 — 누르면 정지")
                 if card is not None:
-                    card.setStyleSheet(
-                        "QWidget#aitsPowerCard {"
-                        "background: #f0fdf4;"
-                        "border: 1px solid #bbf7d0;"
-                        "border-radius: 16px;"
-                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                        "}"
-                    )
+                    card.setStyleSheet("")
                 if p_title is not None:
                     p_title.setText("AITS ON")
-                    p_title.setStyleSheet(
-                        "QLabel#powerTitle {"
-                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                        "font-size: 16px; font-weight: 900; color: #15803d; padding: 0px;"
-                        "}"
-                    )
+                    p_title.setStyleSheet("")
+                    try:
+                        p_title.setProperty("runBlink", False)
+                        p_title.setProperty("headerState", "on")
+                        p_title.style().unpolish(p_title)
+                        p_title.style().polish(p_title)
+                    except Exception:
+                        pass
                 if p_sub is not None:
-                    p_sub.setText("실행중")
-                    p_sub.setStyleSheet(
-                        "QLabel#powerSub {"
-                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                        "font-size: 11px; font-weight: 600; color: #166534; padding: 0px;"
+                    p_sub.setText("실행 중")
+                    p_sub.setStyleSheet("")
+                    try:
+                        p_sub.setProperty("headerState", "on")
+                        p_sub.style().unpolish(p_sub)
+                        p_sub.style().polish(p_sub)
+                    except Exception:
+                        pass
+                if sw is not None:
+                    sw.setStyleSheet(
+                        "QFrame#frmPowerSwitch {"
+                        "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+                        "stop:0 #e6ebea, stop:0.49 #edf2f1, stop:0.50 #57bf70, stop:1 #43a95d);"
+                        "border: 1px solid #cfd6d1;"
+                        "border-radius: 21px;"
                         "}"
                     )
+                if lb_off is not None:
+                    lb_off.setStyleSheet(
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 12px; font-weight: 700; color: #8b9592;"
+                    )
+                if lb_on is not None:
+                    lb_on.setStyleSheet(
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 12px; font-weight: 800; color: #ffffff;"
+                    )
+                if sw_ly is not None:
+                    sw_ly.setStretch(1, 6)
+                    sw_ly.setStretch(3, 1)
                 if lb_status is not None:
                     lb_status.setText("AITS ON")
-                btn.setStyleSheet(
-                    "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                    "padding: 5px 10px; font-size: 13px; font-weight: 900; min-height: 34px; max-height: 36px;"
-                    "background:#dcfce7;"
-                    "color:#166534; border:1px solid #4ade80; border-radius:18px;"
-                )
+                btn.setStyleSheet("")
             else:
                 btn.setToolTip("자동매매 시작")
                 if card is not None:
-                    card.setStyleSheet(
-                        "QWidget#aitsPowerCard {"
-                        "background: #fff7f7;"
-                        "border: 1px solid #fecaca;"
-                        "border-radius: 16px;"
-                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                        "}"
-                    )
+                    card.setStyleSheet("")
                 if p_title is not None:
                     p_title.setText("AITS OFF")
-                    p_title.setStyleSheet(
-                        "QLabel#powerTitle {"
-                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                        "font-size: 16px; font-weight: 900; color: #b91c1c; padding: 0px;"
-                        "}"
-                    )
+                    p_title.setStyleSheet("")
+                    try:
+                        p_title.setProperty("runBlink", False)
+                        p_title.setProperty("headerState", "off")
+                        p_title.style().unpolish(p_title)
+                        p_title.style().polish(p_title)
+                    except Exception:
+                        pass
                 if p_sub is not None:
-                    p_sub.setText("대기중")
-                    p_sub.setStyleSheet(
-                        "QLabel#powerSub {"
-                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                        "font-size: 11px; font-weight: 600; color: #991b1b; padding: 0px;"
+                    p_sub.setText("대기 중")
+                    p_sub.setStyleSheet("")
+                    try:
+                        p_sub.setProperty("headerState", "off")
+                        p_sub.style().unpolish(p_sub)
+                        p_sub.style().polish(p_sub)
+                    except Exception:
+                        pass
+                if sw is not None:
+                    sw.setStyleSheet(
+                        "QFrame#frmPowerSwitch {"
+                        "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+                        "stop:0 #d9534f, stop:0.46 #cb4a45, stop:0.47 #edf2f1, stop:1 #e4ebe8);"
+                        "border: 1px solid #cfd6d1;"
+                        "border-radius: 21px;"
                         "}"
                     )
+                if lb_off is not None:
+                    lb_off.setStyleSheet(
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 12px; font-weight: 800; color: #ffffff;"
+                    )
+                if lb_on is not None:
+                    lb_on.setStyleSheet(
+                        "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                        "font-size: 12px; font-weight: 700; color: #8b9592;"
+                    )
+                if sw_ly is not None:
+                    sw_ly.setStretch(1, 1)
+                    sw_ly.setStretch(3, 6)
                 if lb_status is not None:
                     lb_status.setText("AITS OFF")
-                btn.setStyleSheet(
-                    "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                    "padding: 5px 10px; font-size: 13px; font-weight: 900; min-height: 34px; max-height: 36px;"
-                    "background:#fee2e2;"
-                    "color:#991b1b; border:1px solid #f87171; border-radius:18px;"
-                )
+                btn.setStyleSheet("")
+        except Exception:
+            pass
+        try:
+            self._refresh_header_png_slots()
         except Exception:
             pass
 
@@ -1933,12 +2063,9 @@ class MainWindow(QMainWindow):
                 try:
                     p_title = getattr(self, "lbl_power_title", None)
                     if p_title is not None:
-                        p_title.setStyleSheet(
-                            "QLabel#powerTitle {"
-                            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                            "font-size: 16px; font-weight: 900; color: #15803d; padding: 0px;"
-                            "}"
-                        )
+                        p_title.setProperty("runBlink", True)
+                        p_title.style().unpolish(p_title)
+                        p_title.style().polish(p_title)
                 except Exception:
                     pass
             else:
@@ -1950,12 +2077,9 @@ class MainWindow(QMainWindow):
                 try:
                     p_title = getattr(self, "lbl_power_title", None)
                     if p_title is not None:
-                        p_title.setStyleSheet(
-                            "QLabel#powerTitle {"
-                            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-                            "font-size: 16px; font-weight: 900; color: #166534; padding: 0px;"
-                            "}"
-                        )
+                        p_title.setProperty("runBlink", False)
+                        p_title.style().unpolish(p_title)
+                        p_title.style().polish(p_title)
                 except Exception:
                     pass
         except Exception:
@@ -2058,17 +2182,17 @@ class MainWindow(QMainWindow):
                         border: 1px solid #e5e7eb;
                         border-radius: 16px;
                         padding: 14px;
-                        min-height: 88px;
-                        max-height: 90px;
+                        min-height: 86px;
+                        max-height: 88px;
                         font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
                     }
                     QLabel#cardLabel {
-                        font-size: 11px;
+                        font-size: 10.5px;
                         color: #64748b;
                         font-weight: 600;
                     }
                     QLabel#cardValue {
-                        font-size: 30px;
+                        font-size: 29px;
                         font-weight: 900;
                         color: #0f172a;
                     }
@@ -2082,17 +2206,17 @@ class MainWindow(QMainWindow):
                         border: 1px solid #e5e7eb;
                         border-radius: 16px;
                         padding: 14px;
-                        min-height: 88px;
-                        max-height: 90px;
+                        min-height: 86px;
+                        max-height: 88px;
                         font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
                     }
                     QLabel#cardLabel {
-                        font-size: 11px;
+                        font-size: 10.5px;
                         color: #64748b;
                         font-weight: 600;
                     }
                     QLabel#cardValue {
-                        font-size: 30px;
+                        font-size: 29px;
                         font-weight: 900;
                         color: #0f172a;
                     }
@@ -2112,11 +2236,11 @@ class MainWindow(QMainWindow):
             # 손익/수익률 색상 적용
             self.lbl_pnl_value.setStyleSheet(
                 "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                f"font-size: 30px; font-weight: 900; color: {pnl_color};"
+                f"font-size: 29px; font-weight: 900; color: {pnl_color};"
             )
             self.lbl_ret_value.setStyleSheet(
                 "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
-                f"font-size: 30px; font-weight: 900; color: {ret_color};"
+                f"font-size: 29px; font-weight: 900; color: {ret_color};"
             )
             
         except Exception as e:
@@ -3256,7 +3380,7 @@ class MainWindow(QMainWindow):
         self._shell_root = QWidget(central)
         self._shell_root_ly = QVBoxLayout(self._shell_root)
         self._shell_root_ly.setContentsMargins(8, 8, 8, 8)
-        self._shell_root_ly.setSpacing(8)
+        self._shell_root_ly.setSpacing(4)
         lay.addWidget(self._shell_root, 1)
 
         # ==== 상단 정보 헤더 (PATCH A-1: 1행 = 파워 ON/OFF + 자산4 + 엔진 요약) ====
@@ -3267,29 +3391,26 @@ class MainWindow(QMainWindow):
                 background: #ffffff;
                 border: 1px solid #e5e7eb;
                 border-radius: 16px;
-                padding: 3px 8px;
+                padding: 2px 8px;
                 margin: 0px;
             }
         """)
         header_row = QHBoxLayout(self._shell_top_header)
-        header_row.setContentsMargins(8, 6, 8, 6)
+        header_row.setContentsMargins(16, 10, 16, 10)
         header_row.setSpacing(10)
 
-        # --- 좌: AITS ON/OFF 파워 카드 (lbl_status + btn_run_toggle, 시그널은 파일 하단 단일 연결) ---
+        # --- 좌: 통합 토글 + 상태 (HEADER REAL BUILD: 단일 블록 폭 300) ---
         self.stop_box = QWidget(self._shell_top_header)
         self.stop_box.setObjectName("aitsPowerCard")
-        stop_box_ly = QVBoxLayout(self.stop_box)
-        stop_box_ly.setContentsMargins(10, 8, 10, 8)
-        stop_box_ly.setSpacing(2)
-        self.stop_box.setStyleSheet(
-            "QWidget#aitsPowerCard {"
-            "background: #fff7f7;"
-            "border: 1px solid #fecaca;"
-            "border-radius: 16px;"
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "}"
-        )
-        self.lbl_status = QLabel("AITS OFF")
+        self.stop_box.setProperty("headerToggleBlock", True)
+        self.stop_box.setStyleSheet("")
+        try:
+            self.stop_box.setFixedWidth(300)
+            self.stop_box.setMinimumHeight(76)
+            self.stop_box.setMaximumHeight(76)
+        except Exception:
+            pass
+        self.lbl_status = QLabel("AITS OFF", self.stop_box)
         self.lbl_status.setObjectName("stopLabel")
         try:
             self.lbl_status.setAlignment(
@@ -3309,34 +3430,76 @@ class MainWindow(QMainWindow):
             self.lbl_status.setMaximumHeight(0)
         except Exception:
             pass
-        self.lbl_power_title = QLabel("AITS OFF")
+        self.lbl_power_title = QLabel("AITS OFF", self.stop_box)
         self.lbl_power_title.setObjectName("powerTitle")
+        self.lbl_power_title.setProperty("headerToggleMain", True)
+        self.lbl_power_title.setProperty("headerState", "off")
         try:
             self.lbl_power_title.setAlignment(
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
         except Exception:
             pass
-        self.lbl_power_title.setStyleSheet(
-            "QLabel#powerTitle {"
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 16px; font-weight: 900; color: #b91c1c; padding: 0px;"
-            "}"
-        )
-        self.lbl_power_sub = QLabel("대기중")
+        self.lbl_power_title.setStyleSheet("")
+        self.lbl_power_sub = QLabel("대기 중", self.stop_box)
         self.lbl_power_sub.setObjectName("powerSub")
+        self.lbl_power_sub.setProperty("headerToggleSub", True)
+        self.lbl_power_sub.setProperty("headerState", "off")
         try:
             self.lbl_power_sub.setAlignment(
-                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
             )
         except Exception:
             pass
-        self.lbl_power_sub.setStyleSheet(
-            "QLabel#powerSub {"
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 11px; font-weight: 600; color: #991b1b; padding: 0px;"
+        self.lbl_power_sub.setStyleSheet("")
+        self._frm_header_toggle_wrap = QFrame(self.stop_box)
+        self._frm_header_toggle_wrap.setProperty("headerToggleControl", True)
+        try:
+            self._frm_header_toggle_wrap.setFixedSize(146, 56)
+        except Exception:
+            pass
+        self._frm_header_toggle_wrap.setStyleSheet("")
+        self.frm_power_switch = QFrame(self._frm_header_toggle_wrap)
+        self.frm_power_switch.setObjectName("frmPowerSwitch")
+        self.frm_power_switch.setStyleSheet(
+            "QFrame#frmPowerSwitch {"
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            "stop:0 #d9534f, stop:0.48 #cf4c46, stop:0.50 #4fb66a, stop:1 #46a960);"
+            "border: 1px solid #cfd6d1;"
+            "border-radius: 21px;"
             "}"
         )
+        try:
+            self.frm_power_switch.setMinimumSize(146, 56)
+        except Exception:
+            pass
+        self.lbl_power_off = QLabel("OFF", self.frm_power_switch)
+        self.lbl_power_on = QLabel("ON", self.frm_power_switch)
+        for _lw in (self.lbl_power_off, self.lbl_power_on):
+            try:
+                _lw.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                pass
+            _lw.setStyleSheet(
+                "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
+                "font-size: 12px; font-weight: 800; color: rgba(255,255,255,0.82);"
+            )
+        self._power_switch_layout = QHBoxLayout(self.frm_power_switch)
+        self._power_switch_layout.setContentsMargins(8, 6, 8, 6)
+        self._power_switch_layout.setSpacing(0)
+        self._power_sp_left = QWidget(self.frm_power_switch)
+        self._power_sp_right = QWidget(self.frm_power_switch)
+        try:
+            self._power_sp_left.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            self._power_sp_right.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        self._power_switch_layout.addWidget(self.lbl_power_off, 0)
+        self._power_switch_layout.addWidget(self._power_sp_left, 0)
         self.btn_run_toggle = QPushButton("OFF")
         self.btn_run_toggle.setToolTip("자동매매 시작")
         self.btn_run_toggle.setObjectName("StopButton")
@@ -3349,143 +3512,252 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.setEnabled(True)
         except Exception:
             pass
-        self.btn_run_toggle.setFixedHeight(35)
-        self.btn_run_toggle.setStyleSheet(
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "padding: 5px 10px; font-size: 13px; font-weight: 900; min-height: 34px; max-height: 36px;"
-            "background: #fee2e2;"
-            "color: #991b1b; border: 1px solid #f87171; border-radius: 18px;"
-        )
-        self.btn_run_toggle.setFixedWidth(156)
-        stop_box_ly.addWidget(self.lbl_status)
-        stop_box_ly.addWidget(self.lbl_power_title)
-        stop_box_ly.addWidget(self.lbl_power_sub)
-        stop_box_ly.addStretch(1)
+        self.btn_run_toggle.setFixedHeight(27)
+        self.btn_run_toggle.setStyleSheet("")
+        self.btn_run_toggle.setFixedWidth(27)
+        self._power_switch_layout.addWidget(self.btn_run_toggle, 0)
+        self._power_switch_layout.addWidget(self._power_sp_right, 0)
+        self._power_switch_layout.addWidget(self.lbl_power_on, 0)
+        self._power_switch_layout.setStretch(0, 2)
+        self._power_switch_layout.setStretch(1, 1)
+        self._power_switch_layout.setStretch(2, 0)
+        self._power_switch_layout.setStretch(3, 6)
+        self._power_switch_layout.setStretch(4, 2)
+        self._lbl_header_toggle_png = QLabel(self._frm_header_toggle_wrap)
+        self._lbl_header_toggle_png.setObjectName("lbl_header_toggle_png")
         try:
-            stop_box_ly.setAlignment(self.lbl_status, Qt.AlignmentFlag.AlignHCenter)
-            stop_box_ly.setAlignment(self.lbl_power_title, Qt.AlignmentFlag.AlignHCenter)
-            stop_box_ly.setAlignment(self.lbl_power_sub, Qt.AlignmentFlag.AlignHCenter)
-            stop_box_ly.setAlignment(self.btn_run_toggle, Qt.AlignmentFlag.AlignHCenter)
+            self._lbl_header_toggle_png.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter
+            )
         except Exception:
             pass
-        stop_box_ly.addWidget(self.btn_run_toggle)
         try:
-            self.stop_box.setFixedWidth(192)
-            self.stop_box.setMinimumHeight(88)
-            self.stop_box.setMaximumHeight(90)
+            self._lbl_header_toggle_png.setScaledContents(False)
+        except Exception:
+            pass
+        try:
+            self._lbl_header_toggle_png.setFixedSize(146, 56)
+        except Exception:
+            pass
+        try:
+            self._lbl_header_toggle_png.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
+        except Exception:
+            pass
+        try:
+            self._lbl_header_toggle_png.installEventFilter(self)
+        except Exception:
+            pass
+        _wrap_pw_ly = QHBoxLayout(self._frm_header_toggle_wrap)
+        _wrap_pw_ly.setContentsMargins(0, 0, 0, 0)
+        _wrap_pw_ly.setSpacing(0)
+        _wrap_pw_ly.addStretch(1)
+        _wrap_pw_ly.addWidget(
+            self._lbl_header_toggle_png,
+            0,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+        )
+        _wrap_pw_ly.addWidget(
+            self.frm_power_switch,
+            0,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+        )
+        _wrap_pw_ly.addStretch(1)
+        stop_h = QHBoxLayout(self.stop_box)
+        stop_h.setContentsMargins(18, 10, 18, 10)
+        stop_h.setSpacing(14)
+        _stop_title_v = QVBoxLayout()
+        _stop_title_v.setContentsMargins(0, 0, 0, 0)
+        _stop_title_v.setSpacing(1)
+        _stop_title_v.addWidget(self.lbl_power_title)
+        _stop_title_v.addWidget(self.lbl_power_sub)
+        stop_h.addWidget(self._frm_header_toggle_wrap, 0)
+        stop_h.addLayout(_stop_title_v, 1)
+        try:
+            self.lbl_power_title.setProperty("runBlink", False)
+            for _pol in (self.lbl_power_title, self.lbl_power_sub):
+                _pol.style().unpolish(_pol)
+                _pol.style().polish(_pol)
         except Exception:
             pass
         header_row.addWidget(self.stop_box, 0)
 
-        # --- 중: 자산 카드 4 (얇고 넓게) ---
+        # --- 중: 자산 카드 4 (stretch 균등, 폭은 레이아웃이 분배) ---
         self.card_asset = QFrame()
         self.card_asset.setObjectName("accountCard")
+        self.card_asset.setProperty("kpiCard", True)
         self.card_krw = QFrame()
         self.card_krw.setObjectName("accountCard")
+        self.card_krw.setProperty("kpiCard", True)
         self.card_pnl = QFrame()
         self.card_pnl.setObjectName("accountCard")
+        self.card_pnl.setProperty("kpiCard", True)
         self.card_ret = QFrame()
         self.card_ret.setObjectName("accountCard")
-        card_style = """
-            QFrame#accountCard {
-                background: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-radius: 16px;
-                padding: 14px;
-                min-height: 88px;
-                max-height: 90px;
-                font-family: "Noto Sans KR", "Malgun Gothic", sans-serif;
-            }
-            QLabel#cardLabel {
-                font-size: 11px;
-                color: #64748b;
-                font-weight: 600;
-            }
-            QLabel#cardValue {
-                font-size: 30px;
-                font-weight: 900;
-                color: #0f172a;
-            }
-        """
+        self.card_ret.setProperty("kpiCard", True)
         for card in (self.card_asset, self.card_krw, self.card_pnl, self.card_ret):
-            card.setStyleSheet(card_style)
+            card.setStyleSheet("")
             try:
+                card.setMinimumWidth(140)
+                card.setMinimumHeight(76)
+                card.setMaximumHeight(76)
                 card.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
                 )
             except Exception:
                 pass
             card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(14, 8, 14, 8)
-            card_layout.setSpacing(1)
+            card_layout.setContentsMargins(16, 12, 16, 12)
+            card_layout.setSpacing(2)
         self.lbl_asset_label = QLabel("총자산")
         self.lbl_asset_label.setObjectName("cardLabel")
+        self.lbl_asset_label.setProperty("kpiLabel", True)
         self.lbl_asset_value = QLabel("— 원")
         self.lbl_asset_value.setObjectName("cardValue")
+        self.lbl_asset_value.setProperty("kpiValue", True)
+        try:
+            self.lbl_asset_value.setWordWrap(False)
+            self.lbl_asset_value.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+        except Exception:
+            pass
         self.card_asset.layout().addWidget(self.lbl_asset_label)
         self.card_asset.layout().addWidget(self.lbl_asset_value)
         self.lbl_krw_label = QLabel("주문가능")
         self.lbl_krw_label.setObjectName("cardLabel")
+        self.lbl_krw_label.setProperty("kpiLabel", True)
         self.lbl_krw_value = QLabel("— 원")
         self.lbl_krw_value.setObjectName("cardValue")
+        self.lbl_krw_value.setProperty("kpiValue", True)
+        try:
+            self.lbl_krw_value.setWordWrap(False)
+            self.lbl_krw_value.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+        except Exception:
+            pass
         self.card_krw.layout().addWidget(self.lbl_krw_label)
         self.card_krw.layout().addWidget(self.lbl_krw_value)
         self.lbl_pnl_label = QLabel("손익")
         self.lbl_pnl_label.setObjectName("cardLabel")
+        self.lbl_pnl_label.setProperty("kpiLabel", True)
         self.lbl_pnl_value = QLabel("— 원")
-        self.lbl_pnl_value.setObjectName("cardValue")
+        self.lbl_pnl_value.setObjectName("lbl_pnl_value")
+        self.lbl_pnl_value.setProperty("kpiValue", True)
+        try:
+            self.lbl_pnl_value.setWordWrap(False)
+            self.lbl_pnl_value.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+        except Exception:
+            pass
         self.card_pnl.layout().addWidget(self.lbl_pnl_label)
         self.card_pnl.layout().addWidget(self.lbl_pnl_value)
         self.lbl_ret_label = QLabel("수익률")
         self.lbl_ret_label.setObjectName("cardLabel")
+        self.lbl_ret_label.setProperty("kpiLabel", True)
         self.lbl_ret_value = QLabel("— %")
-        self.lbl_ret_value.setObjectName("cardValue")
+        self.lbl_ret_value.setObjectName("lbl_ret_value")
+        self.lbl_ret_value.setProperty("kpiValue", True)
+        try:
+            self.lbl_ret_value.setWordWrap(False)
+            self.lbl_ret_value.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            )
+        except Exception:
+            pass
         self.card_ret.layout().addWidget(self.lbl_ret_label)
         self.card_ret.layout().addWidget(self.lbl_ret_value)
-        _mid_cards = QWidget(self._shell_top_header)
-        _mid_cards_ly = QHBoxLayout(_mid_cards)
-        _mid_cards_ly.setContentsMargins(0, 0, 0, 0)
-        _mid_cards_ly.setSpacing(10)
-        for _c in (self.card_asset, self.card_krw, self.card_pnl, self.card_ret):
-            _mid_cards_ly.addWidget(_c, 1)
-        header_row.addWidget(_mid_cards, 1)
+        header_row.addWidget(self.card_asset, 1)
+        header_row.addWidget(self.card_krw, 1)
+        header_row.addWidget(self.card_pnl, 1)
+        header_row.addWidget(self.card_ret, 1)
 
         # --- 우: 엔진 요약 카드 ---
         self._frame_aits_engine_card = QFrame()
         self._frame_aits_engine_card.setObjectName("aitsEngineSummaryCard")
-        self._frame_aits_engine_card.setStyleSheet(
-            "QFrame#aitsEngineSummaryCard {"
-            "background:#ffffff;"
-            "border:1px solid #e5e7eb;"
-            "border-top:4px solid #22c55e;"
-            "border-radius:16px;"
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "}"
+        self._frame_aits_engine_card.setProperty("kpiEngine", True)
+        self._frame_aits_engine_card.setStyleSheet("")
+        _eng_ly = QHBoxLayout(self._frame_aits_engine_card)
+        _eng_ly.setContentsMargins(14, 8, 14, 8)
+        _eng_ly.setSpacing(10)
+        self._frm_header_engine_icon_wrap = QWidget(self._frame_aits_engine_card)
+        self._frm_header_engine_icon_wrap.setProperty("headerEngineIconWrap", True)
+        try:
+            self._frm_header_engine_icon_wrap.setFixedSize(32, 32)
+        except Exception:
+            pass
+        self._lbl_header_engine_icon = QLabel("", self._frm_header_engine_icon_wrap)
+        self._lbl_header_engine_icon.setObjectName("lbl_header_engine_icon")
+        try:
+            self._lbl_header_engine_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        except Exception:
+            pass
+        try:
+            self._lbl_header_engine_icon.setScaledContents(False)
+        except Exception:
+            pass
+        try:
+            self._lbl_header_engine_icon.setFixedSize(32, 32)
+        except Exception:
+            pass
+        _ico_ly = QHBoxLayout(self._frm_header_engine_icon_wrap)
+        _ico_ly.setContentsMargins(0, 0, 0, 0)
+        _ico_ly.setSpacing(0)
+        _ico_ly.addWidget(
+            self._lbl_header_engine_icon,
+            0,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
         )
-        _eng_ly = QVBoxLayout(self._frame_aits_engine_card)
-        _eng_ly.setContentsMargins(14, 12, 14, 10)
-        _eng_ly.setSpacing(7)
         self._lbl_aits_engine_card_title = QLabel("AI ENGINE")
-        self._lbl_aits_engine_card_title.setStyleSheet(
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 13px; font-weight: 900; color: #0f172a; letter-spacing: 0.2px;"
-        )
+        self._lbl_aits_engine_card_title.setProperty("kpiEngineLabel", True)
+        self._lbl_aits_engine_card_title.setStyleSheet("")
         self._lbl_aits_engine_card_body = QLabel("AI Engine: Basic\n모델: qwen2.5\n상태: 확인중 ●")
+        self._lbl_aits_engine_card_body.setProperty("kpiEngineValue", True)
         self._lbl_aits_engine_card_body.setWordWrap(True)
         try:
             self._lbl_aits_engine_card_body.setTextFormat(Qt.TextFormat.RichText)
         except Exception:
             pass
-        self._lbl_aits_engine_card_body.setStyleSheet(
-            "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;"
-            "font-size: 12px; font-weight: 700; color: #1e293b; line-height: 1.45;"
-        )
-        _eng_ly.addWidget(self._lbl_aits_engine_card_title)
-        _eng_ly.addWidget(self._lbl_aits_engine_card_body)
+        self._lbl_aits_engine_card_body.setStyleSheet("")
         try:
-            self._frame_aits_engine_card.setFixedWidth(236)
-            self._frame_aits_engine_card.setMinimumHeight(88)
-            self._frame_aits_engine_card.setMaximumHeight(90)
+            self._lbl_aits_engine_card_title.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+            self._lbl_aits_engine_card_body.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+        _eng_text_v = QVBoxLayout()
+        _eng_text_v.setContentsMargins(0, 0, 0, 0)
+        _eng_text_v.setSpacing(0)
+        _eng_text_v.addWidget(self._lbl_aits_engine_card_title)
+        _eng_text_v.addWidget(self._lbl_aits_engine_card_body)
+        _eng_text_host = QWidget(self._frame_aits_engine_card)
+        _eng_text_host.setLayout(_eng_text_v)
+        try:
+            _eng_text_host.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+            )
+        except Exception:
+            pass
+        _eng_ly.addWidget(
+            self._frm_header_engine_icon_wrap,
+            0,
+            Qt.AlignmentFlag.AlignVCenter,
+        )
+        _eng_ly.addWidget(
+            _eng_text_host,
+            1,
+            Qt.AlignmentFlag.AlignVCenter,
+        )
+        try:
+            self._frame_aits_engine_card.setFixedWidth(220)
+            self._frame_aits_engine_card.setMinimumHeight(76)
+            self._frame_aits_engine_card.setMaximumHeight(76)
             self._frame_aits_engine_card.setSizePolicy(
                 QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
             )
@@ -3493,11 +3765,12 @@ class MainWindow(QMainWindow):
             pass
         header_row.addWidget(self._frame_aits_engine_card, 0)
 
+        self._shell_top_header.setProperty("kpiHeaderWrap", True)
+        self._shell_root_ly.addWidget(self._shell_top_header)
         try:
-            self._shell_top_header.setMinimumHeight(94)
+            self._refresh_header_png_slots()
         except Exception:
             pass
-        self._shell_root_ly.addWidget(self._shell_top_header)
 
         # [UI MASTER PLAN / Phase 3 / PATCH 3-1]
         # 상단을 내부 로그판이 아닌 운영 대시보드 형태로 재구성.
@@ -3538,6 +3811,7 @@ class MainWindow(QMainWindow):
         self.global_status_time.setStyleSheet("font-size: 10px; color: #64748b;")
 
         self.ai_status_text = QLabel("AI: —")
+        self.ai_status_text.setProperty("topSubText", True)
         try:
             self.ai_status_text.setStyleSheet(self._get_aits_badge_style("idle"))
         except Exception:
@@ -3574,18 +3848,9 @@ class MainWindow(QMainWindow):
             "선택엔진: Basic | 실제엔진: Basic | 연결상태: 확인중 | 모드: 비활성"
         )
         self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
-        self.lbl_aits_ops_summary.setStyleSheet(
-            "#aitsOpsSummary{"
-            "font-family:'Noto Sans KR','Malgun Gothic',sans-serif;"
-            "background:#ffffff;"
-            "border:1px solid #e5e7eb;"
-            "border-radius:14px;"
-            "padding:6px 12px;"
-            "font-size:12px;"
-            "font-weight:700;"
-            "color:#334155;"
-            "}"
-        )
+        self.lbl_aits_ops_summary.setProperty("topSubText", True)
+        self.lbl_aits_ops_summary.setProperty("topSubBarText", True)
+        self.lbl_aits_ops_summary.setStyleSheet("")
         try:
             self.lbl_aits_ops_summary.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
@@ -3608,16 +3873,14 @@ class MainWindow(QMainWindow):
         # [UI SHELL / S-1-3] 한 줄 상태줄 — 레거시 frame은 비표시, 자식만 shell row로 이전
         self._shell_status_row = QFrame()
         self._shell_status_row.setObjectName("shellStatusRow")
-        self._shell_status_row.setStyleSheet(
-            "QFrame#shellStatusRow { background: #ffffff; border: 1px solid #dfe7ef; "
-            "border-radius: 14px; }"
-        )
+        self._shell_status_row.setProperty("topSubBar", True)
+        self._shell_status_row.setStyleSheet("")
         _ssr_ly = QHBoxLayout(self._shell_status_row)
-        _ssr_ly.setContentsMargins(12, 4, 12, 4)
-        _ssr_ly.setSpacing(8)
+        _ssr_ly.setContentsMargins(14, 0, 14, 0)
+        _ssr_ly.setSpacing(6)
         try:
-            self._shell_status_row.setMinimumHeight(42)
-            self._shell_status_row.setMaximumHeight(42)
+            self._shell_status_row.setMinimumHeight(40)
+            self._shell_status_row.setMaximumHeight(40)
         except Exception:
             pass
 
@@ -3648,8 +3911,14 @@ class MainWindow(QMainWindow):
             self.global_status_time.setVisible(False)
         except Exception:
             pass
-        _ssr_ly.addWidget(self.lbl_aits_ops_summary, 1)
+        _ssr_ly.addWidget(self.lbl_aits_ops_summary, 0)
         _ssr_ly.addWidget(self.ai_status_text, 0)
+        _ssr_ly.addStretch(1)
+        self._shell_status_layout = _ssr_ly
+        try:
+            self.ai_status_text.hide()
+        except Exception:
+            pass
         try:
             self.global_status_frame.setVisible(False)
             self.global_status_frame.setMaximumHeight(0)
@@ -3679,23 +3948,38 @@ class MainWindow(QMainWindow):
         self._aits_status_group = QGroupBox("")
         self._aits_status_group.setObjectName("aitsOverviewPanel")
         self._aits_status_group.setStyleSheet(
-            "QGroupBox#aitsOverviewPanel { margin-top: 2px; font-size: 11px; }"
+            "QGroupBox#aitsOverviewPanel { margin-top: 0px; font-size: 10px; }"
         )
         self._aits_status_group.setFlat(True)
         aits_ly = QVBoxLayout(self._aits_status_group)
-        aits_ly.setContentsMargins(2, 1, 2, 1)
-        aits_ly.setSpacing(2)
+        aits_ly.setContentsMargins(0, 0, 0, 0)
+        aits_ly.setSpacing(0)
         self._aits_overview_header = _AITSOverviewHeader(self)
+        try:
+            self._aits_overview_header.setFixedHeight(24)
+        except Exception:
+            pass
         _aits_hdr = QHBoxLayout(self._aits_overview_header)
         _aits_hdr.setContentsMargins(0, 0, 0, 0)
+        _aits_hdr.setSpacing(4)
         self.lbl_aits_panel_title = QLabel("AITS AI Trading System")
-        self.lbl_aits_panel_title.setStyleSheet("font-weight: bold; font-size: 12px;")
+        self.lbl_aits_panel_title.setStyleSheet(
+            "font-weight: 700; font-size: 11px; margin:0; padding:0;"
+        )
+        try:
+            self.lbl_aits_panel_title.setFixedHeight(18)
+        except Exception:
+            pass
         self.lbl_aits_panel_title.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         _aits_hdr.addWidget(self.lbl_aits_panel_title)
         _aits_hdr.addStretch()
         self.btn_aits_overview_toggle = QPushButton("펼치기 ▼")
         self.btn_aits_overview_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_aits_overview_toggle.setFixedHeight(28)
+        self.btn_aits_overview_toggle.setFixedHeight(22)
+        try:
+            self.btn_aits_overview_toggle.setMinimumWidth(66)
+        except Exception:
+            pass
         self.btn_aits_overview_toggle.clicked.connect(self._toggle_aits_overview)
         _aits_hdr.addWidget(self.btn_aits_overview_toggle)
         # [UI SHELL / S-1-4] 헤더는 shell_action_row로 이동(본문만 aits_ly에 유지)
@@ -3763,7 +4047,7 @@ class MainWindow(QMainWindow):
         self._aits_overview_scroll = QScrollArea()
         self._aits_overview_scroll.setWidgetResizable(True)
         self._aits_overview_scroll.setWidget(self._aits_overview_body)
-        self._aits_overview_scroll.setMaximumHeight(120)
+        self._aits_overview_scroll.setMaximumHeight(96)
         self._aits_overview_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._aits_overview_scroll.setVerticalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAsNeeded
@@ -3780,6 +4064,9 @@ class MainWindow(QMainWindow):
             self._aits_overview_scroll_host.setVisible(False)
             self._aits_overview_scroll_host.setMaximumHeight(0)
             self._aits_overview_scroll_host.setMinimumHeight(0)
+            self._aits_status_group.setVisible(False)
+            self._aits_status_group.setMaximumHeight(0)
+            self._aits_status_group.setMinimumHeight(0)
         except Exception:
             pass
         aits_ly.addWidget(self._aits_overview_scroll_host)
@@ -3798,12 +4085,15 @@ class MainWindow(QMainWindow):
             self._aits_overview_expanded = _exp
             try:
                 self._aits_overview_scroll_host.setVisible(_exp)
-                self._aits_overview_scroll_host.setMaximumHeight(120 if _exp else 0)
+                self._aits_overview_scroll_host.setMaximumHeight(96 if _exp else 0)
                 self._aits_overview_scroll_host.setMinimumHeight(0)
+                self._aits_status_group.setVisible(_exp)
+                self._aits_status_group.setMaximumHeight(102 if _exp else 0)
+                self._aits_status_group.setMinimumHeight(0)
             except Exception:
                 pass
             self._aits_overview_scroll.setVisible(_exp)
-            self._aits_overview_scroll.setMaximumHeight(120 if _exp else 0)
+            self._aits_overview_scroll.setMaximumHeight(96 if _exp else 0)
             if hasattr(self, "lbl_aits_overview_latest"):
                 self.lbl_aits_overview_latest.setVisible(_exp)
             if hasattr(self, "btn_aits_overview_toggle"):
@@ -3918,9 +4208,17 @@ class MainWindow(QMainWindow):
         # ---- Top controls (런바: 배경으로 영역 구분)
         self.top_control_widget = QWidget()
         self.top_control_widget.setObjectName("runBar")
+        try:
+            self.top_control_widget.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            self.top_control_widget.setMinimumHeight(34)
+            self.top_control_widget.setMaximumHeight(36)
+        except Exception:
+            pass
         top_outer = QVBoxLayout()
-        top_outer.setContentsMargins(2, 1, 2, 1)
-        top_outer.setSpacing(1)
+        top_outer.setContentsMargins(0, 0, 0, 0)
+        top_outer.setSpacing(0)
         self.lbl_aits_control_panel = QLabel("AITS Control Panel")
         self.lbl_aits_control_panel.setStyleSheet(
             "font-weight: bold; font-size: 11px; color: #111827; margin: 0; padding: 0;"
@@ -4001,8 +4299,8 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         top = QHBoxLayout()
-        top.setContentsMargins(0, 1, 0, 1)
-        top.setSpacing(6)
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(4)
         try:
             top.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
         except Exception:
@@ -4018,18 +4316,13 @@ class MainWindow(QMainWindow):
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
         self.btn_ai_briefing = QPushButton("브리핑 보기")
         self.btn_ai_briefing.setToolTip("AI 판단 브리핑 팝업")
-        self.btn_ai_briefing.setFixedHeight(36)
+        self.btn_ai_briefing.setFixedHeight(34)
         self.btn_ai_briefing.setStyleSheet(
-            "padding: 6px 12px; min-width: 88px; min-height: 34px; max-height: 36px; border-radius: 8px;"
+            "padding: 5px 11px; min-width: 88px; min-height: 32px; max-height: 34px; border-radius: 8px;"
             " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
         )
         self.btn_top_open_logs = QPushButton("로그")
         self.btn_top_open_logs.setToolTip("data/logs 폴더를 엽니다")
-        self.btn_top_open_logs.setFixedHeight(36)
-        self.btn_top_open_logs.setStyleSheet(
-            "padding: 6px 12px; min-width: 64px; min-height: 34px; max-height: 36px; border-radius: 8px;"
-            " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
-        )
         try:
             self.btn_top_open_logs.clicked.connect(self._on_open_logs)
         except Exception:
@@ -4134,12 +4427,9 @@ class MainWindow(QMainWindow):
             self.btn_sellall.setVisible(False)
         except Exception:
             pass
-        for idx, b in enumerate(
-            (self.btn_refresh, self.btn_ai_briefing, self.btn_top_open_logs, self.btn_sellall)
-        ):
-            top.addWidget(b)
-            if idx < 3:
-                top.addSpacing(8)
+        top.addWidget(self.btn_ai_briefing)
+        top.addSpacing(8)
+        top.addWidget(self.btn_sellall)
         self.lbl_engine_status = QLabel("AI Engine | —")
         self.lbl_engine_status.setStyleSheet("font-size: 11px; color: #555;")
         self.lbl_engine_status.setToolTip("선택된 AI 엔진 및 연결 상태")
@@ -4157,39 +4447,58 @@ class MainWindow(QMainWindow):
             self.lbl_active_engine.setVisible(False)
         except Exception:
             pass
-        _btn_top_h = 36
-        self.btn_sellall.setFixedHeight(36)
-        self.btn_refresh.setFixedHeight(36)
-        self.btn_ai_briefing.setFixedHeight(36)
-        self.btn_top_open_logs.setFixedHeight(36)
+        _btn_top_h = 34
+        self.btn_sellall.setFixedHeight(34)
+        self.btn_ai_briefing.setFixedHeight(34)
         try:
             self.lbl_active_engine.setFixedHeight(28)
         except Exception:
             pass
         self.btn_sellall.setStyleSheet(
-            "padding: 6px 12px; font-weight: 600; min-height: 34px; max-height: 36px;"
+            "padding: 5px 11px; font-weight: 600; min-height: 32px; max-height: 34px;"
             " background-color: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; border-radius: 8px;"
         )
-        self.btn_refresh.setStyleSheet(
-            "padding: 6px 12px; min-height: 34px; max-height: 36px; border-radius: 8px;"
-            " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
-        )
         self.btn_ai_briefing.setStyleSheet(
-            "padding: 6px 12px; min-width: 88px; min-height: 34px; max-height: 36px; border-radius: 8px;"
-            " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
-        )
-        self.btn_top_open_logs.setStyleSheet(
-            "padding: 6px 12px; min-width: 64px; min-height: 34px; max-height: 36px; border-radius: 8px;"
+            "padding: 5px 11px; min-width: 88px; min-height: 32px; max-height: 34px; border-radius: 8px;"
             " background-color: #f8fafc; color: #334155; border: 1px solid #cbd5e1;"
         )
         top_outer.addLayout(top)
         self.top_control_widget.setLayout(top_outer)
+        try:
+            self.btn_refresh.setProperty("topSubBarAction", True)
+            self.btn_top_open_logs.setProperty("topSubBarAction", True)
+            self.btn_refresh.setStyleSheet("")
+            self.btn_top_open_logs.setStyleSheet("")
+            _ssr = getattr(self, "_shell_status_layout", None)
+            if _ssr is not None:
+                _ssr.addWidget(self.btn_refresh, 0)
+                _ssr.addWidget(self.btn_top_open_logs, 0)
+            try:
+                self.btn_refresh.setMinimumHeight(30)
+                self.btn_refresh.setMaximumHeight(30)
+                self.btn_top_open_logs.setMinimumHeight(30)
+                self.btn_top_open_logs.setMaximumHeight(30)
+            except Exception:
+                pass
+        except Exception:
+            pass
         # [UI SHELL / S-1-4] overview 헤더 + 액션 버튼 (오른쪽 정렬은 top 레이아웃 stretch로 유지)
         self._shell_action_row = QFrame()
         self._shell_action_row.setObjectName("shellActionRow")
+        try:
+            self._shell_action_row.setStyleSheet(
+                "QFrame#shellActionRow { background: transparent; border: none; }"
+            )
+            self._shell_action_row.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            self._shell_action_row.setMinimumHeight(58)
+            self._shell_action_row.setMaximumHeight(62)
+        except Exception:
+            pass
         _sar_outer = QVBoxLayout(self._shell_action_row)
         _sar_outer.setContentsMargins(0, 0, 0, 0)
-        _sar_outer.setSpacing(6)
+        _sar_outer.setSpacing(0)
         _sar_outer.addWidget(self._aits_overview_header)
         _sar_outer.addWidget(self.top_control_widget)
         self._shell_root_ly.addWidget(self._shell_action_row)
@@ -4238,45 +4547,52 @@ class MainWindow(QMainWindow):
         # ---- AITS 종목 관리: Managed Pool / Market Explorer (위젯 생성만 — 배치는 첫 탭 내부)
         self._aits_pool_outer = QWidget(central)
         _aits_pool_ly = QVBoxLayout(self._aits_pool_outer)
-        _aits_pool_ly.setContentsMargins(6, 4, 6, 4)
-        _aits_pool_ly.setSpacing(8)
+        _aits_pool_ly.setContentsMargins(6, 0, 6, 2)
+        _aits_pool_ly.setSpacing(4)
         _gb_managed = QGroupBox("AI MANAGED CANDIDATES")
         self._gb_managed = _gb_managed
+        try:
+            _gb_managed.setProperty("managedPanel", True)
+        except Exception:
+            pass
         try:
             _gb_managed.setStyleSheet(_aits_watch_gb_card_qss)
         except Exception:
             pass
         _managed_inner = QVBoxLayout(_gb_managed)
         try:
-            _managed_inner.setContentsMargins(9, 7, 9, 9)
-            _managed_inner.setSpacing(7)
+            _managed_inner.setContentsMargins(12, 12, 12, 12)
+            _managed_inner.setSpacing(10)
         except Exception:
             pass
+        self.lbl_ai_managed_title = QLabel("AI Watchlist Command Center")
+        try:
+            self.lbl_ai_managed_title.setProperty("managedTitle", True)
+        except Exception:
+            pass
+        _managed_inner.addWidget(self.lbl_ai_managed_title)
         self.lbl_ai_managed_scope = QLabel(
             "AI가 선택한 종목만 자동매매 대상입니다."
         )
         try:
+            self.lbl_ai_managed_scope.setProperty("managedSub", True)
             self.lbl_ai_managed_scope.setWordWrap(True)
-            self.lbl_ai_managed_scope.setStyleSheet(
-                "font-size: 11px; color: #94a3b8; padding: 0 0 6px 0; font-weight: 600;"
-            )
+            self.lbl_ai_managed_scope.setStyleSheet("background: transparent; border: none;")
         except Exception:
             pass
         _managed_inner.addWidget(self.lbl_ai_managed_scope)
         self.lbl_ai_managed_summary = QLabel("관리 0종목 | 보유 0 | 후보 0")
         try:
+            self.lbl_ai_managed_summary.setProperty("managedBadge", True)
             self.lbl_ai_managed_summary.setWordWrap(False)
-            self.lbl_ai_managed_summary.setStyleSheet(
-                "font-size: 13px; font-weight: 800; color: #0f172a; "
-                "padding: 7px 12px; background: #eff6ff; border: 1px solid #bfdbfe; "
-                "border-radius: 12px;"
-            )
+            self.lbl_ai_managed_summary.setStyleSheet("background: transparent; border: none;")
         except Exception:
             pass
         _managed_inner.addWidget(self.lbl_ai_managed_summary)
         self.tbl_ai_managed = QTableWidget(0, 5)
         try:
             self.tbl_ai_managed.setObjectName("tblAiManagedIntent")
+            self.tbl_ai_managed.setProperty("managedTable", True)
         except Exception:
             pass
         self.tbl_ai_managed.setHorizontalHeaderLabels(
@@ -4351,27 +4667,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            self.tbl_ai_managed.setStyleSheet(
-                "#tblAiManagedIntent {"
-                "  background: #f8fafc;"
-                "  font-size: 12px;"
-                "  gridline-color: #e2e8f0;"
-                "}"
-                "#tblAiManagedIntent::item {"
-                "  padding: 8px 10px;"
-                "  border: none;"
-                "}"
-                "#tblAiManagedIntent::item:alternate {"
-                "  background: #f1f5f9;"
-                "}"
-                "#tblAiManagedIntent::item:selected {"
-                "  background-color: #dbeafe;"
-                "  color: #0f172a;"
-                "}"
-                "#tblAiManagedIntent::item:selected:!active {"
-                "  background-color: #dbeafe;"
-                "}"
-            )
+            self.tbl_ai_managed.setStyleSheet("")
         except Exception:
             pass
         try:
@@ -4500,10 +4796,9 @@ class MainWindow(QMainWindow):
             "더블클릭: 차트 분석 | Delete: 제거 | 드래그: 우선순위 변경"
         )
         try:
+            self.lbl_ai_managed_ux_hint.setProperty("managedSub", True)
             self.lbl_ai_managed_ux_hint.setWordWrap(True)
-            self.lbl_ai_managed_ux_hint.setStyleSheet(
-                "font-size: 11px; font-weight: 500; color: #64748b; padding: 8px 0 0 0;"
-            )
+            self.lbl_ai_managed_ux_hint.setStyleSheet("background: transparent; border: none;")
         except Exception:
             pass
         _managed_inner.addWidget(self.lbl_ai_managed_ux_hint)
@@ -4591,12 +4886,16 @@ class MainWindow(QMainWindow):
 
         self._gb_ai_detail = QGroupBox("")
         try:
-            self._gb_ai_detail.setStyleSheet(_aits_watch_gb_card_qss)
+            self._gb_ai_detail.setProperty("analysisPanel", True)
+        except Exception:
+            pass
+        try:
+            self._gb_ai_detail.setStyleSheet("")
         except Exception:
             pass
         _detail_inner = QVBoxLayout(self._gb_ai_detail)
         try:
-            _detail_inner.setContentsMargins(12, 10, 12, 10)
+            _detail_inner.setContentsMargins(12, 12, 12, 12)
             _detail_inner.setSpacing(10)
         except Exception:
             pass
@@ -4644,11 +4943,13 @@ class MainWindow(QMainWindow):
         self._frm_ai_judgment_banner = QFrame()
         try:
             self._frm_ai_judgment_banner.setObjectName("frmAiJudgmentBanner")
+            self._frm_ai_judgment_banner.setProperty("decisionBanner", True)
+            self._frm_ai_judgment_banner.setProperty("decisionState", "wait")
         except Exception:
             pass
         _jb_ly = QVBoxLayout(self._frm_ai_judgment_banner)
         try:
-            _jb_ly.setContentsMargins(18, 16, 18, 16)
+            _jb_ly.setContentsMargins(14, 10, 14, 10)
             _jb_ly.setSpacing(8)
         except Exception:
             pass
@@ -4656,34 +4957,28 @@ class MainWindow(QMainWindow):
             self._frm_ai_judgment_banner.setMinimumHeight(96)
         except Exception:
             pass
-        self.lbl_ai_judgment_banner_kicker = QLabel("▸  CURRENT READOUT")
+        self.lbl_ai_judgment_banner_kicker = QLabel("AI DECISION")
         try:
-            self.lbl_ai_judgment_banner_kicker.setStyleSheet(
-                "font-size: 10px; font-weight: 900; color: #64748b; letter-spacing: 1.2px;"
-                "background: transparent; border: none; padding: 0 0 2px 0;"
-            )
+            self.lbl_ai_judgment_banner_kicker.setProperty("decisionTitle", True)
+            self.lbl_ai_judgment_banner_kicker.setStyleSheet("")
         except Exception:
             pass
         _jb_ly.addWidget(self.lbl_ai_judgment_banner_kicker)
-        self.lbl_ai_detail_judgment_header = QLabel("AI 판단: — (종목을 선택하세요)")
+        self.lbl_ai_detail_judgment_header = QLabel("WAIT")
         self.lbl_ai_detail_judgment_header.setWordWrap(True)
         try:
-            self.lbl_ai_detail_judgment_header.setStyleSheet(
-                "font-size: 22px; font-weight: 900; color: #0f172a; "
-                "background: transparent; border: none; padding: 0px; line-height: 1.2;"
-            )
+            self.lbl_ai_detail_judgment_header.setProperty("decisionValue", True)
+            self.lbl_ai_detail_judgment_header.setStyleSheet("")
         except Exception:
             pass
         _jb_ly.addWidget(self.lbl_ai_detail_judgment_header)
         self.lbl_ai_judgment_banner_sub = QLabel(
-            "현재 조건: 종목을 선택하면 AI 분석이 표시됩니다."
+            "Market Observation Mode"
         )
         self.lbl_ai_judgment_banner_sub.setWordWrap(True)
         try:
-            self.lbl_ai_judgment_banner_sub.setStyleSheet(
-                "font-size: 13px; font-weight: 600; color: #64748b; "
-                "background: transparent; border: none; padding: 0px; line-height: 1.45;"
-            )
+            self.lbl_ai_judgment_banner_sub.setProperty("decisionSub", True)
+            self.lbl_ai_judgment_banner_sub.setStyleSheet("")
         except Exception:
             pass
         _jb_ly.addWidget(self.lbl_ai_judgment_banner_sub)
@@ -4699,6 +4994,10 @@ class MainWindow(QMainWindow):
 
         self._frm_ai_detail_chart = QFrame()
         try:
+            self._frm_ai_detail_chart.setProperty("chartCard", True)
+        except Exception:
+            pass
+        try:
             self._frm_ai_detail_chart.setMinimumHeight(420)
             self._frm_ai_detail_chart.setMaximumHeight(580)
         except Exception:
@@ -4709,9 +5008,7 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        self._frm_ai_detail_chart.setStyleSheet(
-            "QFrame { border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff; }"
-        )
+        self._frm_ai_detail_chart.setStyleSheet("")
         _chart_ly = QVBoxLayout(self._frm_ai_detail_chart)
         _chart_ly.setContentsMargins(10, 10, 10, 10)
         _chart_ctrl = QHBoxLayout()
@@ -4937,9 +5234,11 @@ class MainWindow(QMainWindow):
 
         self._frm_ai_briefing_card = QFrame()
         self._frm_ai_briefing_card.setObjectName("aitsBriefingCard")
-        self._frm_ai_briefing_card.setStyleSheet(
-            "#aitsBriefingCard { background: #e0f2fe; border: 1px solid #38bdf8; border-radius: 14px; }"
-        )
+        try:
+            self._frm_ai_briefing_card.setProperty("reasonCard", True)
+        except Exception:
+            pass
+        self._frm_ai_briefing_card.setStyleSheet("")
         _bf_ly = QVBoxLayout(self._frm_ai_briefing_card)
         _bf_ly.setContentsMargins(14, 12, 14, 12)
         _bf_ly.setSpacing(10)
@@ -4947,9 +5246,11 @@ class MainWindow(QMainWindow):
         _bf_title_row.setContentsMargins(0, 0, 0, 0)
         _bf_title_row.setSpacing(6)
         _lbl_bf_title = QLabel("◆  AI BRIEFING (요약)")
-        _lbl_bf_title.setStyleSheet(
-            "font-size: 14px; font-weight: 900; color: #075985; letter-spacing: 0.2px;"
-        )
+        try:
+            _lbl_bf_title.setProperty("reasonTitle", True)
+        except Exception:
+            pass
+        _lbl_bf_title.setStyleSheet("")
         _bf_title_row.addWidget(_lbl_bf_title, 1)
         self.btn_ai_center_briefing_detail = QPushButton("상세 브리핑")
         self.btn_ai_center_briefing_detail.setToolTip("AI 브리핑 팝업")
@@ -4973,9 +5274,11 @@ class MainWindow(QMainWindow):
             "- 시장 데이터 수집 중\n- AI 판단 대기\n- 종목을 선택하세요"
         )
         self.lbl_ai_briefing_card.setWordWrap(True)
-        self.lbl_ai_briefing_card.setStyleSheet(
-            "font-size: 13px; font-weight: 600; color: #0c4a6e; line-height: 1.45; padding-top: 4px;"
-        )
+        try:
+            self.lbl_ai_briefing_card.setProperty("reasonText", True)
+        except Exception:
+            pass
+        self.lbl_ai_briefing_card.setStyleSheet("")
         _bf_ly.addWidget(self.lbl_ai_briefing_card)
         _detail_inner.addWidget(self._frm_ai_briefing_card)
 
@@ -5294,7 +5597,7 @@ class MainWindow(QMainWindow):
         try:
             self.lbl_market_explorer_hint.setWordWrap(True)
             self.lbl_market_explorer_hint.setStyleSheet(
-                "font-size: 12px; color: #64748b; padding: 0 0 3px 0; font-weight: 600;"
+                "font-size: 11px; color: #64748b; padding: 0 0 1px 0; font-weight: 600;"
             )
         except Exception:
             pass
@@ -5700,32 +6003,41 @@ class MainWindow(QMainWindow):
         # ---- 하단 다크 내비게이션 바 (메인 탭 전환 UI)
         self._aits_bottom_nav_frame = QFrame()
         self._aits_bottom_nav_frame.setObjectName("aitsBottomNavFrame")
-        self._aits_bottom_nav_frame.setStyleSheet(
-            "QFrame#aitsBottomNavFrame {"
-            "background: #0f172a;"
-            "border: 1px solid #1f2937;"
-            "border-radius: 16px;"
-            "padding: 4px;"
-            "}"
-        )
+        try:
+            self._aits_bottom_nav_frame.setProperty("bottomNav", True)
+        except Exception:
+            pass
+        try:
+            self._aits_bottom_nav_frame.setStyleSheet("")
+        except Exception:
+            pass
         _nav_ly = QHBoxLayout(self._aits_bottom_nav_frame)
-        _nav_ly.setContentsMargins(14, 10, 14, 10)
-        _nav_ly.setSpacing(9)
+        _nav_ly.setContentsMargins(10, 8, 10, 8)
+        _nav_ly.setSpacing(8)
+
+        self._bottom_nav_left_wrap = QWidget(self._aits_bottom_nav_frame)
+        try:
+            self._bottom_nav_left_wrap.setProperty("bottomNavInner", True)
+        except Exception:
+            pass
+        _nav_left_ly = QHBoxLayout(self._bottom_nav_left_wrap)
+        _nav_left_ly.setContentsMargins(0, 0, 0, 0)
+        _nav_left_ly.setSpacing(8)
 
         self.btn_nav_watchlist = _AitsBottomNavTile(
-            "◆  AITS 종목관리", "AI 선별 · 관리 · 분석", self._aits_bottom_nav_frame
+            "◆  AITS 종목관리", "AI 선별 · 관리 · 분석", self._bottom_nav_left_wrap
         )
         self.btn_nav_trades = _AitsBottomNavTile(
-            "◇  매매기록", "주문 · 체결 · 로그", self._aits_bottom_nav_frame
+            "◇  매매기록", "주문 · 체결 · 로그", self._bottom_nav_left_wrap
         )
         self.btn_nav_portfolio = _AitsBottomNavTile(
-            "◇  투자현황", "잔고 · 포지션 · 수익률", self._aits_bottom_nav_frame
+            "◇  투자현황", "잔고 · 포지션 · 수익률", self._bottom_nav_left_wrap
         )
         self.btn_nav_strategy = _AitsBottomNavTile(
-            "◇  전략설정", "정책 · 리스크 · 규칙", self._aits_bottom_nav_frame
+            "◇  전략설정", "정책 · 리스크 · 규칙", self._bottom_nav_left_wrap
         )
         self.btn_nav_settings = _AitsBottomNavTile(
-            "◇  공통설정", "AI · 연결 · 엔진", self._aits_bottom_nav_frame
+            "◇  공통설정", "AI · 연결 · 엔진", self._bottom_nav_left_wrap
         )
         self._bottom_nav_buttons = [
             self.btn_nav_watchlist,
@@ -5735,34 +6047,38 @@ class MainWindow(QMainWindow):
             self.btn_nav_settings,
         ]
         for _b in self._bottom_nav_buttons:
-            try:
-                _b.setMinimumHeight(60)
-            except Exception:
-                pass
-            _nav_ly.addWidget(_b, 0)
+            _nav_left_ly.addWidget(_b, 0)
+        _nav_ly.addWidget(self._bottom_nav_left_wrap, 0)
 
         _nav_ly.addStretch(1)
+
+        self._bottom_nav_actions_wrap = QWidget(self._aits_bottom_nav_frame)
+        try:
+            self._bottom_nav_actions_wrap.setProperty("bottomNavInner", True)
+        except Exception:
+            pass
+        _nav_act_ly = QHBoxLayout(self._bottom_nav_actions_wrap)
+        _nav_act_ly.setContentsMargins(0, 0, 0, 0)
+        _nav_act_ly.setSpacing(8)
 
         self.btn_nav_save = QPushButton("파일 저장")
         self.btn_nav_logout = QPushButton("로그아웃")
         for _sb in (self.btn_nav_save, self.btn_nav_logout):
-            _sb.setMinimumHeight(48)
-            _sb.setStyleSheet(
-                "QPushButton {"
-                "background: #111827;"
-                "border: 1px solid #334155;"
-                "color: #cbd5e1;"
-                "font-size: 13px;"
-                "font-weight: 700;"
-                "border-radius: 12px;"
-                "padding: 10px 14px;"
-                "}"
-                "QPushButton:disabled {"
-                "color: #64748b;"
-                "border: 1px solid #1f2937;"
-                "}"
-            )
-            _nav_ly.addWidget(_sb, 0)
+            try:
+                _sb.setProperty("bottomAction", True)
+            except Exception:
+                pass
+            try:
+                _sb.setMinimumHeight(34)
+                _sb.setMaximumHeight(34)
+            except Exception:
+                pass
+            try:
+                _sb.setStyleSheet("")
+            except Exception:
+                pass
+            _nav_act_ly.addWidget(_sb, 0)
+        _nav_ly.addWidget(self._bottom_nav_actions_wrap, 0)
 
         try:
             self.btn_nav_watchlist.clicked.connect(lambda i=0: self._on_bottom_nav_clicked(i))
@@ -5786,8 +6102,8 @@ class MainWindow(QMainWindow):
         except Exception:
             self._set_bottom_nav_active(0)
         try:
-            self._aits_bottom_nav_frame.setMinimumHeight(84)
-            self._aits_bottom_nav_frame.setMaximumHeight(92)
+            self._aits_bottom_nav_frame.setMinimumHeight(56)
+            self._aits_bottom_nav_frame.setMaximumHeight(64)
         except Exception:
             pass
         self._shell_root_ly.addWidget(self._aits_bottom_nav_frame, 0)
@@ -6309,7 +6625,7 @@ class MainWindow(QMainWindow):
                 host = getattr(self, "_aits_overview_scroll_host", None)
                 if host is not None:
                     host.setVisible(expanded)
-                    host.setMaximumHeight(120 if expanded else 0)
+                    host.setMaximumHeight(96 if expanded else 0)
                     host.setMinimumHeight(0)
             except Exception:
                 pass
@@ -6317,7 +6633,16 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, "_aits_overview_scroll"):
                     self._aits_overview_scroll.setVisible(expanded)
-                    self._aits_overview_scroll.setMaximumHeight(120 if expanded else 0)
+                    self._aits_overview_scroll.setMaximumHeight(96 if expanded else 0)
+            except Exception:
+                pass
+
+            try:
+                grp = getattr(self, "_aits_status_group", None)
+                if grp is not None:
+                    grp.setVisible(expanded)
+                    grp.setMaximumHeight(102 if expanded else 0)
+                    grp.setMinimumHeight(0)
             except Exception:
                 pass
 
@@ -19651,6 +19976,1231 @@ class MainWindow(QMainWindow):
         except Exception:
             log.exception("[INFO] info box update failed")
 
+
+def _build_aits_override_qss() -> str:
+    """AITS 시그니처 영역 보호용 최소 오버라이드(QDarkTheme 위에 마지막 적용)."""
+    return r"""
+/* ===== AITS override layer (light SaaS tone) ===== */
+QFrame#accountSummaryFrame {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+}
+QWidget#aitsPowerCard {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+}
+QFrame#aitsEngineSummaryCard {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-top: 4px solid #22c55e;
+    border-radius: 16px;
+}
+QFrame#shellStatusRow {
+    background: #ffffff;
+    border: 1px solid #dfe7ef;
+    border-radius: 14px;
+}
+#tblAiManagedIntent {
+    background: #f8fafc;
+    gridline-color: #e2e8f0;
+}
+#tblAiManagedIntent::item:selected {
+    background-color: #dbeafe;
+    color: #0f172a;
+}
+#tblMarketExplorer {
+    background: #f8fafc;
+    gridline-color: transparent;
+}
+#tblMarketExplorer::item:selected {
+    background-color: #bfdbfe;
+    color: #0f172a;
+}
+QFrame#aitsBottomNavFrame {
+    background: #0f172a;
+    border: 1px solid #1f2937;
+    border-radius: 16px;
+}
+#aitsBottomNavTile {
+    background: #111827;
+    border: 1px solid #334155;
+    border-radius: 12px;
+}
+
+/* ==================================================
+   AITS PHASE T-APPLY-02
+   KPI HEADER PREMIUM FINISH
+================================================== */
+
+/* KPI 공통 카드 */
+QFrame[kpiCard="true"],
+QWidget[kpiCard="true"]{
+    background:#ffffff;
+    border:1px solid #E7ECF3;
+    border-radius:16px;
+}
+
+/* Hover */
+QFrame[kpiCard="true"]:hover,
+QWidget[kpiCard="true"]:hover{
+    border:1px solid #D6DEE9;
+}
+
+/* KPI 라벨 */
+QLabel[kpiLabel="true"]{
+    color:#7B8794;
+    font-size:11px;
+    font-weight:600;
+    padding-left:2px;
+    background:transparent;
+    border:none;
+}
+
+/* KPI 값 */
+QLabel[kpiValue="true"]{
+    color:#111827;
+    font-size:22px;
+    font-weight:800;
+    letter-spacing:0.2px;
+    background:transparent;
+    border:none;
+}
+
+/* 보조 텍스트 */
+QLabel[kpiSub="true"]{
+    color:#94A3B8;
+    font-size:10px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+/* AI ENGINE 카드 강조 */
+QFrame[kpiEngine="true"],
+QWidget[kpiEngine="true"]{
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:1,
+        stop:0 #0F172A,
+        stop:1 #1E293B
+    );
+    border:none;
+    border-radius:16px;
+}
+
+QLabel[kpiEngineLabel="true"]{
+    color:#CBD5E1;
+    font-size:11px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiEngineValue="true"]{
+    color:#FFFFFF;
+    font-size:20px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* 전원 카드 */
+QFrame[kpiPower="true"],
+QWidget[kpiPower="true"]{
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:1,
+        stop:0 #16A34A,
+        stop:1 #22C55E
+    );
+    border:none;
+    border-radius:16px;
+}
+
+QLabel[kpiPowerLabel="true"],
+QLabel[kpiPowerValue="true"]{
+    color:white;
+    background:transparent;
+    border:none;
+    font-weight:800;
+}
+
+/* 헤더 전체 spacing */
+QWidget[kpiHeaderWrap="true"]{
+    background:transparent;
+}
+
+/* ==================================================
+   AITS PHASE T-APPLY-02B
+   KPI POLISH / THEME HARMONY
+================================================== */
+
+/* 공통 카드 - 더 고급스럽게 */
+QFrame[kpiCard="true"],
+QWidget[kpiCard="true"]{
+    padding:2px;
+    border:1px solid #E6EBF2;
+    border-radius:18px;
+}
+
+/* Hover */
+QFrame[kpiCard="true"]:hover,
+QWidget[kpiCard="true"]:hover{
+    border:1px solid #CBD5E1;
+}
+
+/* 값 강조 */
+QLabel[kpiValue="true"]{
+    font-size:24px;
+    font-weight:800;
+    padding-top:2px;
+    padding-bottom:1px;
+}
+
+/* 제목 계층 정리 */
+QLabel[kpiLabel="true"]{
+    font-size:10px;
+    font-weight:700;
+    letter-spacing:0.3px;
+    text-transform:uppercase;
+}
+
+/* 손익 값 색상 자연화 */
+QLabel#lbl_pnl_value{
+    color:#0F172A;
+}
+
+QLabel#lbl_ret_value{
+    color:#0F172A;
+}
+
+/* AI ENGINE 카드 마감 */
+QFrame[kpiEngine="true"],
+QWidget[kpiEngine="true"]{
+    border-radius:18px;
+    padding:2px;
+}
+
+QLabel[kpiEngineValue="true"]{
+    font-size:22px;
+    font-weight:900;
+}
+
+/* 전원 카드 마감 */
+QFrame[kpiPower="true"],
+QWidget[kpiPower="true"]{
+    border-radius:18px;
+    padding:2px;
+}
+
+QLabel[kpiPowerValue="true"]{
+    font-size:18px;
+    font-weight:900;
+}
+
+QLabel[kpiPowerLabel="true"]{
+    font-size:10px;
+    font-weight:700;
+}
+
+/* 헤더 배경 정리 */
+QWidget[kpiHeaderWrap="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* ==================================================
+   AITS PHASE T-APPLY-03
+   MANAGED WATCHLIST PANEL
+================================================== */
+
+/* 좌측 패널 wrapper */
+QFrame[managedPanel="true"],
+QWidget[managedPanel="true"]{
+    background:#FFFFFF;
+    border:1px solid #E7ECF3;
+    border-radius:18px;
+}
+
+/* 상단 타이틀 */
+QLabel[managedTitle="true"]{
+    color:#0F172A;
+    font-size:15px;
+    font-weight:800;
+    padding:2px 2px 6px 2px;
+    border:none;
+    background:transparent;
+}
+
+/* 상태 badge */
+QLabel[managedBadge="true"]{
+    background:#EEF2FF;
+    color:#4338CA;
+    border:1px solid #DDE3FF;
+    border-radius:10px;
+    padding:3px 8px;
+    font-size:10px;
+    font-weight:800;
+}
+
+/* 검색창 */
+QLineEdit[managedSearch="true"]{
+    background:#F8FAFC;
+    border:1px solid #E5EAF1;
+    border-radius:12px;
+    padding:8px 12px;
+    color:#111827;
+    font-size:12px;
+}
+
+QLineEdit[managedSearch="true"]:focus{
+    border:1px solid #94A3B8;
+    background:#FFFFFF;
+}
+
+/* 테이블 본체 */
+QTableWidget[managedTable="true"],
+QTableView[managedTable="true"]{
+    background:#FFFFFF;
+    border:none;
+    gridline-color:#F1F5F9;
+    outline:none;
+    selection-background-color:#EEF2FF;
+    selection-color:#111827;
+    alternate-background-color:#FBFDFF;
+}
+
+/* 헤더 */
+QHeaderView::section{
+    background:#F8FAFC;
+    color:#64748B;
+    border:none;
+    border-bottom:1px solid #E5EAF1;
+    padding:8px 6px;
+    font-size:11px;
+    font-weight:800;
+}
+
+/* 행 */
+QTableWidget::item,
+QTableView::item{
+    padding:8px;
+    border-bottom:1px solid #F1F5F9;
+}
+
+/* hover */
+QTableWidget::item:hover,
+QTableView::item:hover{
+    background:#F8FAFC;
+}
+
+/* 선택행 */
+QTableWidget::item:selected,
+QTableView::item:selected{
+    background:#EEF2FF;
+    color:#111827;
+}
+
+/* 스크롤바 */
+QScrollBar:vertical{
+    background:transparent;
+    width:10px;
+    margin:2px;
+}
+
+QScrollBar::handle:vertical{
+    background:#CBD5E1;
+    border-radius:5px;
+    min-height:30px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical{
+    height:0px;
+}
+
+/* 요약 텍스트 */
+QLabel[managedSub="true"]{
+    color:#94A3B8;
+    font-size:10px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* ==================================================
+   AITS PHASE T-APPLY-04
+   ANALYSIS CENTER
+================================================== */
+
+/* 중앙 전체 패널 */
+QFrame[analysisPanel="true"],
+QWidget[analysisPanel="true"]{
+    background:#FFFFFF;
+    border:1px solid #E7ECF3;
+    border-radius:18px;
+}
+
+/* 판단 배너 공통 */
+QFrame[decisionBanner="true"],
+QWidget[decisionBanner="true"]{
+    border:none;
+    border-radius:16px;
+    padding:4px;
+}
+
+/* BUY */
+QFrame[decisionState="buy"],
+QWidget[decisionState="buy"]{
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:1,
+        stop:0 #16A34A,
+        stop:1 #22C55E
+    );
+}
+
+/* HOLD */
+QFrame[decisionState="hold"],
+QWidget[decisionState="hold"]{
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:1,
+        stop:0 #2563EB,
+        stop:1 #3B82F6
+    );
+}
+
+/* SELL */
+QFrame[decisionState="sell"],
+QWidget[decisionState="sell"]{
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:1,
+        stop:0 #DC2626,
+        stop:1 #EF4444
+    );
+}
+
+/* WAIT */
+QFrame[decisionState="wait"],
+QWidget[decisionState="wait"]{
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:1,
+        stop:0 #64748B,
+        stop:1 #94A3B8
+    );
+}
+
+/* 배너 제목 */
+QLabel[decisionTitle="true"]{
+    color:#FFFFFF;
+    font-size:11px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* 배너 값 */
+QLabel[decisionValue="true"]{
+    color:#FFFFFF;
+    font-size:22px;
+    font-weight:900;
+    background:transparent;
+    border:none;
+}
+
+/* 배너 서브 */
+QLabel[decisionSub="true"]{
+    color:rgba(255,255,255,0.88);
+    font-size:10px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* 차트 카드 */
+QFrame[chartCard="true"],
+QWidget[chartCard="true"]{
+    background:#FFFFFF;
+    border:1px solid #E7ECF3;
+    border-radius:16px;
+}
+
+/* AI 설명 카드 */
+QFrame[reasonCard="true"],
+QWidget[reasonCard="true"]{
+    background:#F8FAFC;
+    border:1px solid #E8EDF3;
+    border-radius:16px;
+}
+
+/* 설명 제목 */
+QLabel[reasonTitle="true"]{
+    color:#0F172A;
+    font-size:12px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* 설명 본문 */
+QLabel[reasonText="true"]{
+    color:#475569;
+    font-size:11px;
+    font-weight:600;
+    line-height:1.5;
+    background:transparent;
+    border:none;
+}
+
+/* confidence progress */
+QProgressBar[confidenceBar="true"]{
+    border:none;
+    background:#E5EAF1;
+    border-radius:6px;
+    height:12px;
+    text-align:center;
+    color:#0F172A;
+    font-size:9px;
+    font-weight:800;
+}
+
+QProgressBar[confidenceBar="true"]::chunk{
+    border-radius:6px;
+    background:qlineargradient(
+        x1:0,y1:0,x2:1,y2:0,
+        stop:0 #2563EB,
+        stop:1 #60A5FA
+    );
+}
+
+/* ==================================================
+   AITS PHASE T-FIX-01
+   BOTTOM NAV RECOVERY
+================================================== */
+
+/* 하단 바 외곽 */
+QFrame[bottomNav="true"],
+QWidget[bottomNav="true"],
+QFrame[footerNav="true"],
+QWidget[footerNav="true"]{
+    background:#07152D;
+    border:1px solid #0F274A;
+    border-radius:18px;
+    min-height:56px;
+    max-height:64px;
+    padding:6px 10px;
+}
+
+/* 하단 탭 버튼 공통 */
+QPushButton[bottomTab="true"],
+QToolButton[bottomTab="true"]{
+    background:rgba(255,255,255,0.06);
+    color:#D8E3F0;
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:12px;
+    min-height:34px;
+    max-height:34px;
+    padding:4px 12px;
+    font-size:11px;
+    font-weight:700;
+}
+
+/* hover */
+QPushButton[bottomTab="true"]:hover,
+QToolButton[bottomTab="true"]:hover{
+    background:rgba(255,255,255,0.10);
+    border:1px solid rgba(255,255,255,0.16);
+    color:#FFFFFF;
+}
+
+/* pressed */
+QPushButton[bottomTab="true"]:pressed,
+QToolButton[bottomTab="true"]:pressed{
+    background:rgba(255,255,255,0.14);
+}
+
+/* 활성 탭 */
+QPushButton[bottomTabActive="true"],
+QToolButton[bottomTabActive="true"]{
+    background:#0F274A;
+    color:#FFFFFF;
+    border:1px solid #4DA3FF;
+    border-radius:12px;
+    min-height:34px;
+    max-height:34px;
+    padding:4px 12px;
+    font-size:11px;
+    font-weight:800;
+}
+
+/* 활성 탭 hover */
+QPushButton[bottomTabActive="true"]:hover,
+QToolButton[bottomTabActive="true"]:hover{
+    background:#12315C;
+    border:1px solid #6AB1FF;
+}
+
+/* 하단 우측 액션 버튼 */
+QPushButton[bottomAction="true"],
+QToolButton[bottomAction="true"]{
+    background:transparent;
+    color:#D8E3F0;
+    border:1px solid rgba(255,255,255,0.14);
+    border-radius:12px;
+    min-height:34px;
+    max-height:34px;
+    padding:4px 14px;
+    font-size:11px;
+    font-weight:700;
+}
+
+QPushButton[bottomAction="true"]:hover,
+QToolButton[bottomAction="true"]:hover{
+    background:rgba(255,255,255,0.08);
+    color:#FFFFFF;
+    border:1px solid rgba(255,255,255,0.22);
+}
+
+/* 하단 라벨/보조텍스트가 있다면 */
+QLabel[bottomNavText="true"]{
+    color:#9FB0C6;
+    font-size:10px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* 하단 내부 여백 정리 */
+QWidget[bottomNavInner="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* T-FIX-01: 2줄 타일(_AitsBottomNavTile) — QFrame + bottomTab / bottomTabActive */
+QFrame#aitsBottomNavTile[bottomTab="true"]{
+    background:rgba(255,255,255,0.06);
+    color:#D8E3F0;
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:12px;
+    min-height:36px;
+    max-height:48px;
+}
+
+QFrame#aitsBottomNavTile[bottomTab="true"]:hover{
+    background:rgba(255,255,255,0.10);
+    border:1px solid rgba(255,255,255,0.16);
+}
+
+QFrame#aitsBottomNavTile[bottomTabActive="true"]{
+    background:#0F274A;
+    border:1px solid #4DA3FF;
+    border-radius:12px;
+    min-height:36px;
+    max-height:48px;
+}
+
+QFrame#aitsBottomNavTile[bottomTabActive="true"]:hover{
+    background:#12315C;
+    border:1px solid #6AB1FF;
+}
+
+QFrame#aitsBottomNavTile[bottomTab="true"] QLabel#aitsBottomNavLine1{
+    background:transparent;
+    border:none;
+    color:#D8E3F0;
+    font-size:11px;
+    font-weight:800;
+}
+
+QFrame#aitsBottomNavTile[bottomTab="true"] QLabel#aitsBottomNavLine2{
+    background:transparent;
+    border:none;
+    color:#9FB0C6;
+    font-size:10px;
+    font-weight:700;
+}
+
+QFrame#aitsBottomNavTile[bottomTabActive="true"] QLabel#aitsBottomNavLine1{
+    color:#FFFFFF;
+}
+
+QFrame#aitsBottomNavTile[bottomTabActive="true"] QLabel#aitsBottomNavLine2{
+    color:rgba(255,255,255,0.82);
+    font-size:10px;
+    font-weight:700;
+}
+
+/* 기존 #aitsBottomNavFrame 단독 규칙보다 우선 (동일 위젯에 bottomNav 속성) */
+QFrame#aitsBottomNavFrame[bottomNav="true"]{
+    background:#07152D;
+    border:1px solid #0F274A;
+    border-radius:18px;
+    min-height:56px;
+    max-height:64px;
+    padding:6px 10px;
+}
+
+/* ==================================================
+   AITS COPY HEADER 01
+================================================== */
+
+/* 공통 카드 */
+QFrame[kpiCard="true"],
+QWidget[kpiCard="true"]{
+    background:#FFFFFF;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+/* 제목 */
+QLabel[kpiLabel="true"]{
+    color:#3B3F46;
+    font-size:11px;
+    font-weight:500;
+    background:transparent;
+    border:none;
+}
+
+/* 값 */
+QLabel[kpiValue="true"]{
+    color:#111827;
+    font-size:18px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* 초록값 */
+QLabel[kpiPositive="true"]{
+    color:#2E9B5D;
+    font-size:12px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* 상태카드 */
+QFrame[kpiStatus="true"],
+QWidget[kpiStatus="true"]{
+    background:#FFFFFF;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+QLabel[kpiStatusMain="true"]{
+    color:#2E8B57;
+    font-size:20px;
+    font-weight:900;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiStatusSub="true"]{
+    color:#2E8B57;
+    font-size:11px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* 전원카드 */
+QFrame[kpiPower="true"],
+QWidget[kpiPower="true"]{
+    background:#FFFFFF;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+/* AI 엔진 카드 */
+QFrame[kpiEngine="true"],
+QWidget[kpiEngine="true"]{
+    background:#F8F9FB;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+QLabel[kpiEngineLabel="true"]{
+    color:#20242A;
+    font-size:11px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiEngineValue="true"]{
+    color:#3B3F46;
+    font-size:12px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+/* hover 제거 (깔끔하게) */
+QFrame[kpiCard="true"]:hover{
+    border:1px solid #D9DDE3;
+}
+
+/* 헤더 아래 slim toolbar */
+QFrame[topSubBar="true"],
+QWidget[topSubBar="true"]{
+    background:#FFFFFF;
+    border:1px solid #E2E6EB;
+    border-radius:10px;
+}
+
+QLabel[topSubText="true"]{
+    font-size:11px;
+    font-weight:600;
+}
+
+/* ==================================================
+   AITS HEADER REAL BUILD
+   based on uploaded header spec
+================================================== */
+
+/* 좌측 통합 토글 블록 */
+QFrame[headerToggleBlock="true"],
+QWidget[headerToggleBlock="true"]{
+    background:#FFFFFF;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+/* 토글 상태 메인/서브 (ON 기본) */
+QLabel[headerToggleMain="true"]{
+    color:#2E8B57;
+    font-size:18px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+QLabel[headerToggleSub="true"]{
+    color:#2E8B57;
+    font-size:12px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[headerToggleMain="true"][headerState="off"]{
+    color:#B91C1C;
+    font-size:18px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+QLabel[headerToggleSub="true"][headerState="off"]{
+    color:#64748B;
+    font-size:12px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[headerToggleMain="true"][headerState="on"][runBlink="true"]{
+    color:#047857;
+    font-size:18px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* 토글 컨트롤 wrapper */
+QFrame[headerToggleControl="true"],
+QWidget[headerToggleControl="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* KPI 카드 */
+QFrame[kpiCard="true"],
+QWidget[kpiCard="true"]{
+    background:#FFFFFF;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+/* KPI 제목 */
+QLabel[kpiLabel="true"]{
+    color:#3B3F46;
+    font-size:11px;
+    font-weight:500;
+    background:transparent;
+    border:none;
+}
+
+/* KPI 값 */
+QLabel[kpiValue="true"]{
+    color:#111827;
+    font-size:20px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* KPI 서브 */
+QLabel[kpiSub="true"]{
+    color:#2E9B5D;
+    font-size:11px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+/* 손익 양수값 강조 */
+QLabel[kpiPositive="true"]{
+    color:#2E9B5D;
+    font-size:20px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* AI ENGINE */
+QFrame[kpiEngine="true"],
+QWidget[kpiEngine="true"]{
+    background:#F8F9FB;
+    border:1px solid #D9DDE3;
+    border-radius:10px;
+}
+
+QFrame[headerEngineIconWrap="true"],
+QWidget[headerEngineIconWrap="true"]{
+    background:#EFEFEF;
+    border:none;
+    border-radius:6px;
+}
+
+QLabel[kpiEngineLabel="true"]{
+    color:#20242A;
+    font-size:13px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiEngineValue="true"]{
+    color:#667085;
+    font-size:10px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+/* Slim status bar */
+QFrame[topSubBar="true"],
+QWidget[topSubBar="true"]{
+    background:#FFFFFF;
+    border:1px solid #E2E6EB;
+    border-radius:10px;
+}
+
+QPushButton[topSubBarAction="true"]{
+    background:#FFFFFF;
+    color:#333A45;
+    border:1px solid #D0D7E2;
+    border-radius:8px;
+    padding:6px 12px;
+    font-size:11px;
+    font-weight:700;
+    min-height:28px;
+}
+
+QPushButton[topSubBarAction="true"]:hover{
+    background:#F7F9FC;
+}
+
+/* 상태 뱃지 */
+QLabel[topSubBadgeBlue="true"],
+QPushButton[topSubBadgeBlue="true"]{
+    background:#EAF1FF;
+    color:#2B6CFF;
+    border:none;
+    border-radius:4px;
+    padding:1px 6px;
+    font-size:11px;
+    font-weight:700;
+}
+
+QLabel[topSubBadgeYellow="true"],
+QPushButton[topSubBadgeYellow="true"]{
+    background:#FFF3CC;
+    color:#D48A00;
+    border:none;
+    border-radius:4px;
+    padding:1px 6px;
+    font-size:11px;
+    font-weight:700;
+}
+
+/* ==================================================
+   AITS HEADER REAL BUILD 02
+   fine tuning only
+================================================== */
+
+QPushButton#StopButton{
+    font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+    padding: 0px;
+    font-size: 1px;
+    font-weight: 700;
+    min-height: 26px;
+    max-height: 28px;
+    background: #ffffff;
+    color: rgba(255,255,255,0);
+    border: 1px solid rgba(15,23,42,0.10);
+    border-radius: 14px;
+}
+
+/* 좌측 통합 토글 블록 */
+QFrame[headerToggleBlock="true"],
+QWidget[headerToggleBlock="true"]{
+    background:#FFFFFF;
+    border:1px solid #D8DDE5;
+    border-radius:12px;
+}
+
+/* 상태 메인 */
+QLabel[headerToggleMain="true"]{
+    background:transparent;
+    border:none;
+    font-size:17px;
+    font-weight:800;
+}
+
+/* 상태 서브 */
+QLabel[headerToggleSub="true"]{
+    background:transparent;
+    border:none;
+    font-size:11px;
+    font-weight:700;
+}
+
+/* ON/OFF 상태색 */
+QLabel[headerToggleMain="true"][headerState="on"]{
+    color:#2E8B57;
+}
+QLabel[headerToggleMain="true"][headerState="off"]{
+    color:#C62828;
+}
+QLabel[headerToggleSub="true"][headerState="on"]{
+    color:#2E8B57;
+}
+QLabel[headerToggleSub="true"][headerState="off"]{
+    color:#9A9FA8;
+}
+
+/* 토글 wrapper */
+QFrame[headerToggleControl="true"],
+QWidget[headerToggleControl="true"]{
+    background:transparent;
+    border:none;
+}
+
+/* KPI 카드 미세 보정 */
+QFrame[kpiCard="true"],
+QWidget[kpiCard="true"]{
+    background:#FFFFFF;
+    border:1px solid #D9DDE3;
+    border-radius:12px;
+}
+
+QLabel[kpiLabel="true"]{
+    color:#4A4F57;
+    font-size:10px;
+    font-weight:500;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiValue="true"]{
+    color:#0A1F44;
+    font-size:17px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiSub="true"]{
+    color:#2E9B5D;
+    font-size:10px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiPositive="true"]{
+    color:#2E9B5D;
+    font-size:17px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* AI Engine */
+QFrame[kpiEngine="true"],
+QWidget[kpiEngine="true"]{
+    background:#FBFBFC;
+    border:1px solid #D9DDE3;
+    border-radius:12px;
+}
+
+QFrame[headerEngineIconWrap="true"],
+QWidget[headerEngineIconWrap="true"]{
+    background:#F2F4F7;
+    border:1px solid #E7EAF0;
+    border-radius:8px;
+}
+
+QLabel[kpiEngineLabel="true"]{
+    color:#20242A;
+    font-size:12px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+QLabel[kpiEngineValue="true"]{
+    color:#667085;
+    font-size:10px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+/* slim status row */
+QFrame[topSubBar="true"],
+QWidget[topSubBar="true"]{
+    background:#FFFFFF;
+    border:1px solid #E2E6EB;
+    border-radius:12px;
+}
+
+QLabel[topSubBarText="true"]{
+    color:#24324A;
+    font-size:11px;
+    font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QPushButton[topSubBarAction="true"]{
+    background:#FFFFFF;
+    color:#2F3A4B;
+    border:1px solid #D2D8E2;
+    border-radius:10px;
+    padding:4px 12px;
+    font-size:11px;
+    font-weight:700;
+    min-height:30px;
+}
+
+QPushButton[topSubBarAction="true"]:hover{
+    background:#F7F9FC;
+}
+
+/* 상태 뱃지 */
+QLabel[topSubBadgeBlue="true"],
+QPushButton[topSubBadgeBlue="true"]{
+    background:#EAF1FF;
+    color:#2B6CFF;
+    border:none;
+    border-radius:4px;
+    padding:1px 6px;
+    font-size:11px;
+    font-weight:700;
+}
+
+QLabel[topSubBadgeYellow="true"],
+QPushButton[topSubBadgeYellow="true"]{
+    background:#FFF3CC;
+    color:#D48A00;
+    border:none;
+    border-radius:4px;
+    padding:1px 6px;
+    font-size:11px;
+    font-weight:700;
+}
+
+/* 실행 점멸(헤더 01 유지 + 02 톤) */
+QLabel[headerToggleMain="true"][headerState="on"][runBlink="true"]{
+    color:#047857;
+    font-size:17px;
+    font-weight:800;
+    background:transparent;
+    border:none;
+}
+
+/* ==================================================
+   AITS HEADER PNG SLOT BUILD
+================================================== */
+
+QLabel#lbl_header_toggle_png{
+    background:transparent;
+    border:none;
+}
+
+QLabel#lbl_header_engine_icon{
+    background:transparent;
+    border:none;
+    color:#6B7280;
+    font-size:11px;
+    font-weight:800;
+}
+
+/* AI ENGINE FIT-01 */
+
+QFrame[kpiEngine="true"]{
+    background:#FBFBFC;
+    border:1px solid #D9DDE3;
+    border-radius:12px;
+}
+
+QLabel[kpiEngineLabel="true"]{
+    font-size:12px;
+    font-weight:800;
+    color:#20242A;
+}
+
+QLabel[kpiEngineValue="true"]{
+    font-size:10px;
+    font-weight:600;
+    color:#667085;
+}
+"""
+
+
+def _load_qdarktheme_light_qss() -> tuple[str, str]:
+    """qdarktheme 가능 시 라이트 QSS 반환, 실패 시 빈 문자열 반환."""
+    try:
+        import qdarktheme  # type: ignore
+
+        qss = ""
+        try:
+            qss = qdarktheme.load_stylesheet("light")
+        except TypeError:
+            qss = qdarktheme.load_stylesheet(theme="light")
+        except Exception:
+            qss = ""
+        if qss:
+            return qss, "qdarktheme_light"
+        return "", "qdarktheme_empty"
+    except Exception:
+        return "", "fallback_no_qdarktheme"
+
+
+def _build_aits_combined_stylesheet() -> tuple[str, str]:
+    """
+    베이스 테마 + 기존 KMTS + AITS override를 순서대로 합성한다.
+    - qdarktheme가 없으면 기존 KMTS + AITS override만 적용
+    """
+    base_qss, theme_meta = _load_qdarktheme_light_qss()
+    aits_override_qss = _build_aits_override_qss()
+    parts = [base_qss, KMTS_LIGHT_QSS, aits_override_qss]
+    combined = "\n".join([p for p in parts if isinstance(p, str) and p.strip()])
+    return combined, theme_meta
+
+
 def main(root_dir: str, data_dir: str):
     # DB 및 기본 설정 초기화
     init_db(os.path.join(root_dir, "data"))
@@ -19689,15 +21239,19 @@ def main(root_dir: str, data_dir: str):
     # Qt 앱 생성
     app = QApplication.instance() or QApplication(sys.argv)
 
-    # [UI-QSS] 가벼운 통일 QSS 적용 (로직 0% / 정렬·통일성만)
+    # [UI-QSS] 베이스 테마(light) + AITS override 합성 적용
     try:
         app.setStyle(QStyleFactory.create("Fusion"))
     except Exception:
         pass
     try:
-        # 전역 기본 스타일만 적용 (개별 위젯/박스의 setStyleSheet는 그대로 우선 적용됨)
-        app.setStyleSheet(KMTS_LIGHT_QSS + "\n" + (app.styleSheet() or ""))
-        logging.getLogger(__name__).info("[UI-QSS] applied preset=KMTS_LIGHT_QSS")
+        combined_qss, theme_meta = _build_aits_combined_stylesheet()
+        app.setStyleSheet(combined_qss)
+        logging.getLogger(__name__).info(
+            "[UI-QSS] applied preset=%s theme_source=%s",
+            "AITS_COMBINED",
+            theme_meta,
+        )
     except Exception as e:
         logging.getLogger(__name__).warning(f"[UI-QSS] apply failed err={e}")
 

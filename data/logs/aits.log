@@ -3867,3 +3867,92 @@ NameError: name 'QFormLayout' is not defined. Did you mean: 'QVBoxLayout'?
 2026-04-15 18:54:37,861 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-15 18:54:37,862 | INFO | aits | AITS orchestrator initialized
 2026-04-15 18:54:45,450 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 19:55:20,070 | INFO | aits | AITS bootstrap start
+2026-04-15 19:55:20,077 | INFO | aits | AITS orchestrator initialized
+2026-04-15 19:55:20,077 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 19:55:20,078 | INFO | aits | AITS orchestrator initialized
+2026-04-15 19:55:23,131 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 20:27:00,059 | INFO | aits | AITS bootstrap start
+2026-04-15 20:27:00,068 | INFO | aits | AITS orchestrator initialized
+2026-04-15 20:27:00,068 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 20:27:00,069 | INFO | aits | AITS orchestrator initialized
+2026-04-15 20:27:03,456 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 20:53:43,230 | INFO | aits | AITS bootstrap start
+2026-04-15 20:53:43,237 | INFO | aits | AITS orchestrator initialized
+2026-04-15 20:53:43,237 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 20:53:43,237 | INFO | aits | AITS orchestrator initialized
+2026-04-15 20:53:46,219 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 21:51:11,013 | INFO | aits | AITS bootstrap start
+2026-04-15 21:51:11,020 | INFO | aits | AITS orchestrator initialized
+2026-04-15 21:51:11,021 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 21:51:11,023 | INFO | aits | AITS orchestrator initialized
+2026-04-15 21:51:18,058 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 22:33:14,349 | INFO | aits | AITS bootstrap start
+2026-04-15 22:33:14,356 | INFO | aits | AITS orchestrator initialized
+2026-04-15 22:33:14,356 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 22:33:14,357 | INFO | aits | AITS orchestrator initialized
+2026-04-15 22:33:16,890 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 22:36:48,823 | INFO | aits | AITS bootstrap start
+2026-04-15 22:36:48,831 | INFO | aits | AITS orchestrator initialized
+2026-04-15 22:36:48,831 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 22:36:48,832 | INFO | aits | AITS orchestrator initialized
+2026-04-15 22:36:51,373 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-15 23:38:10,227 | INFO | aits | AITS bootstrap start
+2026-04-15 23:38:10,233 | INFO | aits | AITS orchestrator initialized
+2026-04-15 23:38:10,234 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-15 23:38:10,234 | INFO | aits | AITS orchestrator initialized
+2026-04-15 23:38:13,285 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-16 10:08:44,689 | INFO | aits | AITS bootstrap start
+2026-04-16 10:08:44,696 | INFO | aits | AITS orchestrator initialized
+2026-04-16 10:08:44,697 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-16 10:08:44,697 | INFO | aits | AITS orchestrator initialized
+2026-04-16 10:08:52,341 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-16 10:16:45,809 | INFO | aits | AITS bootstrap start
+2026-04-16 10:16:45,816 | INFO | aits | AITS orchestrator initialized
+2026-04-16 10:16:45,816 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-16 10:16:45,816 | INFO | aits | AITS orchestrator initialized
+2026-04-16 10:16:53,265 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-16 15:31:26,956 | INFO | aits | AITS bootstrap start
+2026-04-16 15:31:26,963 | INFO | aits | AITS orchestrator initialized
+2026-04-16 15:31:26,963 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-16 15:31:26,963 | INFO | aits | AITS orchestrator initialized
+2026-04-16 15:31:34,209 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-16 21:04:15,201 | INFO | aits | AITS bootstrap start
+2026-04-16 21:04:15,208 | INFO | aits | AITS orchestrator initialized
+2026-04-16 21:04:15,208 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-16 21:04:15,209 | INFO | aits | AITS orchestrator initialized
+2026-04-16 21:04:22,432 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-17 04:55:21,795 | INFO | aits | AITS bootstrap start
+2026-04-17 04:55:21,803 | INFO | aits | AITS orchestrator initialized
+2026-04-17 04:55:21,803 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-17 04:55:21,804 | INFO | aits | AITS orchestrator initialized
+2026-04-17 05:51:47,959 | INFO | aits | AITS bootstrap start
+2026-04-17 05:51:47,971 | INFO | aits | AITS orchestrator initialized
+2026-04-17 05:51:47,972 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-17 05:51:47,973 | INFO | aits | AITS orchestrator initialized
+2026-04-17 05:51:55,421 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-17 06:14:00,579 | INFO | aits | AITS bootstrap start
+2026-04-17 06:14:00,586 | INFO | aits | AITS orchestrator initialized
+2026-04-17 06:14:00,587 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-17 06:14:00,587 | INFO | aits | AITS orchestrator initialized
+2026-04-17 06:14:02,512 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-17 06:23:53,967 | INFO | aits | AITS bootstrap start
+2026-04-17 06:23:53,974 | INFO | aits | AITS orchestrator initialized
+2026-04-17 06:23:53,974 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-17 06:23:53,974 | INFO | aits | AITS orchestrator initialized
+2026-04-17 06:23:55,796 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-17 08:48:32,227 | INFO | aits | AITS bootstrap start
+2026-04-17 08:48:32,234 | INFO | aits | AITS orchestrator initialized
+2026-04-17 08:48:32,235 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-17 08:48:32,235 | INFO | aits | AITS orchestrator initialized
+2026-04-17 08:48:35,181 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-17 20:59:03,938 | INFO | aits | AITS bootstrap start
+2026-04-17 20:59:03,947 | INFO | aits | AITS orchestrator initialized
+2026-04-17 20:59:03,947 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-17 20:59:03,948 | INFO | aits | AITS orchestrator initialized
+2026-04-17 20:59:12,527 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-18 04:41:08,113 | INFO | aits | AITS bootstrap start
+2026-04-18 04:41:08,121 | INFO | aits | AITS orchestrator initialized
+2026-04-18 04:41:08,121 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-18 04:41:08,123 | INFO | aits | AITS orchestrator initialized
+2026-04-18 04:41:16,923 | INFO | aits | UI launched via legacy-compatible entry
