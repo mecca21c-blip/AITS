@@ -250,7 +250,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStyle,
     QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QFormLayout, QHeaderView,
     QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
-    QAbstractItemView, QMenu, QSizePolicy, QScrollArea, QCheckBox,
+    QAbstractItemView, QAbstractScrollArea, QMenu, QSizePolicy, QScrollArea, QCheckBox,
     QGroupBox, QLineEdit, QTextEdit, QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem,
     QProgressDialog, QStackedWidget,
     QTreeView, QAbstractItemView, QStyleFactory, QDockWidget, QListWidget,
@@ -411,12 +411,20 @@ def _managed_table_cell_padding_wrap(inner: QWidget, *, center: bool) -> QWidget
         hl.setSpacing(0)
     except Exception:
         pass
+    try:
+        wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        inner.setSizePolicy(
+            QSizePolicy.Policy.Preferred if center else QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
+    except Exception:
+        pass
     if center:
         hl.addWidget(inner, 0, Qt.AlignmentFlag.AlignCenter)
     else:
         hl.addWidget(
             inner,
-            0,
+            1,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
     return wrap
@@ -6230,6 +6238,12 @@ class MainWindow(QMainWindow):
             if self._frm_managed_footer.parent()
             else None,
         )
+        try:
+            self._finalize_left_managed_panel_layout(_gb_managed, _managed_inner)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "left managed panel final layout failed", exc_info=True
+            )
         self.btn_ai_managed_up = QPushButton("▲ 위로")
         self.btn_ai_managed_down = QPushButton("▼ 아래로")
         try:
@@ -10752,6 +10766,38 @@ class MainWindow(QMainWindow):
             if s.startswith("KRW-"):
                 s = s.split("-", 1)[1].strip()
 
+            reliable_name_map = {
+                "BTC": "비트코인",
+                "ETH": "이더리움",
+                "XRP": "리플",
+                "DOGE": "도지코인",
+                "SOL": "솔라나",
+                "ADA": "에이다",
+                "TRX": "트론",
+                "AVAX": "아발란체",
+                "SUI": "수이",
+                "LINK": "체인링크",
+                "XLM": "스텔라루멘",
+                "BCH": "비트코인캐시",
+                "ETC": "이더리움클래식",
+                "APT": "앱토스",
+                "SEI": "세이",
+                "NEAR": "니어프로토콜",
+                "ARB": "아비트럼",
+                "OP": "옵티미즘",
+                "ATOM": "코스모스",
+                "STX": "스택스",
+                "FIL": "파일코인",
+                "INJ": "인젝티브",
+                "WLD": "월드코인",
+                "POLYX": "폴리매쉬",
+                "HBAR": "헤데라",
+                "ONDO": "온도",
+                "USDT": "테더",
+            }
+            if s in reliable_name_map:
+                return reliable_name_map[s]
+
             name_map = {
                 "BTC": "비트코인",
                 "ETH": "이더리움",
@@ -12231,6 +12277,21 @@ class MainWindow(QMainWindow):
             ns = str(raw_symbol or "").strip()
         if not ns:
             return ""
+        tail = ns.split("-")[-1].upper().strip() if ns else ""
+
+        def _valid_name(val: str) -> str:
+            s = str(val or "").strip()
+            if not s:
+                return ""
+            first = s.split("\n", 1)[0].strip()
+            parts = first.split()
+            if len(parts) >= 2 and parts[0].strip().upper() == tail:
+                s = " ".join(parts[1:]).strip()
+            su = s.upper().replace(" ", "").replace("-", "")
+            if not s or su in (tail, ns.upper().replace("-", ""), f"KRW{tail}"):
+                return ""
+            return s
+
         try:
             for disp in (getattr(self, "_market_display_rows", None) or []):
                 if not isinstance(disp, dict):
@@ -12247,6 +12308,7 @@ class MainWindow(QMainWindow):
                     or disp.get("english_name")
                     or ""
                 ).strip()
+                row_name = _valid_name(row_name)
                 if row_name:
                     return row_name
         except Exception:
@@ -12268,7 +12330,9 @@ class MainWindow(QMainWindow):
                 first = first.lstrip("★").strip()
                 toks = first.split()
                 if len(toks) >= 2:
-                    return " ".join(toks[1:]).strip()
+                    row_name = _valid_name(" ".join(toks[1:]).strip())
+                    if row_name:
+                        return row_name
         except Exception:
             pass
         return ""
@@ -12290,6 +12354,15 @@ class MainWindow(QMainWindow):
         except Exception:
             tail = ""
 
+        def _strip_symbol_prefix(s: str) -> str:
+            val = str(s or "").strip()
+            if not val:
+                return ""
+            parts = val.split()
+            if len(parts) >= 2 and parts[0].strip().upper() == tail:
+                return " ".join(parts[1:]).strip()
+            return val
+
         def _is_ticker_only(s: str) -> bool:
             su = str(s or "").strip().upper().replace(" ", "")
             if not su or not tail:
@@ -12309,10 +12382,17 @@ class MainWindow(QMainWindow):
                 v = None
             if v is None:
                 continue
-            s = str(v).strip()
+            s = _strip_symbol_prefix(str(v).strip())
             if not s or _is_ticker_only(s):
                 continue
             return s
+        try:
+            ko = self._get_aits_korean_coin_name(tail)
+            ko = str(ko or "").strip()
+            if ko and not _is_ticker_only(ko):
+                return ko
+        except Exception:
+            pass
         try:
             lab = self._aits_symbol_label(raw_symbol)
             parts = str(lab or "").strip().split()
@@ -12448,10 +12528,49 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_managed_header_pause_clicked(self) -> None:
-        """매매 보류: 헤더 슬롯(동작은 후속 패치에서 연결)."""
+        try:
+            row_idx = self._get_ai_managed_current_row()
+            rows = getattr(self, "ai_managed_rows", None) or []
+            if row_idx is None or row_idx < 0 or row_idx >= len(rows):
+                return
+            row = rows[row_idx]
+            if not isinstance(row, dict):
+                return
+            raw = str(row.get("ai_status") or row.get("status") or "").strip()
+            is_paused = ("보류" in raw) or ("pause" in raw.lower())
+            if is_paused:
+                prev = str(row.get("_ai_status_before_pause") or "").strip()
+                if not prev or ("보류" in prev) or ("pause" in prev.lower()):
+                    prev = "분석 대기"
+                row["ai_status"] = prev
+                row["status"] = prev
+                row.pop("_ai_status_before_pause", None)
+            else:
+                row["_ai_status_before_pause"] = raw or "분석 대기"
+                row["ai_status"] = "매매 보류"
+                row["status"] = "매매 보류"
+            self._refresh_ai_managed_table()
+            try:
+                self.tbl_ai_managed.selectRow(row_idx)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _on_managed_header_remove_clicked(self) -> None:
-        """- 삭제: 헤더 슬롯(동작은 후속 패치에서 연결)."""
+        try:
+            row_idx = self._get_ai_managed_current_row()
+            rows = getattr(self, "ai_managed_rows", None) or []
+            if row_idx is None or row_idx < 0 or row_idx >= len(rows):
+                return
+            row = rows[row_idx]
+            if not isinstance(row, dict):
+                return
+            sym = str(row.get("symbol") or row.get("market") or "").strip()
+            if sym:
+                self._remove_symbol_from_ai_pool(sym)
+        except Exception:
+            pass
 
     def _refresh_managed_summary_cards(self) -> None:
         """LEFT MANAGED: 하단 3칸 요약 값 재적용 래퍼."""
@@ -12762,6 +12881,125 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _finalize_left_managed_panel_layout(
+        self, parent: QWidget, panel_layout: QVBoxLayout
+    ) -> None:
+        """Left managed panel final structure: one table body plus a docked summary."""
+        table = getattr(self, "tbl_ai_managed", None)
+        footer = getattr(self, "_frm_managed_footer", None)
+        if table is None or footer is None or panel_layout is None:
+            return
+
+        try:
+            table.setParent(parent)
+            footer.setParent(parent)
+        except Exception:
+            pass
+
+        scroll = getattr(self, "_managed_table_scroll", None)
+        if scroll is not None:
+            try:
+                panel_layout.removeWidget(scroll)
+            except Exception:
+                pass
+            try:
+                scroll.setWidget(None)
+            except Exception:
+                pass
+            try:
+                scroll.hide()
+            except Exception:
+                pass
+            try:
+                scroll.deleteLater()
+            except Exception:
+                pass
+
+        try:
+            panel_layout.removeWidget(table)
+        except Exception:
+            pass
+        try:
+            panel_layout.removeWidget(footer)
+        except Exception:
+            pass
+
+        try:
+            table.setHorizontalHeaderLabels(["순위", "종목", "AI 점수", "상태", "비중/목표"])
+        except Exception:
+            pass
+        try:
+            table.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+            )
+            table.setSizeAdjustPolicy(
+                QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored
+            )
+            table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+            table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            table.setMinimumHeight(620)
+            table.setMaximumHeight(700)
+        except Exception:
+            pass
+        try:
+            header = table.horizontalHeader()
+            header.setStretchLastSection(False)
+            header.setSectionsMovable(False)
+            header.setSectionsClickable(True)
+            header.setMinimumSectionSize(36)
+            header.setDefaultAlignment(
+                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
+            )
+            for ci in range(int(table.columnCount())):
+                header.setSectionResizeMode(ci, QHeaderView.ResizeMode.Interactive)
+            try:
+                header.sectionResized.disconnect(self._on_ai_managed_section_resized)
+            except Exception:
+                pass
+            header.sectionResized.connect(self._on_ai_managed_section_resized)
+        except Exception:
+            pass
+        try:
+            for ci, key in enumerate(("rank", "symbol", "score", "status", "weight_goal")):
+                table.setColumnWidth(ci, int(_MANAGED_COL_WIDTHS[key]))
+        except Exception:
+            pass
+
+        try:
+            footer.setFixedHeight(70)
+            footer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            footer.show()
+        except Exception:
+            pass
+        try:
+            footer_titles = ("총 평가금액", "총 비중", "현금 비중")
+            i = 0
+            for label in footer.findChildren(QLabel):
+                if bool(label.property("managedSummaryTitle")) and i < len(footer_titles):
+                    label.setText(footer_titles[i])
+                    i += 1
+        except Exception:
+            pass
+
+        try:
+            hint = getattr(self, "_frm_ai_managed_add_hint", None)
+            if hint is not None:
+                hint.hide()
+        except Exception:
+            pass
+        self._managed_table_scroll = None
+        self._managed_table_scroll_host = None
+        panel_layout.insertWidget(1, table, 1)
+        panel_layout.insertWidget(2, footer, 0)
+        try:
+            panel_layout.setStretch(0, 0)
+            panel_layout.setStretch(1, 1)
+            panel_layout.setStretch(2, 0)
+        except Exception:
+            pass
+
     def _clear_ai_managed_cell_widgets(self) -> None:
         """tbl_ai_managed 기존 cellWidget 제거(행 재구성 전)."""
         t = getattr(self, "tbl_ai_managed", None)
@@ -12790,6 +13028,29 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+    def _on_ai_managed_section_resized(self, *_args) -> None:
+        """Keep compact cell widgets aligned after user column resizing."""
+        if getattr(self, "_ai_managed_table_refreshing", False):
+            return
+        try:
+            timer = getattr(self, "_ai_managed_resize_refresh_timer", None)
+            if timer is None:
+                timer = QTimer(self)
+                timer.setSingleShot(True)
+                timer.timeout.connect(self._refresh_ai_managed_cell_widgets_only)
+                self._ai_managed_resize_refresh_timer = timer
+            timer.start(80)
+        except Exception:
+            pass
+
+    def _refresh_ai_managed_cell_widgets_only(self) -> None:
+        try:
+            self._clear_ai_managed_cell_widgets()
+            self._populate_ai_managed_table_cells()
+            self._apply_ai_managed_row_visual_state()
+        except Exception:
+            pass
+
     def _populate_ai_managed_table_cells(self) -> None:
         """ai_managed_rows 순서에 맞춰 5열 cellWidget 채움(표시만)."""
         t = getattr(self, "tbl_ai_managed", None)
@@ -12797,7 +13058,7 @@ class MainWindow(QMainWindow):
         if t is None:
             return
         try:
-            tw_score = max(52, int(_MANAGED_COL_WIDTHS["score"]))
+            tw_score = max(52, int(t.columnWidth(2)) - 12)
         except Exception:
             tw_score = 72
         try:
@@ -12850,12 +13111,16 @@ class MainWindow(QMainWindow):
                     symbol_root.setStyleSheet(
                         "background: transparent; border: none;"
                     )
+                    symbol_root.setSizePolicy(
+                        QSizePolicy.Policy.Expanding,
+                        QSizePolicy.Policy.Expanding,
+                    )
                 except Exception:
                     pass
                 sh = QHBoxLayout(symbol_root)
                 try:
                     sh.setContentsMargins(0, 0, 0, 0)
-                    sh.setSpacing(4)
+                    sh.setSpacing(5)
                 except Exception:
                     pass
                 ob = _AitsManagedOriginBadge(origin_code, symbol_root)
@@ -12865,10 +13130,14 @@ class MainWindow(QMainWindow):
                     text_wrap.setStyleSheet(
                         "background: transparent; border: none;"
                     )
+                    text_wrap.setSizePolicy(
+                        QSizePolicy.Policy.Expanding,
+                        QSizePolicy.Policy.Expanding,
+                    )
                 except Exception:
                     pass
                 try:
-                    text_wrap.setMinimumHeight(34)
+                    text_wrap.setMinimumHeight(40)
                 except Exception:
                     pass
                 tv = QVBoxLayout(text_wrap)
@@ -12887,6 +13156,11 @@ class MainWindow(QMainWindow):
                         Qt.AlignmentFlag.AlignLeft
                         | Qt.AlignmentFlag.AlignVCenter
                     )
+                    lt.setTextFormat(Qt.TextFormat.PlainText)
+                    lt.setSizePolicy(
+                        QSizePolicy.Policy.Expanding,
+                        QSizePolicy.Policy.Fixed,
+                    )
                     lt.setStyleSheet(
                         "font-size:13px;font-weight:800;color:#0F172A;"
                         "background:transparent;border:none;"
@@ -12903,6 +13177,11 @@ class MainWindow(QMainWindow):
                             Qt.AlignmentFlag.AlignLeft
                             | Qt.AlignmentFlag.AlignVCenter
                         )
+                        lb.setTextFormat(Qt.TextFormat.PlainText)
+                        lb.setSizePolicy(
+                            QSizePolicy.Policy.Expanding,
+                            QSizePolicy.Policy.Fixed,
+                        )
                         lb.setStyleSheet(
                             "font-size:11px;font-weight:600;color:#64748B;"
                             "background:transparent;border:none;"
@@ -12912,7 +13191,7 @@ class MainWindow(QMainWindow):
                     tv.addWidget(lb)
                 else:
                     tv.addWidget(lt)
-                sh.addWidget(text_wrap, 0, Qt.AlignmentFlag.AlignVCenter)
+                sh.addWidget(text_wrap, 1, Qt.AlignmentFlag.AlignVCenter)
                 t.setCellWidget(
                     i,
                     1,
@@ -17245,6 +17524,18 @@ class MainWindow(QMainWindow):
                 display_name = ""
         if not display_name:
             display_name = sym.split("-")[-1] if "-" in sym else sym
+        try:
+            _tail_for_name = sym.split("-")[-1].upper() if sym else ""
+            _dn = str(display_name or "").strip()
+            _dn_u = _dn.upper().replace(" ", "").replace("-", "")
+            if _dn and _dn_u not in (_tail_for_name, f"KRW{_tail_for_name}"):
+                new_ko_name = _dn
+            else:
+                new_ko_name = ""
+            if not new_ko_name:
+                new_ko_name = str(self._get_aits_korean_coin_name(sym) or "").strip()
+        except Exception:
+            new_ko_name = ""
 
         try:
             src = str(_pick(src_row, "source", "provider", "origin") or "").strip()
@@ -17284,6 +17575,8 @@ class MainWindow(QMainWindow):
             "trade_value": tv,
             "volume_krw": tv,
         }
+        if new_ko_name:
+            new_row["korean_name"] = new_ko_name
         try:
             _ko_add = ""
             if src_row and isinstance(src_row, dict):
