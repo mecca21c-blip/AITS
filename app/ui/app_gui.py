@@ -5814,7 +5814,7 @@ class MainWindow(QMainWindow):
             pass
         _managed_inner = QVBoxLayout(_gb_managed)
         try:
-            _managed_inner.setContentsMargins(14, 12, 14, 12)
+            _managed_inner.setContentsMargins(14, 12, 14, 8)
             _managed_inner.setSpacing(6)
         except Exception:
             pass
@@ -5901,28 +5901,12 @@ class MainWindow(QMainWindow):
             pass
         _mh.addLayout(_hdr_title_row)
         _mh.addLayout(_hdr_scope_row)
-        _managed_inner.addWidget(self._managed_header_card)
+        _managed_inner.addWidget(self._managed_header_card, 0)
         try:
             self.btn_managed_pause.clicked.connect(self._on_managed_header_pause_clicked)
             self.btn_managed_remove.clicked.connect(self._on_managed_header_remove_clicked)
         except Exception:
             pass
-
-        self.lbl_ai_managed_ux_hint = QLabel(
-            "더블클릭: 차트 분석 | Delete: 제거 | 드래그: 우선순위 변경"
-        )
-        try:
-            self.lbl_ai_managed_ux_hint.setProperty("managedSub", True)
-            self.lbl_ai_managed_ux_hint.setWordWrap(True)
-            self.lbl_ai_managed_ux_hint.setStyleSheet(
-                "background: transparent; border: none;"
-            )
-            self.lbl_ai_managed_ux_hint.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
-        except Exception:
-            pass
-        _managed_inner.addWidget(self.lbl_ai_managed_ux_hint)
 
         # REBUILD: 별도 컬럼 헤더 + 스크롤 카드 경로 제거 — tbl_ai_managed 단일 테이블
         self._frm_managed_column_header = None
@@ -6084,7 +6068,7 @@ class MainWindow(QMainWindow):
         _mts_host_ly = QVBoxLayout(self._managed_table_scroll_host)
         try:
             _mts_host_ly.setContentsMargins(0, 0, 0, 0)
-            _mts_host_ly.setSpacing(6)
+            _mts_host_ly.setSpacing(8)
         except Exception:
             pass
         try:
@@ -6116,8 +6100,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _ah_lay.addWidget(self.lbl_ai_managed_add_placeholder)
-        _mts_host_ly.addWidget(self._frm_ai_managed_add_hint, 0)
-        _mts_host_ly.addWidget(self.tbl_ai_managed, 1)
+        _mts_host_ly.addWidget(self.tbl_ai_managed, 0)
         self._managed_table_scroll = QScrollArea(_gb_managed)
         try:
             self._managed_table_scroll.setWidgetResizable(True)
@@ -6140,7 +6123,7 @@ class MainWindow(QMainWindow):
             self._frm_managed_footer.setProperty(
                 "managedSummaryDockCandidate", True
             )
-            self._frm_managed_footer.setFixedHeight(76)
+            self._frm_managed_footer.setFixedHeight(78)
             self._frm_managed_footer.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
                 QSizePolicy.Policy.Fixed,
@@ -6148,7 +6131,7 @@ class MainWindow(QMainWindow):
             self._frm_managed_footer.setVisible(True)
             self._frm_managed_footer.setStyleSheet(
                 "QFrame#frmManagedFooter{background:#ffffff;border:none;"
-                "border-top:1px solid #e5eaf1;}"
+                "border-top:1px solid #D9E2EC;}"
             )
         except Exception:
             pass
@@ -6193,7 +6176,60 @@ class MainWindow(QMainWindow):
         _mf_lay.addWidget(_bx_e, 1)
         _mf_lay.addWidget(_bx_w, 1)
         _mf_lay.addWidget(_bx_c, 1)
-        _managed_inner.addWidget(self._frm_managed_footer)
+        try:
+            self._frm_managed_footer.setParent(None)
+        except Exception:
+            pass
+        _mts_host_ly.addWidget(self._frm_managed_footer, 0)
+        self.lbl_ai_managed_ux_hint = QLabel(
+            "더블클릭: 차트 분석 | Delete: 제거 | 드래그: 우선순위 변경"
+        )
+        try:
+            self.lbl_ai_managed_ux_hint.setProperty("managedSub", True)
+            self.lbl_ai_managed_ux_hint.setWordWrap(True)
+            self.lbl_ai_managed_ux_hint.setStyleSheet(
+                "background: transparent; border: none;"
+            )
+            self.lbl_ai_managed_ux_hint.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            self.lbl_ai_managed_ux_hint.hide()
+        except Exception:
+            pass
+        _mts_host_ly.addWidget(self.lbl_ai_managed_ux_hint, 0)
+        try:
+            _managed_inner.setStretch(0, 0)
+            _managed_inner.setStretch(1, 1)
+        except Exception:
+            pass
+        print("[AITS][SUMMARY] _managed_inner children:")
+        for i in range(_managed_inner.count()):
+            item = _managed_inner.itemAt(i)
+            w = item.widget() if item else None
+            print(
+                "  ",
+                i,
+                w.__class__.__name__ if w else type(item).__name__,
+                getattr(w, "objectName", lambda: "")(),
+            )
+
+        print("[AITS][SUMMARY] scroll_host children:")
+        for i in range(_mts_host_ly.count()):
+            item = _mts_host_ly.itemAt(i)
+            w = item.widget() if item else None
+            print(
+                "  ",
+                i,
+                w.__class__.__name__ if w else type(item).__name__,
+                getattr(w, "objectName", lambda: "")(),
+            )
+
+        print(
+            "[AITS][SUMMARY] footer parent:",
+            self._frm_managed_footer.parent().__class__.__name__
+            if self._frm_managed_footer.parent()
+            else None,
+        )
         self.btn_ai_managed_up = QPushButton("▲ 위로")
         self.btn_ai_managed_down = QPushButton("▼ 아래로")
         try:
