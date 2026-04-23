@@ -6522,7 +6522,24 @@ class MainWindow(QMainWindow):
                     "scroll_event", self._on_detail_chart_mouse_scroll
                 ),
             ]
-        _detail_inner.addWidget(self._frm_ai_detail_chart, 1)
+        self._center_main_splitter = QSplitter(Qt.Orientation.Vertical)
+        try:
+            self._center_main_splitter.setChildrenCollapsible(False)
+            self._center_main_splitter.setHandleWidth(8)
+            self._center_main_splitter.setOpaqueResize(True)
+            self._center_main_splitter.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
+            self._center_main_splitter.setObjectName("centerMainSplitter")
+        except Exception:
+            pass
+        try:
+            self._frm_ai_detail_chart.setMinimumHeight(220)
+        except Exception:
+            pass
+        self._center_main_splitter.addWidget(self._frm_ai_detail_chart)
+        _detail_inner.addWidget(self._center_main_splitter, 1)
 
         try:
             self._refresh_ai_detail_chart()
@@ -6689,7 +6706,23 @@ class MainWindow(QMainWindow):
             pass
         self.lbl_ai_briefing_card.setStyleSheet("")
         _bf_ly.addWidget(self.lbl_ai_briefing_card)
-        _detail_inner.addWidget(self._frm_ai_briefing_card)
+
+        self._frm_ai_center_middle_stack = QWidget()
+        try:
+            self._frm_ai_center_middle_stack.setMinimumHeight(100)
+            self._frm_ai_center_middle_stack.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
+        except Exception:
+            pass
+        _center_mid_ly = QVBoxLayout(self._frm_ai_center_middle_stack)
+        try:
+            _center_mid_ly.setContentsMargins(0, 0, 0, 0)
+            _center_mid_ly.setSpacing(8)
+        except Exception:
+            pass
+        _center_mid_ly.addWidget(self._frm_ai_briefing_card, 1)
 
         _why_next_row = QHBoxLayout()
         _why_next_row.setSpacing(8)
@@ -6741,7 +6774,8 @@ class MainWindow(QMainWindow):
         _nx_ly.addWidget(self.lbl_ai_center_next)
         _why_next_row.addWidget(self._frm_ai_why_card, 1)
         _why_next_row.addWidget(self._frm_ai_next_card, 1)
-        _detail_inner.addLayout(_why_next_row)
+        _center_mid_ly.addLayout(_why_next_row, 1)
+        self._center_main_splitter.addWidget(self._frm_ai_center_middle_stack)
 
         self._frm_ai_recent_log = QFrame()
         self._frm_ai_recent_log.setStyleSheet(
@@ -6763,7 +6797,22 @@ class MainWindow(QMainWindow):
             "font-family: Consolas, 'Cascadia Mono', 'Segoe UI Mono', monospace;"
         )
         _rl_ly.addWidget(self.lbl_ai_recent_log)
-        _detail_inner.addWidget(self._frm_ai_recent_log)
+        try:
+            self._frm_ai_recent_log.setMinimumHeight(90)
+            self._frm_ai_recent_log.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
+        except Exception:
+            pass
+        self._center_main_splitter.addWidget(self._frm_ai_recent_log)
+        try:
+            self._center_main_splitter.setStretchFactor(0, 5)
+            self._center_main_splitter.setStretchFactor(1, 2)
+            self._center_main_splitter.setStretchFactor(2, 2)
+            self._center_main_splitter.setSizes([420, 180, 160])
+        except Exception:
+            pass
 
         _fa_wrap = QWidget()
         _fa = QFormLayout(_fa_wrap)
@@ -6869,6 +6918,12 @@ class MainWindow(QMainWindow):
             self._gb_ai_detail.setMinimumWidth(560)
         except Exception:
             pass
+        try:
+            self._rebuild_center_dashboard_layout()
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "center dashboard layout rebuild failed", exc_info=True
+            )
 
         # old layout (PATCH 2-1 replaced): horizontal top = Managed + AI Detail only
         # _split_aits_top_h = QSplitter(Qt.Orientation.Horizontal)
@@ -9050,6 +9105,467 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _clear_layout_items_detach(self, layout) -> None:
+        try:
+            if layout is None:
+                return
+            while layout.count():
+                item = layout.takeAt(0)
+                if item is None:
+                    continue
+                w = item.widget()
+                if w is not None:
+                    try:
+                        w.setParent(None)
+                    except Exception:
+                        pass
+                    continue
+                child = item.layout()
+                if child is not None:
+                    self._clear_layout_items_detach(child)
+        except Exception:
+            pass
+
+    def _make_center_dashboard_card(self, title: str, body: QWidget | None = None) -> tuple[QFrame, QVBoxLayout]:
+        card = QFrame()
+        try:
+            card.setProperty("centerDashCard", True)
+            card.setStyleSheet(
+                "QFrame[centerDashCard='true']{background:#ffffff;border:1px solid #d9dde3;border-radius:12px;}"
+            )
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        except Exception:
+            pass
+        lay = QVBoxLayout(card)
+        try:
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(8)
+        except Exception:
+            pass
+        title_lb = QLabel(str(title or "").strip())
+        try:
+            title_lb.setProperty("reasonTitle", True)
+            title_lb.setStyleSheet(
+                "font-size:12px;font-weight:900;color:#111827;background:transparent;border:none;"
+            )
+        except Exception:
+            pass
+        lay.addWidget(title_lb, 0)
+        if body is not None:
+            lay.addWidget(body, 1)
+        return card, lay
+
+    def _rebuild_center_dashboard_layout(self) -> None:
+        root_widget = getattr(self, "_gb_ai_detail", None)
+        if root_widget is None:
+            return
+        root = root_widget.layout()
+        if root is None:
+            root = QVBoxLayout(root_widget)
+        self._clear_layout_items_detach(root)
+        try:
+            root.setContentsMargins(10, 10, 10, 10)
+            root.setSpacing(8)
+            root_widget.setStyleSheet("QGroupBox{background:#f7f8fa;}")
+        except Exception:
+            pass
+
+        for name in (
+            "txt_ai_detail_reason",
+            "lbl_ai_detail_score",
+            "_frm_ai_detail_legacy_info",
+            "_frm_ai_legacy_cards",
+        ):
+            try:
+                w = getattr(self, name, None)
+                if w is not None:
+                    w.setVisible(False)
+            except Exception:
+                pass
+
+        if not hasattr(self, "lbl_ai_center_summary"):
+            self.lbl_ai_center_summary = QLabel("—")
+            try:
+                self.lbl_ai_center_summary.setWordWrap(True)
+            except Exception:
+                pass
+        if not hasattr(self, "lbl_ai_center_symbolpill"):
+            self.lbl_ai_center_symbolpill = QLabel("— / KRW")
+        if not hasattr(self, "lbl_ai_center_symbol_badge"):
+            self.lbl_ai_center_symbol_badge = QLabel("--")
+        if not hasattr(self, "lbl_ai_center_name_badge"):
+            self.lbl_ai_center_name_badge = QLabel("--")
+        if not hasattr(self, "lbl_ai_center_market_code"):
+            self.lbl_ai_center_market_code = QLabel("--")
+        try:
+            self.lbl_ai_center_symbolpill.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.lbl_ai_center_symbolpill.setMinimumHeight(30)
+            self.lbl_ai_center_symbolpill.setStyleSheet(
+                "padding:5px 10px;font-size:12px;font-weight:800;color:#111827;"
+                "background:#f7f8fa;border:1px solid #d9dde3;border-radius:8px;"
+            )
+        except Exception:
+            pass
+        for _lb, _strong in (
+            (self.lbl_ai_center_symbol_badge, True),
+            (self.lbl_ai_center_name_badge, False),
+        ):
+            try:
+                _lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                _lb.setMinimumHeight(34)
+                _lb.setStyleSheet(
+                    "padding:5px 12px;"
+                    f"font-size:{20 if _strong else 18}px;"
+                    f"font-weight:{900 if _strong else 800};"
+                    "color:#111827;background:#ffffff;border:1px solid #d9dde3;border-radius:10px;"
+                )
+            except Exception:
+                pass
+        try:
+            self.lbl_ai_center_market_code.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.lbl_ai_center_market_code.setStyleSheet(
+                "font-size:12px;font-weight:700;color:#6b7280;background:transparent;border:none;"
+            )
+        except Exception:
+            pass
+
+        header = QFrame()
+        try:
+            header.setObjectName("frmCenterDashHeader")
+            header.setProperty("centerDashHeader", True)
+            header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            header.setFixedHeight(54)
+            header.setStyleSheet(
+                "QFrame#frmCenterDashHeader{background:#ffffff;border:1px solid #d9dde3;border-radius:12px;}"
+            )
+        except Exception:
+            pass
+        header_lay = QHBoxLayout(header)
+        try:
+            header_lay.setContentsMargins(12, 8, 12, 8)
+            header_lay.setSpacing(10)
+        except Exception:
+            pass
+        title = getattr(self, "lbl_ai_center_stage_title", None)
+        if title is None:
+            title = QLabel("MAIN ANALYSIS CENTER")
+            self.lbl_ai_center_stage_title = title
+        try:
+            title.setText("")
+            title.setWordWrap(False)
+            title.setVisible(False)
+        except Exception:
+            pass
+        header_lay.addWidget(self.lbl_ai_center_symbol_badge, 0)
+        header_lay.addWidget(self.lbl_ai_center_name_badge, 0)
+        header_lay.addWidget(self.lbl_ai_center_market_code, 1)
+        sym = getattr(self, "lbl_ai_center_symbol", None)
+        if sym is not None:
+            try:
+                sym.setWordWrap(False)
+                sym.setVisible(False)
+            except Exception:
+                pass
+        btn_reason = getattr(self, "btn_ai_reason_toggle", None)
+        if btn_reason is not None:
+            try:
+                btn_reason.setText("원문보기")
+                btn_reason.setMinimumHeight(34)
+                btn_reason.setMaximumHeight(34)
+                btn_reason.setStyleSheet(
+                    "padding:5px 12px;font-size:12px;font-weight:800;color:#111827;"
+                    "background:#ffffff;border:1px solid #d9dde3;border-radius:9px;"
+                )
+            except Exception:
+                pass
+            header_lay.addWidget(btn_reason, 0)
+        btn_brief = getattr(self, "btn_ai_center_briefing_detail", None)
+        if btn_brief is not None:
+            try:
+                btn_brief.setVisible(False)
+            except Exception:
+                pass
+        root.addWidget(header, 0)
+
+        banner = getattr(self, "_frm_ai_judgment_banner", None)
+        if banner is not None:
+            b_lay = banner.layout()
+            if b_lay is not None:
+                self._clear_layout_items_detach(b_lay)
+            else:
+                b_lay = QVBoxLayout(banner)
+            try:
+                b_lay.setContentsMargins(14, 10, 14, 10)
+                b_lay.setSpacing(5)
+                banner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+            except Exception:
+                pass
+            try:
+                kick = getattr(self, "lbl_ai_judgment_banner_kicker", None)
+                if kick is not None:
+                    kick.setText("")
+                    kick.setVisible(False)
+                main = getattr(self, "lbl_ai_detail_judgment_header", None)
+                if main is not None:
+                    main.setStyleSheet(
+                        "font-size:24px;font-weight:900;color:#b45309;background:transparent;border:none;"
+                    )
+                sm = getattr(self, "lbl_ai_center_summary", None)
+                if sm is not None:
+                    sm.setStyleSheet(
+                        "font-size:12px;font-weight:700;color:#6b7280;background:transparent;border:none;"
+                    )
+                sub = getattr(self, "lbl_ai_judgment_banner_sub", None)
+                if sub is not None:
+                    sub.setStyleSheet(
+                        "font-size:12px;font-weight:700;color:#6b7280;background:transparent;border:none;"
+                    )
+            except Exception:
+                pass
+            for w in (
+                getattr(self, "lbl_ai_detail_judgment_header", None),
+                getattr(self, "lbl_ai_center_summary", None),
+                getattr(self, "lbl_ai_judgment_banner_sub", None),
+            ):
+                if w is not None:
+                    b_lay.addWidget(w, 0)
+            root.addWidget(banner, 0)
+
+        toolbar = QFrame()
+        try:
+            toolbar.setObjectName("frmCenterChartToolbar")
+            toolbar.setProperty("centerDashToolbar", True)
+            toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            toolbar.setFixedHeight(44)
+            toolbar.setStyleSheet(
+                "QFrame#frmCenterChartToolbar{background:#ffffff;border:1px solid #d9dde3;border-radius:12px;}"
+            )
+        except Exception:
+            pass
+        tb_lay = QHBoxLayout(toolbar)
+        try:
+            tb_lay.setContentsMargins(10, 7, 10, 7)
+            tb_lay.setSpacing(8)
+        except Exception:
+            pass
+        for w in (
+            getattr(self, "cmb_detail_chart_tf", None),
+            getattr(self, "cmb_detail_chart_count", None),
+            getattr(self, "btn_detail_chart_indicators", None),
+        ):
+            if w is not None:
+                try:
+                    w.setMinimumHeight(34)
+                    w.setMaximumHeight(34)
+                    w.setStyleSheet(
+                        "padding:5px 12px;font-size:12px;font-weight:800;color:#111827;"
+                        "background:#ffffff;border:1px solid #d9dde3;border-radius:9px;"
+                    )
+                except Exception:
+                    pass
+                tb_lay.addWidget(w, 0)
+        tb_lay.addStretch(1)
+        pill = getattr(self, "lbl_detail_chart_symbol_pill", None)
+        if pill is not None:
+            try:
+                pill.setText(str(pill.text() or "").replace(" / ", "/"))
+                pill.setMinimumHeight(34)
+                pill.setMaximumHeight(34)
+                pill.setStyleSheet(
+                    "padding:5px 12px;font-size:12px;font-weight:900;color:#111827;"
+                    "background:#f7f8fa;border:1px solid #d9dde3;border-radius:9px;"
+                )
+            except Exception:
+                pass
+            tb_lay.addWidget(pill, 0)
+        else:
+            tb_lay.addWidget(self.lbl_ai_center_symbolpill, 0)
+        root.addWidget(toolbar, 0)
+
+        chart = getattr(self, "_frm_ai_detail_chart", None)
+        canvas = getattr(self, "detail_chart_canvas", None)
+        if chart is not None:
+            chart_lay = chart.layout()
+            if chart_lay is not None:
+                self._clear_layout_items_detach(chart_lay)
+            else:
+                chart_lay = QVBoxLayout(chart)
+            try:
+                chart_lay.setContentsMargins(10, 10, 10, 10)
+                chart_lay.setSpacing(0)
+                chart.setMinimumHeight(260)
+                chart.setMaximumHeight(16777215)
+                chart.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            except Exception:
+                pass
+            if canvas is not None:
+                try:
+                    canvas.setMinimumHeight(220)
+                    canvas.setMaximumHeight(16777215)
+                    canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                except Exception:
+                    pass
+                chart_lay.addWidget(canvas, 1)
+            root.addWidget(chart, 1)
+
+        cards_row = QWidget()
+        try:
+            cards_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        except Exception:
+            pass
+        cards_lay = QHBoxLayout(cards_row)
+        try:
+            cards_lay.setContentsMargins(0, 0, 0, 0)
+            cards_lay.setSpacing(8)
+        except Exception:
+            pass
+        brief_label = getattr(self, "lbl_ai_briefing_card", None)
+        if brief_label is None:
+            brief_label = QLabel("—")
+            brief_label.setWordWrap(True)
+            self.lbl_ai_briefing_card = brief_label
+        why_label = getattr(self, "lbl_ai_center_why", None)
+        if why_label is None:
+            why_label = QLabel("—")
+            why_label.setWordWrap(True)
+            self.lbl_ai_center_why = why_label
+        next_label = getattr(self, "lbl_ai_center_next", None)
+        if next_label is None:
+            next_label = QLabel("—")
+            next_label.setWordWrap(True)
+            self.lbl_ai_center_next = next_label
+        for title_text, body in (
+            ("브리핑", brief_label),
+            ("근거", why_label),
+            ("다음행동", next_label),
+        ):
+            try:
+                body.setStyleSheet(
+                    "font-size:12px;font-weight:600;color:#111827;background:transparent;border:none;"
+                )
+            except Exception:
+                pass
+            card, _ = self._make_center_dashboard_card(title_text, body)
+            cards_lay.addWidget(card, 1)
+        root.addWidget(cards_row, 0)
+
+        log_label = getattr(self, "lbl_ai_recent_log", None)
+        if log_label is None:
+            log_label = QLabel("—")
+            log_label.setWordWrap(True)
+            self.lbl_ai_recent_log = log_label
+        try:
+            log_label.setStyleSheet(
+                "font-size:11px;font-weight:500;color:#111827;background:transparent;border:none;"
+                "font-family:Consolas,'Cascadia Mono','Segoe UI Mono',monospace;"
+            )
+        except Exception:
+            pass
+        log_card, _ = self._make_center_dashboard_card("최근 AI 로그", log_label)
+        try:
+            log_card.setFixedHeight(84)
+        except Exception:
+            pass
+        root.addWidget(log_card, 0)
+
+        try:
+            self._sync_center_dashboard_reason_from_plaintext()
+        except Exception:
+            pass
+
+    def _sync_center_dashboard_reason_from_plaintext(self) -> None:
+        try:
+            src_sym = getattr(self, "lbl_ai_center_symbol", None)
+            raw = str(src_sym.text() if src_sym is not None else "" or "").strip()
+            market = "--"
+            left = raw
+            if "/" in raw:
+                left, market = [x.strip() for x in raw.split("/", 1)]
+            tokens = [x for x in str(left or "").split() if x]
+            symbol = tokens[0] if tokens else "--"
+            name = " ".join(tokens[1:]).strip() if len(tokens) > 1 else "--"
+            if market and not market.startswith("KRW-") and symbol not in ("--", ""):
+                market = f"KRW-{symbol}"
+            for attr, val in (
+                ("lbl_ai_center_symbol_badge", symbol or "--"),
+                ("lbl_ai_center_name_badge", name or "--"),
+                ("lbl_ai_center_market_code", market or "--"),
+            ):
+                lb = getattr(self, attr, None)
+                if lb is not None:
+                    lb.setText(val)
+        except Exception:
+            pass
+        try:
+            main = getattr(self, "lbl_ai_detail_judgment_header", None)
+            sub = getattr(self, "lbl_ai_judgment_banner_sub", None)
+            if main is not None:
+                raw_main = str(main.text() or "").strip()
+                raw_upper = raw_main.upper()
+                color = "#b45309"
+                bg = "#fff7ed"
+                br = "#f59e0b"
+                display = "● 관망 유지"
+                if "BUY" in raw_upper and "SELL" not in raw_upper:
+                    color = "#15803d"
+                    bg = "#f0fdf4"
+                    br = "#86efac"
+                    display = "● 매수 검토"
+                elif any(k in raw_upper for k in ("SELL", "EXIT", "RISK")):
+                    color = "#b91c1c"
+                    bg = "#fef2f2"
+                    br = "#fca5a5"
+                    display = "● 매도 경계"
+                elif any(k in raw_upper for k in ("STAY", "HOLD", "WAIT", "WATCH")):
+                    color = "#b45309"
+                    bg = "#fff7ed"
+                    br = "#f59e0b"
+                    display = "● 관망 유지"
+                main.setText(display)
+                main.setStyleSheet(
+                    f"font-size:24px;font-weight:900;color:{color};background:transparent;border:none;"
+                )
+                fr = getattr(self, "_frm_ai_judgment_banner", None)
+                if fr is not None:
+                    fr.setStyleSheet(
+                        f"#frmAiJudgmentBanner{{background:{bg};border:1px solid {br};border-radius:14px;}}"
+                    )
+            if sub is not None:
+                s = str(sub.text() or "").strip()
+                s = s.replace("현재 조건:", "").replace("AI 판단:", "").strip()
+                if not s or s in ("--", "—", "??"):
+                    s = "거래량 약세 · 추세 확인 중"
+                sub.setText(s)
+        except Exception:
+            pass
+        try:
+            src = getattr(self, "txt_ai_detail_reason", None)
+            dst = getattr(self, "lbl_ai_center_why", None)
+            if src is None or dst is None:
+                return
+            txt = src.toPlainText() if hasattr(src, "toPlainText") else src.text()
+            dst.setText(txt)
+        except Exception:
+            pass
+        try:
+            sm = getattr(self, "lbl_ai_center_summary", None)
+            if sm is None:
+                return
+            candidates = (
+                getattr(self, "lbl_ai_detail_basic_summary", None),
+                getattr(self, "lbl_ai_detail_price_summary", None),
+                getattr(self, "lbl_ai_detail_hint", None),
+            )
+            for lb in candidates:
+                if lb is None:
+                    continue
+                txt = str(lb.text() if hasattr(lb, "text") else "" or "").strip()
+                if txt:
+                    sm.setText(txt)
+                    break
+        except Exception:
+            pass
+
     def _apply_ai_reason_expanded_state(self):
         try:
             expanded = bool(getattr(self, "_ai_reason_expanded", False))
@@ -9063,7 +9579,7 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    self.btn_ai_reason_toggle.setText("원문 접기")
+                    self.btn_ai_reason_toggle.setText("원문접기")
                 except Exception:
                     pass
             else:
@@ -9073,7 +9589,7 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    self.btn_ai_reason_toggle.setText("원문 보기")
+                    self.btn_ai_reason_toggle.setText("원문보기")
                 except Exception:
                     pass
 
@@ -9692,6 +10208,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         finally:
+            try:
+                self._sync_center_dashboard_reason_from_plaintext()
+            except Exception:
+                pass
             try:
                 self._refresh_ai_detail_chart()
             except Exception:
@@ -12925,6 +13445,16 @@ class MainWindow(QMainWindow):
             pass
 
         try:
+            header_card = getattr(self, "_managed_header_card", None)
+            if header_card is not None:
+                header_card.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+                header_card.setFixedHeight(100)
+        except Exception:
+            pass
+
+        try:
             table.setHorizontalHeaderLabels(["순위", "종목", "AI 점수", "상태", "비중/목표"])
         except Exception:
             pass
@@ -12940,7 +13470,7 @@ class MainWindow(QMainWindow):
             table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             table.setMinimumHeight(620)
-            table.setMaximumHeight(700)
+            table.setMaximumHeight(16777215)
         except Exception:
             pass
         try:
