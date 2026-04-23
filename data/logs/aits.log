@@ -4364,3 +4364,18 @@ SyntaxError: expected 'except' or 'finally' block
 2026-04-23 17:12:24,011 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-23 17:12:24,012 | INFO | aits | AITS orchestrator initialized
 2026-04-23 17:12:26,791 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-23 17:23:36,370 | INFO | aits | AITS bootstrap start
+2026-04-23 17:23:36,379 | INFO | aits | AITS orchestrator initialized
+2026-04-23 17:23:36,380 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-23 17:23:36,381 | INFO | aits | AITS orchestrator initialized
+2026-04-23 17:23:38,967 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-23 17:29:13,492 | INFO | aits | AITS bootstrap start
+2026-04-23 17:29:13,500 | INFO | aits | AITS orchestrator initialized
+2026-04-23 17:29:13,500 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-23 17:29:13,500 | INFO | aits | AITS orchestrator initialized
+2026-04-23 17:29:15,804 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-23 20:50:58,798 | INFO | aits | AITS bootstrap start
+2026-04-23 20:50:58,806 | INFO | aits | AITS orchestrator initialized
+2026-04-23 20:50:58,807 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-23 20:50:58,807 | INFO | aits | AITS orchestrator initialized
+2026-04-23 20:51:07,480 | INFO | aits | UI launched via legacy-compatible entry

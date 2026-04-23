@@ -13530,6 +13530,49 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _cleanup_detail_popup_aux_axes_text(self, ax_list):
+        try:
+            for ax_aux in ax_list or []:
+                if ax_aux is None:
+                    continue
+                try:
+                    ax_aux.set_ylabel("")
+                    ax_aux.set_xlabel("")
+                    ax_aux.set_title("")
+                    ax_aux.yaxis.label.set_visible(False)
+                    ax_aux.xaxis.label.set_visible(False)
+                    ax_aux.title.set_visible(False)
+                    ax_aux.yaxis.get_offset_text().set_visible(False)
+                    ax_aux.xaxis.get_offset_text().set_visible(False)
+                except Exception:
+                    pass
+                try:
+                    for t in list(ax_aux.texts):
+                        try:
+                            t.remove()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    for child in list(ax_aux.get_children()):
+                        txt = None
+                        try:
+                            txt = child.get_text() if hasattr(child, "get_text") else None
+                        except Exception:
+                            txt = None
+                        if txt is not None:
+                            s = str(txt).strip()
+                            if s in ("개", "거래량", "거래량(개)", "(개)", "Volume", "VOL"):
+                                try:
+                                    child.remove()
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _get_detail_popup_eta_seconds(self, scenario_type: str, confidence: float, is_holding: bool):
         try:
             ranges = {
@@ -13868,8 +13911,11 @@ class MainWindow(QMainWindow):
                         ax_rsi.axhline(30, color="#d1d5db", linestyle="--", linewidth=0.8, zorder=0)
                     if ax_vol is not None:
                         ax_vol.set_ylabel("")
+                        ax_vol.yaxis.label.set_visible(False)
+                        ax_vol.yaxis.get_offset_text().set_visible(False)
                         ax_vol.tick_params(axis="y", labelsize=7, colors="#94a3b8")
                         ax_vol.grid(True, axis="y", linestyle="--", linewidth=0.5, color="#f1f5f9", alpha=1.0)
+                    self._cleanup_detail_popup_aux_axes_text((ax_vol, ax_rsi, ax_macd))
                 except Exception:
                     pass
                 try:
@@ -13882,17 +13928,7 @@ class MainWindow(QMainWindow):
                         ]
                         ax_vol.bar(xs_vol, volumes, color=vol_colors, width=0.7, alpha=0.65, zorder=2)
                         ax_vol.set_ylim(0, max(volumes) * 1.18 if volumes else 1)
-                        ax_vol.text(
-                            0.01,
-                            0.84,
-                            "Volume",
-                            transform=ax_vol.transAxes,
-                            ha="left",
-                            va="top",
-                            fontsize=8,
-                            fontweight="bold",
-                            color="#6b7280",
-                        )
+                        self._cleanup_detail_popup_aux_axes_text((ax_vol, ax_rsi, ax_macd))
                 except Exception:
                     pass
                 try:
