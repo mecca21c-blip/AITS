@@ -7900,11 +7900,11 @@ class MainWindow(QMainWindow):
             pass
         try:
             self.btn_market_quick.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
+                "padding: 4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
                 "background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;color:#065f46;"
             )
             self.btn_market_all.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
+                "padding: 4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
                 "background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;color:#1e40af;"
             )
         except Exception:
@@ -7932,7 +7932,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_top_row = QHBoxLayout()
-        _market_top_row.setContentsMargins(0, 2, 0, 4)
+        _market_top_row.setContentsMargins(0, 2, 0, 3)
         _market_top_row.setSpacing(6)
         _market_top_row.addWidget(self.ed_market_search, 0)
         _market_top_row.addWidget(self.btn_market_quick, 0)
@@ -8050,7 +8050,7 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        _market_inner.addWidget(self.tbl_market_all, 1)
+        _market_inner.addWidget(self.tbl_market_all, 2)
         self.lbl_market_explorer_footer = QLabel(
             "더블클릭하면 관리종목으로 이동됩니다."
         )

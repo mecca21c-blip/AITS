@@ -4615,3 +4615,8 @@ SyntaxError: invalid decimal literal
 2026-04-25 04:54:58,914 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-25 04:54:58,915 | INFO | aits | AITS orchestrator initialized
 2026-04-25 04:55:03,805 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-25 05:13:50,794 | INFO | aits | AITS bootstrap start
+2026-04-25 05:13:50,804 | INFO | aits | AITS orchestrator initialized
+2026-04-25 05:13:50,805 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-25 05:13:50,805 | INFO | aits | AITS orchestrator initialized
+2026-04-25 05:13:55,863 | INFO | aits | UI launched via legacy-compatible entry
