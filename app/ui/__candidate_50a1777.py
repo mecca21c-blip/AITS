@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
 # ⚠️ 봉인 선언: 역할 변경/이동/삭제/리팩터링 금지
@@ -250,7 +250,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStyle,
     QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QFormLayout, QHeaderView,
     QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
-    QAbstractItemView, QAbstractScrollArea, QMenu, QSizePolicy, QScrollArea, QCheckBox,
+    QAbstractItemView, QMenu, QSizePolicy, QScrollArea, QCheckBox,
     QGroupBox, QLineEdit, QTextEdit, QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem,
     QProgressDialog, QStackedWidget,
     QTreeView, QAbstractItemView, QStyleFactory, QDockWidget, QListWidget,
@@ -411,20 +411,12 @@ def _managed_table_cell_padding_wrap(inner: QWidget, *, center: bool) -> QWidget
         hl.setSpacing(0)
     except Exception:
         pass
-    try:
-        wrap.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        inner.setSizePolicy(
-            QSizePolicy.Policy.Preferred if center else QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Expanding,
-        )
-    except Exception:
-        pass
     if center:
         hl.addWidget(inner, 0, Qt.AlignmentFlag.AlignCenter)
     else:
         hl.addWidget(
             inner,
-            1,
+            0,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
         )
     return wrap
@@ -1434,35 +1426,6 @@ class AITSLargeChartDialog(QDialog):
         self.cmb_tf = QComboBox()
         self.cmb_count = QComboBox()
         self.btn_refresh = QPushButton("새로고침")
-        self._cmb_popup_chart_tf = self.cmb_tf
-        self._cmb_popup_chart_count = self.cmb_count
-        self._btn_popup_chart_refresh = self.btn_refresh
-        self._detail_popup_indicator_mode = "rsi"
-        self._detail_popup_show_rsi = True
-        self._detail_popup_show_macd = False
-        self._detail_popup_show_volume = True
-        self._detail_popup_scenario_type = "sideways_wait"
-        self._detail_popup_scenario_confidence = 0.55
-        self._cmb_popup_indicator = QComboBox()
-        self._cmb_popup_indicator.addItem("RSI", "rsi")
-        self._cmb_popup_indicator.addItem("RSI + MACD", "rsi_macd")
-        self._cmb_popup_indicator.addItem("RSI + Bollinger", "rsi_boll")
-        self._cmb_popup_indicator.addItem("RSI + MACD + Bollinger", "rsi_macd_boll")
-        self._cmb_popup_indicator.setVisible(False)
-        self._btn_popup_indicator_rsi = QPushButton("RSI")
-        self._btn_popup_indicator_macd = QPushButton("MACD")
-        for _btn, _checked in (
-            (self._btn_popup_indicator_rsi, True),
-            (self._btn_popup_indicator_macd, False),
-        ):
-            try:
-                _btn.setCheckable(True)
-                _btn.setChecked(_checked)
-                _btn.setMinimumHeight(32)
-                _btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            except Exception:
-                pass
-        self._update_detail_popup_indicator_buttons()
         self.toolbar = None
 
         self.cmb_tf.clear()
@@ -1488,7 +1451,6 @@ class AITSLargeChartDialog(QDialog):
 
         self.fig = Figure(figsize=(10, 6))
         self.canvas = FigureCanvas(self.fig)
-        self._detail_popup_chart_canvas = self.canvas
         try:
             self.canvas.setMinimumHeight(400)
         except Exception:
@@ -1501,7 +1463,6 @@ class AITSLargeChartDialog(QDialog):
             pass
 
         self.toolbar = NavigationToolbar(self.canvas, self)
-        self._detail_popup_toolbar = self.toolbar
 
         control_bar = QHBoxLayout()
         control_bar.setContentsMargins(0, 0, 0, 0)
@@ -1509,544 +1470,12 @@ class AITSLargeChartDialog(QDialog):
         control_bar.addWidget(self.cmb_tf)
         control_bar.addWidget(QLabel("개수"))
         control_bar.addWidget(self.cmb_count)
-        control_bar.addWidget(self._btn_popup_indicator_rsi)
-        control_bar.addWidget(self._btn_popup_indicator_macd)
         control_bar.addWidget(self.btn_refresh)
         control_bar.addStretch()
         control_bar.addWidget(self.toolbar)
         root.addLayout(control_bar)
 
         root.addWidget(self.canvas, 1)
-        self._rebuild_detail_popup_saas_layout(root)
-
-    def _clear_dialog_layout_items_detach(self, layout):
-        try:
-            while layout is not None and layout.count():
-                item = layout.takeAt(0)
-                child = item.widget()
-                if child is not None:
-                    child.setParent(self)
-                child_layout = item.layout()
-                if child_layout is not None:
-                    self._clear_dialog_layout_items_detach(child_layout)
-        except Exception:
-            pass
-
-    def _make_detail_popup_card(self, title_text: str):
-        card = QFrame(self)
-        card.setObjectName("frmDetailPopupCard")
-        try:
-            card.setStyleSheet(
-                "QFrame#frmDetailPopupCard {"
-                "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
-                "}"
-            )
-        except Exception:
-            pass
-        lay = QGridLayout(card)
-        lay.setContentsMargins(14, 12, 14, 12)
-        lay.setHorizontalSpacing(10)
-        lay.setVerticalSpacing(8)
-        title = QLabel(title_text)
-        try:
-            title.setTextFormat(Qt.TextFormat.PlainText)
-            title.setStyleSheet("font-size:13px; font-weight:800; color:#111827;")
-        except Exception:
-            pass
-        lay.addWidget(title, 0, 0, 1, 2)
-        return card
-
-    def _make_detail_sidebar_card(self, title_text: str):
-        card = QFrame(self)
-        card.setObjectName("frmDetailSidebarCard")
-        try:
-            card.setStyleSheet(
-                "QFrame#frmDetailSidebarCard {"
-                "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
-                "}"
-            )
-        except Exception:
-            pass
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(14, 12, 14, 12)
-        lay.setSpacing(8)
-        title = QLabel(title_text)
-        try:
-            title.setTextFormat(Qt.TextFormat.PlainText)
-            title.setStyleSheet("font-size:13px; font-weight:800; color:#111827;")
-        except Exception:
-            pass
-        lay.addWidget(title, 0)
-        return card
-
-    def _make_detail_popup_value_label(self):
-        lb = QLabel("—")
-        try:
-            lb.setTextFormat(Qt.TextFormat.PlainText)
-            lb.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            lb.setWordWrap(False)
-            lb.setStyleSheet("font-size:13px; font-weight:800; color:#111827;")
-        except Exception:
-            pass
-        return lb
-
-    def _add_detail_popup_form_row(self, lay, title_text: str, value_label, row: int):
-        title = QLabel(title_text)
-        try:
-            title.setTextFormat(Qt.TextFormat.PlainText)
-            title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            title.setStyleSheet("font-size:12px; font-weight:700; color:#6b7280;")
-        except Exception:
-            pass
-        lay.addWidget(title, row, 0)
-        lay.addWidget(value_label, row, 1)
-
-    def _extract_detail_popup_field(self, text: str, keywords):
-        try:
-            for line in str(text or "").splitlines():
-                if ":" not in line:
-                    continue
-                key, val = line.split(":", 1)
-                key = key.strip()
-                for kw in keywords:
-                    if str(kw) in key:
-                        return val.strip() or "—"
-            return "—"
-        except Exception:
-            return "—"
-
-    def _extract_detail_popup_symbol(self, text: str):
-        try:
-            for line in str(text or "").splitlines():
-                if "KRW-" in line:
-                    if ":" in line:
-                        return line.split(":", 1)[1].strip() or "—"
-                    return line.strip() or "—"
-            return "—"
-        except Exception:
-            return "—"
-
-    def _extract_detail_popup_line_value(self, text: str, index: int):
-        try:
-            lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
-            if 0 <= index < len(lines):
-                line = lines[index]
-                if ":" in line:
-                    return line.split(":", 1)[1].strip() or "—"
-                return line.strip() or "—"
-            return "—"
-        except Exception:
-            return "—"
-
-    def _format_detail_popup_price_text(self, text_or_value):
-        try:
-            raw = str(text_or_value or "").strip()
-            if not raw or raw == "—":
-                return "—"
-            label = ""
-            val = raw
-            if ":" in raw:
-                label, val = raw.split(":", 1)
-                label = label.strip()
-                val = val.strip()
-            cleaned = val.replace(",", "").replace("원", "").strip()
-            num = float(cleaned)
-            price = self._format_aits_price_label(num)
-            return f"{label} {price}".strip() if label else price
-        except Exception:
-            return str(text_or_value or "—").strip() or "—"
-
-    def _detail_popup_decision_color(self, text: str):
-        t = str(text or "").upper()
-        if "BUY" in t:
-            return "#15803d"
-        if "SELL" in t:
-            return "#b91c1c"
-        if "STAY" in t or "WATCH" in t or "HOLD" in t:
-            return "#b45309"
-        return "#111827"
-
-    def _rebuild_detail_popup_saas_layout(self, root):
-        try:
-            self.setWindowTitle("AITS 상세 차트")
-            self.resize(1280, 820)
-            self.setMinimumSize(1200, 780)
-            self.setStyleSheet("QDialog { background: #f7f8fa; color: #111827; }")
-        except Exception:
-            pass
-
-        self._clear_dialog_layout_items_detach(root)
-        root.setSpacing(10)
-        root.setContentsMargins(14, 14, 14, 14)
-
-        for legacy in (
-            self.lbl_title,
-            self.lbl_basic,
-            self.lbl_price,
-            self.txt_ai,
-            self.lbl_ai_banner,
-            self.lbl_ai_action,
-            self.lbl_ai_plan,
-        ):
-            try:
-                legacy.setVisible(False)
-            except Exception:
-                pass
-
-        self._frm_detail_popup_header = QFrame(self)
-        self._frm_detail_popup_header.setObjectName("frmDetailPopupHeader")
-        self._frm_detail_popup_header.setStyleSheet(
-            "QFrame#frmDetailPopupHeader {"
-            "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
-            "}"
-        )
-        header_lay = QHBoxLayout(self._frm_detail_popup_header)
-        header_lay.setContentsMargins(14, 10, 14, 10)
-        header_lay.setSpacing(12)
-
-        self.lbl_detail_popup_header_title = QLabel("AITS 상세 차트")
-        self.lbl_detail_popup_header_name = QLabel("-")
-        self.lbl_detail_popup_header_symbol = QLabel("-")
-        self.lbl_detail_popup_header_decision_badge = QLabel("STAY")
-        self.lbl_detail_popup_header_change_badge = QLabel("-")
-        self._lbl_popup_logo_badge = QLabel("A")
-        for lb in (
-            self.lbl_detail_popup_header_title,
-            self.lbl_detail_popup_header_name,
-            self.lbl_detail_popup_header_symbol,
-            self.lbl_detail_popup_header_decision_badge,
-            self.lbl_detail_popup_header_change_badge,
-        ):
-            try:
-                lb.setTextFormat(Qt.TextFormat.PlainText)
-            except Exception:
-                pass
-        self.lbl_detail_popup_header_title.setStyleSheet(
-            "font-size:18px; font-weight:800; color:#111827;"
-        )
-        self._lbl_popup_logo_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lbl_popup_logo_badge.setFixedSize(32, 32)
-        self._lbl_popup_logo_badge.setStyleSheet(
-            "font-size:14px; font-weight:900; color:#ffffff; "
-            "background:#0f172a; border-radius:10px;"
-        )
-        self.lbl_detail_popup_header_name.setStyleSheet(
-            "font-size:16px; font-weight:800; color:#111827;"
-        )
-        self.lbl_detail_popup_header_symbol.setStyleSheet(
-            "font-size:12px; font-weight:600; color:#6b7280;"
-        )
-        self.lbl_detail_popup_header_decision_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_detail_popup_header_change_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_detail_popup_header_decision_badge.setMinimumWidth(76)
-        self.lbl_detail_popup_header_change_badge.setMinimumWidth(76)
-        self.lbl_detail_popup_header_change_badge.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#111827; background:#f8fafc; "
-            "border:1px solid #d9dde3; border-radius:12px; padding:5px 10px;"
-        )
-
-        self._frm_detail_popup_symbol_pill = QFrame(self)
-        self._frm_detail_popup_symbol_pill.setObjectName("frmDetailPopupSymbolPill")
-        self._frm_detail_popup_symbol_pill.setStyleSheet(
-            "QFrame#frmDetailPopupSymbolPill {"
-            "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
-            "}"
-        )
-        symbol_box = QVBoxLayout(self._frm_detail_popup_symbol_pill)
-        symbol_box.setContentsMargins(12, 5, 12, 5)
-        symbol_box.setSpacing(2)
-        symbol_box.addWidget(self.lbl_detail_popup_header_name)
-        symbol_box.addWidget(self.lbl_detail_popup_header_symbol)
-        header_lay.addWidget(self._lbl_popup_logo_badge, 0)
-        header_lay.addWidget(self.lbl_detail_popup_header_title, 0)
-        header_lay.addStretch(1)
-        header_lay.addWidget(self._frm_detail_popup_symbol_pill, 0)
-        header_lay.addWidget(self.lbl_detail_popup_header_decision_badge, 0)
-        header_lay.addWidget(self.lbl_detail_popup_header_change_badge, 0)
-        root.addWidget(self._frm_detail_popup_header, 0)
-
-        content_row = QHBoxLayout()
-        content_row.setContentsMargins(0, 0, 0, 0)
-        content_row.setSpacing(10)
-
-        self._frm_detail_left_chart_area = QFrame(self)
-        self._frm_detail_left_chart_area.setObjectName("frmDetailLeftChartArea")
-        self._frm_detail_left_chart_area.setStyleSheet(
-            "QFrame#frmDetailLeftChartArea { background: transparent; border: none; }"
-        )
-        left_lay = QVBoxLayout(self._frm_detail_left_chart_area)
-        left_lay.setContentsMargins(0, 0, 0, 0)
-        left_lay.setSpacing(10)
-
-        self._frm_detail_chart_header = QFrame(self)
-        self._frm_detail_chart_header.setObjectName("frmDetailChartHeader")
-        self._frm_detail_chart_header.setStyleSheet(
-            "QFrame#frmDetailChartHeader {"
-            "background:#ffffff; border:1px solid #d9dde3; border-radius:10px;"
-            "}"
-        )
-        chart_header_lay = QHBoxLayout(self._frm_detail_chart_header)
-        chart_header_lay.setContentsMargins(12, 8, 12, 8)
-        chart_header_lay.setSpacing(10)
-        self.lbl_detail_popup_chart_title = QLabel("-")
-        self.lbl_detail_popup_chart_price = QLabel("-")
-        self.lbl_detail_popup_chart_target = QLabel("-")
-        self.lbl_detail_popup_chart_title.setStyleSheet(
-            "font-size:13px; font-weight:800; color:#111827;"
-        )
-        self.lbl_detail_popup_chart_price.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#111827;"
-        )
-        self.lbl_detail_popup_chart_target.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#111827;"
-        )
-        chart_header_lay.addWidget(self.lbl_detail_popup_chart_title, 1)
-        chart_header_lay.addWidget(self.lbl_detail_popup_chart_price, 0)
-        chart_header_lay.addWidget(self.lbl_detail_popup_chart_target, 0)
-        left_lay.addWidget(self._frm_detail_chart_header, 0)
-
-        self._frm_detail_chart_card = QFrame(self)
-        self._frm_detail_chart_card.setObjectName("frmDetailPopupChartCard")
-        self._frm_detail_chart_card.setStyleSheet(
-            "QFrame#frmDetailPopupChartCard {"
-            "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
-            "}"
-        )
-        chart_lay = QVBoxLayout(self._frm_detail_chart_card)
-        chart_lay.setContentsMargins(10, 10, 10, 8)
-        chart_lay.setSpacing(7)
-        try:
-            self.fig.set_facecolor("#ffffff")
-            self.canvas.setMinimumHeight(520)
-            self.canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        except Exception:
-            pass
-        chart_lay.addWidget(self.canvas, 1)
-        self._frm_detail_popup_toolbar_wrap = QFrame(self)
-        self._frm_detail_popup_toolbar_wrap.setObjectName("frmDetailPopupToolbarWrap")
-        self._frm_detail_popup_toolbar_wrap.setStyleSheet(
-            "QFrame#frmDetailPopupToolbarWrap {"
-            "background:#f8fafc; border:1px solid #dbe3ee; border-radius:10px;"
-            "}"
-        )
-        try:
-            self._frm_detail_popup_toolbar_wrap.setFixedHeight(44)
-        except Exception:
-            pass
-        toolbar_lay = QHBoxLayout(self._frm_detail_popup_toolbar_wrap)
-        toolbar_lay.setContentsMargins(8, 4, 8, 4)
-        toolbar_lay.setSpacing(0)
-        try:
-            self.toolbar.setStyleSheet("QToolBar { background: transparent; border: none; }")
-        except Exception:
-            pass
-        toolbar_lay.addWidget(self.toolbar, 0)
-        chart_lay.addWidget(self._frm_detail_popup_toolbar_wrap, 0)
-        left_lay.addWidget(self._frm_detail_chart_card, 1)
-
-        self._frm_detail_control_bar = QFrame(self)
-        self._frm_detail_control_bar.setObjectName("frmDetailPopupControlBar")
-        self._frm_detail_control_bar.setStyleSheet(
-            "QFrame#frmDetailPopupControlBar {"
-            "background:#ffffff; border:1px solid #d9dde3; border-radius:10px;"
-            "}"
-            "QLabel { color:#6b7280; font-size:12px; font-weight:700; }"
-            "QComboBox { min-height:28px; border:1px solid #d9dde3; border-radius:7px; padding:3px 8px; }"
-            "QPushButton { min-height:28px; border:1px solid #cbd5e1; border-radius:7px; "
-            "padding:3px 12px; background:#f8fafc; color:#111827; font-weight:700; }"
-            "QPushButton:hover { background:#eef2f7; }"
-        )
-        try:
-            self.btn_refresh.setText("새로고침")
-            tf_texts = ["1분", "5분", "30분", "1시간", "4시간", "일봉", "주봉", "월봉"]
-            for i, txt in enumerate(tf_texts):
-                if i < self.cmb_tf.count():
-                    self.cmb_tf.setItemText(i, txt)
-        except Exception:
-            pass
-        control_bar = QHBoxLayout(self._frm_detail_control_bar)
-        control_bar.setContentsMargins(12, 8, 12, 8)
-        control_bar.setSpacing(8)
-        control_bar.addWidget(QLabel("시간봉"))
-        control_bar.addWidget(self.cmb_tf)
-        control_bar.addWidget(QLabel("개수"))
-        control_bar.addWidget(self.cmb_count)
-        try:
-            self._cmb_popup_indicator.setVisible(False)
-        except Exception:
-            pass
-        control_bar.addWidget(self._btn_popup_indicator_rsi)
-        control_bar.addWidget(self._btn_popup_indicator_macd)
-        control_bar.addWidget(self.btn_refresh)
-        control_bar.addStretch(1)
-        left_lay.addWidget(self._frm_detail_control_bar, 0)
-
-        self._frm_detail_ai_sidebar = QFrame(self)
-        self._frm_detail_ai_sidebar.setObjectName("frmDetailAiSidebar")
-        self._frm_detail_ai_sidebar.setStyleSheet(
-            "QFrame#frmDetailAiSidebar { background: transparent; border: none; }"
-        )
-        sidebar_lay = QVBoxLayout(self._frm_detail_ai_sidebar)
-        sidebar_lay.setContentsMargins(0, 0, 0, 0)
-        sidebar_lay.setSpacing(10)
-
-        self._frm_detail_ai_status_card = self._make_detail_sidebar_card("AI 판단")
-        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("판단 근거")
-        self._frm_detail_ai_next_card = self._make_detail_sidebar_card("다음 행동")
-        self._frm_detail_ai_metrics_card = self._make_detail_sidebar_card("핵심 수치")
-        self._frm_detail_popup_scenario_card = self._make_detail_sidebar_card("AI 시나리오")
-        self._frm_detail_popup_eta_card = self._make_detail_sidebar_card("AI ETA")
-        try:
-            self._frm_detail_popup_scenario_card.setStyleSheet(
-                "QFrame#frmDetailSidebarCard {"
-                "background:#f8fafc; border:1px solid #d9dde3; border-radius:12px;"
-                "}"
-            )
-            self._frm_detail_popup_eta_card.setStyleSheet(
-                "QFrame#frmDetailSidebarCard {"
-                "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
-                "}"
-            )
-        except Exception:
-            pass
-
-        self.lbl_detail_popup_decision = self._make_detail_popup_value_label()
-        self.lbl_detail_popup_decision_big = QLabel("STAY")
-        self.lbl_detail_popup_decision_sub = QLabel("-")
-        self.lbl_detail_popup_score = QLabel("AI 점수 -")
-        self.lbl_detail_popup_reason_text = QLabel("-")
-        self.lbl_detail_popup_next_text = QLabel("-")
-        self.lbl_detail_popup_entry_price = self._make_detail_popup_value_label()
-        self.lbl_detail_popup_current_price = self._make_detail_popup_value_label()
-        self.lbl_detail_popup_change_rate = self._make_detail_popup_value_label()
-        self.lbl_detail_popup_target_price = self._make_detail_popup_value_label()
-        self.lbl_detail_popup_risk_price = self._make_detail_popup_value_label()
-        self.lbl_detail_popup_state = self.lbl_detail_popup_decision_sub
-        self.lbl_detail_popup_scenario_title = QLabel("횡보 관찰형")
-        self.lbl_detail_popup_scenario_type = QLabel("sideways_wait")
-        self.lbl_detail_popup_scenario_confidence = QLabel("신뢰도 55%")
-        self.lbl_detail_popup_scenario_context = QLabel("진입 전 관찰 시나리오")
-        self.lbl_detail_popup_eta_title = QLabel("AI ETA")
-        self.lbl_detail_popup_eta_main = QLabel("관찰 유지 --:--:--")
-        self.lbl_detail_popup_eta_sub = QLabel("방향성 확인 전 진입 대기")
-        self.lbl_detail_popup_eta_meta = QLabel("리스크 — / 목표 —")
-        self._detail_popup_eta_remaining_seconds = 0
-        self._detail_popup_eta_state_type = "review_wait"
-        self._detail_popup_eta_timer = QTimer(self)
-        try:
-            self._detail_popup_eta_timer.setInterval(1000)
-            self._detail_popup_eta_timer.timeout.connect(self._tick_detail_popup_eta_timer)
-        except Exception:
-            pass
-
-        self.lbl_detail_popup_decision_big.setStyleSheet(
-            "font-size:30px; font-weight:900; color:#b45309;"
-        )
-        self.lbl_detail_popup_decision_sub.setStyleSheet(
-            "font-size:13px; font-weight:700; color:#6b7280;"
-        )
-        self.lbl_detail_popup_score.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#111827; background:#ffffff; "
-            "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
-        )
-        for lb in (self.lbl_detail_popup_reason_text, self.lbl_detail_popup_next_text):
-            lb.setWordWrap(True)
-            lb.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-            lb.setStyleSheet("font-size:12px; font-weight:600; color:#111827; line-height:140%;")
-        self.lbl_detail_popup_scenario_title.setWordWrap(True)
-        self.lbl_detail_popup_scenario_title.setStyleSheet(
-            "font-size:18px; font-weight:900; color:#111827;"
-        )
-        self.lbl_detail_popup_scenario_type.setStyleSheet(
-            "font-size:12px; font-weight:700; color:#6b7280;"
-        )
-        self.lbl_detail_popup_scenario_confidence.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#111827; background:#ffffff; "
-            "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
-        )
-        self.lbl_detail_popup_scenario_context.setWordWrap(True)
-        self.lbl_detail_popup_scenario_context.setStyleSheet(
-            "font-size:12px; font-weight:700; color:#6b7280;"
-        )
-        self.lbl_detail_popup_eta_title.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#6b7280;"
-        )
-        self.lbl_detail_popup_eta_main.setStyleSheet(
-            "font-size:20px; font-weight:900; color:#111827;"
-        )
-        self.lbl_detail_popup_eta_sub.setWordWrap(True)
-        self.lbl_detail_popup_eta_sub.setStyleSheet(
-            "font-size:12px; font-weight:700; color:#6b7280;"
-        )
-        self.lbl_detail_popup_eta_meta.setWordWrap(True)
-        self.lbl_detail_popup_eta_meta.setStyleSheet(
-            "font-size:12px; font-weight:800; color:#111827; background:#f8fafc; "
-            "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
-        )
-
-        status_lay = self._frm_detail_ai_status_card.layout()
-        status_lay.addWidget(self.lbl_detail_popup_decision_big)
-        status_lay.addWidget(self.lbl_detail_popup_decision_sub)
-        status_lay.addWidget(self.lbl_detail_popup_score)
-        status_lay.addStretch(1)
-
-        self._frm_detail_ai_reason_card.layout().addWidget(self.lbl_detail_popup_reason_text, 1)
-        self._frm_detail_ai_next_card.layout().addWidget(self.lbl_detail_popup_next_text, 1)
-
-        metrics_grid = QGridLayout()
-        metrics_grid.setContentsMargins(0, 0, 0, 0)
-        metrics_grid.setHorizontalSpacing(10)
-        metrics_grid.setVerticalSpacing(8)
-        self.lbl_detail_popup_entry_price_title = QLabel("예상 진입가")
-        self.lbl_detail_popup_current_price_title = QLabel("현재가")
-        self.lbl_detail_popup_target_price_title = QLabel("목표가")
-        self.lbl_detail_popup_risk_price_title = QLabel("리스크 기준")
-        for _title in (
-            self.lbl_detail_popup_entry_price_title,
-            self.lbl_detail_popup_current_price_title,
-            self.lbl_detail_popup_target_price_title,
-            self.lbl_detail_popup_risk_price_title,
-        ):
-            try:
-                _title.setTextFormat(Qt.TextFormat.PlainText)
-                _title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                _title.setStyleSheet("font-size:12px; font-weight:700; color:#6b7280;")
-            except Exception:
-                pass
-        metrics_grid.addWidget(self.lbl_detail_popup_entry_price_title, 0, 0)
-        metrics_grid.addWidget(self.lbl_detail_popup_entry_price, 0, 1)
-        metrics_grid.addWidget(self.lbl_detail_popup_current_price_title, 1, 0)
-        metrics_grid.addWidget(self.lbl_detail_popup_current_price, 1, 1)
-        metrics_grid.addWidget(self.lbl_detail_popup_target_price_title, 2, 0)
-        metrics_grid.addWidget(self.lbl_detail_popup_target_price, 2, 1)
-        metrics_grid.addWidget(self.lbl_detail_popup_risk_price_title, 3, 0)
-        metrics_grid.addWidget(self.lbl_detail_popup_risk_price, 3, 1)
-        self._frm_detail_ai_metrics_card.layout().addLayout(metrics_grid)
-
-        scenario_lay = self._frm_detail_popup_scenario_card.layout()
-        scenario_lay.addWidget(self.lbl_detail_popup_scenario_title)
-        scenario_lay.addWidget(self.lbl_detail_popup_scenario_type)
-        scenario_lay.addWidget(self.lbl_detail_popup_scenario_context)
-        scenario_lay.addWidget(self.lbl_detail_popup_scenario_confidence)
-        scenario_lay.addStretch(1)
-
-        eta_lay = self._frm_detail_popup_eta_card.layout()
-        eta_lay.addWidget(self.lbl_detail_popup_eta_main)
-        eta_lay.addWidget(self.lbl_detail_popup_eta_sub)
-        eta_lay.addWidget(self.lbl_detail_popup_eta_meta)
-        eta_lay.addStretch(1)
-
-        sidebar_lay.addWidget(self._frm_detail_ai_status_card, 0)
-        sidebar_lay.addWidget(self._frm_detail_ai_reason_card, 2)
-        sidebar_lay.addWidget(self._frm_detail_ai_next_card, 1)
-        sidebar_lay.addWidget(self._frm_detail_ai_metrics_card, 0)
-        sidebar_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
-        sidebar_lay.addWidget(self._frm_detail_popup_eta_card, 0)
-        sidebar_lay.addStretch(1)
-
-        content_row.addWidget(self._frm_detail_left_chart_area, 7)
-        content_row.addWidget(self._frm_detail_ai_sidebar, 3)
-        root.addLayout(content_row, 1)
 
     def set_summary(
         self,
@@ -2086,209 +1515,6 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_banner.setText(ai_banner_text or "")
         except Exception:
             pass
-        try:
-            display_name = self._extract_detail_popup_line_value(basic_text, 0)
-            symbol_text = self._extract_detail_popup_symbol(basic_text)
-            if not display_name or display_name == "—":
-                display_name = str(title_text or "").split("-", 1)[-1].strip() or "—"
-            if not symbol_text or symbol_text == "—":
-                symbol_text = self._extract_detail_popup_line_value(basic_text, 1)
-
-            self.lbl_detail_popup_header_name.setText(display_name or "—")
-            self.lbl_detail_popup_header_symbol.setText(symbol_text or "—")
-            self.lbl_detail_popup_chart_title.setText(
-                f"{display_name} ({symbol_text})" if symbol_text and symbol_text != "—" else display_name
-            )
-
-            decision_text = str(ai_banner_text or "").strip() or self._extract_detail_popup_line_value(ai_action_text, 0)
-            state_text = self._extract_detail_popup_line_value(basic_text, 3)
-            score_text = self._extract_detail_popup_line_value(basic_text, 4)
-            price_now = self._extract_detail_popup_line_value(price_text, 0)
-            change_rate = self._extract_detail_popup_line_value(price_text, 1)
-            target_price = self._extract_detail_popup_line_value(price_text, 2)
-            price_now_fmt = self._format_detail_popup_price_text(price_now)
-            target_price_fmt = self._format_detail_popup_price_text(target_price)
-            self.lbl_detail_popup_decision.setText(decision_text or "—")
-            self.lbl_detail_popup_state.setText(state_text or "—")
-            self.lbl_detail_popup_score.setText(score_text or "—")
-            self.lbl_detail_popup_entry_price.setText(price_now)
-            self.lbl_detail_popup_current_price.setText(price_now)
-            self.lbl_detail_popup_change_rate.setText(change_rate)
-            self.lbl_detail_popup_target_price.setText(target_price)
-            self.lbl_detail_popup_risk_price.setText("—")
-
-            decision_color = self._detail_popup_decision_color(decision_text)
-            self.lbl_detail_popup_decision.setStyleSheet(
-                f"font-size:13px; font-weight:800; color:{decision_color};"
-            )
-            decision_token = str(decision_text or "STAY").strip().split(" ", 1)[0]
-            decision_token = decision_token.replace("AI", "").replace("판단:", "").strip(":- ")
-            if not decision_token:
-                decision_token = "STAY"
-            if "BUY" in str(decision_text).upper():
-                decision_token = "BUY"
-            elif "SELL" in str(decision_text).upper():
-                decision_token = "SELL"
-            elif "STAY" in str(decision_text).upper() or "WATCH" in str(decision_text).upper():
-                decision_token = "STAY"
-
-            self.lbl_detail_popup_decision_big.setText(decision_token)
-            self.lbl_detail_popup_decision_sub.setText(state_text or "—")
-            self.lbl_detail_popup_score.setText(f"AI 점수 {score_text or '—'}")
-            self.lbl_detail_popup_header_decision_badge.setText(decision_token)
-            self.lbl_detail_popup_header_change_badge.setText(change_rate or "—")
-            self.lbl_detail_popup_chart_price.setText(
-                price_now_fmt if str(price_now_fmt).startswith("현재가") else f"현재가 {price_now_fmt}"
-            )
-            self.lbl_detail_popup_chart_target.setText(
-                target_price_fmt if str(target_price_fmt).startswith("목표가") else f"목표가 {target_price_fmt}"
-            )
-
-            reason_lines = self._format_detail_popup_bullet_lines(ai_text, limit=4)
-            if not reason_lines:
-                reason_lines = self._format_detail_popup_bullet_lines(ai_action_text, limit=4)
-            next_lines = self._format_detail_popup_bullet_lines(ai_plan_text, limit=2)
-            if not next_lines:
-                next_lines = self._format_detail_popup_bullet_lines(
-                    "\n".join(str(ai_action_text or "").splitlines()[1:]), limit=2
-                )
-            self.lbl_detail_popup_reason_text.setText("\n".join(reason_lines[:4]) or "—")
-            self.lbl_detail_popup_next_text.setText("\n".join(next_lines[:2]) or "—")
-
-            if decision_color == "#15803d":
-                badge_bg, badge_border, status_bg = "#ecfdf5", "#86efac", "#f3fcf6"
-            elif decision_color == "#b91c1c":
-                badge_bg, badge_border, status_bg = "#fef2f2", "#fca5a5", "#fff5f5"
-            else:
-                badge_bg, badge_border, status_bg = "#fff7ed", "#fdba74", "#fffaf3"
-            self.lbl_detail_popup_header_decision_badge.setStyleSheet(
-                f"font-size:12px; font-weight:900; color:{decision_color}; "
-                f"background:{badge_bg}; border:1px solid {badge_border}; "
-                "border-radius:12px; padding:5px 12px;"
-            )
-            self.lbl_detail_popup_decision_big.setStyleSheet(
-                f"font-size:30px; font-weight:900; color:{decision_color};"
-            )
-            self._frm_detail_ai_status_card.setStyleSheet(
-                "QFrame#frmDetailSidebarCard {"
-                f"background:{status_bg}; border:1px solid #d9dde3; border-radius:12px;"
-                "}"
-            )
-        except Exception:
-            pass
-
-    def _format_detail_popup_bullet_lines(self, text: str, limit: int = 4):
-        try:
-            lines = []
-            for raw in str(text or "").replace("•", "\n").splitlines():
-                line = str(raw or "").strip()
-                if not line:
-                    continue
-                line = line.lstrip("-·• ").strip()
-                if not line or line in ("[AI 판단]", "[판단 근거]", "[다음 행동]"):
-                    continue
-                if line.startswith("[") and line.endswith("]"):
-                    continue
-                if ":" in line and any(
-                    key in line for key in ("AI 행동 배지", "AI 판단", "판단 근거", "다음 행동")
-                ):
-                    line = line.split(":", 1)[-1].strip()
-                if line:
-                    lines.append(f"· {line}")
-                if len(lines) >= int(limit or 4):
-                    break
-            return lines
-        except Exception:
-            return []
-
-    def set_detail_popup_position_context(self, context: dict | None):
-        try:
-            ctx = context or {}
-            is_holding = bool(ctx.get("is_holding"))
-            entry_label = "평균단가" if is_holding else "예상 진입가"
-            risk_label = "손절 기준" if is_holding else "리스크 기준"
-            scenario_context = (
-                "평균단가 기준 포지션 관리 시나리오"
-                if is_holding
-                else "예상 진입가 확인 전 관찰 시나리오"
-            )
-            entry_duplicate = bool(ctx.get("entry_is_duplicate"))
-
-            self.lbl_detail_popup_entry_price_title.setText(entry_label)
-            self.lbl_detail_popup_risk_price_title.setText(risk_label)
-            self.lbl_detail_popup_entry_price.setText(str(ctx.get("entry_text") or "—"))
-            self.lbl_detail_popup_current_price.setText(str(ctx.get("current_text") or "—"))
-            self.lbl_detail_popup_target_price.setText(str(ctx.get("target_text") or "—"))
-            self.lbl_detail_popup_risk_price.setText(str(ctx.get("risk_text") or "—"))
-            self.lbl_detail_popup_entry_price_title.setVisible(not entry_duplicate)
-            self.lbl_detail_popup_entry_price.setVisible(not entry_duplicate)
-            self.lbl_detail_popup_scenario_context.setText(scenario_context)
-        except Exception:
-            pass
-
-    def _format_detail_popup_eta(self, seconds: int) -> str:
-        try:
-            sec = max(0, int(seconds or 0))
-            h = sec // 3600
-            m = (sec % 3600) // 60
-            s = sec % 60
-            return f"{h:02d}:{m:02d}:{s:02d}"
-        except Exception:
-            return "--:--:--"
-
-    def _start_detail_popup_eta_timer(self):
-        try:
-            if self._detail_popup_eta_timer is not None and not self._detail_popup_eta_timer.isActive():
-                self._detail_popup_eta_timer.start()
-        except Exception:
-            pass
-
-    def _stop_detail_popup_eta_timer(self):
-        try:
-            if self._detail_popup_eta_timer is not None and self._detail_popup_eta_timer.isActive():
-                self._detail_popup_eta_timer.stop()
-        except Exception:
-            pass
-
-    def _tick_detail_popup_eta_timer(self):
-        try:
-            self._detail_popup_eta_remaining_seconds = max(
-                0, int(getattr(self, "_detail_popup_eta_remaining_seconds", 0) or 0) - 1
-            )
-            prefix = str(getattr(self, "_detail_popup_eta_prefix", "관찰 유지") or "관찰 유지")
-            self.lbl_detail_popup_eta_main.setText(
-                f"{prefix} {self._format_detail_popup_eta(self._detail_popup_eta_remaining_seconds)}"
-            )
-            if self._detail_popup_eta_remaining_seconds <= 0:
-                self._stop_detail_popup_eta_timer()
-        except Exception:
-            pass
-
-    def set_detail_popup_eta_context(self, context: dict | None):
-        try:
-            ctx = context or {}
-            seconds = max(0, int(ctx.get("seconds") or 0))
-            self._detail_popup_eta_remaining_seconds = seconds
-            self._detail_popup_eta_state_type = str(ctx.get("state_type") or "review_wait")
-            self._detail_popup_eta_prefix = str(ctx.get("prefix") or "관찰 유지")
-            self.lbl_detail_popup_eta_main.setText(
-                f"{self._detail_popup_eta_prefix} {self._format_detail_popup_eta(seconds)}"
-            )
-            self.lbl_detail_popup_eta_sub.setText(str(ctx.get("sub") or "시장 상황 반영 후 재평가"))
-            self.lbl_detail_popup_eta_meta.setText(str(ctx.get("meta") or "리스크 — / 목표 —"))
-            self._start_detail_popup_eta_timer()
-        except Exception:
-            pass
-
-    def closeEvent(self, event):
-        try:
-            self._stop_detail_popup_eta_timer()
-        except Exception:
-            pass
-        try:
-            super().closeEvent(event)
-        except Exception:
-            pass
 
     def get_selected_tf(self):
         try:
@@ -2302,123 +1528,7 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return 120
 
-    def get_selected_indicator_mode(self):
-        try:
-            show_rsi = bool(getattr(self, "_detail_popup_show_rsi", True))
-            show_macd = bool(getattr(self, "_detail_popup_show_macd", False))
-            if show_rsi and show_macd:
-                mode = "rsi_macd"
-            elif show_rsi:
-                mode = "rsi"
-            elif show_macd:
-                mode = "macd"
-            else:
-                mode = "none"
-            self._detail_popup_indicator_mode = mode
-            return mode
-        except Exception:
-            pass
-        return str(getattr(self, "_detail_popup_indicator_mode", "rsi") or "rsi")
-
-    def _update_detail_popup_indicator_buttons(self):
-        try:
-            styles = {
-                True: (
-                    "QPushButton { min-height:32px; border:1px solid #60a5fa; "
-                    "border-radius:10px; padding:4px 14px; background:#dbeafe; "
-                    "color:#1d4ed8; font-weight:700; }"
-                    "QPushButton:hover { background:#bfdbfe; }"
-                ),
-                False: (
-                    "QPushButton { min-height:32px; border:1px solid #d9dde3; "
-                    "border-radius:10px; padding:4px 14px; background:#ffffff; "
-                    "color:#6b7280; font-weight:600; }"
-                    "QPushButton:hover { background:#f8fafc; }"
-                ),
-            }
-            for btn, attr in (
-                (getattr(self, "_btn_popup_indicator_rsi", None), "_detail_popup_show_rsi"),
-                (getattr(self, "_btn_popup_indicator_macd", None), "_detail_popup_show_macd"),
-            ):
-                if btn is None:
-                    continue
-                checked = bool(getattr(self, attr, False))
-                btn.setChecked(checked)
-                btn.setStyleSheet(styles[checked])
-        except Exception:
-            pass
-
-    def _toggle_detail_popup_rsi(self, checked=None):
-        try:
-            if checked is None:
-                checked = not bool(getattr(self, "_detail_popup_show_rsi", True))
-            self._detail_popup_show_rsi = bool(checked)
-            self._update_detail_popup_indicator_buttons()
-        except Exception:
-            pass
-
-    def _toggle_detail_popup_macd(self, checked=None):
-        try:
-            if checked is None:
-                checked = not bool(getattr(self, "_detail_popup_show_macd", False))
-            self._detail_popup_show_macd = bool(checked)
-            self._update_detail_popup_indicator_buttons()
-        except Exception:
-            pass
-
-    def _translate_detail_popup_scenario_label(self, scenario_type: str):
-        labels = {
-            "bullish_breakout": "상승 돌파 준비형",
-            "accumulation_ready": "매집 완료 대기형",
-            "sideways_wait": "횡보 관찰형",
-            "weak_rebound": "약반등 확인형",
-            "bearish_drift": "하락 지속형",
-            "sharp_drop_risk": "급락 경계형",
-        }
-        return labels.get(str(scenario_type or "").strip(), "횡보 관찰형")
-
-    def set_detail_popup_scenario(self, scenario_type: str, confidence: float = 0.55):
-        try:
-            scenario_type = str(scenario_type or "sideways_wait").strip()
-            if scenario_type not in (
-                "bullish_breakout",
-                "accumulation_ready",
-                "sideways_wait",
-                "weak_rebound",
-                "bearish_drift",
-                "sharp_drop_risk",
-            ):
-                scenario_type = "sideways_wait"
-            confidence = max(0.0, min(1.0, float(confidence or 0.55)))
-            self._detail_popup_scenario_type = scenario_type
-            self._detail_popup_scenario_confidence = confidence
-            self.lbl_detail_popup_scenario_title.setText(
-                self._translate_detail_popup_scenario_label(scenario_type)
-            )
-            self.lbl_detail_popup_scenario_type.setText(scenario_type)
-            self.lbl_detail_popup_scenario_confidence.setText(
-                f"방향성 확인 전 보조 시나리오 · 신뢰도 {int(round(confidence * 100.0))}%"
-            )
-        except Exception:
-            pass
-
     def set_action_badge_variant(self, variant: str):
-        try:
-            v = str(variant or "").strip().lower()
-            if v == "buy":
-                color = "#15803d"
-            elif v == "risk":
-                color = "#b91c1c"
-            elif v in ("watch", "hold"):
-                color = "#b45309" if v == "watch" else "#374151"
-            else:
-                color = "#111827"
-            self.lbl_ai_action.setStyleSheet(
-                f"font-size:12px; font-weight:700; color:{color}; padding:0px;"
-            )
-            return
-        except Exception:
-            pass
         try:
             v = str(variant or "").strip().lower()
             if v == "buy":
@@ -2445,22 +1555,6 @@ class AITSLargeChartDialog(QDialog):
             pass
 
     def set_decision_banner_variant(self, variant: str):
-        try:
-            v = str(variant or "").strip().lower()
-            if v == "buy":
-                color = "#15803d"
-            elif v == "risk":
-                color = "#b91c1c"
-            elif v in ("watch", "hold"):
-                color = "#b45309" if v == "watch" else "#374151"
-            else:
-                color = "#111827"
-            self.lbl_ai_banner.setStyleSheet(
-                f"font-size:13px; font-weight:800; color:{color}; padding:0px;"
-            )
-            return
-        except Exception:
-            pass
         try:
             v = str(variant or "").strip().lower()
             if v == "buy":
@@ -7136,12 +6230,6 @@ class MainWindow(QMainWindow):
             if self._frm_managed_footer.parent()
             else None,
         )
-        try:
-            self._finalize_left_managed_panel_layout(_gb_managed, _managed_inner)
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "left managed panel final layout failed", exc_info=True
-            )
         self.btn_ai_managed_up = QPushButton("▲ 위로")
         self.btn_ai_managed_down = QPushButton("▼ 아래로")
         try:
@@ -7206,7 +6294,7 @@ class MainWindow(QMainWindow):
             _detail_inner.setSpacing(10)
         except Exception:
             pass
-        self.lbl_ai_center_stage_title = QLabel("")
+        self.lbl_ai_center_stage_title = QLabel("MAIN ANALYSIS CENTER")
         try:
             self.lbl_ai_center_stage_title.setStyleSheet(
                 "font-size: 16px; font-weight: 900; color: #0f172a; "
@@ -7264,7 +6352,7 @@ class MainWindow(QMainWindow):
             self._frm_ai_judgment_banner.setMinimumHeight(96)
         except Exception:
             pass
-        self.lbl_ai_judgment_banner_kicker = QLabel("")
+        self.lbl_ai_judgment_banner_kicker = QLabel("AI DECISION")
         try:
             self.lbl_ai_judgment_banner_kicker.setProperty("decisionTitle", True)
             self.lbl_ai_judgment_banner_kicker.setStyleSheet("")
@@ -7401,7 +6489,6 @@ class MainWindow(QMainWindow):
         try:
             self.detail_chart_canvas.setMinimumHeight(370)
             self.detail_chart_canvas.setMaximumHeight(470)
-            self.detail_chart_canvas.setStyleSheet("background:#ffffff;")
         except Exception:
             pass
         self.detail_chart_canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -7421,24 +6508,7 @@ class MainWindow(QMainWindow):
                     "scroll_event", self._on_detail_chart_mouse_scroll
                 ),
             ]
-        self._center_main_splitter = QSplitter(Qt.Orientation.Vertical)
-        try:
-            self._center_main_splitter.setChildrenCollapsible(False)
-            self._center_main_splitter.setHandleWidth(8)
-            self._center_main_splitter.setOpaqueResize(True)
-            self._center_main_splitter.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Expanding,
-            )
-            self._center_main_splitter.setObjectName("centerMainSplitter")
-        except Exception:
-            pass
-        try:
-            self._frm_ai_detail_chart.setMinimumHeight(220)
-        except Exception:
-            pass
-        self._center_main_splitter.addWidget(self._frm_ai_detail_chart)
-        _detail_inner.addWidget(self._center_main_splitter, 1)
+        _detail_inner.addWidget(self._frm_ai_detail_chart, 1)
 
         try:
             self._refresh_ai_detail_chart()
@@ -7570,14 +6640,14 @@ class MainWindow(QMainWindow):
         _bf_title_row = QHBoxLayout()
         _bf_title_row.setContentsMargins(0, 0, 0, 0)
         _bf_title_row.setSpacing(6)
-        _lbl_bf_title = QLabel("브리핑")
+        _lbl_bf_title = QLabel("◆  AI BRIEFING (요약)")
         try:
             _lbl_bf_title.setProperty("reasonTitle", True)
         except Exception:
             pass
         _lbl_bf_title.setStyleSheet("")
         _bf_title_row.addWidget(_lbl_bf_title, 1)
-        self.btn_ai_center_briefing_detail = QPushButton("")
+        self.btn_ai_center_briefing_detail = QPushButton("상세 브리핑")
         self.btn_ai_center_briefing_detail.setToolTip("AI 브리핑 팝업")
         try:
             self.btn_ai_center_briefing_detail.setMinimumHeight(30)
@@ -7605,23 +6675,7 @@ class MainWindow(QMainWindow):
             pass
         self.lbl_ai_briefing_card.setStyleSheet("")
         _bf_ly.addWidget(self.lbl_ai_briefing_card)
-
-        self._frm_ai_center_middle_stack = QWidget()
-        try:
-            self._frm_ai_center_middle_stack.setMinimumHeight(100)
-            self._frm_ai_center_middle_stack.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Expanding,
-            )
-        except Exception:
-            pass
-        _center_mid_ly = QVBoxLayout(self._frm_ai_center_middle_stack)
-        try:
-            _center_mid_ly.setContentsMargins(0, 0, 0, 0)
-            _center_mid_ly.setSpacing(8)
-        except Exception:
-            pass
-        _center_mid_ly.addWidget(self._frm_ai_briefing_card, 1)
+        _detail_inner.addWidget(self._frm_ai_briefing_card)
 
         _why_next_row = QHBoxLayout()
         _why_next_row.setSpacing(8)
@@ -7636,7 +6690,7 @@ class MainWindow(QMainWindow):
         _wy_ly = QVBoxLayout(self._frm_ai_why_card)
         _wy_ly.setContentsMargins(14, 12, 14, 12)
         _wy_ly.setSpacing(8)
-        _lbl_why_t = QLabel("근거")
+        _lbl_why_t = QLabel("WHY")
         _lbl_why_t.setStyleSheet(
             "font-size: 12px; font-weight: 900; color: #0f172a; padding-bottom: 6px; "
             "border-bottom: 2px solid #cbd5e1;"
@@ -7659,7 +6713,7 @@ class MainWindow(QMainWindow):
         _nx_ly = QVBoxLayout(self._frm_ai_next_card)
         _nx_ly.setContentsMargins(14, 12, 14, 12)
         _nx_ly.setSpacing(8)
-        _lbl_nx_t = QLabel("다음행동")
+        _lbl_nx_t = QLabel("NEXT ACTION")
         _lbl_nx_t.setStyleSheet(
             "font-size: 12px; font-weight: 900; color: #78350f; padding-bottom: 6px; "
             "border-bottom: 2px solid #fcd34d;"
@@ -7673,8 +6727,7 @@ class MainWindow(QMainWindow):
         _nx_ly.addWidget(self.lbl_ai_center_next)
         _why_next_row.addWidget(self._frm_ai_why_card, 1)
         _why_next_row.addWidget(self._frm_ai_next_card, 1)
-        _center_mid_ly.addLayout(_why_next_row, 1)
-        self._center_main_splitter.addWidget(self._frm_ai_center_middle_stack)
+        _detail_inner.addLayout(_why_next_row)
 
         self._frm_ai_recent_log = QFrame()
         self._frm_ai_recent_log.setStyleSheet(
@@ -7683,12 +6736,12 @@ class MainWindow(QMainWindow):
         _rl_ly = QVBoxLayout(self._frm_ai_recent_log)
         _rl_ly.setContentsMargins(14, 12, 14, 12)
         _rl_ly.setSpacing(8)
-        self.lbl_ai_recent_log_title = QLabel("최근 AI 로그")
-        self.lbl_ai_recent_log_title.setStyleSheet(
+        _lbl_rl_t = QLabel("RECENT AI LOG")
+        _lbl_rl_t.setStyleSheet(
             "font-size: 12px; font-weight: 900; color: #0f172a; padding-bottom: 6px; "
             "border-bottom: 2px solid #e2e8f0;"
         )
-        _rl_ly.addWidget(self.lbl_ai_recent_log_title)
+        _rl_ly.addWidget(_lbl_rl_t)
         self.lbl_ai_recent_log = QLabel("—")
         self.lbl_ai_recent_log.setWordWrap(True)
         self.lbl_ai_recent_log.setStyleSheet(
@@ -7696,22 +6749,7 @@ class MainWindow(QMainWindow):
             "font-family: Consolas, 'Cascadia Mono', 'Segoe UI Mono', monospace;"
         )
         _rl_ly.addWidget(self.lbl_ai_recent_log)
-        try:
-            self._frm_ai_recent_log.setMinimumHeight(90)
-            self._frm_ai_recent_log.setSizePolicy(
-                QSizePolicy.Policy.Expanding,
-                QSizePolicy.Policy.Expanding,
-            )
-        except Exception:
-            pass
-        self._center_main_splitter.addWidget(self._frm_ai_recent_log)
-        try:
-            self._center_main_splitter.setStretchFactor(0, 5)
-            self._center_main_splitter.setStretchFactor(1, 2)
-            self._center_main_splitter.setStretchFactor(2, 2)
-            self._center_main_splitter.setSizes([420, 180, 160])
-        except Exception:
-            pass
+        _detail_inner.addWidget(self._frm_ai_recent_log)
 
         _fa_wrap = QWidget()
         _fa = QFormLayout(_fa_wrap)
@@ -7817,12 +6855,6 @@ class MainWindow(QMainWindow):
             self._gb_ai_detail.setMinimumWidth(560)
         except Exception:
             pass
-        try:
-            self._rebuild_center_dashboard_layout()
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "center dashboard layout rebuild failed", exc_info=True
-            )
 
         # old layout (PATCH 2-1 replaced): horizontal top = Managed + AI Detail only
         # _split_aits_top_h = QSplitter(Qt.Orientation.Horizontal)
@@ -7838,7 +6870,7 @@ class MainWindow(QMainWindow):
         # except Exception:
         #     pass
 
-        _gb_market = QGroupBox("AI THEME SCANNER")
+        _gb_market = QGroupBox("MARKET EXPLORER  ·  AI 후보 탐색")
         self._gb_market = _gb_market
         try:
             _gb_market.setObjectName("gbMarketExplorer")
@@ -7863,7 +6895,7 @@ class MainWindow(QMainWindow):
             _market_inner.setSpacing(7)
         except Exception:
             pass
-        self.lbl_market_scanner_strip = QLabel("오늘의 후보 탐색 / 로테이션 감시")
+        self.lbl_market_scanner_strip = QLabel("SCANNER  ·  FILTER: VOL / SCORE / SORT")
         try:
             self.lbl_market_scanner_strip.setStyleSheet(
                 "font-size: 11px; font-weight: 900; color: #0f172a; "
@@ -7879,12 +6911,13 @@ class MainWindow(QMainWindow):
         try:
             self.ed_market_search.setMaximumWidth(220)
             self.ed_market_search.setMinimumWidth(120)
-            self.ed_market_search.setFixedHeight(30)
+            self.ed_market_search.setMinimumHeight(34)
+            self.ed_market_search.setMaximumHeight(34)
         except Exception:
             pass
         try:
             self.ed_market_search.setStyleSheet(
-                "padding: 4px 10px; font-size: 12px; font-weight: 600; min-height: 30px; max-height: 30px;"
+                "padding: 7px 12px; font-size: 12px; font-weight: 600; min-height: 32px; max-height: 34px;"
                 "border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff;"
             )
         except Exception:
@@ -7894,17 +6927,19 @@ class MainWindow(QMainWindow):
         self.btn_market_all = QPushButton("전체 보기")
         self.btn_market_all.setToolTip("전체 종목 목록에서 탐색")
         try:
-            self.btn_market_quick.setFixedHeight(30)
-            self.btn_market_all.setFixedHeight(30)
+            self.btn_market_quick.setMinimumHeight(34)
+            self.btn_market_quick.setMaximumHeight(34)
+            self.btn_market_all.setMinimumHeight(34)
+            self.btn_market_all.setMaximumHeight(34)
         except Exception:
             pass
         try:
             self.btn_market_quick.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
+                "padding:6px 12px; font-size:12px; font-weight:800; min-height:32px; max-height:34px;"
                 "background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;color:#065f46;"
             )
             self.btn_market_all.setStyleSheet(
-                "padding:4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
+                "padding:6px 12px; font-size:12px; font-weight:800; min-height:32px; max-height:34px;"
                 "background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;color:#1e40af;"
             )
         except Exception:
@@ -7915,25 +6950,27 @@ class MainWindow(QMainWindow):
         self.cmb_market_sort.addItem("가격순", "price")
         self.btn_market_sort_toggle = QPushButton("↓")
         try:
-            self.cmb_market_sort.setFixedHeight(30)
-            self.btn_market_sort_toggle.setFixedHeight(30)
+            self.cmb_market_sort.setMinimumHeight(34)
+            self.cmb_market_sort.setMaximumHeight(34)
+            self.btn_market_sort_toggle.setMinimumHeight(34)
+            self.btn_market_sort_toggle.setMaximumHeight(34)
             self.btn_market_sort_toggle.setMaximumWidth(36)
         except Exception:
             pass
         try:
             self.cmb_market_sort.setStyleSheet(
-                "font-size:12px; font-weight:700; padding:4px 10px; min-height:30px; max-height:30px;"
+                "font-size:12px; font-weight:700; padding:4px 10px; min-height:32px; max-height:34px;"
                 "border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc;"
             )
             self.btn_market_sort_toggle.setStyleSheet(
-                "font-size:12px; font-weight:800; padding:2px; min-height:30px; max-height:30px;"
+                "font-size:12px; font-weight:800; padding:2px; min-height:32px; max-height:34px;"
                 "border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc;"
             )
         except Exception:
             pass
         _market_top_row = QHBoxLayout()
-        _market_top_row.setContentsMargins(0, 2, 0, 4)
-        _market_top_row.setSpacing(6)
+        _market_top_row.setContentsMargins(0, 2, 0, 0)
+        _market_top_row.setSpacing(5)
         _market_top_row.addWidget(self.ed_market_search, 0)
         _market_top_row.addWidget(self.btn_market_quick, 0)
         _market_top_row.addWidget(self.btn_market_all, 0)
@@ -7946,7 +6983,6 @@ class MainWindow(QMainWindow):
             self.lbl_market_search_status.setStyleSheet(
                 "font-size:12px; color:#64748b; padding:3px 0px;"
             )
-            self.lbl_market_search_status.setVisible(False)
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_search_status)
@@ -7958,7 +6994,6 @@ class MainWindow(QMainWindow):
             self.lbl_market_explorer_hint.setStyleSheet(
                 "font-size: 11px; color: #64748b; padding: 0 0 1px 0; font-weight: 600;"
             )
-            self.lbl_market_explorer_hint.setVisible(False)
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_explorer_hint)
@@ -10001,829 +9036,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _clear_layout_items_detach(self, layout) -> None:
-        try:
-            if layout is None:
-                return
-            while layout.count():
-                item = layout.takeAt(0)
-                if item is None:
-                    continue
-                w = item.widget()
-                if w is not None:
-                    try:
-                        w.setParent(None)
-                    except Exception:
-                        pass
-                    continue
-                child = item.layout()
-                if child is not None:
-                    self._clear_layout_items_detach(child)
-        except Exception:
-            pass
-
-    def _make_center_dashboard_card(self, title: str, body: QWidget | None = None) -> tuple[QFrame, QVBoxLayout]:
-        card = QFrame()
-        try:
-            card.setProperty("centerDashCard", True)
-            card.setStyleSheet(
-                "QFrame[centerDashCard='true']{background:#ffffff;border:1px solid #d9dde3;border-radius:8px;}"
-            )
-            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        except Exception:
-            pass
-        lay = QVBoxLayout(card)
-        try:
-            lay.setContentsMargins(12, 10, 12, 10)
-            lay.setSpacing(8)
-        except Exception:
-            pass
-        title_lb = QLabel(str(title or "").strip())
-        try:
-            title_lb.setProperty("reasonTitle", True)
-            title_lb.setStyleSheet(
-                "font-size:12px;font-weight:900;color:#111827;background:transparent;border:none;letter-spacing:0px;"
-            )
-        except Exception:
-            pass
-        lay.addWidget(title_lb, 0)
-        if body is not None:
-            lay.addWidget(body, 1)
-        return card, lay
-
-    def _make_center_info_card(
-        self,
-        title: str,
-        body: QWidget,
-        *,
-        icon_attr: str,
-        title_attr: str,
-        icon_text: str,
-        bg: str,
-        border: str,
-        title_color: str,
-        icon_bg: str,
-        icon_color: str,
-    ) -> tuple[QFrame, QVBoxLayout]:
-        card = QFrame()
-        try:
-            card.setProperty("centerInfoCard", True)
-            card.setStyleSheet(
-                "QFrame[centerInfoCard='true']{"
-                f"background:{bg};border:1px solid {border};border-radius:14px;"
-                "}"
-            )
-            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        except Exception:
-            pass
-        lay = QVBoxLayout(card)
-        try:
-            lay.setContentsMargins(14, 12, 14, 12)
-            lay.setSpacing(8)
-        except Exception:
-            pass
-
-        header = QHBoxLayout()
-        try:
-            header.setContentsMargins(0, 0, 0, 0)
-            header.setSpacing(8)
-        except Exception:
-            pass
-
-        icon = getattr(self, icon_attr, None)
-        if icon is None:
-            icon = QLabel(icon_text)
-            setattr(self, icon_attr, icon)
-        title_lb = getattr(self, title_attr, None)
-        if title_lb is None:
-            title_lb = QLabel(title)
-            setattr(self, title_attr, title_lb)
-
-        try:
-            icon.setText(icon_text)
-            icon.setFixedSize(34, 34)
-            icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            icon.setStyleSheet(
-                "font-size:18px;font-weight:900;"
-                f"color:{icon_color};background:{icon_bg};"
-                "border:none;border-radius:10px;"
-            )
-            title_lb.setText(str(title or "").strip())
-            title_lb.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            title_lb.setStyleSheet(
-                f"font-size:13px;font-weight:800;color:{title_color};"
-                "background:transparent;border:none;"
-            )
-        except Exception:
-            pass
-
-        header.addWidget(icon, 0)
-        header.addWidget(title_lb, 0)
-        header.addStretch(1)
-        lay.addLayout(header, 0)
-        lay.addWidget(body, 1)
-        return card, lay
-
-    def _rebuild_center_dashboard_layout(self) -> None:
-        CENTER_INFO_CARD_H = 132
-        CENTER_LOG_BAR_H = 42
-        root_widget = getattr(self, "_gb_ai_detail", None)
-        if root_widget is None:
-            return
-        outer_layout = root_widget.layout()
-        if outer_layout is None:
-            outer_layout = QVBoxLayout(root_widget)
-        self._clear_layout_items_detach(outer_layout)
-        if not hasattr(self, "_scroll_ai_center"):
-            self._scroll_ai_center = QScrollArea()
-        if not hasattr(self, "_w_ai_center_scroll_container"):
-            self._w_ai_center_scroll_container = QWidget()
-            self._w_ai_center_scroll_container.setObjectName("AICenterScrollContainer")
-        scroll_container = self._w_ai_center_scroll_container
-        root = scroll_container.layout()
-        if root is None:
-            root = QVBoxLayout(scroll_container)
-        self._clear_layout_items_detach(root)
-        try:
-            outer_layout.setContentsMargins(0, 0, 0, 0)
-            outer_layout.setSpacing(0)
-            self._scroll_ai_center.setWidgetResizable(True)
-            self._scroll_ai_center.setFrameShape(QFrame.Shape.NoFrame)
-            self._scroll_ai_center.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            self._scroll_ai_center.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self._scroll_ai_center.setWidget(scroll_container)
-            scroll_container.setStyleSheet("QWidget#AICenterScrollContainer{background:#f7f8fa;}")
-            root.setContentsMargins(10, 10, 10, 10)
-            root.setSpacing(8)
-            root_widget.setStyleSheet("QGroupBox{background:#f7f8fa;}")
-            outer_layout.addWidget(self._scroll_ai_center, 1)
-        except Exception:
-            pass
-
-        for name in (
-            "txt_ai_detail_reason",
-            "lbl_ai_detail_score",
-            "_frm_ai_detail_legacy_info",
-            "_frm_ai_legacy_cards",
-        ):
-            try:
-                w = getattr(self, name, None)
-                if w is not None:
-                    w.setVisible(False)
-            except Exception:
-                pass
-
-        if not hasattr(self, "lbl_ai_center_summary"):
-            self.lbl_ai_center_summary = QLabel("—")
-            try:
-                self.lbl_ai_center_summary.setWordWrap(True)
-            except Exception:
-                pass
-        if not hasattr(self, "lbl_ai_center_symbolpill"):
-            self.lbl_ai_center_symbolpill = QLabel("— / KRW")
-        if not hasattr(self, "lbl_ai_center_symbol_badge"):
-            self.lbl_ai_center_symbol_badge = QLabel("--")
-        if not hasattr(self, "lbl_ai_center_name_badge"):
-            self.lbl_ai_center_name_badge = QLabel("--")
-        if not hasattr(self, "lbl_ai_center_market_code"):
-            self.lbl_ai_center_market_code = QLabel("--")
-        try:
-            self.lbl_ai_center_symbolpill.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.lbl_ai_center_symbolpill.setMinimumHeight(30)
-            self.lbl_ai_center_symbolpill.setStyleSheet(
-                "padding:4px 10px;font-size:12px;font-weight:800;color:#111827;"
-                "background:#f7f8fa;border:1px solid #d9dde3;border-radius:8px;"
-            )
-        except Exception:
-            pass
-        for _lb, _strong in (
-            (self.lbl_ai_center_symbol_badge, True),
-            (self.lbl_ai_center_name_badge, False),
-        ):
-            try:
-                _lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                _lb.setMinimumHeight(34)
-                _lb.setStyleSheet(
-                    "padding:4px 12px;"
-                    f"font-size:{20 if _strong else 18}px;"
-                    f"font-weight:{900 if _strong else 800};"
-                    "color:#111827;background:#ffffff;border:1px solid #d9dde3;border-radius:8px;"
-                )
-            except Exception:
-                pass
-        try:
-            self.lbl_ai_center_market_code.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.lbl_ai_center_market_code.setStyleSheet(
-                "font-size:12px;font-weight:700;color:#6b7280;background:transparent;border:none;"
-            )
-        except Exception:
-            pass
-
-        header = QFrame()
-        try:
-            header.setObjectName("frmCenterDashHeader")
-            header.setProperty("centerDashHeader", True)
-            header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            header.setFixedHeight(64)
-            header.setStyleSheet(
-                "QFrame#frmCenterDashHeader{background:#ffffff;border:1px solid #d9dde3;border-radius:8px;}"
-            )
-        except Exception:
-            pass
-        header_lay = QHBoxLayout(header)
-        try:
-            header_lay.setContentsMargins(12, 12, 8, 12)
-            header_lay.setSpacing(12)
-        except Exception:
-            pass
-        title = getattr(self, "lbl_ai_center_stage_title", None)
-        if title is None:
-            title = QLabel("")
-            self.lbl_ai_center_stage_title = title
-        try:
-            title.setText("")
-            title.setWordWrap(False)
-            title.setVisible(False)
-        except Exception:
-            pass
-        for _w in (
-            self.lbl_ai_center_symbol_badge,
-            self.lbl_ai_center_name_badge,
-            self.lbl_ai_center_market_code,
-        ):
-            try:
-                _w.setVisible(False)
-            except Exception:
-                pass
-        if not hasattr(self, "lbl_ai_center_header_icon"):
-            self.lbl_ai_center_header_icon = QLabel("▶")
-        if not hasattr(self, "lbl_ai_center_header_title"):
-            self.lbl_ai_center_header_title = QLabel("MAIN ANALYSIS CENTER")
-        if not hasattr(self, "lbl_ai_center_header_subtitle"):
-            self.lbl_ai_center_header_subtitle = QLabel("[AI 분석 & 차트]")
-        if not hasattr(self, "btn_ai_center_fullscreen"):
-            self.btn_ai_center_fullscreen = QPushButton("상세보기")
-        try:
-            self.lbl_ai_center_header_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.lbl_ai_center_header_icon.setFixedSize(32, 32)
-            self.lbl_ai_center_header_icon.setStyleSheet(
-                "font-size:15px;font-weight:900;color:#ffffff;background:#111827;"
-                "border:1px solid #111827;border-radius:6px;padding-left:1px;"
-            )
-            self.lbl_ai_center_header_title.setText("MAIN ANALYSIS CENTER")
-            self.lbl_ai_center_header_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            self.lbl_ai_center_header_title.setStyleSheet(
-                "font-size:18px;font-weight:900;color:#111827;background:transparent;border:none;letter-spacing:0px;"
-            )
-            self.lbl_ai_center_header_subtitle.setText("[AI 분석 & 차트]")
-            self.lbl_ai_center_header_subtitle.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            self.lbl_ai_center_header_subtitle.setStyleSheet(
-                "font-size:12px;font-weight:700;color:#6b7280;background:transparent;border:none;"
-            )
-            self.btn_ai_center_fullscreen.setText("상세보기")
-            self.btn_ai_center_fullscreen.setMinimumHeight(36)
-            self.btn_ai_center_fullscreen.setMaximumHeight(36)
-            self.btn_ai_center_fullscreen.setStyleSheet(
-                "padding:6px 12px;font-size:13px;font-weight:800;color:#111827;"
-                "background:#ffffff;border:1px solid #d9dde3;border-radius:8px;"
-            )
-            try:
-                self.btn_ai_center_fullscreen.clicked.disconnect(self._on_ai_center_fullscreen_clicked)
-            except Exception:
-                pass
-            self.btn_ai_center_fullscreen.clicked.connect(self._on_ai_center_fullscreen_clicked)
-        except Exception:
-            pass
-        header_lay.addWidget(self.lbl_ai_center_header_icon, 0)
-        header_lay.addWidget(self.lbl_ai_center_header_title, 0)
-        header_lay.addWidget(self.lbl_ai_center_header_subtitle, 1)
-        sym = getattr(self, "lbl_ai_center_symbol", None)
-        if sym is not None:
-            try:
-                sym.setWordWrap(False)
-                sym.setVisible(False)
-            except Exception:
-                pass
-        btn_reason = getattr(self, "btn_ai_reason_toggle", None)
-        if btn_reason is not None:
-            try:
-                btn_reason.setText("")
-                btn_reason.setVisible(False)
-            except Exception:
-                pass
-        header_lay.addWidget(self.btn_ai_center_fullscreen, 0)
-        btn_brief = getattr(self, "btn_ai_center_briefing_detail", None)
-        if btn_brief is not None:
-            try:
-                btn_brief.setVisible(False)
-            except Exception:
-                pass
-        root.addWidget(header, 0)
-
-        banner = getattr(self, "_frm_ai_judgment_banner", None)
-        if banner is not None:
-            b_lay = banner.layout()
-            if b_lay is not None:
-                self._clear_layout_items_detach(b_lay)
-            else:
-                b_lay = QVBoxLayout(banner)
-            try:
-                b_lay.setContentsMargins(16, 14, 16, 14)
-                b_lay.setSpacing(8)
-                banner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-                banner.setStyleSheet(
-                    "#frmAiJudgmentBanner{background:#fffaf0;border:1px solid #fdba74;border-radius:10px;}"
-                )
-            except Exception:
-                pass
-            try:
-                kick = getattr(self, "lbl_ai_judgment_banner_kicker", None)
-                if kick is not None:
-                    kick.setText("")
-                    kick.setVisible(False)
-                main = getattr(self, "lbl_ai_detail_judgment_header", None)
-                if main is not None:
-                    main.setTextFormat(Qt.TextFormat.RichText)
-                    main.setStyleSheet(
-                        "font-size:20px;font-weight:900;color:#111827;background:transparent;border:none;padding:0px;"
-                    )
-                sm = getattr(self, "lbl_ai_center_summary", None)
-                if sm is not None:
-                    sm.setText("거래량 약세 / 과매수 해소 구간, 추세 지지선 유지 여부 모니터링")
-                    sm.setStyleSheet(
-                        "font-size:13px;font-weight:700;color:#374151;background:transparent;border:none;padding:0px;"
-                    )
-                sub = getattr(self, "lbl_ai_judgment_banner_sub", None)
-                if sub is not None:
-                    sub.setTextFormat(Qt.TextFormat.PlainText)
-                    sub.setVisible(False)
-                    sub.setStyleSheet(
-                        "font-size:13px;font-weight:500;color:#374151;background:transparent;border:none;padding:0px;"
-                    )
-            except Exception:
-                pass
-            banner_top_row = QHBoxLayout()
-            try:
-                banner_top_row.setContentsMargins(0, 0, 0, 0)
-                banner_top_row.setSpacing(8)
-            except Exception:
-                pass
-            if not hasattr(self, "lbl_ai_judgment_info_icon"):
-                self.lbl_ai_judgment_info_icon = QLabel("ⓘ")
-            try:
-                self.lbl_ai_judgment_info_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                self.lbl_ai_judgment_info_icon.setFixedSize(24, 24)
-                self.lbl_ai_judgment_info_icon.setStyleSheet(
-                    "font-size:20px;font-weight:900;color:#b45309;background:transparent;border:none;"
-                )
-            except Exception:
-                pass
-            banner_top_row.addWidget(self.lbl_ai_judgment_info_icon, 0)
-            main_w = getattr(self, "lbl_ai_detail_judgment_header", None)
-            if main_w is not None:
-                banner_top_row.addWidget(main_w, 1)
-            b_lay.addLayout(banner_top_row, 0)
-            sm_w = getattr(self, "lbl_ai_center_summary", None)
-            if sm_w is not None:
-                b_lay.addWidget(sm_w, 0)
-            if not hasattr(self, "_line_ai_judgment_condition"):
-                self._line_ai_judgment_condition = QFrame()
-            try:
-                self._line_ai_judgment_condition.setFixedHeight(1)
-                self._line_ai_judgment_condition.setStyleSheet(
-                    "background:transparent;border:none;border-top:1px dashed #e5e7eb;"
-                )
-            except Exception:
-                pass
-            b_lay.addWidget(self._line_ai_judgment_condition, 0)
-            condition_row = QHBoxLayout()
-            try:
-                condition_row.setContentsMargins(0, 0, 0, 0)
-                condition_row.setSpacing(6)
-            except Exception:
-                pass
-            if not hasattr(self, "lbl_ai_center_condition_title"):
-                self.lbl_ai_center_condition_title = QLabel("Current Condition:")
-            if not hasattr(self, "lbl_ai_center_condition_value"):
-                self.lbl_ai_center_condition_value = QLabel("RSI 확인 중 | 거래대금 확인 중 | 변동성 확인 중")
-            try:
-                self.lbl_ai_center_condition_title.setText("Current Condition:")
-                self.lbl_ai_center_condition_title.setWordWrap(False)
-                self.lbl_ai_center_condition_title.setTextFormat(Qt.TextFormat.PlainText)
-                self.lbl_ai_center_condition_title.setStyleSheet(
-                    "font-size:13px;font-weight:900;color:#111827;background:transparent;border:none;padding:0px;"
-                )
-                self.lbl_ai_center_condition_value.setWordWrap(True)
-                self.lbl_ai_center_condition_value.setTextFormat(Qt.TextFormat.PlainText)
-                self.lbl_ai_center_condition_value.setStyleSheet(
-                    "font-size:13px;font-weight:500;color:#374151;background:transparent;border:none;padding:0px;"
-                )
-            except Exception:
-                pass
-            condition_row.addWidget(self.lbl_ai_center_condition_title, 0)
-            condition_row.addWidget(self.lbl_ai_center_condition_value, 1)
-            b_lay.addLayout(condition_row, 0)
-            sub_w = getattr(self, "lbl_ai_judgment_banner_sub", None)
-            if sub_w is not None:
-                try:
-                    sub_w.setVisible(False)
-                except Exception:
-                    pass
-            root.addWidget(banner, 0)
-
-        toolbar = QFrame()
-        try:
-            toolbar.setObjectName("frmCenterChartToolbar")
-            toolbar.setProperty("centerDashToolbar", True)
-            toolbar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            toolbar.setFixedHeight(42)
-            toolbar.setStyleSheet(
-                "QFrame#frmCenterChartToolbar{background:#ffffff;border:1px solid #d9dde3;border-radius:8px;}"
-            )
-        except Exception:
-            pass
-        tb_lay = QHBoxLayout(toolbar)
-        try:
-            tb_lay.setContentsMargins(8, 4, 8, 4)
-            tb_lay.setSpacing(8)
-        except Exception:
-            pass
-        for w in (
-            getattr(self, "cmb_detail_chart_tf", None),
-            getattr(self, "cmb_detail_chart_count", None),
-            getattr(self, "btn_detail_chart_indicators", None),
-        ):
-            if w is not None:
-                try:
-                    w.setMinimumHeight(34)
-                    w.setMaximumHeight(34)
-                    w.setStyleSheet(
-                        "padding:4px 12px;font-size:12px;font-weight:800;color:#111827;"
-                        "background:#ffffff;border:1px solid #d9dde3;border-radius:8px;"
-                    )
-                except Exception:
-                    pass
-                tb_lay.addWidget(w, 0)
-        tb_lay.addStretch(1)
-        pill = getattr(self, "lbl_detail_chart_symbol_pill", None)
-        if pill is not None:
-            try:
-                pill.setText(str(pill.text() or "").replace(" / ", "/"))
-                pill.setMinimumHeight(34)
-                pill.setMaximumHeight(34)
-                pill.setStyleSheet(
-                    "padding:4px 12px;font-size:12px;font-weight:900;color:#111827;"
-                    "background:#f7f8fa;border:1px solid #d9dde3;border-radius:8px;"
-                )
-            except Exception:
-                pass
-            tb_lay.addWidget(pill, 0)
-        else:
-            tb_lay.addWidget(self.lbl_ai_center_symbolpill, 0)
-        root.addWidget(toolbar, 0)
-
-        chart = getattr(self, "_frm_ai_detail_chart", None)
-        canvas = getattr(self, "detail_chart_canvas", None)
-        if chart is not None:
-            chart_lay = chart.layout()
-            if chart_lay is not None:
-                self._clear_layout_items_detach(chart_lay)
-            else:
-                chart_lay = QVBoxLayout(chart)
-            try:
-                chart_lay.setContentsMargins(10, 10, 10, 10)
-                chart_lay.setSpacing(0)
-                chart.setMinimumHeight(260)
-                chart.setMaximumHeight(16777215)
-                chart.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            except Exception:
-                pass
-            if canvas is not None:
-                try:
-                    canvas.setMinimumHeight(220)
-                    canvas.setMaximumHeight(16777215)
-                    canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-                except Exception:
-                    pass
-                chart_lay.addWidget(canvas, 1)
-            root.addWidget(chart, 1)
-
-        cards_row = QWidget()
-        try:
-            cards_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        except Exception:
-            pass
-        cards_lay = QHBoxLayout(cards_row)
-        try:
-            cards_lay.setContentsMargins(0, 0, 0, 0)
-            cards_lay.setSpacing(8)
-        except Exception:
-            pass
-        brief_label = getattr(self, "lbl_ai_briefing_card", None)
-        if brief_label is None:
-            brief_label = QLabel("—")
-            brief_label.setWordWrap(True)
-            self.lbl_ai_briefing_card = brief_label
-        why_label = getattr(self, "lbl_ai_center_why", None)
-        if why_label is None:
-            why_label = QLabel("—")
-            why_label.setWordWrap(True)
-            self.lbl_ai_center_why = why_label
-        next_label = getattr(self, "lbl_ai_center_next", None)
-        if next_label is None:
-            next_label = QLabel("—")
-            next_label.setWordWrap(True)
-            self.lbl_ai_center_next = next_label
-        for card_cfg in (
-            {
-                "title": "브리핑",
-                "body": brief_label,
-                "icon_attr": "lbl_ai_briefing_icon",
-                "title_attr": "lbl_ai_briefing_title",
-                "icon_text": "≣",
-                "bg": "#eef4ff",
-                "border": "#bfd6ff",
-                "title_color": "#1d4ed8",
-                "icon_bg": "#dbeafe",
-                "icon_color": "#2563eb",
-            },
-            {
-                "title": "근거",
-                "body": why_label,
-                "icon_attr": "lbl_ai_why_icon",
-                "title_attr": "lbl_ai_why_title",
-                "icon_text": "⌕",
-                "bg": "#eefaf1",
-                "border": "#c7ead2",
-                "title_color": "#15803d",
-                "icon_bg": "#dcfce7",
-                "icon_color": "#16a34a",
-            },
-            {
-                "title": "다음행동",
-                "body": next_label,
-                "icon_attr": "lbl_ai_next_icon",
-                "title_attr": "lbl_ai_next_title",
-                "icon_text": "➜",
-                "bg": "#f6efff",
-                "border": "#dbc7fb",
-                "title_color": "#7c3aed",
-                "icon_bg": "#ede9fe",
-                "icon_color": "#7c3aed",
-            },
-        ):
-            body = card_cfg["body"]
-            try:
-                body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-                body.setWordWrap(True)
-                body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-                body.setStyleSheet(
-                    "font-size:12px;font-weight:500;color:#111827;background:transparent;border:none;line-height:1.45;"
-                )
-            except Exception:
-                pass
-            card, _ = self._make_center_info_card(**card_cfg)
-            try:
-                card.setFixedHeight(CENTER_INFO_CARD_H)
-                card.setMinimumHeight(CENTER_INFO_CARD_H)
-                card.setMaximumHeight(CENTER_INFO_CARD_H)
-                card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            except Exception:
-                pass
-            cards_lay.addWidget(card, 1)
-        root.addWidget(cards_row, 0)
-
-        log_label = getattr(self, "lbl_ai_recent_log", None)
-        if log_label is None:
-            log_label = QLabel("—")
-            self.lbl_ai_recent_log = log_label
-        try:
-            log_label.setVisible(False)
-            log_label.setWordWrap(False)
-            log_label.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            log_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            log_label.setMinimumHeight(24)
-            log_label.setMaximumHeight(24)
-            log_label.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-            log_label.setStyleSheet(
-                "font-size:12px;font-weight:600;color:#111827;background:transparent;border:none;"
-            )
-        except Exception:
-            pass
-        old_log_card = getattr(self, "_frm_ai_recent_log", None)
-        if old_log_card is not None:
-            try:
-                old_log_card.setVisible(False)
-                old_log_card.setParent(None)
-            except Exception:
-                pass
-        log_card = QFrame()
-        self._frm_ai_recent_log = log_card
-        log_lay = QHBoxLayout(log_card)
-        try:
-            old_title = getattr(self, "lbl_ai_recent_log_title", None)
-            if old_title is None:
-                old_title = QLabel("LIVE LOG")
-                self.lbl_ai_recent_log_title = old_title
-            old_title.setVisible(True)
-            old_title.setText("LIVE LOG")
-            old_title.setFixedWidth(72)
-            old_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            old_title.setStyleSheet(
-                "font-size:11px;font-weight:800;color:#2563eb;background:transparent;border:none;letter-spacing:1px;"
-            )
-            log_card.setObjectName("frmAiRecentLogBar")
-            log_card.setFixedHeight(CENTER_LOG_BAR_H)
-            log_card.setMinimumHeight(CENTER_LOG_BAR_H)
-            log_card.setMaximumHeight(CENTER_LOG_BAR_H)
-            log_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            log_card.setStyleSheet(
-                "QFrame#frmAiRecentLogBar{background:#f8fafc;border:1px solid #dbe3ee;border-radius:10px;}"
-            )
-            log_lay.setContentsMargins(12, 6, 12, 6)
-            log_lay.setSpacing(10)
-            if not hasattr(self, "lbl_ai_recent_log_bar"):
-                self.lbl_ai_recent_log_bar = QLabel("—")
-            self.lbl_ai_recent_log_bar.setTextFormat(Qt.TextFormat.PlainText)
-            self.lbl_ai_recent_log_bar.setWordWrap(False)
-            self.lbl_ai_recent_log_bar.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-            self.lbl_ai_recent_log_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            self.lbl_ai_recent_log_bar.setMinimumHeight(24)
-            self.lbl_ai_recent_log_bar.setMaximumHeight(24)
-            self.lbl_ai_recent_log_bar.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-            self.lbl_ai_recent_log_bar.setStyleSheet(
-                "font-size:12px;font-weight:500;color:#111827;background:transparent;border:none;"
-            )
-        except Exception:
-            pass
-        log_lay.addWidget(self.lbl_ai_recent_log_title, 0)
-        log_lay.addWidget(self.lbl_ai_recent_log_bar, 1)
-        root.addWidget(log_card, 0)
-
-        try:
-            self._sync_center_dashboard_reason_from_plaintext()
-        except Exception:
-            pass
-        try:
-            self._sync_recent_log_label()
-        except Exception:
-            pass
-        try:
-            print("[AITS] center layout rebuilt with scroll + single-line live log")
-        except Exception:
-            pass
-
-    def _center_dashboard_escape_html(self, text: str) -> str:
-        try:
-            return (
-                str(text or "")
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace('"', "&quot;")
-            )
-        except Exception:
-            return ""
-
-    def _set_center_condition_line(self, text: str) -> None:
-        try:
-            plain = str(text or "").strip()
-            plain = plain.replace("현재 조건:", "").replace("Current Condition:", "").strip()
-            plain = plain.replace(" · ", " | ").replace(" / ", " | ")
-            if "<" in plain and ">" in plain:
-                try:
-                    import re
-
-                    plain = re.sub(r"<[^>]+>", "", plain)
-                except Exception:
-                    plain = plain.replace("<span", " span").replace("</span>", "")
-            plain = (
-                plain.replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", '"')
-            )
-            plain = " ".join(plain.split())
-            if not plain or plain in ("--", "—", "??"):
-                plain = "RSI 확인 중 | 거래대금 확인 중 | 변동성 확인 중"
-            value = getattr(self, "lbl_ai_center_condition_value", None)
-            if value is not None:
-                value.setTextFormat(Qt.TextFormat.PlainText)
-                value.setText(plain)
-            legacy = getattr(self, "lbl_ai_judgment_banner_sub", None)
-            if legacy is not None:
-                legacy.setTextFormat(Qt.TextFormat.PlainText)
-                legacy.setText(plain)
-                legacy.setVisible(False)
-        except Exception:
-            pass
-
-    def _center_dashboard_decision_html(self, key: str) -> str:
-        try:
-            u = str(key or "").upper()
-            color = "#b45309"
-            text = "STAY (관망)"
-            if any(k in u for k in ("BUY", "STRONG", "진입", "매수")) and "SELL" not in u:
-                color = "#15803d"
-                text = "BUY (매수)"
-            elif any(k in u for k in ("SELL", "EXIT", "RISK", "매도", "청산", "손절")):
-                color = "#b91c1c"
-                text = "SELL (매도)"
-            safe = self._center_dashboard_escape_html(text)
-            return (
-                "<span style='font-size:20px;font-weight:900;color:#111827;'>AI 판단: </span>"
-                f"<span style='font-size:20px;font-weight:900;color:{color};'>{safe}</span>"
-            )
-        except Exception:
-            return "<span style='font-size:20px;font-weight:900;color:#111827;'>AI 판단: </span><span style='font-size:20px;font-weight:900;color:#b45309;'>STAY (관망)</span>"
-
-    def _sync_center_dashboard_reason_from_plaintext(self) -> None:
-        try:
-            src_sym = getattr(self, "lbl_ai_center_symbol", None)
-            raw = str(src_sym.text() if src_sym is not None else "" or "").strip()
-            market = "--"
-            left = raw
-            if "/" in raw:
-                left, market = [x.strip() for x in raw.split("/", 1)]
-            tokens = [x for x in str(left or "").split() if x]
-            symbol = tokens[0] if tokens else "--"
-            name = " ".join(tokens[1:]).strip() if len(tokens) > 1 else "--"
-            if market and not market.startswith("KRW-") and symbol not in ("--", ""):
-                market = f"KRW-{symbol}"
-            for attr, val in (
-                ("lbl_ai_center_symbol_badge", symbol or "--"),
-                ("lbl_ai_center_name_badge", name or "--"),
-                ("lbl_ai_center_market_code", market or "--"),
-            ):
-                lb = getattr(self, attr, None)
-                if lb is not None:
-                    lb.setText(val)
-        except Exception:
-            pass
-        try:
-            main = getattr(self, "lbl_ai_detail_judgment_header", None)
-            sub = getattr(self, "lbl_ai_judgment_banner_sub", None)
-            if main is not None:
-                raw_main = str(main.text() or "").strip()
-                raw_upper = raw_main.upper()
-                color = "#b45309"
-                bg = "#fffaf0"
-                br = "#fdba74"
-                display = "STAY"
-                if "BUY" in raw_upper and "SELL" not in raw_upper:
-                    color = "#15803d"
-                    bg = "#f0fdf4"
-                    br = "#86efac"
-                    display = "BUY"
-                elif any(k in raw_upper for k in ("SELL", "EXIT", "RISK")):
-                    color = "#b91c1c"
-                    bg = "#fef2f2"
-                    br = "#fca5a5"
-                    display = "SELL"
-                elif any(k in raw_upper for k in ("STAY", "HOLD", "WAIT", "WATCH")):
-                    color = "#b45309"
-                    bg = "#fffaf0"
-                    br = "#fdba74"
-                    display = "STAY"
-                main.setTextFormat(Qt.TextFormat.RichText)
-                main.setText(self._center_dashboard_decision_html(display))
-                main.setStyleSheet(
-                    "font-size:20px;font-weight:900;color:#111827;background:transparent;border:none;padding:0px;"
-                )
-                fr = getattr(self, "_frm_ai_judgment_banner", None)
-                if fr is not None:
-                    fr.setStyleSheet(
-                        f"#frmAiJudgmentBanner{{background:{bg};border:1px solid {br};border-radius:10px;}}"
-                    )
-            sm = getattr(self, "lbl_ai_center_summary", None)
-            if sm is not None:
-                sm.setText("거래량 약세 / 과매수 해소 구간, 추세 지지선 유지 여부 모니터링")
-            if sub is not None:
-                s = str(sub.text() or "").strip()
-                s = s.replace("현재 조건:", "").replace("AI 판단:", "").strip()
-                if not s or s in ("--", "—", "??"):
-                    s = "RSI 확인 중 | 거래대금 확인 중 | 변동성 확인 중"
-                self._set_center_condition_line(s)
-        except Exception:
-            pass
-        try:
-            src = getattr(self, "txt_ai_detail_reason", None)
-            dst = getattr(self, "lbl_ai_center_why", None)
-            if src is None or dst is None:
-                return
-            txt = src.toPlainText() if hasattr(src, "toPlainText") else src.text()
-            dst.setText(txt)
-        except Exception:
-            pass
-        try:
-            sm = getattr(self, "lbl_ai_center_summary", None)
-            if sm is None:
-                return
-            sm.setText("거래량 약세 / 과매수 해소 구간, 추세 지지선 유지 여부 모니터링")
-        except Exception:
-            pass
-
     def _apply_ai_reason_expanded_state(self):
         try:
             expanded = bool(getattr(self, "_ai_reason_expanded", False))
@@ -10837,7 +9049,7 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    self.btn_ai_reason_toggle.setText("원문접기")
+                    self.btn_ai_reason_toggle.setText("원문 접기")
                 except Exception:
                     pass
             else:
@@ -10847,7 +9059,7 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    self.btn_ai_reason_toggle.setText("원문보기")
+                    self.btn_ai_reason_toggle.setText("원문 보기")
                 except Exception:
                     pass
 
@@ -10881,42 +9093,39 @@ class MainWindow(QMainWindow):
         fr = getattr(self, "_frm_ai_judgment_banner", None)
         lb = getattr(self, "lbl_ai_detail_judgment_header", None)
         sub = getattr(self, "lbl_ai_judgment_banner_sub", None)
-        aux = getattr(self, "lbl_ai_center_summary", None)
         if lb is None:
             return
         u = str(tag_or_key or "").upper()
-        bg = "#fff7ed"
-        br = "#fdba74"
-        fg = "#b45309"
-        sfg = "#374151"
+        bg = "#f1f5f9"
+        br = "#e2e8f0"
+        fg = "#0f172a"
+        sfg = "#64748b"
         if any(k in u for k in ("STRONG BUY", "BUY READY", "BUY")) and "SELL" not in u:
-            bg, br, fg = "#f0fdf4", "#86efac", "#15803d"
+            bg, br, fg = "#ecfdf5", "#86efac", "#14532d"
         elif "RISK" in u:
-            bg, br, fg = "#fef2f2", "#fca5a5", "#b91c1c"
+            bg, br, fg = "#fef2f2", "#fecaca", "#7f1d1d"
         elif any(k in u for k in ("SELL WATCH", "SELL", "EXIT")):
-            bg, br, fg = "#fef2f2", "#fca5a5", "#b91c1c"
+            bg, br, fg = "#fef2f2", "#fca5a5", "#991b1b"
         elif "HOLD" in u:
-            bg, br, fg = "#fffaf0", "#fdba74", "#b45309"
+            bg, br, fg = "#eff6ff", "#93c5fd", "#1e3a8a"
         elif "WAIT" in u:
-            bg, br, fg = "#fffaf0", "#fdba74", "#b45309"
+            bg, br, fg = "#f8fafc", "#cbd5e1", "#475569"
         elif "STAY" in u:
-            bg, br, fg = "#fffaf0", "#fdba74", "#b45309"
+            bg, br, fg = "#fff7ed", "#fdba74", "#9a3412"
         elif "UNKNOWN" in u:
-            bg, br, fg = "#f7f8fa", "#d9dde3", "#6b7280"
+            bg, br, fg = "#f8fafc", "#e2e8f0", "#64748b"
         try:
             if fr is not None:
                 fr.setStyleSheet(
                     f"#frmAiJudgmentBanner {{"
-                    f" background: {bg}; border: 1px solid {br}; border-radius: 10px;"
+                    f" background: {bg}; border: 1px solid {br}; border-radius: 14px;"
                     f" }}"
                 )
         except Exception:
             pass
         try:
-            lb.setTextFormat(Qt.TextFormat.RichText)
-            lb.setText(self._center_dashboard_decision_html(u))
             lb.setStyleSheet(
-                f"font-size: 20px; font-weight: 900; color: {fg}; "
+                f"font-size: 22px; font-weight: 900; color: {fg}; "
                 f"background: transparent; border: none; padding: 0px; line-height: 1.15;"
             )
         except Exception:
@@ -10924,24 +9133,8 @@ class MainWindow(QMainWindow):
         try:
             if sub is not None:
                 sub.setStyleSheet(
-                    f"font-size: 13px; font-weight: 500; color: {sfg}; "
+                    f"font-size: 13px; font-weight: 600; color: {sfg}; "
                     f"background: transparent; border: none; padding: 0px; line-height: 1.45;"
-                )
-        except Exception:
-            pass
-        try:
-            if aux is not None:
-                aux.setStyleSheet(
-                    f"font-size: 13px; font-weight: 700; color: {sfg}; "
-                    f"background: transparent; border: none; padding: 0px; line-height: 1.45;"
-                )
-        except Exception:
-            pass
-        try:
-            icon = getattr(self, "lbl_ai_judgment_info_icon", None)
-            if icon is not None:
-                icon.setStyleSheet(
-                    f"font-size:20px;font-weight:900;color:{fg};background:transparent;border:none;"
                 )
         except Exception:
             pass
@@ -11174,15 +9367,11 @@ class MainWindow(QMainWindow):
 
     def _sync_recent_log_label(self) -> None:
         lb = getattr(self, "lbl_ai_recent_log", None)
-        bar = getattr(self, "lbl_ai_recent_log_bar", None)
-        if lb is None and bar is None:
+        if lb is None:
             return
         buf = getattr(self, "_aits_recent_logs", None) or []
-        raw_text = ""
-        latest = ""
         if buf:
-            raw_text = "\n".join(str(x or "").strip() for x in buf if str(x or "").strip())
-            latest = str(buf[-1] or "").strip()
+            lb.setText("\n".join(buf[-3:]))
         else:
             try:
                 jh = getattr(self, "lbl_ai_detail_judgment_header", None)
@@ -11191,41 +9380,7 @@ class MainWindow(QMainWindow):
                 jt = "—"
             from datetime import datetime
 
-            latest = f"{datetime.now().strftime('%H:%M')} {jt}"
-            raw_text = latest
-        try:
-            lines = [ln.strip() for ln in str(latest or raw_text or "").splitlines() if ln.strip()]
-            if lines:
-                latest = lines[-1]
-            latest = str(latest or "—")
-            latest = latest.replace("<br>", " ").replace("<br/>", " ").replace("<br />", " ")
-            if "<" in latest and ">" in latest:
-                try:
-                    import re
-
-                    latest = re.sub(r"<[^>]+>", "", latest)
-                except Exception:
-                    latest = latest.replace("<", " ").replace(">", " ")
-            latest = " ".join(str(latest or "—").replace("\n", " ").replace("\t", " ").split())
-            if lb is not None:
-                lb.setVisible(False)
-                lb.setText(raw_text or latest or "—")
-            target = bar if bar is not None else lb
-            if target is not None:
-                target.setTextFormat(Qt.TextFormat.PlainText)
-                target.setWordWrap(False)
-                target.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
-                target.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-                target.setMinimumHeight(24)
-                target.setMaximumHeight(24)
-                target.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
-                target.setStyleSheet(
-                    "font-size:12px;font-weight:500;color:#111827;background:transparent;border:none;"
-                )
-                target.setText(latest or "—")
-            print(f"[AITS] live log synced: {latest or '—'}")
-        except Exception:
-            pass
+            lb.setText(f"{datetime.now().strftime('%H:%M')} {jt}")
 
     def _refresh_ai_detail_panel(self) -> None:
         try:
@@ -11251,17 +9406,13 @@ class MainWindow(QMainWindow):
                 try:
                     jh = getattr(self, "lbl_ai_detail_judgment_header", None)
                     if jh is not None:
-                        jh.setTextFormat(Qt.TextFormat.RichText)
-                        jh.setText(self._center_dashboard_decision_html("STAY"))
+                        jh.setText("AI 판단: —")
                 except Exception:
                     pass
                 try:
                     js = getattr(self, "lbl_ai_judgment_banner_sub", None)
                     if js is not None:
-                        self._set_center_condition_line("종목 선택 대기 | AI 분석 대기 | 조건 확인 대기")
-                    sm = getattr(self, "lbl_ai_center_summary", None)
-                    if sm is not None:
-                        sm.setText("거래량 약세 / 과매수 해소 구간, 추세 지지선 유지 여부 모니터링")
+                        js.setText("현재 조건: 종목을 선택하면 AI 분석이 표시됩니다.")
                 except Exception:
                     pass
                 try:
@@ -11382,17 +9533,14 @@ class MainWindow(QMainWindow):
                 _pp = [p.strip() for p in rs.replace("，", ",").split(",") if p.strip()]
                 _sub_parts = _pp[:2]
             _banner_sub = (
-                " / ".join(_sub_parts[:3])
+                " / ".join(_sub_parts)
                 if _sub_parts
-                else "RSI 확인 중 / 거래대금 확인 중 / 변동성 확인 중"
+                else "거래량·추세·조건을 교차 검토 중입니다."
             )
             try:
                 _jsb = getattr(self, "lbl_ai_judgment_banner_sub", None)
                 if _jsb is not None:
-                    self._set_center_condition_line(_banner_sub)
-                _aux = getattr(self, "lbl_ai_center_summary", None)
-                if _aux is not None:
-                    _aux.setText("거래량 약세 / 과매수 해소 구간, 추세 지지선 유지 여부 모니터링")
+                    _jsb.setText(f"현재 조건: {_banner_sub}")
             except Exception:
                 pass
             _style_tag = str(_judgment_tag or "UNKNOWN").strip()
@@ -11404,8 +9552,7 @@ class MainWindow(QMainWindow):
             try:
                 jh = getattr(self, "lbl_ai_detail_judgment_header", None)
                 if jh is not None:
-                    jh.setTextFormat(Qt.TextFormat.RichText)
-                    jh.setText(self._center_dashboard_decision_html(_style_tag))
+                    jh.setText(f"AI 판단: {_judgment_tag} ({_st_disp})")
                 self._apply_center_judgment_style(_style_tag)
             except Exception:
                 pass
@@ -11531,10 +9678,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         finally:
-            try:
-                self._sync_center_dashboard_reason_from_plaintext()
-            except Exception:
-                pass
             try:
                 self._refresh_ai_detail_chart()
             except Exception:
@@ -11813,6 +9956,7 @@ class MainWindow(QMainWindow):
             if kind not in ("MPF", "LEGACY"):
                 kind = "UNKNOWN"
 
+            prefix = f"[{kind}] "
             current_title = ""
             try:
                 current_title = ax.get_title() or ""
@@ -11820,16 +9964,11 @@ class MainWindow(QMainWindow):
                 current_title = ""
 
             final_title = title_base or current_title or "AI Detail Chart"
+            if not str(final_title).startswith(prefix):
+                final_title = prefix + str(final_title).lstrip()
 
             try:
-                ax.set_title(
-                    str(final_title)[:90],
-                    loc="left",
-                    fontsize=10,
-                    fontweight="bold",
-                    color="#111827",
-                    pad=10,
-                )
+                ax.set_title(final_title, loc="left", fontsize=10, fontweight="bold")
             except Exception:
                 try:
                     ax.set_title(final_title)
@@ -11971,9 +10110,9 @@ class MainWindow(QMainWindow):
             ma80 = close_s.rolling(window=80, min_periods=1).mean()
 
             addplots = [
-                mpf.make_addplot(ma20, ax=ax_main, width=1.4, color="#3b82f6", alpha=0.95),
-                mpf.make_addplot(ma40, ax=ax_main, width=1.3, color="#10b981", alpha=0.95),
-                mpf.make_addplot(ma80, ax=ax_main, width=1.2, color="#8b5cf6", alpha=0.9),
+                mpf.make_addplot(ma20, ax=ax_main, width=1.0),
+                mpf.make_addplot(ma40, ax=ax_main, width=1.0),
+                mpf.make_addplot(ma80, ax=ax_main, width=1.0),
             ]
             return addplots
         except Exception:
@@ -12004,12 +10143,12 @@ class MainWindow(QMainWindow):
             rsi = rsi.bfill().fillna(50.0)
 
             addplots = [
-                mpf.make_addplot(rsi, ax=ax_rsi, ylabel="RSI", width=1.2, color="#8b5cf6", alpha=0.95),
+                mpf.make_addplot(rsi, ax=ax_rsi, ylabel="RSI", width=1.0),
                 mpf.make_addplot(
-                    pd.Series(70.0, index=mpf_df.index), ax=ax_rsi, width=0.8, color="#e5e7eb"
+                    pd.Series(70.0, index=mpf_df.index), ax=ax_rsi, width=0.8
                 ),
                 mpf.make_addplot(
-                    pd.Series(30.0, index=mpf_df.index), ax=ax_rsi, width=0.8, color="#e5e7eb"
+                    pd.Series(30.0, index=mpf_df.index), ax=ax_rsi, width=0.8
                 ),
             ]
             return addplots
@@ -12243,24 +10382,6 @@ class MainWindow(QMainWindow):
                     dlg.cmb_count.currentIndexChanged.connect(
                         self._on_aits_large_chart_control_changed
                     )
-                    if hasattr(dlg, "_cmb_popup_indicator"):
-                        dlg._cmb_popup_indicator.currentIndexChanged.connect(
-                            self._on_aits_large_chart_control_changed
-                        )
-                    if hasattr(dlg, "_btn_popup_indicator_rsi"):
-                        dlg._btn_popup_indicator_rsi.toggled.connect(
-                            dlg._toggle_detail_popup_rsi
-                        )
-                        dlg._btn_popup_indicator_rsi.toggled.connect(
-                            self._on_aits_large_chart_control_changed
-                        )
-                    if hasattr(dlg, "_btn_popup_indicator_macd"):
-                        dlg._btn_popup_indicator_macd.toggled.connect(
-                            dlg._toggle_detail_popup_macd
-                        )
-                        dlg._btn_popup_indicator_macd.toggled.connect(
-                            self._on_aits_large_chart_control_changed
-                        )
                     dlg.btn_refresh.clicked.connect(
                         self._on_aits_large_chart_control_changed
                     )
@@ -12509,149 +10630,6 @@ class MainWindow(QMainWindow):
                 "ai_score": "",
             }
 
-    def _get_detail_popup_expected_entry_price(self, row_obj, current_price=None, mpf_df=None):
-        try:
-            def _pick(obj, *names):
-                if obj is None:
-                    return None
-                if isinstance(obj, dict):
-                    for n in names:
-                        val = obj.get(n)
-                        if val not in (None, ""):
-                            return val
-                for n in names:
-                    try:
-                        val = getattr(obj, n, None)
-                        if val not in (None, ""):
-                            return val
-                    except Exception:
-                        pass
-                return None
-
-            def _to_float(v):
-                try:
-                    if v is None:
-                        return None
-                    return float(str(v).replace(",", "").replace("원", "").strip())
-                except Exception:
-                    return None
-
-            direct = _to_float(
-                _pick(
-                    row_obj,
-                    "expected_entry_price",
-                    "expected_buy_price",
-                    "suggested_entry_price",
-                    "entry_candidate_price",
-                    "entry_price",
-                    "buy_price",
-                )
-            )
-            if direct and direct > 0:
-                return direct
-
-            current = _to_float(current_price)
-            ma20 = None
-            try:
-                if mpf_df is not None and not mpf_df.empty:
-                    ma20 = float(mpf_df["Close"].astype(float).rolling(window=20, min_periods=1).mean().iloc[-1])
-            except Exception:
-                ma20 = None
-            if current and ma20 and ma20 > 0:
-                return min(current, ma20)
-            return current
-        except Exception:
-            return current_price
-
-    def _get_detail_popup_position_context(self, row: int, price_levels: dict | None = None, mpf_df=None):
-        try:
-            rows = getattr(self, "ai_managed_rows", None) or []
-            row_obj = rows[row] if 0 <= row < len(rows) else None
-            levels = price_levels or self._get_aits_popup_price_levels(row)
-
-            def _pick(obj, *names):
-                if obj is None:
-                    return None
-                if isinstance(obj, dict):
-                    for n in names:
-                        val = obj.get(n)
-                        if val not in (None, ""):
-                            return val
-                for n in names:
-                    try:
-                        val = getattr(obj, n, None)
-                        if val not in (None, ""):
-                            return val
-                    except Exception:
-                        pass
-                return None
-
-            def _to_float(v):
-                try:
-                    if v is None:
-                        return None
-                    vv = str(v).replace(",", "").replace("원", "").strip()
-                    if not vv:
-                        return None
-                    return float(vv)
-                except Exception:
-                    return None
-
-            avg_price = _to_float(
-                _pick(row_obj, "avg_buy_price", "average_buy_price", "avg_price", "entry_price", "buy_price")
-            )
-            qty = _to_float(
-                _pick(row_obj, "quantity", "qty", "coin_balance", "holding_qty", "position_qty")
-            )
-            in_position_flag = _pick(row_obj, "in_position", "holding", "owned", "has_position")
-            flag_text = str(in_position_flag or "").strip().lower()
-            flag_holding = in_position_flag is True or flag_text in ("1", "true", "yes", "y", "보유")
-            is_holding = bool((qty and qty > 0) or (avg_price and avg_price > 0) or flag_holding)
-
-            current_price = levels.get("current_price")
-            target_price = levels.get("target_price")
-            stop_price = levels.get("stop_price")
-            expected_entry = self._get_detail_popup_expected_entry_price(row_obj, current_price, mpf_df)
-            entry_price = avg_price if is_holding and avg_price else expected_entry
-            entry_is_duplicate = False
-            try:
-                if (
-                    not is_holding
-                    and entry_price is not None
-                    and current_price is not None
-                    and float(current_price) != 0
-                ):
-                    entry_is_duplicate = (
-                        abs(float(entry_price) - float(current_price)) / abs(float(current_price))
-                    ) < 0.002
-            except Exception:
-                entry_is_duplicate = False
-
-            return {
-                "is_holding": is_holding,
-                "entry_is_duplicate": entry_is_duplicate,
-                "entry_price": entry_price,
-                "current_price": current_price,
-                "target_price": target_price,
-                "risk_price": stop_price,
-                "entry_text": self._format_aits_price_label(entry_price) if entry_price else "—",
-                "current_text": self._format_aits_price_label(current_price) if current_price else "—",
-                "target_text": self._format_aits_price_label(target_price) if target_price else "—",
-                "risk_text": self._format_aits_price_label(stop_price) if stop_price else "—",
-            }
-        except Exception:
-            return {
-                "is_holding": False,
-                "entry_price": None,
-                "current_price": None,
-                "target_price": None,
-                "risk_price": None,
-                "entry_text": "—",
-                "current_text": "—",
-                "target_text": "—",
-                "risk_text": "—",
-            }
-
     def _format_aits_price_label(self, value, prefix=""):
         try:
             if value is None:
@@ -12773,38 +10751,6 @@ class MainWindow(QMainWindow):
 
             if s.startswith("KRW-"):
                 s = s.split("-", 1)[1].strip()
-
-            reliable_name_map = {
-                "BTC": "비트코인",
-                "ETH": "이더리움",
-                "XRP": "리플",
-                "DOGE": "도지코인",
-                "SOL": "솔라나",
-                "ADA": "에이다",
-                "TRX": "트론",
-                "AVAX": "아발란체",
-                "SUI": "수이",
-                "LINK": "체인링크",
-                "XLM": "스텔라루멘",
-                "BCH": "비트코인캐시",
-                "ETC": "이더리움클래식",
-                "APT": "앱토스",
-                "SEI": "세이",
-                "NEAR": "니어프로토콜",
-                "ARB": "아비트럼",
-                "OP": "옵티미즘",
-                "ATOM": "코스모스",
-                "STX": "스택스",
-                "FIL": "파일코인",
-                "INJ": "인젝티브",
-                "WLD": "월드코인",
-                "POLYX": "폴리매쉬",
-                "HBAR": "헤데라",
-                "ONDO": "온도",
-                "USDT": "테더",
-            }
-            if s in reliable_name_map:
-                return reliable_name_map[s]
 
             name_map = {
                 "BTC": "비트코인",
@@ -13310,371 +11256,6 @@ class MainWindow(QMainWindow):
                 pass
         return [], str(tf or "")
 
-    def _determine_detail_popup_scenario_type(
-        self,
-        row_index: int,
-        price_levels: dict,
-        badge_info: dict | None = None,
-        reason_text: str = "",
-        mpf_df=None,
-    ):
-        try:
-            _ = row_index
-            badge_info = badge_info or {}
-            levels = price_levels or {}
-            text = " ".join(
-                [
-                    str(levels.get("ai_state") or ""),
-                    str(badge_info.get("title") or ""),
-                    str(badge_info.get("subtitle") or ""),
-                    str(reason_text or ""),
-                ]
-            ).lower()
-            variant = str(badge_info.get("variant") or "").lower()
-
-            current_price = levels.get("current_price")
-            target_price = levels.get("target_price")
-            up_pct = 0.0
-            try:
-                if current_price is not None and target_price is not None and float(current_price) != 0:
-                    up_pct = ((float(target_price) - float(current_price)) / float(current_price)) * 100.0
-            except Exception:
-                up_pct = 0.0
-
-            confidence = 0.55
-            try:
-                score_raw = str(levels.get("ai_score") or "").replace("%", "").strip()
-                if score_raw:
-                    score_val = float(score_raw)
-                    confidence = score_val / 100.0 if score_val > 1.0 else score_val
-            except Exception:
-                confidence = 0.55
-            confidence = max(0.35, min(0.88, float(confidence or 0.55)))
-
-            trend = 0.0
-            try:
-                close_s = mpf_df["Close"].astype(float).tail(12)
-                if len(close_s) >= 2 and float(close_s.iloc[0]) != 0:
-                    trend = ((float(close_s.iloc[-1]) - float(close_s.iloc[0])) / float(close_s.iloc[0])) * 100.0
-            except Exception:
-                trend = 0.0
-
-            stay_like = variant in ("watch", "hold", "neutral") or any(
-                k in text for k in ("stay", "watch", "hold", "관망", "대기", "확인", "모니터링", "거래량 부족", "데이터 부족")
-            )
-            strong_risk_words = any(
-                k in text for k in ("risk", "drop", "급락", "이탈", "손절", "리스크", "붕괴", "하방 이탈")
-            )
-            is_buy = variant == "buy" or any(k in text for k in ("buy", "진입", "매수", "상승"))
-            is_sell = any(k in text for k in ("sell", "매도", "정리"))
-            sell_confirmed = is_sell or ("sell" in text and variant == "risk")
-            risk_confirmed = strong_risk_words and (sell_confirmed or trend < -1.3 or up_pct <= -0.5 or confidence <= 0.42)
-
-            if is_buy:
-                scenario = "bullish_breakout" if confidence >= 0.62 and (up_pct >= 2.0 or trend > 0.8) else "accumulation_ready"
-            elif stay_like and not sell_confirmed:
-                scenario = "weak_rebound" if trend > 0.35 or any(k in text for k in ("반등", "회복", "rebound")) else "sideways_wait"
-            elif sell_confirmed or risk_confirmed:
-                scenario = "sharp_drop_risk" if risk_confirmed and trend < -0.8 else "bearish_drift"
-            elif any(k in text for k in ("반등", "회복", "rebound")):
-                scenario = "weak_rebound"
-            elif any(k in text for k in ("대기", "확인", "모니터링", "거래량 부족", "관망", "watch", "hold")):
-                scenario = "sideways_wait"
-            else:
-                scenario = "weak_rebound" if trend > 0.4 else "sideways_wait"
-
-            return scenario, confidence
-        except Exception:
-            return "sideways_wait", 0.55
-
-    def _translate_detail_popup_scenario_label(self, scenario_type: str):
-        labels = {
-            "bullish_breakout": "상승 돌파 준비형",
-            "accumulation_ready": "매집 완료 대기형",
-            "sideways_wait": "횡보 관찰형",
-            "weak_rebound": "약반등 확인형",
-            "bearish_drift": "하락 지속형",
-            "sharp_drop_risk": "급락 경계형",
-        }
-        return labels.get(str(scenario_type or "").strip(), "횡보 관찰형")
-
-    def _build_detail_popup_future_path(
-        self,
-        scenario_type: str,
-        last_close,
-        target_price=None,
-        current_price=None,
-        confidence: float = 0.55,
-        future_steps: int = 20,
-    ):
-        try:
-            base = float(last_close if last_close is not None else current_price)
-            if base <= 0:
-                return [], [], [], []
-            target = float(target_price) if target_price is not None else base
-            confidence = max(0.0, min(1.0, float(confidence or 0.55)))
-            steps = max(16, min(24, int(future_steps or 20)))
-            x = list(range(steps + 1))
-            t_values = [i / float(steps) for i in x]
-            center = []
-
-            target_lift = (target - base) / base if target > 0 else 0.0
-            if scenario_type == "bullish_breakout":
-                end_pct = max(0.018, min(0.065, target_lift if target_lift > 0 else 0.035))
-                for t in t_values:
-                    curve = -0.003 * math.sin(math.pi * min(t, 0.32) / 0.32) if t < 0.32 else 0.0
-                    curve += end_pct * (t ** 1.55)
-                    center.append(base * (1.0 + curve))
-            elif scenario_type == "accumulation_ready":
-                end_pct = max(0.008, min(0.032, target_lift if target_lift > 0 else 0.018))
-                for t in t_values:
-                    box = 0.003 * math.sin(math.pi * 4.0 * t)
-                    center.append(base * (1.0 + box + end_pct * (t ** 1.25)))
-            elif scenario_type == "weak_rebound":
-                end_pct = max(0.004, min(0.012, target_lift if target_lift > 0 else 0.009))
-                for t in t_values:
-                    center.append(base * (1.0 - 0.003 * math.sin(math.pi * min(t, 0.35) / 0.35) + end_pct * (t ** 1.2)))
-            elif scenario_type == "bearish_drift":
-                for t in t_values:
-                    center.append(base * (1.0 + 0.004 * math.sin(math.pi * t) - 0.022 * (t ** 1.18)))
-            elif scenario_type == "sharp_drop_risk":
-                for t in t_values:
-                    shake = 0.003 * math.sin(math.pi * 4.0 * t)
-                    center.append(base * (1.0 + shake - 0.045 * (t ** 1.95)))
-            else:
-                for t in t_values:
-                    center.append(base * (1.0 + 0.0045 * math.sin(math.pi * 3.0 * t) + 0.002 * t))
-
-            band_pct = 0.008 + ((1.0 - confidence) * 0.024)
-            upper = [v * (1.0 + band_pct * (0.35 + 0.65 * t)) for v, t in zip(center, t_values)]
-            lower = [v * (1.0 - band_pct * (0.35 + 0.65 * t)) for v, t in zip(center, t_values)]
-            return x, center, upper, lower
-        except Exception:
-            return [], [], [], []
-
-    def _set_detail_popup_price_labels_visible(self, dlg, active_key=None):
-        try:
-            changed = False
-            labels = getattr(dlg, "_detail_popup_price_label_artists", []) or []
-            for item in labels:
-                txt = item.get("text")
-                key = item.get("key")
-                if txt is None:
-                    continue
-                visible = key == "current_minimal" or (
-                    active_key is not None and key == active_key
-                )
-                if bool(txt.get_visible()) != bool(visible):
-                    txt.set_visible(bool(visible))
-                    changed = True
-            if changed:
-                dlg.canvas.draw_idle()
-        except Exception:
-            pass
-
-    def _on_detail_popup_chart_hover(self, event, dlg):
-        try:
-            labels = getattr(dlg, "_detail_popup_price_label_artists", []) or []
-            if not labels or event is None or event.inaxes is None or event.ydata is None:
-                self._set_detail_popup_price_labels_visible(dlg, None)
-                return
-            ax = getattr(dlg, "_detail_popup_price_label_axis", None)
-            if ax is not None and event.inaxes is not ax:
-                self._set_detail_popup_price_labels_visible(dlg, None)
-                return
-            try:
-                y0, y1 = event.inaxes.get_ylim()
-                tolerance = abs(float(y1) - float(y0)) * 0.012
-            except Exception:
-                tolerance = 0.0
-            if tolerance <= 0:
-                self._set_detail_popup_price_labels_visible(dlg, None)
-                return
-            nearest = None
-            nearest_dist = None
-            for item in labels:
-                if item.get("key") == "current_minimal":
-                    continue
-                price = item.get("price")
-                try:
-                    dist = abs(float(event.ydata) - float(price))
-                except Exception:
-                    continue
-                if dist <= tolerance and (nearest_dist is None or dist < nearest_dist):
-                    nearest = item
-                    nearest_dist = dist
-            self._set_detail_popup_price_labels_visible(
-                dlg, nearest.get("key") if nearest else None
-            )
-        except Exception:
-            pass
-
-    def _bind_detail_popup_chart_hover(self, dlg, ax):
-        try:
-            if dlg is None or getattr(dlg, "canvas", None) is None:
-                return
-            old_cid = getattr(dlg, "_detail_popup_hover_cid", None)
-            if old_cid is not None:
-                try:
-                    dlg.canvas.mpl_disconnect(old_cid)
-                except Exception:
-                    pass
-            dlg._detail_popup_price_label_axis = ax
-            dlg._detail_popup_hover_cid = dlg.canvas.mpl_connect(
-                "motion_notify_event",
-                lambda event, _dlg=dlg: self._on_detail_popup_chart_hover(event, _dlg),
-            )
-        except Exception:
-            pass
-
-    def _cleanup_detail_popup_aux_axes_text(self, ax_list):
-        try:
-            for ax_aux in ax_list or []:
-                if ax_aux is None:
-                    continue
-                try:
-                    ax_aux.set_ylabel("")
-                    ax_aux.set_xlabel("")
-                    ax_aux.set_title("")
-                    ax_aux.yaxis.label.set_visible(False)
-                    ax_aux.xaxis.label.set_visible(False)
-                    ax_aux.title.set_visible(False)
-                    ax_aux.yaxis.get_offset_text().set_visible(False)
-                    ax_aux.xaxis.get_offset_text().set_visible(False)
-                except Exception:
-                    pass
-                try:
-                    for t in list(ax_aux.texts):
-                        try:
-                            t.remove()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                try:
-                    for child in list(ax_aux.get_children()):
-                        txt = None
-                        try:
-                            txt = child.get_text() if hasattr(child, "get_text") else None
-                        except Exception:
-                            txt = None
-                        if txt is not None:
-                            s = str(txt).strip()
-                            if s in ("개", "거래량", "거래량(개)", "(개)", "Volume", "VOL"):
-                                try:
-                                    child.remove()
-                                except Exception:
-                                    pass
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-    def _get_detail_popup_eta_seconds(self, scenario_type: str, confidence: float, is_holding: bool):
-        try:
-            ranges = {
-                "sideways_wait": (12 * 3600, 48 * 3600),
-                "weak_rebound": (6 * 3600, 18 * 3600),
-                "bullish_breakout": (2 * 3600, 12 * 3600),
-                "accumulation_ready": (8 * 3600, 24 * 3600),
-                "bearish_drift": (4 * 3600, 16 * 3600),
-                "sharp_drop_risk": (15 * 60, 6 * 3600),
-            }
-            lo, hi = ranges.get(str(scenario_type or ""), (6 * 3600, 18 * 3600))
-            conf = max(0.0, min(1.0, float(confidence or 0.55)))
-            seconds = hi - ((hi - lo) * conf)
-            if is_holding:
-                seconds *= 1.25
-            else:
-                seconds *= 0.85
-            return int(max(15 * 60, min(72 * 3600, seconds)))
-        except Exception:
-            return 12 * 3600
-
-    def _determine_detail_popup_eta_context(
-        self,
-        scenario_type: str,
-        confidence: float,
-        position_context: dict | None,
-        price_levels: dict | None,
-        badge_info: dict | None = None,
-        reason_text: str = "",
-    ):
-        try:
-            pos = position_context or {}
-            levels = price_levels or {}
-            badge = badge_info or {}
-            is_holding = bool(pos.get("is_holding"))
-            text = " ".join(
-                [
-                    str(levels.get("ai_state") or ""),
-                    str(badge.get("title") or ""),
-                    str(badge.get("subtitle") or ""),
-                    str(reason_text or ""),
-                    str(scenario_type or ""),
-                ]
-            ).lower()
-
-            if is_holding and any(k in text for k in ("sell", "매도", "정리", "risk", "급락", "손절")):
-                state_type, prefix, sub = "sell_wait", "매도 대기", "조건 유지 시 정리, 변화 시 타이머 재설정"
-            elif is_holding:
-                state_type, prefix, sub = "hold_monitor", "보유 관리", "시장 상황 반영 후 매도 대기"
-            elif any(k in text for k in ("로테이션", "rotation", "rotate")):
-                state_type, prefix, sub = "rotate_wait", "로테이션 대기", "매수 신호 강하면 로테이션 후 진입"
-            elif any(k in text for k in ("buy", "진입", "매수", "상승 돌파", "매집")):
-                state_type, prefix, sub = "buy_wait", "매수 대기", "신호 강화 시 진입 검토"
-            else:
-                state_type, prefix, sub = "review_wait", "관찰 유지", "방향성 확인 전 진입 대기"
-
-            seconds = self._get_detail_popup_eta_seconds(scenario_type, confidence, is_holding)
-            entry = pos.get("entry_price") or pos.get("current_price")
-            current = pos.get("current_price")
-            target = pos.get("target_price")
-            risk = pos.get("risk_price")
-
-            base = entry if is_holding and entry else current
-            risk_pct = None
-            target_pct = None
-            try:
-                if base and risk:
-                    risk_pct = ((float(risk) - float(base)) / float(base)) * 100.0
-            except Exception:
-                risk_pct = None
-            try:
-                if base and target:
-                    target_pct = ((float(target) - float(base)) / float(base)) * 100.0
-            except Exception:
-                target_pct = None
-
-            if is_holding:
-                meta = (
-                    f"손절 {risk_pct:+.1f}% / 익절 {target_pct:+.1f}%"
-                    if risk_pct is not None and target_pct is not None
-                    else "손절 — / 익절 —"
-                )
-            else:
-                meta = (
-                    f"리스크 {risk_pct:+.1f}% / 목표 {target_pct:+.1f}%"
-                    if risk_pct is not None and target_pct is not None
-                    else "리스크 — / 목표 —"
-                )
-
-            return {
-                "state_type": state_type,
-                "prefix": prefix,
-                "sub": sub,
-                "meta": meta,
-                "seconds": seconds,
-            }
-        except Exception:
-            return {
-                "state_type": "review_wait",
-                "prefix": "관찰 유지",
-                "sub": "시장 상황 반영 후 재평가",
-                "meta": "리스크 — / 목표 —",
-                "seconds": 12 * 3600,
-            }
-
     def _render_aits_large_chart_dialog(self, symbol_text: str, dlg):
         try:
             if dlg is None:
@@ -13692,18 +11273,6 @@ class MainWindow(QMainWindow):
                     selected_count = dlg.get_selected_count()
             except Exception:
                 pass
-            indicator_mode = "rsi"
-            try:
-                if dlg is not None and hasattr(dlg, "get_selected_indicator_mode"):
-                    indicator_mode = dlg.get_selected_indicator_mode()
-            except Exception:
-                indicator_mode = "rsi"
-            indicator_mode = str(indicator_mode or "rsi")
-            show_rsi = "rsi" in indicator_mode
-            show_macd = "macd" in indicator_mode
-            show_bollinger = False
-            show_volume = True
-            show_overlay_notes = False
 
             count = selected_count
 
@@ -13718,10 +11287,6 @@ class MainWindow(QMainWindow):
             target_price = price_levels.get("target_price")
             stop_price = price_levels.get("stop_price")
             ai_state = str(price_levels.get("ai_state") or "").strip()
-            position_context = self._get_detail_popup_position_context(row_index, price_levels)
-            entry_price = position_context.get("entry_price")
-            entry_label = "평균단가" if position_context.get("is_holding") else "예상 진입가"
-            risk_label = "손절 기준" if position_context.get("is_holding") else "리스크 기준"
 
             fig = dlg.canvas.figure
             fig.clf()
@@ -13748,15 +11313,6 @@ class MainWindow(QMainWindow):
                 mpf_df = self._aits_build_mpf_dataframe(candles)
             except Exception:
                 mpf_df = None
-            try:
-                position_context = self._get_detail_popup_position_context(row_index, price_levels, mpf_df)
-                entry_price = position_context.get("entry_price")
-                entry_label = "평균단가" if position_context.get("is_holding") else "예상 진입가"
-                risk_label = "손절 기준" if position_context.get("is_holding") else "리스크 기준"
-                if hasattr(dlg, "set_detail_popup_position_context"):
-                    dlg.set_detail_popup_position_context(position_context)
-            except Exception:
-                pass
 
             tl = str(tf or "").strip().lower()
             if tl in ("1m", "minute1"):
@@ -13783,37 +11339,20 @@ class MainWindow(QMainWindow):
             if mpf is not None and pd is not None and mpf_df is not None and not mpf_df.empty:
                 fig.clf()
 
-                if show_rsi and show_macd:
-                    height_ratios = [5.2, 1.0, 1.3, 1.5]
-                elif show_rsi:
-                    height_ratios = [6.0, 1.2, 1.6]
-                elif show_macd:
-                    height_ratios = [6.0, 1.2, 1.8]
-                else:
-                    height_ratios = [7.0, 1.3]
-                gs = fig.add_gridspec(len(height_ratios), 1, height_ratios=height_ratios, hspace=0.04)
+                gs = fig.add_gridspec(2, 1, height_ratios=[4, 1], hspace=0.0)
                 ax = fig.add_subplot(gs[0])
-                ax_vol = fig.add_subplot(gs[1], sharex=ax) if show_volume else None
-                _axis_row = 2
-                ax_rsi = fig.add_subplot(gs[_axis_row], sharex=ax) if show_rsi else None
-                if show_rsi:
-                    _axis_row += 1
-                ax_macd = fig.add_subplot(gs[_axis_row], sharex=ax) if show_macd else None
+                ax_rsi = fig.add_subplot(gs[1], sharex=ax)
 
                 mc = mpf.make_marketcolors(
-                    up="#22c55e",
-                    down="#ef4444",
-                    edge={"up": "#16a34a", "down": "#dc2626"},
-                    wick={"up": "#16a34a", "down": "#dc2626"},
-                    volume={"up": "#86efac", "down": "#fca5a5"},
+                    up="red",
+                    down="blue",
+                    edge="inherit",
+                    wick="inherit",
+                    volume="inherit",
                 )
                 s = mpf.make_mpf_style(
                     base_mpf_style="yahoo",
                     marketcolors=mc,
-                    facecolor="#ffffff",
-                    figcolor="#ffffff",
-                    gridcolor="#eef2f7",
-                    gridstyle="--",
                 )
 
                 mpf_addplots = []
@@ -13823,55 +11362,18 @@ class MainWindow(QMainWindow):
                     mpf_addplots = []
 
                 mpf_rsi_addplots = []
-                if show_rsi and ax_rsi is not None:
-                    try:
-                        mpf_rsi_addplots = self._aits_build_mpf_rsi_panel_addplots(
-                            mpf_df, ax_rsi
-                        )
-                    except Exception:
-                        mpf_rsi_addplots = []
+                try:
+                    mpf_rsi_addplots = self._aits_build_mpf_rsi_panel_addplots(
+                        mpf_df, ax_rsi
+                    )
+                except Exception:
+                    mpf_rsi_addplots = []
 
                 all_addplots = []
                 if mpf_addplots:
                     all_addplots.extend(mpf_addplots)
                 if mpf_rsi_addplots:
                     all_addplots.extend(mpf_rsi_addplots)
-                macd_hist = None
-                try:
-                    if show_bollinger:
-                        close_s = mpf_df["Close"].astype(float)
-                        bb_mid = close_s.rolling(window=20, min_periods=1).mean()
-                        bb_std = close_s.rolling(window=20, min_periods=1).std().fillna(0.0)
-                        bb_upper = bb_mid + (bb_std * 2.0)
-                        bb_lower = bb_mid - (bb_std * 2.0)
-                        all_addplots.append(
-                            mpf.make_addplot(bb_mid, ax=ax, width=1.0, color="#94a3b8", alpha=0.9)
-                        )
-                        all_addplots.append(
-                            mpf.make_addplot(bb_upper, ax=ax, width=1.0, color="#cbd5e1", linestyle="--", alpha=0.9)
-                        )
-                        all_addplots.append(
-                            mpf.make_addplot(bb_lower, ax=ax, width=1.0, color="#cbd5e1", linestyle="--", alpha=0.9)
-                        )
-                except Exception:
-                    pass
-                try:
-                    if show_macd and ax_macd is not None:
-                        close_s = mpf_df["Close"].astype(float)
-                        ema12 = close_s.ewm(span=12, adjust=False).mean()
-                        ema26 = close_s.ewm(span=26, adjust=False).mean()
-                        macd = ema12 - ema26
-                        signal = macd.ewm(span=9, adjust=False).mean()
-                        hist = macd - signal
-                        macd_hist = hist
-                        all_addplots.append(
-                            mpf.make_addplot(macd, ax=ax_macd, width=1.1, color="#2563eb", ylabel="MACD")
-                        )
-                        all_addplots.append(
-                            mpf.make_addplot(signal, ax=ax_macd, width=1.0, color="#f59e0b")
-                        )
-                except Exception:
-                    pass
 
                 mpf.plot(
                     mpf_df,
@@ -13880,6 +11382,9 @@ class MainWindow(QMainWindow):
                     volume=False,
                     style=s,
                     addplot=all_addplots,
+                    panel_ratios=(4, 1),
+                    main_panel=0,
+                    num_panels=2,
                     returnfig=False,
                     warn_too_much_data=10000,
                     ylabel="Price",
@@ -13887,182 +11392,7 @@ class MainWindow(QMainWindow):
                 )
 
                 try:
-                    if ax_rsi is not None:
-                        ax_rsi.set_ylim(0, 100)
-                except Exception:
-                    pass
-                try:
-                    for _sty_ax in (ax, ax_vol, ax_rsi, ax_macd):
-                        if _sty_ax is None:
-                            continue
-                        _sty_ax.set_facecolor("#ffffff")
-                        _sty_ax.grid(True, axis="y", linestyle="--", linewidth=0.6, color="#eef2f7", alpha=1.0)
-                        _sty_ax.grid(False, axis="x")
-                        for spine in _sty_ax.spines.values():
-                            spine.set_color("#e5e7eb")
-                            spine.set_linewidth(0.8)
-                        _sty_ax.tick_params(axis="both", colors="#6b7280", labelsize=8)
-                    if ax_rsi is not None:
-                        ax_rsi.axhline(70, color="#d1d5db", linestyle="--", linewidth=0.8, zorder=0)
-                        ax_rsi.axhline(50, color="#eef2f7", linestyle="-", linewidth=0.7, zorder=0)
-                        ax_rsi.axhline(30, color="#d1d5db", linestyle="--", linewidth=0.8, zorder=0)
-                    if ax_vol is not None:
-                        ax_vol.set_ylabel("")
-                        ax_vol.yaxis.label.set_visible(False)
-                        ax_vol.yaxis.get_offset_text().set_visible(False)
-                        ax_vol.tick_params(axis="y", labelsize=7, colors="#94a3b8")
-                        ax_vol.grid(True, axis="y", linestyle="--", linewidth=0.5, color="#f1f5f9", alpha=1.0)
-                    self._cleanup_detail_popup_aux_axes_text((ax_vol, ax_rsi, ax_macd))
-                except Exception:
-                    pass
-                try:
-                    if ax_vol is not None:
-                        xs_vol = list(range(len(mpf_df)))
-                        volumes = list(mpf_df["Volume"].astype(float))
-                        vol_colors = [
-                            "#86efac" if float(c) >= float(o) else "#fca5a5"
-                            for o, c in zip(mpf_df["Open"].astype(float), mpf_df["Close"].astype(float))
-                        ]
-                        ax_vol.bar(xs_vol, volumes, color=vol_colors, width=0.7, alpha=0.65, zorder=2)
-                        ax_vol.set_ylim(0, max(volumes) * 1.18 if volumes else 1)
-                        self._cleanup_detail_popup_aux_axes_text((ax_vol, ax_rsi, ax_macd))
-                except Exception:
-                    pass
-                try:
-                    if show_macd and ax_macd is not None and macd_hist is not None:
-                        xs = list(range(len(macd_hist)))
-                        colors = ["#86efac" if float(v or 0) >= 0 else "#fca5a5" for v in macd_hist]
-                        ax_macd.bar(xs, list(macd_hist), color=colors, width=0.7, alpha=0.65, zorder=0)
-                        ax_macd.axhline(0, color="#e5e7eb", linewidth=0.8)
-                except Exception:
-                    pass
-                try:
-                    if show_bollinger:
-                        close_s = mpf_df["Close"].astype(float)
-                        bb_mid = close_s.rolling(window=20, min_periods=1).mean()
-                        bb_std = close_s.rolling(window=20, min_periods=1).std().fillna(0.0)
-                        bb_upper = bb_mid + (bb_std * 2.0)
-                        bb_lower = bb_mid - (bb_std * 2.0)
-                        xs = list(range(len(bb_mid)))
-                        ax.fill_between(xs, list(bb_lower), list(bb_upper), color="#cbd5e1", alpha=0.08, zorder=0)
-                except Exception:
-                    pass
-
-                try:
-                    badge_info_for_scenario = self._get_aits_popup_action_badge(row_index)
-                except Exception:
-                    badge_info_for_scenario = {}
-                try:
-                    reason_for_scenario = self._extract_current_aits_ai_reason_text()
-                except Exception:
-                    reason_for_scenario = ""
-                scenario_type, scenario_confidence = self._determine_detail_popup_scenario_type(
-                    row_index,
-                    price_levels,
-                    badge_info_for_scenario,
-                    reason_for_scenario,
-                    mpf_df,
-                )
-                try:
-                    if hasattr(dlg, "set_detail_popup_scenario"):
-                        dlg.set_detail_popup_scenario(scenario_type, scenario_confidence)
-                except Exception:
-                    pass
-                try:
-                    scenario_descriptions = {
-                        "sideways_wait": "방향성 확인 전 보수 관찰 시나리오",
-                        "weak_rebound": "약한 회복 여부를 확인하는 대기 시나리오",
-                        "bullish_breakout": "목표가 방향 상방 돌파 준비 시나리오",
-                        "accumulation_ready": "작은 박스권 이후 완만한 우상향 대기 시나리오",
-                        "bearish_drift": "약한 반등 후 완만한 하락 점검 시나리오",
-                        "sharp_drop_risk": "후반 하락 가속 가능성 경계 시나리오",
-                    }
-                    if hasattr(dlg, "lbl_detail_popup_scenario_context"):
-                        base_desc = scenario_descriptions.get(
-                            scenario_type, "방향성 확인 전 보수 관찰 시나리오"
-                        )
-                        if position_context.get("is_holding"):
-                            base_desc = f"보유 포지션 기준 · {base_desc}"
-                        else:
-                            base_desc = f"진입 전 관찰 기준 · {base_desc}"
-                        dlg.lbl_detail_popup_scenario_context.setText(base_desc)
-                except Exception:
-                    pass
-                try:
-                    eta_context = self._determine_detail_popup_eta_context(
-                        scenario_type,
-                        scenario_confidence,
-                        position_context,
-                        price_levels,
-                        badge_info_for_scenario,
-                        reason_for_scenario,
-                    )
-                    if hasattr(dlg, "set_detail_popup_eta_context"):
-                        dlg.set_detail_popup_eta_context(eta_context)
-                except Exception:
-                    pass
-                try:
-                    future_steps = max(16, min(22, int(round(len(mpf_df) * 0.17))))
-                    last_x = max(0, len(mpf_df) - 1)
-                    last_close = float(mpf_df["Close"].astype(float).iloc[-1])
-                    _fx, fy, fy_upper, fy_lower = self._build_detail_popup_future_path(
-                        scenario_type,
-                        last_close,
-                        target_price=target_price,
-                        current_price=current_price,
-                        confidence=scenario_confidence,
-                        future_steps=future_steps,
-                    )
-                    x_future = [last_x + i for i in _fx]
-                    colors = {
-                        "bullish_breakout": ("#22c55e", "#86efac"),
-                        "accumulation_ready": ("#22c55e", "#86efac"),
-                        "sideways_wait": ("#f59e0b", "#fdba74"),
-                        "weak_rebound": ("#f59e0b", "#fdba74"),
-                        "bearish_drift": ("#ef4444", "#fca5a5"),
-                        "sharp_drop_risk": ("#ef4444", "#fca5a5"),
-                    }
-                    line_color, band_color = colors.get(scenario_type, ("#f59e0b", "#fdba74"))
-                    right_edge = last_x + future_steps + 1.5
-                    if x_future and fy:
-                        ax.axvline(last_x, color="#94a3b8", linestyle="--", linewidth=0.8, alpha=0.72, zorder=20)
-                        ax.axvspan(last_x + 0.5, last_x + future_steps + 0.5, color=line_color, alpha=0.02, zorder=0)
-                        ax.fill_between(x_future, fy_lower, fy_upper, color=band_color, alpha=0.06, zorder=3)
-                        ax.plot(
-                            x_future,
-                            fy,
-                            color=line_color,
-                            linestyle=(0, (4, 3)),
-                            linewidth=1.35,
-                            alpha=0.74,
-                            zorder=25,
-                        )
-                        ax.text(
-                            last_x,
-                            ax.get_ylim()[1],
-                            " NOW",
-                            ha="left",
-                            va="top",
-                            fontsize=8,
-                            fontweight="bold",
-                            color="#6b7280",
-                            zorder=50,
-                        )
-                        ax.text(
-                            min(right_edge - 0.35, x_future[-1] + max(0.9, future_steps * 0.08)),
-                            fy[-1] * 1.0035,
-                            " AI scenario",
-                            ha="left",
-                            va="bottom",
-                            fontsize=8,
-                            fontweight="semibold",
-                            color=line_color,
-                            bbox=dict(boxstyle="round,pad=0.18", fc="#ffffff", ec="#d9dde3", alpha=0.60),
-                            zorder=50,
-                        )
-                    for _lim_ax in (ax, ax_vol, ax_rsi, ax_macd):
-                        if _lim_ax is not None:
-                            _lim_ax.set_xlim(-0.5, right_edge)
+                    ax_rsi.set_ylim(0, 100)
                 except Exception:
                     pass
 
@@ -14081,7 +11411,7 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    if show_overlay_notes and current_price is not None and target_price is not None:
+                    if current_price is not None and target_price is not None:
                         lo = min(current_price, target_price)
                         hi = max(current_price, target_price)
                         ax.axhspan(lo, hi, alpha=0.06)
@@ -14089,20 +11419,6 @@ class MainWindow(QMainWindow):
                     pass
 
                 # 2) 기준선 3개를 서로 다른 스타일로 표시
-                price_label_artists = []
-
-                try:
-                    if entry_price is not None and not bool(position_context.get("entry_is_duplicate")):
-                        ax.axhline(
-                            entry_price,
-                            linestyle="-.",
-                            linewidth=1.0,
-                            alpha=0.72,
-                            color="#64748b",
-                        )
-                except Exception:
-                    pass
-
                 try:
                     if current_price is not None:
                         ax.axhline(
@@ -14137,100 +11453,57 @@ class MainWindow(QMainWindow):
                     pass
 
                 # 3) 우측 라벨을 가격 포함 형태로 더 명확하게
-                def _add_current_minimal_label(price):
-                    try:
-                        if price is None:
-                            return
-                        txt = ax.text(
-                            1.008,
-                            price,
-                            self._format_aits_price_label(price),
+                try:
+                    if current_price is not None:
+                        ax.text(
+                            0.995,
+                            current_price,
+                            f" 현재가 {self._format_aits_price_label(current_price)}",
                             transform=ax.get_yaxis_transform(),
-                            ha="left",
-                            va="center",
+                            ha="right",
+                            va="bottom",
                             fontsize=8,
-                            color="#374151",
-                            clip_on=False,
-                            bbox=dict(
-                                boxstyle="round,pad=0.10",
-                                fc="#ffffff",
-                                ec="#d1d5db",
-                                alpha=0.82,
-                            ),
-                            zorder=75,
-                        )
-                        txt.set_visible(True)
-                        price_label_artists.append(
-                            {
-                                "key": "current_minimal",
-                                "price": float(price),
-                                "text": txt,
-                                "label": "현재가",
-                            }
-                        )
-                    except Exception:
-                        pass
-
-                def _add_hover_price_label(key, price, label, va="bottom"):
-                    try:
-                        if price is None:
-                            return
-                        txt = ax.text(
-                            1.008,
-                            price,
-                            f" {label} {self._format_aits_price_label(price)}",
-                            transform=ax.get_yaxis_transform(),
-                            ha="left",
-                            va=va,
-                            fontsize=8,
-                            color="#111827",
-                            clip_on=False,
-                            bbox=dict(
-                                boxstyle="round,pad=0.18",
-                                fc="#ffffff",
-                                ec="#d9dde3",
-                                alpha=0.86,
-                            ),
+                            bbox=dict(boxstyle="round,pad=0.18", alpha=0.18),
                             zorder=80,
                         )
-                        txt.set_visible(False)
-                        price_label_artists.append(
-                            {"key": key, "price": float(price), "text": txt, "label": label}
+                except Exception:
+                    pass
+
+                try:
+                    if target_price is not None:
+                        ax.text(
+                            0.995,
+                            target_price,
+                            f" 목표가 {self._format_aits_price_label(target_price)}",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="bottom",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.18", alpha=0.14),
+                            zorder=80,
                         )
-                    except Exception:
-                        pass
-
-                try:
-                    if not bool(position_context.get("entry_is_duplicate")):
-                        _add_hover_price_label("entry", entry_price, entry_label, "center")
                 except Exception:
                     pass
 
                 try:
-                    _add_current_minimal_label(current_price)
-                    _add_hover_price_label("current_hover", current_price, "현재가", "center")
+                    if stop_price is not None:
+                        ax.text(
+                            0.995,
+                            stop_price,
+                            f" 손절가 {self._format_aits_price_label(stop_price)}",
+                            transform=ax.get_yaxis_transform(),
+                            ha="right",
+                            va="top",
+                            fontsize=8,
+                            bbox=dict(boxstyle="round,pad=0.18", alpha=0.14),
+                            zorder=80,
+                        )
                 except Exception:
                     pass
 
+                # 4) 목표/리스크 퍼센트 보조 문구
                 try:
-                    _add_hover_price_label("target", target_price, "목표가", "bottom")
-                except Exception:
-                    pass
-
-                try:
-                    _add_hover_price_label("risk", stop_price, risk_label, "top")
-                except Exception:
-                    pass
-
-                try:
-                    dlg._detail_popup_price_label_artists = price_label_artists
-                    self._bind_detail_popup_chart_hover(dlg, ax)
-                except Exception:
-                    pass
-
-                # 4) 상세 설명 오버레이는 팝업에서는 우측 사이드바 카드만 사용한다.
-                try:
-                    if show_overlay_notes and current_price is not None and target_price is not None:
+                    if current_price is not None and target_price is not None:
                         up_pct = (
                             (float(target_price) - float(current_price))
                             / float(current_price)
@@ -14250,7 +11523,7 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    if show_overlay_notes and current_price is not None and stop_price is not None:
+                    if current_price is not None and stop_price is not None:
                         dn_pct = (
                             (float(stop_price) - float(current_price))
                             / float(current_price)
@@ -14270,11 +11543,9 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    state_note = ""
-                    if show_overlay_notes:
-                        badge_info = self._get_aits_popup_action_badge(row_index)
-                        state_note = str(badge_info.get("title") or "").strip()
-                    if show_overlay_notes and state_note:
+                    badge_info = self._get_aits_popup_action_badge(row_index)
+                    state_note = str(badge_info.get("title") or "").strip()
+                    if state_note:
                         ax.text(
                             0.012,
                             0.90,
@@ -14290,12 +11561,10 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    overlay_text = ""
-                    if show_overlay_notes:
-                        overlay_text = self._build_aits_chart_overlay_text()
-                        if overlay_text and len(overlay_text) > 220:
-                            overlay_text = overlay_text[:220].rstrip() + "..."
-                    if show_overlay_notes and overlay_text:
+                    overlay_text = self._build_aits_chart_overlay_text()
+                    if overlay_text and len(overlay_text) > 220:
+                        overlay_text = overlay_text[:220].rstrip() + "..."
+                    if overlay_text:
                         ax.text(
                             0.012,
                             0.70,
@@ -14318,13 +11587,6 @@ class MainWindow(QMainWindow):
                         f"{symbol_text} - {tf_label} 최근 {count}개",
                         "",
                     )
-                except Exception:
-                    pass
-
-                try:
-                    for _txt in list(getattr(ax, "texts", []) or []):
-                        if str(_txt.get_text() or "").startswith("RENDER:"):
-                            _txt.remove()
                 except Exception:
                     pass
 
@@ -14459,7 +11721,7 @@ class MainWindow(QMainWindow):
             _tf_ko = {"1m": "1분봉", "5m": "5분봉", "60m": "1시간봉", "1d": "일봉"}.get(
                 _tf, "1분봉"
             )
-            _detail_title_base = f"{name} ({sym}) · {_tf_ko} · 최근 {_cnt}개"[:90]
+            _detail_title_base = f"{name} ({sym}) - {_tf_ko} 최근 {_cnt}개"[:90]
 
             global mpf, pd
 
@@ -14530,26 +11792,15 @@ class MainWindow(QMainWindow):
                         mpf_rsi_addplots = []
 
                     mc = mpf.make_marketcolors(
-                        up="#22c55e",
-                        down="#ef4444",
-                        edge={"up": "#16a34a", "down": "#dc2626"},
-                        wick={"up": "#16a34a", "down": "#dc2626"},
-                        volume={"up": "#86efac", "down": "#fca5a5"},
+                        up="red",
+                        down="blue",
+                        edge="inherit",
+                        wick="inherit",
+                        volume="inherit",
                     )
                     s = mpf.make_mpf_style(
                         base_mpf_style="yahoo",
                         marketcolors=mc,
-                        facecolor="#ffffff",
-                        figcolor="#ffffff",
-                        gridcolor="#eef2f7",
-                        gridstyle="--",
-                        rc={
-                            "axes.edgecolor": "#e5e7eb",
-                            "axes.labelcolor": "#6b7280",
-                            "xtick.color": "#6b7280",
-                            "ytick.color": "#6b7280",
-                            "font.size": 9,
-                        },
                     )
 
                     all_addplots = []
@@ -14585,7 +11836,7 @@ class MainWindow(QMainWindow):
                         pass
 
                     try:
-                        ax_rsi.tick_params(axis="x", labelsize=9, colors="#6b7280", rotation=0)
+                        ax_rsi.tick_params(axis="x", labelsize=8, rotation=0)
                         try:
                             ax_rsi.xaxis.set_major_locator(mticker.MaxNLocator(4))
                         except Exception:
@@ -14598,7 +11849,7 @@ class MainWindow(QMainWindow):
                             ax.yaxis.set_major_locator(mticker.MaxNLocator(4))
                         except Exception:
                             pass
-                        ax.tick_params(axis="y", labelsize=9, colors="#6b7280")
+                        ax.tick_params(axis="y", labelsize=8)
                     except Exception:
                         pass
 
@@ -14607,14 +11858,14 @@ class MainWindow(QMainWindow):
                             ax_rsi.yaxis.set_major_locator(mticker.MaxNLocator(3))
                         except Exception:
                             pass
-                        ax_rsi.tick_params(axis="y", labelsize=9, colors="#6b7280")
+                        ax_rsi.tick_params(axis="y", labelsize=8)
                     except Exception:
                         pass
 
                     if tp > 0:
-                        ax.axhline(tp, color="#22c55e", linestyle="--", linewidth=1.1, alpha=0.9)
+                        ax.axhline(tp, color="green", linestyle="--", linewidth=1.1, alpha=0.9)
                     if sl > 0:
-                        ax.axhline(sl, color="#ef4444", linestyle="--", linewidth=1.1, alpha=0.9)
+                        ax.axhline(sl, color="red", linestyle="--", linewidth=1.1, alpha=0.9)
 
                     render_used = "mpf"
                     mpf_rendered = True
@@ -14659,9 +11910,9 @@ class MainWindow(QMainWindow):
                 ma80 = _sma(closes, 80)
                 for i, (o, h, low, cl) in enumerate(ohlc_rows):
                     _up = cl >= o
-                    wick_color = "#16a34a" if _up else "#dc2626"
-                    body_face = "#22c55e" if _up else "#ef4444"
-                    body_edge = "#16a34a" if _up else "#dc2626"
+                    wick_color = "#2e7d32" if _up else "#c62828"
+                    body_face = "#4caf50" if _up else "#ef5350"
+                    body_edge = "#2e7d32" if _up else "#c62828"
 
                     ax.vlines(i, low, h, color=wick_color, linewidth=1.1)
 
@@ -14682,9 +11933,9 @@ class MainWindow(QMainWindow):
                     )
                 xs = list(range(len(closes)))
 
-                ax.plot(xs, ma20, color="#3b82f6", linewidth=1.4, alpha=0.95)
-                ax.plot(xs, ma40, color="#10b981", linewidth=1.3, alpha=0.95)
-                ax.plot(xs, ma80, color="#8b5cf6", linewidth=1.2, alpha=0.9)
+                ax.plot(xs, ma20, color="#f9a825", linewidth=1.2)
+                ax.plot(xs, ma40, color="#8e24aa", linewidth=1.2)
+                ax.plot(xs, ma80, color="#1565c0", linewidth=1.2)
                 ymin = min(lows)
                 ymax = max(highs)
                 range_val = ymax - ymin
@@ -14704,9 +11955,16 @@ class MainWindow(QMainWindow):
                 ax.set_ylim(y_lo, y_hi)
                 n = len(ohlc_rows)
                 ax.set_xlim(-0.5, n - 0.5)
+                ax.set_facecolor("#ffffff")
 
-                ax.tick_params(axis="x", labelsize=9, colors="#6b7280")
-                ax.tick_params(axis="y", labelsize=9, colors="#6b7280")
+                ax.grid(True, axis="y", linestyle="--", linewidth=0.6, alpha=0.2)
+                ax.grid(False, axis="x")
+
+                ax.spines["top"].set_visible(False)
+                ax.spines["right"].set_visible(False)
+
+                ax.tick_params(axis="x", labelsize=8)
+                ax.tick_params(axis="y", labelsize=8)
                 if n <= 5:
                     ax.set_xticks(list(range(n)))
                 else:
@@ -14715,9 +11973,9 @@ class MainWindow(QMainWindow):
                     )
                     ax.set_xticks(_ti)
                 if tp > 0:
-                    ax.axhline(tp, color="#22c55e", linestyle="--", linewidth=1.1, alpha=0.9)
+                    ax.axhline(tp, color="green", linestyle="--", linewidth=1.1, alpha=0.9)
                 if sl > 0:
-                    ax.axhline(sl, color="#ef4444", linestyle="--", linewidth=1.1, alpha=0.9)
+                    ax.axhline(sl, color="red", linestyle="--", linewidth=1.1, alpha=0.9)
                 render_used = "legacy"
                 try:
                     self._aits_apply_detail_render_marker(
@@ -14747,70 +12005,6 @@ class MainWindow(QMainWindow):
                 self._aits_log_detail_render_used(render_used, render_reason)
             except Exception:
                 pass
-
-    def _apply_aits_saas_chart_style(self, fig=None, axes=None, title: str = "") -> None:
-        try:
-            if fig is not None:
-                fig.patch.set_facecolor("#ffffff")
-                try:
-                    fig.subplots_adjust(left=0.07, right=0.98, top=0.92, bottom=0.10, hspace=0.05)
-                except Exception:
-                    pass
-
-            axes_list = []
-            if axes is None:
-                axes_list = []
-            elif isinstance(axes, (list, tuple)):
-                axes_list = [a for a in axes if a is not None]
-            else:
-                axes_list = [axes]
-
-            for idx, ax in enumerate(axes_list):
-                try:
-                    ax.set_facecolor("#ffffff")
-                    ax.grid(
-                        True,
-                        axis="y",
-                        linestyle="--",
-                        linewidth=0.6,
-                        color="#eef2f7",
-                        alpha=1.0,
-                    )
-                    ax.grid(False, axis="x")
-                    for spine in ax.spines.values():
-                        spine.set_color("#e5e7eb")
-                        spine.set_linewidth(0.8)
-                    ax.tick_params(axis="both", colors="#6b7280", labelsize=9)
-                    ax.yaxis.label.set_color("#6b7280")
-                    ax.xaxis.label.set_color("#6b7280")
-                    ax.yaxis.label.set_size(9)
-                    ax.xaxis.label.set_size(9)
-                except Exception:
-                    pass
-
-                if idx == 1:
-                    try:
-                        ax.axhline(70, color="#e5e7eb", linestyle="--", linewidth=0.8, zorder=0)
-                        ax.axhline(50, color="#f3f4f6", linestyle="-", linewidth=0.7, zorder=0)
-                        ax.axhline(30, color="#e5e7eb", linestyle="--", linewidth=0.8, zorder=0)
-                        ax.set_ylim(0, 100)
-                    except Exception:
-                        pass
-
-            if axes_list and title:
-                try:
-                    axes_list[0].set_title(
-                        str(title or "")[:90],
-                        loc="left",
-                        fontsize=10,
-                        fontweight="bold",
-                        color="#111827",
-                        pad=10,
-                    )
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
     def _on_ai_managed_table_selection_changed(self) -> None:
         try:
@@ -14882,31 +12076,6 @@ class MainWindow(QMainWindow):
             pass
 
         return -1
-
-    def _get_ai_managed_row_for_center_detail(self) -> int:
-        try:
-            sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
-            rows = getattr(self, "ai_managed_rows", None) or []
-            if sym:
-                for idx, row in enumerate(rows):
-                    if (row.get("symbol") or "").strip() == sym:
-                        return int(idx)
-            row = self._get_ai_managed_current_row()
-            if 0 <= row < len(rows):
-                return int(row)
-        except Exception:
-            pass
-        return -1
-
-    def _on_ai_center_fullscreen_clicked(self) -> None:
-        try:
-            row = self._get_ai_managed_row_for_center_detail()
-            rows = getattr(self, "ai_managed_rows", None) or []
-            if row < 0 or row >= len(rows):
-                return
-            self._open_aits_large_chart_dialog_for_row(int(row))
-        except Exception:
-            pass
 
     def _get_market_explorer_current_row(self):
         try:
@@ -15062,21 +12231,6 @@ class MainWindow(QMainWindow):
             ns = str(raw_symbol or "").strip()
         if not ns:
             return ""
-        tail = ns.split("-")[-1].upper().strip() if ns else ""
-
-        def _valid_name(val: str) -> str:
-            s = str(val or "").strip()
-            if not s:
-                return ""
-            first = s.split("\n", 1)[0].strip()
-            parts = first.split()
-            if len(parts) >= 2 and parts[0].strip().upper() == tail:
-                s = " ".join(parts[1:]).strip()
-            su = s.upper().replace(" ", "").replace("-", "")
-            if not s or su in (tail, ns.upper().replace("-", ""), f"KRW{tail}"):
-                return ""
-            return s
-
         try:
             for disp in (getattr(self, "_market_display_rows", None) or []):
                 if not isinstance(disp, dict):
@@ -15093,7 +12247,6 @@ class MainWindow(QMainWindow):
                     or disp.get("english_name")
                     or ""
                 ).strip()
-                row_name = _valid_name(row_name)
                 if row_name:
                     return row_name
         except Exception:
@@ -15115,9 +12268,7 @@ class MainWindow(QMainWindow):
                 first = first.lstrip("★").strip()
                 toks = first.split()
                 if len(toks) >= 2:
-                    row_name = _valid_name(" ".join(toks[1:]).strip())
-                    if row_name:
-                        return row_name
+                    return " ".join(toks[1:]).strip()
         except Exception:
             pass
         return ""
@@ -15139,15 +12290,6 @@ class MainWindow(QMainWindow):
         except Exception:
             tail = ""
 
-        def _strip_symbol_prefix(s: str) -> str:
-            val = str(s or "").strip()
-            if not val:
-                return ""
-            parts = val.split()
-            if len(parts) >= 2 and parts[0].strip().upper() == tail:
-                return " ".join(parts[1:]).strip()
-            return val
-
         def _is_ticker_only(s: str) -> bool:
             su = str(s or "").strip().upper().replace(" ", "")
             if not su or not tail:
@@ -15167,17 +12309,10 @@ class MainWindow(QMainWindow):
                 v = None
             if v is None:
                 continue
-            s = _strip_symbol_prefix(str(v).strip())
+            s = str(v).strip()
             if not s or _is_ticker_only(s):
                 continue
             return s
-        try:
-            ko = self._get_aits_korean_coin_name(tail)
-            ko = str(ko or "").strip()
-            if ko and not _is_ticker_only(ko):
-                return ko
-        except Exception:
-            pass
         try:
             lab = self._aits_symbol_label(raw_symbol)
             parts = str(lab or "").strip().split()
@@ -15313,49 +12448,10 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_managed_header_pause_clicked(self) -> None:
-        try:
-            row_idx = self._get_ai_managed_current_row()
-            rows = getattr(self, "ai_managed_rows", None) or []
-            if row_idx is None or row_idx < 0 or row_idx >= len(rows):
-                return
-            row = rows[row_idx]
-            if not isinstance(row, dict):
-                return
-            raw = str(row.get("ai_status") or row.get("status") or "").strip()
-            is_paused = ("보류" in raw) or ("pause" in raw.lower())
-            if is_paused:
-                prev = str(row.get("_ai_status_before_pause") or "").strip()
-                if not prev or ("보류" in prev) or ("pause" in prev.lower()):
-                    prev = "분석 대기"
-                row["ai_status"] = prev
-                row["status"] = prev
-                row.pop("_ai_status_before_pause", None)
-            else:
-                row["_ai_status_before_pause"] = raw or "분석 대기"
-                row["ai_status"] = "매매 보류"
-                row["status"] = "매매 보류"
-            self._refresh_ai_managed_table()
-            try:
-                self.tbl_ai_managed.selectRow(row_idx)
-            except Exception:
-                pass
-        except Exception:
-            pass
+        """매매 보류: 헤더 슬롯(동작은 후속 패치에서 연결)."""
 
     def _on_managed_header_remove_clicked(self) -> None:
-        try:
-            row_idx = self._get_ai_managed_current_row()
-            rows = getattr(self, "ai_managed_rows", None) or []
-            if row_idx is None or row_idx < 0 or row_idx >= len(rows):
-                return
-            row = rows[row_idx]
-            if not isinstance(row, dict):
-                return
-            sym = str(row.get("symbol") or row.get("market") or "").strip()
-            if sym:
-                self._remove_symbol_from_ai_pool(sym)
-        except Exception:
-            pass
+        """- 삭제: 헤더 슬롯(동작은 후속 패치에서 연결)."""
 
     def _refresh_managed_summary_cards(self) -> None:
         """LEFT MANAGED: 하단 3칸 요약 값 재적용 래퍼."""
@@ -15666,135 +12762,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _finalize_left_managed_panel_layout(
-        self, parent: QWidget, panel_layout: QVBoxLayout
-    ) -> None:
-        """Left managed panel final structure: one table body plus a docked summary."""
-        table = getattr(self, "tbl_ai_managed", None)
-        footer = getattr(self, "_frm_managed_footer", None)
-        if table is None or footer is None or panel_layout is None:
-            return
-
-        try:
-            table.setParent(parent)
-            footer.setParent(parent)
-        except Exception:
-            pass
-
-        scroll = getattr(self, "_managed_table_scroll", None)
-        if scroll is not None:
-            try:
-                panel_layout.removeWidget(scroll)
-            except Exception:
-                pass
-            try:
-                scroll.setWidget(None)
-            except Exception:
-                pass
-            try:
-                scroll.hide()
-            except Exception:
-                pass
-            try:
-                scroll.deleteLater()
-            except Exception:
-                pass
-
-        try:
-            panel_layout.removeWidget(table)
-        except Exception:
-            pass
-        try:
-            panel_layout.removeWidget(footer)
-        except Exception:
-            pass
-
-        try:
-            header_card = getattr(self, "_managed_header_card", None)
-            if header_card is not None:
-                header_card.setSizePolicy(
-                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-                )
-                header_card.setFixedHeight(100)
-        except Exception:
-            pass
-
-        try:
-            table.setHorizontalHeaderLabels(["순위", "종목", "AI 점수", "상태", "비중/목표"])
-        except Exception:
-            pass
-        try:
-            table.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
-            )
-            table.setSizeAdjustPolicy(
-                QAbstractScrollArea.SizeAdjustPolicy.AdjustIgnored
-            )
-            table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-            table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
-            table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            table.setMinimumHeight(620)
-            table.setMaximumHeight(16777215)
-        except Exception:
-            pass
-        try:
-            header = table.horizontalHeader()
-            header.setStretchLastSection(False)
-            header.setSectionsMovable(False)
-            header.setSectionsClickable(True)
-            header.setMinimumSectionSize(36)
-            header.setDefaultAlignment(
-                Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignCenter
-            )
-            for ci in range(int(table.columnCount())):
-                header.setSectionResizeMode(ci, QHeaderView.ResizeMode.Interactive)
-            try:
-                header.sectionResized.disconnect(self._on_ai_managed_section_resized)
-            except Exception:
-                pass
-            header.sectionResized.connect(self._on_ai_managed_section_resized)
-        except Exception:
-            pass
-        try:
-            for ci, key in enumerate(("rank", "symbol", "score", "status", "weight_goal")):
-                table.setColumnWidth(ci, int(_MANAGED_COL_WIDTHS[key]))
-        except Exception:
-            pass
-
-        try:
-            footer.setFixedHeight(70)
-            footer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            footer.show()
-        except Exception:
-            pass
-        try:
-            footer_titles = ("총 평가금액", "총 비중", "현금 비중")
-            i = 0
-            for label in footer.findChildren(QLabel):
-                if bool(label.property("managedSummaryTitle")) and i < len(footer_titles):
-                    label.setText(footer_titles[i])
-                    i += 1
-        except Exception:
-            pass
-
-        try:
-            hint = getattr(self, "_frm_ai_managed_add_hint", None)
-            if hint is not None:
-                hint.hide()
-        except Exception:
-            pass
-        self._managed_table_scroll = None
-        self._managed_table_scroll_host = None
-        panel_layout.insertWidget(1, table, 1)
-        panel_layout.insertWidget(2, footer, 0)
-        try:
-            panel_layout.setStretch(0, 0)
-            panel_layout.setStretch(1, 1)
-            panel_layout.setStretch(2, 0)
-        except Exception:
-            pass
-
     def _clear_ai_managed_cell_widgets(self) -> None:
         """tbl_ai_managed 기존 cellWidget 제거(행 재구성 전)."""
         t = getattr(self, "tbl_ai_managed", None)
@@ -15823,29 +12790,6 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-    def _on_ai_managed_section_resized(self, *_args) -> None:
-        """Keep compact cell widgets aligned after user column resizing."""
-        if getattr(self, "_ai_managed_table_refreshing", False):
-            return
-        try:
-            timer = getattr(self, "_ai_managed_resize_refresh_timer", None)
-            if timer is None:
-                timer = QTimer(self)
-                timer.setSingleShot(True)
-                timer.timeout.connect(self._refresh_ai_managed_cell_widgets_only)
-                self._ai_managed_resize_refresh_timer = timer
-            timer.start(80)
-        except Exception:
-            pass
-
-    def _refresh_ai_managed_cell_widgets_only(self) -> None:
-        try:
-            self._clear_ai_managed_cell_widgets()
-            self._populate_ai_managed_table_cells()
-            self._apply_ai_managed_row_visual_state()
-        except Exception:
-            pass
-
     def _populate_ai_managed_table_cells(self) -> None:
         """ai_managed_rows 순서에 맞춰 5열 cellWidget 채움(표시만)."""
         t = getattr(self, "tbl_ai_managed", None)
@@ -15853,7 +12797,7 @@ class MainWindow(QMainWindow):
         if t is None:
             return
         try:
-            tw_score = max(52, int(t.columnWidth(2)) - 12)
+            tw_score = max(52, int(_MANAGED_COL_WIDTHS["score"]))
         except Exception:
             tw_score = 72
         try:
@@ -15906,16 +12850,12 @@ class MainWindow(QMainWindow):
                     symbol_root.setStyleSheet(
                         "background: transparent; border: none;"
                     )
-                    symbol_root.setSizePolicy(
-                        QSizePolicy.Policy.Expanding,
-                        QSizePolicy.Policy.Expanding,
-                    )
                 except Exception:
                     pass
                 sh = QHBoxLayout(symbol_root)
                 try:
                     sh.setContentsMargins(0, 0, 0, 0)
-                    sh.setSpacing(5)
+                    sh.setSpacing(4)
                 except Exception:
                     pass
                 ob = _AitsManagedOriginBadge(origin_code, symbol_root)
@@ -15925,14 +12865,10 @@ class MainWindow(QMainWindow):
                     text_wrap.setStyleSheet(
                         "background: transparent; border: none;"
                     )
-                    text_wrap.setSizePolicy(
-                        QSizePolicy.Policy.Expanding,
-                        QSizePolicy.Policy.Expanding,
-                    )
                 except Exception:
                     pass
                 try:
-                    text_wrap.setMinimumHeight(40)
+                    text_wrap.setMinimumHeight(34)
                 except Exception:
                     pass
                 tv = QVBoxLayout(text_wrap)
@@ -15951,11 +12887,6 @@ class MainWindow(QMainWindow):
                         Qt.AlignmentFlag.AlignLeft
                         | Qt.AlignmentFlag.AlignVCenter
                     )
-                    lt.setTextFormat(Qt.TextFormat.PlainText)
-                    lt.setSizePolicy(
-                        QSizePolicy.Policy.Expanding,
-                        QSizePolicy.Policy.Fixed,
-                    )
                     lt.setStyleSheet(
                         "font-size:13px;font-weight:800;color:#0F172A;"
                         "background:transparent;border:none;"
@@ -15972,11 +12903,6 @@ class MainWindow(QMainWindow):
                             Qt.AlignmentFlag.AlignLeft
                             | Qt.AlignmentFlag.AlignVCenter
                         )
-                        lb.setTextFormat(Qt.TextFormat.PlainText)
-                        lb.setSizePolicy(
-                            QSizePolicy.Policy.Expanding,
-                            QSizePolicy.Policy.Fixed,
-                        )
                         lb.setStyleSheet(
                             "font-size:11px;font-weight:600;color:#64748B;"
                             "background:transparent;border:none;"
@@ -15986,7 +12912,7 @@ class MainWindow(QMainWindow):
                     tv.addWidget(lb)
                 else:
                     tv.addWidget(lt)
-                sh.addWidget(text_wrap, 1, Qt.AlignmentFlag.AlignVCenter)
+                sh.addWidget(text_wrap, 0, Qt.AlignmentFlag.AlignVCenter)
                 t.setCellWidget(
                     i,
                     1,
@@ -20319,18 +17245,6 @@ class MainWindow(QMainWindow):
                 display_name = ""
         if not display_name:
             display_name = sym.split("-")[-1] if "-" in sym else sym
-        try:
-            _tail_for_name = sym.split("-")[-1].upper() if sym else ""
-            _dn = str(display_name or "").strip()
-            _dn_u = _dn.upper().replace(" ", "").replace("-", "")
-            if _dn and _dn_u not in (_tail_for_name, f"KRW{_tail_for_name}"):
-                new_ko_name = _dn
-            else:
-                new_ko_name = ""
-            if not new_ko_name:
-                new_ko_name = str(self._get_aits_korean_coin_name(sym) or "").strip()
-        except Exception:
-            new_ko_name = ""
 
         try:
             src = str(_pick(src_row, "source", "provider", "origin") or "").strip()
@@ -20370,8 +17284,6 @@ class MainWindow(QMainWindow):
             "trade_value": tv,
             "volume_krw": tv,
         }
-        if new_ko_name:
-            new_row["korean_name"] = new_ko_name
         try:
             _ko_add = ""
             if src_row and isinstance(src_row, dict):
