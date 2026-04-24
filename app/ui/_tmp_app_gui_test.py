@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
 # ⚠️ 봉인 선언: 역할 변경/이동/삭제/리팩터링 금지
@@ -7841,10 +7841,6 @@ class MainWindow(QMainWindow):
         _gb_market = QGroupBox("MARKET EXPLORER  ·  AI 후보 탐색")
         self._gb_market = _gb_market
         try:
-            _gb_market.setTitle("")
-        except Exception:
-            pass
-        try:
             _gb_market.setObjectName("gbMarketExplorer")
         except Exception:
             pass
@@ -7877,23 +7873,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_scanner_strip)
-        try:
-            self.lbl_market_scanner_strip.setText("AI THEME SCANNER")
-            self.lbl_market_scanner_strip.setStyleSheet(
-                "font-size:18px; font-weight:900; color:#0f172a; "
-                "padding:2px 0 0 0; background:transparent; border:none;"
-            )
-        except Exception:
-            pass
-        self.lbl_market_scanner_subtitle = QLabel("오늘의 후보 탐색 / 로테이션 감시")
-        try:
-            self.lbl_market_scanner_subtitle.setStyleSheet(
-                "font-size:11px; font-weight:600; color:#6b7280; "
-                "padding:0 0 4px 0; background:transparent;"
-            )
-        except Exception:
-            pass
-        _market_inner.addWidget(self.lbl_market_scanner_subtitle)
         self.ed_market_search = QLineEdit()
         self.ed_market_search.setPlaceholderText("코인 검색 (BTC / XRP / SOL)")
         self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
@@ -7915,20 +7894,14 @@ class MainWindow(QMainWindow):
         self.btn_market_quick.setToolTip("빠른 탐색: AI 후보 상위 50")
         self.btn_market_all = QPushButton("전체 보기")
         self.btn_market_all.setToolTip("전체 종목 목록에서 탐색")
-        self.btn_market_refresh = QPushButton("새로고침")
         try:
             self.btn_market_quick.setMinimumHeight(34)
             self.btn_market_quick.setMaximumHeight(34)
             self.btn_market_all.setMinimumHeight(34)
             self.btn_market_all.setMaximumHeight(34)
-            self.btn_market_refresh.setMinimumHeight(34)
-            self.btn_market_refresh.setMaximumHeight(34)
         except Exception:
             pass
         try:
-            self.ed_market_search.setPlaceholderText("검색 (심볼/이름/테마)")
-            self.btn_market_quick.setText("급등")
-            self.btn_market_all.setText("전체")
             self.btn_market_quick.setStyleSheet(
                 "padding:6px 12px; font-size:12px; font-weight:800; min-height:32px; max-height:34px;"
                 "background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;color:#065f46;"
@@ -7936,10 +7909,6 @@ class MainWindow(QMainWindow):
             self.btn_market_all.setStyleSheet(
                 "padding:6px 12px; font-size:12px; font-weight:800; min-height:32px; max-height:34px;"
                 "background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;color:#1e40af;"
-            )
-            self.btn_market_refresh.setStyleSheet(
-                "padding:6px 12px; font-size:12px; font-weight:800; min-height:32px; max-height:34px;"
-                "background:#ffffff;border:1px solid #d9dde3;border-radius:10px;color:#111827;"
             )
         except Exception:
             pass
@@ -7967,29 +7936,14 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        try:
-            self.cmb_market_sort.clear()
-            self.cmb_market_sort.addItem("FILTER: 급등", "surge")
-            self.cmb_market_sort.addItem("FILTER: 전체", "all")
-            self.cmb_market_sort.addItem("FILTER: AI 점수순", "ai_score")
-            self.cmb_market_sort.addItem("FILTER: 변동률순", "change")
-            self.cmb_market_sort.addItem("FILTER: 거래대금순", "volume")
-            self.cmb_market_sort.addItem("FILTER: 메이저", "theme:메이저")
-            self.cmb_market_sort.addItem("FILTER: 결제/송금", "theme:결제/송금")
-            self.cmb_market_sort.addItem("FILTER: 스마트컨트랙트", "theme:스마트컨트랙트")
-            self.cmb_market_sort.addItem("FILTER: 밈", "theme:밈")
-            self.cmb_market_sort.setCurrentIndex(0)
-            self.btn_market_sort_toggle.setVisible(False)
-        except Exception:
-            pass
         _market_top_row = QHBoxLayout()
         _market_top_row.setContentsMargins(0, 2, 0, 0)
         _market_top_row.setSpacing(5)
-        _market_top_row.addWidget(self.cmb_market_sort, 0)
-        _market_top_row.addWidget(self.ed_market_search, 1)
+        _market_top_row.addWidget(self.ed_market_search, 0)
         _market_top_row.addWidget(self.btn_market_quick, 0)
         _market_top_row.addWidget(self.btn_market_all, 0)
-        _market_top_row.addWidget(self.btn_market_refresh, 0)
+        _market_top_row.addWidget(self.cmb_market_sort, 0)
+        _market_top_row.addWidget(self.btn_market_sort_toggle, 0)
         _market_top_row.addStretch(1)
         _market_inner.addLayout(_market_top_row)
         self.lbl_market_search_status = QLabel("")
@@ -8011,15 +7965,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_explorer_hint)
-        try:
-            self.lbl_market_search_status.setVisible(False)
-            self.lbl_market_explorer_hint.setText("더블클릭하면 관리종목으로 이동")
-            self.lbl_market_explorer_hint.setWordWrap(False)
-            self.lbl_market_explorer_hint.setStyleSheet(
-                "font-size:11px; color:#6b7280; padding:0 0 1px 0; font-weight:600;"
-            )
-        except Exception:
-            pass
         self.lbl_market_summary = QLabel("표시 0개")
         try:
             self.lbl_market_summary.setWordWrap(False)
@@ -8029,10 +7974,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_summary)
-        try:
-            self.lbl_market_summary.setText("총 0개 | 상승 0 | 하락 0 | 정렬: 거래대금순")
-        except Exception:
-            pass
 
         # [UI MASTER PLAN / Phase 2 / PATCH 2-4]
         # Explorer는 좁은 탐색 패널이므로
@@ -8221,10 +8162,6 @@ class MainWindow(QMainWindow):
             pass
         try:
             self.cmb_market_sort.currentIndexChanged.connect(self._on_market_sort_changed)
-        except Exception:
-            pass
-        try:
-            self.btn_market_refresh.clicked.connect(self._refresh_market_all_table)
         except Exception:
             pass
         try:
@@ -12795,23 +12732,6 @@ class MainWindow(QMainWindow):
         lb = getattr(self, "lbl_market_summary", None)
         if lb is None:
             return
-        try:
-            n = len(display_rows or [])
-            up = down = 0
-            for r in display_rows or []:
-                if not isinstance(r, dict):
-                    continue
-                chg_val = float(r.get("change_rate") or 0.0)
-                pe = self._explorer_effective_change_pct(chg_val)
-                if pe > 0:
-                    up += 1
-                elif pe < 0:
-                    down += 1
-            sn = str(sort_name or "").replace("FILTER:", "").strip() or "거래대금순"
-            lb.setText(f"총 {n}개 | 상승 {up} | 하락 {down} | 정렬: {sn}")
-            return
-        except Exception:
-            pass
         try:
             n = len(display_rows or [])
             up = down = 0
@@ -19917,35 +19837,6 @@ class MainWindow(QMainWindow):
                         rows_to_render = []
 
         try:
-            filter_key = str(self.cmb_market_sort.currentData() or "surge")
-        except Exception:
-            filter_key = "surge"
-
-        try:
-            if filter_key == "all":
-                rows_to_render = list(self._ensure_market_all_rows() or rows_to_render)
-            elif filter_key.startswith("theme:"):
-                _theme_target = filter_key.split(":", 1)[1]
-                def _panel_theme(symbol_text):
-                    _sym = str(symbol_text or "").upper().replace("KRW-", "").strip()
-                    _theme_map = {
-                        "BTC": "메이저",
-                        "ETH": "스마트컨트랙트",
-                        "XRP": "결제/송금",
-                        "DOGE": "밈",
-                        "PEPE": "밈",
-                        "FLOKI": "밈",
-                        "BONK": "밈",
-                    }
-                    return _theme_map.get(_sym, "관망후보")
-                rows_to_render = [
-                    r for r in (rows_to_render or [])
-                    if _panel_theme((r or {}).get("symbol") if isinstance(r, dict) else "") == _theme_target
-                ]
-        except Exception:
-            pass
-
-        try:
             key = str(getattr(self, "_market_sort_key", "volume") or "volume")
         except Exception:
             key = "volume"
@@ -19958,24 +19849,6 @@ class MainWindow(QMainWindow):
         try:
             def _get_val(r):
                 try:
-                    if filter_key == "surge":
-                        return self._safe_market_float(
-                            r,
-                            "change_rate",
-                            "signed_change_rate",
-                            "change",
-                        )
-                    if filter_key == "ai_score":
-                        return float(self._score_market_candidate(r))
-                    if filter_key == "change":
-                        return self._safe_market_float(
-                            r,
-                            "change_rate",
-                            "signed_change_rate",
-                            "change",
-                        )
-                    if filter_key == "volume":
-                        return self._get_market_trade_value(r)
                     if key == "volume":
                         return self._get_market_trade_value(r)
                     if key == "change":
@@ -20075,169 +19948,6 @@ class MainWindow(QMainWindow):
 
         self._market_display_rows = display_rows
         t = self.tbl_market_all
-        try:
-            self._MKT_COL_ADD = -1
-        except Exception:
-            pass
-        try:
-            t.setColumnCount(5)
-            t.setHorizontalHeaderLabels(["순위", "종목", "테마", "24h", "AI 점수"])
-            t.setColumnWidth(0, 44)
-            t.setColumnWidth(1, 150)
-            t.setColumnWidth(2, 96)
-            t.setColumnWidth(3, 78)
-            t.setColumnWidth(4, 72)
-            t.verticalHeader().setDefaultSectionSize(34)
-            t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            t.setShowGrid(False)
-            t.setAlternatingRowColors(True)
-        except Exception:
-            pass
-        t.setRowCount(0)
-
-        def _panel_theme(symbol_text):
-            _sym = str(symbol_text or "").upper().replace("KRW-", "").strip()
-            _theme_map = {
-                "BTC": "메이저",
-                "ETH": "스마트컨트랙트",
-                "XRP": "결제/송금",
-                "DOGE": "밈",
-                "PEPE": "밈",
-                "FLOKI": "밈",
-                "BONK": "밈",
-            }
-            return _theme_map.get(_sym, "관망후보")
-
-        def _theme_colors(theme_label):
-            return {
-                "관망후보": ("#f3f4f6", "#6b7280"),
-                "메이저": ("#dbeafe", "#1d4ed8"),
-                "결제/송금": ("#ecfccb", "#4d7c0f"),
-                "스마트컨트랙트": ("#ede9fe", "#7c3aed"),
-                "밈": ("#fce7f3", "#be185d"),
-            }.get(theme_label, ("#f3f4f6", "#6b7280"))
-
-        for i, r in enumerate(display_rows):
-            t.insertRow(i)
-            sym = str((r or {}).get("symbol") or "").strip() if isinstance(r, dict) else ""
-            row_name = ""
-            try:
-                if isinstance(r, dict):
-                    row_name = str(
-                        r.get("korean_name") or r.get("name") or r.get("english_name") or ""
-                    ).strip()
-            except Exception:
-                row_name = ""
-            display_coin = self._merge_aits_symbol_and_name(sym, row_name)
-            coin_item = QTableWidgetItem(display_coin or sym)
-            coin_item.setToolTip(display_coin or sym)
-            coin_item.setData(Qt.ItemDataRole.UserRole, self._normalize_aits_market_symbol(sym) or sym)
-
-            rank_item = QTableWidgetItem(str(i + 1))
-            rank_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            t.setItem(i, 0, rank_item)
-            t.setItem(i, 1, coin_item)
-
-            theme_label = _panel_theme(sym)
-            theme_item = QTableWidgetItem("")
-            t.setItem(i, 2, theme_item)
-            try:
-                _bg, _fg = _theme_colors(theme_label)
-                _badge = QLabel(theme_label)
-                _badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                _badge.setStyleSheet(
-                    f"background:{_bg}; color:{_fg}; border:none; border-radius:10px; "
-                    "padding:4px 8px; font-size:11px; font-weight:700;"
-                )
-                _wrap = QWidget()
-                _lay = QHBoxLayout(_wrap)
-                _lay.setContentsMargins(0, 0, 0, 0)
-                _lay.setSpacing(0)
-                _lay.addWidget(_badge, 0, Qt.AlignmentFlag.AlignCenter)
-                t.setCellWidget(i, 2, _wrap)
-            except Exception:
-                pass
-
-            chg_val = float((r or {}).get("change_rate") or 0.0) if isinstance(r, dict) else 0.0
-            chg_pct = self._explorer_effective_change_pct(chg_val)
-            chg_item = QTableWidgetItem(f"{chg_pct:.2f}%")
-            chg_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            try:
-                if chg_pct > 0:
-                    chg_item.setForeground(QColor("#dc2626"))
-                elif chg_pct < 0:
-                    chg_item.setForeground(QColor("#2563eb"))
-                else:
-                    chg_item.setForeground(QColor("#6b7280"))
-            except Exception:
-                pass
-            t.setItem(i, 3, chg_item)
-
-            score_val = 0
-            try:
-                score_val = int(round(float((r or {}).get("_candidate_score") or self._score_market_candidate(r))))
-            except Exception:
-                score_val = 0
-            score_item = QTableWidgetItem(str(score_val))
-            score_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            try:
-                if score_val >= 85:
-                    score_item.setForeground(QColor("#15803d"))
-                elif score_val >= 70:
-                    score_item.setForeground(QColor("#65a30d"))
-                elif score_val >= 55:
-                    score_item.setForeground(QColor("#d97706"))
-                else:
-                    score_item.setForeground(QColor("#6b7280"))
-            except Exception:
-                pass
-            t.setItem(i, 4, score_item)
-
-        try:
-            _sn = self.cmb_market_sort.currentText()
-        except Exception:
-            _sn = "FILTER: 거래대금순"
-        try:
-            self._update_market_explorer_summary(display_rows, _sn)
-        except Exception:
-            pass
-        try:
-            self._on_market_explorer_selection_changed()
-        except Exception:
-            pass
-        return
-        try:
-            self._MKT_COL_ADD = 3
-        except Exception:
-            pass
-        try:
-            self.tbl_market_all.setColumnCount(5)
-            self.tbl_market_all.setHorizontalHeaderLabels(["순위", "종목", "테마", "24h", "AI 점수"])
-            self.tbl_market_all.setColumnWidth(0, 44)
-            self.tbl_market_all.setColumnWidth(1, 150)
-            self.tbl_market_all.setColumnWidth(2, 96)
-            self.tbl_market_all.setColumnWidth(3, 78)
-            self.tbl_market_all.setColumnWidth(4, 72)
-            self.tbl_market_all.verticalHeader().setDefaultSectionSize(34)
-            self.tbl_market_all.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            self.tbl_market_all.setStyleSheet(
-                "#tblMarketExplorer { gridline-color:#eef2f7; background:#ffffff; }"
-                "#tblMarketExplorer::item { padding:6px 8px; margin:0px; border:none; }"
-                "#tblMarketExplorer::item:selected { background-color:#eff6ff; color:#0f172a; border:none; }"
-            )
-        except Exception:
-            pass
-        try:
-            t.setColumnCount(4)
-            t.setHorizontalHeaderLabels(["순위", "코인명", "변동률", "+추가"])
-            t.setColumnWidth(0, 48)
-            t.setColumnWidth(1, 150)
-            t.setColumnWidth(2, 72)
-            t.setColumnWidth(3, 58)
-            t.verticalHeader().setDefaultSectionSize(42)
-            t.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        except Exception:
-            pass
         t.setRowCount(0)
         _hot_bg = QColor(240, 253, 244)
         for i, r in enumerate(display_rows):
@@ -20310,10 +20020,16 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             t.setItem(i, 1, c0)
+            _p2 = QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}")
+            if _is_hot:
+                try:
+                    _p2.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 2, _p2)
             c_change = QTableWidgetItem(self._fmt_change_pct(chg_val))
             self._apply_explorer_change_pct_color(c_change, chg_val)
             try:
-                c_change.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 _cf = QFont(c_change.font())
                 _cf.setPointSize(12)
                 _cf.setBold(True)
@@ -20327,43 +20043,41 @@ class MainWindow(QMainWindow):
                         c_change.setBackground(QBrush(_hot_bg))
                 except Exception:
                     pass
-            t.setItem(i, 2, c_change)
-            c_add = QTableWidgetItem("")
+            t.setItem(i, 3, c_change)
+            trade_value = self._get_market_trade_value(r)
+            _it4 = QTableWidgetItem(f"{int(round(trade_value)):,}")
+            if _is_hot:
+                try:
+                    _it4.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 4, _it4)
+            trade_volume = self._safe_market_float(
+                r,
+                "trade_volume",
+                "acc_trade_volume_24h",
+                "volume_24h",
+                "volume",
+            )
+            _it5 = QTableWidgetItem(f"{int(round(trade_volume)):,}")
+            if _is_hot:
+                try:
+                    _it5.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 5, _it5)
+            c_add = QTableWidgetItem("+")
             try:
                 c_add.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                if _is_hot:
-                    c_add.setBackground(QBrush(_hot_bg))
+                _bf = QFont(c_add.font())
+                _bf.setBold(True)
+                _bf.setPointSize(11)
+                c_add.setFont(_bf)
+                c_add.setBackground(QBrush(QColor(30, 64, 175)))
+                c_add.setForeground(QColor("#f8fafc"))
             except Exception:
                 pass
-            t.setItem(i, 3, c_add)
-            try:
-                _btn_wrap = QWidget()
-                _btn_lay = QHBoxLayout(_btn_wrap)
-                _btn_lay.setContentsMargins(0, 0, 0, 0)
-                _btn_lay.setSpacing(0)
-                _btn = QPushButton("+")
-                _btn.setFixedSize(30, 30)
-                _btn.setCursor(Qt.CursorShape.PointingHandCursor)
-                _btn.setToolTip("관리종목에 추가")
-                _btn.setStyleSheet(
-                    "QPushButton {"
-                    "background:#ffffff; border:1px solid #cfd8e3; border-radius:8px; "
-                    "color:#111827; font-size:14px; font-weight:700;"
-                    "}"
-                    "QPushButton:hover {"
-                    "background:#eff6ff; border-color:#93c5fd; color:#1d4ed8;"
-                    "}"
-                    "QPushButton:pressed {"
-                    "background:#dbeafe;"
-                    "}"
-                )
-                _btn.clicked.connect(lambda _checked=False, _row_data=r: self._add_symbol_to_ai_pool(_row_data))
-                _btn_lay.addStretch(1)
-                _btn_lay.addWidget(_btn, 0, Qt.AlignmentFlag.AlignCenter)
-                _btn_lay.addStretch(1)
-                t.setCellWidget(i, 3, _btn_wrap)
-            except Exception:
-                pass
+            t.setItem(i, 6, c_add)
         try:
             _sn = self.cmb_market_sort.currentText()
         except Exception:

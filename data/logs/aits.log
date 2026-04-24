@@ -4379,3 +4379,114 @@ SyntaxError: expected 'except' or 'finally' block
 2026-04-23 20:50:58,807 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-23 20:50:58,807 | INFO | aits | AITS orchestrator initialized
 2026-04-23 20:51:07,480 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-23 22:21:25,880 | INFO | aits | AITS bootstrap start
+2026-04-23 22:21:25,888 | INFO | aits | AITS orchestrator initialized
+2026-04-23 22:21:25,888 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-23 22:21:25,888 | INFO | aits | AITS orchestrator initialized
+2026-04-23 22:21:29,238 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-23 22:54:03,953 | INFO | aits | AITS bootstrap start
+2026-04-23 22:54:03,962 | INFO | aits | AITS orchestrator initialized
+2026-04-23 22:54:03,962 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-23 22:54:03,962 | INFO | aits | AITS orchestrator initialized
+2026-04-23 22:54:08,375 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 03:29:17,844 | INFO | aits | AITS bootstrap start
+2026-04-24 03:29:17,852 | INFO | aits | AITS orchestrator initialized
+2026-04-24 03:29:17,853 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 03:29:17,853 | INFO | aits | AITS orchestrator initialized
+2026-04-24 03:29:26,536 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 03:55:36,419 | INFO | aits | AITS bootstrap start
+2026-04-24 03:55:36,427 | INFO | aits | AITS orchestrator initialized
+2026-04-24 03:55:36,428 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 03:55:36,428 | INFO | aits | AITS orchestrator initialized
+2026-04-24 03:55:40,007 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 04:51:03,945 | INFO | aits | AITS bootstrap start
+2026-04-24 04:51:03,956 | INFO | aits | AITS orchestrator initialized
+2026-04-24 04:51:03,957 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 04:51:03,958 | INFO | aits | AITS orchestrator initialized
+2026-04-24 04:51:10,211 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 05:55:28,002 | INFO | aits | AITS bootstrap start
+2026-04-24 05:55:28,009 | INFO | aits | AITS orchestrator initialized
+2026-04-24 05:55:28,010 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 05:55:28,010 | INFO | aits | AITS orchestrator initialized
+2026-04-24 05:55:32,127 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 06:44:36,694 | INFO | aits | AITS bootstrap start
+2026-04-24 06:44:36,704 | INFO | aits | AITS orchestrator initialized
+2026-04-24 06:44:36,719 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 06:44:36,720 | INFO | aits | AITS orchestrator initialized
+2026-04-24 06:44:40,996 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 08:16:23,236 | INFO | aits | AITS bootstrap start
+2026-04-24 08:16:23,251 | INFO | aits | AITS orchestrator initialized
+2026-04-24 08:16:23,254 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 08:16:23,255 | INFO | aits | AITS orchestrator initialized
+2026-04-24 08:16:23,288 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 112, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 665
+    m = QLabel(str(main_text or "??))
+                                ^
+SyntaxError: unterminated string literal (detected at line 665)
+2026-04-24 08:19:23,054 | INFO | aits | AITS bootstrap start
+2026-04-24 08:19:23,062 | INFO | aits | AITS orchestrator initialized
+2026-04-24 08:19:23,062 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 08:19:23,062 | INFO | aits | AITS orchestrator initialized
+2026-04-24 08:19:23,083 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 112, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 665
+    m = QLabel(str(main_text or "??))
+                                ^
+SyntaxError: unterminated string literal (detected at line 665)
+2026-04-24 09:18:08,995 | INFO | aits | AITS bootstrap start
+2026-04-24 09:18:09,003 | INFO | aits | AITS orchestrator initialized
+2026-04-24 09:18:09,003 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 09:18:09,004 | INFO | aits | AITS orchestrator initialized
+2026-04-24 09:18:09,019 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 112, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 754
+    lt = QLabel(str(title or "").strip() or "??)
+                                            ^
+SyntaxError: unterminated string literal (detected at line 754)
+2026-04-24 09:23:51,067 | INFO | aits | AITS bootstrap start
+2026-04-24 09:23:51,075 | INFO | aits | AITS orchestrator initialized
+2026-04-24 09:23:51,076 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 09:23:51,076 | INFO | aits | AITS orchestrator initialized
+2026-04-24 09:23:51,109 | ERROR | aits | UI import failed (app.ui.main_window)
+Traceback (most recent call last):
+  File "C:\AITS\run.py", line 112, in launch_ui
+    from app.ui.main_window import main as ui_main
+  File "C:\AITS\app\ui\main_window.py", line 12, in <module>
+    from app.ui.app_gui import main as _legacy_main
+  File "C:\AITS\app\ui\app_gui.py", line 754
+    lt = QLabel(str(title or "").strip() or "??)
+                                            ^
+SyntaxError: unterminated string literal (detected at line 754)
+2026-04-24 09:37:25,144 | INFO | aits | AITS bootstrap start
+2026-04-24 09:37:25,155 | INFO | aits | AITS orchestrator initialized
+2026-04-24 09:37:25,156 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 09:37:25,157 | INFO | aits | AITS orchestrator initialized
+2026-04-24 09:37:30,863 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 10:19:22,764 | INFO | aits | AITS bootstrap start
+2026-04-24 10:19:22,771 | INFO | aits | AITS orchestrator initialized
+2026-04-24 10:19:22,772 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 10:19:22,772 | INFO | aits | AITS orchestrator initialized
+2026-04-24 10:19:27,223 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 11:17:00,252 | INFO | aits | AITS bootstrap start
+2026-04-24 11:17:00,262 | INFO | aits | AITS orchestrator initialized
+2026-04-24 11:17:00,263 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 11:17:00,264 | INFO | aits | AITS orchestrator initialized
+2026-04-24 11:17:05,599 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-24 11:33:56,510 | INFO | aits | AITS bootstrap start
+2026-04-24 11:33:56,521 | INFO | aits | AITS orchestrator initialized
+2026-04-24 11:33:56,521 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-24 11:33:56,530 | INFO | aits | AITS orchestrator initialized
+2026-04-24 11:34:02,297 | INFO | aits | UI launched via legacy-compatible entry
