@@ -7910,9 +7910,26 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.cmb_market_sort = QComboBox()
-        self.cmb_market_sort.addItem("거래대금순", "volume")
-        self.cmb_market_sort.addItem("변동률순", "change")
-        self.cmb_market_sort.addItem("가격순", "price")
+        self.cmb_market_sort.setObjectName("MarketFilterCombo")
+        self.cmb_market_sort.addItem("FILTER: 거래량순", "volume")
+        self.cmb_market_sort.addItem("FILTER: 전체", "all")
+        self.cmb_market_sort.addItem("FILTER: 급등", "surge")
+        self.cmb_market_sort.addItem("FILTER: AI 점수순", "score")
+        self.cmb_market_sort.addItem("FILTER: 변동률순", "change")
+        self.cmb_market_sort.addItem("FILTER: 메이저", "major")
+        self.cmb_market_sort.addItem("FILTER: 결제/송금", "payment")
+        self.cmb_market_sort.addItem("FILTER: 스마트컨트랙트", "smart")
+        self.cmb_market_sort.addItem("FILTER: 고속체인", "fast")
+        self.cmb_market_sort.addItem("FILTER: 밈", "meme")
+        self.cmb_market_sort.addItem("FILTER: 관망후보", "watch")
+        try:
+            self.cmb_market_sort.setMaxVisibleItems(12)
+            self.cmb_market_sort.view().setMinimumWidth(
+                max(160, self.cmb_market_sort.sizeHint().width())
+            )
+            self.cmb_market_sort.view().setMaximumHeight(280)
+        except Exception:
+            pass
         self.btn_market_sort_toggle = QPushButton("↓")
         try:
             self.cmb_market_sort.setFixedHeight(30)
@@ -7922,9 +7939,16 @@ class MainWindow(QMainWindow):
             pass
         try:
             self.cmb_market_sort.setStyleSheet(
-                "font-size:12px; font-weight:700; padding:4px 10px; min-height:30px; max-height:30px;"
+                "QComboBox#MarketFilterCombo {"
+                "font-size:12px; font-weight:700; padding:4px 10px;"
+                "min-height:30px; max-height:32px;"
                 "border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc;"
+                "}"
+                "QComboBox#MarketFilterCombo QAbstractItemView {"
+                "min-height:0px; max-height:280px; padding:4px; outline:0;"
+                "}"
             )
+            self.cmb_market_sort.view().setMaximumHeight(280)
             self.btn_market_sort_toggle.setStyleSheet(
                 "font-size:12px; font-weight:800; padding:2px; min-height:30px; max-height:30px;"
                 "border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc;"
@@ -7977,12 +8001,12 @@ class MainWindow(QMainWindow):
         # 현재가보다 변동률 중심으로 단순화한다.
         # 표시 열을 줄이고 Managed 폭을 소폭 확장한다.
         # (논리 열 인덱스·더블클릭 추가 경로 유지: 숨김 + 폭만 조정)
-        self.tbl_market_all = QTableWidget(0, 7)
+        self.tbl_market_all = QTableWidget(0, 5)
         try:
             self.tbl_market_all.setObjectName("tblMarketExplorer")
         except Exception:
             pass
-        self.tbl_market_all.setHorizontalHeaderLabels(["순위", "코인명", "현재가", "변동률", "거래대금", "거래량", "+추가"])
+        self.tbl_market_all.setHorizontalHeaderLabels(["종목", "테마", "24h", "AI 점수", "+"])
         self.tbl_market_all.verticalHeader().setVisible(False)
         self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_market_all.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -8022,19 +8046,15 @@ class MainWindow(QMainWindow):
             pass
         try:
             _vh_mx = self.tbl_market_all.verticalHeader()
-            _vh_mx.setDefaultSectionSize(50)
+            _vh_mx.setDefaultSectionSize(34)
         except Exception:
             pass
         try:
-            self.tbl_market_all.setColumnWidth(0, 48)
-            self.tbl_market_all.setColumnWidth(1, 132)
-            self.tbl_market_all.setColumnWidth(2, 72)
-            self.tbl_market_all.setColumnWidth(3, 72)
-            self.tbl_market_all.setColumnWidth(4, 84)
-            self.tbl_market_all.setColumnWidth(5, 68)
-            self.tbl_market_all.setColumnWidth(6, 42)
-            for _hc in (2, 4, 5):
-                self.tbl_market_all.setColumnHidden(_hc, True)
+            self.tbl_market_all.setColumnWidth(0, 136)
+            self.tbl_market_all.setColumnWidth(1, 92)
+            self.tbl_market_all.setColumnWidth(2, 84)
+            self.tbl_market_all.setColumnWidth(3, 68)
+            self.tbl_market_all.setColumnWidth(4, 38)
         except Exception:
             pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
@@ -9980,7 +10000,7 @@ class MainWindow(QMainWindow):
     # --- AITS Managed Pool / Market Explorer (Qt 테이블 골격, ag-Grid 스타일 상태·이벤트 분리) ---
     _AI_M_COL_LOCK = -1
     _AI_M_COL_ACTION = -1
-    _MKT_COL_ADD = 6
+    _MKT_COL_ADD = 4
 
     def _fmt_change_pct(self, rate: float) -> str:
         try:
@@ -12756,7 +12776,7 @@ class MainWindow(QMainWindow):
                 return
             cur = int(t.currentRow())
             for r in range(t.rowCount()):
-                it = t.item(r, 1)
+                it = t.item(r, 0)
                 if it is None:
                     continue
                 f = QFont(it.font())
@@ -19732,6 +19752,7 @@ class MainWindow(QMainWindow):
     def _on_market_view_mode_quick(self):
         try:
             self._market_view_mode = "quick"
+            self._set_market_filter("surge", refresh=False)
             self._apply_market_view_mode_button_state()
             self._refresh_market_all_table()
         except Exception:
@@ -19740,6 +19761,7 @@ class MainWindow(QMainWindow):
     def _on_market_view_mode_all(self):
         try:
             self._market_view_mode = "all"
+            self._set_market_filter("all", refresh=False)
             # 전체 보기 누른 시점에만 전체 캐시 확보
             self._ensure_market_all_rows()
             self._apply_market_view_mode_button_state()
@@ -19747,9 +19769,29 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _set_market_filter(self, filter_key: str, refresh: bool = True) -> None:
+        try:
+            key = str(filter_key or "volume").strip()
+            self._market_sort_key = key
+            idx = self.cmb_market_sort.findData(key)
+            if idx >= 0 and self.cmb_market_sort.currentIndex() != idx:
+                try:
+                    self.cmb_market_sort.blockSignals(True)
+                    self.cmb_market_sort.setCurrentIndex(idx)
+                finally:
+                    self.cmb_market_sort.blockSignals(False)
+            if refresh:
+                self._refresh_market_all_table()
+        except Exception:
+            pass
+
     def _on_market_sort_changed(self):
         try:
             self._market_sort_key = self.cmb_market_sort.currentData()
+            if self._market_sort_key == "all":
+                self._market_view_mode = "all"
+                self._ensure_market_all_rows()
+                self._apply_market_view_mode_button_state()
             self._refresh_market_all_table()
         except Exception:
             pass
@@ -19943,42 +19985,215 @@ class MainWindow(QMainWindow):
             except Exception:
                 display_rows.append(_r)
 
-        self._market_display_rows = display_rows
         t = self.tbl_market_all
         t.setRowCount(0)
+        try:
+            t.setColumnCount(5)
+            t.setHorizontalHeaderLabels(["종목", "테마", "24h", "AI 점수", "+"])
+            t.setColumnWidth(0, 136)
+            t.setColumnWidth(1, 92)
+            t.setColumnWidth(2, 84)
+            t.setColumnWidth(3, 68)
+            t.setColumnWidth(4, 38)
+            for _col in range(5):
+                t.setColumnHidden(_col, False)
+            t.verticalHeader().setDefaultSectionSize(34)
+        except Exception:
+            pass
+
+        def _market_change_value(row) -> float:
+            try:
+                raw = None
+                if isinstance(row, dict):
+                    for _key in ("change_rate", "signed_change_rate", "change"):
+                        if row.get(_key) is not None:
+                            raw = row.get(_key)
+                            break
+                if isinstance(raw, str):
+                    raw = raw.strip().replace("%", "").replace(",", "")
+                return float(raw or 0.0)
+            except Exception:
+                try:
+                    return self._safe_market_float(
+                        row, "change_rate", "signed_change_rate", "change"
+                    )
+                except Exception:
+                    return 0.0
+
+        def _format_market_change_text(row, value) -> str:
+            raw = None
+            try:
+                if isinstance(row, dict):
+                    for _key in ("change_rate", "signed_change_rate", "change"):
+                        if row.get(_key) is not None:
+                            raw = row.get(_key)
+                            break
+                if raw is None:
+                    raw = value
+                if isinstance(raw, str):
+                    raw = raw.strip().replace("%", "").replace(",", "")
+                pct = float(raw or 0.0)
+                if -1.0 <= pct <= 1.0:
+                    pct *= 100.0
+                return f"{pct:+.2f}%"
+            except Exception:
+                try:
+                    fallback = str(raw if raw is not None else value or "").strip()
+                    return fallback[:8]
+                except Exception:
+                    return "0.00%"
+
+        def _theme_label_for_symbol(symbol: str) -> str:
+            try:
+                helper = getattr(self, "_get_right_panel_theme_label", None)
+                if callable(helper):
+                    label = str(helper(symbol) or "").strip()
+                    if label:
+                        return label
+            except Exception:
+                pass
+            code = str(symbol or "").strip().upper()
+            if "-" in code:
+                code = code.split("-", 1)[1].strip()
+            return {
+                "BTC": "메이저",
+                "ETH": "스마트컨트랙트",
+                "XRP": "결제/송금",
+                "SOL": "고속체인",
+                "DOGE": "밈",
+            }.get(code, "관망후보")
+
+        def _display_ai_score(row, row_idx: int, change_value: float) -> int:
+            for _key in ("ai_score", "score"):
+                try:
+                    if isinstance(row, dict) and row.get(_key) is not None:
+                        return max(0, min(100, int(round(float(row.get(_key))))))
+                except Exception:
+                    pass
+            # 표시용 fallback: 실제 AI 점수가 없는 후보 행에도 탐색기 밀도를 유지한다.
+            try:
+                p = self._explorer_effective_change_pct(change_value)
+                fallback = 55 + min(10, max(0, int(abs(p) * 0.7))) - min(5, row_idx // 12)
+                return max(50, min(65, int(fallback)))
+            except Exception:
+                return 50
+
+        def _apply_24h_color(item, change_value: float) -> None:
+            try:
+                p = self._explorer_effective_change_pct(change_value)
+                if p > 0:
+                    item.setForeground(QColor("#dc2626"))
+                elif p < 0:
+                    item.setForeground(QColor("#2563eb"))
+                else:
+                    item.setForeground(QColor("#64748b"))
+            except Exception:
+                item.setForeground(QColor("#64748b"))
+
+        def _apply_ai_score_color(item, score: int) -> None:
+            try:
+                if score >= 85:
+                    item.setForeground(QColor("#15803d"))
+                elif score >= 70:
+                    item.setForeground(QColor("#65a30d"))
+                elif score >= 55:
+                    item.setForeground(QColor("#ea580c"))
+                else:
+                    item.setForeground(QColor("#64748b"))
+            except Exception:
+                pass
+
+        try:
+            filter_key = str(
+                getattr(self, "_market_sort_key", None)
+                or self.cmb_market_sort.currentData()
+                or "volume"
+            ).strip()
+        except Exception:
+            filter_key = "volume"
+
+        def _market_filter_label(key: str) -> str:
+            return {
+                "volume": "거래량순",
+                "all": "전체",
+                "surge": "상승률순",
+                "score": "AI 점수순",
+                "change": "변동률순",
+                "major": "테마:메이저",
+                "payment": "테마:결제/송금",
+                "smart": "테마:스마트컨트랙트",
+                "fast": "테마:고속체인",
+                "meme": "테마:밈",
+                "watch": "테마:관망후보",
+            }.get(key, "거래량순")
+
+        def _theme_matches(row, key: str) -> bool:
+            try:
+                symbol = ""
+                if isinstance(row, dict):
+                    symbol = str(row.get("symbol") or row.get("market") or "").strip()
+                label = _theme_label_for_symbol(symbol)
+                theme_by_key = {
+                    "major": "메이저",
+                    "payment": "결제/송금",
+                    "smart": "스마트컨트랙트",
+                    "fast": "고속체인",
+                    "meme": "밈",
+                    "watch": "관망후보",
+                }.get(key, "")
+                return bool(theme_by_key and label == theme_by_key)
+            except Exception:
+                return False
+
+        try:
+            if filter_key == "volume":
+                display_rows = sorted(
+                    display_rows,
+                    key=lambda row: self._get_market_trade_value(row),
+                    reverse=True,
+                )
+            elif filter_key == "surge":
+                display_rows = sorted(
+                    display_rows,
+                    key=lambda row: self._explorer_effective_change_pct(
+                        _market_change_value(row)
+                    ),
+                    reverse=True,
+                )
+            elif filter_key == "score":
+                display_rows = sorted(
+                    display_rows,
+                    key=lambda row: _display_ai_score(
+                        row, 0, _market_change_value(row)
+                    ),
+                    reverse=True,
+                )
+            elif filter_key == "change":
+                display_rows = sorted(
+                    display_rows,
+                    key=lambda row: self._explorer_effective_change_pct(
+                        _market_change_value(row)
+                    ),
+                    reverse=True,
+                )
+            elif filter_key in ("major", "payment", "smart", "fast", "meme", "watch"):
+                display_rows = [
+                    row for row in display_rows if _theme_matches(row, filter_key)
+                ]
+        except Exception:
+            pass
+
+        self._market_display_rows = display_rows
+        _market_summary_label = _market_filter_label(filter_key)
+
         _hot_bg = QColor(240, 253, 244)
         for i, r in enumerate(display_rows):
             t.insertRow(i)
-            chg_val = float(r.get("change_rate") or 0.0)
+            chg_val = _market_change_value(r)
             try:
                 _is_hot = self._market_explorer_row_hot_heuristic(i, chg_val, query)
             except Exception:
                 _is_hot = False
-            c_rank = QTableWidgetItem(str(i + 1))
-            try:
-                c_rank.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            except Exception:
-                pass
-            try:
-                _rk_bg = (
-                    QColor("#fee2e2"),
-                    QColor("#dbeafe"),
-                    QColor("#dcfce7"),
-                    QColor("#ede9fe"),
-                )[i % 4]
-                c_rank.setBackground(QBrush(_rk_bg))
-                c_rank.setForeground(QBrush(QColor("#0f172a")))
-                _rf = QFont(c_rank.font())
-                _rf.setBold(True)
-                c_rank.setFont(_rf)
-            except Exception:
-                pass
-            if _is_hot:
-                try:
-                    c_rank.setBackground(QBrush(_hot_bg))
-                except Exception:
-                    pass
-            t.setItem(i, 0, c_rank)
             sym = (r.get("symbol") or "").strip()
             name = (r.get("name") or "").strip() or sym
             display_coin = ""
@@ -20008,27 +20223,40 @@ class MainWindow(QMainWindow):
                 _cs_i = None
             if _cs_i is not None:
                 _sym_show = f"{_sym_show}\n· SCORE {_cs_i}"
+            _sym_show = display_coin if display_coin else (sym or name)
             norm_sym = self._normalize_aits_market_symbol(sym)
             c0 = QTableWidgetItem(_sym_show)
             c0.setData(Qt.ItemDataRole.UserRole, norm_sym or sym)
+            try:
+                c0.setToolTip(_sym_show)
+            except Exception:
+                pass
             if _is_hot:
                 try:
                     c0.setBackground(QBrush(_hot_bg))
                 except Exception:
                     pass
-            t.setItem(i, 1, c0)
-            _p2 = QTableWidgetItem(f"{float(r.get('price') or 0.0):,.0f}")
+            t.setItem(i, 0, c0)
+            c_theme = QTableWidgetItem(_theme_label_for_symbol(norm_sym or sym))
+            try:
+                c_theme.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                c_theme.setForeground(QColor("#475569"))
+            except Exception:
+                pass
             if _is_hot:
                 try:
-                    _p2.setBackground(QBrush(_hot_bg))
+                    c_theme.setBackground(QBrush(_hot_bg))
                 except Exception:
                     pass
-            t.setItem(i, 2, _p2)
-            c_change = QTableWidgetItem(self._fmt_change_pct(chg_val))
-            self._apply_explorer_change_pct_color(c_change, chg_val)
+            t.setItem(i, 1, c_theme)
+            c_change = QTableWidgetItem(_format_market_change_text(r, chg_val))
+            try:
+                c_change.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                pass
+            _apply_24h_color(c_change, chg_val)
             try:
                 _cf = QFont(c_change.font())
-                _cf.setPointSize(12)
                 _cf.setBold(True)
                 c_change.setFont(_cf)
             except Exception:
@@ -20040,43 +20268,68 @@ class MainWindow(QMainWindow):
                         c_change.setBackground(QBrush(_hot_bg))
                 except Exception:
                     pass
-            t.setItem(i, 3, c_change)
-            trade_value = self._get_market_trade_value(r)
-            _it4 = QTableWidgetItem(f"{int(round(trade_value)):,}")
-            if _is_hot:
-                try:
-                    _it4.setBackground(QBrush(_hot_bg))
-                except Exception:
-                    pass
-            t.setItem(i, 4, _it4)
-            trade_volume = self._safe_market_float(
-                r,
-                "trade_volume",
-                "acc_trade_volume_24h",
-                "volume_24h",
-                "volume",
-            )
-            _it5 = QTableWidgetItem(f"{int(round(trade_volume)):,}")
-            if _is_hot:
-                try:
-                    _it5.setBackground(QBrush(_hot_bg))
-                except Exception:
-                    pass
-            t.setItem(i, 5, _it5)
-            c_add = QTableWidgetItem("+")
+            t.setItem(i, 2, c_change)
+
+            score_val = _display_ai_score(r, i, chg_val)
+            c_score = QTableWidgetItem(str(score_val))
             try:
-                c_add.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                _bf = QFont(c_add.font())
-                _bf.setBold(True)
-                _bf.setPointSize(11)
-                c_add.setFont(_bf)
-                c_add.setBackground(QBrush(QColor(30, 64, 175)))
-                c_add.setForeground(QColor("#f8fafc"))
+                c_score.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                _sf = QFont(c_score.font())
+                _sf.setBold(True)
+                c_score.setFont(_sf)
             except Exception:
                 pass
-            t.setItem(i, 6, c_add)
+            _apply_ai_score_color(c_score, score_val)
+            if _is_hot:
+                try:
+                    c_score.setBackground(QBrush(_hot_bg))
+                except Exception:
+                    pass
+            t.setItem(i, 3, c_score)
+
+            try:
+                row_payload = dict(r) if isinstance(r, dict) else r
+                btn_add = QPushButton("+")
+                btn_add.setToolTip("관리종목에 추가")
+                btn_add.setFixedSize(28, 28)
+                btn_add.setStyleSheet(
+                    "QPushButton {"
+                    "background: #ffffff;"
+                    "border: 1px solid #cfd8e3;"
+                    "border-radius: 8px;"
+                    "color: #111827;"
+                    "font-weight: 800;"
+                    "}"
+                    "QPushButton:hover {"
+                    "background: #eff6ff;"
+                    "border-color: #93c5fd;"
+                    "color: #1d4ed8;"
+                    "}"
+                    "QPushButton:pressed {"
+                    "background: #dbeafe;"
+                    "}"
+                )
+                btn_add.clicked.connect(
+                    lambda _checked=False, _row=row_payload: self._add_symbol_to_ai_pool(_row)
+                )
+                add_wrap = QWidget()
+                add_lay = QHBoxLayout(add_wrap)
+                add_lay.setContentsMargins(0, 0, 0, 0)
+                add_lay.setSpacing(0)
+                add_lay.addStretch(1)
+                add_lay.addWidget(btn_add)
+                add_lay.addStretch(1)
+                t.setCellWidget(i, 4, add_wrap)
+            except Exception:
+                c_add = QTableWidgetItem("+")
+                try:
+                    c_add.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    c_add.setForeground(QColor("#111827"))
+                except Exception:
+                    pass
+                t.setItem(i, 4, c_add)
         try:
-            _sn = self.cmb_market_sort.currentText()
+            _sn = _market_summary_label
         except Exception:
             _sn = "—"
         try:
