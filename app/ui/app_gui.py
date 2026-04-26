@@ -7889,24 +7889,13 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        self.btn_market_quick = QPushButton("급등 후보")
-        self.btn_market_quick.setToolTip("빠른 탐색: AI 후보 상위 50")
-        self.btn_market_all = QPushButton("전체 보기")
-        self.btn_market_all.setToolTip("전체 종목 목록에서 탐색")
+        self.btn_market_quick = QPushButton("급등 50")
+        self.btn_market_quick.setToolTip("빠른 후보 스캔 (기본 모드)")
+        self.btn_market_all = QPushButton("전체 250")
+        self.btn_market_all.setToolTip("전체 종목 스캔 (시간이 더 걸릴 수 있음)")
         try:
-            self.btn_market_quick.setFixedHeight(30)
-            self.btn_market_all.setFixedHeight(30)
-        except Exception:
-            pass
-        try:
-            self.btn_market_quick.setStyleSheet(
-                "padding: 4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
-                "background:#ecfdf5;border:1px solid #6ee7b7;border-radius:12px;color:#065f46;"
-            )
-            self.btn_market_all.setStyleSheet(
-                "padding: 4px 10px; font-size:12px; font-weight:800; min-height:30px; max-height:30px;"
-                "background:#eff6ff;border:1px solid #93c5fd;border-radius:12px;color:#1e40af;"
-            )
+            self.btn_market_quick.setFixedSize(92, 32)
+            self.btn_market_all.setFixedSize(92, 32)
         except Exception:
             pass
         self.cmb_market_sort = QComboBox()
@@ -19764,13 +19753,46 @@ class MainWindow(QMainWindow):
     def _apply_market_view_mode_button_state(self):
         try:
             mode = str(getattr(self, "_market_view_mode", "quick") or "quick").strip().lower()
+            primary_style = (
+                "QPushButton {"
+                "padding:2px 10px;"
+                "background:#dcfce7;"
+                "border:1px solid #86efac;"
+                "border-radius:10px;"
+                "color:#166534;"
+                "font-size:12px;"
+                "font-weight:800;"
+                "}"
+                "QPushButton:hover { background:#bbf7d0; }"
+                "QPushButton:pressed { background:#86efac; }"
+            )
+            secondary_style = (
+                "QPushButton {"
+                "padding:2px 10px;"
+                "background:#ffffff;"
+                "border:1px solid #cbd5e1;"
+                "border-radius:10px;"
+                "color:#334155;"
+                "font-size:12px;"
+                "font-weight:700;"
+                "}"
+                "QPushButton:hover {"
+                "background:#f8fafc;"
+                "border-color:#94a3b8;"
+                "}"
+                "QPushButton:pressed { background:#eef2f7; }"
+            )
 
             if mode == "all":
                 self.btn_market_quick.setEnabled(True)
-                self.btn_market_all.setEnabled(False)
-            else:
-                self.btn_market_quick.setEnabled(False)
                 self.btn_market_all.setEnabled(True)
+                self.btn_market_quick.setStyleSheet(secondary_style)
+                self.btn_market_all.setStyleSheet(primary_style)
+            else:
+                self.btn_market_quick.setEnabled(True)
+                self.btn_market_all.setEnabled(True)
+                self.btn_market_quick.setStyleSheet(primary_style)
+                self.btn_market_all.setStyleSheet(secondary_style)
         except Exception:
             pass
 
