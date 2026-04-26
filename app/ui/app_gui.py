@@ -7889,10 +7889,10 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        self.btn_market_quick = QPushButton("급등 50")
-        self.btn_market_quick.setToolTip("빠른 후보 스캔 (기본 모드)")
-        self.btn_market_all = QPushButton("전체 250")
-        self.btn_market_all.setToolTip("전체 종목 스캔 (시간이 더 걸릴 수 있음)")
+        self.btn_market_quick = QPushButton("50개")
+        self.btn_market_quick.setToolTip("빠른 후보 50개 보기")
+        self.btn_market_all = QPushButton("250개")
+        self.btn_market_all.setToolTip("전체 후보 250개 보기 (느릴 수 있음)")
         try:
             self.btn_market_quick.setFixedSize(92, 32)
             self.btn_market_all.setFixedSize(92, 32)
@@ -12775,11 +12775,16 @@ class MainWindow(QMainWindow):
                     up += 1
                 elif pe < 0:
                     down += 1
-            sn = str(sort_name or "").strip() or "—"
-            lb.setText(f"표시 {n}개 | 상승 {up} | 하락 {down} | 정렬: {sn}")
+            sn = str(sort_name or "").strip() or "전체"
+            try:
+                mode = str(getattr(self, "_market_view_mode", "quick") or "quick").lower()
+                view_unit = 250 if mode == "all" else 50
+            except Exception:
+                view_unit = n
+            lb.setText(f"보기 {view_unit}개 | 상승 {up} | 하락 {down} | 필터: {sn}")
         except Exception:
             try:
-                lb.setText(f"표시 {len(display_rows or [])}개")
+                lb.setText(f"보기 {len(display_rows or [])}개")
             except Exception:
                 pass
 
@@ -19756,31 +19761,34 @@ class MainWindow(QMainWindow):
             primary_style = (
                 "QPushButton {"
                 "padding:2px 10px;"
-                "background:#dcfce7;"
-                "border:1px solid #86efac;"
+                "background:#eef6ff;"
+                "border:1px solid #93c5fd;"
                 "border-radius:10px;"
-                "color:#166534;"
+                "color:#1d4ed8;"
                 "font-size:12px;"
                 "font-weight:800;"
                 "}"
-                "QPushButton:hover { background:#bbf7d0; }"
-                "QPushButton:pressed { background:#86efac; }"
+                "QPushButton:hover {"
+                "background:#f8fbff;"
+                "border-color:#bfdbfe;"
+                "}"
+                "QPushButton:pressed { background:#dbeafe; }"
             )
             secondary_style = (
                 "QPushButton {"
                 "padding:2px 10px;"
                 "background:#ffffff;"
-                "border:1px solid #cbd5e1;"
+                "border:1px solid #d7dee8;"
                 "border-radius:10px;"
-                "color:#334155;"
+                "color:#475569;"
                 "font-size:12px;"
                 "font-weight:700;"
                 "}"
                 "QPushButton:hover {"
-                "background:#f8fafc;"
-                "border-color:#94a3b8;"
+                "background:#f8fbff;"
+                "border-color:#bfdbfe;"
                 "}"
-                "QPushButton:pressed { background:#eef2f7; }"
+                "QPushButton:pressed { background:#dbeafe; }"
             )
 
             if mode == "all":
