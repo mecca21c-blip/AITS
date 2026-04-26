@@ -7866,26 +7866,49 @@ class MainWindow(QMainWindow):
         self.lbl_market_scanner_strip = QLabel("오늘의 후보 탐색 / 로테이션 감시")
         try:
             self.lbl_market_scanner_strip.setStyleSheet(
-                "font-size: 11px; font-weight: 900; color: #0f172a; "
-                "padding: 6px 12px; background: #f1f5f9; border: 1px solid #e2e8f0; "
-                "border-radius: 12px; letter-spacing: 0.4px;"
+                "font-size: 11px; font-weight: 700; color: #475569; "
+                "padding: 2px 2px 4px 2px; background: transparent; "
+                "border: none; letter-spacing: 0;"
             )
         except Exception:
             pass
         _market_inner.addWidget(self.lbl_market_scanner_strip)
         self.ed_market_search = QLineEdit()
-        self.ed_market_search.setPlaceholderText("코인 검색 (BTC / XRP / SOL)")
+        self.ed_market_search.setPlaceholderText("코인 검색 (BTC / 리플)")
         self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
         try:
-            self.ed_market_search.setMaximumWidth(220)
-            self.ed_market_search.setMinimumWidth(120)
-            self.ed_market_search.setFixedHeight(30)
+            self.ed_market_search.setMinimumWidth(150)
+            self.ed_market_search.setMaximumWidth(16777215)
+            self.ed_market_search.setFixedHeight(32)
+            self.ed_market_search.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
         except Exception:
             pass
         try:
             self.ed_market_search.setStyleSheet(
-                "padding: 4px 10px; font-size: 12px; font-weight: 600; min-height: 30px; max-height: 30px;"
-                "border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff;"
+                "padding:4px 10px; font-size:12px; font-weight:600;"
+                "min-height:32px; max-height:32px;"
+                "border:1px solid #d7dee8; border-radius:10px;"
+                "background:#ffffff; color:#111827;"
+            )
+        except Exception:
+            pass
+        self.btn_market_search = QPushButton("검색")
+        self.btn_market_search.setToolTip("현재 검색어로 후보를 검색합니다")
+        try:
+            self.btn_market_search.setFixedSize(52, 32)
+            self.btn_market_search.setStyleSheet(
+                "QPushButton {"
+                "background:#eff6ff;"
+                "border:1px solid #bfdbfe;"
+                "border-radius:10px;"
+                "color:#1d4ed8;"
+                "font-size:12px;"
+                "font-weight:700;"
+                "}"
+                "QPushButton:hover { background:#dbeafe; }"
+                "QPushButton:pressed { background:#bfdbfe; }"
             )
         except Exception:
             pass
@@ -7896,6 +7919,19 @@ class MainWindow(QMainWindow):
         try:
             self.btn_market_quick.setFixedSize(92, 32)
             self.btn_market_all.setFixedSize(92, 32)
+            self.btn_market_quick.setVisible(False)
+            self.btn_market_all.setVisible(False)
+        except Exception:
+            pass
+        self.cmb_market_limit = QComboBox()
+        self.cmb_market_limit.setObjectName("MarketLimitCombo")
+        self.cmb_market_limit.addItem("50개", 50)
+        self.cmb_market_limit.addItem("250개", 250)
+        try:
+            self.cmb_market_limit.setFixedHeight(32)
+            self.cmb_market_limit.setMinimumWidth(78)
+            self.cmb_market_limit.setMaximumWidth(86)
+            self.cmb_market_limit.setMaxVisibleItems(2)
         except Exception:
             pass
         self.cmb_market_sort = QComboBox()
@@ -7926,9 +7962,43 @@ class MainWindow(QMainWindow):
             self.cmb_market_sort.setMaximumWidth(150)
             self.btn_market_sort_toggle.setFixedHeight(30)
             self.btn_market_sort_toggle.setMaximumWidth(36)
+            self.btn_market_sort_toggle.setVisible(False)
         except Exception:
             pass
         try:
+            market_combo_qss = (
+                "QComboBox {"
+                "background:#ffffff;"
+                "border:1px solid #d7dee8;"
+                "border-radius:10px;"
+                "padding-left:10px;"
+                "color:#111827;"
+                "font-size:12px;"
+                "font-weight:700;"
+                "min-height:32px;"
+                "max-height:32px;"
+                "}"
+                "QComboBox:hover,"
+                "QComboBox:focus {"
+                "border-color:#93c5fd;"
+                "background:#f8fbff;"
+                "}"
+                "QComboBox QAbstractItemView {"
+                "background:#ffffff;"
+                "border:1px solid #dbe3ee;"
+                "selection-background-color:#eff6ff;"
+                "selection-color:#1d4ed8;"
+                "min-height:0px;"
+                "max-height:260px;"
+                "padding:4px;"
+                "outline:0;"
+                "}"
+                "QComboBox QAbstractItemView::item {"
+                "min-height:28px;"
+                "padding:4px 8px;"
+                "}"
+            )
+            self.cmb_market_limit.setStyleSheet(market_combo_qss)
             self.cmb_market_sort.setStyleSheet(
                 "QComboBox#MarketFilterCombo {"
                 "background:#ffffff;"
@@ -7972,12 +8042,10 @@ class MainWindow(QMainWindow):
         _market_top_row = QHBoxLayout()
         _market_top_row.setContentsMargins(0, 2, 0, 3)
         _market_top_row.setSpacing(6)
-        _market_top_row.addWidget(self.ed_market_search, 0)
-        _market_top_row.addWidget(self.btn_market_quick, 0)
-        _market_top_row.addWidget(self.btn_market_all, 0)
+        _market_top_row.addWidget(self.ed_market_search, 1)
+        _market_top_row.addWidget(self.btn_market_search, 0)
+        _market_top_row.addWidget(self.cmb_market_limit, 0)
         _market_top_row.addWidget(self.cmb_market_sort, 0)
-        _market_top_row.addWidget(self.btn_market_sort_toggle, 0)
-        _market_top_row.addStretch(1)
         _market_inner.addLayout(_market_top_row)
         self.lbl_market_search_status = QLabel("")
         try:
@@ -8030,45 +8098,62 @@ class MainWindow(QMainWindow):
         try:
             self.tbl_market_all.setStyleSheet(
                 "#tblMarketExplorer {\n"
-                "  gridline-color: transparent;\n"
-                "  background: #f8fafc;\n"
+                "  gridline-color: #eef2f7;\n"
+                "  background: #ffffff;\n"
+                "  alternate-background-color: #fbfdff;\n"
+                "  selection-background-color: #eff6ff;\n"
+                "  selection-color: #111827;\n"
+                "  border: 1px solid #e7edf5;\n"
+                "  border-radius: 10px;\n"
                 "}\n"
                 "#tblMarketExplorer::item {\n"
-                "  padding: 10px 10px;\n"
-                "  margin: 3px 3px;\n"
-                "  border-radius: 12px;\n"
-                "  border: 1px solid #e2e8f0;\n"
+                "  padding: 4px 6px;\n"
+                "  border-bottom: 1px solid #eef2f7;\n"
+                "}\n"
+                "#tblMarketExplorer::item:hover {\n"
+                "  background-color: #f8fbff;\n"
                 "}\n"
                 "#tblMarketExplorer::item:selected {\n"
-                "  background-color: #bfdbfe;\n"
-                "  color: #0f172a;\n"
-                "  border: 2px solid #3b82f6;\n"
+                "  background-color: #eff6ff;\n"
+                "  color: #111827;\n"
                 "}\n"
                 "#tblMarketExplorer::item:selected:!active {\n"
-                "  background-color: #cbd5e1;\n"
-                "  color: #0f172a;\n"
-                "  border: 2px solid #64748b;\n"
+                "  background-color: #f1f5f9;\n"
+                "  color: #111827;\n"
+                "}\n"
+                "#tblMarketExplorer QHeaderView::section {\n"
+                "  background: #f8fafc;\n"
+                "  color: #475569;\n"
+                "  border: none;\n"
+                "  border-bottom: 1px solid #e5eaf1;\n"
+                "  padding: 5px 6px;\n"
+                "  font-size: 11px;\n"
+                "  font-weight: 800;\n"
                 "}\n"
             )
         except Exception:
             pass
         try:
+            self.tbl_market_all.setAlternatingRowColors(True)
+        except Exception:
+            pass
+        try:
             _hh = self.tbl_market_all.horizontalHeader()
-            _hh.setFixedHeight(40)
+            _hh.setFixedHeight(32)
             _hh.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         except Exception:
             pass
         try:
             _vh_mx = self.tbl_market_all.verticalHeader()
-            _vh_mx.setDefaultSectionSize(34)
+            _vh_mx.setDefaultSectionSize(32)
         except Exception:
             pass
         try:
-            self.tbl_market_all.setColumnWidth(0, 136)
-            self.tbl_market_all.setColumnWidth(1, 92)
+            self.tbl_market_all.setColumnWidth(0, 140)
+            self.tbl_market_all.setColumnWidth(1, 90)
             self.tbl_market_all.setColumnWidth(2, 84)
-            self.tbl_market_all.setColumnWidth(3, 68)
-            self.tbl_market_all.setColumnWidth(4, 40)
+            self.tbl_market_all.setColumnWidth(3, 64)
+            self.tbl_market_all.setColumnWidth(4, 36)
         except Exception:
             pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
@@ -8091,7 +8176,7 @@ class MainWindow(QMainWindow):
         try:
             self.lbl_market_explorer_footer.setWordWrap(True)
             self.lbl_market_explorer_footer.setStyleSheet(
-                "font-size: 12px; color: #64748b; padding: 6px 0 0 0; font-weight: 600;"
+                "font-size: 11px; color: #64748b; padding: 2px 0 0 0; font-weight: 600;"
             )
         except Exception:
             pass
@@ -8189,6 +8274,14 @@ class MainWindow(QMainWindow):
             pass
         try:
             self.btn_market_all.clicked.connect(self._on_market_view_mode_all)
+        except Exception:
+            pass
+        try:
+            self.btn_market_search.clicked.connect(self._on_market_search_clicked)
+        except Exception:
+            pass
+        try:
+            self.cmb_market_limit.currentIndexChanged.connect(self._on_market_limit_changed)
         except Exception:
             pass
         try:
@@ -12777,8 +12870,7 @@ class MainWindow(QMainWindow):
                     down += 1
             sn = str(sort_name or "").strip() or "전체"
             try:
-                mode = str(getattr(self, "_market_view_mode", "quick") or "quick").lower()
-                view_unit = 250 if mode == "all" else 50
+                view_unit = self._get_market_display_limit()
             except Exception:
                 view_unit = n
             lb.setText(f"보기 {view_unit}개 | 상승 {up} | 하락 {down} | 필터: {sn}")
@@ -19824,6 +19916,28 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _get_market_display_limit(self) -> int:
+        try:
+            cmb = getattr(self, "cmb_market_limit", None)
+            if cmb is not None:
+                limit = int(cmb.currentData() or 50)
+                if limit in (50, 250):
+                    return limit
+        except Exception:
+            pass
+        return 50
+
+    def _on_market_limit_changed(self):
+        try:
+            limit = self._get_market_display_limit()
+            self._market_view_mode = "all" if limit >= 250 else "quick"
+            if limit >= 250:
+                self._ensure_market_all_rows()
+            self._apply_market_view_mode_button_state()
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
     def _set_market_filter(self, filter_key: str, refresh: bool = True) -> None:
         try:
             key = str(filter_key or "volume").strip()
@@ -19843,10 +19957,6 @@ class MainWindow(QMainWindow):
     def _on_market_sort_changed(self):
         try:
             self._market_sort_key = self.cmb_market_sort.currentData()
-            if self._market_sort_key == "all":
-                self._market_view_mode = "all"
-                self._ensure_market_all_rows()
-                self._apply_market_view_mode_button_state()
             self._refresh_market_all_table()
         except Exception:
             pass
@@ -20153,14 +20263,14 @@ class MainWindow(QMainWindow):
         try:
             t.setColumnCount(5)
             t.setHorizontalHeaderLabels(["종목", "테마", "24h", "AI 점수", "+"])
-            t.setColumnWidth(0, 136)
-            t.setColumnWidth(1, 92)
+            t.setColumnWidth(0, 140)
+            t.setColumnWidth(1, 90)
             t.setColumnWidth(2, 84)
-            t.setColumnWidth(3, 68)
-            t.setColumnWidth(4, 40)
+            t.setColumnWidth(3, 64)
+            t.setColumnWidth(4, 36)
             for _col in range(5):
                 t.setColumnHidden(_col, False)
-            t.verticalHeader().setDefaultSectionSize(34)
+            t.verticalHeader().setDefaultSectionSize(32)
         except Exception:
             pass
 
@@ -20253,18 +20363,76 @@ class MainWindow(QMainWindow):
             except Exception:
                 item.setForeground(QColor("#64748b"))
 
-        def _apply_ai_score_color(item, score: int) -> None:
+        def _theme_badge_colors(label: str) -> tuple[str, str, str]:
+            label = str(label or "").strip()
+            colors = {
+                "관망후보": ("#f8fafc", "#64748b", "#e2e8f0"),
+                "메이저": ("#eef6ff", "#2563eb", "#bfdbfe"),
+                "결제/송금": ("#f0fdf4", "#15803d", "#bbf7d0"),
+                "스마트컨트랙트": ("#f5f3ff", "#7c3aed", "#ddd6fe"),
+                "고속체인": ("#ecfeff", "#0891b2", "#a5f3fc"),
+                "신규체인": ("#fff7ed", "#ea580c", "#fed7aa"),
+                "멀티체인": ("#eff6ff", "#1d4ed8", "#bfdbfe"),
+                "밈": ("#fdf2f8", "#db2777", "#fbcfe8"),
+                "AI/데이터": ("#f5f3ff", "#6d28d9", "#ddd6fe"),
+                "오라클": ("#eff6ff", "#1d4ed8", "#bfdbfe"),
+                "디파이": ("#f0fdf4", "#16a34a", "#bbf7d0"),
+                "인터체인": ("#eef2ff", "#4f46e5", "#c7d2fe"),
+                "확장체인": ("#f0f9ff", "#0284c7", "#bae6fd"),
+                "게임/메타": ("#fff7ed", "#c2410c", "#fed7aa"),
+                "인프라": ("#f8fafc", "#334155", "#cbd5e1"),
+                "RWA/기관": ("#fefce8", "#a16207", "#fde68a"),
+            }
+            return colors.get(label, ("#f8fafc", "#64748b", "#e2e8f0"))
+
+        def _score_badge_colors(score: int) -> tuple[str, str, str]:
             try:
-                if score >= 85:
-                    item.setForeground(QColor("#15803d"))
-                elif score >= 70:
-                    item.setForeground(QColor("#65a30d"))
-                elif score >= 55:
-                    item.setForeground(QColor("#ea580c"))
-                else:
-                    item.setForeground(QColor("#64748b"))
+                score = int(score)
             except Exception:
-                pass
+                score = 0
+            if score >= 85:
+                return "#dcfce7", "#15803d", "#86efac"
+            if score >= 70:
+                return "#ecfccb", "#4d7c0f", "#bef264"
+            if score >= 55:
+                return "#fff7ed", "#ea580c", "#fed7aa"
+            return "#f8fafc", "#64748b", "#e2e8f0"
+
+        def _make_badge_widget(
+            text: str,
+            bg: str,
+            fg: str,
+            border: str,
+            *,
+            min_width: int = 0,
+            height: int = 22,
+            font_size: int = 11,
+            font_weight: int = 700,
+        ) -> QWidget:
+            wrap = QWidget()
+            lay = QHBoxLayout(wrap)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+            badge = QLabel(str(text or ""))
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            if min_width:
+                badge.setMinimumWidth(min_width)
+            badge.setFixedHeight(height)
+            badge.setStyleSheet(
+                "QLabel {"
+                f"background: {bg};"
+                f"color: {fg};"
+                f"border: 1px solid {border};"
+                "border-radius: 8px;"
+                "padding: 2px 7px;"
+                f"font-size: {font_size}px;"
+                f"font-weight: {font_weight};"
+                "}"
+            )
+            lay.addStretch(1)
+            lay.addWidget(badge)
+            lay.addStretch(1)
+            return wrap
 
         try:
             filter_key = str(
@@ -20346,10 +20514,16 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        try:
+            display_limit = self._get_market_display_limit()
+        except Exception:
+            display_limit = 50
+        if display_limit > 0 and len(display_rows) > display_limit:
+            display_rows = display_rows[:display_limit]
+
         self._market_display_rows = display_rows
         _market_summary_label = _market_filter_label(filter_key)
 
-        _hot_bg = QColor(240, 253, 244)
         for i, r in enumerate(display_rows):
             t.insertRow(i)
             chg_val = _market_change_value(r)
@@ -20391,27 +20565,42 @@ class MainWindow(QMainWindow):
             c0 = QTableWidgetItem(_sym_show)
             c0.setData(Qt.ItemDataRole.UserRole, norm_sym or sym)
             try:
+                c0.setTextAlignment(
+                    Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft
+                )
+                c0.setForeground(QColor("#111827"))
+                _name_font = QFont(c0.font())
+                _name_font.setBold(True)
+                c0.setFont(_name_font)
                 c0.setToolTip(_sym_show)
             except Exception:
                 pass
-            if _is_hot:
-                try:
-                    c0.setBackground(QBrush(_hot_bg))
-                except Exception:
-                    pass
             t.setItem(i, 0, c0)
-            c_theme = QTableWidgetItem(_theme_label_for_symbol(norm_sym or sym))
             try:
-                c_theme.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                c_theme.setForeground(QColor("#475569"))
+                theme_label = _theme_label_for_symbol(norm_sym or sym)
+                theme_bg, theme_fg, theme_border = _theme_badge_colors(theme_label)
+                t.setCellWidget(
+                    i,
+                    1,
+                    _make_badge_widget(
+                        theme_label,
+                        theme_bg,
+                        theme_fg,
+                        theme_border,
+                        min_width=0,
+                        height=22,
+                        font_size=10,
+                        font_weight=700,
+                    ),
+                )
             except Exception:
-                pass
-            if _is_hot:
+                c_theme = QTableWidgetItem(_theme_label_for_symbol(norm_sym or sym))
                 try:
-                    c_theme.setBackground(QBrush(_hot_bg))
+                    c_theme.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    c_theme.setForeground(QColor("#475569"))
                 except Exception:
                     pass
-            t.setItem(i, 1, c_theme)
+                t.setItem(i, 1, c_theme)
             c_change = QTableWidgetItem(_format_market_change_text(r, chg_val))
             try:
                 c_change.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -20424,42 +20613,44 @@ class MainWindow(QMainWindow):
                 c_change.setFont(_cf)
             except Exception:
                 pass
-            if _is_hot:
-                try:
-                    _pchg = self._explorer_effective_change_pct(chg_val)
-                    if -3 < _pchg < 3:
-                        c_change.setBackground(QBrush(_hot_bg))
-                except Exception:
-                    pass
             t.setItem(i, 2, c_change)
 
             score_val = _display_ai_score(r, i, chg_val)
-            c_score = QTableWidgetItem(str(score_val))
             try:
-                c_score.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                _sf = QFont(c_score.font())
-                _sf.setBold(True)
-                c_score.setFont(_sf)
+                score_bg, score_fg, score_border = _score_badge_colors(score_val)
+                t.setCellWidget(
+                    i,
+                    3,
+                    _make_badge_widget(
+                        str(score_val),
+                        score_bg,
+                        score_fg,
+                        score_border,
+                        min_width=40,
+                        height=22,
+                        font_size=11,
+                        font_weight=800,
+                    ),
+                )
             except Exception:
-                pass
-            _apply_ai_score_color(c_score, score_val)
-            if _is_hot:
+                c_score = QTableWidgetItem(str(score_val))
                 try:
-                    c_score.setBackground(QBrush(_hot_bg))
+                    c_score.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    c_score.setForeground(QColor("#64748b"))
                 except Exception:
                     pass
-            t.setItem(i, 3, c_score)
+                t.setItem(i, 3, c_score)
 
             try:
                 row_payload = dict(r) if isinstance(r, dict) else r
                 btn_add = QPushButton("+")
                 btn_add.setToolTip("관리종목에 추가")
-                btn_add.setFixedSize(28, 28)
+                btn_add.setFixedSize(26, 26)
                 btn_add.setStyleSheet(
                     "QPushButton {"
                     "background: #ffffff;"
                     "border: 1px solid #cbd5e1;"
-                    "border-radius: 8px;"
+                    "border-radius: 7px;"
                     "color: #0f172a;"
                     "font-size: 15px;"
                     "font-weight: 900;"
@@ -20509,6 +20700,12 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_market_search_text_changed(self, _t: str = "") -> None:
+        try:
+            self._refresh_market_all_table()
+        except Exception:
+            pass
+
+    def _on_market_search_clicked(self) -> None:
         try:
             self._refresh_market_all_table()
         except Exception:
