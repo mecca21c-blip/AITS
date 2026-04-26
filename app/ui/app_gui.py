@@ -7838,7 +7838,7 @@ class MainWindow(QMainWindow):
         # except Exception:
         #     pass
 
-        _gb_market = QGroupBox("AI THEME SCANNER")
+        _gb_market = QGroupBox("")
         self._gb_market = _gb_market
         try:
             _gb_market.setObjectName("gbMarketExplorer")
@@ -7863,21 +7863,59 @@ class MainWindow(QMainWindow):
             _market_inner.setSpacing(7)
         except Exception:
             pass
+        _market_header = QWidget(_gb_market)
+        _market_header_ly = QVBoxLayout(_market_header)
+        try:
+            _market_header_ly.setContentsMargins(0, 0, 0, 0)
+            _market_header_ly.setSpacing(3)
+        except Exception:
+            pass
+        _market_title_row = QHBoxLayout()
+        try:
+            _market_title_row.setContentsMargins(0, 0, 0, 0)
+            _market_title_row.setSpacing(6)
+            _market_title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            pass
+        self.lbl_market_title = QLabel("AI THEME SCANNER")
+        try:
+            self.lbl_market_title.setWordWrap(False)
+            self.lbl_market_title.setStyleSheet(
+                "font-size: 14px; font-weight: 800; color: #0f172a; "
+                "padding: 0; background: transparent; border: none;"
+            )
+        except Exception:
+            pass
+        self.lbl_market_realtime_badge = QLabel("실시간 후보 탐색")
+        try:
+            self.lbl_market_realtime_badge.setWordWrap(False)
+            self.lbl_market_realtime_badge.setStyleSheet(
+                "font-size: 10px; font-weight: 700; color: #64748b; "
+                "background: #f8fafc; border: 1px solid #e2e8f0; "
+                "border-radius: 8px; padding: 2px 8px;"
+            )
+        except Exception:
+            pass
+        _market_title_row.addWidget(self.lbl_market_title, 0)
+        _market_title_row.addStretch(1)
+        _market_title_row.addWidget(self.lbl_market_realtime_badge, 0)
+        _market_header_ly.addLayout(_market_title_row)
         self.lbl_market_scanner_strip = QLabel("오늘의 후보 탐색 / 로테이션 감시")
         try:
             self.lbl_market_scanner_strip.setStyleSheet(
-                "font-size: 11px; font-weight: 700; color: #475569; "
+                "font-size: 11px; font-weight: 600; color: #64748b; "
                 "padding: 2px 2px 4px 2px; background: transparent; "
                 "border: none; letter-spacing: 0;"
             )
         except Exception:
             pass
-        _market_inner.addWidget(self.lbl_market_scanner_strip)
+        _market_header_ly.addWidget(self.lbl_market_scanner_strip)
+        _market_inner.addWidget(_market_header)
         self.ed_market_search = QLineEdit()
         self.ed_market_search.setPlaceholderText("코인 검색 (BTC / 리플)")
         self.ed_market_search.textChanged.connect(self._on_market_search_text_changed)
         try:
-            self.ed_market_search.setMinimumWidth(150)
+            self.ed_market_search.setMinimumWidth(110)
             self.ed_market_search.setMaximumWidth(16777215)
             self.ed_market_search.setFixedHeight(32)
             self.ed_market_search.setSizePolicy(
@@ -7897,7 +7935,12 @@ class MainWindow(QMainWindow):
         self.btn_market_search = QPushButton("검색")
         self.btn_market_search.setToolTip("현재 검색어로 후보를 검색합니다")
         try:
-            self.btn_market_search.setFixedSize(52, 32)
+            self.btn_market_search.setFixedSize(56, 32)
+            self.btn_market_search.setMinimumWidth(56)
+            self.btn_market_search.setMaximumWidth(56)
+            self.btn_market_search.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
             self.btn_market_search.setStyleSheet(
                 "QPushButton {"
                 "background:#eff6ff;"
@@ -7929,8 +7972,10 @@ class MainWindow(QMainWindow):
         self.cmb_market_limit.addItem("250개", 250)
         try:
             self.cmb_market_limit.setFixedHeight(32)
-            self.cmb_market_limit.setMinimumWidth(78)
-            self.cmb_market_limit.setMaximumWidth(86)
+            self.cmb_market_limit.setFixedWidth(76)
+            self.cmb_market_limit.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
             self.cmb_market_limit.setMaxVisibleItems(2)
         except Exception:
             pass
@@ -7958,8 +8003,10 @@ class MainWindow(QMainWindow):
         self.btn_market_sort_toggle = QPushButton("↓")
         try:
             self.cmb_market_sort.setFixedHeight(32)
-            self.cmb_market_sort.setMinimumWidth(130)
-            self.cmb_market_sort.setMaximumWidth(150)
+            self.cmb_market_sort.setFixedWidth(126)
+            self.cmb_market_sort.setSizePolicy(
+                QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+            )
             self.btn_market_sort_toggle.setFixedHeight(30)
             self.btn_market_sort_toggle.setMaximumWidth(36)
             self.btn_market_sort_toggle.setVisible(False)
@@ -8041,7 +8088,7 @@ class MainWindow(QMainWindow):
             pass
         _market_top_row = QHBoxLayout()
         _market_top_row.setContentsMargins(0, 2, 0, 3)
-        _market_top_row.setSpacing(6)
+        _market_top_row.setSpacing(4)
         _market_top_row.addWidget(self.ed_market_search, 1)
         _market_top_row.addWidget(self.btn_market_search, 0)
         _market_top_row.addWidget(self.cmb_market_limit, 0)
