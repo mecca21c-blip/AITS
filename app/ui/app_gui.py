@@ -7911,28 +7911,30 @@ class MainWindow(QMainWindow):
             pass
         self.cmb_market_sort = QComboBox()
         self.cmb_market_sort.setObjectName("MarketFilterCombo")
-        self.cmb_market_sort.addItem("FILTER: 거래량순", "volume")
-        self.cmb_market_sort.addItem("FILTER: 전체", "all")
-        self.cmb_market_sort.addItem("FILTER: 급등", "surge")
-        self.cmb_market_sort.addItem("FILTER: AI 점수순", "score")
-        self.cmb_market_sort.addItem("FILTER: 변동률순", "change")
-        self.cmb_market_sort.addItem("FILTER: 메이저", "major")
-        self.cmb_market_sort.addItem("FILTER: 결제/송금", "payment")
-        self.cmb_market_sort.addItem("FILTER: 스마트컨트랙트", "smart")
-        self.cmb_market_sort.addItem("FILTER: 고속체인", "fast")
-        self.cmb_market_sort.addItem("FILTER: 밈", "meme")
-        self.cmb_market_sort.addItem("FILTER: 관망후보", "watch")
+        self.cmb_market_sort.addItem("거래량순", "volume")
+        self.cmb_market_sort.addItem("전체", "all")
+        self.cmb_market_sort.addItem("급등", "surge")
+        self.cmb_market_sort.addItem("AI 점수순", "score")
+        self.cmb_market_sort.addItem("변동률순", "change")
+        self.cmb_market_sort.addItem("메이저", "major")
+        self.cmb_market_sort.addItem("결제/송금", "payment")
+        self.cmb_market_sort.addItem("스마트컨트랙트", "smart")
+        self.cmb_market_sort.addItem("고속체인", "fast")
+        self.cmb_market_sort.addItem("밈", "meme")
+        self.cmb_market_sort.addItem("관망후보", "watch")
         try:
-            self.cmb_market_sort.setMaxVisibleItems(12)
+            self.cmb_market_sort.setMaxVisibleItems(11)
             self.cmb_market_sort.view().setMinimumWidth(
-                max(160, self.cmb_market_sort.sizeHint().width())
+                max(150, self.cmb_market_sort.sizeHint().width())
             )
-            self.cmb_market_sort.view().setMaximumHeight(280)
+            self.cmb_market_sort.view().setMaximumHeight(260)
         except Exception:
             pass
         self.btn_market_sort_toggle = QPushButton("↓")
         try:
-            self.cmb_market_sort.setFixedHeight(30)
+            self.cmb_market_sort.setFixedHeight(32)
+            self.cmb_market_sort.setMinimumWidth(130)
+            self.cmb_market_sort.setMaximumWidth(150)
             self.btn_market_sort_toggle.setFixedHeight(30)
             self.btn_market_sort_toggle.setMaximumWidth(36)
         except Exception:
@@ -7940,15 +7942,38 @@ class MainWindow(QMainWindow):
         try:
             self.cmb_market_sort.setStyleSheet(
                 "QComboBox#MarketFilterCombo {"
-                "font-size:12px; font-weight:700; padding:4px 10px;"
-                "min-height:30px; max-height:32px;"
-                "border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc;"
+                "background:#ffffff;"
+                "border:1px solid #cfd8e3;"
+                "border-radius:10px;"
+                "padding-left:10px;"
+                "color:#111827;"
+                "font-size:12px;"
+                "font-weight:700;"
+                "min-height:32px;"
+                "max-height:32px;"
+                "}"
+                "QComboBox#MarketFilterCombo:hover,"
+                "QComboBox#MarketFilterCombo:focus {"
+                "border-color:#93c5fd;"
+                "background:#f8fbff;"
                 "}"
                 "QComboBox#MarketFilterCombo QAbstractItemView {"
-                "min-height:0px; max-height:280px; padding:4px; outline:0;"
+                "background:#ffffff;"
+                "border:1px solid #dbe3ee;"
+                "selection-background-color:#eff6ff;"
+                "selection-color:#1d4ed8;"
+                "min-height:0px;"
+                "max-height:260px;"
+                "padding:4px;"
+                "outline:0;"
+                "}"
+                "QComboBox#MarketFilterCombo QAbstractItemView::item {"
+                "min-height:28px;"
+                "padding:4px 8px;"
                 "}"
             )
-            self.cmb_market_sort.view().setMaximumHeight(280)
+            self.cmb_market_sort.view().setMaximumHeight(260)
+            self.cmb_market_sort.setFixedHeight(32)
             self.btn_market_sort_toggle.setStyleSheet(
                 "font-size:12px; font-weight:800; padding:2px; min-height:30px; max-height:30px;"
                 "border:1px solid #cbd5e1; border-radius:10px; background:#f8fafc;"
@@ -8054,7 +8079,7 @@ class MainWindow(QMainWindow):
             self.tbl_market_all.setColumnWidth(1, 92)
             self.tbl_market_all.setColumnWidth(2, 84)
             self.tbl_market_all.setColumnWidth(3, 68)
-            self.tbl_market_all.setColumnWidth(4, 38)
+            self.tbl_market_all.setColumnWidth(4, 40)
         except Exception:
             pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
@@ -19809,6 +19834,114 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _get_right_panel_theme_label(self, symbol: str) -> str:
+        try:
+            code = str(symbol or "").strip().upper()
+            if not code:
+                return "관망후보"
+            if "-" in code:
+                code = code.split("-", 1)[1].strip()
+            for suffix in ("USDT", "KRW", "BTC"):
+                if code.endswith(suffix) and len(code) > len(suffix):
+                    code = code[: -len(suffix)].strip("_-/")
+                    break
+
+            theme_map = {
+                "BTC": "메이저",
+                "ETH": "스마트컨트랙트",
+                "XRP": "결제/송금",
+                "XLM": "결제/송금",
+                "HBAR": "결제/송금",
+                "TRX": "결제/송금",
+                "STX": "결제/송금",
+                "ADA": "스마트컨트랙트",
+                "NEO": "스마트컨트랙트",
+                "QTUM": "스마트컨트랙트",
+                "EOS": "스마트컨트랙트",
+                "SOL": "고속체인",
+                "SEI": "고속체인",
+                "APT": "신규체인",
+                "SUI": "신규체인",
+                "AVAX": "멀티체인",
+                "TON": "고속체인",
+                "DOGE": "밈",
+                "SHIB": "밈",
+                "PEPE": "밈",
+                "BONK": "밈",
+                "FLOKI": "밈",
+                "WIF": "밈",
+                "TRUMP": "밈",
+                "TAO": "AI/데이터",
+                "RENDER": "AI/데이터",
+                "RNDR": "AI/데이터",
+                "NEAR": "AI/데이터",
+                "ARKM": "AI/데이터",
+                "WLD": "AI/데이터",
+                "KAITO": "AI/데이터",
+                "VIRTUAL": "AI/데이터",
+                "FET": "AI/데이터",
+                "ASI": "AI/데이터",
+                "GRT": "AI/데이터",
+                "OCEAN": "AI/데이터",
+                "AGIX": "AI/데이터",
+                "LINK": "오라클",
+                "PYTH": "오라클",
+                "BAND": "오라클",
+                "API3": "오라클",
+                "AAVE": "디파이",
+                "UNI": "디파이",
+                "COMP": "디파이",
+                "MKR": "디파이",
+                "JUP": "디파이",
+                "JTO": "디파이",
+                "LDO": "디파이",
+                "CRV": "디파이",
+                "DYDX": "디파이",
+                "ORCA": "디파이",
+                "PENDLE": "디파이",
+                "ENA": "디파이",
+                "SKY": "디파이",
+                "DOT": "인터체인",
+                "ATOM": "인터체인",
+                "OSMO": "인터체인",
+                "AXL": "인터체인",
+                "MATIC": "확장체인",
+                "POL": "확장체인",
+                "ARB": "확장체인",
+                "OP": "확장체인",
+                "IMX": "확장체인",
+                "STRK": "확장체인",
+                "LINEA": "확장체인",
+                "SAND": "게임/메타",
+                "MANA": "게임/메타",
+                "AXS": "게임/메타",
+                "GALA": "게임/메타",
+                "ILV": "게임/메타",
+                "YGG": "게임/메타",
+                "FIL": "인프라",
+                "AR": "인프라",
+                "ICP": "인프라",
+                "STORJ": "인프라",
+                "HYPER": "인프라",
+                "KERNEL": "인프라",
+                "ONDO": "RWA/기관",
+            }
+            if code in theme_map:
+                return theme_map[code]
+
+            keyword_rules = (
+                (("AI", "DATA", "RENDER", "TAO", "KAITO", "WLD"), "AI/데이터"),
+                (("DOGE", "PEPE", "BONK", "FLOKI", "WIF"), "밈"),
+                (("PAY", "XRP", "XLM", "HBAR", "TRX"), "결제/송금"),
+                (("JUP", "AAVE", "UNI", "COMP", "MKR", "CRV"), "디파이"),
+            )
+            for keywords, label in keyword_rules:
+                if any(keyword in code for keyword in keywords):
+                    return label
+        except Exception:
+            pass
+        return "관망후보"
+
     def _refresh_market_all_table(self) -> None:
         if not hasattr(self, "tbl_market_all") or self.tbl_market_all is None:
             return
@@ -19994,7 +20127,7 @@ class MainWindow(QMainWindow):
             t.setColumnWidth(1, 92)
             t.setColumnWidth(2, 84)
             t.setColumnWidth(3, 68)
-            t.setColumnWidth(4, 38)
+            t.setColumnWidth(4, 40)
             for _col in range(5):
                 t.setColumnHidden(_col, False)
             t.verticalHeader().setDefaultSectionSize(34)
@@ -20295,18 +20428,22 @@ class MainWindow(QMainWindow):
                 btn_add.setStyleSheet(
                     "QPushButton {"
                     "background: #ffffff;"
-                    "border: 1px solid #cfd8e3;"
+                    "border: 1px solid #cbd5e1;"
                     "border-radius: 8px;"
-                    "color: #111827;"
-                    "font-weight: 800;"
+                    "color: #0f172a;"
+                    "font-size: 15px;"
+                    "font-weight: 900;"
                     "}"
                     "QPushButton:hover {"
-                    "background: #eff6ff;"
-                    "border-color: #93c5fd;"
-                    "color: #1d4ed8;"
+                    "background: #e0f2fe;"
+                    "border-color: #38bdf8;"
+                    "color: #0369a1;"
                     "}"
                     "QPushButton:pressed {"
-                    "background: #dbeafe;"
+                    "background: #bae6fd;"
+                    "}"
+                    "QPushButton:disabled {"
+                    "color: #94a3b8;"
                     "}"
                 )
                 btn_add.clicked.connect(
