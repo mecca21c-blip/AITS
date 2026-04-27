@@ -21801,12 +21801,39 @@ class MainWindow(QMainWindow):
         for model_info in self.KMTS_GPT_MODELS:
             self.ed_openai_model.addItem(model_info["label"], model_info["id"])
         self.ed_openai_model.setCurrentIndex(0)  # gpt-4o-mini 기본값
+        _old_gpt_model = self.ed_openai_model.currentText()
+        self.ed_openai_model.clear()
+        for _label, _model_id in (
+            ("gpt-4o-mini (추천)", "gpt-4o-mini"),
+            ("gpt-4.1-mini", "gpt-4.1-mini"),
+            ("gpt-4.1", "gpt-4.1"),
+            ("gpt-5-mini", "gpt-5-mini"),
+            ("gpt-5", "gpt-5"),
+        ):
+            self.ed_openai_model.addItem(_label, _model_id)
+        if _old_gpt_model:
+            _idx = self.ed_openai_model.findText(_old_gpt_model)
+            if _idx >= 0:
+                self.ed_openai_model.setCurrentIndex(_idx)
 
         self.ed_gemini_key = QLineEdit()
         self.ed_gemini_key.setEchoMode(QLineEdit.Password)
         self.ed_gemini_key.setPlaceholderText("Gemini API Key")
         self.cmb_gemini_model = QComboBox()
         self.cmb_gemini_model.addItems(["gemini-1.5-pro", "gemini-1.5-flash"])
+        _old_gemini_model = self.cmb_gemini_model.currentText()
+        self.cmb_gemini_model.clear()
+        self.cmb_gemini_model.addItems([
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+        ])
+        if _old_gemini_model:
+            _idx = self.cmb_gemini_model.findText(_old_gemini_model)
+            if _idx >= 0:
+                self.cmb_gemini_model.setCurrentIndex(_idx)
         self.lbl_gemini_test_status = QLabel("⚪ NOT TESTED")
         self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color: #666;")
         
@@ -22476,34 +22503,67 @@ class MainWindow(QMainWindow):
             radio.setObjectName(f"aits_engine_radio_{provider}")
             text_col = QVBoxLayout()
             text_col.setContentsMargins(0, 0, 0, 0)
-            text_col.setSpacing(2)
+            text_col.setSpacing(6)
+            title_row = QHBoxLayout()
+            title_row.setContentsMargins(0, 0, 0, 0)
+            title_row.setSpacing(8)
             title_label = QLabel(title)
             title_label.setStyleSheet("font-size: 14px; font-weight: 800; color: #172033;")
+            badge = QLabel("ACTIVE")
+            badge.setVisible(False)
+            badge.setStyleSheet(
+                "color: #ffffff; padding: 3px 8px; border-radius: 8px; "
+                "font-size: 11px; font-weight: 800;"
+            )
             desc_label = QLabel(desc)
             desc_label.setWordWrap(True)
             desc_label.setStyleSheet("font-size: 12px; color: #64748b;")
-            text_col.addWidget(title_label)
+            title_row.addWidget(title_label)
+            title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
+            title_row.addStretch(1)
+            text_col.addLayout(title_row)
             text_col.addWidget(desc_label)
             lay.addWidget(radio, 0, Qt.AlignmentFlag.AlignTop)
             lay.addLayout(text_col, 1)
             card.setCursor(Qt.CursorShape.PointingHandCursor)
-            return card, radio
+            card.setMinimumHeight(72)
+            card.setMaximumHeight(96)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+            return card, radio, badge
 
-        self.aits_engine_basic_card, self.rb_engine_basic = _engine_select_card(
+        (
+            self.aits_engine_basic_card,
+            self.rb_engine_basic,
+            self.lbl_engine_badge_basic,
+        ) = _engine_select_card(
             "local",
             "BASIC",
-            "로컬 자동매매 엔진 (기본 내장)",
+            "로컬 자동매매 엔진",
         )
-        self.aits_engine_gpt_card, self.rb_engine_gpt = _engine_select_card(
+        (
+            self.aits_engine_gpt_card,
+            self.rb_engine_gpt,
+            self.lbl_engine_badge_gpt,
+        ) = _engine_select_card(
             "gpt",
             "GPT",
             "OpenAI 기반 고급 AI 분석",
         )
-        self.aits_engine_gemini_card, self.rb_engine_gemini = _engine_select_card(
+        (
+            self.aits_engine_gemini_card,
+            self.rb_engine_gemini,
+            self.lbl_engine_badge_gemini,
+        ) = _engine_select_card(
             "gemini",
             "GEMINI",
             "Google Gemini 기반 AI 분석",
         )
+        self.btn_engine_basic_test = QPushButton("Basic 활성화 확인")
+        self.btn_engine_gpt_test = QPushButton("GPT 연결 테스트")
+        self.btn_engine_gemini_test = QPushButton("Gemini 연결 테스트")
+        self.btn_engine_basic_test.setText("Basic 활성화 확인")
+        self.btn_engine_gpt_test.setText("GPT 연결 테스트")
+        self.btn_engine_gemini_test.setText("Gemini 연결 테스트")
         self.aits_engine_button_group = QButtonGroup(self)
         self.aits_engine_button_group.addButton(self.rb_engine_basic)
         self.aits_engine_button_group.addButton(self.rb_engine_gpt)
@@ -22520,6 +22580,29 @@ class MainWindow(QMainWindow):
                 lambda event, r=_radio: (r.setChecked(True), event.accept())
             )
             _common_left.addWidget(_card)
+
+        def _append_common_engine_log(text: str) -> None:
+            if hasattr(self, "aits_common_log_view"):
+                self.aits_common_log_view.append(text)
+
+        self.btn_engine_basic_test.clicked.connect(
+            lambda: (
+                self._set_ai_provider_ui_active("local"),
+                _append_common_engine_log("[AITS] Basic engine ready. No API key required."),
+            )
+        )
+        self.btn_engine_gpt_test.clicked.connect(
+            lambda: (
+                self._set_ai_provider_ui_active("gpt"),
+                self.btn_test_gpt.click() if hasattr(self, "btn_test_gpt") else None,
+            )
+        )
+        self.btn_engine_gemini_test.clicked.connect(
+            lambda: (
+                self._set_ai_provider_ui_active("gemini"),
+                self.btn_test_gemini.click() if hasattr(self, "btn_test_gemini") else None,
+            )
+        )
 
         self.aits_basic_ready_box = QFrame()
         self.aits_basic_ready_box.setObjectName("aits_basic_ready_box")
@@ -22555,15 +22638,444 @@ class MainWindow(QMainWindow):
                 self,
                 "Basic 세부설정",
                 "Basic 엔진 세부 운용값은 전략설정 탭에서 조정합니다.",
-            )
+        )
 
         self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
-        _basic_ready_lay.addWidget(self.btn_basic_detail_settings)
+        self.btn_basic_detail_settings.setMinimumHeight(32)
+        self.btn_engine_basic_test.setMinimumHeight(32)
+        self.btn_engine_gpt_test.setMinimumHeight(32)
+        self.btn_engine_gemini_test.setMinimumHeight(32)
+        for _engine_btn in (
+            self.btn_basic_detail_settings,
+            self.btn_engine_basic_test,
+            self.btn_engine_gpt_test,
+            self.btn_engine_gemini_test,
+        ):
+            _engine_btn.setStyleSheet(
+                "QPushButton { background: #2563eb; color: #ffffff; border: 1px solid #1d4ed8; "
+                "border-radius: 10px; font-size: 12px; font-weight: 700; padding: 6px 12px; }"
+                "QPushButton:hover { background: #1d4ed8; }"
+            )
+
+        self.aits_selected_engine_config_box = QFrame()
+        self.aits_selected_engine_config_box.setObjectName("aits_selected_engine_config_box")
+        self.aits_selected_engine_config_box.setStyleSheet(
+            "QFrame#aits_selected_engine_config_box { background: #ffffff; border: 1px solid #d8dee9; "
+            "border-radius: 12px; padding: 12px; }"
+        )
+        _selected_engine_config_layout = QVBoxLayout(self.aits_selected_engine_config_box)
+        _selected_engine_config_layout.setContentsMargins(12, 10, 12, 10)
+        _selected_engine_config_layout.setSpacing(8)
+        _selected_engine_title = QLabel("선택 엔진 연결 설정")
+        _selected_engine_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #172033;")
+        _selected_engine_config_layout.addWidget(_selected_engine_title)
+
+        self.aits_basic_config_box = QWidget()
+        _basic_config_lay = QHBoxLayout(self.aits_basic_config_box)
+        _basic_config_lay.setContentsMargins(0, 0, 0, 0)
+        _basic_config_lay.setSpacing(6)
+        _basic_config_lay.addWidget(self.btn_basic_detail_settings)
+        _basic_config_lay.addWidget(self.btn_engine_basic_test)
+        _selected_engine_config_layout.addWidget(self.aits_basic_config_box)
+
+        _compact_input_style = (
+            "QLineEdit, QComboBox { min-height: 26px; max-height: 28px; "
+            "font-size: 12px; padding: 2px 8px; }"
+        )
+        for _compact_widget in (
+            self.ed_openai_key,
+            self.ed_openai_model,
+            self.ed_gemini_key,
+            self.cmb_gemini_model,
+        ):
+            try:
+                _compact_widget.setStyleSheet(_compact_input_style)
+                _compact_widget.setMinimumHeight(26)
+                _compact_widget.setMaximumHeight(28)
+            except Exception:
+                pass
+
+        self.aits_gpt_config_box = QWidget()
+        _gpt_config_lay = QVBoxLayout(self.aits_gpt_config_box)
+        _gpt_config_lay.setContentsMargins(0, 0, 0, 0)
+        _gpt_config_lay.setSpacing(6)
+        _gpt_form = QFormLayout()
+        _gpt_form.setContentsMargins(0, 0, 0, 0)
+        _gpt_form.setHorizontalSpacing(8)
+        _gpt_form.setVerticalSpacing(4)
+        _gpt_form.addRow("API Key", self.ed_openai_key)
+        _gpt_form.addRow("Model", self.ed_openai_model)
+        _gpt_config_lay.addLayout(_gpt_form)
+        _gpt_config_lay.addWidget(self.btn_engine_gpt_test)
+        _selected_engine_config_layout.addWidget(self.aits_gpt_config_box)
+
+        self.aits_gemini_config_box = QWidget()
+        _gemini_config_lay = QVBoxLayout(self.aits_gemini_config_box)
+        _gemini_config_lay.setContentsMargins(0, 0, 0, 0)
+        _gemini_config_lay.setSpacing(6)
+        _gemini_form = QFormLayout()
+        _gemini_form.setContentsMargins(0, 0, 0, 0)
+        _gemini_form.setHorizontalSpacing(8)
+        _gemini_form.setVerticalSpacing(4)
+        _gemini_form.addRow("API Key", self.ed_gemini_key)
+        _gemini_form.addRow("Model", self.cmb_gemini_model)
+        _gemini_config_lay.addLayout(_gemini_form)
+        _gemini_config_lay.addWidget(self.btn_engine_gemini_test)
+        _selected_engine_config_layout.addWidget(self.aits_gemini_config_box)
+        _common_left.addWidget(self.aits_selected_engine_config_box)
+
+        def _remove_common_left_engine_widget(widget):
+            try:
+                _common_left.removeWidget(widget)
+            except Exception:
+                pass
+            try:
+                widget.hide()
+                widget.setVisible(False)
+            except Exception:
+                pass
+
+        # AITS: the rebuilt engine selector is the only visible engine UI in the left panel.
+        for _legacy_engine_widget in (
+            self.aits_engine_basic_card,
+            self.aits_engine_gpt_card,
+            self.aits_engine_gemini_card,
+            self.aits_selected_engine_config_box,
+        ):
+            _remove_common_left_engine_widget(_legacy_engine_widget)
+
+        self.aits_engine_selector_wrap = QWidget()
+        _engine_selector_lay = QVBoxLayout(self.aits_engine_selector_wrap)
+        _engine_selector_lay.setContentsMargins(0, 0, 0, 0)
+        _engine_selector_lay.setSpacing(8)
+
+        def _new_engine_card(object_name: str):
+            card = QFrame()
+            card.setObjectName(object_name)
+            card.setMinimumHeight(72)
+            card.setMaximumHeight(92)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+            lay = QHBoxLayout(card)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(10)
+            radio = QRadioButton()
+            text_col = QVBoxLayout()
+            text_col.setContentsMargins(0, 0, 0, 0)
+            text_col.setSpacing(4)
+            title_row = QHBoxLayout()
+            title_row.setContentsMargins(0, 0, 0, 0)
+            title_row.setSpacing(8)
+            title_label = QLabel()
+            title_label.setStyleSheet(
+                "color: #111827; font-size: 15px; font-weight: 700; "
+                "border: none; background: transparent;"
+            )
+            badge = QLabel("ACTIVE")
+            badge.setVisible(False)
+            badge.setStyleSheet(
+                "color: #ffffff; padding: 3px 8px; border-radius: 8px; "
+                "font-size: 11px; font-weight: 800;"
+            )
+            desc_label = QLabel()
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet(
+                "color: #6b7280; font-size: 12px; font-weight: 400; "
+                "border: none; background: transparent;"
+            )
+            if object_name == "card_engine_basic_new":
+                title_label.setObjectName("aitsEngineTitleBasic")
+                desc_label.setObjectName("aitsEngineDescBasic")
+                title_label.setText("BASIC")
+                desc_label.setText("로컬 자동매매 엔진")
+            elif object_name == "card_engine_gpt_new":
+                title_label.setObjectName("aitsEngineTitleGpt")
+                desc_label.setObjectName("aitsEngineDescGpt")
+                title_label.setText("GPT")
+                desc_label.setText("OpenAI 기반 고급 AI 분석")
+            elif object_name == "card_engine_gemini_new":
+                title_label.setObjectName("aitsEngineTitleGemini")
+                desc_label.setObjectName("aitsEngineDescGemini")
+                title_label.setText("GEMINI")
+                desc_label.setText("Google Gemini 기반 AI 분석")
+            title_row.addWidget(title_label)
+            title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
+            title_row.addStretch(1)
+            text_col.addLayout(title_row)
+            text_col.addWidget(desc_label)
+            lay.addWidget(radio, 0, Qt.AlignmentFlag.AlignTop)
+            lay.addLayout(text_col, 1)
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            return card, radio, badge, title_label, desc_label
+
+        (
+            self.card_engine_basic_new,
+            self.rb_engine_basic_new,
+            self.lbl_engine_badge_basic_new,
+            self.lbl_engine_title_basic_new,
+            self.lbl_engine_desc_basic_new,
+        ) = _new_engine_card("card_engine_basic_new")
+        (
+            self.card_engine_gpt_new,
+            self.rb_engine_gpt_new,
+            self.lbl_engine_badge_gpt_new,
+            self.lbl_engine_title_gpt_new,
+            self.lbl_engine_desc_gpt_new,
+        ) = _new_engine_card("card_engine_gpt_new")
+        (
+            self.card_engine_gemini_new,
+            self.rb_engine_gemini_new,
+            self.lbl_engine_badge_gemini_new,
+            self.lbl_engine_title_gemini_new,
+            self.lbl_engine_desc_gemini_new,
+        ) = _new_engine_card("card_engine_gemini_new")
+
+        def _hide_blank_engine_card_widget(widget):
+            try:
+                parent_layout = widget.parentWidget().layout() if widget.parentWidget() else None
+                if parent_layout is not None:
+                    parent_layout.removeWidget(widget)
+            except Exception:
+                pass
+            try:
+                widget.hide()
+                widget.setParent(None)
+            except Exception:
+                pass
+
+        def _force_common_engine_card_texts():
+            title_style = (
+                "color: #111827; font-size: 15px; font-weight: 700; "
+                "border: none; background: transparent;"
+            )
+            desc_style = (
+                "color: #6b7280; font-size: 12px; font-weight: 400; "
+                "border: none; background: transparent;"
+            )
+            label_specs = (
+                (
+                    self.card_engine_basic_new,
+                    self.lbl_engine_title_basic_new,
+                    self.lbl_engine_desc_basic_new,
+                    "aitsEngineTitleBasic",
+                    "aitsEngineDescBasic",
+                    "BASIC",
+                    "로컬 자동매매 엔진",
+                ),
+                (
+                    self.card_engine_gpt_new,
+                    self.lbl_engine_title_gpt_new,
+                    self.lbl_engine_desc_gpt_new,
+                    "aitsEngineTitleGpt",
+                    "aitsEngineDescGpt",
+                    "GPT",
+                    "OpenAI 기반 고급 AI 분석",
+                ),
+                (
+                    self.card_engine_gemini_new,
+                    self.lbl_engine_title_gemini_new,
+                    self.lbl_engine_desc_gemini_new,
+                    "aitsEngineTitleGemini",
+                    "aitsEngineDescGemini",
+                    "GEMINI",
+                    "Google Gemini 기반 AI 분석",
+                ),
+            )
+            final_labels = set()
+            for card, title_label, desc_label, title_name, desc_name, title, desc in label_specs:
+                title_label.setObjectName(title_name)
+                title_label.setText(title)
+                title_label.setStyleSheet(title_style)
+                title_label.show()
+                desc_label.setObjectName(desc_name)
+                desc_label.setText(desc)
+                desc_label.setStyleSheet(desc_style)
+                desc_label.show()
+                final_labels.update((title_label, desc_label))
+                for child in card.findChildren(QWidget):
+                    if child in final_labels or child in (
+                        self.lbl_engine_badge_basic_new,
+                        self.lbl_engine_badge_gpt_new,
+                        self.lbl_engine_badge_gemini_new,
+                    ):
+                        continue
+                    if isinstance(child, (QLineEdit, QPushButton)) and child.isVisible():
+                        _hide_blank_engine_card_widget(child)
+                    elif isinstance(child, QLabel) and not child.text().strip():
+                        _hide_blank_engine_card_widget(child)
+
+        def _dump_common_left_panel_widgets():
+            _force_common_engine_card_texts()
+            if not hasattr(self, "aits_common_left_panel"):
+                return
+            for widget in self.aits_common_left_panel.findChildren(QWidget):
+                class_name = type(widget).__name__
+                object_name = widget.objectName()
+                try:
+                    text_value = widget.text()
+                except Exception:
+                    text_value = ""
+                try:
+                    placeholder_value = widget.placeholderText()
+                except Exception:
+                    placeholder_value = ""
+                print(
+                    "[AITS][COMMON_UI_DUMP] "
+                    f"class={class_name} objectName={object_name} "
+                    f"text={text_value!r} placeholder={placeholder_value!r} "
+                    f"visible={widget.isVisible()}"
+                )
+
+        self.engine_select_group_new = QButtonGroup(self)
+        self.engine_select_group_new.setExclusive(True)
+        self.engine_select_group_new.addButton(self.rb_engine_basic_new)
+        self.engine_select_group_new.addButton(self.rb_engine_gpt_new)
+        self.engine_select_group_new.addButton(self.rb_engine_gemini_new)
+        _engine_selector_lay.addWidget(self.card_engine_basic_new)
+        _engine_selector_lay.addWidget(self.card_engine_gpt_new)
+        _engine_selector_lay.addWidget(self.card_engine_gemini_new)
+        _force_common_engine_card_texts()
+
+        self.aits_engine_setting_box_new = QFrame()
+        self.aits_engine_setting_box_new.setObjectName("aits_engine_setting_box_new")
+        self.aits_engine_setting_box_new.setStyleSheet(
+            "QFrame#aits_engine_setting_box_new { background: #ffffff; border: 1px solid #d8dee9; "
+            "border-radius: 12px; padding: 12px; }"
+        )
+        _engine_setting_lay = QVBoxLayout(self.aits_engine_setting_box_new)
+        _engine_setting_lay.setContentsMargins(12, 10, 12, 10)
+        _engine_setting_lay.setSpacing(8)
+        _engine_setting_title = QLabel("선택 엔진 연결 설정")
+        _engine_setting_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #172033;")
+        _engine_setting_lay.addWidget(_engine_setting_title)
+
+        self.btn_basic_detail_settings = QPushButton("Basic 세부설정")
+        self.btn_basic_detail_settings.setMinimumHeight(34)
+        self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
+        self.btn_engine_basic_test_new = QPushButton("Basic 활성화 확인")
+        self.btn_engine_gpt_test_new = QPushButton("GPT 연결 테스트")
+        self.btn_engine_gemini_test_new = QPushButton("Gemini 연결 테스트")
+        for _new_btn in (
+            self.btn_basic_detail_settings,
+            self.btn_engine_basic_test_new,
+            self.btn_engine_gpt_test_new,
+            self.btn_engine_gemini_test_new,
+        ):
+            _new_btn.setMinimumHeight(34)
+            _new_btn.setStyleSheet(
+                "QPushButton { background: #2563eb; color: #ffffff; border: 1px solid #1d4ed8; "
+                "border-radius: 10px; font-size: 12px; font-weight: 700; padding: 6px 12px; }"
+                "QPushButton:hover { background: #1d4ed8; }"
+            )
+
+        self.aits_basic_setting_box_new = QWidget()
+        _basic_new_lay = QHBoxLayout(self.aits_basic_setting_box_new)
+        _basic_new_lay.setContentsMargins(0, 0, 0, 0)
+        _basic_new_lay.setSpacing(6)
+        _basic_new_lay.addWidget(self.btn_basic_detail_settings)
+        _basic_new_lay.addWidget(self.btn_engine_basic_test_new)
+
+        _prev_openai_key = ""
+        try:
+            _prev_openai_key = self.ed_openai_key.text()
+        except Exception:
+            pass
+        _prev_openai_model = ""
+        try:
+            _prev_openai_model = self.ed_openai_model.currentText()
+        except Exception:
+            pass
+        _prev_gemini_key = ""
+        try:
+            _prev_gemini_key = self.ed_gemini_key.text()
+        except Exception:
+            pass
+        _prev_gemini_model = ""
+        try:
+            _prev_gemini_model = self.cmb_gemini_model.currentText()
+        except Exception:
+            pass
+
+        self.ed_openai_key_new = QLineEdit()
+        self.ed_openai_key_new.setEchoMode(QLineEdit.Password)
+        self.ed_openai_key_new.setText(_prev_openai_key)
+        self.cmb_openai_model_new = QComboBox()
+        for _label, _model_id in (
+            ("gpt-4o-mini (추천)", "gpt-4o-mini"),
+            ("gpt-4.1-mini", "gpt-4.1-mini"),
+            ("gpt-4.1", "gpt-4.1"),
+            ("gpt-5-mini", "gpt-5-mini"),
+            ("gpt-5", "gpt-5"),
+        ):
+            self.cmb_openai_model_new.addItem(_label, _model_id)
+        if _prev_openai_model:
+            _idx = self.cmb_openai_model_new.findText(_prev_openai_model)
+            if _idx >= 0:
+                self.cmb_openai_model_new.setCurrentIndex(_idx)
+        self.ed_openai_key = self.ed_openai_key_new
+        self.ed_openai_model = self.cmb_openai_model_new
+
+        self.ed_gemini_key_new = QLineEdit()
+        self.ed_gemini_key_new.setEchoMode(QLineEdit.Password)
+        self.ed_gemini_key_new.setText(_prev_gemini_key)
+        self.cmb_gemini_model_new = QComboBox()
+        self.cmb_gemini_model_new.addItems([
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+            "gemini-2.0-flash",
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+        ])
+        if _prev_gemini_model:
+            _idx = self.cmb_gemini_model_new.findText(_prev_gemini_model)
+            if _idx >= 0:
+                self.cmb_gemini_model_new.setCurrentIndex(_idx)
+        self.ed_gemini_key = self.ed_gemini_key_new
+        self.cmb_gemini_model = self.cmb_gemini_model_new
+
+        self.aits_gpt_setting_box_new = QWidget()
+        _gpt_new_lay = QVBoxLayout(self.aits_gpt_setting_box_new)
+        _gpt_new_lay.setContentsMargins(0, 0, 0, 0)
+        _gpt_new_lay.setSpacing(6)
+        _gpt_new_form = QFormLayout()
+        _gpt_new_form.setContentsMargins(0, 0, 0, 0)
+        _gpt_new_form.setHorizontalSpacing(8)
+        _gpt_new_form.setVerticalSpacing(5)
+        _gpt_new_form.addRow("OpenAI API Key", self.ed_openai_key)
+        _gpt_new_form.addRow("GPT Model", self.ed_openai_model)
+        _gpt_new_lay.addLayout(_gpt_new_form)
+        _gpt_new_lay.addWidget(self.btn_engine_gpt_test_new)
+
+        self.aits_gemini_setting_box_new = QWidget()
+        _gemini_new_lay = QVBoxLayout(self.aits_gemini_setting_box_new)
+        _gemini_new_lay.setContentsMargins(0, 0, 0, 0)
+        _gemini_new_lay.setSpacing(6)
+        _gemini_new_form = QFormLayout()
+        _gemini_new_form.setContentsMargins(0, 0, 0, 0)
+        _gemini_new_form.setHorizontalSpacing(8)
+        _gemini_new_form.setVerticalSpacing(5)
+        _gemini_new_form.addRow("Gemini API Key", self.ed_gemini_key)
+        _gemini_new_form.addRow("Gemini Model", self.cmb_gemini_model)
+        _gemini_new_lay.addLayout(_gemini_new_form)
+        _gemini_new_lay.addWidget(self.btn_engine_gemini_test_new)
+
+        _engine_setting_lay.addWidget(self.aits_basic_setting_box_new)
+        _engine_setting_lay.addWidget(self.aits_gpt_setting_box_new)
+        _engine_setting_lay.addWidget(self.aits_gemini_setting_box_new)
+        _engine_selector_lay.addWidget(self.aits_engine_setting_box_new)
+        _common_left.addWidget(self.aits_engine_selector_wrap)
 
         _common_left.addWidget(self.aits_basic_ready_box)
         _common_left.addWidget(self.gpt_box)
         _common_left.addWidget(self.gemini_box)
         self.local_box.setVisible(False)
+        for _legacy_engine_widget in (
+            self.aits_basic_ready_box,
+            self.gpt_box,
+            self.gemini_box,
+        ):
+            _remove_common_left_engine_widget(_legacy_engine_widget)
+        self.gpt_box.setMaximumHeight(0)
+        self.gemini_box.setMaximumHeight(0)
         self.lbl_basic_settings_notice = QLabel(
             "Basic 엔진의 세부 운용값은 전략설정 탭에서 조정합니다."
         )
@@ -22576,46 +23088,154 @@ class MainWindow(QMainWindow):
         _common_left.addStretch(1)
 
         _engine_card_base = (
-            "QFrame {{ background: #ffffff; border: 1px solid {border}; "
+            "QFrame {{ background: {background}; border: 1px solid {border}; "
             "border-radius: 12px; padding: 12px; }}"
         )
 
+        def _normalize_common_engine(value):
+            v = str(value or "").strip().lower()
+            if v in ("local", "basic", "basic ai", "basic_ai"):
+                return "basic"
+            if v in ("gpt", "openai", "openai gpt"):
+                return "gpt"
+            if v in ("gemini", "google", "google gemini"):
+                return "gemini"
+            return "basic"
+
+        def _provider_from_common_engine(engine_key: str) -> str:
+            key = _normalize_common_engine(engine_key)
+            return "local" if key == "basic" else key
+
         def _sync_common_engine_ui(provider: str):
-            provider = (provider or "local").strip().lower()
-            if provider not in ("local", "gpt", "gemini"):
-                provider = "local"
+            key = _normalize_common_engine(provider)
+            provider = _provider_from_common_engine(key)
             selected = {
-                "local": self.aits_engine_basic_card,
-                "gpt": self.aits_engine_gpt_card,
-                "gemini": self.aits_engine_gemini_card,
+                "basic": self.card_engine_basic_new,
+                "gpt": self.card_engine_gpt_new,
+                "gemini": self.card_engine_gemini_new,
             }
             radios = {
-                "local": self.rb_engine_basic,
-                "gpt": self.rb_engine_gpt,
-                "gemini": self.rb_engine_gemini,
+                "basic": self.rb_engine_basic_new,
+                "gpt": self.rb_engine_gpt_new,
+                "gemini": self.rb_engine_gemini_new,
+            }
+            badges = {
+                "basic": self.lbl_engine_badge_basic_new,
+                "gpt": self.lbl_engine_badge_gpt_new,
+                "gemini": self.lbl_engine_badge_gemini_new,
+            }
+            colors = {
+                "basic": ("#22c55e", "#ecfdf3", "#16a34a"),
+                "gpt": ("#2563eb", "#eff6ff", "#2563eb"),
+                "gemini": ("#8b5cf6", "#f5f3ff", "#7c3aed"),
             }
             for _p, _card in selected.items():
+                _border, _bg, _badge_bg = colors[_p]
+                _is_selected = _p == key
                 _card.setStyleSheet(
-                    _engine_card_base.format(border="#3b82f6" if _p == provider else "#d8dee9")
+                    _engine_card_base.format(
+                        background=_bg if _is_selected else "#ffffff",
+                        border=_border if _is_selected else "#d8dee9",
+                    )
                 )
+                badges[_p].setVisible(_is_selected)
+                badges[_p].setStyleSheet(
+                    "color: #ffffff; padding: 3px 8px; border-radius: 8px; "
+                    f"font-size: 11px; font-weight: 800; background: {_badge_bg};"
+                )
+                _card.setMinimumHeight(72)
+                _card.setMaximumHeight(96)
+                _card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
             try:
-                radios[provider].setChecked(True)
+                for _radio_key, _radio in radios.items():
+                    _radio.blockSignals(True)
+                    _radio.setChecked(_radio_key == key)
+                    _radio.blockSignals(False)
             except Exception:
-                pass
-            self.aits_basic_ready_box.setVisible(provider == "local")
-            self.gpt_box.setVisible(provider == "gpt")
-            self.gemini_box.setVisible(provider == "gemini")
-            self.btn_basic_detail_settings.setVisible(provider == "local")
+                for _radio in radios.values():
+                    try:
+                        _radio.blockSignals(False)
+                    except Exception:
+                        pass
+            self.aits_basic_ready_box.setVisible(False)
+            self.gpt_box.setVisible(False)
+            self.gemini_box.setVisible(False)
+            self.aits_basic_config_box.setVisible(key == "basic")
+            self.aits_gpt_config_box.setVisible(key == "gpt")
+            self.aits_gemini_config_box.setVisible(key == "gemini")
+            self.aits_basic_setting_box_new.setVisible(key == "basic")
+            self.aits_gpt_setting_box_new.setVisible(key == "gpt")
+            self.aits_gemini_setting_box_new.setVisible(key == "gemini")
             if hasattr(self, "aits_common_log_view"):
-                name = {"local": "BASIC", "gpt": "GPT", "gemini": "GEMINI"}.get(provider, "BASIC")
-                self.aits_common_log_view.append(f"[AITS] Engine changed: {name}")
+                name = {"basic": "BASIC", "gpt": "GPT", "gemini": "GEMINI"}.get(key, "BASIC")
+                if getattr(self, "_aits_common_last_engine_log", "") != key:
+                    self._aits_common_last_engine_log = key
+                    self.aits_common_log_view.append(f"[AITS] Engine changed: {name}")
             try:
                 self._update_engine_ui_ssot()
             except Exception:
                 pass
 
+        def _set_common_engine(engine_key: str):
+            key = _normalize_common_engine(engine_key)
+            provider_value = _provider_from_common_engine(key)
+            if hasattr(self, "cb_ai_provider"):
+                self.cb_ai_provider.blockSignals(True)
+                self.cb_ai_provider.setCurrentText(provider_value)
+                self.cb_ai_provider.blockSignals(False)
+            try:
+                self._set_ai_provider_ui_active(provider_value)
+            except Exception:
+                pass
+            _sync_common_engine_ui(provider_value)
+
+        self.engine_select_group = self.engine_select_group_new
+        self.engine_select_group.setExclusive(True)
+        try:
+            self.rb_engine_basic_new.toggled.disconnect()
+            self.rb_engine_gpt_new.toggled.disconnect()
+            self.rb_engine_gemini_new.toggled.disconnect()
+        except Exception:
+            pass
+        self.rb_engine_basic_new.toggled.connect(lambda checked: checked and _set_common_engine("basic"))
+        self.rb_engine_gpt_new.toggled.connect(lambda checked: checked and _set_common_engine("gpt"))
+        self.rb_engine_gemini_new.toggled.connect(lambda checked: checked and _set_common_engine("gemini"))
+        self.card_engine_basic_new.mousePressEvent = (
+            lambda event: (_set_common_engine("basic"), event.accept())
+        )
+        self.card_engine_gpt_new.mousePressEvent = (
+            lambda event: (_set_common_engine("gpt"), event.accept())
+        )
+        self.card_engine_gemini_new.mousePressEvent = (
+            lambda event: (_set_common_engine("gemini"), event.accept())
+        )
+        try:
+            self.btn_engine_basic_test_new.clicked.disconnect()
+            self.btn_engine_gpt_test_new.clicked.disconnect()
+            self.btn_engine_gemini_test_new.clicked.disconnect()
+        except Exception:
+            pass
+        self.btn_engine_basic_test_new.clicked.connect(
+            lambda: (
+                _set_common_engine("basic"),
+                _append_common_engine_log("[AITS] Basic engine ready. No API key required."),
+            )
+        )
+        self.btn_engine_gpt_test_new.clicked.connect(
+            lambda: (
+                _set_common_engine("gpt"),
+                self.btn_test_gpt.click() if hasattr(self, "btn_test_gpt") else None,
+            )
+        )
+        self.btn_engine_gemini_test_new.clicked.connect(
+            lambda: (
+                _set_common_engine("gemini"),
+                self.btn_test_gemini.click() if hasattr(self, "btn_test_gemini") else None,
+            )
+        )
         self.cb_ai_provider.currentTextChanged.connect(_sync_common_engine_ui)
         _sync_common_engine_ui(getattr(self, "_ai_provider_box_active", "local"))
+        QTimer.singleShot(0, _dump_common_left_panel_widgets)
 
         self.aits_common_upbit_status_label = QLabel("업비트 연결 상태: 대기 중")
         self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
@@ -22624,6 +23244,40 @@ class MainWindow(QMainWindow):
         _common_center.addWidget(self._p17_upbit_card)
         _common_center.addWidget(self.aits_common_upbit_status_label)
         _common_center.addWidget(self.aits_common_asset_status_label)
+
+        def _upbit_status_card(title: str, value: str, object_name: str):
+            card = QFrame()
+            card.setObjectName(object_name)
+            card.setStyleSheet(
+                f"QFrame#{object_name} {{ background: #ffffff; border: 1px solid #d8dee9; "
+                "border-radius: 12px; padding: 12px; }}"
+            )
+            lay = QVBoxLayout(card)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(4)
+            title_label = QLabel(title)
+            title_label.setStyleSheet("font-size: 12px; font-weight: 800; color: #172033;")
+            value_label = QLabel(value)
+            value_label.setStyleSheet("font-size: 13px; font-weight: 700; color: #64748b;")
+            lay.addWidget(title_label)
+            lay.addWidget(value_label)
+            return card, value_label
+
+        (
+            self.card_upbit_exchange_status,
+            self.lbl_upbit_exchange_status_card,
+        ) = _upbit_status_card("거래소 연결 상태", "대기 중", "card_upbit_exchange_status")
+        (
+            self.card_upbit_asset_status,
+            self.lbl_upbit_asset_status_card,
+        ) = _upbit_status_card("자산 조회 상태", "확인 대기", "card_upbit_asset_status")
+        (
+            self.card_upbit_order_ready,
+            self.lbl_upbit_order_ready_card,
+        ) = _upbit_status_card("주문 실행 준비", "연결 확인 필요", "card_upbit_order_ready")
+        _common_center.addWidget(self.card_upbit_exchange_status)
+        _common_center.addWidget(self.card_upbit_asset_status)
+        _common_center.addWidget(self.card_upbit_order_ready)
         _common_center.addStretch(1)
 
         self.aits_common_log_view = QTextEdit()
