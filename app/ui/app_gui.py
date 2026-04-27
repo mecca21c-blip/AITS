@@ -22282,9 +22282,7 @@ class MainWindow(QMainWindow):
         row_ai_top_layout.addWidget(self._p17_upbit_card, 1)
         row_ai_top_layout.addWidget(self.gpt_box, 1)
         row_ai_top_layout.addWidget(self.gemini_box, 1)
-        v.addRow(row_ai_top)
-
-        v.addRow(info_box)
+        # Rebuilt below as the common-settings 3-column body.
 
         lbl_ai_engine_scope = QLabel(
             "이 영역은 엔진 선택, 모델, API 키, 연결 환경을 설정합니다."
@@ -22314,9 +22312,7 @@ class MainWindow(QMainWindow):
         _p17_eng_row.addStretch(1)
         _p17_eng_ly.addLayout(_p17_eng_row)
         _p17_eng_ly.addWidget(lbl_ai_engine_scope)
-        v.addRow(_p17_engine)
-
-        v.addRow(self.local_box)
+        # Rebuilt below as the common-settings 3-column body.
         self._set_ai_provider_ui_active("local")
         # 초기 로드 시 모델 상태 확인 (백그라운드)
         QTimer.singleShot(1000, self._check_and_update_model_buttons)
@@ -22330,7 +22326,9 @@ class MainWindow(QMainWindow):
         self.btn_ip_retry.setMaximumWidth(70)
         self.btn_ip_retry.clicked.connect(self._update_external_ip)
         ip_row.addWidget(self.btn_ip_retry)
-        v.addRow(ip_row)
+        ip_row_widget = QWidget()
+        ip_row_widget.setLayout(ip_row)
+        # Rebuilt below as the common-settings 3-column body.
 
         _tp_sl_ref_wrap = QWidget()
         _tp_sl_ref_lay = QVBoxLayout(_tp_sl_ref_wrap)
@@ -22351,7 +22349,7 @@ class MainWindow(QMainWindow):
         self.lbl_tp_sl_common_hint.setWordWrap(True)
         self.lbl_tp_sl_common_hint.setStyleSheet("font-size: 10px; color: #888;")
         _tp_sl_ref_lay.addWidget(self.lbl_tp_sl_common_hint)
-        v.addRow("전략 연동 손익 기준 (공통)", _tp_sl_ref_wrap)
+        # Rebuilt below as the common-settings 3-column body.
         
         # IP 확인 즉시 실행
         try:
@@ -22365,11 +22363,10 @@ class MainWindow(QMainWindow):
         # 저장행 위 30px 간격 + 구분선 (기능 영역 / 저장 영역 시각 분리)
         from PySide6.QtWidgets import QSpacerItem
         spacer = QSpacerItem(0, 18, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        v.addItem(spacer)
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFrameShadow(QFrame.Shadow.Sunken)
-        v.addRow(sep)
+        # Rebuilt below as the common-settings 3-column body.
 
         # ---- 저장/테스트 결과/로그 버튼: 시세 조회 주기 바로 아래 (하단 고정 제거) ----
         self.btn_open_logs = QPushButton("로그 열기")
@@ -22412,7 +22409,79 @@ class MainWindow(QMainWindow):
         btn_lay.addStretch()
         btn_lay.addWidget(self.btn_test_results)
         btn_lay.addWidget(self.btn_open_logs)
-        v.addRow(btn_row)
+        _common_panel_style = (
+            "QFrame#aits_common_left_panel, "
+            "QFrame#aits_common_center_panel, "
+            "QFrame#aits_common_right_panel { "
+            "background: #ffffff; border: 1px solid #d8dee6; "
+            "border-radius: 10px; padding: 10px; }"
+        )
+
+        def _common_panel(object_name: str, title: str):
+            panel = QFrame()
+            panel.setObjectName(object_name)
+            panel.setStyleSheet(_common_panel_style)
+            panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            layout = QVBoxLayout(panel)
+            layout.setContentsMargins(10, 10, 10, 10)
+            layout.setSpacing(8)
+            title_label = QLabel(title)
+            title_label.setStyleSheet(
+                "font-size: 14px; font-weight: 700; color: #2f3b48; padding-bottom: 4px;"
+            )
+            layout.addWidget(title_label)
+            return panel, layout
+
+        self.aits_common_left_panel, _common_left = _common_panel(
+            "aits_common_left_panel",
+            "AI 분석 엔진 선택",
+        )
+        self.aits_common_center_panel, _common_center = _common_panel(
+            "aits_common_center_panel",
+            "업비트 API 연결 센터",
+        )
+        self.aits_common_right_panel, _common_right = _common_panel(
+            "aits_common_right_panel",
+            "공통 설정 및 시스템 로그",
+        )
+
+        _common_left.addWidget(_p17_engine)
+        _common_left.addWidget(self.gpt_box)
+        _common_left.addWidget(self.gemini_box)
+        _common_left.addWidget(self.local_box)
+        _common_left.addWidget(ip_row_widget)
+        _common_left.addWidget(_tp_sl_ref_wrap)
+        _common_left.addWidget(self.btn_save)
+        _common_left.addStretch(1)
+
+        self.aits_common_upbit_status_label = QLabel("업비트 연결 상태: 대기 중")
+        self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
+        self.aits_common_asset_status_label = QLabel("자산 데이터 활성 상태: 확인 대기")
+        self.aits_common_asset_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
+        _common_center.addStretch(1)
+        _common_center.addWidget(self._p17_upbit_card)
+        _common_center.addWidget(self.aits_common_upbit_status_label)
+        _common_center.addWidget(self.aits_common_asset_status_label)
+        _common_center.addStretch(1)
+
+        self.aits_common_log_view = QTextEdit()
+        self.aits_common_log_view.setReadOnly(True)
+        self.aits_common_log_view.setPlainText("[AITS] 공통설정 로그 대기 중...")
+        self.aits_common_log_view.setMinimumHeight(220)
+        self.aits_common_log_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        _common_right.addWidget(self.aits_common_log_view, 1)
+        _common_right.addWidget(info_box)
+        _common_right.addWidget(self.btn_test_results)
+        _common_right.addWidget(self.btn_open_logs)
+
+        _common_body = QWidget()
+        _common_body_layout = QHBoxLayout(_common_body)
+        _common_body_layout.setContentsMargins(0, 0, 0, 0)
+        _common_body_layout.setSpacing(10)
+        _common_body_layout.addWidget(self.aits_common_left_panel, 30)
+        _common_body_layout.addWidget(self.aits_common_center_panel, 40)
+        _common_body_layout.addWidget(self.aits_common_right_panel, 30)
+        v.addRow(_common_body)
 
         wrap = QVBoxLayout()
         wrap.setContentsMargins(8, 10, 8, 10)
