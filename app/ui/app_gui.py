@@ -22463,10 +22463,107 @@ class MainWindow(QMainWindow):
             "공통 설정 및 시스템 로그",
         )
 
-        _common_left.addWidget(_p17_engine)
+        _p17_engine.setVisible(False)
+
+        def _engine_select_card(provider: str, title: str, desc: str):
+            card = QFrame()
+            card.setObjectName(f"aits_engine_card_{provider}")
+            card.setProperty("engineProvider", provider)
+            lay = QHBoxLayout(card)
+            lay.setContentsMargins(12, 10, 12, 10)
+            lay.setSpacing(10)
+            radio = QRadioButton()
+            radio.setObjectName(f"aits_engine_radio_{provider}")
+            text_col = QVBoxLayout()
+            text_col.setContentsMargins(0, 0, 0, 0)
+            text_col.setSpacing(2)
+            title_label = QLabel(title)
+            title_label.setStyleSheet("font-size: 14px; font-weight: 800; color: #172033;")
+            desc_label = QLabel(desc)
+            desc_label.setWordWrap(True)
+            desc_label.setStyleSheet("font-size: 12px; color: #64748b;")
+            text_col.addWidget(title_label)
+            text_col.addWidget(desc_label)
+            lay.addWidget(radio, 0, Qt.AlignmentFlag.AlignTop)
+            lay.addLayout(text_col, 1)
+            card.setCursor(Qt.CursorShape.PointingHandCursor)
+            return card, radio
+
+        self.aits_engine_basic_card, self.rb_engine_basic = _engine_select_card(
+            "local",
+            "BASIC",
+            "로컬 자동매매 엔진 (기본 내장)",
+        )
+        self.aits_engine_gpt_card, self.rb_engine_gpt = _engine_select_card(
+            "gpt",
+            "GPT",
+            "OpenAI 기반 고급 AI 분석",
+        )
+        self.aits_engine_gemini_card, self.rb_engine_gemini = _engine_select_card(
+            "gemini",
+            "GEMINI",
+            "Google Gemini 기반 AI 분석",
+        )
+        self.aits_engine_button_group = QButtonGroup(self)
+        self.aits_engine_button_group.addButton(self.rb_engine_basic)
+        self.aits_engine_button_group.addButton(self.rb_engine_gpt)
+        self.aits_engine_button_group.addButton(self.rb_engine_gemini)
+        for _provider, _card, _radio in (
+            ("local", self.aits_engine_basic_card, self.rb_engine_basic),
+            ("gpt", self.aits_engine_gpt_card, self.rb_engine_gpt),
+            ("gemini", self.aits_engine_gemini_card, self.rb_engine_gemini),
+        ):
+            _radio.toggled.connect(
+                lambda checked, p=_provider: checked and self._set_ai_provider_ui_active(p)
+            )
+            _card.mousePressEvent = (
+                lambda event, r=_radio: (r.setChecked(True), event.accept())
+            )
+            _common_left.addWidget(_card)
+
+        self.aits_basic_ready_box = QFrame()
+        self.aits_basic_ready_box.setObjectName("aits_basic_ready_box")
+        self.aits_basic_ready_box.setStyleSheet(
+            "QFrame#aits_basic_ready_box { background: #f0fdf4; border: 1px solid #86efac; "
+            "border-radius: 12px; padding: 12px; }"
+        )
+        _basic_ready_lay = QVBoxLayout(self.aits_basic_ready_box)
+        _basic_ready_lay.setContentsMargins(12, 10, 12, 10)
+        _basic_ready_lay.setSpacing(8)
+        self.lbl_basic_ready_status = QLabel("Ready · API 없이 즉시 사용 가능합니다.")
+        self.lbl_basic_ready_status.setStyleSheet("font-size: 13px; font-weight: 700; color: #15803d;")
+        _basic_ready_lay.addWidget(self.lbl_basic_ready_status)
+
+        self.btn_basic_detail_settings = QPushButton("Basic 세부설정")
+        self.btn_basic_detail_settings.setMinimumHeight(36)
+        self.btn_basic_detail_settings.setStyleSheet(
+            "QPushButton { background: #2563eb; color: #ffffff; border: 1px solid #1d4ed8; "
+            "border-radius: 10px; font-size: 13px; font-weight: 700; padding: 8px 14px; }"
+            "QPushButton:hover { background: #1d4ed8; }"
+        )
+
+        def _go_basic_detail_settings():
+            try:
+                for _idx in range(self.tabs.count()):
+                    _txt = (self.tabs.tabText(_idx) or "").strip()
+                    if "전략" in _txt:
+                        self.tabs.setCurrentIndex(_idx)
+                        return
+            except Exception:
+                pass
+            QMessageBox.information(
+                self,
+                "Basic 세부설정",
+                "Basic 엔진 세부 운용값은 전략설정 탭에서 조정합니다.",
+            )
+
+        self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
+        _basic_ready_lay.addWidget(self.btn_basic_detail_settings)
+
+        _common_left.addWidget(self.aits_basic_ready_box)
         _common_left.addWidget(self.gpt_box)
         _common_left.addWidget(self.gemini_box)
-        _common_left.addWidget(self.local_box)
+        self.local_box.setVisible(False)
         self.lbl_basic_settings_notice = QLabel(
             "Basic 엔진의 세부 운용값은 전략설정 탭에서 조정합니다."
         )
@@ -22477,6 +22574,48 @@ class MainWindow(QMainWindow):
         _common_left.addWidget(self.lbl_basic_settings_notice)
         _common_left.addWidget(self.btn_save)
         _common_left.addStretch(1)
+
+        _engine_card_base = (
+            "QFrame {{ background: #ffffff; border: 1px solid {border}; "
+            "border-radius: 12px; padding: 12px; }}"
+        )
+
+        def _sync_common_engine_ui(provider: str):
+            provider = (provider or "local").strip().lower()
+            if provider not in ("local", "gpt", "gemini"):
+                provider = "local"
+            selected = {
+                "local": self.aits_engine_basic_card,
+                "gpt": self.aits_engine_gpt_card,
+                "gemini": self.aits_engine_gemini_card,
+            }
+            radios = {
+                "local": self.rb_engine_basic,
+                "gpt": self.rb_engine_gpt,
+                "gemini": self.rb_engine_gemini,
+            }
+            for _p, _card in selected.items():
+                _card.setStyleSheet(
+                    _engine_card_base.format(border="#3b82f6" if _p == provider else "#d8dee9")
+                )
+            try:
+                radios[provider].setChecked(True)
+            except Exception:
+                pass
+            self.aits_basic_ready_box.setVisible(provider == "local")
+            self.gpt_box.setVisible(provider == "gpt")
+            self.gemini_box.setVisible(provider == "gemini")
+            self.btn_basic_detail_settings.setVisible(provider == "local")
+            if hasattr(self, "aits_common_log_view"):
+                name = {"local": "BASIC", "gpt": "GPT", "gemini": "GEMINI"}.get(provider, "BASIC")
+                self.aits_common_log_view.append(f"[AITS] Engine changed: {name}")
+            try:
+                self._update_engine_ui_ssot()
+            except Exception:
+                pass
+
+        self.cb_ai_provider.currentTextChanged.connect(_sync_common_engine_ui)
+        _sync_common_engine_ui(getattr(self, "_ai_provider_box_active", "local"))
 
         self.aits_common_upbit_status_label = QLabel("업비트 연결 상태: 대기 중")
         self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
