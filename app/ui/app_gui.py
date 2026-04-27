@@ -22181,6 +22181,22 @@ class MainWindow(QMainWindow):
 
         self.btn_save_basic_ai_settings.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         local_layout.addWidget(self.btn_save_basic_ai_settings)
+        # AITS: Basic 세부 운용값은 공통설정이 아니라 전략설정 탭으로 이동 예정.
+        # 현재는 기존 값/위젯 보존을 위해 삭제하지 않고 숨김 처리한다.
+        self.aits_common_basic_detail_containers = (
+            gb_core,
+            gb_goal,
+            gb_trade,
+            gb_filter,
+            gb_ai_logic,
+            self.btn_save_basic_ai_settings,
+        )
+        for _basic_detail in self.aits_common_basic_detail_containers:
+            try:
+                _basic_detail.hide()
+                _basic_detail.setVisible(False)
+            except Exception:
+                pass
 
         try:
             for _attr in (
@@ -22328,6 +22344,7 @@ class MainWindow(QMainWindow):
         ip_row.addWidget(self.btn_ip_retry)
         ip_row_widget = QWidget()
         ip_row_widget.setLayout(ip_row)
+        ip_row_widget.setVisible(False)
         # Rebuilt below as the common-settings 3-column body.
 
         _tp_sl_ref_wrap = QWidget()
@@ -22349,6 +22366,7 @@ class MainWindow(QMainWindow):
         self.lbl_tp_sl_common_hint.setWordWrap(True)
         self.lbl_tp_sl_common_hint.setStyleSheet("font-size: 10px; color: #888;")
         _tp_sl_ref_lay.addWidget(self.lbl_tp_sl_common_hint)
+        _tp_sl_ref_wrap.setVisible(False)
         # Rebuilt below as the common-settings 3-column body.
         
         # IP 확인 즉시 실행
@@ -22449,8 +22467,14 @@ class MainWindow(QMainWindow):
         _common_left.addWidget(self.gpt_box)
         _common_left.addWidget(self.gemini_box)
         _common_left.addWidget(self.local_box)
-        _common_left.addWidget(ip_row_widget)
-        _common_left.addWidget(_tp_sl_ref_wrap)
+        self.lbl_basic_settings_notice = QLabel(
+            "Basic 엔진의 세부 운용값은 전략설정 탭에서 조정합니다."
+        )
+        self.lbl_basic_settings_notice.setWordWrap(True)
+        self.lbl_basic_settings_notice.setStyleSheet(
+            "font-size: 12px; color: #5f6b7a; background: transparent;"
+        )
+        _common_left.addWidget(self.lbl_basic_settings_notice)
         _common_left.addWidget(self.btn_save)
         _common_left.addStretch(1)
 
@@ -22458,7 +22482,6 @@ class MainWindow(QMainWindow):
         self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
         self.aits_common_asset_status_label = QLabel("자산 데이터 활성 상태: 확인 대기")
         self.aits_common_asset_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
-        _common_center.addStretch(1)
         _common_center.addWidget(self._p17_upbit_card)
         _common_center.addWidget(self.aits_common_upbit_status_label)
         _common_center.addWidget(self.aits_common_asset_status_label)
@@ -22467,7 +22490,7 @@ class MainWindow(QMainWindow):
         self.aits_common_log_view = QTextEdit()
         self.aits_common_log_view.setReadOnly(True)
         self.aits_common_log_view.setPlainText("[AITS] 공통설정 로그 대기 중...")
-        self.aits_common_log_view.setMinimumHeight(220)
+        self.aits_common_log_view.setMinimumHeight(600)
         self.aits_common_log_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         _common_right.addWidget(self.aits_common_log_view, 1)
         _common_right.addWidget(info_box)
@@ -22478,8 +22501,8 @@ class MainWindow(QMainWindow):
         _common_body_layout = QHBoxLayout(_common_body)
         _common_body_layout.setContentsMargins(0, 0, 0, 0)
         _common_body_layout.setSpacing(10)
-        _common_body_layout.addWidget(self.aits_common_left_panel, 30)
-        _common_body_layout.addWidget(self.aits_common_center_panel, 40)
+        _common_body_layout.addWidget(self.aits_common_left_panel, 28)
+        _common_body_layout.addWidget(self.aits_common_center_panel, 42)
         _common_body_layout.addWidget(self.aits_common_right_panel, 30)
         v.addRow(_common_body)
 
