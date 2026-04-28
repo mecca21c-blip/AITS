@@ -22903,27 +22903,196 @@ class MainWindow(QMainWindow):
                     elif isinstance(child, QLabel) and not child.text().strip():
                         _hide_blank_engine_card_widget(child)
 
-        def _dump_common_left_panel_widgets():
-            _force_common_engine_card_texts()
-            if not hasattr(self, "aits_common_left_panel"):
+            final_texts = (
+                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "BASIC", "로컬 자동매매 엔진"),
+                (self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new, "GPT", "OpenAI 기반 고급 AI 분석"),
+                (self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new, "GEMINI", "Google Gemini 기반 AI 분석"),
+            )
+            for title_label, desc_label, title, desc in final_texts:
+                title_label.setText(title)
+                title_label.setStyleSheet(title_style)
+                title_label.setVisible(True)
+                desc_label.setText(desc)
+                desc_label.setStyleSheet(desc_style)
+                desc_label.setVisible(True)
+
+        def _clear_visible_engine_card_layout(layout):
+            if layout is None:
                 return
-            for widget in self.aits_common_left_panel.findChildren(QWidget):
-                class_name = type(widget).__name__
-                object_name = widget.objectName()
-                try:
-                    text_value = widget.text()
-                except Exception:
-                    text_value = ""
-                try:
-                    placeholder_value = widget.placeholderText()
-                except Exception:
-                    placeholder_value = ""
-                print(
-                    "[AITS][COMMON_UI_DUMP] "
-                    f"class={class_name} objectName={object_name} "
-                    f"text={text_value!r} placeholder={placeholder_value!r} "
-                    f"visible={widget.isVisible()}"
+            while layout.count():
+                item = layout.takeAt(0)
+                child_layout = item.layout()
+                if child_layout is not None:
+                    _clear_visible_engine_card_layout(child_layout)
+                    continue
+                child_widget = item.widget()
+                if child_widget is not None:
+                    child_widget.hide()
+                    child_widget.setParent(None)
+
+        def _engine_title_pixmap(text: str):
+            glyphs = {
+                "A": ("01110", "10001", "10001", "11111", "10001", "10001", "10001"),
+                "B": ("11110", "10001", "10001", "11110", "10001", "10001", "11110"),
+                "C": ("01111", "10000", "10000", "10000", "10000", "10000", "01111"),
+                "E": ("11111", "10000", "10000", "11110", "10000", "10000", "11111"),
+                "G": ("01111", "10000", "10000", "10111", "10001", "10001", "01111"),
+                "I": ("11111", "00100", "00100", "00100", "00100", "00100", "11111"),
+                "M": ("10001", "11011", "10101", "10101", "10001", "10001", "10001"),
+                "N": ("10001", "11001", "10101", "10011", "10001", "10001", "10001"),
+                "P": ("11110", "10001", "10001", "11110", "10000", "10000", "10000"),
+                "S": ("01111", "10000", "10000", "01110", "00001", "00001", "11110"),
+                "T": ("11111", "00100", "00100", "00100", "00100", "00100", "00100"),
+            }
+            scale = 3
+            gap = 2
+            letter_gap = 5
+            word = str(text or "").upper()
+            width = max(1, sum((5 * scale + letter_gap) for ch in word if ch in glyphs) - letter_gap + 2)
+            height = 7 * scale + 2
+            pixmap = QPixmap(width, height)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor("#111827")))
+            x = 1
+            for ch in word:
+                pattern = glyphs.get(ch)
+                if pattern is None:
+                    x += 3 * scale
+                    continue
+                for row_idx, row in enumerate(pattern):
+                    for col_idx, bit in enumerate(row):
+                        if bit == "1":
+                            painter.drawRect(
+                                x + col_idx * scale,
+                                1 + row_idx * scale,
+                                max(1, scale - gap + 1),
+                                max(1, scale - gap + 1),
+                            )
+                x += 5 * scale + letter_gap
+            painter.end()
+            return pixmap
+
+        def _visible_engine_label(text: str, object_name: str, is_title: bool):
+            label = QLabel(text)
+            label.setObjectName(object_name)
+            label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            label.setAutoFillBackground(False)
+            label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            label.setMinimumWidth(180)
+            label.setMinimumHeight(24 if is_title else 22)
+            label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            font_family = "Arial" if is_title else "Malgun Gothic"
+            label.setFont(
+                QFont(
+                    font_family,
+                    11 if is_title else 9,
+                    QFont.Weight.Bold if is_title else QFont.Weight.Normal,
                 )
+            )
+            label.setStyleSheet(
+                "QLabel { "
+                f"font-family: '{font_family}'; "
+                f"color: {'#111827' if is_title else '#4b5563'}; "
+                "background: transparent; border: 0px; padding: 0px; margin: 0px; "
+                f"font-size: {'15px' if is_title else '12px'}; "
+                f"font-weight: {'800' if is_title else '500'}; "
+                "}"
+            )
+            if is_title:
+                pixmap = _engine_title_pixmap(text)
+                label.setPixmap(pixmap)
+                label.setMinimumSize(max(180, pixmap.width()), max(24, pixmap.height()))
+                label.setToolTip(text)
+                label.setAccessibleName(text)
+                label.setProperty("renderedText", text)
+            label.show()
+            label.raise_()
+            return label
+
+        def _rebuild_visible_engine_card(card, radio, badge, title_name: str, desc_name: str, title: str, desc: str):
+            layout = card.layout()
+            if layout is None:
+                layout = QHBoxLayout(card)
+            else:
+                _clear_visible_engine_card_layout(layout)
+            layout.setContentsMargins(12, 10, 12, 10)
+            layout.setSpacing(10)
+
+            card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+            card.setMinimumHeight(78)
+            card.setMaximumHeight(102)
+            card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+
+            radio.setParent(card)
+            radio.setMinimumSize(18, 18)
+            radio.setMaximumSize(24, 24)
+            radio.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            radio.show()
+
+            title_label = _visible_engine_label(title, title_name, True)
+            desc_label = _visible_engine_label(desc, desc_name, False)
+            desc_label.setWordWrap(False)
+
+            badge.setParent(card)
+            badge.setText("ACTIVE")
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            badge.setMinimumSize(64, 22)
+            badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            badge.setStyleSheet(
+                "QLabel { color: #ffffff; background: #16a34a; border: 0px; "
+                "border-radius: 8px; padding: 3px 8px; font-size: 11px; font-weight: 800; }"
+            )
+
+            title_row = QHBoxLayout()
+            title_row.setContentsMargins(0, 0, 0, 0)
+            title_row.setSpacing(8)
+            title_row.addWidget(title_label, 1)
+            title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
+
+            text_col = QVBoxLayout()
+            text_col.setContentsMargins(0, 0, 0, 0)
+            text_col.setSpacing(2)
+            text_col.addLayout(title_row)
+            text_col.addWidget(desc_label, 0)
+
+            layout.addWidget(radio, 0, Qt.AlignmentFlag.AlignTop)
+            layout.addLayout(text_col, 1)
+            radio.raise_()
+            title_label.raise_()
+            desc_label.raise_()
+            badge.raise_()
+            return title_label, desc_label
+
+        def _rebuild_visible_engine_cards():
+            self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new = _rebuild_visible_engine_card(
+                self.card_engine_basic_new,
+                self.rb_engine_basic_new,
+                self.lbl_engine_badge_basic_new,
+                "aitsEngineTitleBasic",
+                "aitsEngineDescBasic",
+                "BASIC",
+                "로컬 자동매매 엔진",
+            )
+            self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new = _rebuild_visible_engine_card(
+                self.card_engine_gpt_new,
+                self.rb_engine_gpt_new,
+                self.lbl_engine_badge_gpt_new,
+                "aitsEngineTitleGpt",
+                "aitsEngineDescGpt",
+                "GPT",
+                "OpenAI 기반 고급 AI 분석",
+            )
+            self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new = _rebuild_visible_engine_card(
+                self.card_engine_gemini_new,
+                self.rb_engine_gemini_new,
+                self.lbl_engine_badge_gemini_new,
+                "aitsEngineTitleGemini",
+                "aitsEngineDescGemini",
+                "GEMINI",
+                "Google Gemini 기반 AI 분석",
+            )
 
         self.engine_select_group_new = QButtonGroup(self)
         self.engine_select_group_new.setExclusive(True)
@@ -22933,7 +23102,6 @@ class MainWindow(QMainWindow):
         _engine_selector_lay.addWidget(self.card_engine_basic_new)
         _engine_selector_lay.addWidget(self.card_engine_gpt_new)
         _engine_selector_lay.addWidget(self.card_engine_gemini_new)
-        _force_common_engine_card_texts()
 
         self.aits_engine_setting_box_new = QFrame()
         self.aits_engine_setting_box_new.setObjectName("aits_engine_setting_box_new")
@@ -22946,14 +23114,19 @@ class MainWindow(QMainWindow):
         _engine_setting_lay.setSpacing(8)
         _engine_setting_title = QLabel("선택 엔진 연결 설정")
         _engine_setting_title.setStyleSheet("font-size: 13px; font-weight: 800; color: #172033;")
+        _engine_setting_title.setText("선택 엔진 연결 설정")
         _engine_setting_lay.addWidget(_engine_setting_title)
 
         self.btn_basic_detail_settings = QPushButton("Basic 세부설정")
+        self.btn_basic_detail_settings.setText("Basic 세부설정")
         self.btn_basic_detail_settings.setMinimumHeight(34)
         self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
         self.btn_engine_basic_test_new = QPushButton("Basic 활성화 확인")
         self.btn_engine_gpt_test_new = QPushButton("GPT 연결 테스트")
         self.btn_engine_gemini_test_new = QPushButton("Gemini 연결 테스트")
+        self.btn_engine_basic_test_new.setText("Basic 활성화 확인")
+        self.btn_engine_gpt_test_new.setText("연결 테스트")
+        self.btn_engine_gemini_test_new.setText("연결 테스트")
         for _new_btn in (
             self.btn_basic_detail_settings,
             self.btn_engine_basic_test_new,
@@ -23079,6 +23252,7 @@ class MainWindow(QMainWindow):
         self.lbl_basic_settings_notice = QLabel(
             "Basic 엔진의 세부 운용값은 전략설정 탭에서 조정합니다."
         )
+        self.lbl_basic_settings_notice.setText("Basic 엔진의 세부 값은 전략설정 탭에서 조정합니다.")
         self.lbl_basic_settings_notice.setWordWrap(True)
         self.lbl_basic_settings_notice.setStyleSheet(
             "font-size: 12px; color: #5f6b7a; background: transparent;"
@@ -23235,7 +23409,300 @@ class MainWindow(QMainWindow):
         )
         self.cb_ai_provider.currentTextChanged.connect(_sync_common_engine_ui)
         _sync_common_engine_ui(getattr(self, "_ai_provider_box_active", "local"))
-        QTimer.singleShot(0, _dump_common_left_panel_widgets)
+
+        def _hide_old_engine_choice_widget(widget):
+            if widget is None:
+                return
+            try:
+                _common_left.removeWidget(widget)
+            except Exception:
+                pass
+            try:
+                widget.hide()
+                widget.setVisible(False)
+            except Exception:
+                pass
+
+        for _old_engine_widget in (
+            getattr(self, "aits_engine_basic_card", None),
+            getattr(self, "aits_engine_gpt_card", None),
+            getattr(self, "aits_engine_gemini_card", None),
+            getattr(self, "card_engine_basic_new", None),
+            getattr(self, "card_engine_gpt_new", None),
+            getattr(self, "card_engine_gemini_new", None),
+            getattr(self, "aits_basic_compact_box", None),
+            getattr(self, "aits_gpt_compact_box", None),
+            getattr(self, "aits_gemini_compact_box", None),
+            getattr(self, "aits_selected_engine_config_box", None),
+            getattr(self, "aits_engine_setting_box_new", None),
+            getattr(self, "aits_engine_selector_wrap", None),
+            getattr(self, "aits_basic_ready_box", None),
+            getattr(self, "gpt_box", None),
+            getattr(self, "gemini_box", None),
+            getattr(self, "local_box", None),
+            getattr(self, "lbl_basic_settings_notice", None),
+        ):
+            _hide_old_engine_choice_widget(_old_engine_widget)
+        _hide_old_engine_choice_widget(getattr(self, "btn_save", None))
+
+        def _normalize_engine_choice(value):
+            key = str(value or "").strip().lower()
+            if key in ("openai", "gpt", "openai api"):
+                return "openai"
+            if key in ("gemini", "google", "google gemini", "gemini api"):
+                return "gemini"
+            if key in ("local", "basic", "basic ai", "basic_ai", "local engine"):
+                return "local"
+            return "local"
+
+        def _provider_from_engine_choice(engine_key: str) -> str:
+            key = _normalize_engine_choice(engine_key)
+            return "gpt" if key == "openai" else key
+
+        def _append_engine_choice_log(text: str) -> None:
+            try:
+                if hasattr(self, "aits_common_log_view"):
+                    self.aits_common_log_view.append(text)
+            except Exception:
+                pass
+
+        def _engine_choice_button_style(engine_key: str, selected: bool) -> str:
+            colors = {
+                "openai": ("#2563eb", "#eff6ff", "#1d4ed8"),
+                "gemini": ("#8b5cf6", "#f5f3ff", "#6d28d9"),
+                "local": ("#22c55e", "#ecfdf3", "#15803d"),
+            }
+            border, background, text_color = colors.get(engine_key, colors["local"])
+            if not selected:
+                border, background, text_color = "#d8dee9", "#ffffff", "#172033"
+            return (
+                "QPushButton {"
+                f"background: {background};"
+                f"border: 1px solid {border};"
+                "border-radius: 10px;"
+                f"color: {text_color};"
+                "font-family: 'Malgun Gothic', 'Segoe UI', sans-serif;"
+                "font-size: 12px;"
+                "font-weight: 800;"
+                "padding: 10px 12px;"
+                "text-align: left;"
+                "min-height: 56px;"
+                "}"
+                "QPushButton:hover { border-width: 2px; }"
+            )
+
+        def _make_engine_choice_button(engine_key: str, title: str, desc: str):
+            btn = QPushButton(f"{title}\n{desc}")
+            btn.setCheckable(True)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            btn.setMinimumHeight(62)
+            btn.setProperty("engineChoiceKey", engine_key)
+            btn.setStyleSheet(_engine_choice_button_style(engine_key, False))
+            return btn
+
+        def _make_engine_settings_box(object_name: str):
+            box = QFrame()
+            box.setObjectName(object_name)
+            box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+            box.setStyleSheet(
+                f"QFrame#{object_name} {{ background: #ffffff; border: 1px solid #d8dee9; "
+                "border-radius: 10px; padding: 10px; }}"
+                "QLabel { color: #334155; font-size: 12px; background: transparent; border: 0px; }"
+                "QLineEdit, QComboBox { min-height: 28px; font-size: 12px; padding: 2px 8px; }"
+            )
+            layout = QVBoxLayout(box)
+            layout.setContentsMargins(10, 8, 10, 8)
+            layout.setSpacing(8)
+            return box, layout
+
+        self.aits_engine_choice_panel = QFrame()
+        self.aits_engine_choice_panel.setObjectName("aits_engine_choice_panel")
+        self.aits_engine_choice_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        self.aits_engine_choice_panel.setStyleSheet(
+            "QFrame#aits_engine_choice_panel { background: transparent; border: 0px; }"
+        )
+        _choice_panel_lay = QVBoxLayout(self.aits_engine_choice_panel)
+        _choice_panel_lay.setContentsMargins(0, 0, 0, 0)
+        _choice_panel_lay.setSpacing(8)
+
+        self.btn_engine_openai = _make_engine_choice_button(
+            "openai", "OpenAI API", "유료 클라우드 고급 판단 엔진"
+        )
+        self.btn_engine_gemini = _make_engine_choice_button(
+            "gemini", "Gemini API", "유료 클라우드 고급 판단 엔진"
+        )
+        self.btn_engine_local = _make_engine_choice_button(
+            "local", "Local Engine", "무료 내장 기본 엔진"
+        )
+
+        self.engine_choice_group = QButtonGroup(self)
+        self.engine_choice_group.setExclusive(True)
+        self.engine_choice_group.addButton(self.btn_engine_openai)
+        self.engine_choice_group.addButton(self.btn_engine_gemini)
+        self.engine_choice_group.addButton(self.btn_engine_local)
+
+        self.box_engine_openai_settings, _openai_settings_lay = _make_engine_settings_box(
+            "box_engine_openai_settings"
+        )
+        self.box_engine_gemini_settings, _gemini_settings_lay = _make_engine_settings_box(
+            "box_engine_gemini_settings"
+        )
+        self.box_engine_local_settings, _local_settings_lay = _make_engine_settings_box(
+            "box_engine_local_settings"
+        )
+
+        _prev_openai_text = ""
+        try:
+            _prev_openai_text = self.ed_openai_model.currentText()
+        except Exception:
+            pass
+        self.ed_openai_model.clear()
+        for _label, _model_id in (
+            ("gpt-4o-mini (추천)", "gpt-4o-mini"),
+            ("gpt-4.1-mini", "gpt-4.1-mini"),
+            ("gpt-4.1", "gpt-4.1"),
+            ("gpt-5-mini", "gpt-5-mini"),
+            ("gpt-5", "gpt-5"),
+        ):
+            self.ed_openai_model.addItem(_label, _model_id)
+        if _prev_openai_text:
+            _openai_idx = self.ed_openai_model.findText(_prev_openai_text)
+            if _openai_idx >= 0:
+                self.ed_openai_model.setCurrentIndex(_openai_idx)
+
+        _openai_form = QFormLayout()
+        _openai_form.setContentsMargins(0, 0, 0, 0)
+        _openai_form.setHorizontalSpacing(8)
+        _openai_form.setVerticalSpacing(6)
+        _openai_form.addRow("API Key", self.ed_openai_key)
+        _openai_form.addRow("모델", self.ed_openai_model)
+        self.btn_engine_openai_test = QPushButton("OpenAI 연결 테스트")
+        self.btn_engine_openai_test.setMinimumHeight(32)
+        _openai_settings_lay.addLayout(_openai_form)
+        _openai_settings_lay.addWidget(self.btn_engine_openai_test)
+
+        _prev_gemini_text = ""
+        try:
+            _prev_gemini_text = self.cmb_gemini_model.currentText()
+        except Exception:
+            pass
+        self.cmb_gemini_model.clear()
+        self.cmb_gemini_model.addItems(
+            [
+                "gemini-1.5-flash",
+                "gemini-1.5-pro",
+                "gemini-2.0-flash",
+                "gemini-2.5-flash",
+                "gemini-2.5-pro",
+            ]
+        )
+        if _prev_gemini_text:
+            _gemini_idx = self.cmb_gemini_model.findText(_prev_gemini_text)
+            if _gemini_idx >= 0:
+                self.cmb_gemini_model.setCurrentIndex(_gemini_idx)
+
+        _gemini_form = QFormLayout()
+        _gemini_form.setContentsMargins(0, 0, 0, 0)
+        _gemini_form.setHorizontalSpacing(8)
+        _gemini_form.setVerticalSpacing(6)
+        _gemini_form.addRow("API Key", self.ed_gemini_key)
+        _gemini_form.addRow("모델", self.cmb_gemini_model)
+        self.btn_engine_gemini_test = QPushButton("Gemini 연결 테스트")
+        self.btn_engine_gemini_test.setMinimumHeight(32)
+        _gemini_settings_lay.addLayout(_gemini_form)
+        _gemini_settings_lay.addWidget(self.btn_engine_gemini_test)
+
+        _local_status = QLabel("API Key 없이 사용 가능")
+        _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
+        _local_desc = QLabel(
+            "Local Engine은 무료 내장 기본 엔진이며 반복 분석과 기본 자동매매 판단을 담당합니다."
+        )
+        _local_desc.setWordWrap(True)
+        self.btn_engine_local_detail = QPushButton("Local 세부설정")
+        self.btn_engine_local_ready = QPushButton("Local 활성화 확인")
+        for _local_btn in (self.btn_engine_local_detail, self.btn_engine_local_ready):
+            _local_btn.setMinimumHeight(32)
+            _local_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        _local_btn_row = QHBoxLayout()
+        _local_btn_row.setContentsMargins(0, 0, 0, 0)
+        _local_btn_row.setSpacing(6)
+        _local_btn_row.addWidget(self.btn_engine_local_detail)
+        _local_btn_row.addWidget(self.btn_engine_local_ready)
+        _local_settings_lay.addWidget(_local_status)
+        _local_settings_lay.addWidget(_local_desc)
+        _local_settings_lay.addLayout(_local_btn_row)
+
+        def _sync_engine_choice_panel(engine_key):
+            if getattr(self, "_engine_choice_syncing", False):
+                return
+            self._engine_choice_syncing = True
+            key = _normalize_engine_choice(engine_key)
+            provider_value = _provider_from_engine_choice(key)
+            try:
+                selected = {
+                    "openai": self.btn_engine_openai,
+                    "gemini": self.btn_engine_gemini,
+                    "local": self.btn_engine_local,
+                }
+                boxes = {
+                    "openai": self.box_engine_openai_settings,
+                    "gemini": self.box_engine_gemini_settings,
+                    "local": self.box_engine_local_settings,
+                }
+                button_texts = {
+                    "openai": "OpenAI API\n유료 클라우드 고급 판단 엔진",
+                    "gemini": "Gemini API\n유료 클라우드 고급 판단 엔진",
+                    "local": "Local Engine\n무료 내장 기본 엔진",
+                }
+                for _key, _button in selected.items():
+                    _button.blockSignals(True)
+                    _button.setChecked(_key == key)
+                    _button.setText(button_texts[_key] + ("\nACTIVE" if _key == key else ""))
+                    _button.setStyleSheet(_engine_choice_button_style(_key, _key == key))
+                    _button.blockSignals(False)
+                    boxes[_key].setVisible(_key == key)
+                try:
+                    self._set_ai_provider_ui_active(provider_value)
+                except Exception:
+                    pass
+            finally:
+                self._engine_choice_syncing = False
+
+        self._sync_engine_choice_panel = _sync_engine_choice_panel
+        self.btn_engine_openai.clicked.connect(lambda: _sync_engine_choice_panel("openai"))
+        self.btn_engine_gemini.clicked.connect(lambda: _sync_engine_choice_panel("gemini"))
+        self.btn_engine_local.clicked.connect(lambda: _sync_engine_choice_panel("local"))
+        self.btn_engine_openai_test.clicked.connect(
+            lambda: (
+                _sync_engine_choice_panel("openai"),
+                self.btn_test_gpt.click() if hasattr(self, "btn_test_gpt") else None,
+            )
+        )
+        self.btn_engine_gemini_test.clicked.connect(
+            lambda: (
+                _sync_engine_choice_panel("gemini"),
+                self.btn_test_gemini.click() if hasattr(self, "btn_test_gemini") else None,
+            )
+        )
+        self.btn_engine_local_detail.clicked.connect(_go_basic_detail_settings)
+        self.btn_engine_local_ready.clicked.connect(
+            lambda: (
+                _sync_engine_choice_panel("local"),
+                _append_engine_choice_log("[AITS] Local Engine ready. No API key required."),
+            )
+        )
+        self.cb_ai_provider.currentTextChanged.connect(_sync_engine_choice_panel)
+
+        _choice_panel_lay.addWidget(self.btn_engine_openai)
+        _choice_panel_lay.addWidget(self.box_engine_openai_settings)
+        _choice_panel_lay.addWidget(self.btn_engine_gemini)
+        _choice_panel_lay.addWidget(self.box_engine_gemini_settings)
+        _choice_panel_lay.addWidget(self.btn_engine_local)
+        _choice_panel_lay.addWidget(self.box_engine_local_settings)
+        _choice_panel_lay.addWidget(self.btn_save)
+        _common_left.insertWidget(1, self.aits_engine_choice_panel)
+        _sync_engine_choice_panel(getattr(self, "_ai_provider_box_active", "local"))
 
         self.aits_common_upbit_status_label = QLabel("업비트 연결 상태: 대기 중")
         self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
