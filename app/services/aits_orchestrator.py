@@ -23,6 +23,10 @@ from app.services.portfolio_brain import PortfolioBrain
 from app.services.regime_detector import RegimeDetector
 from app.services.module_pack_resolver import ModulePackResolver
 from app.services.order_service import OrderService
+try:
+    from app.services.decision_router import DecisionRouter
+except Exception:
+    DecisionRouter = None
 from app.core.module_pack_state import (
     DEFAULT_MODULE_PACK_DEFINITIONS,
     DEFAULT_USER_MODULE_PACK_SELECTION,
@@ -139,6 +143,7 @@ class AITSOrchestrator:
         module_engine: Optional[Any] = None,
         scenario_engine: Optional[Any] = None,
         provider_router: Optional[Any] = None,
+        decision_router: Optional[Any] = None,
         execution_adapter: Optional[Any] = None,
         run_mode: str = "ui",
     ) -> None:
@@ -156,6 +161,9 @@ class AITSOrchestrator:
         self.module_engine = module_engine
         self.scenario_engine = scenario_engine
         self.provider_router = provider_router
+        self.decision_router = decision_router or (
+            DecisionRouter(logger=self.logger) if DecisionRouter is not None else None
+        )
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -602,6 +610,61 @@ class AITSOrchestrator:
         except Exception:
             pass
 
+    def _read_ai_provider_for_router(self) -> str:
+        try:
+            for root in (
+                getattr(self, "strategy", None),
+                getattr(self, "settings", None),
+                getattr(self, "app_state", None),
+                self.config,
+            ):
+                provider = self._extract_ai_provider(root)
+                if provider:
+                    return self._normalize_ai_provider_for_router(provider)
+        except Exception:
+            pass
+        return "local"
+
+    def _extract_ai_provider(self, root: Any) -> str:
+        try:
+            if root is None:
+                return ""
+            if isinstance(root, dict):
+                direct = root.get("ai_provider")
+                if direct:
+                    return str(direct)
+                strategy = root.get("strategy")
+                if isinstance(strategy, dict):
+                    return str(strategy.get("ai_provider") or "")
+                if strategy is not None:
+                    return str(getattr(strategy, "ai_provider", "") or "")
+                settings = root.get("settings")
+                if settings is not None:
+                    return self._extract_ai_provider(settings)
+                return ""
+            direct = getattr(root, "ai_provider", "")
+            if direct:
+                return str(direct)
+            strategy = getattr(root, "strategy", None)
+            if strategy is not None:
+                return self._extract_ai_provider(strategy)
+            settings = getattr(root, "settings", None)
+            if settings is not None:
+                return self._extract_ai_provider(settings)
+        except Exception:
+            return ""
+        return ""
+
+    def _normalize_ai_provider_for_router(self, provider: str) -> str:
+        p = str(provider or "").strip().lower()
+        if p in ("gpt", "openai"):
+            return "openai"
+        if p == "gemini":
+            return "gemini"
+        if p in ("local", "basic"):
+            return "local"
+        return "local"
+
     def _update_bridge_result(self, result: CycleResult) -> None:
         try:
             self.last_bridge_result = self.execution_bridge.build_from_cycle_result(result)
@@ -897,6 +960,27 @@ class AITSOrchestrator:
             target,
             pack_runtime=self.last_module_pack_runtime,
         )
+        if self.decision_router is not None:
+            try:
+                provider = self._read_ai_provider_for_router()
+                decision = self.decision_router.route(
+                    decision,
+                    provider=provider,
+                    context={
+                        "candidate_symbols": list(getattr(opp, "candidate_symbols", None) or []),
+                    },
+                )
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] normalized_decision | "
+                    f"action={getattr(decision, 'action', '')} | "
+                    f"confidence={getattr(decision, 'confidence', 0.0)} | "
+                    f"engine={provider}"
+                )
+            except Exception as exc:
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] route_failed | "
+                    f"error={str(exc)[:160]} | fallback=original_decision"
+                )
         rs.portfolio.target = target
         rs.intelligence.ai_decision = decision
 
