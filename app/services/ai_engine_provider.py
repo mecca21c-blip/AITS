@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from typing import Any, Dict, Optional
 
 
@@ -17,6 +18,10 @@ class AIEngineDecision:
 class AIEngineProvider:
     name: str = "base"
     api_required: bool = False
+    ready_reason: str = "Provider not configured"
+
+    def __init__(self, api_key: str = "") -> None:
+        self.api_key = str(api_key or "").strip()
 
     def is_ready(self) -> bool:
         return False
@@ -36,7 +41,11 @@ class AIEngineProvider:
             "name": self.name,
             "api_required": self.api_required,
             "ready": self.is_ready(),
+            "ready_reason": self.get_ready_reason(),
         }
+
+    def get_ready_reason(self) -> str:
+        return self.ready_reason
 
 
 class LocalProvider(AIEngineProvider):
@@ -45,6 +54,9 @@ class LocalProvider(AIEngineProvider):
 
     def is_ready(self) -> bool:
         return True
+
+    def get_ready_reason(self) -> str:
+        return "Local Engine ready"
 
     def decide(self, context: Optional[Dict[str, Any]] = None) -> AIEngineDecision:
         return AIEngineDecision(
@@ -62,7 +74,12 @@ class OpenAIProvider(AIEngineProvider):
     api_required = True
 
     def is_ready(self) -> bool:
-        return False
+        return bool(self.api_key)
+
+    def get_ready_reason(self) -> str:
+        if self.is_ready():
+            return "OpenAI API key configured"
+        return "OpenAI API key missing"
 
     def decide(self, context: Optional[Dict[str, Any]] = None) -> AIEngineDecision:
         return AIEngineDecision(
@@ -80,7 +97,12 @@ class GeminiProvider(AIEngineProvider):
     api_required = True
 
     def is_ready(self) -> bool:
-        return False
+        return bool(self.api_key)
+
+    def get_ready_reason(self) -> str:
+        if self.is_ready():
+            return "Gemini API key configured"
+        return "Gemini API key missing"
 
     def decide(self, context: Optional[Dict[str, Any]] = None) -> AIEngineDecision:
         return AIEngineDecision(
@@ -104,11 +126,84 @@ def normalize_provider_name(provider_name: Any) -> str:
     return "local"
 
 
-def build_default_provider_registry() -> Dict[str, AIEngineProvider]:
+def _read_value(root: Any, key: str) -> str:
+    try:
+        if root is None:
+            return ""
+        if isinstance(root, dict):
+            value = root.get(key)
+        else:
+            value = getattr(root, key, "")
+        return str(value or "").strip()
+    except Exception:
+        return ""
+
+
+def _iter_roots(*roots: Any):
+    seen = set()
+    stack = [root for root in roots if root is not None]
+    while stack:
+        root = stack.pop(0)
+        ident = id(root)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        yield root
+        try:
+            if isinstance(root, dict):
+                children = [root.get(key) for key in ("strategy", "settings", "prefs", "config")]
+            else:
+                children = [getattr(root, key, None) for key in ("strategy", "settings", "prefs", "config")]
+            stack.extend(child for child in children if child is not None)
+        except Exception:
+            continue
+
+
+def _find_api_key(
+    candidates: tuple[str, ...],
+    *roots: Any,
+    env_keys: tuple[str, ...] = (),
+) -> str:
+    for root in _iter_roots(*roots):
+        for key in candidates:
+            value = _read_value(root, key)
+            if value:
+                return value
+    for env_key in env_keys:
+        value = (os.getenv(env_key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def build_default_provider_registry(
+    settings: Optional[Any] = None,
+    prefs: Optional[Any] = None,
+    config: Optional[Any] = None,
+) -> Dict[str, AIEngineProvider]:
+    openai_api_key = _find_api_key(
+        ("ai_openai_api_key", "openai_api_key", "gpt_api_key"),
+        settings,
+        prefs,
+        config,
+        env_keys=("OPENAI_API_KEY",),
+    )
+    gemini_api_key = _find_api_key(
+        (
+            "ai_gemini_api_key",
+            "gemini_api_key",
+            "google_api_key",
+            "google_gemini_api_key",
+        ),
+        settings,
+        prefs,
+        config,
+        env_keys=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    )
     return {
         "local": LocalProvider(),
-        "openai": OpenAIProvider(),
-        "gemini": GeminiProvider(),
+        "openai": OpenAIProvider(api_key=openai_api_key),
+        "gemini": GeminiProvider(api_key=gemini_api_key),
     }
 
 

@@ -10,7 +10,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v0.3"
+ROUTER_VERSION = "v0.4"
 ROUTER_MODE = "passthrough"
 
 
@@ -60,9 +60,16 @@ class DecisionRouter:
         self,
         logger: Optional[Any] = None,
         provider_registry: Optional[Dict[str, Any]] = None,
+        settings: Optional[Any] = None,
+        prefs: Optional[Any] = None,
+        config: Optional[Any] = None,
     ) -> None:
         self.logger = logger
-        self.provider_registry = provider_registry or build_default_provider_registry()
+        self.provider_registry = provider_registry or build_default_provider_registry(
+            settings=settings,
+            prefs=prefs,
+            config=config,
+        )
         self.router_version = ROUTER_VERSION
         self.mode = ROUTER_MODE
 
@@ -154,6 +161,7 @@ class DecisionRouter:
             "provider_ready": bool(provider_status.get("ready", False)),
             "api_required": bool(provider_status.get("api_required", False)),
             "provider_name": str(provider_status.get("name") or selected_provider),
+            "ready_reason": str(provider_status.get("ready_reason") or ""),
         }
 
     def _attach_router_result(

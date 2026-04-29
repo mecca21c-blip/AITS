@@ -163,10 +163,16 @@ class AITSOrchestrator:
         self.scenario_engine = scenario_engine
         self.provider_router = provider_router
         self.decision_router = decision_router or (
-            DecisionRouter(logger=self.logger) if DecisionRouter is not None else None
+            DecisionRouter(
+                logger=self.logger,
+                prefs=self.app_state,
+                config=self.config,
+            )
+            if DecisionRouter is not None
+            else None
         )
         if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.3 | mode=passthrough")
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.4 | mode=passthrough")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -687,6 +693,21 @@ class AITSOrchestrator:
             return "local"
         return "local"
 
+    def _log_decision_router_provider_status(self, provider: str) -> None:
+        try:
+            if self.decision_router is None:
+                return
+            status = self.decision_router.get_status_summary(provider)
+            self._safe_log_info(
+                "[AITS][DecisionRouter] provider_status | "
+                f"provider={status.get('selected_provider')} | "
+                f"ready={status.get('provider_ready')} | "
+                f"api_required={status.get('api_required')} | "
+                f"reason={status.get('ready_reason')}"
+            )
+        except Exception:
+            pass
+
     def _update_bridge_result(self, result: CycleResult) -> None:
         try:
             self.last_bridge_result = self.execution_bridge.build_from_cycle_result(result)
@@ -985,6 +1006,7 @@ class AITSOrchestrator:
         if self.decision_router is not None:
             try:
                 provider = self._read_ai_provider_for_router()
+                self._log_decision_router_provider_status(provider)
                 decision = self.decision_router.route(
                     decision,
                     provider=provider,
