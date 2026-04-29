@@ -5,8 +5,12 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from app.core.aits_state import AIDecisionState
+from app.services.ai_engine_provider import (
+    build_default_provider_registry,
+    get_provider,
+)
 
-ROUTER_VERSION = "v0.2"
+ROUTER_VERSION = "v0.3"
 ROUTER_MODE = "passthrough"
 
 
@@ -52,8 +56,15 @@ def normalize_provider(provider: str) -> str:
 
 
 class DecisionRouter:
-    def __init__(self, logger: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        logger: Optional[Any] = None,
+        provider_registry: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.logger = logger
+        self.provider_registry = provider_registry or build_default_provider_registry()
+        self.router_version = ROUTER_VERSION
+        self.mode = ROUTER_MODE
 
     def route(
         self,
@@ -134,13 +145,15 @@ class DecisionRouter:
 
     def get_status_summary(self, provider: str) -> Dict[str, Any]:
         selected_provider = normalize_provider(provider)
-        api_required = selected_provider in ("openai", "gemini")
+        provider_obj = get_provider(self.provider_registry, selected_provider)
+        provider_status = provider_obj.get_status()
         return {
             "router_version": ROUTER_VERSION,
             "mode": ROUTER_MODE,
             "selected_provider": selected_provider,
-            "provider_ready": not api_required,
-            "api_required": api_required,
+            "provider_ready": bool(provider_status.get("ready", False)),
+            "api_required": bool(provider_status.get("api_required", False)),
+            "provider_name": str(provider_status.get("name") or selected_provider),
         }
 
     def _attach_router_result(

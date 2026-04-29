@@ -166,7 +166,7 @@ class AITSOrchestrator:
             DecisionRouter(logger=self.logger) if DecisionRouter is not None else None
         )
         if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.2 | mode=passthrough")
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.3 | mode=passthrough")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
