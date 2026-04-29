@@ -10,7 +10,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v0.5"
+ROUTER_VERSION = "v0.9"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -73,6 +73,8 @@ class DecisionRouter:
         )
         self.router_version = ROUTER_VERSION
         self.mode = str(mode or ROUTER_MODE).strip() or ROUTER_MODE
+        self.shadow_history = []
+        self.shadow_history_limit = 20
 
     def route(
         self,
@@ -86,15 +88,40 @@ class DecisionRouter:
         provider_status = self.get_status_summary(engine)
         provider_shadow_decision = None
         provider_shadow_error = ""
+        shadow_history_summary = self._get_shadow_history_summary()
         if self.mode == "shadow_provider":
             provider_obj = get_provider(self.provider_registry, engine)
             try:
                 provider_shadow_decision = provider_obj.decide(context_data)
+                shadow_raw = dict(getattr(provider_shadow_decision, "raw", {}) or {})
+                final_action = str(getattr(decision, "action", "") or "")
+                final_confidence = self._safe_float(
+                    getattr(decision, "confidence", 0.0),
+                    0.0,
+                )
+                self._record_shadow_history(
+                    provider=engine,
+                    shadow_decision=provider_shadow_decision,
+                    final_action=final_action,
+                    final_confidence=final_confidence,
+                )
+                shadow_history_summary = self._get_shadow_history_summary()
                 self._safe_log_info(
                     "[AITS][DecisionRouter] provider_shadow | "
                     f"provider={engine} | "
-                    f"action={getattr(provider_shadow_decision, 'action', '')} | "
-                    f"confidence={self._safe_float(getattr(provider_shadow_decision, 'confidence', 0.0), 0.0):.3f} | "
+                    f"shadow_action={getattr(provider_shadow_decision, 'action', '')} | "
+                    f"shadow_conf={self._safe_float(getattr(provider_shadow_decision, 'confidence', 0.0), 0.0):.3f} | "
+                    f"shadow_rule={shadow_raw.get('shadow_rule', '')} | "
+                    f"execution_allowed={shadow_raw.get('execution_allowed', False)} | "
+                    f"history_count={shadow_history_summary.get('count', 0)} | "
+                    f"history_bias={shadow_history_summary.get('consistency', 'mixed')} | "
+                    f"history_buy={shadow_history_summary.get('buy', 0)} | "
+                    f"history_sell={shadow_history_summary.get('sell', 0)} | "
+                    f"rule_action={shadow_raw.get('rule_action', '')} | "
+                    f"regime={shadow_raw.get('market_regime', '')} | "
+                    f"candidates={shadow_raw.get('candidate_count', 0)} | "
+                    f"positions={shadow_raw.get('positions_count', 0)} | "
+                    f"risk_hint={shadow_raw.get('risk_hint', '')} | "
                     "final=passthrough"
                 )
             except Exception as exc:
@@ -134,6 +161,8 @@ class DecisionRouter:
                         "provider_status": provider_status,
                         "provider_shadow_decision": self._decision_to_dict(provider_shadow_decision),
                         "provider_shadow_error": provider_shadow_error,
+                        "provider_shadow_history_summary": shadow_history_summary,
+                        **self._local_shadow_meta(provider_shadow_decision),
                     },
                 ),
             )
@@ -172,6 +201,8 @@ class DecisionRouter:
                 "provider_status": provider_status,
                 "provider_shadow_decision": self._decision_to_dict(provider_shadow_decision),
                 "provider_shadow_error": provider_shadow_error,
+                "provider_shadow_history_summary": shadow_history_summary,
+                **self._local_shadow_meta(provider_shadow_decision),
                 "context": context_data,
             },
         )
@@ -232,6 +263,118 @@ class DecisionRouter:
         except Exception:
             pass
 
+    def _record_shadow_history(
+        self,
+        *,
+        provider: str,
+        shadow_decision: Optional[Any],
+        final_action: str,
+        final_confidence: float,
+    ) -> None:
+        try:
+            if shadow_decision is None:
+                return
+            raw = dict(getattr(shadow_decision, "raw", {}) or {})
+            record = {
+                "timestamp": self._now_iso(),
+                "provider": str(provider or ""),
+                "shadow_action": str(getattr(shadow_decision, "action", "") or ""),
+                "shadow_confidence": self._safe_float(
+                    getattr(shadow_decision, "confidence", 0.0),
+                    0.0,
+                ),
+                "shadow_rule": str(raw.get("shadow_rule") or ""),
+                "risk_hint": str(raw.get("risk_hint") or ""),
+                "rule_action": str(raw.get("rule_action") or ""),
+                "market_regime": str(raw.get("market_regime") or ""),
+                "candidate_count": self._safe_int(raw.get("candidate_count"), 0),
+                "positions_count": self._safe_int(raw.get("positions_count"), 0),
+                "final_action": str(final_action or ""),
+                "final_confidence": self._safe_float(final_confidence, 0.0),
+                "execution_allowed": bool(raw.get("execution_allowed", False)),
+            }
+            self.shadow_history.append(record)
+            if len(self.shadow_history) > self.shadow_history_limit:
+                self.shadow_history = self.shadow_history[-self.shadow_history_limit :]
+        except Exception:
+            pass
+
+    def _get_shadow_history_summary(self) -> Dict[str, Any]:
+        try:
+            rows = list(getattr(self, "shadow_history", None) or [])
+            count = len(rows)
+            counts = {"buy": 0, "sell": 0, "hold": 0, "wait": 0}
+            total_confidence = 0.0
+            for row in rows:
+                action = str(row.get("shadow_action") or "").lower()
+                if action in counts:
+                    counts[action] += 1
+                total_confidence += self._safe_float(row.get("shadow_confidence"), 0.0)
+            last_action = str(rows[-1].get("shadow_action") or "") if rows else ""
+            avg_confidence = (total_confidence / count) if count > 0 else 0.0
+            consistency = "mixed"
+            if count >= 3:
+                buy_ratio = counts["buy"] / count
+                sell_ratio = counts["sell"] / count
+                neutral_ratio = (counts["hold"] + counts["wait"]) / count
+                if buy_ratio >= 0.60:
+                    consistency = "buy_bias"
+                elif sell_ratio >= 0.60:
+                    consistency = "sell_bias"
+                elif neutral_ratio >= 0.60:
+                    consistency = "neutral_wait"
+            return {
+                "count": count,
+                "buy": counts["buy"],
+                "sell": counts["sell"],
+                "hold": counts["hold"],
+                "wait": counts["wait"],
+                "last_action": last_action,
+                "consistency": consistency,
+                "avg_confidence": round(avg_confidence, 4),
+            }
+        except Exception:
+            return {
+                "count": 0,
+                "buy": 0,
+                "sell": 0,
+                "hold": 0,
+                "wait": 0,
+                "last_action": "",
+                "consistency": "mixed",
+                "avg_confidence": 0.0,
+            }
+
+    def _local_shadow_meta(self, decision: Optional[Any]) -> Dict[str, Any]:
+        try:
+            if decision is None or str(getattr(decision, "engine", "") or "") != "local":
+                return {}
+            raw = dict(getattr(decision, "raw", {}) or {})
+            return {
+                "local_shadow_rule_action": raw.get("rule_action"),
+                "local_shadow_reason": str(getattr(decision, "reason", "") or ""),
+                "local_shadow_confidence": self._safe_float(
+                    getattr(decision, "confidence", 0.0),
+                    0.0,
+                ),
+                "provider_shadow_summary": raw.get("shadow_summary"),
+                "provider_shadow_risk_hint": raw.get("risk_hint"),
+                "provider_shadow_rule_action": raw.get("rule_action"),
+                "provider_shadow_market_regime": raw.get("market_regime"),
+                "provider_shadow_candidate_count": raw.get("candidate_count"),
+                "provider_shadow_positions_count": raw.get("positions_count"),
+                "provider_shadow_rule": raw.get("shadow_rule"),
+                "provider_shadow_execution_allowed": raw.get("execution_allowed"),
+            }
+        except Exception:
+            return {}
+
+    def _trim_log_text(self, value: Any, limit: int = 120) -> str:
+        text = str(value or "").replace("\n", " ").replace("\r", " ").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit]
+
     def _clamp(self, value: Any, low: float, high: float) -> float:
         val = self._safe_float(value, low)
         if val < low:
@@ -245,6 +388,14 @@ class DecisionRouter:
             if value is None:
                 return default
             return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _safe_int(self, value: Any, default: int = 0) -> int:
+        try:
+            if value is None:
+                return default
+            return int(value)
         except (TypeError, ValueError):
             return default
 

@@ -172,7 +172,7 @@ class AITSOrchestrator:
             else None
         )
         if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.5 | mode=shadow_provider")
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.9 | mode=shadow_provider")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -713,23 +713,44 @@ class AITSOrchestrator:
         regime: Optional[Any] = None,
         portfolio: Optional[Any] = None,
         opportunities: Optional[Any] = None,
+        decision: Optional[Any] = None,
     ) -> Dict[str, Any]:
         try:
             positions = getattr(portfolio, "positions", None)
             summary = getattr(portfolio, "summary", None)
             candidates = getattr(opportunities, "candidate_symbols", None) or []
+            rule_reason = str(getattr(decision, "ai_summary_for_user", "") or "").strip()
+            if not rule_reason:
+                rule_reason = str(getattr(decision, "reason", "") or "").strip()
             return {
+                "rule_action": str(getattr(decision, "action", "") or ""),
+                "original_action": str(getattr(decision, "action", "") or ""),
+                "rule_confidence": self._safe_float(
+                    getattr(decision, "confidence", 0.0),
+                    0.0,
+                ),
+                "rule_reason": rule_reason,
                 "market_regime": str(getattr(regime, "label", "") or ""),
                 "positions_count": len(positions) if isinstance(positions, (list, tuple)) else 0,
                 "candidate_count": len(candidates) if isinstance(candidates, (list, tuple)) else 0,
-                "portfolio_value": self._safe_float(
-                    getattr(summary, "total_asset_krw", 0.0),
-                    0.0,
-                ),
+                "portfolio_value": self._read_portfolio_value(summary),
                 "cycle": int(getattr(self, "cycle_counter", 0) or 0),
             }
         except Exception:
             return {}
+
+    def _read_portfolio_value(self, summary: Optional[Any]) -> float:
+        for key in (
+            "total_asset_krw",
+            "total_value_krw",
+            "portfolio_value",
+            "evaluation_amount_krw",
+            "total_krw",
+        ):
+            value = self._safe_float(getattr(summary, key, 0.0), 0.0)
+            if value > 0.0:
+                return value
+        return 0.0
 
     def _update_bridge_result(self, result: CycleResult) -> None:
         try:
@@ -1033,7 +1054,12 @@ class AITSOrchestrator:
                 decision = self.decision_router.route(
                     decision,
                     provider=provider,
-                    context=self._build_decision_router_context(regime, portfolio, opp),
+                    context=self._build_decision_router_context(
+                        regime,
+                        portfolio,
+                        opp,
+                        decision,
+                    ),
                 )
                 self._safe_log_info(
                     "[AITS][DecisionRouter] passthrough | "

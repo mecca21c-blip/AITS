@@ -4718,3 +4718,94 @@ SyntaxError: invalid decimal literal
 2026-04-29 13:12:55,572 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
 2026-04-29 13:12:55,573 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
 2026-04-29 13:12:55,575 | INFO | aits | [cycle=1] status=success, duration_ms=2029.9, warnings=0, errors=0
+2026-04-29 15:05:02,061 | INFO | aits | AITS bootstrap start
+2026-04-29 15:05:02,063 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.5 | mode=shadow_provider
+2026-04-29 15:05:02,079 | INFO | aits | AITS orchestrator initialized
+2026-04-29 15:05:02,094 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 15:05:02,100 | INFO | aits | AITS orchestrator initialized
+2026-04-29 15:05:02,116 | INFO | aits | AITS headless mode start
+2026-04-29 15:05:03,611 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 15:05:03,611 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | action=hold | confidence=0.500 | final=passthrough
+2026-04-29 15:05:03,612 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 15:05:03,612 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 15:05:03,612 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 15:05:03,612 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 15:05:03,612 | INFO | aits | [cycle=1] status=success, duration_ms=1474.8, warnings=0, errors=0
+2026-04-29 15:48:57,290 | INFO | aits | AITS bootstrap start
+2026-04-29 15:48:57,297 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.6 | mode=shadow_provider
+2026-04-29 15:48:57,308 | INFO | aits | AITS orchestrator initialized
+2026-04-29 15:48:57,309 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 15:48:57,310 | INFO | aits | AITS orchestrator initialized
+2026-04-29 15:48:57,310 | INFO | aits | AITS headless mode start
+2026-04-29 15:48:58,606 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 15:48:58,606 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | action=wait | confidence=0.550 | final=passthrough | reason=LocalProvider shadow: rule_action=wait, regime=sideways, candidates=5
+2026-04-29 15:48:58,607 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 15:48:58,607 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 15:48:58,607 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 15:48:58,608 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 15:48:58,608 | INFO | aits | [cycle=1] status=success, duration_ms=1286.7, warnings=0, errors=0
+2026-04-29 16:29:49,992 | INFO | aits | AITS bootstrap start
+2026-04-29 16:29:49,996 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.7 | mode=shadow_provider
+2026-04-29 16:29:50,012 | INFO | aits | AITS orchestrator initialized
+2026-04-29 16:29:50,012 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 16:29:50,013 | INFO | aits | AITS orchestrator initialized
+2026-04-29 16:29:50,014 | INFO | aits | AITS headless mode start
+2026-04-29 16:29:51,213 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 16:29:51,213 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=wait | shadow_conf=0.550 | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=watchlist_active | final=passthrough
+2026-04-29 16:29:51,214 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 16:29:51,214 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 16:29:51,214 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 16:29:51,214 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 16:29:51,214 | INFO | aits | [cycle=1] status=success, duration_ms=1200.4, warnings=0, errors=0
+2026-04-29 17:04:24,030 | INFO | aits | AITS bootstrap start
+2026-04-29 17:04:24,031 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.8 | mode=shadow_provider
+2026-04-29 17:04:24,038 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:04:24,038 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 17:04:24,038 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:04:24,041 | INFO | aits | AITS headless mode start
+2026-04-29 17:04:25,071 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 17:04:25,071 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=buy | shadow_conf=0.550 | shadow_rule=buy_candidate | execution_allowed=False | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=buy_candidate_shadow | final=passthrough
+2026-04-29 17:04:25,072 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 17:04:25,073 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 17:04:25,075 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:04:25,076 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:04:25,076 | INFO | aits | [cycle=1] status=success, duration_ms=1033.3, warnings=0, errors=0
+2026-04-29 17:21:48,538 | INFO | aits | AITS bootstrap start
+2026-04-29 17:21:48,539 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.9 | mode=shadow_provider
+2026-04-29 17:21:48,546 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:21:48,546 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 17:21:48,547 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:21:48,547 | INFO | aits | AITS headless mode start
+2026-04-29 17:21:49,497 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 17:21:49,497 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=buy | shadow_conf=0.550 | shadow_rule=buy_candidate | execution_allowed=False | history_count=1 | history_bias=mixed | history_buy=1 | history_sell=0 | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=buy_candidate_shadow | final=passthrough
+2026-04-29 17:21:49,497 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 17:21:49,498 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 17:21:49,498 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:21:49,498 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:21:49,498 | INFO | aits | [cycle=1] status=success, duration_ms=951.3, warnings=0, errors=0
+2026-04-29 17:21:50,475 | INFO | aits | AITS bootstrap start
+2026-04-29 17:21:50,477 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.9 | mode=shadow_provider
+2026-04-29 17:21:50,485 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:21:50,485 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 17:21:50,485 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:21:50,488 | INFO | aits | AITS headless mode start
+2026-04-29 17:21:52,013 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 17:21:52,014 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=buy | shadow_conf=0.550 | shadow_rule=buy_candidate | execution_allowed=False | history_count=1 | history_bias=mixed | history_buy=1 | history_sell=0 | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=buy_candidate_shadow | final=passthrough
+2026-04-29 17:21:52,014 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 17:21:52,015 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 17:21:52,015 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:21:52,015 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:21:52,015 | INFO | aits | [cycle=1] status=success, duration_ms=1526.4, warnings=0, errors=0
+2026-04-29 17:21:53,217 | INFO | aits | AITS bootstrap start
+2026-04-29 17:21:53,223 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.9 | mode=shadow_provider
+2026-04-29 17:21:53,235 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:21:53,236 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 17:21:53,236 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:21:53,236 | INFO | aits | AITS headless mode start
+2026-04-29 17:21:54,233 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-29 17:21:54,233 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=buy | shadow_conf=0.550 | shadow_rule=buy_candidate | execution_allowed=False | history_count=1 | history_bias=mixed | history_buy=1 | history_sell=0 | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=buy_candidate_shadow | final=passthrough
+2026-04-29 17:21:54,234 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 17:21:54,234 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 17:21:54,234 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:21:54,234 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 17:21:54,234 | INFO | aits | [cycle=1] status=success, duration_ms=998.1, warnings=0, errors=0
