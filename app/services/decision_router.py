@@ -6,6 +6,9 @@ from typing import Any, Dict, Optional
 
 from app.core.aits_state import AIDecisionState
 
+ROUTER_VERSION = "v0.2"
+ROUTER_MODE = "passthrough"
+
 
 @dataclass
 class DecisionRouterResult:
@@ -37,6 +40,17 @@ def normalize_action(action: str) -> str:
     return mapping.get(action_norm, "hold")
 
 
+def normalize_provider(provider: str) -> str:
+    provider_norm = str(provider or "").strip().lower()
+    if provider_norm in ("gpt", "openai"):
+        return "openai"
+    if provider_norm in ("gemini", "google"):
+        return "gemini"
+    if provider_norm in ("local", "basic"):
+        return "local"
+    return "local"
+
+
 class DecisionRouter:
     def __init__(self, logger: Optional[Any] = None) -> None:
         self.logger = logger
@@ -48,7 +62,7 @@ class DecisionRouter:
         provider: str = "local",
         context: Optional[Dict[str, Any]] = None,
     ) -> AIDecisionState:
-        engine = self._normalize_provider(provider)
+        engine = normalize_provider(provider)
         if decision is None:
             routed = AIDecisionState(
                 action="hold",
@@ -70,7 +84,14 @@ class DecisionRouter:
                     source="ai_decision_service",
                     amount_krw=0.0,
                     timestamp=self._now_iso(),
-                    raw={"action": None, "confidence": None, "reason": None},
+                    raw={
+                        "original_action": None,
+                        "original_confidence": None,
+                        "original_reason": None,
+                        "selected_provider": engine,
+                        "router_version": ROUTER_VERSION,
+                        "router_mode": ROUTER_MODE,
+                    },
                 ),
             )
             return routed
@@ -88,13 +109,6 @@ class DecisionRouter:
         amount_krw = self._safe_float(getattr(decision, "amount_krw", 0.0), 0.0)
         risk = str(getattr(decision, "risk", "") or "medium").strip().lower() or "medium"
 
-        if hasattr(decision, "action"):
-            decision.action = action
-        if hasattr(decision, "confidence"):
-            decision.confidence = confidence
-        if hasattr(decision, "ai_summary_for_user") and not getattr(decision, "ai_summary_for_user", ""):
-            decision.ai_summary_for_user = reason
-
         routed_result = DecisionRouterResult(
             action=action,
             symbol=symbol,
@@ -106,14 +120,28 @@ class DecisionRouter:
             amount_krw=amount_krw,
             timestamp=self._now_iso(),
             raw={
-                "action": raw_action,
-                "confidence": raw_confidence,
-                "reason": raw_reason,
+                "original_action": raw_action,
+                "original_confidence": raw_confidence,
+                "original_reason": raw_reason,
+                "selected_provider": engine,
+                "router_version": ROUTER_VERSION,
+                "router_mode": ROUTER_MODE,
                 "context": dict(context or {}),
             },
         )
         self._attach_router_result(decision, routed_result)
         return decision
+
+    def get_status_summary(self, provider: str) -> Dict[str, Any]:
+        selected_provider = normalize_provider(provider)
+        api_required = selected_provider in ("openai", "gemini")
+        return {
+            "router_version": ROUTER_VERSION,
+            "mode": ROUTER_MODE,
+            "selected_provider": selected_provider,
+            "provider_ready": not api_required,
+            "api_required": api_required,
+        }
 
     def _attach_router_result(
         self, decision: AIDecisionState, result: DecisionRouterResult
@@ -129,14 +157,7 @@ class DecisionRouter:
             pass
 
     def _normalize_provider(self, provider: str) -> str:
-        p = str(provider or "").strip().lower()
-        if p in ("gpt", "openai"):
-            return "openai"
-        if p == "gemini":
-            return "gemini"
-        if p in ("local", "basic"):
-            return "local"
-        return "local"
+        return normalize_provider(provider)
 
     def _clamp(self, value: Any, low: float, high: float) -> float:
         val = self._safe_float(value, low)

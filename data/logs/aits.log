@@ -4679,3 +4679,31 @@ SyntaxError: invalid decimal literal
 2026-04-29 01:23:04,203 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-04-29 01:23:04,204 | INFO | aits | AITS orchestrator initialized
 2026-04-29 01:23:07,652 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-29 03:10:25,148 | INFO | aits | AITS bootstrap start
+2026-04-29 03:10:25,155 | INFO | aits | AITS orchestrator initialized
+2026-04-29 03:10:25,155 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 03:10:25,155 | INFO | aits | AITS orchestrator initialized
+2026-04-29 03:10:28,624 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-29 12:28:19,634 | INFO | aits | AITS bootstrap start
+2026-04-29 12:28:19,636 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.2 | mode=passthrough
+2026-04-29 12:28:19,643 | INFO | aits | AITS orchestrator initialized
+2026-04-29 12:28:19,643 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 12:28:19,645 | INFO | aits | AITS orchestrator initialized
+2026-04-29 12:28:23,014 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-29 12:54:47,664 | INFO | aits | AITS bootstrap start
+2026-04-29 12:54:47,665 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.2 | mode=passthrough
+2026-04-29 12:54:47,673 | INFO | aits | AITS orchestrator initialized
+2026-04-29 12:54:47,673 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 12:54:47,673 | INFO | aits | AITS orchestrator initialized
+2026-04-29 12:54:50,481 | INFO | aits | UI launched via legacy-compatible entry
+2026-04-29 12:58:32,688 | INFO | aits | AITS bootstrap start
+2026-04-29 12:58:32,689 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.2 | mode=passthrough
+2026-04-29 12:58:32,697 | INFO | aits | AITS orchestrator initialized
+2026-04-29 12:58:32,697 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 12:58:32,700 | INFO | aits | AITS orchestrator initialized
+2026-04-29 12:58:32,700 | INFO | aits | AITS headless mode start
+2026-04-29 12:58:34,574 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-04-29 12:58:34,574 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-29 12:58:34,574 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 12:58:34,575 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-29 12:58:34,575 | INFO | aits | [cycle=1] status=success, duration_ms=1874.3, warnings=0, errors=0

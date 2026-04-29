@@ -24,9 +24,10 @@ from app.services.regime_detector import RegimeDetector
 from app.services.module_pack_resolver import ModulePackResolver
 from app.services.order_service import OrderService
 try:
-    from app.services.decision_router import DecisionRouter
+    from app.services.decision_router import DecisionRouter, normalize_provider
 except Exception:
     DecisionRouter = None
+    normalize_provider = None
 from app.core.module_pack_state import (
     DEFAULT_MODULE_PACK_DEFINITIONS,
     DEFAULT_USER_MODULE_PACK_SELECTION,
@@ -164,6 +165,8 @@ class AITSOrchestrator:
         self.decision_router = decision_router or (
             DecisionRouter(logger=self.logger) if DecisionRouter is not None else None
         )
+        if self.decision_router is not None:
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.2 | mode=passthrough")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -612,54 +615,73 @@ class AITSOrchestrator:
 
     def _read_ai_provider_for_router(self) -> str:
         try:
-            for root in (
-                getattr(self, "strategy", None),
-                getattr(self, "settings", None),
-                getattr(self, "app_state", None),
-                self.config,
-            ):
-                provider = self._extract_ai_provider(root)
-                if provider:
-                    return self._normalize_ai_provider_for_router(provider)
+            provider = self._extract_direct_provider(getattr(self, "strategy", None))
+            if provider:
+                return self._normalize_ai_provider_for_router(provider)
+
+            provider = self._extract_strategy_provider(getattr(self, "settings", None))
+            if provider:
+                return self._normalize_ai_provider_for_router(provider)
+
+            provider = self._extract_strategy_provider(getattr(self, "app_state", None))
+            if provider:
+                return self._normalize_ai_provider_for_router(provider)
+
+            provider = self._extract_strategy_provider(self.config)
+            if provider:
+                return self._normalize_ai_provider_for_router(provider)
+
+            provider = self._extract_direct_provider(self.config)
+            if provider:
+                return self._normalize_ai_provider_for_router(provider)
         except Exception:
             pass
         return "local"
 
-    def _extract_ai_provider(self, root: Any) -> str:
+    def _extract_direct_provider(self, root: Any) -> str:
         try:
             if root is None:
                 return ""
             if isinstance(root, dict):
-                direct = root.get("ai_provider")
-                if direct:
-                    return str(direct)
-                strategy = root.get("strategy")
-                if isinstance(strategy, dict):
-                    return str(strategy.get("ai_provider") or "")
-                if strategy is not None:
-                    return str(getattr(strategy, "ai_provider", "") or "")
-                settings = root.get("settings")
-                if settings is not None:
-                    return self._extract_ai_provider(settings)
+                return str(root.get("ai_provider") or "")
+            return str(getattr(root, "ai_provider", "") or "")
+        except Exception:
+            return ""
+        return ""
+
+    def _extract_strategy_provider(self, root: Any) -> str:
+        try:
+            if root is None:
                 return ""
-            direct = getattr(root, "ai_provider", "")
-            if direct:
-                return str(direct)
-            strategy = getattr(root, "strategy", None)
+            if isinstance(root, dict):
+                strategy = root.get("strategy")
+            else:
+                strategy = getattr(root, "strategy", None)
+            provider = self._extract_direct_provider(strategy)
+            if provider:
+                return provider
             if strategy is not None:
-                return self._extract_ai_provider(strategy)
-            settings = getattr(root, "settings", None)
+                return ""
+            if isinstance(root, dict):
+                settings = root.get("settings")
+            else:
+                settings = getattr(root, "settings", None)
             if settings is not None:
-                return self._extract_ai_provider(settings)
+                return self._extract_strategy_provider(settings)
         except Exception:
             return ""
         return ""
 
     def _normalize_ai_provider_for_router(self, provider: str) -> str:
+        if normalize_provider is not None:
+            try:
+                return normalize_provider(provider)
+            except Exception:
+                pass
         p = str(provider or "").strip().lower()
         if p in ("gpt", "openai"):
             return "openai"
-        if p == "gemini":
+        if p in ("gemini", "google"):
             return "gemini"
         if p in ("local", "basic"):
             return "local"
@@ -971,15 +993,21 @@ class AITSOrchestrator:
                     },
                 )
                 self._safe_log_info(
-                    "[AITS][DecisionRouter] normalized_decision | "
+                    "[AITS][DecisionRouter] passthrough | "
+                    f"provider={provider} | "
                     f"action={getattr(decision, 'action', '')} | "
-                    f"confidence={getattr(decision, 'confidence', 0.0)} | "
-                    f"engine={provider}"
+                    f"confidence={self._safe_float(getattr(decision, 'confidence', 0.0), 0.0):.3f} | "
+                    "source=ai_decision_service"
                 )
             except Exception as exc:
+                provider = "local"
+                try:
+                    provider = self._read_ai_provider_for_router()
+                except Exception:
+                    provider = "local"
                 self._safe_log_info(
                     "[AITS][DecisionRouter] route_failed | "
-                    f"error={str(exc)[:160]} | fallback=original_decision"
+                    f"provider={provider} | error={str(exc)[:160]} | fallback=original_decision"
                 )
         rs.portfolio.target = target
         rs.intelligence.ai_decision = decision
