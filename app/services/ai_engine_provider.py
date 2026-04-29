@@ -14,6 +14,16 @@ class AIEngineDecision:
     engine: str = "local"
     raw: Dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "action": self.action,
+            "confidence": self.confidence,
+            "risk": self.risk,
+            "reason": self.reason,
+            "engine": self.engine,
+            "raw": dict(self.raw or {}),
+        }
+
 
 class AIEngineProvider:
     name: str = "base"
@@ -59,13 +69,17 @@ class LocalProvider(AIEngineProvider):
         return "Local Engine ready"
 
     def decide(self, context: Optional[Dict[str, Any]] = None) -> AIEngineDecision:
+        raw_context = dict(context or {})
         return AIEngineDecision(
             action="hold",
-            confidence=0.0,
+            confidence=0.5,
             risk="medium",
-            reason="LocalProvider skeleton ready",
+            reason="LocalProvider shadow decision",
             engine="local",
-            raw={"mode": "skeleton"},
+            raw={
+                "mode": "shadow_provider",
+                "has_context": bool(raw_context),
+            },
         )
 
 
@@ -86,9 +100,9 @@ class OpenAIProvider(AIEngineProvider):
             action="hold",
             confidence=0.0,
             risk="medium",
-            reason="OpenAIProvider skeleton only",
+            reason="OpenAIProvider shadow only; API call disabled",
             engine="openai",
-            raw={"mode": "skeleton"},
+            raw={"mode": "shadow_provider", "api_call": "disabled"},
         )
 
 
@@ -109,9 +123,9 @@ class GeminiProvider(AIEngineProvider):
             action="hold",
             confidence=0.0,
             risk="medium",
-            reason="GeminiProvider skeleton only",
+            reason="GeminiProvider shadow only; API call disabled",
             engine="gemini",
-            raw={"mode": "skeleton"},
+            raw={"mode": "shadow_provider", "api_call": "disabled"},
         )
 
 

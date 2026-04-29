@@ -172,7 +172,7 @@ class AITSOrchestrator:
             else None
         )
         if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.4 | mode=passthrough")
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.5 | mode=shadow_provider")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -708,6 +708,29 @@ class AITSOrchestrator:
         except Exception:
             pass
 
+    def _build_decision_router_context(
+        self,
+        regime: Optional[Any] = None,
+        portfolio: Optional[Any] = None,
+        opportunities: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        try:
+            positions = getattr(portfolio, "positions", None)
+            summary = getattr(portfolio, "summary", None)
+            candidates = getattr(opportunities, "candidate_symbols", None) or []
+            return {
+                "market_regime": str(getattr(regime, "label", "") or ""),
+                "positions_count": len(positions) if isinstance(positions, (list, tuple)) else 0,
+                "candidate_count": len(candidates) if isinstance(candidates, (list, tuple)) else 0,
+                "portfolio_value": self._safe_float(
+                    getattr(summary, "total_asset_krw", 0.0),
+                    0.0,
+                ),
+                "cycle": int(getattr(self, "cycle_counter", 0) or 0),
+            }
+        except Exception:
+            return {}
+
     def _update_bridge_result(self, result: CycleResult) -> None:
         try:
             self.last_bridge_result = self.execution_bridge.build_from_cycle_result(result)
@@ -1010,9 +1033,7 @@ class AITSOrchestrator:
                 decision = self.decision_router.route(
                     decision,
                     provider=provider,
-                    context={
-                        "candidate_symbols": list(getattr(opp, "candidate_symbols", None) or []),
-                    },
+                    context=self._build_decision_router_context(regime, portfolio, opp),
                 )
                 self._safe_log_info(
                     "[AITS][DecisionRouter] passthrough | "

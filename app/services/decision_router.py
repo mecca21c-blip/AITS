@@ -10,8 +10,8 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v0.4"
-ROUTER_MODE = "passthrough"
+ROUTER_VERSION = "v0.5"
+ROUTER_MODE = "shadow_provider"
 
 
 @dataclass
@@ -63,6 +63,7 @@ class DecisionRouter:
         settings: Optional[Any] = None,
         prefs: Optional[Any] = None,
         config: Optional[Any] = None,
+        mode: str = ROUTER_MODE,
     ) -> None:
         self.logger = logger
         self.provider_registry = provider_registry or build_default_provider_registry(
@@ -71,7 +72,7 @@ class DecisionRouter:
             config=config,
         )
         self.router_version = ROUTER_VERSION
-        self.mode = ROUTER_MODE
+        self.mode = str(mode or ROUTER_MODE).strip() or ROUTER_MODE
 
     def route(
         self,
@@ -81,6 +82,27 @@ class DecisionRouter:
         context: Optional[Dict[str, Any]] = None,
     ) -> AIDecisionState:
         engine = normalize_provider(provider)
+        context_data = dict(context or {})
+        provider_status = self.get_status_summary(engine)
+        provider_shadow_decision = None
+        provider_shadow_error = ""
+        if self.mode == "shadow_provider":
+            provider_obj = get_provider(self.provider_registry, engine)
+            try:
+                provider_shadow_decision = provider_obj.decide(context_data)
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] provider_shadow | "
+                    f"provider={engine} | "
+                    f"action={getattr(provider_shadow_decision, 'action', '')} | "
+                    f"confidence={self._safe_float(getattr(provider_shadow_decision, 'confidence', 0.0), 0.0):.3f} | "
+                    "final=passthrough"
+                )
+            except Exception as exc:
+                provider_shadow_error = str(exc)[:160]
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] provider_shadow_failed | "
+                    f"provider={engine} | error={provider_shadow_error} | fallback=passthrough"
+                )
         if decision is None:
             routed = AIDecisionState(
                 action="hold",
@@ -108,7 +130,10 @@ class DecisionRouter:
                         "original_reason": None,
                         "selected_provider": engine,
                         "router_version": ROUTER_VERSION,
-                        "router_mode": ROUTER_MODE,
+                        "router_mode": self.mode,
+                        "provider_status": provider_status,
+                        "provider_shadow_decision": self._decision_to_dict(provider_shadow_decision),
+                        "provider_shadow_error": provider_shadow_error,
                     },
                 ),
             )
@@ -143,8 +168,11 @@ class DecisionRouter:
                 "original_reason": raw_reason,
                 "selected_provider": engine,
                 "router_version": ROUTER_VERSION,
-                "router_mode": ROUTER_MODE,
-                "context": dict(context or {}),
+                "router_mode": self.mode,
+                "provider_status": provider_status,
+                "provider_shadow_decision": self._decision_to_dict(provider_shadow_decision),
+                "provider_shadow_error": provider_shadow_error,
+                "context": context_data,
             },
         )
         self._attach_router_result(decision, routed_result)
@@ -156,7 +184,7 @@ class DecisionRouter:
         provider_status = provider_obj.get_status()
         return {
             "router_version": ROUTER_VERSION,
-            "mode": ROUTER_MODE,
+            "mode": self.mode,
             "selected_provider": selected_provider,
             "provider_ready": bool(provider_status.get("ready", False)),
             "api_required": bool(provider_status.get("api_required", False)),
@@ -179,6 +207,30 @@ class DecisionRouter:
 
     def _normalize_provider(self, provider: str) -> str:
         return normalize_provider(provider)
+
+    def _decision_to_dict(self, decision: Optional[Any]) -> Dict[str, Any]:
+        if decision is None:
+            return {}
+        try:
+            if hasattr(decision, "to_dict"):
+                return dict(decision.to_dict())
+        except Exception:
+            pass
+        return {
+            "action": str(getattr(decision, "action", "") or ""),
+            "confidence": self._safe_float(getattr(decision, "confidence", 0.0), 0.0),
+            "risk": str(getattr(decision, "risk", "") or ""),
+            "reason": str(getattr(decision, "reason", "") or ""),
+            "engine": str(getattr(decision, "engine", "") or ""),
+            "raw": dict(getattr(decision, "raw", {}) or {}),
+        }
+
+    def _safe_log_info(self, message: str) -> None:
+        try:
+            if self.logger is not None and hasattr(self.logger, "info"):
+                self.logger.info(message)
+        except Exception:
+            pass
 
     def _clamp(self, value: Any, low: float, high: float) -> float:
         val = self._safe_float(value, low)
