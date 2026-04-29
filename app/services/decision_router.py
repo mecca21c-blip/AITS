@@ -10,7 +10,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v0.9"
+ROUTER_VERSION = "v1.1"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -106,6 +106,7 @@ class DecisionRouter:
                     final_confidence=final_confidence,
                 )
                 shadow_history_summary = self._get_shadow_history_summary()
+                shadow_signal = self.get_shadow_signal()
                 self._safe_log_info(
                     "[AITS][DecisionRouter] provider_shadow | "
                     f"provider={engine} | "
@@ -124,6 +125,13 @@ class DecisionRouter:
                     f"risk_hint={shadow_raw.get('risk_hint', '')} | "
                     "final=passthrough"
                 )
+                if shadow_signal.get("action") != "none":
+                    self._safe_log_info(
+                        "[AITS][DecisionRouter] shadow_signal | "
+                        f"action={shadow_signal.get('action')} | "
+                        f"confidence={self._safe_float(shadow_signal.get('confidence'), 0.0):.3f} | "
+                        f"reason={shadow_signal.get('reason')}"
+                    )
             except Exception as exc:
                 provider_shadow_error = str(exc)[:160]
                 self._safe_log_info(
@@ -162,6 +170,7 @@ class DecisionRouter:
                         "provider_shadow_decision": self._decision_to_dict(provider_shadow_decision),
                         "provider_shadow_error": provider_shadow_error,
                         "provider_shadow_history_summary": shadow_history_summary,
+                        "shadow_signal": self.get_shadow_signal(),
                         **self._local_shadow_meta(provider_shadow_decision),
                     },
                 ),
@@ -202,6 +211,7 @@ class DecisionRouter:
                 "provider_shadow_decision": self._decision_to_dict(provider_shadow_decision),
                 "provider_shadow_error": provider_shadow_error,
                 "provider_shadow_history_summary": shadow_history_summary,
+                "shadow_signal": self.get_shadow_signal(),
                 **self._local_shadow_meta(provider_shadow_decision),
                 "context": context_data,
             },
@@ -222,6 +232,62 @@ class DecisionRouter:
             "provider_name": str(provider_status.get("name") or selected_provider),
             "ready_reason": str(provider_status.get("ready_reason") or ""),
         }
+
+    def get_shadow_signal(self) -> Dict[str, Any]:
+        try:
+            hist = list(getattr(self, "shadow_history", []))
+            if len(hist) < 3:
+                return {"action": "none", "confidence": 0.0, "reason": "history_lt_3"}
+
+            recent3 = hist[-3:]
+            recent5 = hist[-5:] if len(hist) >= 5 else hist
+
+            buy3 = sum(1 for row in recent3 if row.get("shadow_action") == "buy")
+            sell3 = sum(1 for row in recent3 if row.get("shadow_action") == "sell")
+
+            buy5 = sum(1 for row in recent5 if row.get("shadow_action") == "buy")
+            sell5 = sum(1 for row in recent5 if row.get("shadow_action") == "sell")
+
+            def avg_conf(rows: list[Dict[str, Any]]) -> float:
+                if not rows:
+                    return 0.0
+                return round(
+                    sum(float(row.get("shadow_confidence", 0.0)) for row in rows)
+                    / len(rows),
+                    3,
+                )
+
+            if buy5 >= 5:
+                return {
+                    "action": "buy_strong",
+                    "confidence": avg_conf(recent5),
+                    "reason": "shadow_buy_5_confirmed",
+                }
+
+            if sell5 >= 5:
+                return {
+                    "action": "sell_strong",
+                    "confidence": avg_conf(recent5),
+                    "reason": "shadow_sell_5_confirmed",
+                }
+
+            if buy3 >= 3:
+                return {
+                    "action": "buy",
+                    "confidence": avg_conf(recent3),
+                    "reason": "shadow_buy_3_confirmed",
+                }
+
+            if sell3 >= 3:
+                return {
+                    "action": "reduce",
+                    "confidence": avg_conf(recent3),
+                    "reason": "shadow_sell_3_confirmed",
+                }
+
+            return {"action": "none", "confidence": 0.0, "reason": "no_signal"}
+        except Exception:
+            return {"action": "none", "confidence": 0.0, "reason": "signal_error"}
 
     def _attach_router_result(
         self, decision: AIDecisionState, result: DecisionRouterResult

@@ -4809,3 +4809,9 @@ SyntaxError: invalid decimal literal
 2026-04-29 17:21:54,234 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
 2026-04-29 17:21:54,234 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
 2026-04-29 17:21:54,234 | INFO | aits | [cycle=1] status=success, duration_ms=998.1, warnings=0, errors=0
+2026-04-29 17:24:56,517 | INFO | aits | AITS bootstrap start
+2026-04-29 17:24:56,518 | INFO | aits | [AITS][DecisionRouter] initialized | version=v0.9 | mode=shadow_provider
+2026-04-29 17:24:56,525 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:24:56,525 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-29 17:24:56,526 | INFO | aits | AITS orchestrator initialized
+2026-04-29 17:25:06,985 | INFO | aits | UI launched via legacy-compatible entry

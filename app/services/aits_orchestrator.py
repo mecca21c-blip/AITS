@@ -172,7 +172,7 @@ class AITSOrchestrator:
             else None
         )
         if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v0.9 | mode=shadow_provider")
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v1.1 | mode=shadow_provider")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -1210,6 +1210,96 @@ class AITSOrchestrator:
         res.execution_summary = (
             "Phase 1에서는 실제 주문 실행 없이 실행 계획만 생성합니다."
         )
+        try:
+            router = getattr(self, "decision_router", None)
+            if router is not None and str(getattr(self, "execution_mode", "")) == "disabled":
+                sig = router.get_shadow_signal()
+                act = sig.get("action")
+                if len(plan.approved_actions) == 0:
+                    candidate_symbol = ""
+                    try:
+                        candidates = getattr(rs.intelligence.opportunities, "candidate_symbols", None) or []
+                        if candidates:
+                            candidate_symbol = str(candidates[0] or "").strip()
+                    except Exception:
+                        candidate_symbol = ""
+                    if not candidate_symbol:
+                        try:
+                            candidates = getattr(rs.intelligence, "candidates", None) or []
+                            if candidates:
+                                candidate_symbol = str(
+                                    getattr(candidates[0], "symbol", "") or ""
+                                ).strip()
+                        except Exception:
+                            candidate_symbol = ""
+
+                    if act in ("buy", "buy_strong") and candidate_symbol:
+                        amount = 5000.0
+                        if act == "buy_strong":
+                            amount = 10000.0
+                        plan.approved_actions.append(
+                            ActionItem(
+                                action_type="buy",
+                                symbol=candidate_symbol,
+                                amount_krw=amount,
+                                priority=1,
+                                source_module="decision_router_shadow",
+                                source_provider="local",
+                                reason=f"DecisionRouter {act} dryrun",
+                            )
+                        )
+
+                        try:
+                            self.logger.info(
+                                "[AITS][DecisionRouter] dryrun_candidate_added | "
+                                f"type=buy | symbol={candidate_symbol} | "
+                                f"amount={amount:.0f} | "
+                                f"confidence={self._safe_float(sig.get('confidence', 0.55), 0.55):.3f}"
+                            )
+                        except Exception:
+                            pass
+                    elif act == "reduce":
+                        plan.approved_actions.append(
+                            ActionItem(
+                                action_type="reduce",
+                                symbol="*",
+                                amount_krw=0.0,
+                                priority=1,
+                                source_module="decision_router_shadow",
+                                source_provider="local",
+                                reason="DecisionRouter reduce dryrun",
+                            )
+                        )
+
+                        try:
+                            self.logger.info(
+                                "[AITS][DecisionRouter] dryrun_candidate_added | "
+                                "type=reduce | percent=30"
+                            )
+                        except Exception:
+                            pass
+                    elif act == "sell_strong":
+                        plan.approved_actions.append(
+                            ActionItem(
+                                action_type="sell",
+                                symbol="*",
+                                amount_krw=0.0,
+                                priority=1,
+                                source_module="decision_router_shadow",
+                                source_provider="local",
+                                reason="DecisionRouter sell dryrun",
+                            )
+                        )
+
+                        try:
+                            self.logger.info(
+                                "[AITS][DecisionRouter] dryrun_candidate_added | "
+                                "type=sell | percent=100"
+                            )
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
     def _build_explainability_state(self) -> None:
         rs = self.last_runtime_state
