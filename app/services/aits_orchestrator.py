@@ -172,7 +172,7 @@ class AITSOrchestrator:
             else None
         )
         if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v1.1 | mode=shadow_provider")
+            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v1.2 | mode=shadow_provider")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge

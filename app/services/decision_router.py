@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+import json
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from app.core.aits_state import AIDecisionState
@@ -10,7 +12,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v1.1"
+ROUTER_VERSION = "v1.2"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -64,6 +66,7 @@ class DecisionRouter:
         prefs: Optional[Any] = None,
         config: Optional[Any] = None,
         mode: str = ROUTER_MODE,
+        history_path: Optional[Any] = None,
     ) -> None:
         self.logger = logger
         self.provider_registry = provider_registry or build_default_provider_registry(
@@ -73,8 +76,9 @@ class DecisionRouter:
         )
         self.router_version = ROUTER_VERSION
         self.mode = str(mode or ROUTER_MODE).strip() or ROUTER_MODE
-        self.shadow_history = []
         self.shadow_history_limit = 20
+        self.shadow_history_path = self._resolve_shadow_history_path(history_path)
+        self.shadow_history = self._load_shadow_history()
 
     def route(
         self,
@@ -118,6 +122,7 @@ class DecisionRouter:
                     f"history_bias={shadow_history_summary.get('consistency', 'mixed')} | "
                     f"history_buy={shadow_history_summary.get('buy', 0)} | "
                     f"history_sell={shadow_history_summary.get('sell', 0)} | "
+                    f"history_persisted={getattr(self, 'shadow_history_persisted', False)} | "
                     f"rule_action={shadow_raw.get('rule_action', '')} | "
                     f"regime={shadow_raw.get('market_regime', '')} | "
                     f"candidates={shadow_raw.get('candidate_count', 0)} | "
@@ -329,6 +334,65 @@ class DecisionRouter:
         except Exception:
             pass
 
+    def _safe_log_warning(self, message: str) -> None:
+        try:
+            if self.logger is not None:
+                if hasattr(self.logger, "warning"):
+                    self.logger.warning(message)
+                elif hasattr(self.logger, "info"):
+                    self.logger.info(message)
+        except Exception:
+            pass
+
+    def _resolve_shadow_history_path(self, history_path: Optional[Any] = None) -> Path:
+        try:
+            if history_path:
+                return Path(history_path)
+            root = Path(__file__).resolve().parents[2]
+            return root / "data" / "shadow_history.json"
+        except Exception:
+            return Path("data") / "shadow_history.json"
+
+    def _load_shadow_history(self) -> list[Dict[str, Any]]:
+        try:
+            path = Path(getattr(self, "shadow_history_path", Path("data") / "shadow_history.json"))
+            if not path.exists():
+                self._safe_log_info("[AITS][DecisionRouter] shadow_history_loaded | count=0")
+                return []
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, list):
+                self._safe_log_info("[AITS][DecisionRouter] shadow_history_loaded | count=0")
+                return []
+            rows = [row for row in data if isinstance(row, dict)]
+            rows = rows[-self.shadow_history_limit :]
+            self._safe_log_info(
+                f"[AITS][DecisionRouter] shadow_history_loaded | count={len(rows)}"
+            )
+            return rows
+        except Exception:
+            self._safe_log_info("[AITS][DecisionRouter] shadow_history_loaded | count=0")
+            return []
+
+    def _save_shadow_history(self) -> None:
+        try:
+            path = Path(getattr(self, "shadow_history_path", Path("data") / "shadow_history.json"))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(
+                    list(getattr(self, "shadow_history", []) or []),
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            self.shadow_history_persisted = True
+        except Exception as exc:
+            self.shadow_history_persisted = False
+            self._safe_log_warning(
+                "[AITS][DecisionRouter] shadow_history_save_failed | "
+                f"error={str(exc)[:160]}"
+            )
+
     def _record_shadow_history(
         self,
         *,
@@ -362,6 +426,7 @@ class DecisionRouter:
             self.shadow_history.append(record)
             if len(self.shadow_history) > self.shadow_history_limit:
                 self.shadow_history = self.shadow_history[-self.shadow_history_limit :]
+            self._save_shadow_history()
         except Exception:
             pass
 
