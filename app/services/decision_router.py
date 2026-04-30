@@ -12,7 +12,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v1.6"
+ROUTER_VERSION = "v2.1"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -103,6 +103,7 @@ class DecisionRouter:
         provider_shadow_decision = None
         provider_shadow_error = ""
         shadow_history_summary = self._get_shadow_history_summary()
+        self._last_fusion_action = ""
         if self.mode == "shadow_provider":
             provider_obj = get_provider(self.provider_registry, engine)
             try:
@@ -148,6 +149,7 @@ class DecisionRouter:
                     f"score={self._safe_float(shadow_signal.get('fusion_score'), 0.0):.3f} | "
                     f"applied={bool(shadow_signal.get('fusion_applied', False))}"
                 )
+                self._last_fusion_action = str(shadow_signal.get("fusion_action") or "")
                 if shadow_signal.get("action") != "none":
                     shadow_conf = self._safe_float(shadow_signal.get("confidence"), 0.0)
                     self._safe_log_info(
@@ -220,6 +222,16 @@ class DecisionRouter:
         symbol = str(getattr(decision, "selected_symbol", "") or "").strip() or None
         amount_krw = self._safe_float(getattr(decision, "amount_krw", 0.0), 0.0)
         risk = str(getattr(decision, "risk", "") or "medium").strip().lower() or "medium"
+        performance_boost = self._apply_performance_soft_boost(decision, confidence)
+        confidence = self._safe_float(
+            performance_boost.get("adjusted_conf"),
+            confidence,
+        )
+        fusion_override = self._apply_fusion_performance_override(decision)
+        confidence = self._safe_float(
+            fusion_override.get("final_conf"),
+            confidence,
+        )
 
         routed_result = DecisionRouterResult(
             action=action,
@@ -243,6 +255,8 @@ class DecisionRouter:
                 "provider_shadow_error": provider_shadow_error,
                 "provider_shadow_history_summary": shadow_history_summary,
                 "shadow_signal": self.get_shadow_signal(),
+                "performance_boost": performance_boost,
+                "fusion_override": fusion_override,
                 **self._local_shadow_meta(provider_shadow_decision),
                 "context": context_data,
             },
@@ -518,6 +532,8 @@ class DecisionRouter:
         p10_values = []
         p30_values = []
         p60_values = []
+        p10_sample_count = 0
+        p10_win_count = 0
 
         for row in rows:
             if not isinstance(row, dict):
@@ -531,10 +547,16 @@ class DecisionRouter:
                 buy_count += 1
                 if p10 is not None and p10 > 0.0:
                     buy_win_10m += 1
+                    p10_win_count += 1
+                if p10 is not None:
+                    p10_sample_count += 1
             elif action in sell_actions:
                 sell_count += 1
                 if p10 is not None and p10 < 0.0:
                     sell_win_10m += 1
+                    p10_win_count += 1
+                if p10 is not None:
+                    p10_sample_count += 1
 
             if p10 is not None:
                 p10_values.append(p10)
@@ -551,6 +573,8 @@ class DecisionRouter:
             "sell_win_10m": sell_win_10m,
             "buy_winrate_10m": self._safe_pct(buy_win_10m, buy_count),
             "sell_winrate_10m": self._safe_pct(sell_win_10m, sell_count),
+            "sample_count_10m": p10_sample_count,
+            "winrate_10m": self._safe_pct(p10_win_count, p10_sample_count),
             "avg_p10m": self._average_or_zero(p10_values),
             "avg_p30m": self._average_or_zero(p30_values),
             "avg_p60m": self._average_or_zero(p60_values),
@@ -586,6 +610,238 @@ class DecisionRouter:
             return round(sum(nums) / len(nums), 2)
         except Exception:
             return 0.0
+
+    def _calc_performance_boost(self, perf_summary: dict) -> dict:
+        """
+        p10m 기반 간단 보정값 산출
+        return:
+          {
+            "multiplier": float,
+            "reason": str,
+            "sample_count": int,
+            "winrate": float,
+            "avg_p10m": float
+          }
+        """
+        try:
+            min_sample_required = 3
+            count = int(
+                perf_summary.get("count", None)
+                if perf_summary.get("count", None) is not None
+                else perf_summary.get("sample_count_10m", 0)
+                or 0
+            )
+            winrate = float(perf_summary.get("winrate_10m", 0.0) or 0.0)
+            avg10 = float(perf_summary.get("avg_p10m", 0.0) or 0.0)
+            sample_ready = count >= min_sample_required
+
+            if not sample_ready:
+                return {
+                    "multiplier": 1.0,
+                    "reason": "perf_observe_insufficient_sample",
+                    "status": "observe",
+                    "sample_count": count,
+                    "sample_ready": False,
+                    "min_sample_required": min_sample_required,
+                    "winrate": winrate,
+                    "avg_p10m": avg10,
+                }
+
+            if winrate >= 70 and avg10 > 0:
+                multiplier = 1.08
+                reason = "perf_strong_positive"
+            elif winrate >= 60:
+                multiplier = 1.04
+                reason = "perf_positive"
+            elif winrate <= 40:
+                multiplier = 0.92
+                reason = "perf_negative"
+            else:
+                multiplier = 1.0
+                reason = "perf_neutral"
+
+            multiplier = max(0.85, min(1.15, multiplier))
+            if multiplier > 1.0:
+                status = "active_boost"
+            elif multiplier < 1.0:
+                status = "active_penalty"
+            else:
+                status = "active_neutral"
+            return {
+                "multiplier": multiplier,
+                "reason": reason,
+                "status": status,
+                "sample_count": count,
+                "sample_ready": True,
+                "min_sample_required": min_sample_required,
+                "winrate": winrate,
+                "avg_p10m": avg10,
+            }
+        except Exception:
+            return {
+                "multiplier": 1.0,
+                "reason": "perf_error",
+                "status": "observe",
+                "sample_count": 0,
+                "sample_ready": False,
+                "min_sample_required": 3,
+                "winrate": 0.0,
+                "avg_p10m": 0.0,
+            }
+
+    def _apply_performance_soft_boost(
+        self,
+        decision: Any,
+        final_confidence: Any,
+    ) -> Dict[str, Any]:
+        try:
+            perf_summary = getattr(self, "_shadow_performance_summary", None)
+            if perf_summary is None:
+                perf_summary = self.get_shadow_performance_summary()
+            boost = self._calc_performance_boost(perf_summary)
+
+            base_conf = self._safe_float(final_confidence, 0.0)
+            adjusted_conf = max(
+                0.0,
+                min(1.0, base_conf * self._safe_float(boost.get("multiplier"), 1.0)),
+            )
+            result = {
+                "status": str(boost.get("status") or "observe"),
+                "sample_ready": bool(boost.get("sample_ready", False)),
+                "min_sample_required": self._safe_int(boost.get("min_sample_required"), 3),
+                "base_conf": base_conf,
+                "adjusted_conf": adjusted_conf,
+                "multiplier": self._safe_float(boost.get("multiplier"), 1.0),
+                "reason": str(boost.get("reason") or ""),
+                "sample_count": self._safe_int(boost.get("sample_count"), 0),
+                "winrate10": self._safe_float(boost.get("winrate"), 0.0),
+                "avg10": self._safe_float(boost.get("avg_p10m"), 0.0),
+            }
+
+            self._safe_log_info(
+                "[AITS][DecisionRouter] performance_boost | "
+                f"status={result['status']} | "
+                f"sample_ready={result['sample_ready']} | "
+                f"min_sample={result['min_sample_required']} | "
+                f"base_conf={base_conf:.3f} | adjusted_conf={adjusted_conf:.3f} | "
+                f"multiplier={result['multiplier']:.3f} | reason={result['reason']} | "
+                f"sample_count={result['sample_count']} | "
+                f"winrate10={result['winrate10']:.1f} | avg10={result['avg10']:.2f}"
+            )
+            try:
+                setattr(decision, "confidence", adjusted_conf)
+                raw = getattr(decision, "raw", None)
+                if not isinstance(raw, dict):
+                    raw = {}
+                    setattr(decision, "raw", raw)
+                raw["performance_boost"] = result
+            except Exception:
+                pass
+            return result
+        except Exception as exc:
+            self._safe_log_warning(
+                "[AITS][DecisionRouter] performance_boost_failed | "
+                f"error={type(exc).__name__}"
+            )
+            return {
+                "base_conf": self._safe_float(final_confidence, 0.0),
+                "adjusted_conf": self._safe_float(final_confidence, 0.0),
+                "multiplier": 1.0,
+                "reason": "perf_error",
+                "status": "observe",
+                "sample_ready": False,
+                "min_sample_required": 3,
+                "sample_count": 0,
+                "winrate10": 0.0,
+                "avg10": 0.0,
+            }
+
+    def _calc_fusion_performance_adjustment(
+        self,
+        fusion_action: str,
+        boost_info: dict,
+    ) -> dict:
+        """
+        fusion + performance 기반 추가 보정 (confidence만)
+        return:
+          {
+            "multiplier": float,
+            "reason": str
+          }
+        """
+        try:
+            status = boost_info.get("status")
+            sample_ready = bool(boost_info.get("sample_ready", False))
+            action = str(fusion_action or "").strip().lower()
+
+            if not sample_ready:
+                return {"multiplier": 1.0, "reason": "fusion_perf_insufficient"}
+
+            if action in ("buy", "buy_strong"):
+                if status == "active_boost":
+                    return {"multiplier": 1.05, "reason": "fusion_buy_boost"}
+                if status == "active_penalty":
+                    return {"multiplier": 0.95, "reason": "fusion_buy_penalty"}
+
+            if action in ("sell", "sell_strong", "reduce"):
+                if status == "active_boost":
+                    return {"multiplier": 1.05, "reason": "fusion_sell_boost"}
+                if status == "active_penalty":
+                    return {"multiplier": 0.95, "reason": "fusion_sell_penalty"}
+
+            return {"multiplier": 1.0, "reason": "fusion_neutral"}
+        except Exception:
+            return {"multiplier": 1.0, "reason": "fusion_error"}
+
+    def _apply_fusion_performance_override(self, decision: Any) -> Dict[str, Any]:
+        try:
+            fusion_action = str(getattr(self, "_last_fusion_action", "") or "")
+            raw = getattr(decision, "raw", None)
+            if not isinstance(raw, dict):
+                raw = {}
+                setattr(decision, "raw", raw)
+            boost_info = raw.get("performance_boost", {})
+            if not isinstance(boost_info, dict):
+                boost_info = {}
+
+            fusion_adj = self._calc_fusion_performance_adjustment(
+                fusion_action,
+                boost_info,
+            )
+            base_conf = self._safe_float(getattr(decision, "confidence", 0.0), 0.0)
+            multiplier = self._safe_float(fusion_adj.get("multiplier"), 1.0)
+            final_conf = max(0.0, min(1.0, base_conf * multiplier))
+            result = {
+                "fusion_action": fusion_action,
+                "base_conf": base_conf,
+                "final_conf": final_conf,
+                "multiplier": multiplier,
+                "reason": str(fusion_adj.get("reason") or ""),
+            }
+
+            self._safe_log_info(
+                "[AITS][DecisionRouter] fusion_override | "
+                f"fusion_action={fusion_action} | "
+                f"base_conf={base_conf:.3f} | final_conf={final_conf:.3f} | "
+                f"multiplier={multiplier:.3f} | "
+                f"reason={result['reason']}"
+            )
+            setattr(decision, "confidence", final_conf)
+            raw["fusion_override"] = result
+            return result
+        except Exception as exc:
+            self._safe_log_warning(
+                "[AITS][DecisionRouter] fusion_override_failed | "
+                f"error={type(exc).__name__}"
+            )
+            base_conf = self._safe_float(getattr(decision, "confidence", 0.0), 0.0)
+            return {
+                "fusion_action": "",
+                "base_conf": base_conf,
+                "final_conf": base_conf,
+                "multiplier": 1.0,
+                "reason": "fusion_error",
+            }
 
     def _attach_router_result(
         self, decision: AIDecisionState, result: DecisionRouterResult
