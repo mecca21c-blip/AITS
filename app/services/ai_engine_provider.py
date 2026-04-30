@@ -5,6 +5,16 @@ import os
 from typing import Any, Dict, Optional
 
 
+AI_VERIFICATION_ALLOWED_SUGGESTIONS = {
+    "confirm",
+    "override_wait",
+    "override_buy",
+    "override_reduce",
+    "override_sell",
+    "reject_signal",
+}
+
+
 @dataclass
 class AIEngineDecision:
     action: str = "hold"
@@ -45,6 +55,195 @@ class AIEngineProvider:
             engine=self.name,
             raw={"mode": "skeleton", "context": dict(context or {})},
         )
+
+    def verify_router_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        AITS Decision Router v2.7
+        Standard AI verification adapter.
+
+        Safety:
+        - Router decision 검증 의견만 반환한다.
+        - 주문/action/final decision을 변경하지 않는다.
+        - Local/basic은 API 호출하지 않는다.
+        - OpenAI/Gemini도 실제 호출 메서드가 명확히 있을 때만 호출한다.
+        """
+        provider = str(provider or "local").strip().lower()
+        context = context or {}
+
+        if provider in ("basic", "local", "localprovider", "none", ""):
+            return {
+                "suggestion": "skip",
+                "reason": "local_provider_no_api_call",
+                "provider": "local",
+                "applied": False,
+            }
+
+        if provider in ("gpt", "chatgpt"):
+            provider = "openai"
+        elif provider in ("google", "google_gemini"):
+            provider = "gemini"
+
+        if provider not in ("openai", "gemini"):
+            return {
+                "suggestion": "skip",
+                "reason": f"unsupported_provider:{provider}",
+                "provider": provider,
+                "applied": False,
+            }
+
+        try:
+            prompt = self._build_router_verification_prompt(context)
+            raw_response = None
+
+            if provider == "openai":
+                raw_response = self._call_openai_router_verification(prompt, context)
+            elif provider == "gemini":
+                raw_response = self._call_gemini_router_verification(prompt, context)
+
+            return self._parse_router_verification_response(
+                raw_response=raw_response,
+                provider=provider,
+            )
+        except NotImplementedError as exc:
+            return {
+                "suggestion": "skip",
+                "reason": f"verifier_not_implemented:{provider}",
+                "provider": provider,
+                "applied": False,
+                "error": str(exc),
+            }
+        except Exception as exc:
+            return {
+                "suggestion": "skip",
+                "reason": f"verifier_error:{type(exc).__name__}",
+                "provider": provider,
+                "applied": False,
+                "error": str(exc),
+            }
+
+    def _build_router_verification_prompt(self, context: Optional[Dict[str, Any]]) -> str:
+        """
+        Build compact prompt for Router verification.
+
+        Token policy:
+        - RouterSummary 수준의 compact context만 사용한다.
+        - 장문 시장 데이터/캔들 원본/전체 로그는 포함하지 않는다.
+        """
+        context = context or {}
+        allowed = ", ".join(sorted(AI_VERIFICATION_ALLOWED_SUGGESTIONS))
+        lines = [
+            "You are a safety verifier for an AI trading decision router.",
+            "Return only a compact JSON object.",
+            "Do not place orders.",
+            "Do not execute trades.",
+            "Do not assume authority over final action.",
+            f"Allowed suggestion values: {allowed}",
+            "",
+            "Context:",
+        ]
+
+        for key in (
+            "router_version",
+            "final_action",
+            "final_confidence",
+            "fusion_signal",
+            "performance_boost",
+            "soft_override_candidate",
+            "dryrun_compare",
+            "mismatch_reason",
+            "market_regime",
+            "candidate_count",
+            "positions_count",
+            "symbol",
+            "execution_allowed",
+            "safety_note",
+        ):
+            if key in context:
+                lines.append(f"- {key}: {context.get(key)}")
+
+        lines.extend(
+            [
+                "",
+                "Return JSON format:",
+                '{"suggestion":"confirm","reason":"short reason","risk_note":"short risk note"}',
+            ]
+        )
+        return "\n".join(lines)
+
+    def _call_openai_router_verification(self, prompt: str, context: Dict[str, Any]) -> Any:
+        """
+        OpenAI router verification call.
+
+        Safety:
+        - 기존 OpenAI 호출 메서드가 명확히 있을 때만 위임한다.
+        - 없으면 NotImplementedError로 안전하게 skip 처리된다.
+        - 여기서 신규 SDK/키 로딩/설정 변경을 하지 않는다.
+        """
+        if hasattr(self, "verify_with_openai"):
+            return self.verify_with_openai(prompt=prompt, context=context)
+        if hasattr(self, "ask_openai"):
+            return self.ask_openai(prompt)
+        if hasattr(self, "_ask_openai"):
+            return self._ask_openai(prompt)
+        raise NotImplementedError("openai_router_verification_adapter_not_attached")
+
+    def _call_gemini_router_verification(self, prompt: str, context: Dict[str, Any]) -> Any:
+        """
+        Gemini router verification call.
+
+        Safety:
+        - 기존 Gemini 호출 메서드가 명확히 있을 때만 위임한다.
+        - 없으면 NotImplementedError로 안전하게 skip 처리된다.
+        - 여기서 신규 SDK/키 로딩/설정 변경을 하지 않는다.
+        """
+        if hasattr(self, "verify_with_gemini"):
+            return self.verify_with_gemini(prompt=prompt, context=context)
+        if hasattr(self, "ask_gemini"):
+            return self.ask_gemini(prompt)
+        if hasattr(self, "_ask_gemini"):
+            return self._ask_gemini(prompt)
+        raise NotImplementedError("gemini_router_verification_adapter_not_attached")
+
+    def _parse_router_verification_response(self, *, raw_response: Any = None, provider: Any = None) -> Dict[str, Any]:
+        """
+        Parse AI verifier response into standard suggestion dict.
+        """
+        import json
+
+        provider = str(provider or "unknown").strip().lower()
+
+        if isinstance(raw_response, dict):
+            parsed = raw_response
+        else:
+            text = str(raw_response or "").strip()
+            if not text:
+                return {
+                    "suggestion": "skip",
+                    "reason": "empty_response",
+                    "provider": provider,
+                    "applied": False,
+                }
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = {
+                    "suggestion": "confirm",
+                    "reason": "non_json_response_default_confirm",
+                    "risk_note": text[:500],
+                }
+
+        suggestion = str(parsed.get("suggestion") or parsed.get("decision") or "confirm").strip().lower()
+        if suggestion not in AI_VERIFICATION_ALLOWED_SUGGESTIONS:
+            suggestion = "confirm"
+
+        return {
+            "suggestion": suggestion,
+            "reason": str(parsed.get("reason") or parsed.get("summary") or "provider_response")[:500],
+            "risk_note": str(parsed.get("risk_note") or parsed.get("note") or "")[:500],
+            "provider": provider,
+            "applied": False,
+            "raw_response": parsed,
+        }
 
     def get_status(self) -> Dict[str, Any]:
         return {

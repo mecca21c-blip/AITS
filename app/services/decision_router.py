@@ -12,7 +12,15 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v2.5"
+ROUTER_VERSION = "v2.6"
+AI_VERIFICATION_SUGGESTIONS = {
+    "confirm",
+    "override_wait",
+    "override_buy",
+    "override_reduce",
+    "override_sell",
+    "reject_signal",
+}
 ROUTER_MODE = "shadow_provider"
 
 
@@ -1001,6 +1009,234 @@ class DecisionRouter:
             "reason": "no_soft_candidate",
         }
 
+    def _build_ai_verification_context(
+        self,
+        *,
+        final_action=None,
+        final_confidence=None,
+        fusion_signal=None,
+        performance_boost=None,
+        soft_override_candidate=None,
+        dryrun_compare=None,
+        mismatch_reason=None,
+        market_regime=None,
+        candidate_count=None,
+        positions_count=None,
+        symbol=None,
+        execution_allowed=None,
+    ):
+        """
+        Decision Router v2.6
+        Compact AI verification context.
+
+        Safety:
+        - 관측/검증용 payload만 생성한다.
+        - action/final decision/order에는 절대 관여하지 않는다.
+        - 토큰 절약을 위해 RouterSummary 수준의 핵심값만 담는다.
+        """
+        try:
+            context = {
+                "router_version": ROUTER_VERSION,
+                "final_action": final_action,
+                "final_confidence": final_confidence,
+                "fusion_signal": fusion_signal,
+                "performance_boost": performance_boost,
+                "soft_override_candidate": soft_override_candidate,
+                "dryrun_compare": dryrun_compare,
+                "mismatch_reason": mismatch_reason,
+                "market_regime": market_regime,
+                "candidate_count": candidate_count,
+                "positions_count": positions_count,
+                "symbol": symbol,
+                "execution_allowed": execution_allowed,
+                "allowed_suggestions": sorted(AI_VERIFICATION_SUGGESTIONS),
+                "safety_note": "verification_only_no_action_change",
+            }
+            return {k: v for k, v in context.items() if v is not None}
+        except Exception as exc:
+            self._safe_log_warning(
+                "[AITS][AIVerification] context_build_failed | "
+                f"error={type(exc).__name__}: {exc}"
+            )
+            return {
+                "router_version": ROUTER_VERSION,
+                "safety_note": "verification_only_no_action_change",
+                "context_error": type(exc).__name__,
+            }
+
+    def _resolve_ai_verification_provider(self, raw=None):
+        """
+        Decision Router v2.6
+        Resolve selected AI provider safely.
+
+        Safety:
+        - provider 판별만 한다.
+        - 외부 API 호출은 여기서 하지 않는다.
+        """
+        provider = None
+
+        try:
+            if isinstance(raw, dict):
+                provider = raw.get("selected_provider") or raw.get("provider") or provider
+                meta = raw.get("meta") or raw.get("metadata") or {}
+                strategy = raw.get("strategy") or {}
+
+                if isinstance(meta, dict):
+                    meta_strategy = meta.get("strategy") or {}
+                    if isinstance(meta_strategy, dict):
+                        provider = meta_strategy.get("ai_provider") or provider
+                    provider = meta.get("ai_provider") or provider
+
+                if isinstance(strategy, dict):
+                    provider = strategy.get("ai_provider") or provider
+        except Exception:
+            provider = provider
+
+        try:
+            provider = provider or getattr(self, "ai_provider", None)
+            provider = provider or getattr(self, "provider_name", None)
+            provider = provider or getattr(self, "_ai_provider", None)
+            provider = provider or getattr(self, "_provider_name", None)
+        except Exception:
+            provider = provider
+
+        provider = str(provider or "local").strip().lower()
+
+        if provider in ("gpt", "openai", "chatgpt"):
+            return "openai"
+        if provider in ("gemini", "google", "google_gemini"):
+            return "gemini"
+        if provider in ("basic", "local", "localprovider", "none", ""):
+            return "local"
+
+        return provider
+
+    def _run_ai_verification_suggestion(self, *, provider=None, context=None, raw=None):
+        """
+        Decision Router v2.6
+        AI verification suggestion layer.
+
+        Safety:
+        - 이 메서드는 final action을 절대 바꾸지 않는다.
+        - openai/gemini 실제 호출은 adapter가 있으면 시도하고, 없으면 unavailable로 기록한다.
+        - local/basic이면 API 호출하지 않는다.
+        - 반환값은 raw/meta 기록용 suggestion dict다.
+        """
+        provider = str(provider or "local").strip().lower()
+        context = context or {}
+
+        base = {
+            "enabled": True,
+            "provider": provider,
+            "mode": "verification_only",
+            "applied": False,
+            "suggestion": "skip",
+            "reason": "not_called",
+            "context": context,
+        }
+
+        if provider in ("local", "basic", "none", ""):
+            base.update(
+                {
+                    "suggestion": "skip",
+                    "reason": "local_provider_no_api_call",
+                }
+            )
+            self._safe_log_info(
+                "[AITS][AIVerification] skipped | "
+                f"provider={provider} | reason=local_provider_no_api_call"
+            )
+            return base
+
+        if provider not in ("openai", "gemini"):
+            base.update(
+                {
+                    "suggestion": "skip",
+                    "reason": f"unsupported_provider:{provider}",
+                }
+            )
+            self._safe_log_info(
+                "[AITS][AIVerification] skipped | "
+                f"provider={provider} | reason=unsupported_provider"
+            )
+            return base
+
+        try:
+            verifier = (
+                getattr(self, "ai_verifier", None)
+                or getattr(self, "_ai_verifier", None)
+                or getattr(self, "ai_engine_provider", None)
+                or getattr(self, "_ai_engine_provider", None)
+            )
+
+            if verifier is None:
+                base.update(
+                    {
+                        "suggestion": "skip",
+                        "reason": "verifier_not_attached",
+                    }
+                )
+                self._safe_log_info(
+                    "[AITS][AIVerification] unavailable | "
+                    f"provider={provider} | reason=verifier_not_attached"
+                )
+                return base
+
+            result = None
+
+            if hasattr(verifier, "verify_router_decision"):
+                result = verifier.verify_router_decision(provider=provider, context=context)
+            elif hasattr(verifier, "verify_decision"):
+                result = verifier.verify_decision(provider=provider, context=context)
+            elif hasattr(verifier, "ask"):
+                result = verifier.ask(context)
+            else:
+                base.update(
+                    {
+                        "suggestion": "skip",
+                        "reason": "verifier_method_not_found",
+                    }
+                )
+                self._safe_log_info(
+                    "[AITS][AIVerification] unavailable | "
+                    f"provider={provider} | reason=verifier_method_not_found"
+                )
+                return base
+
+            parsed = result if isinstance(result, dict) else {"raw_response": str(result)}
+            suggestion = str(parsed.get("suggestion") or parsed.get("decision") or "confirm").strip().lower()
+
+            if suggestion not in AI_VERIFICATION_SUGGESTIONS:
+                suggestion = "confirm"
+
+            base.update(
+                {
+                    "suggestion": suggestion,
+                    "reason": parsed.get("reason") or parsed.get("summary") or "provider_response",
+                    "raw_response": parsed,
+                }
+            )
+
+            self._safe_log_info(
+                "[AITS][AIVerification] suggestion | "
+                f"provider={provider} | suggestion={base.get('suggestion')} | applied=False"
+            )
+            return base
+
+        except Exception as exc:
+            base.update(
+                {
+                    "suggestion": "skip",
+                    "reason": f"verification_error:{type(exc).__name__}",
+                    "error": str(exc),
+                }
+            )
+            self._safe_log_warning(
+                "[AITS][AIVerification] failed | "
+                f"provider={provider} | error={type(exc).__name__}: {exc}"
+            )
+            return base
+
     def _build_router_summary(self, decision: Any, raw: dict) -> str:
         try:
             action = getattr(decision, "action", "none")
@@ -1034,6 +1270,53 @@ class DecisionRouter:
                 raw = {}
             summary = self._build_router_summary(decision, raw)
             self._safe_log_info(f"[AITS][RouterSummary] {summary}")
+
+            ai_verification_provider = self._resolve_ai_verification_provider(raw)
+            performance_boost = raw.get("performance_boost", {})
+            fusion_override = raw.get("fusion_override", {})
+            soft_override_candidate = raw.get("soft_override_candidate", {})
+            shadow_signal = raw.get("shadow_signal", {})
+            context_data = raw.get("context", {})
+            if not isinstance(context_data, dict):
+                context_data = {}
+
+            ai_verification_context = self._build_ai_verification_context(
+                final_action=getattr(decision, "action", None),
+                final_confidence=self._safe_float(getattr(decision, "confidence", 0.0), 0.0),
+                fusion_signal=shadow_signal,
+                performance_boost=performance_boost,
+                soft_override_candidate=soft_override_candidate,
+                market_regime=(
+                    raw.get("provider_shadow_market_regime")
+                    or context_data.get("market_regime")
+                    or shadow_signal.get("market_regime")
+                    if isinstance(shadow_signal, dict)
+                    else raw.get("provider_shadow_market_regime")
+                ),
+                candidate_count=raw.get("provider_shadow_candidate_count") or context_data.get("candidate_count"),
+                positions_count=raw.get("provider_shadow_positions_count") or context_data.get("positions_count"),
+                symbol=getattr(decision, "selected_symbol", None) or raw.get("symbol"),
+                execution_allowed=raw.get("provider_shadow_execution_allowed"),
+            )
+
+            ai_verification_suggestion = self._run_ai_verification_suggestion(
+                provider=ai_verification_provider,
+                context=ai_verification_context,
+                raw=raw,
+            )
+
+            raw_meta = raw.setdefault("meta", {})
+            if isinstance(raw_meta, dict):
+                raw_meta["ai_verification"] = ai_verification_suggestion
+                raw_meta["ai_verification_applied"] = False
+                raw_meta["ai_verification_safety"] = "suggestion_only_no_action_change"
+
+            self._safe_log_info(
+                "[AITS][AIVerification] recorded | "
+                f"provider={ai_verification_suggestion.get('provider')} | "
+                f"suggestion={ai_verification_suggestion.get('suggestion')} | "
+                f"applied={ai_verification_suggestion.get('applied')}"
+            )
         except Exception:
             self._safe_log_warning("[AITS][RouterSummary] failed")
 
