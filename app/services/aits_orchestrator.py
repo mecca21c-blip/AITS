@@ -1080,6 +1080,52 @@ class AITSOrchestrator:
             try:
                 provider = self._read_ai_provider_for_router()
                 self._log_decision_router_provider_status(provider)
+                # AITS Decision Router 31차
+                # Pass selected ai_provider into router raw/meta.
+                # Safety: metadata only, no action/order change.
+                try:
+                    _router_raw = getattr(decision, "raw", None)
+                    if not isinstance(_router_raw, dict):
+                        _router_raw = {}
+                        setattr(decision, "raw", _router_raw)
+
+                    if isinstance(_router_raw, dict):
+                        _strategy = getattr(self, "strategy", None)
+                        _ai_provider = None
+
+                        if isinstance(_strategy, dict):
+                            _ai_provider = _strategy.get("ai_provider")
+                        else:
+                            _ai_provider = getattr(_strategy, "ai_provider", None)
+
+                        _ai_provider = (
+                            _ai_provider
+                            or getattr(self, "ai_provider", None)
+                            or getattr(self, "provider_name", None)
+                            or provider
+                            or "local"
+                        )
+                        _ai_provider = str(_ai_provider).strip().lower()
+
+                        _meta = _router_raw.setdefault("meta", {})
+                        if isinstance(_meta, dict):
+                            _meta["ai_provider"] = _ai_provider
+                            _meta.setdefault("strategy", {})
+                            if isinstance(_meta.get("strategy"), dict):
+                                _meta["strategy"]["ai_provider"] = _ai_provider
+
+                        self._safe_log_info(
+                            "[AITS][Orchestrator] router_ai_provider_meta | "
+                            f"ai_provider={_ai_provider}"
+                        )
+                except Exception as exc:
+                    try:
+                        self._safe_log_info(
+                            "[AITS][Orchestrator] router_ai_provider_meta_failed | "
+                            f"error={type(exc).__name__}: {exc}"
+                        )
+                    except Exception:
+                        pass
                 decision = self.decision_router.route(
                     decision,
                     provider=provider,
