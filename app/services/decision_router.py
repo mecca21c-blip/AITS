@@ -1307,6 +1307,41 @@ class DecisionRouter:
                 "[AITS][AIVerification] suggestion | "
                 f"provider={provider} | suggestion={base.get('suggestion')} | applied=False"
             )
+            try:
+                _raw_preview = ""
+                _raw_obj = base.get("raw_response")
+                if isinstance(_raw_obj, dict):
+                    _raw_preview = str(
+                        {
+                            "suggestion": _raw_obj.get("suggestion"),
+                            "reason": _raw_obj.get("reason") or _raw_obj.get("summary"),
+                            "risk_note": _raw_obj.get("risk_note") or _raw_obj.get("note"),
+                        }
+                    )
+                else:
+                    _raw_preview = str(_raw_obj or "")
+
+                _raw_preview = _raw_preview.replace("\n", " ").replace("\r", " ")[:300]
+                _reason_preview = str(base.get("reason") or "").replace("\n", " ").replace("\r", " ")[:300]
+                _risk_preview = ""
+                if isinstance(base.get("raw_response"), dict):
+                    _risk_preview = str(
+                        base["raw_response"].get("risk_note")
+                        or base["raw_response"].get("note")
+                        or ""
+                    ).replace("\n", " ").replace("\r", " ")[:300]
+
+                self._safe_log_info(
+                    "[AITS][AIVerificationDetail] "
+                    f"provider={provider} | "
+                    f"suggestion={base.get('suggestion')} | "
+                    f"reason={_reason_preview} | "
+                    f"risk_note={_risk_preview} | "
+                    f"raw_preview={_raw_preview} | "
+                    f"applied=False"
+                )
+            except Exception:
+                pass
             return base
 
         except Exception as exc:
