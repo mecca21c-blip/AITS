@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -1105,6 +1106,16 @@ class AITSOrchestrator:
                             or provider
                             or "local"
                         )
+                        _dryrun_override = str(
+                            os.getenv("AITS_AI_PROVIDER_DRYRUN_OVERRIDE", "") or ""
+                        ).strip().lower()
+                        if _dryrun_override in ("local", "basic", "openai", "gpt", "gemini"):
+                            _original_provider = str(_ai_provider).strip().lower()
+                            _ai_provider = "openai" if _dryrun_override == "gpt" else _dryrun_override
+                            self._safe_log_info(
+                                "[AITS][Orchestrator] router_ai_provider_dryrun_override | "
+                                f"original={_original_provider} | override={_ai_provider} | applied=True"
+                            )
                         _ai_provider = str(_ai_provider).strip().lower()
 
                         _meta = _router_raw.setdefault("meta", {})
