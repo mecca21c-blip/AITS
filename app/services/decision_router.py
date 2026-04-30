@@ -12,7 +12,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v2.3"
+ROUTER_VERSION = "v2.5"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -264,6 +264,7 @@ class DecisionRouter:
             },
         )
         self._attach_router_result(decision, routed_result)
+        self._log_router_summary(decision)
         return decision
 
     def get_status_summary(self, provider: str) -> Dict[str, Any]:
@@ -999,6 +1000,42 @@ class DecisionRouter:
             "eligible": False,
             "reason": "no_soft_candidate",
         }
+
+    def _build_router_summary(self, decision: Any, raw: dict) -> str:
+        try:
+            action = getattr(decision, "action", "none")
+            conf = float(getattr(decision, "confidence", 0.0))
+
+            perf = raw.get("performance_boost", {}) if raw else {}
+            perf_status = perf.get("status", "unknown")
+
+            fusion = raw.get("fusion_override", {}) if raw else {}
+            fusion_action = fusion.get("fusion_action", "none")
+
+            soft = raw.get("soft_override_candidate", {}) if raw else {}
+            soft_action = soft.get("candidate_action", "none")
+            soft_eligible = soft.get("eligible", False)
+
+            return (
+                f"action={action} | "
+                f"conf={conf:.3f} | "
+                f"fusion={fusion_action} | "
+                f"perf={perf_status} | "
+                f"soft={soft_action} | "
+                f"eligible={soft_eligible}"
+            )
+        except Exception:
+            return "summary_build_failed"
+
+    def _log_router_summary(self, decision: Any) -> None:
+        try:
+            raw = getattr(decision, "raw", {}) if hasattr(decision, "raw") else {}
+            if not isinstance(raw, dict):
+                raw = {}
+            summary = self._build_router_summary(decision, raw)
+            self._safe_log_info(f"[AITS][RouterSummary] {summary}")
+        except Exception:
+            self._safe_log_warning("[AITS][RouterSummary] failed")
 
     def _attach_router_result(
         self, decision: AIDecisionState, result: DecisionRouterResult
