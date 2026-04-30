@@ -1237,6 +1237,24 @@ class DecisionRouter:
             except Exception:
                 pass
 
+            try:
+                _verifier_type = type(verifier).__name__ if verifier is not None else "None"
+                if provider in ("openai", "gemini") and _verifier_type == "LocalProvider":
+                    base.update(
+                        {
+                            "suggestion": "skip",
+                            "reason": f"verifier_not_implemented:{provider}:local_provider_attached",
+                            "verifier_type": _verifier_type,
+                        }
+                    )
+                    self._safe_log_info(
+                        "[AITS][AIVerification] verifier_type_blocked | "
+                        f"provider={provider} | verifier_type={_verifier_type} | applied=False"
+                    )
+                    return base
+            except Exception:
+                pass
+
             if verifier is None:
                 base.update(
                     {

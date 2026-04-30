@@ -31,6 +31,10 @@ from app.services.regime_detector import RegimeDetector
 from app.services.module_pack_resolver import ModulePackResolver
 from app.services.order_service import OrderService
 try:
+    from app.services.ai_engine_provider import AIEngineProvider
+except Exception:
+    AIEngineProvider = None
+try:
     from app.services.decision_router import DecisionRouter, normalize_provider
 except Exception:
     DecisionRouter = None
@@ -225,6 +229,32 @@ class AITSOrchestrator:
             f"attached={getattr(self, 'ai_engine_provider', None) is not None} | "
             f"type={type(getattr(self, 'ai_engine_provider', None)).__name__ if getattr(self, 'ai_engine_provider', None) is not None else 'None'}"
         )
+        # AITS v3.6: verifier instances (no forced API)
+        try:
+            self._verifier_local = getattr(self, "ai_engine_provider", None)
+            self._verifier_openai = None
+            self._verifier_gemini = None
+
+            if AIEngineProvider is not None and str(os.getenv("AITS_ENABLE_OPENAI_VERIFIER", "")).strip() == "1":
+                try:
+                    self._verifier_openai = AIEngineProvider()
+                except Exception:
+                    self._verifier_openai = None
+
+            if AIEngineProvider is not None and str(os.getenv("AITS_ENABLE_GEMINI_VERIFIER", "")).strip() == "1":
+                try:
+                    self._verifier_gemini = AIEngineProvider()
+                except Exception:
+                    self._verifier_gemini = None
+
+            self._safe_log_info(
+                "[AITS][Orchestrator] verifier_pool_init | "
+                f"local={self._verifier_local is not None} | "
+                f"openai={self._verifier_openai is not None} | "
+                f"gemini={self._verifier_gemini is not None}"
+            )
+        except Exception:
+            pass
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -1139,6 +1169,30 @@ class AITSOrchestrator:
                                 f"original={_original_provider} | override={_ai_provider} | applied=True"
                             )
                         _ai_provider = str(_ai_provider).strip().lower()
+
+                        # AITS v3.6: select verifier by provider (no behavior change)
+                        try:
+                            _provider_norm = str(_ai_provider).strip().lower()
+                            _selected_verifier = getattr(self, "_verifier_local", None)
+
+                            if _provider_norm == "openai" and getattr(self, "_verifier_openai", None) is not None:
+                                _selected_verifier = self._verifier_openai
+                            elif _provider_norm == "gemini" and getattr(self, "_verifier_gemini", None) is not None:
+                                _selected_verifier = self._verifier_gemini
+
+                            if hasattr(self, "decision_router") and self.decision_router is not None:
+                                try:
+                                    self.decision_router.ai_engine_provider = _selected_verifier
+                                except Exception:
+                                    pass
+
+                            self._safe_log_info(
+                                "[AITS][Orchestrator] verifier_select | "
+                                f"provider={_provider_norm} | "
+                                f"selected={type(_selected_verifier).__name__ if _selected_verifier else 'None'}"
+                            )
+                        except Exception:
+                            pass
 
                         _meta = _router_raw.setdefault("meta", {})
                         if isinstance(_meta, dict):

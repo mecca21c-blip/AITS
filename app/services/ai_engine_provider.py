@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import os
 from typing import Any, Dict, Optional
+import urllib.error
+import urllib.request
 
 
 AI_VERIFICATION_ALLOWED_SUGGESTIONS = {
@@ -179,13 +182,51 @@ class AIEngineProvider:
         - 없으면 NotImplementedError로 안전하게 skip 처리된다.
         - 여기서 신규 SDK/키 로딩/설정 변경을 하지 않는다.
         """
-        if hasattr(self, "verify_with_openai"):
-            return self.verify_with_openai(prompt=prompt, context=context)
-        if hasattr(self, "ask_openai"):
-            return self.ask_openai(prompt)
-        if hasattr(self, "_ask_openai"):
-            return self._ask_openai(prompt)
-        raise NotImplementedError("openai_router_verification_adapter_not_attached")
+        if str(os.getenv("AITS_AI_VERIFY_LIVE_ONCE", "")).strip() != "1":
+            raise NotImplementedError("openai_live_call_disabled")
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise NotImplementedError("openai_api_key_missing")
+
+        model = os.getenv("AITS_OPENAI_VERIFY_MODEL", "gpt-4o-mini")
+        url = "https://api.openai.com/v1/chat/completions"
+
+        payload = {
+            "model": model,
+            "temperature": 0,
+            "max_tokens": 120,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Return only JSON. You are a trading router verifier. Never execute trades.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")[:500]
+            raise RuntimeError(f"openai_http_error:{exc.code}:{body}")
+        finally:
+            os.environ["AITS_AI_VERIFY_LIVE_ONCE"] = "0"
 
     def _call_gemini_router_verification(self, prompt: str, context: Dict[str, Any]) -> Any:
         """
@@ -196,13 +237,59 @@ class AIEngineProvider:
         - 없으면 NotImplementedError로 안전하게 skip 처리된다.
         - 여기서 신규 SDK/키 로딩/설정 변경을 하지 않는다.
         """
-        if hasattr(self, "verify_with_gemini"):
-            return self.verify_with_gemini(prompt=prompt, context=context)
-        if hasattr(self, "ask_gemini"):
-            return self.ask_gemini(prompt)
-        if hasattr(self, "_ask_gemini"):
-            return self._ask_gemini(prompt)
-        raise NotImplementedError("gemini_router_verification_adapter_not_attached")
+        if str(os.getenv("AITS_AI_VERIFY_LIVE_ONCE", "")).strip() != "1":
+            raise NotImplementedError("gemini_live_call_disabled")
+
+        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            raise NotImplementedError("gemini_api_key_missing")
+
+        model = os.getenv("AITS_GEMINI_VERIFY_MODEL", "gemini-2.0-flash")
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={api_key}"
+        )
+
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            "text": (
+                                "Return only JSON. You are a trading router verifier. "
+                                "Never execute trades.\n\n" + prompt
+                            )
+                        }
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0,
+                "maxOutputTokens": 120,
+            },
+        }
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return (
+                data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+            )
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")[:500]
+            raise RuntimeError(f"gemini_http_error:{exc.code}:{body}")
+        finally:
+            os.environ["AITS_AI_VERIFY_LIVE_ONCE"] = "0"
 
     def _parse_router_verification_response(self, *, raw_response: Any = None, provider: Any = None) -> Dict[str, Any]:
         """
