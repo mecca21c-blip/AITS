@@ -12,7 +12,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v2.2"
+ROUTER_VERSION = "v2.3"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -953,6 +953,9 @@ class DecisionRouter:
                 performance_status=performance_status,
                 final_confidence=final_confidence,
             )
+            candidate["fusion_action"] = str(fusion_action or "")
+            candidate["performance_status"] = performance_status
+            candidate["final_confidence"] = final_confidence
             self._safe_log_info(
                 "[AITS][DecisionRouter] soft_override_candidate | "
                 f"candidate_action={candidate.get('candidate_action')} | "
@@ -963,6 +966,7 @@ class DecisionRouter:
                 f"final_conf={final_confidence:.3f} | "
                 f"reason={candidate.get('reason')}"
             )
+            self._last_soft_override_candidate = dict(candidate)
             raw["soft_override_candidate"] = candidate
             return candidate
         except Exception as exc:
@@ -976,6 +980,25 @@ class DecisionRouter:
                 "reason": "candidate_error",
                 "eligible": False,
             }
+
+    def get_last_soft_override_candidate(self) -> dict:
+        """
+        마지막 soft_override_candidate 반환.
+        없으면 안전한 none dict 반환.
+        """
+        try:
+            candidate = getattr(self, "_last_soft_override_candidate", None)
+            if isinstance(candidate, dict):
+                return dict(candidate)
+        except Exception:
+            pass
+
+        return {
+            "candidate_action": "none",
+            "candidate_strength": "none",
+            "eligible": False,
+            "reason": "no_soft_candidate",
+        }
 
     def _attach_router_result(
         self, decision: AIDecisionState, result: DecisionRouterResult

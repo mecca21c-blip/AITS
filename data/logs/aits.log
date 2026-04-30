@@ -5248,3 +5248,49 @@ SyntaxError: invalid decimal literal
 2026-04-30 11:17:03,593 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
 2026-04-30 11:17:03,593 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
 2026-04-30 11:17:03,593 | INFO | aits | [cycle=1] status=success, duration_ms=949.1, warnings=0, errors=0
+2026-04-30 11:36:18,506 | INFO | aits | AITS bootstrap start
+2026-04-30 11:36:18,511 | INFO | aits | [AITS][DecisionRouter] shadow_history_loaded | count=0
+2026-04-30 11:36:18,512 | INFO | aits | [AITS][DecisionRouter] shadow_performance_loaded | count=4
+2026-04-30 11:36:18,513 | INFO | aits | [AITS][DecisionRouter] initialized | version=v2.3 | mode=shadow_provider
+2026-04-30 11:36:18,519 | INFO | aits | AITS orchestrator initialized
+2026-04-30 11:36:18,519 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-30 11:36:18,520 | INFO | aits | AITS orchestrator initialized
+2026-04-30 11:36:18,520 | INFO | aits | AITS headless mode start
+2026-04-30 11:36:19,579 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-30 11:36:19,580 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=wait | shadow_conf=0.600 | shadow_rule=hold_wait | execution_allowed=False | history_count=1 | history_bias=mixed | history_buy=0 | history_sell=0 | history_persisted=True | rule_action=wait | regime=bear | candidates=5 | positions=0 | risk_hint=defensive | final=passthrough
+2026-04-30 11:36:19,580 | INFO | aits | [AITS][DecisionRouter] fusion_signal | history_bias=mixed | regime=bear | fusion_action=wait | score=0.500 | applied=False
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] shadow_stats | count=4 | buy=4 | sell=0 | buy_win10=25.0% | sell_win10=0.0% | avg10=43.74 | avg30=43.74 | avg60=43.99
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] performance_boost | status=active_penalty | sample_ready=True | min_sample=3 | base_conf=0.800 | adjusted_conf=0.736 | multiplier=0.920 | reason=perf_negative | sample_count=3 | winrate10=33.3 | avg10=43.74
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] fusion_override | fusion_action=wait | base_conf=0.736 | final_conf=0.736 | multiplier=1.000 | reason=fusion_neutral
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] soft_override_candidate | candidate_action=wait | strength=weak | eligible=False | fusion_action=wait | performance_status=active_penalty | final_conf=0.736 | reason=performance_penalty_blocks_override
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.736 | source=ai_decision_service
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] performance_update_start | pending=1
+2026-04-30 11:36:19,581 | INFO | aits | [AITS][DecisionRouter] performance_update_skipped | symbol=KRW-BLEND | reason=missing_entry_price
+2026-04-30 11:36:19,582 | INFO | aits | [AITS][DecisionRouter] dryrun_compare | soft_action=wait | soft_eligible=False | soft_strength=weak | dry_count=0 | dry_action=none | dry_symbol= | dry_amount=0 | matched=True
+2026-04-30 11:36:19,582 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-30 11:36:19,582 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-30 11:36:19,582 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-30 11:36:19,582 | INFO | aits | [cycle=1] status=success, duration_ms=1062.4, warnings=0, errors=0
+2026-04-30 11:53:35,636 | INFO | aits | AITS bootstrap start
+2026-04-30 11:53:35,642 | INFO | aits | [AITS][DecisionRouter] shadow_history_loaded | count=1
+2026-04-30 11:53:35,643 | INFO | aits | [AITS][DecisionRouter] shadow_performance_loaded | count=4
+2026-04-30 11:53:35,643 | INFO | aits | [AITS][DecisionRouter] initialized | version=v2.3 | mode=shadow_provider
+2026-04-30 11:53:35,650 | INFO | aits | AITS orchestrator initialized
+2026-04-30 11:53:35,650 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-04-30 11:53:35,651 | INFO | aits | AITS orchestrator initialized
+2026-04-30 11:53:35,651 | INFO | aits | AITS headless mode start
+2026-04-30 11:53:36,707 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-04-30 11:53:36,709 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=wait | shadow_conf=0.600 | shadow_rule=hold_wait | execution_allowed=False | history_count=2 | history_bias=mixed | history_buy=0 | history_sell=0 | history_persisted=True | rule_action=wait | regime=bear | candidates=5 | positions=0 | risk_hint=defensive | final=passthrough
+2026-04-30 11:53:36,709 | INFO | aits | [AITS][DecisionRouter] fusion_signal | history_bias=mixed | regime=bear | fusion_action=wait | score=0.500 | applied=False
+2026-04-30 11:53:36,709 | INFO | aits | [AITS][DecisionRouter] shadow_stats | count=4 | buy=4 | sell=0 | buy_win10=25.0% | sell_win10=0.0% | avg10=43.74 | avg30=43.74 | avg60=43.99
+2026-04-30 11:53:36,709 | INFO | aits | [AITS][DecisionRouter] performance_boost | status=active_penalty | sample_ready=True | min_sample=3 | base_conf=0.800 | adjusted_conf=0.736 | multiplier=0.920 | reason=perf_negative | sample_count=3 | winrate10=33.3 | avg10=43.74
+2026-04-30 11:53:36,709 | INFO | aits | [AITS][DecisionRouter] fusion_override | fusion_action=wait | base_conf=0.736 | final_conf=0.736 | multiplier=1.000 | reason=fusion_neutral
+2026-04-30 11:53:36,709 | INFO | aits | [AITS][DecisionRouter] soft_override_candidate | candidate_action=wait | strength=weak | eligible=False | fusion_action=wait | performance_status=active_penalty | final_conf=0.736 | reason=performance_penalty_blocks_override
+2026-04-30 11:53:36,710 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.736 | source=ai_decision_service
+2026-04-30 11:53:36,710 | INFO | aits | [AITS][DecisionRouter] performance_update_start | pending=1
+2026-04-30 11:53:36,710 | INFO | aits | [AITS][DecisionRouter] performance_update_skipped | symbol=KRW-BLEND | reason=missing_entry_price
+2026-04-30 11:53:36,710 | INFO | aits | [AITS][DecisionRouter] dryrun_compare | soft_action=wait | soft_eligible=False | soft_strength=weak | dry_count=0 | dry_action=none | dry_symbol= | dry_amount=0 | matched=True | mismatch_reason=matched
+2026-04-30 11:53:36,710 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=0, approved=0, blocked=0)
+2026-04-30 11:53:36,710 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-30 11:53:36,710 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)
+2026-04-30 11:53:36,711 | INFO | aits | [cycle=1] status=success, duration_ms=1059.2, warnings=0, errors=0

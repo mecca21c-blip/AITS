@@ -1336,6 +1336,7 @@ class AITSOrchestrator:
                         self._record_decision_router_shadow_signal(sig, "*")
         except Exception:
             pass
+        self._log_decision_router_dryrun_compare(plan)
 
     def _record_decision_router_shadow_signal(self, signal: Dict[str, Any], symbol: str) -> None:
         try:
@@ -1366,6 +1367,98 @@ class AITSOrchestrator:
             )
         except Exception:
             pass
+
+    def _log_decision_router_dryrun_compare(self, plan: Any) -> None:
+        try:
+            router = getattr(self, "decision_router", None)
+            if router is None or not hasattr(router, "get_last_soft_override_candidate"):
+                return
+            soft = router.get_last_soft_override_candidate()
+
+            soft_action = str(soft.get("candidate_action", "none"))
+            soft_eligible = bool(soft.get("eligible", False))
+            soft_strength = str(soft.get("candidate_strength", "none"))
+
+            dry_actions = []
+            try:
+                for action_item in list(getattr(plan, "approved_actions", []) or []):
+                    action = getattr(action_item, "action", "")
+                    if not action:
+                        action = getattr(action_item, "action_type", "")
+                    dry_actions.append(
+                        {
+                            "action": action,
+                            "symbol": getattr(action_item, "symbol", ""),
+                            "amount_krw": getattr(action_item, "amount_krw", 0),
+                            "confidence": getattr(action_item, "confidence", 0),
+                        }
+                    )
+            except Exception:
+                dry_actions = []
+
+            dry_count = len(dry_actions)
+            first_dry_action = dry_actions[0]["action"] if dry_actions else "none"
+            first_dry_symbol = dry_actions[0]["symbol"] if dry_actions else ""
+            first_dry_amount = dry_actions[0]["amount_krw"] if dry_actions else 0
+
+            matched = False
+            if soft_action in ("buy", "buy_strong") and first_dry_action == "buy":
+                matched = True
+            elif soft_action in ("reduce", "sell", "sell_strong") and first_dry_action in ("reduce", "sell"):
+                matched = True
+            elif soft_action in ("wait", "none") and dry_count == 0:
+                matched = True
+
+            mismatch_reason = "matched"
+            if not matched:
+                if soft_action in ("wait", "none") and dry_count > 0:
+                    mismatch_reason = "unexpected_dryrun_action"
+                elif soft_action in ("buy", "buy_strong") and soft_eligible and dry_count == 0:
+                    mismatch_reason = "missing_buy_dryrun"
+                elif soft_action in ("reduce", "sell", "sell_strong") and soft_eligible and dry_count == 0:
+                    mismatch_reason = "missing_sell_dryrun"
+                elif soft_action in ("buy", "buy_strong") and dry_count > 0 and first_dry_action != "buy":
+                    mismatch_reason = "dryrun_action_mismatch_buy"
+                elif (
+                    soft_action in ("reduce", "sell", "sell_strong")
+                    and dry_count > 0
+                    and first_dry_action not in ("reduce", "sell")
+                ):
+                    mismatch_reason = "dryrun_action_mismatch_sell"
+                else:
+                    mismatch_reason = "unknown_mismatch"
+
+            if self.logger is not None and hasattr(self.logger, "info"):
+                self.logger.info(
+                    "[AITS][DecisionRouter] dryrun_compare | "
+                    f"soft_action={soft_action} | "
+                    f"soft_eligible={soft_eligible} | "
+                    f"soft_strength={soft_strength} | "
+                    f"dry_count={dry_count} | "
+                    f"dry_action={first_dry_action} | "
+                    f"dry_symbol={first_dry_symbol} | "
+                    f"dry_amount={float(first_dry_amount or 0):.0f} | "
+                    f"matched={matched} | "
+                    f"mismatch_reason={mismatch_reason}"
+                )
+            if not matched and self.logger is not None and hasattr(self.logger, "warning"):
+                self.logger.warning(
+                    "[AITS][DecisionRouter] dryrun_mismatch_warning | "
+                    f"soft_action={soft_action} | "
+                    f"soft_eligible={soft_eligible} | "
+                    f"dry_count={dry_count} | "
+                    f"dry_action={first_dry_action} | "
+                    f"reason={mismatch_reason}"
+                )
+        except Exception as exc:
+            try:
+                if self.logger is not None and hasattr(self.logger, "warning"):
+                    self.logger.warning(
+                        "[AITS][DecisionRouter] dryrun_compare_failed | "
+                        f"error={type(exc).__name__}"
+                    )
+            except Exception:
+                pass
 
     def _update_decision_router_shadow_performance(self) -> None:
         try:
