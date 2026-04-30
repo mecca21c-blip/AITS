@@ -76,6 +76,8 @@ class DecisionRouter:
         mode: str = ROUTER_MODE,
         history_path: Optional[Any] = None,
         performance_path: Optional[Any] = None,
+        ai_engine_provider=None,
+        ai_verifier=None,
     ) -> None:
         self.logger = logger
         self.provider_registry = provider_registry or build_default_provider_registry(
@@ -94,6 +96,16 @@ class DecisionRouter:
             history_path,
         )
         self.shadow_performance = self._load_shadow_performance()
+        # AITS Decision Router v2.8
+        # Optional AI verifier/provider injection.
+        # Safety: stored only; no forced API call, no action change.
+        try:
+            if ai_verifier is not None and not hasattr(self, "ai_verifier"):
+                self.ai_verifier = ai_verifier
+            if ai_engine_provider is not None and not hasattr(self, "ai_engine_provider"):
+                self.ai_engine_provider = ai_engine_provider
+        except Exception:
+            pass
         self._safe_log_info(
             f"[AITS][DecisionRouter] initialized | version={ROUTER_VERSION} | mode={self.mode}"
         )
@@ -1167,7 +1179,18 @@ class DecisionRouter:
                 or getattr(self, "_ai_verifier", None)
                 or getattr(self, "ai_engine_provider", None)
                 or getattr(self, "_ai_engine_provider", None)
+                or getattr(self, "provider", None)
+                or getattr(self, "_provider", None)
             )
+
+            try:
+                self._safe_log_info(
+                    "[AITS][AIVerification] verifier_resolved | "
+                    f"provider={provider} | attached={verifier is not None} | "
+                    f"type={type(verifier).__name__ if verifier is not None else 'None'}"
+                )
+            except Exception:
+                pass
 
             if verifier is None:
                 base.update(
