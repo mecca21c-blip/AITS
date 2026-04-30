@@ -1137,6 +1137,14 @@ class DecisionRouter:
         provider = str(provider or "local").strip().lower()
         context = context or {}
 
+        try:
+            self._safe_log_info(
+                "[AITS][AIVerification] provider_route | "
+                f"provider={provider} | phase=enter | applied=False"
+            )
+        except Exception:
+            pass
+
         base = {
             "enabled": True,
             "provider": provider,
@@ -1172,6 +1180,14 @@ class DecisionRouter:
                 f"provider={provider} | reason=unsupported_provider"
             )
             return base
+
+        try:
+            self._safe_log_info(
+                "[AITS][AIVerification] provider_route | "
+                f"provider={provider} | phase=verifier_lookup | applied=False"
+            )
+        except Exception:
+            pass
 
         try:
             verifier = (
