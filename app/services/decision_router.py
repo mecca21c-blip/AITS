@@ -12,7 +12,7 @@ from app.services.ai_engine_provider import (
     get_provider,
 )
 
-ROUTER_VERSION = "v2.1"
+ROUTER_VERSION = "v2.2"
 ROUTER_MODE = "shadow_provider"
 
 
@@ -232,6 +232,7 @@ class DecisionRouter:
             fusion_override.get("final_conf"),
             confidence,
         )
+        soft_override_candidate = self._record_soft_override_candidate(decision)
 
         routed_result = DecisionRouterResult(
             action=action,
@@ -257,6 +258,7 @@ class DecisionRouter:
                 "shadow_signal": self.get_shadow_signal(),
                 "performance_boost": performance_boost,
                 "fusion_override": fusion_override,
+                "soft_override_candidate": soft_override_candidate,
                 **self._local_shadow_meta(provider_shadow_decision),
                 "context": context_data,
             },
@@ -841,6 +843,138 @@ class DecisionRouter:
                 "final_conf": base_conf,
                 "multiplier": 1.0,
                 "reason": "fusion_error",
+            }
+
+    def get_soft_override_candidate(
+        self,
+        fusion_action: str,
+        performance_status: str,
+        final_confidence: float,
+    ) -> dict:
+        """
+        실제 action은 변경하지 않고, Router가 추천하는 soft override 후보만 반환한다.
+        return:
+        {
+            "candidate_action": "buy" | "buy_strong" | "reduce" | "sell_strong" | "wait" | "none",
+            "candidate_strength": "none" | "weak" | "medium" | "strong",
+            "reason": str,
+            "eligible": bool
+        }
+        """
+        try:
+            action = str(fusion_action or "").strip().lower()
+            status = str(performance_status or "").strip().lower()
+            conf = self._safe_float(final_confidence, 0.0)
+
+            if status == "active_boost":
+                if action == "buy_strong" and conf >= 0.60:
+                    return {
+                        "candidate_action": "buy_strong",
+                        "candidate_strength": "strong",
+                        "reason": "active_boost_buy_strong",
+                        "eligible": True,
+                    }
+                if action == "buy" and conf >= 0.55:
+                    return {
+                        "candidate_action": "buy",
+                        "candidate_strength": "medium",
+                        "reason": "active_boost_buy",
+                        "eligible": True,
+                    }
+                if action in ("reduce", "sell_strong") and conf >= 0.55:
+                    return {
+                        "candidate_action": action,
+                        "candidate_strength": "medium",
+                        "reason": "active_boost_defensive",
+                        "eligible": True,
+                    }
+
+            if status == "active_neutral":
+                if action in ("buy", "buy_strong", "reduce", "sell_strong") and conf >= 0.65:
+                    return {
+                        "candidate_action": action,
+                        "candidate_strength": "weak",
+                        "reason": "active_neutral_high_confidence",
+                        "eligible": True,
+                    }
+
+            if status == "active_penalty":
+                return {
+                    "candidate_action": "wait",
+                    "candidate_strength": "weak",
+                    "reason": "performance_penalty_blocks_override",
+                    "eligible": False,
+                }
+
+            if status == "observe":
+                return {
+                    "candidate_action": "none",
+                    "candidate_strength": "none",
+                    "reason": "observe_mode_no_override",
+                    "eligible": False,
+                }
+
+            return {
+                "candidate_action": "none",
+                "candidate_strength": "none",
+                "reason": "no_candidate",
+                "eligible": False,
+            }
+        except Exception:
+            return {
+                "candidate_action": "none",
+                "candidate_strength": "none",
+                "reason": "candidate_error",
+                "eligible": False,
+            }
+
+    def _record_soft_override_candidate(self, decision: Any) -> Dict[str, Any]:
+        try:
+            raw = getattr(decision, "raw", None)
+            if not isinstance(raw, dict):
+                raw = {}
+                setattr(decision, "raw", raw)
+            boost_info = raw.get("performance_boost", {})
+            if not isinstance(boost_info, dict):
+                boost_info = {}
+            fusion_info = raw.get("fusion_override", {})
+            if not isinstance(fusion_info, dict):
+                fusion_info = {}
+
+            fusion_action = (
+                fusion_info.get("fusion_action")
+                or getattr(self, "_last_fusion_action", None)
+                or ""
+            )
+            performance_status = str(boost_info.get("status") or "unknown")
+            final_confidence = self._safe_float(getattr(decision, "confidence", 0.0), 0.0)
+            candidate = self.get_soft_override_candidate(
+                fusion_action=fusion_action,
+                performance_status=performance_status,
+                final_confidence=final_confidence,
+            )
+            self._safe_log_info(
+                "[AITS][DecisionRouter] soft_override_candidate | "
+                f"candidate_action={candidate.get('candidate_action')} | "
+                f"strength={candidate.get('candidate_strength')} | "
+                f"eligible={candidate.get('eligible')} | "
+                f"fusion_action={fusion_action} | "
+                f"performance_status={performance_status} | "
+                f"final_conf={final_confidence:.3f} | "
+                f"reason={candidate.get('reason')}"
+            )
+            raw["soft_override_candidate"] = candidate
+            return candidate
+        except Exception as exc:
+            self._safe_log_warning(
+                "[AITS][DecisionRouter] soft_override_candidate_failed | "
+                f"error={type(exc).__name__}"
+            )
+            return {
+                "candidate_action": "none",
+                "candidate_strength": "none",
+                "reason": "candidate_error",
+                "eligible": False,
             }
 
     def _attach_router_result(
