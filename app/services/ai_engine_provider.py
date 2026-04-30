@@ -19,6 +19,13 @@ AI_VERIFICATION_ALLOWED_SUGGESTIONS = {
 }
 
 
+def _safe_log_info(message: str) -> None:
+    try:
+        logging.getLogger("aits").info(message)
+    except Exception:
+        pass
+
+
 @dataclass
 class AIEngineDecision:
     action: str = "hold"
@@ -149,12 +156,25 @@ class AIEngineProvider:
                 "applied": False,
             }
         except Exception as exc:
+            error_reason = str(exc)[:500]
+            if not error_reason:
+                error_reason = f"{provider}_verifier_error:{type(exc).__name__}"
+            result_reason = error_reason
+            if error_reason in (
+                "openai_quota_exceeded",
+                "openai_api_key_invalid",
+                "openai_bad_request",
+                "gemini_quota_exceeded",
+                "gemini_api_key_invalid",
+                "gemini_bad_request",
+            ):
+                result_reason = f"{error_reason}:error"
             return {
                 "suggestion": "skip",
-                "reason": f"{provider}_verifier_error:{type(exc).__name__}",
+                "reason": result_reason,
                 "provider": provider,
                 "applied": False,
-                "error": str(exc)[:500],
+                "error": error_reason,
             }
 
     def _build_router_verification_prompt(self, context: Optional[Dict[str, Any]]) -> str:
@@ -252,12 +272,56 @@ class AIEngineProvider:
         )
 
         try:
+            _safe_log_info("[AITS][OpenAIHTTP] step=before_request")
             with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                response_text = resp.read().decode("utf-8")
+                _safe_log_info(f"[AITS][OpenAIHTTP] status={resp.status}")
+                _safe_log_info(
+                    "[AITS][OpenAIHTTP] body="
+                    + str(response_text)[:300].replace("\n", " ").replace("\r", " ")
+                )
+                data = json.loads(response_text)
+            _raw_preview = str(data).replace("\n", " ").replace("\r", " ")[:500]
+            logging.getLogger("aits").info(
+                "[AITS][OpenAIRaw] "
+                f"preview={_raw_preview}"
+            )
             return data.get("choices", [{}])[0].get("message", {}).get("content", "")
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="ignore")[:500]
-            raise RuntimeError(f"openai_http_error:{exc.code}:{body}")
+            body = exc.read().decode("utf-8", errors="ignore")[:800]
+            body_lower = body.lower()
+
+            reason = f"openai_http_error:{exc.code}"
+
+            if exc.code == 429 or "quota" in body_lower or "rate limit" in body_lower or "too many requests" in body_lower or "insufficient_quota" in body_lower:
+                reason = "openai_quota_exceeded"
+            elif exc.code in (401, 403) or "invalid api key" in body_lower or "incorrect api key" in body_lower:
+                reason = "openai_api_key_invalid"
+            elif exc.code == 400:
+                reason = "openai_bad_request"
+
+            _safe_log_info(f"[AITS][OpenAIHTTP] status={exc.code}")
+            _safe_log_info(
+                "[AITS][OpenAIHTTP] body="
+                + str(body)[:300].replace("\n", " ").replace("\r", " ")
+            )
+            _safe_log_info(
+                "[AITS][OpenAIHTTP] error "
+                f"type={type(exc).__name__} | "
+                f"msg={str(exc)[:200]}"
+            )
+            _safe_log_info(
+                "[AITS][OpenAIHTTP] classified_error | "
+                f"code={exc.code} | reason={reason}"
+            )
+            raise RuntimeError(reason)
+        except Exception as exc:
+            _safe_log_info(
+                "[AITS][OpenAIHTTP] error "
+                f"type={type(exc).__name__} | "
+                f"msg={str(exc)[:200]}"
+            )
+            raise
         finally:
             os.environ["AITS_AI_VERIFY_LIVE_ONCE"] = "0"
 
@@ -310,8 +374,20 @@ class AIEngineProvider:
         )
 
         try:
+            _safe_log_info("[AITS][GeminiHTTP] step=before_request")
             with urllib.request.urlopen(req, timeout=20) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                response_text = resp.read().decode("utf-8")
+                _safe_log_info(f"[AITS][GeminiHTTP] status={resp.status}")
+                _safe_log_info(
+                    "[AITS][GeminiHTTP] body="
+                    + str(response_text)[:300].replace("\n", " ").replace("\r", " ")
+                )
+                data = json.loads(response_text)
+            _raw_preview = str(data).replace("\n", " ").replace("\r", " ")[:500]
+            logging.getLogger("aits").info(
+                "[AITS][GeminiRaw] "
+                f"preview={_raw_preview}"
+            )
             return (
                 data.get("candidates", [{}])[0]
                 .get("content", {})
@@ -319,8 +395,40 @@ class AIEngineProvider:
                 .get("text", "")
             )
         except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="ignore")[:500]
-            raise RuntimeError(f"gemini_http_error:{exc.code}:{body}")
+            body = exc.read().decode("utf-8", errors="ignore")[:800]
+            body_lower = body.lower()
+
+            reason = f"gemini_http_error:{exc.code}"
+
+            if exc.code == 429 or "quota" in body_lower or "rate limit" in body_lower or "too many requests" in body_lower:
+                reason = "gemini_quota_exceeded"
+            elif exc.code in (401, 403) or "api key not valid" in body_lower or "api_key_invalid" in body_lower:
+                reason = "gemini_api_key_invalid"
+            elif exc.code == 400:
+                reason = "gemini_bad_request"
+
+            _safe_log_info(f"[AITS][GeminiHTTP] status={exc.code}")
+            _safe_log_info(
+                "[AITS][GeminiHTTP] body="
+                + str(body)[:300].replace("\n", " ").replace("\r", " ")
+            )
+            _safe_log_info(
+                "[AITS][GeminiHTTP] error "
+                f"type={type(exc).__name__} | "
+                f"msg={str(exc)[:200]}"
+            )
+            _safe_log_info(
+                "[AITS][GeminiHTTP] classified_error | "
+                f"code={exc.code} | reason={reason}"
+            )
+            raise RuntimeError(reason)
+        except Exception as exc:
+            _safe_log_info(
+                "[AITS][GeminiHTTP] error "
+                f"type={type(exc).__name__} | "
+                f"msg={str(exc)[:200]}"
+            )
+            raise
         finally:
             os.environ["AITS_AI_VERIFY_LIVE_ONCE"] = "0"
 

@@ -1367,6 +1367,26 @@ class DecisionRouter:
                     _weight_delta = 0.0
                     _weight_reason = "ai_skip_or_unknown"
 
+                try:
+                    _api_reason = str(base.get("reason") or "").strip()
+                    _api_reason_lower = _api_reason.lower()
+
+                    if _suggestion == "skip" and any(x in _api_reason_lower for x in (
+                        "quota_exceeded",
+                        "api_key_missing",
+                        "api_key_invalid",
+                        "bad_request",
+                        "http_error",
+                        "live_call_disabled",
+                        "verifier_not_implemented",
+                        "verifier_error",
+                        "unsupported_provider",
+                        "empty_response",
+                    )):
+                        _weight_reason = _api_reason
+                except Exception:
+                    pass
+
                 base["observe_only_weight_delta"] = _weight_delta
                 base["observe_only_weight_reason"] = _weight_reason
                 base["observe_only_weight_applied"] = False
@@ -1402,6 +1422,7 @@ class DecisionRouter:
 
                 _raw_preview = _raw_preview.replace("\n", " ").replace("\r", " ")[:300]
                 _reason_preview = str(base.get("reason") or "").replace("\n", " ").replace("\r", " ")[:300]
+                _error_preview = str(base.get("error") or "").replace("\n", " ").replace("\r", " ")[:500]
                 _risk_preview = ""
                 if isinstance(base.get("raw_response"), dict):
                     _risk_preview = str(
@@ -1416,6 +1437,7 @@ class DecisionRouter:
                     f"suggestion={base.get('suggestion')} | "
                     f"reason={_reason_preview} | "
                     f"risk_note={_risk_preview} | "
+                    f"error={_error_preview} | "
                     f"raw_preview={_raw_preview} | "
                     f"applied=False"
                 )
