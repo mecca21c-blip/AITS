@@ -1195,6 +1195,21 @@ class DecisionRouter:
                 "[AITS][AIVerification] skipped | "
                 f"provider={provider} | reason=local_provider_no_api_call"
             )
+            try:
+                base["observe_only_weight_delta"] = 0.0
+                base["observe_only_weight_reason"] = "ai_local_skip_no_api_call"
+                base["observe_only_weight_applied"] = False
+
+                self._safe_log_info(
+                    "[AITS][AIVerificationWeight] "
+                    f"provider={provider} | "
+                    f"suggestion={base.get('suggestion')} | "
+                    f"delta=0.000 | "
+                    f"reason=ai_local_skip_no_api_call | "
+                    f"applied=False"
+                )
+            except Exception:
+                pass
             return base
 
         if provider not in ("openai", "gemini"):
@@ -1302,6 +1317,70 @@ class DecisionRouter:
                     "raw_response": parsed,
                 }
             )
+
+            try:
+                _original_suggestion = str(base.get("suggestion") or "").lower()
+                _reason = str(base.get("reason") or "").lower()
+
+                if _original_suggestion == "confirm" and any(
+                    x in _reason
+                    for x in (
+                        "verifier_not_implemented",
+                        "error",
+                        "api_key_missing",
+                        "empty_response",
+                    )
+                ):
+                    base["suggestion"] = "skip"
+
+                    self._safe_log_info(
+                        "[AITS][AIVerification] suggestion_corrected | "
+                        f"original=confirm | corrected=skip | reason={_reason} | applied=False"
+                    )
+            except Exception:
+                pass
+
+            try:
+                _suggestion = str(base.get("suggestion") or "skip").strip().lower()
+                _weight_delta = 0.0
+                _weight_reason = "neutral"
+
+                if _suggestion == "confirm":
+                    _weight_delta = 0.03
+                    _weight_reason = "ai_confirm_small_boost"
+                elif _suggestion == "reject_signal":
+                    _weight_delta = -0.08
+                    _weight_reason = "ai_reject_signal_penalty"
+                elif _suggestion == "override_wait":
+                    _weight_delta = -0.05
+                    _weight_reason = "ai_override_wait_penalty"
+                elif _suggestion == "override_buy":
+                    _weight_delta = 0.05
+                    _weight_reason = "ai_override_buy_observe"
+                elif _suggestion == "override_reduce":
+                    _weight_delta = -0.04
+                    _weight_reason = "ai_override_reduce_observe"
+                elif _suggestion == "override_sell":
+                    _weight_delta = -0.07
+                    _weight_reason = "ai_override_sell_observe"
+                else:
+                    _weight_delta = 0.0
+                    _weight_reason = "ai_skip_or_unknown"
+
+                base["observe_only_weight_delta"] = _weight_delta
+                base["observe_only_weight_reason"] = _weight_reason
+                base["observe_only_weight_applied"] = False
+
+                self._safe_log_info(
+                    "[AITS][AIVerificationWeight] "
+                    f"provider={provider} | "
+                    f"suggestion={_suggestion} | "
+                    f"delta={_weight_delta:.3f} | "
+                    f"reason={_weight_reason} | "
+                    f"applied=False"
+                )
+            except Exception:
+                pass
 
             self._safe_log_info(
                 "[AITS][AIVerification] suggestion | "
@@ -1425,6 +1504,32 @@ class DecisionRouter:
                 context=ai_verification_context,
                 raw=raw,
             )
+
+            try:
+                _ai_summary = locals().get("ai_verification_suggestion", None)
+
+                if isinstance(_ai_summary, dict):
+                    _ai_suggestion = str(_ai_summary.get("suggestion") or "none")
+                    _ai_delta = _ai_summary.get("observe_only_weight_delta", 0.0)
+                    _ai_reason = str(
+                        _ai_summary.get("observe_only_weight_reason")
+                        or _ai_summary.get("reason")
+                        or ""
+                    )
+                else:
+                    _ai_suggestion = "none"
+                    _ai_delta = 0.0
+                    _ai_reason = "not_recorded_yet"
+
+                self._safe_log_info(
+                    "[AITS][RouterSummaryAI] "
+                    f"ai={_ai_suggestion} | "
+                    f"ai_delta={float(_ai_delta):.3f} | "
+                    f"ai_reason={_ai_reason} | "
+                    f"applied=False"
+                )
+            except Exception:
+                pass
 
             raw_meta = raw.setdefault("meta", {})
             if isinstance(raw_meta, dict):
