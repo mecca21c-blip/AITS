@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import time
 from typing import Any, Dict, List, Optional
+
+try:
+    import requests
+except Exception:
+    requests = None
 
 from app.core.aits_state import (
     ActionItem,
@@ -38,6 +44,31 @@ try:
     from app.services.order_adapter import AITSOrderAdapter
 except Exception:
     AITSOrderAdapter = None
+
+
+def _fetch_upbit_price_once(symbol: str) -> tuple[float | None, str]:
+    """
+    Upbit ticker 1회 조회 (shadow 성과추적 전용)
+    return: (price, source)
+    """
+    try:
+        if requests is None:
+            return None, "upbit_err_ImportError"
+        url = "https://api.upbit.com/v1/ticker"
+        params = {"markets": symbol}
+        response = requests.get(url, params=params, timeout=1.5)
+        if response.status_code != 200:
+            return None, f"upbit_http_{response.status_code}"
+        data = response.json()
+        if not data or not isinstance(data, list):
+            return None, "upbit_empty"
+        item = data[0] or {}
+        price = item.get("trade_price") or item.get("tradePrice")
+        if isinstance(price, (int, float)) and price > 0:
+            return float(price), "upbit.ticker.trade_price"
+        return None, "upbit_no_price"
+    except Exception as exc:
+        return None, f"upbit_err_{type(exc).__name__}"
 
 # ---------------------------------------------------------------------------
 # Cycle result types (Phase 1)
@@ -171,8 +202,6 @@ class AITSOrchestrator:
             if DecisionRouter is not None
             else None
         )
-        if self.decision_router is not None:
-            self._safe_log_info("[AITS][DecisionRouter] initialized | version=v1.2 | mode=shadow_provider")
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
         from app.services.execution_bridge import ExecutionBridge
@@ -1156,6 +1185,7 @@ class AITSOrchestrator:
         plan = rs.execution.plan
         res = rs.execution.result
         decision = rs.intelligence.ai_decision
+        self._update_decision_router_shadow_performance()
 
         plan.approved_actions = []
         plan.blocked_actions = []
@@ -1258,6 +1288,10 @@ class AITSOrchestrator:
                             )
                         except Exception:
                             pass
+                        self._record_decision_router_shadow_signal(
+                            sig,
+                            candidate_symbol,
+                        )
                     elif act == "reduce":
                         plan.approved_actions.append(
                             ActionItem(
@@ -1278,6 +1312,7 @@ class AITSOrchestrator:
                             )
                         except Exception:
                             pass
+                        self._record_decision_router_shadow_signal(sig, "*")
                     elif act == "sell_strong":
                         plan.approved_actions.append(
                             ActionItem(
@@ -1298,8 +1333,251 @@ class AITSOrchestrator:
                             )
                         except Exception:
                             pass
+                        self._record_decision_router_shadow_signal(sig, "*")
         except Exception:
             pass
+
+    def _record_decision_router_shadow_signal(self, signal: Dict[str, Any], symbol: str) -> None:
+        try:
+            router = getattr(self, "decision_router", None)
+            if router is None or not hasattr(router, "record_shadow_signal"):
+                return
+            rs = self.last_runtime_state
+            opp = getattr(getattr(rs, "intelligence", None), "opportunities", None)
+            candidates = getattr(opp, "candidate_symbols", None) or []
+            current_price = self._lookup_shadow_performance_price(symbol)
+            if current_price is None:
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] performance_entry_price_missing | "
+                    f"symbol={symbol}"
+                )
+            else:
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] performance_entry_price | "
+                    f"symbol={symbol} | price={current_price}"
+                )
+            router.record_shadow_signal(
+                signal_action=signal.get("action"),
+                signal_confidence=signal.get("confidence", 0.0),
+                symbol=symbol,
+                market_regime=str(getattr(getattr(rs, "market", None).regime, "label", "") or ""),
+                candidate_count=len(candidates) if isinstance(candidates, (list, tuple)) else 0,
+                current_price=current_price,
+            )
+        except Exception:
+            pass
+
+    def _update_decision_router_shadow_performance(self) -> None:
+        try:
+            router = getattr(self, "decision_router", None)
+            if router is None or not hasattr(router, "update_shadow_performance"):
+                return
+            router.update_shadow_performance(self._lookup_shadow_performance_price)
+        except Exception as exc:
+            try:
+                if self.logger is not None and hasattr(self.logger, "warning"):
+                    self.logger.warning(
+                        "[AITS][DecisionRouter] performance_update_call_failed | "
+                        f"error={str(exc)[:160]}"
+                    )
+            except Exception:
+                pass
+
+    def _lookup_shadow_signal_price(self, symbol: str) -> Optional[float]:
+        return self._lookup_shadow_performance_price(symbol)
+
+    def _lookup_shadow_performance_price(self, symbol: str) -> Optional[float]:
+        try:
+            sym = str(symbol or "").strip()
+            if not sym or sym == "*":
+                self._log_shadow_performance_price_lookup(sym, None, "not_found")
+                return None
+            rs = self.last_runtime_state
+            if sym == "KRW-BTC":
+                snap = getattr(getattr(rs, "market", None), "snapshot", None)
+                price = self._safe_float(getattr(snap, "btc_price", 0.0), 0.0)
+                if price > 0.0:
+                    self._log_shadow_performance_price_lookup(
+                        sym,
+                        price,
+                        "market.snapshot.btc_price",
+                    )
+                    return price
+            intelligence = getattr(rs, "intelligence", None)
+            opp = getattr(intelligence, "opportunities", None)
+            for item in list(getattr(opp, "top_candidates", None) or []):
+                if self._read_shadow_symbol_from_object(item) != sym:
+                    continue
+                price, source = self._read_shadow_price_with_source(
+                    item,
+                    "intelligence.opportunities.top_candidates",
+                )
+                if price is not None:
+                    self._log_shadow_performance_price_lookup(sym, price, source)
+                    return price
+            for item in list(getattr(intelligence, "candidates", None) or []):
+                if self._read_shadow_symbol_from_object(item) != sym:
+                    continue
+                price, source = self._read_shadow_price_with_source(
+                    item,
+                    "intelligence.candidates",
+                )
+                if price is not None:
+                    self._log_shadow_performance_price_lookup(sym, price, source)
+                    return price
+            market = getattr(rs, "market", None)
+            for container_name in ("prices", "tickers", "market_data"):
+                for parent_name, parent in (
+                    ("market", market),
+                    ("market.snapshot", getattr(market, "snapshot", None)),
+                ):
+                    container = self._read_shadow_value(parent, container_name)
+                    price, source = self._read_shadow_price_from_mapping(
+                        container,
+                        sym,
+                        f"{parent_name}.{container_name}",
+                    )
+                    if price is not None:
+                        self._log_shadow_performance_price_lookup(sym, price, source)
+                        return price
+            for container_name in ("candidate_prices", "prices", "tickers", "market_data"):
+                container = self._read_shadow_value(opp, container_name)
+                price, source = self._read_shadow_price_from_mapping(
+                    container,
+                    sym,
+                    f"intelligence.opportunities.{container_name}",
+                )
+                if price is not None:
+                    self._log_shadow_performance_price_lookup(sym, price, source)
+                    return price
+            portfolio = getattr(rs, "portfolio", None)
+            for item in list(getattr(portfolio, "positions", None) or []):
+                if self._read_shadow_symbol_from_object(item) != sym:
+                    continue
+                price, source = self._read_shadow_price_with_source(
+                    item,
+                    "portfolio.positions",
+                    price_keys=("current_price", "price", "last_price", "avg_price"),
+                )
+                if price is not None:
+                    self._log_shadow_performance_price_lookup(sym, price, source)
+                    return price
+            candidate_symbols = getattr(opp, "candidate_symbols", None)
+            if isinstance(candidate_symbols, (list, tuple)) and sym in [str(x).strip() for x in candidate_symbols]:
+                price, source = self._read_shadow_price_with_source(
+                    opp,
+                    "intelligence.opportunities.candidate_symbols.related",
+                )
+                if price is not None:
+                    self._log_shadow_performance_price_lookup(sym, price, source)
+                    return price
+        except Exception:
+            self._log_shadow_performance_price_lookup(str(symbol or "").strip(), None, "not_found")
+            return None
+        fb_price = None
+        fb_src = "not_found"
+        try:
+            now_sec = int(time.time())
+            cache_key = f"_shadow_price_cache_{sym}"
+            last = getattr(self, cache_key, None)
+            if isinstance(last, dict) and now_sec - int(last.get("ts", 0) or 0) <= 1:
+                fb_price = self._safe_float(last.get("price"), 0.0)
+                fb_src = str(last.get("source") or "upbit_cached")
+                if fb_price <= 0.0:
+                    fb_price = None
+            else:
+                fb_price, fb_src = _fetch_upbit_price_once(sym)
+                setattr(
+                    self,
+                    cache_key,
+                    {"ts": now_sec, "price": fb_price, "source": fb_src},
+                )
+            self._log_shadow_performance_price_lookup(sym, fb_price, fb_src)
+            if isinstance(fb_price, (int, float)) and fb_price > 0:
+                return float(fb_price)
+            return None
+        except Exception:
+            self._log_shadow_performance_price_lookup(sym, None, "upbit_err_Exception")
+            return None
+        self._log_shadow_performance_price_lookup(sym, None, "not_found")
+        return None
+
+    def _read_shadow_symbol_from_object(self, obj: Any) -> str:
+        for key in ("symbol", "ticker", "market", "code"):
+            try:
+                if isinstance(obj, dict):
+                    raw = obj.get(key)
+                else:
+                    raw = getattr(obj, key, None)
+                text = str(raw or "").strip()
+                if text:
+                    return text
+            except Exception:
+                continue
+        return ""
+
+    def _read_shadow_price_from_object(self, obj: Any) -> Optional[float]:
+        price, _source = self._read_shadow_price_with_source(obj, "unknown")
+        return price
+
+    def _read_shadow_price_with_source(
+        self,
+        obj: Any,
+        source_prefix: str,
+        price_keys: tuple[str, ...] = ("price", "current_price", "last_price", "trade_price", "close"),
+    ) -> tuple[Optional[float], str]:
+        for key in price_keys:
+            try:
+                raw = self._read_shadow_value(obj, key)
+                price = self._safe_float(raw, 0.0)
+                if price > 0.0:
+                    return price, f"{source_prefix}.{key}"
+            except Exception:
+                continue
+        return None, "not_found"
+
+    def _read_shadow_price_from_mapping(
+        self,
+        container: Any,
+        symbol: str,
+        source_prefix: str,
+    ) -> tuple[Optional[float], str]:
+        if not isinstance(container, dict):
+            return None, "not_found"
+        try:
+            value = container.get(symbol)
+            if value is None:
+                return None, "not_found"
+            direct = self._safe_float(value, 0.0)
+            if direct > 0.0 and not isinstance(value, dict):
+                return direct, source_prefix
+            price, source = self._read_shadow_price_with_source(value, source_prefix)
+            if price is not None:
+                return price, source
+        except Exception:
+            return None, "not_found"
+        return None, "not_found"
+
+    def _read_shadow_value(self, obj: Any, key: str) -> Any:
+        try:
+            if isinstance(obj, dict):
+                return obj.get(key)
+            return getattr(obj, key, None)
+        except Exception:
+            return None
+
+    def _log_shadow_performance_price_lookup(
+        self,
+        symbol: str,
+        price: Optional[float],
+        source: str,
+    ) -> None:
+        self._safe_log_info(
+            "[AITS][DecisionRouter] performance_price_lookup | "
+            f"symbol={symbol} | "
+            f"price={price if price is not None else 'None'} | "
+            f"source={source or 'not_found'}"
+        )
 
     def _build_explainability_state(self) -> None:
         rs = self.last_runtime_state
