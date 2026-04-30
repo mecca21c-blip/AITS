@@ -176,6 +176,7 @@ class AITSOrchestrator:
         module_engine: Optional[Any] = None,
         scenario_engine: Optional[Any] = None,
         provider_router: Optional[Any] = None,
+        ai_engine_provider: Optional[Any] = None,
         decision_router: Optional[Any] = None,
         execution_adapter: Optional[Any] = None,
         run_mode: str = "ui",
@@ -194,14 +195,35 @@ class AITSOrchestrator:
         self.module_engine = module_engine
         self.scenario_engine = scenario_engine
         self.provider_router = provider_router
+        self.ai_engine_provider = ai_engine_provider
         self.decision_router = decision_router or (
             DecisionRouter(
                 logger=self.logger,
                 prefs=self.app_state,
                 config=self.config,
+                ai_engine_provider=self.ai_engine_provider,
             )
             if DecisionRouter is not None
             else None
+        )
+        try:
+            if self.ai_engine_provider is None and self.decision_router is not None:
+                attached_provider = getattr(self.decision_router, "ai_engine_provider", None)
+                if attached_provider is not None:
+                    self.ai_engine_provider = attached_provider
+            if self.ai_engine_provider is None and self.decision_router is not None:
+                registry = getattr(self.decision_router, "provider_registry", None)
+                if isinstance(registry, dict):
+                    self.ai_engine_provider = registry.get("local")
+            if self.ai_engine_provider is not None and self.decision_router is not None:
+                if getattr(self.decision_router, "ai_engine_provider", None) is None:
+                    self.decision_router.ai_engine_provider = self.ai_engine_provider
+        except Exception:
+            pass
+        self._safe_log_info(
+            "[AITS][Orchestrator] router_ai_provider_injection | "
+            f"attached={getattr(self, 'ai_engine_provider', None) is not None} | "
+            f"type={type(getattr(self, 'ai_engine_provider', None)).__name__ if getattr(self, 'ai_engine_provider', None) is not None else 'None'}"
         )
         self.execution_adapter = execution_adapter
         self.run_mode = run_mode
