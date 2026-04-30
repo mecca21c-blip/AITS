@@ -1112,6 +1112,35 @@ class DecisionRouter:
         except Exception:
             provider = provider
 
+        try:
+            raw_meta_provider = None
+            raw_strategy_provider = None
+            raw_meta_strategy_provider = None
+
+            if isinstance(raw, dict):
+                _meta = raw.get("meta") or raw.get("metadata") or {}
+                _strategy = raw.get("strategy") or {}
+
+                if isinstance(_meta, dict):
+                    raw_meta_provider = _meta.get("ai_provider")
+                    _meta_strategy = _meta.get("strategy") or {}
+                    if isinstance(_meta_strategy, dict):
+                        raw_meta_strategy_provider = _meta_strategy.get("ai_provider")
+
+                if isinstance(_strategy, dict):
+                    raw_strategy_provider = _strategy.get("ai_provider")
+
+            self._safe_log_info(
+                "[AITS][AIVerification] provider_source | "
+                f"raw_meta={raw_meta_provider} | "
+                f"raw_meta_strategy={raw_meta_strategy_provider} | "
+                f"raw_strategy={raw_strategy_provider} | "
+                f"self_ai_provider={getattr(self, 'ai_provider', None)} | "
+                f"self_provider_name={getattr(self, 'provider_name', None)}"
+            )
+        except Exception:
+            pass
+
         provider = str(provider or "local").strip().lower()
 
         if provider in ("gpt", "openai", "chatgpt"):
