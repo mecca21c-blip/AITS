@@ -5946,3 +5946,131 @@ SyntaxError: invalid decimal literal
 2026-04-30 22:38:00,520 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)
 2026-04-30 22:38:00,520 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)
 2026-04-30 22:38:00,521 | INFO | aits | [cycle=1] status=success, duration_ms=916.6, warnings=0, errors=0
+2026-05-01 04:44:12,089 | INFO | aits | AITS bootstrap start
+2026-05-01 04:44:12,092 | INFO | aits | [AITS][DecisionRouter] shadow_history_loaded | count=20
+2026-05-01 04:44:12,094 | INFO | aits | [AITS][DecisionRouter] shadow_performance_loaded | count=13
+2026-05-01 04:44:12,095 | INFO | aits | [AITS][DecisionRouter] initialized | version=v2.6 | mode=shadow_provider
+2026-05-01 04:44:12,095 | INFO | aits | [AITS][Orchestrator] router_ai_provider_injection | attached=True | type=LocalProvider
+2026-05-01 04:44:12,096 | INFO | aits | [AITS][Orchestrator] verifier_pool_init | local=True | openai=True | gemini=False
+2026-05-01 04:44:12,110 | INFO | aits | AITS orchestrator initialized
+2026-05-01 04:44:12,111 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-05-01 04:44:12,111 | INFO | aits | AITS orchestrator initialized
+2026-05-01 04:44:12,112 | INFO | aits | AITS headless mode start
+2026-05-01 04:44:13,495 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-05-01 04:44:13,500 | INFO | aits | [AITS][Orchestrator] router_ai_provider_dryrun_override | original=local | override=openai | applied=True
+2026-05-01 04:44:13,502 | INFO | aits | [AITS][Orchestrator] verifier_select | provider=openai | selected=AIEngineProvider
+2026-05-01 04:44:13,502 | INFO | aits | [AITS][Orchestrator] router_ai_provider_meta | ai_provider=openai
+2026-05-01 04:44:13,504 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=buy | shadow_conf=0.550 | shadow_rule=buy_candidate | execution_allowed=False | history_count=20 | history_bias=buy_bias | history_buy=14 | history_sell=0 | history_persisted=True | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=buy_candidate_shadow | final=passthrough
+2026-05-01 04:44:13,506 | INFO | aits | [AITS][DecisionRouter] fusion_signal | history_bias=buy_bias | regime=sideways | fusion_action=buy | score=0.800 | applied=False
+2026-05-01 04:44:13,506 | INFO | aits | [AITS][DecisionRouter] shadow_signal | action=buy_strong | base_conf=0.550 | adjusted_conf=0.550 | multiplier=1.000 | adjust_reason=performance_neutral | sample_count=6 | winrate10=50.0 | avg10=21.90 | reason=shadow_buy_5_confirmed
+2026-05-01 04:44:13,507 | INFO | aits | [AITS][DecisionRouter] shadow_stats | count=13 | buy=13 | sell=0 | buy_win10=23.1% | sell_win10=0.0% | avg10=21.90 | avg30=21.90 | avg60=22.03
+2026-05-01 04:44:13,508 | INFO | aits | [AITS][DecisionRouter] performance_boost | status=active_neutral | sample_ready=True | min_sample=3 | base_conf=0.550 | adjusted_conf=0.550 | multiplier=1.000 | reason=perf_neutral | sample_count=6 | winrate10=50.0 | avg10=21.90
+2026-05-01 04:44:13,509 | INFO | aits | [AITS][DecisionRouter] fusion_override | fusion_action=buy | base_conf=0.550 | final_conf=0.550 | multiplier=1.000 | reason=fusion_neutral
+2026-05-01 04:44:13,509 | INFO | aits | [AITS][DecisionRouter] soft_override_candidate | candidate_action=none | strength=none | eligible=False | fusion_action=buy | performance_status=active_neutral | final_conf=0.550 | reason=no_candidate
+2026-05-01 04:44:13,510 | INFO | aits | [AITS][RouterSummary] action=wait | conf=0.550 | fusion=buy | perf=active_neutral | soft=none | eligible=False
+2026-05-01 04:44:13,511 | INFO | aits | [AITS][AIVerification] provider_source | raw_meta=openai | raw_meta_strategy=openai | raw_strategy=None | self_ai_provider=None | self_provider_name=None
+2026-05-01 04:44:13,512 | INFO | aits | [AITS][AIVerification] provider_route | provider=openai | phase=enter | applied=False
+2026-05-01 04:44:13,521 | INFO | aits | [AITS][AIVerification] provider_route | provider=openai | phase=verifier_lookup | applied=False
+2026-05-01 04:44:13,524 | INFO | aits | [AITS][AIVerification] verifier_resolved | provider=openai | attached=True | type=AIEngineProvider
+2026-05-01 04:44:13,525 | INFO | aits | [AITS][AIProviderReadiness] provider=openai | openai_ready=False | gemini_ready=False | reason=openai_api_key_missing
+2026-05-01 04:44:13,526 | INFO | aits | [AITS][AIVerification] suggestion_corrected | original=confirm | corrected=skip | reason=openai_api_key_missing | applied=False
+2026-05-01 04:44:13,526 | INFO | aits | [AITS][AIVerificationWeight] provider=openai | suggestion=skip | delta=0.000 | reason=ai_skip_or_unknown | applied=False
+2026-05-01 04:44:13,527 | INFO | aits | [AITS][AIVerification] suggestion | provider=openai | suggestion=skip | applied=False
+2026-05-01 04:44:13,530 | INFO | aits | [AITS][AIVerificationDetail] provider=openai | suggestion=skip | reason=openai_api_key_missing | risk_note= | raw_preview={'suggestion': 'skip', 'reason': 'openai_api_key_missing', 'risk_note': None} | applied=False
+2026-05-01 04:44:13,538 | INFO | aits | [AITS][RouterSummaryAI] ai=skip | ai_delta=0.000 | ai_reason=ai_skip_or_unknown | applied=False
+2026-05-01 04:44:13,540 | INFO | aits | [AITS][AIVerification] recorded | provider=openai | suggestion=skip | applied=False
+2026-05-01 04:44:13,541 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.550 | source=ai_decision_service
+2026-05-01 04:44:13,542 | INFO | aits | [AITS][DecisionRouter] performance_update_start | pending=7
+2026-05-01 04:44:13,542 | INFO | aits | [AITS][DecisionRouter] performance_update_skipped | symbol=KRW-BLEND | reason=missing_entry_price
+2026-05-01 04:44:14,706 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,708 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,709 | INFO | aits | [AITS][DecisionRouter] performance_updated | symbol=KRW-MEGA | field=p10m | value=1.79
+2026-05-01 04:44:14,722 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,726 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,726 | INFO | aits | [AITS][DecisionRouter] performance_updated | symbol=KRW-MEGA | field=p10m | value=1.79
+2026-05-01 04:44:14,727 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,742 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,742 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=515
+2026-05-01 04:44:14,743 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,755 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,755 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=500
+2026-05-01 04:44:14,756 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,756 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,757 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=236
+2026-05-01 04:44:14,760 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,761 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,793 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=134
+2026-05-01 04:44:14,836 | INFO | aits | [AITS][DecisionRouter] dryrun_candidate_added | type=buy | symbol=KRW-MEGA | amount=10000 | confidence=0.578
+2026-05-01 04:44:14,861 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:14,892 | INFO | aits | [AITS][DecisionRouter] performance_entry_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:14,908 | INFO | aits | [AITS][DecisionRouter] performance_signal_recorded | action=buy_strong | symbol=KRW-MEGA
+2026-05-01 04:44:14,988 | INFO | aits | [AITS][DecisionRouter] dryrun_compare | soft_action=none | soft_eligible=False | soft_strength=none | dry_count=1 | dry_action=buy | dry_symbol=KRW-MEGA | dry_amount=10000 | matched=False | mismatch_reason=unexpected_dryrun_action
+2026-05-01 04:44:15,038 | WARNING | aits | [AITS][DecisionRouter] dryrun_mismatch_warning | soft_action=none | soft_eligible=False | dry_count=1 | dry_action=buy | reason=unexpected_dryrun_action
+2026-05-01 04:44:15,070 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
+2026-05-01 04:44:15,120 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)
+2026-05-01 04:44:15,124 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)
+2026-05-01 04:44:15,173 | INFO | aits | [cycle=1] status=success, duration_ms=3058.2, warnings=0, errors=0
+2026-05-01 04:44:26,658 | INFO | aits | AITS bootstrap start
+2026-05-01 04:44:26,838 | INFO | aits | [AITS][DecisionRouter] shadow_history_loaded | count=20
+2026-05-01 04:44:27,008 | INFO | aits | [AITS][DecisionRouter] shadow_performance_loaded | count=14
+2026-05-01 04:44:27,045 | INFO | aits | [AITS][DecisionRouter] initialized | version=v2.6 | mode=shadow_provider
+2026-05-01 04:44:27,072 | INFO | aits | [AITS][Orchestrator] router_ai_provider_injection | attached=True | type=LocalProvider
+2026-05-01 04:44:27,089 | INFO | aits | [AITS][Orchestrator] verifier_pool_init | local=True | openai=False | gemini=True
+2026-05-01 04:44:27,113 | INFO | aits | AITS orchestrator initialized
+2026-05-01 04:44:27,126 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-05-01 04:44:27,161 | INFO | aits | AITS orchestrator initialized
+2026-05-01 04:44:27,179 | INFO | aits | AITS headless mode start
+2026-05-01 04:44:28,491 | INFO | aits | [AITS][DecisionRouter] provider_status | provider=local | ready=True | api_required=False | reason=Local Engine ready
+2026-05-01 04:44:28,517 | INFO | aits | [AITS][Orchestrator] router_ai_provider_dryrun_override | original=local | override=gemini | applied=True
+2026-05-01 04:44:28,517 | INFO | aits | [AITS][Orchestrator] verifier_select | provider=gemini | selected=AIEngineProvider
+2026-05-01 04:44:28,569 | INFO | aits | [AITS][Orchestrator] router_ai_provider_meta | ai_provider=gemini
+2026-05-01 04:44:28,590 | INFO | aits | [AITS][DecisionRouter] provider_shadow | provider=local | shadow_action=buy | shadow_conf=0.550 | shadow_rule=buy_candidate | execution_allowed=False | history_count=20 | history_bias=buy_bias | history_buy=14 | history_sell=0 | history_persisted=True | rule_action=wait | regime=sideways | candidates=5 | positions=0 | risk_hint=buy_candidate_shadow | final=passthrough
+2026-05-01 04:44:28,596 | INFO | aits | [AITS][DecisionRouter] fusion_signal | history_bias=buy_bias | regime=sideways | fusion_action=buy | score=0.800 | applied=False
+2026-05-01 04:44:28,602 | INFO | aits | [AITS][DecisionRouter] shadow_signal | action=buy_strong | base_conf=0.550 | adjusted_conf=0.578 | multiplier=1.050 | adjust_reason=performance_mild_boost | sample_count=8 | winrate10=62.5 | avg10=16.88 | reason=shadow_buy_5_confirmed
+2026-05-01 04:44:28,609 | INFO | aits | [AITS][DecisionRouter] shadow_stats | count=14 | buy=14 | sell=0 | buy_win10=35.7% | sell_win10=0.0% | avg10=16.88 | avg30=21.90 | avg60=22.03
+2026-05-01 04:44:28,642 | INFO | aits | [AITS][DecisionRouter] performance_boost | status=active_boost | sample_ready=True | min_sample=3 | base_conf=0.550 | adjusted_conf=0.572 | multiplier=1.040 | reason=perf_positive | sample_count=8 | winrate10=62.5 | avg10=16.88
+2026-05-01 04:44:28,661 | INFO | aits | [AITS][DecisionRouter] fusion_override | fusion_action=buy | base_conf=0.572 | final_conf=0.601 | multiplier=1.050 | reason=fusion_buy_boost
+2026-05-01 04:44:28,689 | INFO | aits | [AITS][DecisionRouter] soft_override_candidate | candidate_action=buy | strength=medium | eligible=True | fusion_action=buy | performance_status=active_boost | final_conf=0.601 | reason=active_boost_buy
+2026-05-01 04:44:28,712 | INFO | aits | [AITS][RouterSummary] action=wait | conf=0.601 | fusion=buy | perf=active_boost | soft=buy | eligible=True
+2026-05-01 04:44:28,725 | INFO | aits | [AITS][AIVerification] provider_source | raw_meta=gemini | raw_meta_strategy=gemini | raw_strategy=None | self_ai_provider=None | self_provider_name=None
+2026-05-01 04:44:28,772 | INFO | aits | [AITS][AIVerification] provider_route | provider=gemini | phase=enter | applied=False
+2026-05-01 04:44:28,824 | INFO | aits | [AITS][AIVerification] provider_route | provider=gemini | phase=verifier_lookup | applied=False
+2026-05-01 04:44:28,889 | INFO | aits | [AITS][AIVerification] verifier_resolved | provider=gemini | attached=True | type=AIEngineProvider
+2026-05-01 04:44:28,944 | INFO | aits | [AITS][AIProviderReadiness] provider=gemini | openai_ready=False | gemini_ready=False | reason=gemini_api_key_missing
+2026-05-01 04:44:28,967 | INFO | aits | [AITS][AIVerification] suggestion_corrected | original=confirm | corrected=skip | reason=gemini_api_key_missing | applied=False
+2026-05-01 04:44:29,004 | INFO | aits | [AITS][AIVerificationWeight] provider=gemini | suggestion=skip | delta=0.000 | reason=ai_skip_or_unknown | applied=False
+2026-05-01 04:44:29,012 | INFO | aits | [AITS][AIVerification] suggestion | provider=gemini | suggestion=skip | applied=False
+2026-05-01 04:44:29,029 | INFO | aits | [AITS][AIVerificationDetail] provider=gemini | suggestion=skip | reason=gemini_api_key_missing | risk_note= | raw_preview={'suggestion': 'skip', 'reason': 'gemini_api_key_missing', 'risk_note': None} | applied=False
+2026-05-01 04:44:29,037 | INFO | aits | [AITS][RouterSummaryAI] ai=skip | ai_delta=0.000 | ai_reason=ai_skip_or_unknown | applied=False
+2026-05-01 04:44:29,037 | INFO | aits | [AITS][AIVerification] recorded | provider=gemini | suggestion=skip | applied=False
+2026-05-01 04:44:29,038 | INFO | aits | [AITS][DecisionRouter] passthrough | provider=local | action=wait | confidence=0.601 | source=ai_decision_service
+2026-05-01 04:44:29,040 | INFO | aits | [AITS][DecisionRouter] performance_update_start | pending=8
+2026-05-01 04:44:29,043 | INFO | aits | [AITS][DecisionRouter] performance_update_skipped | symbol=KRW-BLEND | reason=missing_entry_price
+2026-05-01 04:44:30,382 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,396 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,406 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,410 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,426 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,426 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,429 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=530
+2026-05-01 04:44:30,440 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,441 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,441 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=516
+2026-05-01 04:44:30,441 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,443 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,456 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=252
+2026-05-01 04:44:30,473 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,474 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,483 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=149
+2026-05-01 04:44:30,492 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,510 | INFO | aits | [AITS][DecisionRouter] performance_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,521 | INFO | aits | [AITS][DecisionRouter] performance_update_waiting | symbol=KRW-MEGA | elapsed_sec=14
+2026-05-01 04:44:30,527 | INFO | aits | [AITS][DecisionRouter] dryrun_candidate_added | type=buy | symbol=KRW-MEGA | amount=10000 | confidence=0.578
+2026-05-01 04:44:30,537 | INFO | aits | [AITS][DecisionRouter] performance_price_lookup | symbol=KRW-MEGA | price=227.0 | source=upbit.ticker.trade_price
+2026-05-01 04:44:30,554 | INFO | aits | [AITS][DecisionRouter] performance_entry_price | symbol=KRW-MEGA | price=227.0
+2026-05-01 04:44:30,567 | INFO | aits | [AITS][DecisionRouter] performance_signal_recorded | action=buy_strong | symbol=KRW-MEGA
+2026-05-01 04:44:30,574 | INFO | aits | [AITS][DecisionRouter] dryrun_compare | soft_action=buy | soft_eligible=True | soft_strength=medium | dry_count=1 | dry_action=buy | dry_symbol=KRW-MEGA | dry_amount=10000 | matched=True | mismatch_reason=matched
+2026-05-01 04:44:30,588 | INFO | aits | BridgeResult(ok=True, dry_run=True, actions=1, approved=1, blocked=0)
+2026-05-01 04:44:30,607 | INFO | aits | OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)
+2026-05-01 04:44:30,609 | INFO | aits | [AITS][OrderAdapter] OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)
+2026-05-01 04:44:30,610 | INFO | aits | [cycle=1] status=success, duration_ms=3404.0, warnings=0, errors=0

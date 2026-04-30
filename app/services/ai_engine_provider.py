@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import logging
 import os
 from typing import Any, Dict, Optional
 import urllib.error
@@ -73,6 +74,44 @@ class AIEngineProvider:
         provider = str(provider or "local").strip().lower()
         context = context or {}
 
+        if provider in ("gpt", "chatgpt"):
+            provider = "openai"
+        elif provider in ("google", "google_gemini"):
+            provider = "gemini"
+
+        try:
+            _provider_norm = str(provider or "local").strip().lower()
+
+            _openai_key = os.getenv("OPENAI_API_KEY")
+            _gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
+            _openai_ready = bool(_openai_key)
+            _gemini_ready = bool(_gemini_key)
+
+            _reason = ""
+            if _provider_norm == "openai" and not _openai_ready:
+                _reason = "openai_api_key_missing"
+            elif _provider_norm == "gemini" and not _gemini_ready:
+                _reason = "gemini_api_key_missing"
+            elif _provider_norm not in ("openai", "gemini", "local", "basic", "none", ""):
+                _reason = f"unsupported_provider:{_provider_norm}"
+            else:
+                _reason = "ready" if (
+                    (_provider_norm == "openai" and _openai_ready)
+                    or (_provider_norm == "gemini" and _gemini_ready)
+                    or (_provider_norm == "local")
+                ) else "not_applicable"
+
+            logging.getLogger("aits").info(
+                "[AITS][AIProviderReadiness] "
+                f"provider={_provider_norm} | "
+                f"openai_ready={_openai_ready} | "
+                f"gemini_ready={_gemini_ready} | "
+                f"reason={_reason}"
+            )
+        except Exception:
+            pass
+
         if provider in ("basic", "local", "localprovider", "none", ""):
             return {
                 "suggestion": "skip",
@@ -80,11 +119,6 @@ class AIEngineProvider:
                 "provider": "local",
                 "applied": False,
             }
-
-        if provider in ("gpt", "chatgpt"):
-            provider = "openai"
-        elif provider in ("google", "google_gemini"):
-            provider = "gemini"
 
         if provider not in ("openai", "gemini"):
             return {
@@ -110,18 +144,17 @@ class AIEngineProvider:
         except NotImplementedError as exc:
             return {
                 "suggestion": "skip",
-                "reason": f"verifier_not_implemented:{provider}",
+                "reason": str(exc) or f"{provider}_verifier_not_implemented",
                 "provider": provider,
                 "applied": False,
-                "error": str(exc),
             }
         except Exception as exc:
             return {
                 "suggestion": "skip",
-                "reason": f"verifier_error:{type(exc).__name__}",
+                "reason": f"{provider}_verifier_error:{type(exc).__name__}",
                 "provider": provider,
                 "applied": False,
-                "error": str(exc),
+                "error": str(exc)[:500],
             }
 
     def _build_router_verification_prompt(self, context: Optional[Dict[str, Any]]) -> str:
