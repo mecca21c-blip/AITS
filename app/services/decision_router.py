@@ -1210,6 +1210,21 @@ class DecisionRouter:
                 )
             except Exception:
                 pass
+            try:
+                base["shadow_confidence_delta"] = 0.0
+                base["shadow_confidence_policy"] = "local_skip_no_shadow_effect"
+                base["shadow_confidence_applied"] = False
+
+                self._safe_log_info(
+                    "[AITS][AIVerificationShadowDelta] "
+                    f"provider=local | "
+                    f"suggestion=skip | "
+                    f"delta=0.000 | "
+                    f"policy=local_skip_no_shadow_effect | "
+                    f"applied=False"
+                )
+            except Exception:
+                pass
             return base
 
         if provider not in ("openai", "gemini"):
@@ -1399,6 +1414,70 @@ class DecisionRouter:
                     f"reason={_weight_reason} | "
                     f"applied=False"
                 )
+
+                try:
+                    _suggestion = str(base.get("suggestion") or "skip").strip().lower()
+                    _reason = str(base.get("reason") or "").strip().lower()
+
+                    _shadow_delta = 0.0
+                    _shadow_policy = "neutral"
+
+                    if _suggestion == "confirm":
+                        _shadow_delta = 0.02
+                        _shadow_policy = "confirm_small_shadow_boost"
+                    elif _suggestion == "reject_signal":
+                        _shadow_delta = -0.04
+                        _shadow_policy = "reject_signal_shadow_penalty"
+                    elif _suggestion == "override_wait":
+                        _shadow_delta = -0.03
+                        _shadow_policy = "override_wait_shadow_penalty"
+                    elif _suggestion == "override_buy":
+                        _shadow_delta = 0.00
+                        _shadow_policy = "override_buy_blocked_observe_only"
+                    elif _suggestion == "override_reduce":
+                        _shadow_delta = -0.02
+                        _shadow_policy = "override_reduce_shadow_penalty"
+                    elif _suggestion == "override_sell":
+                        _shadow_delta = -0.04
+                        _shadow_policy = "override_sell_shadow_penalty"
+                    elif _suggestion == "skip":
+                        _shadow_delta = 0.00
+                        _shadow_policy = "skip_no_shadow_effect"
+                    else:
+                        _shadow_delta = 0.00
+                        _shadow_policy = "unknown_suggestion_no_shadow_effect"
+
+                    # API/infra failure must never affect confidence.
+                    if any(x in _reason for x in (
+                        "api_key_missing",
+                        "api_key_invalid",
+                        "quota_exceeded",
+                        "bad_request",
+                        "http_error",
+                        "live_call_disabled",
+                        "verifier_not_implemented",
+                        "verifier_error",
+                        "unsupported_provider",
+                        "empty_response",
+                        "local_provider_no_api_call",
+                    )):
+                        _shadow_delta = 0.00
+                        _shadow_policy = "infra_failure_no_shadow_effect"
+
+                    base["shadow_confidence_delta"] = _shadow_delta
+                    base["shadow_confidence_policy"] = _shadow_policy
+                    base["shadow_confidence_applied"] = False
+
+                    self._safe_log_info(
+                        "[AITS][AIVerificationShadowDelta] "
+                        f"provider={provider} | "
+                        f"suggestion={_suggestion} | "
+                        f"delta={_shadow_delta:.3f} | "
+                        f"policy={_shadow_policy} | "
+                        f"applied=False"
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -1538,16 +1617,25 @@ class DecisionRouter:
                         or _ai_summary.get("reason")
                         or ""
                     )
+                    _shadow_delta = _ai_summary.get("shadow_confidence_delta", 0.0)
+                    _shadow_policy = str(
+                        _ai_summary.get("shadow_confidence_policy")
+                        or "not_recorded"
+                    )
                 else:
                     _ai_suggestion = "none"
                     _ai_delta = 0.0
                     _ai_reason = "not_recorded_yet"
+                    _shadow_delta = 0.0
+                    _shadow_policy = "not_recorded"
 
                 self._safe_log_info(
                     "[AITS][RouterSummaryAI] "
                     f"ai={_ai_suggestion} | "
                     f"ai_delta={float(_ai_delta):.3f} | "
                     f"ai_reason={_ai_reason} | "
+                    f"shadow_delta={float(_shadow_delta):.3f} | "
+                    f"shadow_policy={_shadow_policy} | "
                     f"applied=False"
                 )
             except Exception:

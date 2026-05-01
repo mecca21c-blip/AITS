@@ -127,4 +127,120 @@ Router는 항상 보수적으로 행동해야 한다
 
 ---
 
+## 10. v2.7 Shadow Confidence Delta 정책 (Observe-Only)
+
+v2.7에서는 AI suggestion을 실제 판단에 반영하지 않고,
+shadow_confidence_delta 형태로만 기록한다.
+
+### 10.1 기본 원칙
+
+- 모든 delta는 observe-only
+- final confidence에는 반영하지 않는다
+- action 변경 금지
+- applied=False 유지
+
+---
+
+### 10.2 suggestion → delta 매핑
+
+| suggestion        | delta  | policy                                |
+|------------------|--------|----------------------------------------|
+| confirm          | +0.02  | confirm_small_shadow_boost              |
+| reject_signal    | -0.04  | reject_signal_shadow_penalty            |
+| override_wait    | -0.03  | override_wait_shadow_penalty            |
+| override_reduce  | -0.02  | override_reduce_shadow_penalty          |
+| override_sell    | -0.04  | override_sell_shadow_penalty            |
+| override_buy     | 0.00   | override_buy_blocked_observe_only       |
+| skip             | 0.00   | skip_no_shadow_effect                   |
+| unknown          | 0.00   | unknown_suggestion_no_shadow_effect     |
+
+---
+
+### 10.3 Infra / API 실패 처리
+
+아래 조건에서는 delta를 강제로 0으로 설정한다:
+
+- api_key_missing
+- api_key_invalid
+- quota_exceeded
+- bad_request
+- http_error
+- live_call_disabled
+- verifier_not_implemented
+- verifier_error
+- unsupported_provider
+- empty_response
+- local_provider_no_api_call
+
+결과:
+
+```
+
+delta = 0.000
+policy = infra_failure_no_shadow_effect
+
+```id="infra_policy"
+
+---
+
+### 10.4 Local Provider 처리
+
+local provider는 항상:
+
+```
+
+delta = 0.000
+policy = local_skip_no_shadow_effect
+
+```id="local_policy"
+
+---
+
+### 10.5 로그 구조
+
+Shadow delta는 다음 로그로 기록된다:
+
+```
+
+[AITS][AIVerificationShadowDelta]
+
+```id="shadow_log"
+
+RouterSummaryAI에는 다음 형태로 포함된다:
+
+```
+
+ai=...
+ai_delta=...
+ai_reason=...
+shadow_delta=...
+shadow_policy=...
+applied=False
+
+```id="shadow_summary"
+
+---
+
+### 10.6 향후 확장 방향
+
+v2.8 이상에서:
+
+- shadow_delta → confidence 반영 검토
+- suggestion별 weight 동적 조정
+- multi-AI ensemble 반영 가능
+
+단, 반드시 단계적으로 진행:
+
+```
+
+observe → shadow → partial_apply → guarded_apply → live
+
+```id="shadow_phase"
+
+---
+
+## END (Shadow Delta Section)
+
+---
+
 ## END
