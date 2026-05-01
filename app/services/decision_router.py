@@ -619,6 +619,44 @@ class DecisionRouter:
                 f"avg30={self._safe_float(stats.get('avg_p30m'), 0.0):.2f} | "
                 f"avg60={self._safe_float(stats.get('avg_p60m'), 0.0):.2f}"
             )
+            try:
+                shadow_performance = list(getattr(self, "shadow_performance", []) or [])
+                _ai_rows = [
+                    x for x in shadow_performance
+                    if isinstance(x, dict) and "ai_suggestion" in x
+                ]
+
+                _ai_count = len(_ai_rows)
+                _ai_confirm = sum(1 for x in _ai_rows if str(x.get("ai_suggestion") or "").lower() == "confirm")
+                _ai_skip = sum(1 for x in _ai_rows if str(x.get("ai_suggestion") or "").lower() == "skip")
+                _ai_reject = sum(1 for x in _ai_rows if str(x.get("ai_suggestion") or "").lower() == "reject_signal")
+                _ai_override = sum(
+                    1 for x in _ai_rows
+                    if str(x.get("ai_suggestion") or "").lower().startswith("override_")
+                )
+                _ai_applied = sum(1 for x in _ai_rows if bool(x.get("ai_applied")))
+
+                _delta_values = []
+                for x in _ai_rows:
+                    try:
+                        _delta_values.append(float(x.get("ai_shadow_delta") or 0.0))
+                    except Exception:
+                        pass
+
+                _avg_delta = (sum(_delta_values) / len(_delta_values)) if _delta_values else 0.0
+
+                self._safe_log_info(
+                    "[AITS][AIShadowStats] "
+                    f"count={_ai_count} | "
+                    f"confirm={_ai_confirm} | "
+                    f"skip={_ai_skip} | "
+                    f"reject={_ai_reject} | "
+                    f"override={_ai_override} | "
+                    f"avg_delta={_avg_delta:.3f} | "
+                    f"applied={_ai_applied}"
+                )
+            except Exception:
+                pass
         except Exception as exc:
             self._safe_log_warning(
                 "[AITS][DecisionRouter] shadow_stats_failed | "

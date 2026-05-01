@@ -239,6 +239,42 @@ observe → shadow → partial_apply → guarded_apply → live
 
 ---
 
+### 10.7 AIShadowStats 로그
+
+AI shadow 결과는 누적 성과 파일(`shadow_performance.json`)에 저장되며,
+요약 통계는 다음 로그로 출력된다.
+
+```text
+[AITS][AIShadowStats] count=... | confirm=... | skip=... | reject=... | override=... | avg_delta=... | applied=...
+```
+
+필드 의미:
+
+| 필드        | 의미                                     |
+| --------- | -------------------------------------- |
+| count     | AI shadow 필드가 포함된 performance record 수 |
+| confirm   | suggestion=confirm 누적 수                |
+| skip      | suggestion=skip 누적 수                   |
+| reject    | suggestion=reject_signal 누적 수          |
+| override  | override_* suggestion 누적 수             |
+| avg_delta | ai_shadow_delta 평균값                    |
+| applied   | 실제 적용된 AI 결과 수. v2.7에서는 항상 0이어야 정상     |
+
+v2.7 기준 정상 예시:
+
+```text
+[AITS][AIShadowStats] count=1 | confirm=0 | skip=1 | reject=0 | override=0 | avg_delta=0.000 | applied=0
+```
+
+주의:
+
+* AIShadowStats는 관측용 로그다.
+* confidence에 반영하지 않는다.
+* final action에 반영하지 않는다.
+* applied 값은 v2.7 단계에서 반드시 0이어야 한다.
+
+---
+
 ## END (Shadow Delta Section)
 
 ---
