@@ -1605,6 +1605,10 @@ class DecisionRouter:
                 context=ai_verification_context,
                 raw=raw,
             )
+            try:
+                self._last_ai_verification_suggestion = ai_verification_suggestion
+            except Exception:
+                pass
 
             try:
                 _ai_summary = locals().get("ai_verification_suggestion", None)
@@ -1856,6 +1860,13 @@ class DecisionRouter:
         current_price: Optional[Any] = None,
     ) -> None:
         try:
+            base = {}
+            try:
+                base = getattr(self, "_last_ai_verification_suggestion", {}) or {}
+                if not isinstance(base, dict):
+                    base = {}
+            except Exception:
+                base = {}
             record = {
                 "timestamp": self._now_iso(),
                 "signal_action": str(signal_action or ""),
@@ -1868,6 +1879,11 @@ class DecisionRouter:
                 "p10m": None,
                 "p30m": None,
                 "p60m": None,
+                "ai_suggestion": str(base.get("suggestion") or "skip"),
+                "ai_reason": str(base.get("reason") or ""),
+                "ai_shadow_delta": float(base.get("shadow_confidence_delta") or 0.0),
+                "ai_shadow_policy": str(base.get("shadow_confidence_policy") or ""),
+                "ai_applied": False,
             }
             self.shadow_performance.append(record)
             if len(self.shadow_performance) > self.shadow_performance_limit:
