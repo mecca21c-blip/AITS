@@ -275,6 +275,49 @@ v2.7 기준 정상 예시:
 
 ---
 
+### 10.8 AIShadowPerformance 로그
+
+AI shadow 성과는 `shadow_performance.json`의 `p10m`, `p30m`, `p60m` 결과와 AI suggestion 기록을 비교해 관측한다.
+
+로그 형식:
+
+```text
+[AITS][AIShadowPerformance] confirm_wr=... | confirm_n=... | reject_wr=... | reject_n=... | avg_delta_effect=... | sample=...
+```
+
+필드 의미:
+
+| 필드               | 의미                                    |
+| ---------------- | ------------------------------------- |
+| confirm_wr       | suggestion=confirm 레코드의 winrate       |
+| confirm_n        | confirm 평가 가능 샘플 수                    |
+| reject_wr        | suggestion=reject_signal 레코드의 winrate |
+| reject_n         | reject_signal 평가 가능 샘플 수              |
+| avg_delta_effect | shadow_delta가 수익 방향과 얼마나 일치했는지 보는 관측값 |
+| sample           | delta effect 계산에 사용된 평가 가능 샘플 수       |
+
+v2.7 기준 정상 예시:
+
+```text
+[AITS][AIShadowPerformance] confirm_wr=0.000 | confirm_n=0 | reject_wr=0.000 | reject_n=0 | avg_delta_effect=0.000 | sample=0
+```
+
+주의:
+
+* sample=0은 초기 단계에서 정상이다.
+* p10m/p30m/p60m 중 평가 가능한 값이 없으면 성과 샘플에서 제외한다.
+* win 판정은 p10m/p30m/p60m 평균이 0보다 큰 경우로 본다.
+* 이 로그는 관측용이며 confidence/action/order에 반영하지 않는다.
+* v2.7에서는 applied=False 및 submitted=0을 유지한다.
+
+향후 확장:
+
+* confirm_wr가 충분한 샘플에서 높게 유지될 때만 confidence 반영 검토
+* reject_signal의 성과가 누적되면 위험 회피 weight 설계 가능
+* avg_delta_effect가 양수로 안정화될 때만 v2.8 진입 검토
+
+---
+
 ## END (Shadow Delta Section)
 
 ---

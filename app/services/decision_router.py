@@ -655,6 +655,72 @@ class DecisionRouter:
                     f"avg_delta={_avg_delta:.3f} | "
                     f"applied={_ai_applied}"
                 )
+                try:
+                    _perf_rows = [
+                        x for x in shadow_performance
+                        if isinstance(x, dict) and "ai_suggestion" in x
+                    ]
+
+                    def _is_win(row):
+                        try:
+                            vals = [
+                                row.get("p10m"),
+                                row.get("p30m"),
+                                row.get("p60m"),
+                            ]
+                            vals = [v for v in vals if isinstance(v, (int, float))]
+                            if not vals:
+                                return None
+                            return (sum(vals) / len(vals)) > 0
+                        except Exception:
+                            return None
+
+                    _confirm_rows = [r for r in _perf_rows if str(r.get("ai_suggestion")) == "confirm"]
+                    _reject_rows = [r for r in _perf_rows if str(r.get("ai_suggestion")) == "reject_signal"]
+
+                    def _calc_winrate(rows):
+                        wins = 0
+                        total = 0
+                        for r in rows:
+                            w = _is_win(r)
+                            if w is None:
+                                continue
+                            total += 1
+                            if w:
+                                wins += 1
+                        return (wins / total) if total > 0 else 0.0, total
+
+                    _confirm_wr, _confirm_n = _calc_winrate(_confirm_rows)
+                    _reject_wr, _reject_n = _calc_winrate(_reject_rows)
+
+                    _avg_delta_effect = 0.0
+                    _delta_effect_samples = 0
+
+                    for r in _perf_rows:
+                        try:
+                            d = float(r.get("ai_shadow_delta") or 0.0)
+                            w = _is_win(r)
+                            if w is None:
+                                continue
+                            _delta_effect_samples += 1
+                            _avg_delta_effect += d if w else -d
+                        except Exception:
+                            pass
+
+                    if _delta_effect_samples > 0:
+                        _avg_delta_effect /= _delta_effect_samples
+
+                    self._safe_log_info(
+                        "[AITS][AIShadowPerformance] "
+                        f"confirm_wr={_confirm_wr:.3f} | "
+                        f"confirm_n={_confirm_n} | "
+                        f"reject_wr={_reject_wr:.3f} | "
+                        f"reject_n={_reject_n} | "
+                        f"avg_delta_effect={_avg_delta_effect:.3f} | "
+                        f"sample={_delta_effect_samples}"
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
         except Exception as exc:
