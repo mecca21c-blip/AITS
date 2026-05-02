@@ -318,8 +318,138 @@ v2.7 기준 정상 예시:
 
 ---
 
+### 10.9 AIMicroAdjust 로그
+
+AIMicroAdjust는 AI shadow 성과를 기반으로 confidence에 미세 반영할 가능성을 미리 계산하는 로그다.
+
+v2.7 기준에서는 실제 confidence에 반영하지 않는다.
+
+로그 형식:
+
+```text
+[AITS][AIMicroAdjust] delta=... | reason=... | base_conf=... | shadow_conf=... | applied=False
+```
+
+필드 의미:
+
+| 필드          | 의미                               |
+| ----------- | -------------------------------- |
+| delta       | AI 성과 기반 micro confidence 후보값    |
+| reason      | micro delta 산출 사유                |
+| base_conf   | 기존 confidence 기준값                |
+| shadow_conf | base_conf + delta를 가정한 preview 값 |
+| applied     | 실제 반영 여부. v2.7에서는 항상 False       |
+
+v2.7 기준 정책:
+
+* 최소 평가 샘플: 10
+* 최대 delta: ±0.01
+* sample 부족 시 delta=0.0000
+* no_effect 상태는 정상
+* 실제 confidence에는 더하지 않는다
+* RouterSummary confidence 값은 기존 로직 값을 유지한다
+
+정상 예시:
+
+```text
+[AITS][AIMicroAdjust] delta=0.0000 | reason=no_effect | base_conf=0.0000 | shadow_conf=0.0000 | applied=False
+```
+
+주의:
+
+* AIMicroAdjust는 적용이 아니라 preview다.
+* v2.7에서는 confidence/action/order에 영향이 없어야 한다.
+* applied=False가 유지되어야 한다.
+* submitted=0이 유지되어야 한다.
+* v2.8 진입 전까지 delta는 관측값으로만 사용한다.
+
+향후 v2.8 검토 조건:
+
+* AIShadowPerformance sample >= 10
+* confirm_wr 또는 reject_wr이 유의미하게 안정화
+* avg_delta_effect가 양수로 안정화
+* max_delta=0.01 제한 유지
+
+---
+
 ## END (Shadow Delta Section)
 
 ---
 
 ## END
+
+---
+
+## 11. v2.7 상태 스냅샷 (Freeze Point)
+
+이 시점의 AITS AI Verification 상태는 다음과 같이 고정된다.
+
+### 11.1 시스템 상태
+
+- AI verification: 활성 (observe-only)
+- shadow delta: 계산됨 (반영되지 않음)
+- AI suggestion: 기록됨
+- API 호출: 가능 (live-once 제한)
+- 주문 영향: 없음
+- applied: 항상 False
+- submitted: 항상 0
+
+---
+
+### 11.2 로그 체계
+
+현재 활성 로그:
+
+- `[AITS][AIVerification]`
+- `[AITS][AIVerificationDetail]`
+- `[AITS][AIVerificationShadowDelta]`
+- `[AITS][AIVerificationWeight]`
+- `[AITS][RouterSummaryAI]`
+- `[AITS][AIShadowStats]`
+- `[AITS][AIShadowPerformance]`
+
+---
+
+### 11.3 데이터 축적 구조
+
+- shadow_performance.json:
+  - signal_action
+  - signal_confidence
+  - p10m / p30m / p60m
+  - ai_suggestion
+  - ai_reason
+  - ai_shadow_delta
+  - ai_shadow_policy
+  - ai_applied
+
+---
+
+### 11.4 안전 상태
+
+다음 조건이 유지되는 한 시스템은 안전하다:
+
+applied=False
+submitted=0
+OrderAdapter mode=disabled
+
+---
+
+### 11.5 v2.8 진입 조건
+
+다음 조건이 충족되면 v2.8로 진입한다:
+
+- shadow_performance 데이터 ≥ 50 샘플
+- confirm_wr / reject_wr 유의미한 값 도출
+- avg_delta_effect 안정화
+
+---
+
+### 11.6 v2.8 목표
+
+- shadow_delta → confidence 일부 반영 (≤ 0.01)
+- suggestion 기반 weight 실험
+- AI 영향 제한적 적용
+
+---
+
+## END (v2.7 Snapshot)

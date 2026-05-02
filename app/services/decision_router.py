@@ -719,6 +719,47 @@ class DecisionRouter:
                         f"avg_delta_effect={_avg_delta_effect:.3f} | "
                         f"sample={_delta_effect_samples}"
                     )
+
+                    try:
+                        # 기본값
+                        _ai_micro_delta = 0.0
+                        _ai_micro_reason = "no_effect"
+
+                        # 최소 샘플 조건
+                        if _delta_effect_samples >= 10:
+                            # confirm 성과가 충분히 좋을 때
+                            if _confirm_wr >= 0.6:
+                                _ai_micro_delta = min(0.01, 0.01 * _confirm_wr)
+                                _ai_micro_reason = "confirm_boost"
+
+                            # reject 성과가 충분히 좋을 때 (리스크 감소)
+                            elif _reject_wr >= 0.6:
+                                _ai_micro_delta = -min(0.01, 0.01 * _reject_wr)
+                                _ai_micro_reason = "reject_penalty"
+
+                        try:
+                            _base_conf = 0.0
+                            _base_obj = locals().get("base", {})
+                            if isinstance(_base_obj, dict):
+                                _base_conf = float(_base_obj.get("confidence", 0.0) or 0.0)
+                        except Exception:
+                            _base_conf = 0.0
+
+                        # 기존 confidence는 건드리지 않고 별도 변수로만 계산
+                        _ai_adjusted_conf = _base_conf + _ai_micro_delta
+
+                        # 로그만 남김 (실제 반영 X)
+                        self._safe_log_info(
+                            "[AITS][AIMicroAdjust] "
+                            f"delta={_ai_micro_delta:.4f} | "
+                            f"reason={_ai_micro_reason} | "
+                            f"base_conf={_base_conf:.4f} | "
+                            f"shadow_conf={_ai_adjusted_conf:.4f} | "
+                            f"applied=False"
+                        )
+
+                    except Exception:
+                        pass
                 except Exception:
                     pass
             except Exception:
