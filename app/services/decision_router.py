@@ -124,6 +124,8 @@ class DecisionRouter:
         provider_shadow_error = ""
         shadow_history_summary = self._get_shadow_history_summary()
         self._last_fusion_action = ""
+        self._last_ai_micro_apply_delta = 0.0
+        self._last_ai_micro_apply_reason = "not_applied"
         if self.mode == "shadow_provider":
             provider_obj = get_provider(self.provider_registry, engine)
             try:
@@ -252,6 +254,30 @@ class DecisionRouter:
             fusion_override.get("final_conf"),
             confidence,
         )
+        try:
+            _apply_delta = self._safe_float(
+                getattr(self, "_last_ai_micro_apply_delta", 0.0),
+                0.0,
+            )
+            _apply_reason = str(
+                getattr(self, "_last_ai_micro_apply_reason", "not_applied")
+                or "not_applied"
+            )
+            if _apply_delta > 0.01:
+                _apply_delta = 0.01
+            elif _apply_delta < -0.01:
+                _apply_delta = -0.01
+            if _apply_delta != 0.0:
+                confidence = self._clamp(confidence + _apply_delta, 0.0, 1.0)
+            self._safe_log_info(
+                "[AITS][AIMicroApply] "
+                f"delta={_apply_delta:.4f} | "
+                f"reason={_apply_reason} | "
+                f"new_conf={confidence:.4f} | "
+                f"applied={_apply_delta != 0.0}"
+            )
+        except Exception:
+            pass
         soft_override_candidate = self._record_soft_override_candidate(decision)
 
         routed_result = DecisionRouterResult(
@@ -757,6 +783,26 @@ class DecisionRouter:
                             f"shadow_conf={_ai_adjusted_conf:.4f} | "
                             f"applied=False"
                         )
+
+                        try:
+                            _apply_delta = 0.0
+                            _apply_reason = "not_applied"
+
+                            # 최소 샘플 조건 + 유의미한 성과
+                            if _delta_effect_samples >= 10:
+                                if _confirm_wr >= 0.6:
+                                    _apply_delta = min(0.01, 0.01 * _confirm_wr)
+                                    _apply_reason = "confirm_apply"
+
+                                elif _reject_wr >= 0.6:
+                                    _apply_delta = -min(0.01, 0.01 * _reject_wr)
+                                    _apply_reason = "reject_apply"
+
+                            self._last_ai_micro_apply_delta = _apply_delta
+                            self._last_ai_micro_apply_reason = _apply_reason
+
+                        except Exception:
+                            pass
 
                     except Exception:
                         pass
@@ -1778,6 +1824,14 @@ class DecisionRouter:
                     _shadow_delta = 0.0
                     _shadow_policy = "not_recorded"
 
+                try:
+                    _apply_delta = self._safe_float(
+                        getattr(self, "_last_ai_micro_apply_delta", 0.0),
+                        0.0,
+                    )
+                except Exception:
+                    _apply_delta = 0.0
+
                 self._safe_log_info(
                     "[AITS][RouterSummaryAI] "
                     f"ai={_ai_suggestion} | "
@@ -1785,6 +1839,8 @@ class DecisionRouter:
                     f"ai_reason={_ai_reason} | "
                     f"shadow_delta={float(_shadow_delta):.3f} | "
                     f"shadow_policy={_shadow_policy} | "
+                    f"micro_delta={_apply_delta:.4f} | "
+                    f"micro_applied={_apply_delta != 0.0} | "
                     f"applied=False"
                 )
             except Exception:
