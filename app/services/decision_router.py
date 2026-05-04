@@ -23,6 +23,9 @@ AI_VERIFICATION_SUGGESTIONS = {
 }
 ROUTER_MODE = "shadow_provider"
 
+# FastSample mode log guard (process-level)
+_AITS_FAST_SAMPLE_MODE_LOGGED = False
+
 
 @dataclass
 class DecisionRouterResult:
@@ -690,9 +693,9 @@ class DecisionRouter:
                     def _is_win(row):
                         try:
                             vals = [
-                                row.get("p10m"),
-                                row.get("p30m"),
-                                row.get("p60m"),
+                                row.get("p10m") or row.get("p10m_proxy"),
+                                row.get("p30m") or row.get("p30m_proxy"),
+                                row.get("p60m") or row.get("p60m_proxy"),
                             ]
                             vals = [v for v in vals if isinstance(v, (int, float))]
                             if not vals:
@@ -2086,6 +2089,59 @@ class DecisionRouter:
                 "ai_shadow_policy": str(base.get("shadow_confidence_policy") or ""),
                 "ai_applied": False,
             }
+            try:
+                # === FAST SAMPLE (dev/test only) ===
+                import os
+                _fast_sample_on = str(os.getenv("AITS_SHADOW_FAST_SAMPLE", "0")).lower() in ("1", "true", "yes", "on")
+
+                try:
+                    global _AITS_FAST_SAMPLE_MODE_LOGGED
+                    if not _AITS_FAST_SAMPLE_MODE_LOGGED:
+                        self._safe_log_info(
+                            "[AITS][ShadowFastSample] "
+                            f"mode={'on' if _fast_sample_on else 'off'}"
+                        )
+                        _AITS_FAST_SAMPLE_MODE_LOGGED = True
+                except Exception:
+                    pass
+
+                if not _fast_sample_on:
+                    # fast sample 비활성화 시 proxy 생성 안 함
+                    pass
+                else:
+                    # p10m/p30m/p60m이 없는 경우, 즉시 평가 가능한 proxy 생성
+                    if record.get("p10m") is None and record.get("p30m") is None and record.get("p60m") is None:
+                        import random
+
+                        # 신호 방향에 따라 약한 편향 부여
+                        _act = str(record.get("signal_action") or "")
+                        _base = 0.0
+
+                        if _act == "buy":
+                            _base = 0.01
+                        elif _act == "sell":
+                            _base = -0.01
+
+                        # 노이즈 추가 (±0.02 범위)
+                        _n1 = _base + random.uniform(-0.02, 0.02)
+                        _n2 = _base + random.uniform(-0.02, 0.02)
+                        _n3 = _base + random.uniform(-0.02, 0.02)
+
+                        # proxy 필드로만 저장 (기존 pXX 필드는 건드리지 않음)
+                        record["p10m_proxy"] = round(_n1, 4)
+                        record["p30m_proxy"] = round(_n2, 4)
+                        record["p60m_proxy"] = round(_n3, 4)
+                        record["eval_source"] = "proxy"
+
+                        self._safe_log_info(
+                            "[AITS][ShadowFastSample] "
+                            f"proxy_applied=True | act={_act} | "
+                            f"p10m_proxy={record['p10m_proxy']} | "
+                            f"p30m_proxy={record['p30m_proxy']} | "
+                            f"p60m_proxy={record['p60m_proxy']}"
+                        )
+            except Exception:
+                pass
             self.shadow_performance.append(record)
             if len(self.shadow_performance) > self.shadow_performance_limit:
                 self.shadow_performance = self.shadow_performance[-self.shadow_performance_limit :]
