@@ -257,6 +257,13 @@ class DecisionRouter:
             fusion_override.get("final_conf"),
             confidence,
         )
+        _micro_confidence_meta = {
+            "micro_confidence_delta": 0.0,
+            "micro_confidence_applied": False,
+            "micro_confidence_reason": "not_applied",
+            "micro_confidence_new_conf": confidence,
+            "micro_confidence_test_mode": False,
+        }
         try:
             _apply_delta = self._safe_float(
                 getattr(self, "_last_ai_micro_apply_delta", 0.0),
@@ -266,13 +273,14 @@ class DecisionRouter:
                 getattr(self, "_last_ai_micro_apply_reason", "not_applied")
                 or "not_applied"
             )
+            _micro_test_on = bool(getattr(self, "_last_ai_micro_apply_test_mode", False))
             if _apply_delta > 0.01:
                 _apply_delta = 0.01
             elif _apply_delta < -0.01:
                 _apply_delta = -0.01
-            if _apply_delta != 0.0:
-                confidence = self._clamp(confidence + _apply_delta, 0.0, 1.0)
-            _micro_test_on = bool(getattr(self, "_last_ai_micro_apply_test_mode", False))
+            _micro_preview_conf = confidence
+            if _micro_test_on and _apply_delta != 0.0:
+                _micro_preview_conf = self._clamp(confidence + _apply_delta, 0.0, 1.0)
             _confirm_threshold = self._safe_float(
                 getattr(self, "_last_ai_micro_confirm_threshold", 0.60),
                 0.60,
@@ -281,12 +289,22 @@ class DecisionRouter:
                 getattr(self, "_last_ai_micro_reject_threshold", 0.60),
                 0.60,
             )
+            try:
+                _micro_confidence_meta["micro_confidence_delta"] = float(_apply_delta or 0.0)
+                _micro_confidence_meta["micro_confidence_applied"] = bool(
+                    _micro_test_on and _apply_delta != 0.0
+                )
+                _micro_confidence_meta["micro_confidence_reason"] = str(_apply_reason or "not_applied")
+                _micro_confidence_meta["micro_confidence_new_conf"] = float(_micro_preview_conf or 0.0)
+                _micro_confidence_meta["micro_confidence_test_mode"] = bool(_micro_test_on)
+            except Exception:
+                pass
             self._safe_log_info(
                 "[AITS][AIMicroApply] "
                 f"delta={_apply_delta:.4f} | "
                 f"reason={_apply_reason} | "
-                f"new_conf={confidence:.4f} | "
-                f"applied={_apply_delta != 0.0} | "
+                f"new_conf={_micro_preview_conf:.4f} | "
+                f"applied={_micro_test_on and _apply_delta != 0.0} | "
                 f"test_mode={_micro_test_on} | "
                 f"confirm_th={_confirm_threshold:.2f} | "
                 f"reject_th={_reject_threshold:.2f}"
@@ -294,6 +312,45 @@ class DecisionRouter:
         except Exception:
             pass
         soft_override_candidate = self._record_soft_override_candidate(decision)
+
+        try:
+            _micro_delta = float(_micro_confidence_meta.get("micro_confidence_delta") or 0.0)
+            _micro_applied = bool(_micro_confidence_meta.get("micro_confidence_applied"))
+
+            if _micro_applied and _micro_delta != 0.0:
+                _raw_conf = float(confidence or 0.0)
+                _safe_delta = max(-0.01, min(0.01, _micro_delta))
+                _new_conf = self._clamp(_raw_conf + _safe_delta, 0.0, 1.0)
+
+                confidence = _new_conf
+                try:
+                    setattr(decision, "confidence", _new_conf)
+                except Exception:
+                    pass
+                _micro_confidence_meta["micro_confidence_new_conf"] = _new_conf
+                self._last_micro_confidence_applied = True
+                self._last_micro_confidence_delta = _safe_delta
+
+                self._safe_log_info(
+                    "[AITS][AIMicroFinalApply] "
+                    f"delta={_safe_delta:.4f} | "
+                    f"before={_raw_conf:.4f} | "
+                    f"after={_new_conf:.4f} | "
+                    f"applied=True"
+                )
+            else:
+                _raw_conf = float(confidence or 0.0)
+                self._last_micro_confidence_applied = False
+                self._last_micro_confidence_delta = 0.0
+                self._safe_log_info(
+                    "[AITS][AIMicroFinalApply] "
+                    f"delta=0.0000 | "
+                    f"before={_raw_conf:.4f} | "
+                    f"after={_raw_conf:.4f} | "
+                    f"applied=False"
+                )
+        except Exception:
+            pass
 
         routed_result = DecisionRouterResult(
             action=action,
@@ -320,6 +377,7 @@ class DecisionRouter:
                 "performance_boost": performance_boost,
                 "fusion_override": fusion_override,
                 "soft_override_candidate": soft_override_candidate,
+                "micro_confidence": _micro_confidence_meta,
                 **self._local_shadow_meta(provider_shadow_decision),
                 "context": context_data,
             },
@@ -1973,11 +2031,17 @@ class DecisionRouter:
 
                 try:
                     _apply_delta = self._safe_float(
-                        getattr(self, "_last_ai_micro_apply_delta", 0.0),
+                        getattr(
+                            self,
+                            "_last_micro_confidence_delta",
+                            getattr(self, "_last_ai_micro_apply_delta", 0.0),
+                        ),
                         0.0,
                     )
+                    _micro_applied = bool(getattr(self, "_last_micro_confidence_applied", False))
                 except Exception:
                     _apply_delta = 0.0
+                    _micro_applied = False
 
                 self._safe_log_info(
                     "[AITS][RouterSummaryAI] "
@@ -1987,7 +2051,7 @@ class DecisionRouter:
                     f"shadow_delta={float(_shadow_delta):.3f} | "
                     f"shadow_policy={_shadow_policy} | "
                     f"micro_delta={_apply_delta:.4f} | "
-                    f"micro_applied={_apply_delta != 0.0} | "
+                    f"micro_applied={_micro_applied} | "
                     f"applied=False"
                 )
             except Exception:
