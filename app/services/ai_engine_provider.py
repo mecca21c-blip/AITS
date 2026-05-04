@@ -120,9 +120,38 @@ class AIEngineProvider:
             pass
 
         if provider in ("basic", "local", "localprovider", "none", ""):
+            try:
+                import random
+
+                _force_ai = str(os.getenv("AITS_FORCE_AI_SAMPLE", "0")).lower() in ("1", "true", "yes", "on")
+
+                if _force_ai:
+                    _r = random.random()
+
+                    if _r < 0.2:
+                        return {
+                            "suggestion": "confirm",
+                            "reason": "local_forced_confirm",
+                            "risk_note": None,
+                            "provider": "local",
+                            "applied": False,
+                        }
+
+                    if _r < 0.3:
+                        return {
+                            "suggestion": "reject_signal",
+                            "reason": "local_forced_reject",
+                            "risk_note": None,
+                            "provider": "local",
+                            "applied": False,
+                        }
+            except Exception:
+                pass
+
             return {
                 "suggestion": "skip",
                 "reason": "local_provider_no_api_call",
+                "risk_note": None,
                 "provider": "local",
                 "applied": False,
             }
