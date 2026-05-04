@@ -272,12 +272,24 @@ class DecisionRouter:
                 _apply_delta = -0.01
             if _apply_delta != 0.0:
                 confidence = self._clamp(confidence + _apply_delta, 0.0, 1.0)
+            _micro_test_on = bool(getattr(self, "_last_ai_micro_apply_test_mode", False))
+            _confirm_threshold = self._safe_float(
+                getattr(self, "_last_ai_micro_confirm_threshold", 0.60),
+                0.60,
+            )
+            _reject_threshold = self._safe_float(
+                getattr(self, "_last_ai_micro_reject_threshold", 0.60),
+                0.60,
+            )
             self._safe_log_info(
                 "[AITS][AIMicroApply] "
                 f"delta={_apply_delta:.4f} | "
                 f"reason={_apply_reason} | "
                 f"new_conf={confidence:.4f} | "
-                f"applied={_apply_delta != 0.0}"
+                f"applied={_apply_delta != 0.0} | "
+                f"test_mode={_micro_test_on} | "
+                f"confirm_th={_confirm_threshold:.2f} | "
+                f"reject_th={_reject_threshold:.2f}"
             )
         except Exception:
             pass
@@ -674,16 +686,7 @@ class DecisionRouter:
 
                 _avg_delta = (sum(_delta_values) / len(_delta_values)) if _delta_values else 0.0
 
-                self._safe_log_info(
-                    "[AITS][AIShadowStats] "
-                    f"count={_ai_count} | "
-                    f"confirm={_ai_confirm} | "
-                    f"skip={_ai_skip} | "
-                    f"reject={_ai_reject} | "
-                    f"override={_ai_override} | "
-                    f"avg_delta={_avg_delta:.3f} | "
-                    f"applied={_ai_applied}"
-                )
+                # AIShadowStats is logged after shadow_performance append/save.
                 try:
                     _perf_rows = [
                         x for x in shadow_performance
@@ -739,15 +742,7 @@ class DecisionRouter:
                     if _delta_effect_samples > 0:
                         _avg_delta_effect /= _delta_effect_samples
 
-                    self._safe_log_info(
-                        "[AITS][AIShadowPerformance] "
-                        f"confirm_wr={_confirm_wr:.3f} | "
-                        f"confirm_n={_confirm_n} | "
-                        f"reject_wr={_reject_wr:.3f} | "
-                        f"reject_n={_reject_n} | "
-                        f"avg_delta_effect={_avg_delta_effect:.3f} | "
-                        f"sample={_delta_effect_samples}"
-                    )
+                    # AIShadowPerformance is logged after shadow_performance append/save.
 
                     try:
                         # 기본값
@@ -788,21 +783,35 @@ class DecisionRouter:
                         )
 
                         try:
+                            import os
+
                             _apply_delta = 0.0
                             _apply_reason = "not_applied"
+                            _micro_test_on = str(os.getenv("AITS_MICRO_APPLY_TEST", "0")).lower() in ("1", "true", "yes", "on")
+
+                            _min_samples = 10
+                            _confirm_threshold = 0.60
+                            _reject_threshold = 0.60
+
+                            if _micro_test_on:
+                                _confirm_threshold = 0.25
+                                _reject_threshold = 0.50
 
                             # 최소 샘플 조건 + 유의미한 성과
-                            if _delta_effect_samples >= 10:
-                                if _confirm_wr >= 0.6:
+                            if _delta_effect_samples >= _min_samples:
+                                if _confirm_wr >= _confirm_threshold:
                                     _apply_delta = min(0.01, 0.01 * _confirm_wr)
                                     _apply_reason = "confirm_apply"
 
-                                elif _reject_wr >= 0.6:
+                                elif _reject_wr >= _reject_threshold:
                                     _apply_delta = -min(0.01, 0.01 * _reject_wr)
                                     _apply_reason = "reject_apply"
 
                             self._last_ai_micro_apply_delta = _apply_delta
                             self._last_ai_micro_apply_reason = _apply_reason
+                            self._last_ai_micro_apply_test_mode = _micro_test_on
+                            self._last_ai_micro_confirm_threshold = _confirm_threshold
+                            self._last_ai_micro_reject_threshold = _reject_threshold
 
                         except Exception:
                             pass
@@ -818,6 +827,114 @@ class DecisionRouter:
                 "[AITS][DecisionRouter] shadow_stats_failed | "
                 f"error={str(exc)[:160]}"
             )
+
+    def _log_ai_shadow_stats_after_save(self) -> None:
+        try:
+            shadow_performance = list(getattr(self, "shadow_performance", []) or [])
+            _ai_rows = [
+                x for x in shadow_performance
+                if isinstance(x, dict) and "ai_suggestion" in x
+            ]
+
+            _ai_count = len(_ai_rows)
+            _ai_confirm = sum(1 for x in _ai_rows if str(x.get("ai_suggestion") or "").lower() == "confirm")
+            _ai_skip = sum(1 for x in _ai_rows if str(x.get("ai_suggestion") or "").lower() == "skip")
+            _ai_reject = sum(1 for x in _ai_rows if str(x.get("ai_suggestion") or "").lower() == "reject_signal")
+            _ai_override = sum(
+                1 for x in _ai_rows
+                if str(x.get("ai_suggestion") or "").lower().startswith("override_")
+            )
+            _ai_applied = sum(1 for x in _ai_rows if bool(x.get("ai_applied")))
+
+            _delta_values = []
+            for x in _ai_rows:
+                try:
+                    _delta_values.append(float(x.get("ai_shadow_delta") or 0.0))
+                except Exception:
+                    pass
+
+            _avg_delta = (sum(_delta_values) / len(_delta_values)) if _delta_values else 0.0
+
+            self._safe_log_info(
+                "[AITS][AIShadowStats] "
+                f"count={_ai_count} | "
+                f"confirm={_ai_confirm} | "
+                f"skip={_ai_skip} | "
+                f"reject={_ai_reject} | "
+                f"override={_ai_override} | "
+                f"avg_delta={_avg_delta:.3f} | "
+                f"applied={_ai_applied}"
+            )
+        except Exception:
+            pass
+
+        try:
+            shadow_performance = list(getattr(self, "shadow_performance", []) or [])
+            _perf_rows = [
+                x for x in shadow_performance
+                if isinstance(x, dict) and "ai_suggestion" in x
+            ]
+
+            def _is_win(row):
+                try:
+                    vals = [
+                        row.get("p10m") or row.get("p10m_proxy"),
+                        row.get("p30m") or row.get("p30m_proxy"),
+                        row.get("p60m") or row.get("p60m_proxy"),
+                    ]
+                    vals = [v for v in vals if isinstance(v, (int, float))]
+                    if not vals:
+                        return None
+                    return (sum(vals) / len(vals)) > 0
+                except Exception:
+                    return None
+
+            _confirm_rows = [r for r in _perf_rows if str(r.get("ai_suggestion")) == "confirm"]
+            _reject_rows = [r for r in _perf_rows if str(r.get("ai_suggestion")) == "reject_signal"]
+
+            def _calc_winrate(rows):
+                wins = 0
+                total = 0
+                for r in rows:
+                    w = _is_win(r)
+                    if w is None:
+                        continue
+                    total += 1
+                    if w:
+                        wins += 1
+                return (wins / total) if total > 0 else 0.0, total
+
+            _confirm_wr, _confirm_n = _calc_winrate(_confirm_rows)
+            _reject_wr, _reject_n = _calc_winrate(_reject_rows)
+
+            _avg_delta_effect = 0.0
+            _delta_effect_samples = 0
+
+            for r in _perf_rows:
+                try:
+                    d = float(r.get("ai_shadow_delta") or 0.0)
+                    w = _is_win(r)
+                    if w is None:
+                        continue
+                    _delta_effect_samples += 1
+                    _avg_delta_effect += d if w else -d
+                except Exception:
+                    pass
+
+            if _delta_effect_samples > 0:
+                _avg_delta_effect /= _delta_effect_samples
+
+            self._safe_log_info(
+                "[AITS][AIShadowPerformance] "
+                f"confirm_wr={_confirm_wr:.3f} | "
+                f"confirm_n={_confirm_n} | "
+                f"reject_wr={_reject_wr:.3f} | "
+                f"reject_n={_reject_n} | "
+                f"avg_delta_effect={_avg_delta_effect:.3f} | "
+                f"sample={_delta_effect_samples}"
+            )
+        except Exception:
+            pass
 
     def _average_or_zero(self, values: Any) -> float:
         try:
@@ -1385,6 +1502,33 @@ class DecisionRouter:
                     "reason": "local_provider_no_api_call",
                 }
             )
+            try:
+                import os
+                import random
+
+                _force_ai_sample = str(os.getenv("AITS_FORCE_AI_SAMPLE", "0")).lower() in ("1", "true", "yes", "on")
+
+                if _force_ai_sample:
+                    _r = random.random()
+
+                    if _r < 0.20:
+                        base["suggestion"] = "confirm"
+                        base["reason"] = "local_forced_confirm"
+                        base["risk_note"] = None
+                    elif _r < 0.30:
+                        base["suggestion"] = "reject_signal"
+                        base["reason"] = "local_forced_reject"
+                        base["risk_note"] = None
+
+                    self._safe_log_info(
+                        "[AITS][AIVerification] force_ai_sample | "
+                        f"provider=local | "
+                        f"suggestion={base.get('suggestion')} | "
+                        f"reason={base.get('reason')} | "
+                        f"applied=False"
+                    )
+            except Exception:
+                pass
             self._safe_log_info(
                 "[AITS][AIVerification] skipped | "
                 f"provider={provider} | reason=local_provider_no_api_call"
@@ -2146,6 +2290,7 @@ class DecisionRouter:
             if len(self.shadow_performance) > self.shadow_performance_limit:
                 self.shadow_performance = self.shadow_performance[-self.shadow_performance_limit :]
             self._save_shadow_performance()
+            self._log_ai_shadow_stats_after_save()
             self._safe_log_info(
                 "[AITS][DecisionRouter] performance_signal_recorded | "
                 f"action={record['signal_action']} | symbol={record['symbol']}"
