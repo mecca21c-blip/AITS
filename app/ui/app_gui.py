@@ -10001,7 +10001,13 @@ class MainWindow(QMainWindow):
     def _set_ai_provider_ui_active(self, provider: str):
         """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화."""
         provider = (provider or "local").strip().lower()
-        if provider not in ("gpt", "gemini", "local"):
+        if provider in ("openai", "chatgpt", "gpt"):
+            provider = "gpt"
+        elif provider in ("google", "google_gemini", "gemini"):
+            provider = "gemini"
+        elif provider in ("basic", "local", "none", ""):
+            provider = "local"
+        elif provider not in ("gpt", "gemini", "local"):
             provider = "local"
         self._ai_provider_box_active = provider
         if hasattr(self, "cb_ai_provider"):
@@ -24033,6 +24039,14 @@ class MainWindow(QMainWindow):
                     else:
                         self.ed_openai_key.setPlaceholderText("sk-...")
                         self.ed_openai_key.setText("")
+                try:
+                    if hasattr(self, "ed_gemini_key"):
+                        gemini_key_loaded = (st_dict.get("ai_gemini_api_key") or "")
+                        if hasattr(gemini_key_loaded, "get_secret_value"):
+                            gemini_key_loaded = gemini_key_loaded.get_secret_value() or ""
+                        self.ed_gemini_key.setText(str(gemini_key_loaded or ""))
+                except Exception:
+                    pass
                 # ✅ GPT 모델 로드: 저장된 모델이 검증된 리스트에 있으면 선택, 없으면 Custom 모드 활성화
                 if hasattr(self, "ed_openai_model"):
                     openai_model = st_dict.get("ai_openai_model", "gpt-4o-mini") or "gpt-4o-mini"
@@ -24380,6 +24394,7 @@ class MainWindow(QMainWindow):
             #        (그 상태로 patch["strategy"]를 통째로 교체하면 GPT 키가 "삭제"되는 효과가 발생)
             base_strategy = {}
             _preserve_key = ""
+            _preserve_gemini_key = ""
             _preserve_model = ""
 
             try:
@@ -24388,6 +24403,7 @@ class MainWindow(QMainWindow):
                 if isinstance(_st0, dict):
                     base_strategy = dict(_st0)
                     _preserve_key = (_st0.get("ai_openai_api_key") or "").strip()
+                    _preserve_gemini_key = (_st0.get("ai_gemini_api_key") or "").strip()
                     _preserve_model = (_st0.get("ai_openai_model") or "").strip()
 
                 elif _st0 is not None:
@@ -24399,6 +24415,14 @@ class MainWindow(QMainWindow):
                         _preserve_key = str(_k).strip()
                     except Exception:
                         _preserve_key = ""
+
+                    try:
+                        _gk = getattr(_st0, "ai_gemini_api_key", "") or ""
+                        if hasattr(_gk, "get_secret_value"):
+                            _gk = _gk.get_secret_value() or ""
+                        _preserve_gemini_key = str(_gk).strip()
+                    except Exception:
+                        _preserve_gemini_key = ""
 
                     try:
                         _preserve_model = (getattr(_st0, "ai_openai_model", "") or "").strip()
@@ -24416,6 +24440,8 @@ class MainWindow(QMainWindow):
                 try:
                     if _preserve_key and not (base_strategy.get("ai_openai_api_key") or "").strip():
                         base_strategy["ai_openai_api_key"] = _preserve_key
+                    if _preserve_gemini_key and not (base_strategy.get("ai_gemini_api_key") or "").strip():
+                        base_strategy["ai_gemini_api_key"] = _preserve_gemini_key
                     if _preserve_model and not (base_strategy.get("ai_openai_model") or "").strip():
                         base_strategy["ai_openai_model"] = _preserve_model
                 except Exception:
@@ -24460,6 +24486,11 @@ class MainWindow(QMainWindow):
                 else:
                     patch["strategy"]["ai_openai_model"] = "gpt-4o-mini"  # 최종 폴백
                 # GPT 선택 시 LOCAL 필드는 patch에 넣지 않음 (base 유지)
+                patch["strategy"].pop("ai_local_url", None)
+                patch["strategy"].pop("ai_local_model", None)
+            elif ui_ai_provider == "gemini":
+                if hasattr(self, "ed_gemini_key"):
+                    patch["strategy"]["ai_gemini_api_key"] = self.ed_gemini_key.text().strip()
                 patch["strategy"].pop("ai_local_url", None)
                 patch["strategy"].pop("ai_local_model", None)
             else:

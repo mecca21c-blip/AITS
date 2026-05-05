@@ -102,6 +102,7 @@ class StrategyConfig(BaseModel):
     # [위험 지점] 기본값 "local". strategy를 인자 없이 StrategyConfig()로 교체하는 코드 경로에서 이 값으로 덮어쓰여 GPT→LOCAL로 돌아감. 위험 지점 목록: docs/P0_AI_PROVIDER_SSOT_DESIGN_AND_PATCH.md
     ai_provider: str = "local"  # gpt | local | off
     ai_openai_api_key: str = ""
+    ai_gemini_api_key: str = ""
     ai_openai_model: str = "gpt-4o-mini"
     ai_local_url: str = "http://127.0.0.1:11434"   # Ollama base URL (provider=local)
     ai_local_model: str = "qwen2.5"               # Ollama model: llama3.1 | qwen2.5 | mistral
