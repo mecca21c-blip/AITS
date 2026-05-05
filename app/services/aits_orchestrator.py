@@ -187,6 +187,17 @@ class AITSOrchestrator:
     ) -> None:
         self.config = config if config is not None else {}
         self.app_state = app_state
+        self.settings = app_state
+        try:
+            if not hasattr(self, "strategy"):
+                if isinstance(app_state, dict):
+                    self.strategy = app_state.get("strategy")
+                else:
+                    self.strategy = getattr(app_state, "strategy", None)
+            if getattr(self, "strategy", None) is None and isinstance(self.config, dict):
+                self.strategy = self.config.get("strategy")
+        except Exception:
+            pass
         self.logger = logger
         self.regime_detector = regime_detector or RegimeDetector(config=self.config, logger=self.logger)
         self.portfolio_brain = portfolio_brain or PortfolioBrain(config=self.config, logger=self.logger)
@@ -234,16 +245,40 @@ class AITSOrchestrator:
             self._verifier_local = getattr(self, "ai_engine_provider", None)
             self._verifier_openai = None
             self._verifier_gemini = None
+            _provider_kwargs = {
+                "strategy": getattr(self, "strategy", None),
+                "settings": getattr(self, "settings", None),
+                "config": getattr(self, "config", None),
+            }
+            try:
+                _st = getattr(self, "strategy", None)
+                _openai_has_key = False
+                _gemini_has_key = False
+                if isinstance(_st, dict):
+                    _openai_has_key = bool(str(_st.get("ai_openai_api_key") or "").strip())
+                    _gemini_has_key = bool(str(_st.get("ai_gemini_api_key") or "").strip())
+                elif _st is not None:
+                    _openai_has_key = bool(str(getattr(_st, "ai_openai_api_key", "") or "").strip())
+                    _gemini_has_key = bool(str(getattr(_st, "ai_gemini_api_key", "") or "").strip())
+
+                self._safe_log_info(
+                    "[AITS][Orchestrator] ai_provider_key_injection | "
+                    f"strategy_attached={_st is not None} | "
+                    f"openai_key_present={_openai_has_key} | "
+                    f"gemini_key_present={_gemini_has_key}"
+                )
+            except Exception:
+                pass
 
             if AIEngineProvider is not None and str(os.getenv("AITS_ENABLE_OPENAI_VERIFIER", "")).strip() == "1":
                 try:
-                    self._verifier_openai = AIEngineProvider()
+                    self._verifier_openai = AIEngineProvider(**_provider_kwargs)
                 except Exception:
                     self._verifier_openai = None
 
             if AIEngineProvider is not None and str(os.getenv("AITS_ENABLE_GEMINI_VERIFIER", "")).strip() == "1":
                 try:
-                    self._verifier_gemini = AIEngineProvider()
+                    self._verifier_gemini = AIEngineProvider(**_provider_kwargs)
                 except Exception:
                     self._verifier_gemini = None
 

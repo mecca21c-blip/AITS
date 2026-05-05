@@ -51,8 +51,17 @@ class AIEngineProvider:
     api_required: bool = False
     ready_reason: str = "Provider not configured"
 
-    def __init__(self, api_key: str = "") -> None:
+    def __init__(
+        self,
+        api_key: str = "",
+        settings: Optional[Any] = None,
+        strategy: Optional[Any] = None,
+        config: Optional[Any] = None,
+    ) -> None:
         self.api_key = str(api_key or "").strip()
+        self.settings = settings
+        self.strategy = strategy
+        self.config = config
 
     def is_ready(self) -> bool:
         return False
@@ -66,6 +75,76 @@ class AIEngineProvider:
             engine=self.name,
             raw={"mode": "skeleton", "context": dict(context or {})},
         )
+
+    def _get_config_api_key(self, provider: Any) -> str:
+        """
+        Return API key from env first, then strategy/settings/config fallback.
+        Never log the key value.
+        """
+        provider = str(provider or "").strip().lower()
+
+        def _iter_config_roots():
+            for obj in (
+                getattr(self, "strategy", None),
+                getattr(self, "settings", None),
+                getattr(self, "config", None),
+            ):
+                if obj is None:
+                    continue
+                yield obj
+                try:
+                    if isinstance(obj, dict):
+                        for key in ("strategy", "settings", "config"):
+                            child = obj.get(key)
+                            if child is not None:
+                                yield child
+                    else:
+                        for key in ("strategy", "settings", "config"):
+                            child = getattr(obj, key, None)
+                            if child is not None:
+                                yield child
+                except Exception:
+                    pass
+
+        def _read_config_key(obj: Any, names: tuple[str, ...]) -> str:
+            try:
+                for name in names:
+                    if isinstance(obj, dict):
+                        key = obj.get(name)
+                    else:
+                        key = getattr(obj, name, None)
+                    if hasattr(key, "get_secret_value"):
+                        key = key.get_secret_value()
+                    if key:
+                        return str(key).strip()
+            except Exception:
+                pass
+            return ""
+
+        if provider == "openai":
+            key = os.getenv("OPENAI_API_KEY")
+            if key:
+                return key
+
+            for obj in _iter_config_roots():
+                key = _read_config_key(obj, ("ai_openai_api_key", "openai_api_key"))
+                if key:
+                    return key
+
+        if provider == "gemini":
+            key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if key:
+                return key
+
+            for obj in _iter_config_roots():
+                key = _read_config_key(
+                    obj,
+                    ("ai_gemini_api_key", "gemini_api_key", "google_api_key"),
+                )
+                if key:
+                    return key
+
+        return ""
 
     def verify_router_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -89,8 +168,8 @@ class AIEngineProvider:
         try:
             _provider_norm = str(provider or "local").strip().lower()
 
-            _openai_key = os.getenv("OPENAI_API_KEY")
-            _gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            _openai_key = self._get_config_api_key("openai")
+            _gemini_key = self._get_config_api_key("gemini")
 
             _openai_ready = bool(_openai_key)
             _gemini_ready = bool(_gemini_key)
@@ -267,7 +346,7 @@ class AIEngineProvider:
         if str(os.getenv("AITS_AI_VERIFY_LIVE_ONCE", "")).strip() != "1":
             raise NotImplementedError("openai_live_call_disabled")
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = self._get_config_api_key("openai")
         if not api_key:
             raise NotImplementedError("openai_api_key_missing")
 
@@ -366,7 +445,7 @@ class AIEngineProvider:
         if str(os.getenv("AITS_AI_VERIFY_LIVE_ONCE", "")).strip() != "1":
             raise NotImplementedError("gemini_live_call_disabled")
 
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        api_key = self._get_config_api_key("gemini")
         if not api_key:
             raise NotImplementedError("gemini_api_key_missing")
 
