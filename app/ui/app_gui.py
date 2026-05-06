@@ -24588,10 +24588,8 @@ class MainWindow(QMainWindow):
                     if hasattr(openai_key_loaded, "get_secret_value"):
                         openai_key_loaded = openai_key_loaded.get_secret_value() or ""
                     openai_key_loaded = str(openai_key_loaded).strip()
-                    key_len_loaded = len(openai_key_loaded)
-                    self._log.info("[AI-KEY] load has_key=%s provider=%s source=file", bool(key_len_loaded), ai_provider)
-                    if key_len_loaded > 0:
-                        masked = "••••••••••••••••••••••••••••••••"
+                    openai_key_has_value = bool(openai_key_loaded)
+                    if openai_key_has_value:
                         self.ed_openai_key.setPlaceholderText("OpenAI API Key")
                         self.ed_openai_key.setText(openai_key_loaded)
                     else:
@@ -24604,6 +24602,20 @@ class MainWindow(QMainWindow):
                             gemini_key_loaded = gemini_key_loaded.get_secret_value() or ""
                         gemini_key_loaded = str(gemini_key_loaded or "").strip()
                         self.ed_gemini_key.setText(str(gemini_key_loaded or ""))
+                except Exception:
+                    pass
+                try:
+                    openai_key_restored = bool(
+                        (self.ed_openai_key.text() or "").strip()
+                    ) if hasattr(self, "ed_openai_key") else False
+                    gemini_key_restored = bool(
+                        (self.ed_gemini_key.text() or "").strip()
+                    ) if hasattr(self, "ed_gemini_key") else False
+                    self._log.info(
+                        "[AITS][GUI] startup_key_loaded | openai_key=%s | gemini_key=%s",
+                        openai_key_restored,
+                        gemini_key_restored,
+                    )
                 except Exception:
                     pass
                 try:
@@ -24882,6 +24894,7 @@ class MainWindow(QMainWindow):
             "ai_openai_api_key",
             "ai_gemini_api_key",
             "ai_openai_model",
+            "ai_gemini_model",
         ):
             if hasattr(st, key):
                 setattr(st, key, fields.get(key, ""))
@@ -24889,49 +24902,105 @@ class MainWindow(QMainWindow):
                 st[key] = fields.get(key, "")
         if not save_settings(settings):
             return False, save_path, load_path
+        verified = load_settings()
+        verified_st = getattr(verified, "strategy", None)
+        requested_openai = bool(str(fields.get("ai_openai_api_key", "") or "").strip())
+        requested_gemini = bool(str(fields.get("ai_gemini_api_key", "") or "").strip())
+        loaded_openai = bool(
+            str(getattr(verified_st, "ai_openai_api_key", "") or "").strip()
+        ) if verified_st is not None else False
+        loaded_gemini = bool(
+            str(getattr(verified_st, "ai_gemini_api_key", "") or "").strip()
+        ) if verified_st is not None else False
+        if ((requested_openai and not loaded_openai) or (requested_gemini and not loaded_gemini)):
+            return False, save_path, load_path
         save_path = self._overlay_common_ai_fields_to_prefs_file(fields)
+        try:
+            self._log.info(
+                "[AITS][Prefs] path_check | save_path=%s | load_path=%s | same=%s",
+                save_path,
+                load_path,
+                save_path == load_path,
+            )
+        except Exception:
+            pass
         return True, save_path, load_path
 
     def _verify_common_ai_clear_reload(self, requested_openai: bool, requested_gemini: bool) -> tuple[bool, bool, bool]:
-        openai_text = ""
-        gemini_text = ""
         try:
-            if hasattr(self, "ed_openai_key"):
-                openai_text = self.ed_openai_key.text()
-                self.ed_openai_key.clear()
-            if hasattr(self, "ed_gemini_key"):
-                gemini_text = self.ed_gemini_key.text()
-                self.ed_gemini_key.clear()
-            self._load_settings_into_form()
-            openai_loaded = bool(
-                (self.ed_openai_key.text() if hasattr(self, "ed_openai_key") else "").strip()
-            )
-            gemini_loaded = bool(
-                (self.ed_gemini_key.text() if hasattr(self, "ed_gemini_key") else "").strip()
-            )
+            from app.utils.prefs import load_settings
+
+            s = load_settings()
+            st = getattr(s, "strategy", None)
+            openai_loaded = bool((getattr(st, "ai_openai_api_key", "") if st else "") or "")
+            gemini_loaded = bool((getattr(st, "ai_gemini_api_key", "") if st else "") or "")
+            try:
+                raw_st = self._read_common_ai_raw_strategy_for_ui()
+                openai_loaded = openai_loaded or bool(str(raw_st.get("ai_openai_api_key", "") or "").strip())
+                gemini_loaded = gemini_loaded or bool(str(raw_st.get("ai_gemini_api_key", "") or "").strip())
+            except Exception:
+                pass
             ok = ((not requested_openai) or openai_loaded) and (
                 (not requested_gemini) or gemini_loaded
             )
             return bool(ok), openai_loaded, gemini_loaded
         except Exception:
+            return False, False, False
+
+    def _safe_current_text(self, widget, default: str = "") -> str:
+        try:
+            if widget is None or not hasattr(widget, "currentText"):
+                return default
+            return str(widget.currentText() or "").strip()
+        except RuntimeError:
+            return default
+        except Exception:
+            return default
+
+    def _normalize_saved_ai_provider(self, provider: str = "") -> str:
+        p = str(provider or "").strip().lower()
+        if p in ("gpt", "openai", "chatgpt"):
+            return "openai"
+        if p in ("gemini", "google", "google_gemini"):
+            return "gemini"
+        if p in ("local", "basic", "basic ai", "basic_ai", "none", "off", ""):
+            return "basic"
+        return "basic"
+
+    def _get_save_ai_provider(self, settings_obj=None) -> str:
+        for attr in ("_selected_ai_provider", "_applied_ai_provider"):
             try:
-                if hasattr(self, "ed_openai_key"):
-                    self.ed_openai_key.setText(openai_text)
-                if hasattr(self, "ed_gemini_key"):
-                    self.ed_gemini_key.setText(gemini_text)
+                val = str(getattr(self, attr, "") or "").strip()
+                if val:
+                    return self._normalize_saved_ai_provider(val)
             except Exception:
                 pass
-            return False, False, False
+        try:
+            st = getattr(settings_obj, "strategy", None) if settings_obj is not None else None
+            if st is None:
+                st = getattr(getattr(self, "_settings", None), "strategy", None)
+            val = ""
+            if isinstance(st, dict):
+                val = str(st.get("ai_provider") or "").strip()
+            elif st is not None:
+                val = str(getattr(st, "ai_provider", "") or "").strip()
+            if val:
+                return self._normalize_saved_ai_provider(val)
+        except Exception:
+            pass
+        return "basic"
 
     def _on_save_settings(self) -> None:
         # ✅ P0-B: Log save button text before and after
         button_text_before = getattr(self, 'btn_save', None).text() if hasattr(self, 'btn_save') else "unknown"
+        openai_key_before = self.ed_openai_key.text() if hasattr(self, "ed_openai_key") else ""
+        gemini_key_before = self.ed_gemini_key.text() if hasattr(self, "ed_gemini_key") else ""
         
         # ✅ P0-1: Initialize patch at function start to prevent UnboundLocalError
         patch = {}
         
         # ✅ P0-1: Log save attempt
-        provider = self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local"
+        provider = self._get_save_ai_provider()
         has_openai_key = bool(self.ed_openai_key.text().strip()) if hasattr(self, "ed_openai_key") else False
         self._log.info(f"[SAVE-UI] button_text_before=\"{button_text_before}\" button_text_after=\"{button_text_before}\"")
         self._log.info("[AI-KEY] save_attempt provider=%s has_key=%s", provider, has_openai_key)
@@ -24986,7 +25055,7 @@ class MainWindow(QMainWindow):
             if openai_key_effective.startswith("•"):
                 _s0st = getattr(s0, "strategy", None)
                 openai_key_effective = (getattr(_s0st, "ai_openai_api_key", "") or "") if _s0st else ""
-            provider_str = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower() or "local"
+            provider_str = self._get_save_ai_provider(s0)
             self._log.info(
                 "[SAVE] ui_snapshot ai_provider=%s openai_has_key=%s",
                 provider_str,
@@ -25048,12 +25117,9 @@ class MainWindow(QMainWindow):
             if poll_merged:
                 patch["poll"] = poll_merged
             
-            # AI settings — SSOT: 선택된 박스(_ai_provider_box_active)만 저장, 반대쪽 필드는 patch에 넣지 않음
-            ui_ai_provider = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
-            if ui_ai_provider not in ("gpt", "gemini", "local"):
-                ui_ai_provider = self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local"
-            ui_ai_provider = ui_ai_provider or "local"
-            self._log.info("[SAVE] ai_provider=%s (from selected box)", ui_ai_provider)
+            # AI settings — 삭제될 수 있는 cb_ai_provider 대신 Python 상태/settings 기준으로 저장
+            ui_ai_provider = self._get_save_ai_provider(s0)
+            self._log.info("[SAVE] ai_provider=%s (from safe state)", ui_ai_provider)
 
             # ✅ 기존 strategy를 base로 복사해서 merge (부분 patch로 인한 키 삭제 방지)
             # ⚠️ 주의: StrategyConfig.model_dump()는 Secret/Field 설정에 따라 ai_openai_api_key가 누락될 수 있음
@@ -25141,7 +25207,7 @@ class MainWindow(QMainWindow):
             }
 
             # ✅ 선택된 박스만 patch에 반영. 반대쪽 필드는 patch에서 제거해 merge 시 기존값 유지.
-            if ui_ai_provider == "gpt":
+            if ui_ai_provider == "openai":
                 if hasattr(self, "ed_openai_key"):
                     openai_key = self.ed_openai_key.text().strip()
                     if openai_key.startswith("•"):
@@ -25172,7 +25238,7 @@ class MainWindow(QMainWindow):
                 patch["strategy"].pop("ai_local_url", None)
                 patch["strategy"].pop("ai_local_model", None)
             else:
-                # LOCAL 선택: LOCAL 필드만 patch에 포함. GPT 키/모델은 patch에서 제거 → merge 시 기존값 유지
+                # Basic 선택: Basic 필드만 patch에 포함. GPT/Gemini 키/모델은 위 공통 필드로 유지
                 if hasattr(self, "inp_local_url"):
                     patch["strategy"]["ai_local_url"] = self.inp_local_url.text().strip() or "http://127.0.0.1:11434"
                 if hasattr(self, "cmb_local_model"):
@@ -25417,6 +25483,13 @@ class MainWindow(QMainWindow):
                 self, "저장", "공통설정 저장 완료 · 재시작 후 복원 가능"
             )
         except Exception as e:
+            try:
+                if hasattr(self, "ed_openai_key"):
+                    self.ed_openai_key.setText(openai_key_before)
+                if hasattr(self, "ed_gemini_key"):
+                    self.ed_gemini_key.setText(gemini_key_before)
+            except Exception:
+                pass
             self._log.error(
                 "[AITS][GUI] common_settings_persist_failed | error_type=%s",
                 type(e).__name__,

@@ -20,6 +20,16 @@ def _get_prefs_path() -> str:
     _ensure_inited()
     return _PREFS_FILE or "unknown"
 
+def _log_path_check(save_path: str | None = None, load_path: str | None = None) -> None:
+    try:
+        save_path = save_path or (_PREFS_FILE or "unknown")
+        load_path = load_path or (_PREFS_FILE or "unknown")
+        _log_info(
+            f"[AITS][Prefs] path_check | save_path={save_path} | load_path={load_path} | same={save_path == load_path}"
+        )
+    except Exception:
+        pass
+
 def _ensure_inited() -> None:
     """
     ✅ Store Lock 하드닝:
@@ -56,6 +66,7 @@ def init_prefs(root_dir: str, data_dir: str) -> None:
     _SECRET_FILE = os.path.join(data_dir, "secret.bin")      # 로컬 전용 암호 키
     _PREFS_FILE  = os.path.join(data_dir, "prefs.json")      # 설정 저장소(키는 암호화)
     _DEFAULTS_FILE = os.path.join(root_dir, "configs", "app.yaml")
+    _log_path_check(_PREFS_FILE, _PREFS_FILE)
     if not os.path.exists(_SECRET_FILE):
         # 고유 키 생성 (로컬 파일만으로 복호화 가능)
         key = Fernet.generate_key()
@@ -167,31 +178,21 @@ def _read_prefs_json() -> dict:
         if not _PREFS_FILE or not exists:
             # 파일 없으면 기본값 반환
             defaults = _load_defaults().model_dump()
-            ak_len = len(defaults.get("upbit", {}).get("access_key", "").strip())
-            sk_len = len(defaults.get("upbit", {}).get("secret_key", "").strip())
-            _log_info(f"[PREFS-PATH] path={path} exists={exists} loaded=defaults")
-            _log_info(f"[KEY-PERSIST] load: sources=[defaults] final_source=defaults ak_len={ak_len} sk_len={sk_len}")
+            _log_path_check(path, path)
             return _merge_env_secrets(defaults)
         with open(_PREFS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f) or {}
         # 민감키 복호화
-        ak_len = sk_len = 0
         for sect, key in _SENSITIVE_PATHS:
             try:
                 if sect in data and key in data[sect]:
                     data[sect][key] = _safe_decrypt(data[sect][key])
-                    if key == "access_key":
-                        ak_len = len(data[sect][key].strip()) if data[sect][key] else 0
-                    elif key == "secret_key":
-                        sk_len = len(data[sect][key].strip()) if data[sect][key] else 0
             except Exception:
                 pass
-        _log_info(f"[PREFS-PATH] path={path} exists=True loaded=prefs.json")
-        _log_info(f"[KEY-PERSIST] load: sources=[prefs.json] final_source=prefs.json ak_len={ak_len} sk_len={sk_len}")
+        _log_path_check(path, path)
         return _merge_env_secrets(data)
     except Exception as e:
-        _log_error(f"[PREFS-PATH] path={path} exists={exists} loaded=error error={e!s}")
-        _log_error(f"[KEY-PERSIST] load: sources=[error] final_source=error ak_len=0 sk_len=0 error={e}")
+        _log_path_check(path, path)
         _log_error(f"_read_prefs_json 실패: {e}")
         return _merge_env_secrets(_load_defaults().model_dump())
 
@@ -271,23 +272,17 @@ def _write_prefs_json(payload: dict) -> bool:
 
         data = json.loads(json.dumps(payload))  # deepcopy
         # 민감키 암호화
-        ak_len = sk_len = 0
         for sect, key in _SENSITIVE_PATHS:
             try:
                 if sect in data and key in data[sect]:
-                    raw_val = data[sect][key]
                     data[sect][key] = _safe_encrypt(data[sect][key])
-                    if key == "access_key":
-                        ak_len = len(raw_val.strip()) if raw_val else 0
-                    elif key == "secret_key":
-                        sk_len = len(raw_val.strip()) if raw_val else 0
             except Exception:
                 pass
         os.makedirs(os.path.dirname(_PREFS_FILE), exist_ok=True)
         with open(_PREFS_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
 
-        _log_info(f"[KEY-PERSIST] save: path={_PREFS_FILE} ak_len={ak_len} sk_len={sk_len} result=ok")
+        _log_path_check(_PREFS_FILE, _PREFS_FILE)
         try:
             _log_info(f"[PREFS] saved -> {_PREFS_FILE}")
         except Exception:
@@ -295,7 +290,7 @@ def _write_prefs_json(payload: dict) -> bool:
 
         return True
     except Exception as e:
-        _log_error(f"[KEY-PERSIST] save: path={_PREFS_FILE} ak_len={ak_len} sk_len={sk_len} result=fail error={e}")
+        _log_path_check(_PREFS_FILE or "unknown", _PREFS_FILE or "unknown")
         _log_error(f"_write_prefs_json 실패: {e}")
         return False
     finally:
@@ -547,12 +542,7 @@ def save_settings(settings):
         payload["strategy"] = stg
 
         _resolved = _PREFS_FILE or "unknown"
-        _exists = os.path.exists(_resolved) if _resolved != "unknown" else False
-        try:
-            _cwd = os.getcwd()
-        except Exception:
-            _cwd = "unknown"
-        _log_info(f"[PREFS-PATH] resolved={_resolved} exists={_exists} cwd={_cwd}")
+        _log_path_check(_resolved, _resolved)
         ok = _write_prefs_json(payload)
         if not ok:
             raise RuntimeError("prefs.json 저장 실패")
@@ -737,5 +727,3 @@ def build_strategy_snapshot_hash(strategy) -> str:
         
     except Exception:
         return "00000000"
-
-
