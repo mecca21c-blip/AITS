@@ -90,9 +90,32 @@ def init_app_context(
 def init_aits(app_context: Dict[str, Any]) -> AITSOrchestrator:
     logger = app_context["logger"]
     run_mode = app_context["run_mode"]
+    # [AITS-103] Load persisted settings for orchestrator/provider context.
+    # - Keep safe fallback if settings loading fails.
+    # - Never log API keys or full settings payload.
+    aits_settings = None
+    aits_config = {}
+
+    try:
+        from app.utils.prefs import load_settings
+
+        aits_settings = load_settings()
+        if aits_settings is not None and hasattr(aits_settings, "model_dump"):
+            aits_config = aits_settings.model_dump()
+        elif aits_settings is not None and hasattr(aits_settings, "dict"):
+            aits_config = aits_settings.dict()
+        else:
+            aits_config = {}
+
+        print("[AITS][run] settings_loaded_for_orchestrator | ok=1")
+    except Exception as exc:
+        aits_settings = None
+        aits_config = {}
+        print(f"[AITS][run] settings_loaded_for_orchestrator | ok=0 | reason={type(exc).__name__}")
+
     orchestrator = AITSOrchestrator(
-        config={},
-        app_state=None,
+        config=aits_config,
+        app_state=aits_settings,
         logger=logger,
         run_mode=run_mode,
     )

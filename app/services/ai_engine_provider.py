@@ -82,6 +82,8 @@ class AIEngineProvider:
         Never log the key value.
         """
         provider = str(provider or "").strip().lower()
+        resolved_key = ""
+        key_method = "missing"
 
         def _iter_config_roots():
             for obj in (
@@ -124,27 +126,47 @@ class AIEngineProvider:
         if provider == "openai":
             key = os.getenv("OPENAI_API_KEY")
             if key:
-                return key
+                resolved_key = key
+                key_method = "environment"
 
-            for obj in _iter_config_roots():
-                key = _read_config_key(obj, ("ai_openai_api_key", "openai_api_key"))
-                if key:
-                    return key
+            if not resolved_key:
+                for obj in _iter_config_roots():
+                    key = _read_config_key(obj, ("ai_openai_api_key", "openai_api_key"))
+                    if key:
+                        resolved_key = key
+                        key_method = "settings"
+                        break
 
-        if provider == "gemini":
+        elif provider == "gemini":
             key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
             if key:
-                return key
+                resolved_key = key
+                key_method = "environment"
 
-            for obj in _iter_config_roots():
-                key = _read_config_key(
-                    obj,
-                    ("ai_gemini_api_key", "gemini_api_key", "google_api_key"),
-                )
-                if key:
-                    return key
+            if not resolved_key:
+                for obj in _iter_config_roots():
+                    key = _read_config_key(
+                        obj,
+                        ("ai_gemini_api_key", "gemini_api_key", "google_api_key"),
+                    )
+                    if key:
+                        resolved_key = key
+                        key_method = "settings"
+                        break
 
-        return ""
+        try:
+            _provider_name = normalize_provider_label(provider)
+
+            print(
+                "[AITS][AIEngineProvider] key_resolution "
+                f"| provider={_provider_name or 'unknown'} "
+                f"| resolved={bool(resolved_key)} "
+                f"| method={key_method}"
+            )
+        except Exception:
+            pass
+
+        return resolved_key
 
     def verify_router_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -208,40 +230,40 @@ class AIEngineProvider:
                     _r = random.random()
 
                     if _r < 0.2:
-                        return {
+                        return self._with_ai_result_contract({
                             "suggestion": "confirm",
                             "reason": "local_forced_confirm",
                             "risk_note": None,
                             "provider": "local",
                             "applied": False,
-                        }
+                        })
 
                     if _r < 0.3:
-                        return {
+                        return self._with_ai_result_contract({
                             "suggestion": "reject_signal",
                             "reason": "local_forced_reject",
                             "risk_note": None,
                             "provider": "local",
                             "applied": False,
-                        }
+                        })
             except Exception:
                 pass
 
-            return {
+            return self._with_ai_result_contract({
                 "suggestion": "skip",
                 "reason": "local_provider_no_api_call",
                 "risk_note": None,
                 "provider": "local",
                 "applied": False,
-            }
+            })
 
         if provider not in ("openai", "gemini"):
-            return {
+            return self._with_ai_result_contract({
                 "suggestion": "skip",
                 "reason": f"unsupported_provider:{provider}",
                 "provider": provider,
                 "applied": False,
-            }
+            })
 
         try:
             prompt = self._build_router_verification_prompt(context)
@@ -257,12 +279,12 @@ class AIEngineProvider:
                 provider=provider,
             )
         except NotImplementedError as exc:
-            return {
+            return self._with_ai_result_contract({
                 "suggestion": "skip",
                 "reason": str(exc) or f"{provider}_verifier_not_implemented",
                 "provider": provider,
                 "applied": False,
-            }
+            })
         except Exception as exc:
             error_reason = str(exc)[:500]
             if not error_reason:
@@ -277,13 +299,25 @@ class AIEngineProvider:
                 "gemini_bad_request",
             ):
                 result_reason = f"{error_reason}:error"
-            return {
+            return self._with_ai_result_contract({
                 "suggestion": "skip",
                 "reason": result_reason,
                 "provider": provider,
                 "applied": False,
                 "error": error_reason,
-            }
+            })
+
+    def _with_ai_result_contract(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        result["suggestion_only"] = True
+        result["applied_to_action"] = False
+        try:
+            print(
+                "[AITS][AIEngineProvider] ai_result_contract "
+                "| suggestion_only=True | applied_to_action=False"
+            )
+        except Exception:
+            pass
+        return result
 
     def _build_router_verification_prompt(self, context: Optional[Dict[str, Any]]) -> str:
         """
@@ -343,7 +377,20 @@ class AIEngineProvider:
         - 없으면 NotImplementedError로 안전하게 skip 처리된다.
         - 여기서 신규 SDK/키 로딩/설정 변경을 하지 않는다.
         """
-        if str(os.getenv("AITS_AI_VERIFY_LIVE_ONCE", "")).strip() != "1":
+        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
+        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
+        api_call_enabled = real_call_enabled and one_shot_enabled
+        if api_call_enabled:
+            gate_reason = "enabled"
+        elif real_call_enabled:
+            gate_reason = "missing_one_shot"
+        else:
+            gate_reason = "dryrun_mode"
+        _safe_log_info(
+            "[AITS][AIEngineProvider] api_call_entry "
+            f"| provider=openai | enabled={api_call_enabled} | reason={gate_reason}"
+        )
+        if not api_call_enabled:
             raise NotImplementedError("openai_live_call_disabled")
 
         api_key = self._get_config_api_key("openai")
@@ -442,7 +489,20 @@ class AIEngineProvider:
         - 없으면 NotImplementedError로 안전하게 skip 처리된다.
         - 여기서 신규 SDK/키 로딩/설정 변경을 하지 않는다.
         """
-        if str(os.getenv("AITS_AI_VERIFY_LIVE_ONCE", "")).strip() != "1":
+        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
+        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
+        api_call_enabled = real_call_enabled and one_shot_enabled
+        if api_call_enabled:
+            gate_reason = "enabled"
+        elif real_call_enabled:
+            gate_reason = "missing_one_shot"
+        else:
+            gate_reason = "dryrun_mode"
+        _safe_log_info(
+            "[AITS][AIEngineProvider] api_call_entry "
+            f"| provider=gemini | enabled={api_call_enabled} | reason={gate_reason}"
+        )
+        if not api_call_enabled:
             raise NotImplementedError("gemini_live_call_disabled")
 
         api_key = self._get_config_api_key("gemini")
@@ -553,12 +613,12 @@ class AIEngineProvider:
         else:
             text = str(raw_response or "").strip()
             if not text:
-                return {
+                return self._with_ai_result_contract({
                     "suggestion": "skip",
                     "reason": "empty_response",
                     "provider": provider,
                     "applied": False,
-                }
+                })
             try:
                 parsed = json.loads(text)
             except Exception:
@@ -572,14 +632,14 @@ class AIEngineProvider:
         if suggestion not in AI_VERIFICATION_ALLOWED_SUGGESTIONS:
             suggestion = "confirm"
 
-        return {
+        return self._with_ai_result_contract({
             "suggestion": suggestion,
             "reason": str(parsed.get("reason") or parsed.get("summary") or "provider_response")[:500],
             "risk_note": str(parsed.get("risk_note") or parsed.get("note") or "")[:500],
             "provider": provider,
             "applied": False,
             "raw_response": parsed,
-        }
+        })
 
     def get_status(self) -> Dict[str, Any]:
         return {
@@ -769,6 +829,15 @@ def normalize_provider_name(provider_name: Any) -> str:
     return "local"
 
 
+def normalize_provider_label(provider_name: Any) -> str:
+    provider_norm = str(provider_name or "").strip().lower()
+    if provider_norm in ("gpt", "openai"):
+        return "openai"
+    if provider_norm in ("gemini", "google"):
+        return "gemini"
+    return "basic"
+
+
 def _clamp_float(value: Any, lo: float = 0.0, hi: float = 1.0, default: float = 0.0) -> float:
     try:
         if value is None:
@@ -856,17 +925,38 @@ def _find_api_key(
     candidates: tuple[str, ...],
     *roots: Any,
     env_keys: tuple[str, ...] = (),
+    provider: Any = None,
 ) -> str:
+    resolved_key = ""
+    key_method = "missing"
     for root in _iter_roots(*roots):
         for key in candidates:
             value = _read_value(root, key)
             if value:
-                return value
-    for env_key in env_keys:
-        value = (os.getenv(env_key) or "").strip()
-        if value:
-            return value
-    return ""
+                resolved_key = value
+                key_method = "settings"
+                break
+        if resolved_key:
+            break
+    if not resolved_key:
+        for env_key in env_keys:
+            value = (os.getenv(env_key) or "").strip()
+            if value:
+                resolved_key = value
+                key_method = "environment"
+                break
+    try:
+        _provider_name = normalize_provider_label(provider)
+
+        print(
+            "[AITS][AIEngineProvider] key_resolution "
+            f"| provider={_provider_name or 'unknown'} "
+            f"| resolved={bool(resolved_key)} "
+            f"| method={key_method}"
+        )
+    except Exception:
+        pass
+    return resolved_key
 
 
 def build_default_provider_registry(
@@ -880,6 +970,7 @@ def build_default_provider_registry(
         prefs,
         config,
         env_keys=("OPENAI_API_KEY",),
+        provider="openai",
     )
     gemini_api_key = _find_api_key(
         (
@@ -892,6 +983,7 @@ def build_default_provider_registry(
         prefs,
         config,
         env_keys=("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+        provider="gemini",
     )
     return {
         "local": LocalProvider(),
@@ -905,6 +997,14 @@ def get_provider(
 ) -> AIEngineProvider:
     try:
         provider_key = normalize_provider_name(provider_name)
+        provider_label = normalize_provider_label(provider_name or provider_key)
+        try:
+            print(
+                "[AITS][AIEngineProvider] provider_selected "
+                f"| provider={provider_label}"
+            )
+        except Exception:
+            pass
         providers = registry or {}
         provider = providers.get(provider_key) or providers.get("local")
         if provider is not None:
