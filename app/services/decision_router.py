@@ -2081,6 +2081,23 @@ class DecisionRouter:
                     "[AITS][DecisionRouter] ai_suggestion_stored | "
                     "stored=True | applied=False"
                 )
+                history_stored = self._store_ai_suggestion_in_shadow_history(
+                    raw_meta.get("ai_suggestion")
+                )
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] ai_suggestion_history | "
+                    f"stored={history_stored} | applied=False"
+                )
+                stats = self._get_ai_suggestion_history_stats()
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] ai_suggestion_stats | "
+                    f"window={stats.get('window', 100)} | "
+                    f"total={stats.get('total_count', 0)} | "
+                    f"confirm={stats.get('confirm_count', 0)} | "
+                    f"reject={stats.get('reject_count', 0)} | "
+                    f"skip={stats.get('skip_count', 0)} | "
+                    "applied=False"
+                )
 
             self._safe_log_info(
                 "[AITS][AIVerification] recorded | "
@@ -2255,6 +2272,9 @@ class DecisionRouter:
             if shadow_decision is None:
                 return
             raw = dict(getattr(shadow_decision, "raw", {}) or {})
+            raw_meta = raw.get("meta", {})
+            if not isinstance(raw_meta, dict):
+                raw_meta = {}
             record = {
                 "timestamp": self._now_iso(),
                 "provider": str(provider or ""),
@@ -2272,6 +2292,7 @@ class DecisionRouter:
                 "final_action": str(final_action or ""),
                 "final_confidence": self._safe_float(final_confidence, 0.0),
                 "execution_allowed": bool(raw.get("execution_allowed", False)),
+                "ai_suggestion": raw_meta.get("ai_suggestion"),
             }
             self.shadow_history.append(record)
             if len(self.shadow_history) > self.shadow_history_limit:
@@ -2279,6 +2300,54 @@ class DecisionRouter:
             self._save_shadow_history()
         except Exception:
             pass
+
+    def _store_ai_suggestion_in_shadow_history(self, ai_suggestion: Any) -> bool:
+        try:
+            if not isinstance(ai_suggestion, dict):
+                return False
+            history = getattr(self, "shadow_history", None)
+            if not history:
+                return False
+            latest = history[-1]
+            if not isinstance(latest, dict):
+                return False
+            latest["ai_suggestion"] = ai_suggestion
+            self._save_shadow_history()
+            return True
+        except Exception:
+            return False
+
+    def _get_ai_suggestion_history_stats(self) -> Dict[str, int]:
+        stats = {
+            "window": 100,
+            "total_count": 0,
+            "confirm_count": 0,
+            "reject_count": 0,
+            "skip_count": 0,
+        }
+        try:
+            records = list(getattr(self, "shadow_history", []) or [])
+            recent_records = records[-100:]
+            for row in recent_records:
+                if not isinstance(row, dict):
+                    continue
+                ai_suggestion = row.get("ai_suggestion")
+                if isinstance(ai_suggestion, dict):
+                    suggestion = str(ai_suggestion.get("suggestion") or "").strip().lower()
+                else:
+                    suggestion = str(ai_suggestion or "").strip().lower()
+                if not suggestion:
+                    continue
+                stats["total_count"] += 1
+                if suggestion == "confirm":
+                    stats["confirm_count"] += 1
+                elif suggestion == "reject_signal":
+                    stats["reject_count"] += 1
+                elif suggestion == "skip":
+                    stats["skip_count"] += 1
+            return stats
+        except Exception:
+            return stats
 
     def record_shadow_signal(
         self,
