@@ -4608,6 +4608,7 @@ class MainWindow(QMainWindow):
         self._applied_ai_provider = ""
         self._applied_ai_model = ""
         self._ai_connection_status = "미확인"
+        self._ai_engine_last_checked_text = "미확인"
         # AITS 관리 종목군 / 전체 시장 탐색(ag-Grid 스타일 원칙 → Qt 테이블 골격)
         # 상단 row 예: symbol, name, price, change_rate, source(AI|USER), ai_status, target_price, stop_loss, pnl, locked
         # 하단 row 예: symbol, name, price, change_rate, volume_24h
@@ -5888,16 +5889,39 @@ class MainWindow(QMainWindow):
         _eng_text_host = QWidget(self._frame_aits_engine_card)
         _eng_text_v = QVBoxLayout(_eng_text_host)
         _eng_text_v.setContentsMargins(0, 0, 0, 0)
-        _eng_text_v.setSpacing(0)
+        _eng_text_v.setSpacing(2)
 
-        self._lbl_aits_engine_card_title = QLabel("AI ENGINE", _eng_text_host)
+        self._eng_card_title_row = QWidget(_eng_text_host)
+        _eng_title_ly = QHBoxLayout(self._eng_card_title_row)
+        _eng_title_ly.setContentsMargins(0, 0, 0, 0)
+        _eng_title_ly.setSpacing(6)
+
+        self._lbl_aits_engine_card_title = QLabel("AI ENGINE", self._eng_card_title_row)
         self._lbl_aits_engine_card_title.setProperty("kpiEngineLabel", True)
         self._lbl_aits_engine_card_title.setStyleSheet("")
         self._lbl_engine_card_title = self._lbl_aits_engine_card_title
+        self._lbl_engine_card_status_badge = QLabel("", self._eng_card_title_row)
+        self._lbl_engine_card_status_badge.setProperty("engineStatusBadge", True)
+        self._lbl_engine_card_status_badge.setWordWrap(False)
+        self._lbl_engine_card_status_badge.setVisible(False)
+        try:
+            self._lbl_engine_card_status_badge.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+        _eng_title_ly.addWidget(self._lbl_aits_engine_card_title, 0)
+        _eng_title_ly.addWidget(self._lbl_engine_card_status_badge, 0)
+        _eng_title_ly.addStretch(1)
 
-        self._lbl_engine_card_selected = QLabel("선택: Basic", _eng_text_host)
+        self._lbl_engine_card_selected_title = QLabel("", _eng_text_host)
+        self._lbl_engine_card_selected_title.setProperty("engineCardFieldLabel", True)
+        self._lbl_engine_card_selected_title.setVisible(False)
+
+        self._lbl_engine_card_selected = QLabel("", _eng_text_host)
         self._lbl_engine_card_selected.setProperty("kpiEngineValue", True)
         self._lbl_engine_card_selected.setWordWrap(False)
+        self._lbl_engine_card_selected.setVisible(False)
         try:
             self._lbl_engine_card_selected.setAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -5905,8 +5929,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        self._lbl_engine_card_applied_title = QLabel("", _eng_text_host)
+        self._lbl_engine_card_applied_title.setProperty("engineCardFieldLabel", True)
+        self._lbl_engine_card_applied_title.setVisible(False)
+
         self._lbl_engine_card_applied = QLabel("적용: 미적용", _eng_text_host)
         self._lbl_engine_card_applied.setProperty("kpiEngineValue", True)
+        self._lbl_engine_card_applied.setProperty("engineAppliedValue", True)
         self._lbl_engine_card_applied.setWordWrap(False)
         try:
             self._lbl_engine_card_applied.setAlignment(
@@ -5926,7 +5955,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        self._lbl_engine_card_model = QLabel("모델: qwen2.5", self._eng_card_model_row)
+        self._lbl_engine_card_model = QLabel("모델: -", _eng_text_host)
         self._lbl_engine_card_model.setProperty("kpiEngineValue", True)
         self._lbl_engine_card_sep = QLabel(" | ", self._eng_card_model_row)
         self._lbl_engine_card_sep.setProperty("kpiEngineValue", True)
@@ -5934,6 +5963,9 @@ class MainWindow(QMainWindow):
         self._lbl_engine_card_status.setProperty("engineStatusText", True)
         self._lbl_engine_card_status_dot = QLabel("●", self._eng_card_model_row)
         self._lbl_engine_card_status_dot.setProperty("engineStatusDot", True)
+        self._lbl_engine_card_last_checked = QLabel("미확인", self._eng_card_model_row)
+        self._lbl_engine_card_last_checked.setProperty("engineStatusText", True)
+        self._lbl_engine_card_last_checked.setVisible(False)
         try:
             self._lbl_aits_engine_card_title.setAlignment(
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
@@ -5943,21 +5975,20 @@ class MainWindow(QMainWindow):
                 self._lbl_engine_card_sep,
                 self._lbl_engine_card_status,
                 self._lbl_engine_card_status_dot,
+                self._lbl_engine_card_last_checked,
             ):
                 _lw.setAlignment(
                     Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
                 )
         except Exception:
             pass
-        _eng_mrow_ly.addWidget(self._lbl_engine_card_model, 0)
-        _eng_mrow_ly.addWidget(self._lbl_engine_card_sep, 0)
         _eng_mrow_ly.addWidget(self._lbl_engine_card_status, 0)
-        _eng_mrow_ly.addStretch(1)
         _eng_mrow_ly.addWidget(self._lbl_engine_card_status_dot, 0)
+        _eng_mrow_ly.addStretch(1)
 
-        _eng_text_v.addWidget(self._lbl_aits_engine_card_title)
-        _eng_text_v.addWidget(self._lbl_engine_card_selected)
+        _eng_text_v.addWidget(self._eng_card_title_row)
         _eng_text_v.addWidget(self._lbl_engine_card_applied)
+        _eng_text_v.addWidget(self._lbl_engine_card_model)
         _eng_text_v.addWidget(self._eng_card_model_row)
         try:
             _eng_text_host.setSizePolicy(
@@ -5977,8 +6008,8 @@ class MainWindow(QMainWindow):
         )
         try:
             self._frame_aits_engine_card.setFixedWidth(220)
-            self._frame_aits_engine_card.setMinimumHeight(76)
-            self._frame_aits_engine_card.setMaximumHeight(76)
+            self._frame_aits_engine_card.setMinimumHeight(82)
+            self._frame_aits_engine_card.setMaximumHeight(82)
             self._frame_aits_engine_card.setSizePolicy(
                 QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
             )
@@ -8711,6 +8742,10 @@ class MainWindow(QMainWindow):
         self.btn_nav_save = QPushButton("파일 저장")
         self.btn_nav_logout = QPushButton("로그아웃")
         try:
+            self.btn_nav_save.setToolTip("현재 공통설정/엔진/API 설정을 저장합니다.")
+        except Exception:
+            pass
+        try:
             self._setup_bottom_nav_action_button_innards(
                 self.btn_nav_save, "파일 저장", use_save_icon=True
             )
@@ -10290,19 +10325,21 @@ class MainWindow(QMainWindow):
     def _provider_badge_color(self, provider: str) -> str:
         p = self._normalize_ai_provider_code(provider)
         return {
-            "basic": "#3B82F6",
-            "gpt": "#10A37F",
-            "gemini": "#4285F4",
+            "basic": "#16A34A",
+            "gpt": "#2563EB",
+            "gemini": "#7C3AED",
         }.get(p, "#64748B")
 
     def _status_badge_color(self, status: str) -> str:
         s = str(status or "").strip()
         if s == "정상":
-            return "#22C55E"
+            return "#16a34a"
         if s == "실패":
-            return "#EF4444"
+            return "#dc2626"
+        if s == "테스트 필요":
+            return "#d97706"
         if s == "확인중":
-            return "#F59E0B"
+            return "#2563eb"
         return "#94A3B8"
 
     def _set_top_status_chip(self, chip, text: str, color: str) -> None:
@@ -10328,6 +10365,7 @@ class MainWindow(QMainWindow):
             self._selected_ai_provider = selected_provider
             self._selected_ai_model = self._get_selected_ai_model(selected_provider)
             self._ai_connection_status = "테스트 필요"
+            self._ai_engine_last_checked_text = "미확인"
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -10352,6 +10390,7 @@ class MainWindow(QMainWindow):
             self._applied_ai_provider = selected_provider
             self._applied_ai_model = self._selected_ai_model
             self._ai_connection_status = "정상"
+            self._ai_engine_last_checked_text = "방금 전"
             self._active_ai_engine = selected_provider
             if selected_provider == "basic":
                 self._last_response_provider = "basic"
@@ -10378,11 +10417,19 @@ class MainWindow(QMainWindow):
             applied_model = (getattr(self, "_applied_ai_model", "") or "").strip()
             status = (getattr(self, "_ai_connection_status", "") or "미확인").strip() or "미확인"
             selected_text = self._ai_provider_label(selected_provider)
-            applied_text = (
-                f"{self._ai_provider_label(applied_provider)}/{applied_model}"
-                if applied_provider and applied_model
-                else (self._ai_provider_label(applied_provider) if applied_provider else "미적용")
+            applied_provider_text = (
+                self._ai_provider_label(applied_provider) if applied_provider else "미적용"
             )
+            applied_text = (
+                f"{applied_provider_text} · {applied_model}"
+                if applied_provider and applied_model
+                else applied_provider_text
+            )
+            card_model_text = applied_model if applied_provider and applied_model else "-"
+            card_color_provider = applied_provider or selected_provider or "basic"
+            last_checked_text = (
+                getattr(self, "_ai_engine_last_checked_text", "") or "미확인"
+            ).strip() or "미확인"
             summary = getattr(self, "lbl_aits_ops_summary", None)
             if summary is not None:
                 summary.setText(
@@ -10416,22 +10463,78 @@ class MainWindow(QMainWindow):
             applied_lb = getattr(self, "_lbl_engine_card_applied", None)
             status_lb = getattr(self, "_lbl_engine_card_status", None)
             dot_lb = getattr(self, "_lbl_engine_card_status_dot", None)
+            badge_lb = getattr(self, "_lbl_engine_card_status_badge", None)
+            last_lb = getattr(self, "_lbl_engine_card_last_checked", None)
             if sel_lb is not None:
-                sel_lb.setText(f"선택: {selected_text}")
+                sel_lb.setText("")
+                try:
+                    sel_lb.setVisible(False)
+                except Exception:
+                    pass
+            sel_title_lb = getattr(self, "_lbl_engine_card_selected_title", None)
+            if sel_title_lb is not None:
+                try:
+                    sel_title_lb.setVisible(False)
+                except Exception:
+                    pass
+            applied_title_lb = getattr(self, "_lbl_engine_card_applied_title", None)
+            if applied_title_lb is not None:
+                try:
+                    applied_title_lb.setVisible(False)
+                except Exception:
+                    pass
             if model_lb is not None:
-                model_lb.setText(f"모델: {selected_model}")
+                model_lb.setText(f"모델: {card_model_text}")
+                try:
+                    model_lb.setStyleSheet(
+                        "color:#334155;font-size:11px;font-weight:700;"
+                        "background:transparent;border:none;"
+                    )
+                except Exception:
+                    pass
             if applied_lb is not None:
-                applied_lb.setText(f"적용: {applied_text}")
+                applied_lb.setText(f"적용: {applied_provider_text}")
+                try:
+                    applied_lb.setStyleSheet(
+                        f"color:{self._provider_badge_color(card_color_provider)};"
+                        "font-size:12px;font-weight:800;"
+                        "background:transparent;border:none;"
+                    )
+                except Exception:
+                    pass
             if status_lb is not None:
                 status_lb.setText(f"상태: {status}")
+            if last_lb is not None:
+                last_lb.setText(last_checked_text)
+                try:
+                    last_lb.setVisible(False)
+                except Exception:
+                    pass
             if dot_lb is not None:
-                color = "#22c55e" if status == "정상" else ("#ef4444" if status == "실패" else "#f97316")
+                color = self._status_badge_color(status)
                 dot_lb.setText("●")
                 dot_lb.setStyleSheet(
                     f"color:{color}; font-size:11px; font-weight:800; "
                     "background:transparent; border:none;"
                 )
-            self._update_ai_engine_icon(selected_provider)
+            if badge_lb is not None:
+                badge_lb.setText("")
+                try:
+                    badge_lb.setVisible(False)
+                except Exception:
+                    pass
+            frame = getattr(self, "_frame_aits_engine_card", None)
+            if frame is not None:
+                accent = self._provider_badge_color(card_color_provider)
+                frame.setStyleSheet(
+                    "QFrame#aitsEngineSummaryCard {"
+                    "background:#ffffff;"
+                    f"border:1px solid {accent};"
+                    "border-radius:12px;"
+                    "font-family:'Noto Sans KR','Malgun Gothic',sans-serif;"
+                    "}"
+                )
+            self._update_ai_engine_icon(card_color_provider)
         except Exception:
             pass
 
@@ -22084,6 +22187,10 @@ class MainWindow(QMainWindow):
         if not self.btn_save.text().strip():
             self.btn_save.setText("저장")
             self._log.info('[SAVE-UI] btn_save_text="저장" (fixed)')
+        try:
+            self.btn_save.setToolTip("현재 공통설정/엔진/API 설정을 저장합니다.")
+        except Exception:
+            pass
         self.btn_test = getattr(self, "btn_test", QPushButton("업비트 연결 테스트"))
 
         # 시세 조회 주기 / 상위20 갱신(분) — Upbit 연결 카드 내부로 배치
@@ -24423,7 +24530,23 @@ class MainWindow(QMainWindow):
                         gemini_key_loaded = (st_dict.get("ai_gemini_api_key") or "")
                         if hasattr(gemini_key_loaded, "get_secret_value"):
                             gemini_key_loaded = gemini_key_loaded.get_secret_value() or ""
+                        gemini_key_loaded = str(gemini_key_loaded or "").strip()
                         self.ed_gemini_key.setText(str(gemini_key_loaded or ""))
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, "ed_openai_key") and bool(
+                        (self.ed_openai_key.text() or "").strip()
+                    ):
+                        self._set_ai_key_status_label(
+                            "openai", "API Key 저장됨 · 연결 테스트 필요"
+                        )
+                    if hasattr(self, "ed_gemini_key") and bool(
+                        (self.ed_gemini_key.text() or "").strip()
+                    ):
+                        self._set_ai_key_status_label(
+                            "gemini", "API Key 저장됨 · 연결 테스트 필요"
+                        )
                 except Exception:
                     pass
                 # ✅ GPT 모델 로드: 저장된 모델이 드롭다운에 있으면 선택, 없으면 기본값
@@ -24543,8 +24666,12 @@ class MainWindow(QMainWindow):
                 ai_keys_updated.append('strategy.ai_provider')
             if 'ai_openai_api_key' in st_patch:
                 ai_keys_updated.append('strategy.ai_openai_api_key')
+            if 'ai_gemini_api_key' in st_patch:
+                ai_keys_updated.append('strategy.ai_gemini_api_key')
             if 'ai_openai_model' in st_patch:
                 ai_keys_updated.append('strategy.ai_openai_model')
+            if 'ai_gemini_model' in st_patch:
+                ai_keys_updated.append('strategy.ai_gemini_model')
             if 'ai_local_url' in st_patch:
                 ai_keys_updated.append('strategy.ai_local_url')
             if 'ai_local_model' in st_patch:
@@ -24820,12 +24947,18 @@ class MainWindow(QMainWindow):
             patch["strategy"]["ai_provider"] = ui_ai_provider
             if hasattr(self, "ed_openai_key"):
                 openai_key_input = self.ed_openai_key.text().strip()
-                if openai_key_input:
-                    patch["strategy"]["ai_openai_api_key"] = openai_key_input
+                patch["strategy"]["ai_openai_api_key"] = openai_key_input
             if hasattr(self, "ed_gemini_key"):
                 gemini_key_input = self.ed_gemini_key.text().strip()
-                if gemini_key_input:
-                    patch["strategy"]["ai_gemini_api_key"] = gemini_key_input
+                patch["strategy"]["ai_gemini_api_key"] = gemini_key_input
+            if hasattr(self, "ed_openai_model"):
+                patch["strategy"]["ai_openai_model"] = self._current_model_id(
+                    self.ed_openai_model, "gpt-5.5-instant"
+                )
+            if hasattr(self, "cmb_gemini_model"):
+                patch["strategy"]["ai_gemini_model"] = self._current_model_id(
+                    self.cmb_gemini_model, "gemini-2.5-flash"
+                )
 
             # ✅ 선택된 박스만 patch에 반영. 반대쪽 필드는 patch에서 제거해 merge 시 기존값 유지.
             if ui_ai_provider == "gpt":
@@ -24862,7 +24995,6 @@ class MainWindow(QMainWindow):
                     patch["strategy"]["ai_local_url"] = self.inp_local_url.text().strip() or "http://127.0.0.1:11434"
                 if hasattr(self, "cmb_local_model"):
                     patch["strategy"]["ai_local_model"] = (self.cmb_local_model.currentText() or "").strip() or "qwen2.5"
-                patch["strategy"].pop("ai_openai_model", None)
 
             # patch["strategy"]["ai_provider"]가 UI와 다르면 경고
             if patch.get("strategy", {}).get("ai_provider") != ui_ai_provider:
@@ -24938,6 +25070,50 @@ class MainWindow(QMainWindow):
                 logger = logging.getLogger(__name__)
                 logger.error("설정 저장 실패: _apply_settings_patch returned False")
                 raise RuntimeError("설정 저장 실패: 디스크 저장 또는 검증 실패")
+
+            try:
+                from app.utils.prefs import load_settings as _load_common_settings_verify
+                _verify_settings = _load_common_settings_verify()
+                _verify_strategy = getattr(_verify_settings, "strategy", None)
+                _verify_openai_key = getattr(_verify_strategy, "ai_openai_api_key", "") if _verify_strategy else ""
+                if hasattr(_verify_openai_key, "get_secret_value"):
+                    _verify_openai_key = _verify_openai_key.get_secret_value() or ""
+                _verify_gemini_key = getattr(_verify_strategy, "ai_gemini_api_key", "") if _verify_strategy else ""
+                if hasattr(_verify_gemini_key, "get_secret_value"):
+                    _verify_gemini_key = _verify_gemini_key.get_secret_value() or ""
+                _verify_provider_ok = bool(
+                    (getattr(_verify_strategy, "ai_provider", "") if _verify_strategy else "")
+                )
+                _verify_openai_model_ok = bool(
+                    (getattr(_verify_strategy, "ai_openai_model", "") if _verify_strategy else "")
+                )
+                _verify_gemini_model_ok = bool(
+                    (getattr(_verify_strategy, "ai_gemini_model", "") if _verify_strategy else "")
+                )
+                _verify_openai_has_key = bool(str(_verify_openai_key or "").strip())
+                _verify_gemini_has_key = bool(str(_verify_gemini_key or "").strip())
+                _requested_openai_has_key = bool(
+                    (patch.get("strategy", {}).get("ai_openai_api_key", "") or "").strip()
+                )
+                _requested_gemini_has_key = bool(
+                    (patch.get("strategy", {}).get("ai_gemini_api_key", "") or "").strip()
+                )
+                self._log.info(
+                    "[AITS][GUI] common_settings_saved | openai_key=%s | gemini_key=%s",
+                    _verify_openai_has_key,
+                    _verify_gemini_has_key,
+                )
+                _common_verify_ok = (
+                    _verify_provider_ok
+                    and _verify_openai_model_ok
+                    and _verify_gemini_model_ok
+                    and ((not _requested_openai_has_key) or _verify_openai_has_key)
+                    and ((not _requested_gemini_has_key) or _verify_gemini_has_key)
+                )
+                if not _common_verify_ok:
+                    raise RuntimeError("common_settings_verify_failed")
+            except Exception:
+                raise RuntimeError("공통설정 저장 검증 실패")
 
             # ✅ P0-C: Verify prefs values after save (use self._settings which was updated by _apply_settings_patch)
             try:
@@ -25059,11 +25235,21 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-            QMessageBox.information(self, "저장", "설정이 저장되었습니다.")
+            try:
+                self.set_status_msg("공통설정 저장 완료 · API Key 복원 가능", "#15803d")
+            except Exception:
+                pass
+            QMessageBox.information(
+                self, "저장", "공통설정 저장 완료 · API Key 복원 가능"
+            )
         except Exception as e:
             # ✅ P0-1: Log save failure
             self._log.error(f"[AI-KEY] save_failed err={repr(e)}")
-            QMessageBox.critical(self, "오류", f"저장 실패: {e}")
+            try:
+                self.set_status_msg("공통설정 저장 실패 · 로그 확인", "#dc2626")
+            except Exception:
+                pass
+            QMessageBox.critical(self, "오류", "공통설정 저장 실패 · 로그 확인")
 
     def on_watchlist_apply_symbols(self, symbols: list[str]) -> None:
         """
@@ -28843,6 +29029,30 @@ QLabel[kpiEngineValue="true"]{
     color:#667085;
     font-size:10px;
     font-weight:600;
+    background:transparent;
+    border:none;
+}
+
+QLabel[engineCardFieldLabel="true"]{
+    color:#6B7280;
+    font-size:9px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[engineAppliedValue="true"]{
+    color:#111827;
+    font-size:12px;
+    font-weight:700;
+    background:transparent;
+    border:none;
+}
+
+QLabel[engineStatusBadge="true"]{
+    color:#2563eb;
+    font-size:10px;
+    font-weight:800;
     background:transparent;
     border:none;
 }
