@@ -2110,6 +2110,15 @@ class DecisionRouter:
                     f"basic_skip={stats.get('basic_skip', 0)} | "
                     "applied=False"
                 )
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] ai_suggestion_stats_compact | "
+                    f"window={stats.get('window', 100)} | "
+                    f"total={stats.get('total_count', 0)} | "
+                    f"confirm={stats.get('confirm_count', 0)} | "
+                    f"reject={stats.get('reject_count', 0)} | "
+                    f"skip={stats.get('skip_count', 0)} | "
+                    "applied=0"
+                )
 
             self._safe_log_info(
                 "[AITS][AIVerification] recorded | "
