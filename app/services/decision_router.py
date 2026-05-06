@@ -2096,6 +2096,18 @@ class DecisionRouter:
                     f"confirm={stats.get('confirm_count', 0)} | "
                     f"reject={stats.get('reject_count', 0)} | "
                     f"skip={stats.get('skip_count', 0)} | "
+                    f"openai={stats.get('openai_count', 0)} | "
+                    f"gemini={stats.get('gemini_count', 0)} | "
+                    f"basic={stats.get('basic_count', 0)} | "
+                    f"openai_confirm={stats.get('openai_confirm', 0)} | "
+                    f"openai_reject={stats.get('openai_reject', 0)} | "
+                    f"openai_skip={stats.get('openai_skip', 0)} | "
+                    f"gemini_confirm={stats.get('gemini_confirm', 0)} | "
+                    f"gemini_reject={stats.get('gemini_reject', 0)} | "
+                    f"gemini_skip={stats.get('gemini_skip', 0)} | "
+                    f"basic_confirm={stats.get('basic_confirm', 0)} | "
+                    f"basic_reject={stats.get('basic_reject', 0)} | "
+                    f"basic_skip={stats.get('basic_skip', 0)} | "
                     "applied=False"
                 )
 
@@ -2324,6 +2336,18 @@ class DecisionRouter:
             "confirm_count": 0,
             "reject_count": 0,
             "skip_count": 0,
+            "openai_count": 0,
+            "gemini_count": 0,
+            "basic_count": 0,
+            "openai_confirm": 0,
+            "openai_reject": 0,
+            "openai_skip": 0,
+            "gemini_confirm": 0,
+            "gemini_reject": 0,
+            "gemini_skip": 0,
+            "basic_confirm": 0,
+            "basic_reject": 0,
+            "basic_skip": 0,
         }
         try:
             records = list(getattr(self, "shadow_history", []) or [])
@@ -2334,17 +2358,31 @@ class DecisionRouter:
                 ai_suggestion = row.get("ai_suggestion")
                 if isinstance(ai_suggestion, dict):
                     suggestion = str(ai_suggestion.get("suggestion") or "").strip().lower()
+                    provider = str(ai_suggestion.get("provider") or "").strip().lower()
                 else:
                     suggestion = str(ai_suggestion or "").strip().lower()
+                    provider = ""
                 if not suggestion:
                     continue
                 stats["total_count"] += 1
+                if provider in ("openai", "gpt", "chatgpt"):
+                    provider_bucket = "openai"
+                    stats["openai_count"] += 1
+                elif provider in ("gemini", "google", "google_gemini"):
+                    provider_bucket = "gemini"
+                    stats["gemini_count"] += 1
+                else:
+                    provider_bucket = "basic"
+                    stats["basic_count"] += 1
                 if suggestion == "confirm":
                     stats["confirm_count"] += 1
+                    stats[f"{provider_bucket}_confirm"] += 1
                 elif suggestion == "reject_signal":
                     stats["reject_count"] += 1
+                    stats[f"{provider_bucket}_reject"] += 1
                 elif suggestion == "skip":
                     stats["skip_count"] += 1
+                    stats[f"{provider_bucket}_skip"] += 1
             return stats
         except Exception:
             return stats
