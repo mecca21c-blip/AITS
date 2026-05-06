@@ -3319,6 +3319,53 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
+    def _get_ai_engine_icon_path(self, provider: str) -> str:
+        try:
+            provider = self._normalize_ai_provider_code(provider)
+        except Exception:
+            provider = str(provider or "").strip().lower()
+        filename = {
+            "basic": "ai_basic.png",
+            "gpt": "ai_openai.png",
+            "openai": "ai_openai.png",
+            "gemini": "ai_gemini.png",
+        }.get(provider, "ai_basic.png")
+        try:
+            base_dir = Path(__file__).resolve().parents[2]
+        except Exception:
+            base_dir = Path.cwd()
+        return str(base_dir / "assets" / "icons" / filename)
+
+    def _update_ai_engine_icon(self, provider: str) -> None:
+        try:
+            label = getattr(self, "_lbl_header_engine_icon", None)
+            if label is None:
+                return
+            path = self._get_ai_engine_icon_path(provider)
+            if not Path(path).exists():
+                self._set_label_png_if_exists(label, "header_ai_engine_icon.png")
+                return
+            pm = QPixmap(path)
+            if pm.isNull():
+                self._set_label_png_if_exists(label, "header_ai_engine_icon.png")
+                return
+            try:
+                label.setScaledContents(False)
+                label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            except Exception:
+                pass
+            label.setPixmap(
+                pm.scaled(
+                    28,
+                    28,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            label.setText("")
+        except Exception:
+            pass
+
     def _refresh_header_png_slots(self) -> None:
         try:
             btn = getattr(self, "btn_run_toggle", None)
@@ -3361,10 +3408,26 @@ class MainWindow(QMainWindow):
 
         try:
             if hasattr(self, "_lbl_header_engine_icon"):
-                ok = self._set_label_png_if_exists(
-                    self._lbl_header_engine_icon,
-                    "header_ai_engine_icon.png",
-                )
+                provider = getattr(self, "_selected_ai_provider", "basic")
+                icon_path = self._get_ai_engine_icon_path(provider)
+                ok = False
+                if Path(icon_path).exists():
+                    pm = QPixmap(icon_path)
+                    if not pm.isNull():
+                        self._lbl_header_engine_icon.setPixmap(
+                            pm.scaled(
+                                28,
+                                28,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                        )
+                        ok = True
+                if not ok:
+                    ok = self._set_label_png_if_exists(
+                        self._lbl_header_engine_icon,
+                        "header_ai_engine_icon.png",
+                    )
                 if ok:
                     try:
                         self._lbl_header_engine_icon.setText("")
@@ -3815,13 +3878,16 @@ class MainWindow(QMainWindow):
             return lb
 
         h.addWidget(_bar_lbl("선택 엔진"))
-        h.addWidget(_AitsColorChip("#3B82F6", "Basic", "topChipTextBlue", left))
+        self._chip_selected_engine = _AitsColorChip("#3B82F6", "Basic", "topChipTextBlue", left)
+        h.addWidget(self._chip_selected_engine)
         h.addSpacing(12)
         h.addWidget(_bar_lbl("실제 엔진"))
-        h.addWidget(_AitsColorChip("#22C55E", "Basic", "topChipTextGreen", left))
+        self._chip_applied_engine = _AitsColorChip("#22C55E", "미적용", "topChipTextGreen", left)
+        h.addWidget(self._chip_applied_engine)
         h.addSpacing(12)
         h.addWidget(_bar_lbl("연결 상태"))
-        h.addWidget(_AitsColorChip("#F59E0B", "확인중", "topChipTextOrange", left))
+        self._chip_connection_status = _AitsColorChip("#F59E0B", "미확인", "topChipTextOrange", left)
+        h.addWidget(self._chip_connection_status)
         h.addSpacing(8)
         h.addWidget(_AitsTopBarDivider(left))
         h.addSpacing(8)
@@ -4537,6 +4603,11 @@ class MainWindow(QMainWindow):
         self._settings = None
         # 선택된 엔진과 분리된 "실제 적용 엔진" 상태 (gpt/gemini/basic)
         self._active_ai_engine = "basic"
+        self._selected_ai_provider = "basic"
+        self._selected_ai_model = "qwen2.5"
+        self._applied_ai_provider = ""
+        self._applied_ai_model = ""
+        self._ai_connection_status = "미확인"
         # AITS 관리 종목군 / 전체 시장 탐색(ag-Grid 스타일 원칙 → Qt 테이블 골격)
         # 상단 row 예: symbol, name, price, change_rate, source(AI|USER), ai_status, target_price, stop_loss, pnl, locked
         # 하단 row 예: symbol, name, price, change_rate, volume_24h
@@ -5834,6 +5905,16 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        self._lbl_engine_card_applied = QLabel("적용: 미적용", _eng_text_host)
+        self._lbl_engine_card_applied.setProperty("kpiEngineValue", True)
+        self._lbl_engine_card_applied.setWordWrap(False)
+        try:
+            self._lbl_engine_card_applied.setAlignment(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+            )
+        except Exception:
+            pass
+
         self._eng_card_model_row = QWidget(_eng_text_host)
         _eng_mrow_ly = QHBoxLayout(self._eng_card_model_row)
         _eng_mrow_ly.setContentsMargins(0, 0, 0, 0)
@@ -5876,6 +5957,7 @@ class MainWindow(QMainWindow):
 
         _eng_text_v.addWidget(self._lbl_aits_engine_card_title)
         _eng_text_v.addWidget(self._lbl_engine_card_selected)
+        _eng_text_v.addWidget(self._lbl_engine_card_applied)
         _eng_text_v.addWidget(self._eng_card_model_row)
         try:
             _eng_text_host.setSizePolicy(
@@ -5984,7 +6066,7 @@ class MainWindow(QMainWindow):
             pass
 
         self.lbl_aits_ops_summary = QLabel(
-            "선택엔진: Basic | 실제엔진: Basic | 연결상태: 확인중 | 모드: 비활성"
+            "선택 엔진: Basic | 실제 엔진: 미적용 | 연결 상태: 미확인"
         )
         self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
         self.lbl_aits_ops_summary.setProperty("topSubText", True)
@@ -9778,10 +9860,8 @@ class MainWindow(QMainWindow):
                 mode_raw, mode_raw
             )
 
-            out = (
-                f"선택엔진: {sel_txt} | 실제엔진: {act_txt} | 연결상태: {conn} | 모드: {mode_kr}"
-            )
-            w.setText(out)
+            self._render_ai_engine_state()
+            return
 
             tier = "ok"
             if err or ("연결오류" in conn) or (conn == "오류"):
@@ -10022,13 +10102,13 @@ class MainWindow(QMainWindow):
             self.ed_openai_key.setReadOnly(False)
             self.ed_openai_key.setPlaceholderText("OpenAI API Key")
         if hasattr(self, "ed_openai_model"):
-            self.ed_openai_model.setEnabled(gpt_only)
+            self._configure_ai_model_combo(self.ed_openai_model)
         if hasattr(self, "ed_gemini_key"):
             self.ed_gemini_key.setEnabled(True)
             self.ed_gemini_key.setReadOnly(False)
             self.ed_gemini_key.setPlaceholderText("Gemini API Key")
         if hasattr(self, "cmb_gemini_model"):
-            self.cmb_gemini_model.setEnabled(gemini_only)
+            self._configure_ai_model_combo(self.cmb_gemini_model)
         if hasattr(self, "btn_test_gpt"):
             self.btn_test_gpt.setEnabled(gpt_only)
         if hasattr(self, "btn_test_gemini"):
@@ -10076,7 +10156,7 @@ class MainWindow(QMainWindow):
 
         # 우측상단 배지 + 큰 박스: 선택 엔진 SSOT 기준으로 갱신
         try:
-            self._update_engine_ui_ssot()
+            self._mark_ai_selection_changed(provider)
         except Exception as e:
             self._log.warning("[UI-AI-STATUS] ERROR: %s", str(e)[:80])
 
@@ -10102,31 +10182,285 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _set_ai_engine_card_test_status(self, provider: str, connection: str, state: str):
-        provider = (provider or "").strip().lower()
-        if provider in ("openai", "gpt", "chatgpt"):
-            provider_label = "OpenAI"
-        elif provider in ("gemini", "google", "google_gemini"):
-            provider_label = "Gemini"
-        else:
-            provider_label = "Basic"
+    def _configure_ai_model_combo(self, combo):
         try:
-            selected_label = getattr(self, "_lbl_engine_card_selected", None)
-            connection_label = getattr(self, "_lbl_engine_card_model", None)
-            state_label = getattr(self, "_lbl_engine_card_status", None)
-            dot_label = getattr(self, "_lbl_engine_card_status_dot", None)
-            if selected_label is not None:
-                selected_label.setText(f"선택: {provider_label}")
-            if connection_label is not None:
-                connection_label.setText(f"연결: {connection}")
-            if state_label is not None:
-                state_label.setText(f"상태: {state}")
-            if dot_label is not None:
-                dot_label.setText("●")
-                dot_label.setStyleSheet(
-                    "color:#f97316; font-size:11px; font-weight:800; "
+            if combo is not None:
+                combo.setEnabled(True)
+                combo.setEditable(False)
+                combo.setFocusPolicy(Qt.StrongFocus)
+                combo.setMinimumHeight(34)
+                combo.setMinimumWidth(240)
+        except Exception:
+            pass
+
+    def _openai_model_items(self):
+        return [
+            ("최신 고급 · GPT-5.5 — 최고 성능 판단", "gpt-5.5"),
+            ("최신 고속 · GPT-5.5 Instant — 빠른 판단", "gpt-5.5-instant"),
+            ("최신 균형 · GPT-5.4 — 고급 분석", "gpt-5.4"),
+            ("경량 고속 · GPT-5.3 Instant — 빠른 응답", "gpt-5.3-instant"),
+            ("추론형 · o4-mini — 비용 효율 추론", "o4-mini"),
+            ("안정 fallback · GPT-4o mini — 호환성", "gpt-4o-mini"),
+        ]
+
+    def _gemini_model_items(self):
+        return [
+            ("무료 기본 · Gemini 1.5 Flash — 빠른 응답", "gemini-1.5-flash"),
+            ("무료 최신 · Gemini 3 Flash — 최신 Flash 계열", "gemini-3-flash"),
+            ("유료 기본 · Gemini 1.5 Pro — 긴 문서·코드", "gemini-1.5-pro"),
+            ("유료 상위 · Gemini 3.1 Pro — 복잡한 추론", "gemini-3.1-pro"),
+            ("유료 상위 · Gemini 3.1 Flash-Lite — 저비용 고속", "gemini-3.1-flash-lite"),
+            ("안정 fallback · Gemini 2.5 Flash — 연결 검증 완료", "gemini-2.5-flash"),
+        ]
+
+    def _fill_model_combo(self, combo, items):
+        try:
+            combo.clear()
+            for label, model_id in items:
+                combo.addItem(label, model_id)
+            self._configure_ai_model_combo(combo)
+        except Exception:
+            pass
+
+    def _current_model_id(self, combo, default_model: str) -> str:
+        try:
+            model_id = combo.currentData()
+            model_id = (str(model_id or "").strip() or str(combo.currentText() or "").strip())
+            return model_id or default_model
+        except Exception:
+            return default_model
+
+    def _set_combo_current_model_id(self, combo, model_id: str, default_model: str):
+        try:
+            target = (model_id or default_model or "").strip()
+            idx = -1
+            for i in range(combo.count()):
+                data = str(combo.itemData(i) or "").strip()
+                text = str(combo.itemText(i) or "").strip()
+                if data == target or text == target:
+                    idx = i
+                    break
+            if idx < 0 and default_model:
+                for i in range(combo.count()):
+                    if str(combo.itemData(i) or "").strip() == default_model:
+                        idx = i
+                        break
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self._configure_ai_model_combo(combo)
+        except Exception:
+            pass
+
+    def _normalize_ai_provider_code(self, provider: str) -> str:
+        p = (provider or "basic").strip().lower()
+        if p in ("openai", "chatgpt", "gpt"):
+            return "gpt"
+        if p in ("google", "google_gemini", "gemini"):
+            return "gemini"
+        if p in ("local", "basic", "none", ""):
+            return "basic"
+        return p
+
+    def _ai_provider_label(self, provider: str) -> str:
+        p = self._normalize_ai_provider_code(provider)
+        if p == "gpt":
+            return "OpenAI"
+        if p == "gemini":
+            return "Gemini"
+        if p == "basic":
+            return "Basic"
+        return str(provider or "미적용")
+
+    def _get_selected_ai_model(self, provider: str = "") -> str:
+        p = self._normalize_ai_provider_code(provider or getattr(self, "_selected_ai_provider", "basic"))
+        try:
+            if p == "gpt" and hasattr(self, "ed_openai_model"):
+                return self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+            if p == "gemini" and hasattr(self, "cmb_gemini_model"):
+                return self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash")
+            if hasattr(self, "cmb_local_model"):
+                return (self.cmb_local_model.currentText() or "qwen2.5").strip() or "qwen2.5"
+        except Exception:
+            pass
+        if p == "gpt":
+            return "gpt-5.5-instant"
+        if p == "gemini":
+            return "gemini-2.5-flash"
+        return "qwen2.5"
+
+    def _provider_badge_color(self, provider: str) -> str:
+        p = self._normalize_ai_provider_code(provider)
+        return {
+            "basic": "#3B82F6",
+            "gpt": "#10A37F",
+            "gemini": "#4285F4",
+        }.get(p, "#64748B")
+
+    def _status_badge_color(self, status: str) -> str:
+        s = str(status or "").strip()
+        if s == "정상":
+            return "#22C55E"
+        if s == "실패":
+            return "#EF4444"
+        if s == "확인중":
+            return "#F59E0B"
+        return "#94A3B8"
+
+    def _set_top_status_chip(self, chip, text: str, color: str) -> None:
+        try:
+            if chip is None:
+                return
+            text_label = getattr(chip, "_text", None)
+            color_box = getattr(chip, "_chip", None)
+            if text_label is not None:
+                text_label.setText(text)
+            if color_box is not None:
+                color_box.setStyleSheet(
+                    "background-color: %s; border: none; border-radius: 3px;" % color
+                )
+        except Exception:
+            pass
+
+    def _mark_ai_selection_changed(self, provider: str = ""):
+        try:
+            selected_provider = self._normalize_ai_provider_code(
+                provider or getattr(self, "_ai_provider_box_active", "basic")
+            )
+            self._selected_ai_provider = selected_provider
+            self._selected_ai_model = self._get_selected_ai_model(selected_provider)
+            self._ai_connection_status = "테스트 필요"
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
+    def _set_ai_test_status(self, status: str):
+        try:
+            self._ai_connection_status = (status or "미확인").strip() or "미확인"
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
+    def _apply_selected_ai_engine(self, provider: str = "", model: str = ""):
+        try:
+            selected_provider = self._normalize_ai_provider_code(
+                provider or getattr(self, "_selected_ai_provider", "basic")
+            )
+            self._selected_ai_provider = selected_provider
+            if model:
+                self._selected_ai_model = model
+            else:
+                self._selected_ai_model = self._get_selected_ai_model(selected_provider)
+            self._applied_ai_provider = selected_provider
+            self._applied_ai_model = self._selected_ai_model
+            self._ai_connection_status = "정상"
+            self._active_ai_engine = selected_provider
+            if selected_provider == "basic":
+                self._last_response_provider = "basic"
+            elif selected_provider == "gpt":
+                self._last_response_provider = "gpt"
+            elif selected_provider == "gemini":
+                self._last_response_provider = "gemini"
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
+    def _render_ai_engine_state(self):
+        try:
+            selected_provider = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+            selected_model = (getattr(self, "_selected_ai_model", "") or "").strip()
+            if not selected_model:
+                selected_model = self._get_selected_ai_model(selected_provider)
+                self._selected_ai_model = selected_model
+            applied_provider = self._normalize_ai_provider_code(
+                getattr(self, "_applied_ai_provider", "")
+            ) if getattr(self, "_applied_ai_provider", "") else ""
+            applied_model = (getattr(self, "_applied_ai_model", "") or "").strip()
+            status = (getattr(self, "_ai_connection_status", "") or "미확인").strip() or "미확인"
+            selected_text = self._ai_provider_label(selected_provider)
+            applied_text = (
+                f"{self._ai_provider_label(applied_provider)}/{applied_model}"
+                if applied_provider and applied_model
+                else (self._ai_provider_label(applied_provider) if applied_provider else "미적용")
+            )
+            summary = getattr(self, "lbl_aits_ops_summary", None)
+            if summary is not None:
+                summary.setText(
+                    f"선택 엔진: {selected_text} | 실제 엔진: {applied_text} | 연결 상태: {status}"
+                )
+            self._set_top_status_chip(
+                getattr(self, "_chip_selected_engine", None),
+                selected_text,
+                self._provider_badge_color(selected_provider),
+            )
+            self._set_top_status_chip(
+                getattr(self, "_chip_applied_engine", None),
+                applied_text,
+                self._provider_badge_color(applied_provider) if applied_provider else "#94A3B8",
+            )
+            self._set_top_status_chip(
+                getattr(self, "_chip_connection_status", None),
+                status,
+                self._status_badge_color(status),
+            )
+            try:
+                if getattr(self, "lbl_engine_status", None) is not None:
+                    self.lbl_engine_status.setText(f"AI Engine | {selected_text}")
+                    self.lbl_engine_status.setStyleSheet(
+                        self._get_aits_engine_box_style(selected_provider)
+                    )
+            except Exception:
+                pass
+            sel_lb = getattr(self, "_lbl_engine_card_selected", None)
+            model_lb = getattr(self, "_lbl_engine_card_model", None)
+            applied_lb = getattr(self, "_lbl_engine_card_applied", None)
+            status_lb = getattr(self, "_lbl_engine_card_status", None)
+            dot_lb = getattr(self, "_lbl_engine_card_status_dot", None)
+            if sel_lb is not None:
+                sel_lb.setText(f"선택: {selected_text}")
+            if model_lb is not None:
+                model_lb.setText(f"모델: {selected_model}")
+            if applied_lb is not None:
+                applied_lb.setText(f"적용: {applied_text}")
+            if status_lb is not None:
+                status_lb.setText(f"상태: {status}")
+            if dot_lb is not None:
+                color = "#22c55e" if status == "정상" else ("#ef4444" if status == "실패" else "#f97316")
+                dot_lb.setText("●")
+                dot_lb.setStyleSheet(
+                    f"color:{color}; font-size:11px; font-weight:800; "
                     "background:transparent; border:none;"
                 )
+            self._update_ai_engine_icon(selected_provider)
+        except Exception:
+            pass
+
+    def _refresh_ai_engine_card_model_from_combo(self, provider: str):
+        self._mark_ai_selection_changed(provider)
+
+    def _set_ai_engine_card_test_status(
+        self, provider: str, connection: str, state: str, model_name: str = ""
+    ):
+        try:
+            p = self._normalize_ai_provider_code(provider)
+            if p in ("gpt", "gemini", "basic"):
+                self._selected_ai_provider = p
+            if model_name:
+                self._selected_ai_model = model_name
+            else:
+                self._selected_ai_model = self._get_selected_ai_model(p)
+            text = f"{connection} {state}".strip()
+            if "정상" in text:
+                self._ai_connection_status = "정상"
+            elif "실패" in text or "없음" in text or "필요" in text and "설치" in text:
+                self._ai_connection_status = "실패"
+            elif "확인 중" in text or "확인중" in text or "연결 확인" in text:
+                self._ai_connection_status = "확인중"
+            elif "필요" in text:
+                self._ai_connection_status = "테스트 필요"
+            else:
+                self._ai_connection_status = state or "미확인"
+            self._render_ai_engine_state()
         except Exception:
             pass
 
@@ -10153,7 +10487,8 @@ class MainWindow(QMainWindow):
             return
         self.cmb_ai_model.clear()
         if eng == "OpenAI":
-            self.cmb_ai_model.addItems(["gpt-4o-mini", "gpt-4o"])
+            for label, model_id in self._openai_model_items():
+                self.cmb_ai_model.addItem(label, model_id)
             if hasattr(self, "ed_ai_api_key"):
                 self.ed_ai_api_key.setEnabled(True)
                 self.ed_ai_api_key.setPlaceholderText("OpenAI API Key")
@@ -10162,7 +10497,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         elif eng == "Gemini":
-            self.cmb_ai_model.addItems(["gemini-1.5-pro", "gemini-1.5-flash"])
+            for label, model_id in self._gemini_model_items():
+                self.cmb_ai_model.addItem(label, model_id)
             if hasattr(self, "ed_ai_api_key"):
                 self.ed_ai_api_key.setEnabled(True)
                 self.ed_ai_api_key.setPlaceholderText("Gemini API Key")
@@ -19808,17 +20144,9 @@ class MainWindow(QMainWindow):
                 if custom_model:
                     model = custom_model
             if not model and hasattr(self, "ed_openai_model"):
-                model_id = self.ed_openai_model.currentData()
-                if model_id:
-                    model = model_id
-                else:
-                    current_text = (self.ed_openai_model.currentText() or "").strip()
-                    for model_info in getattr(self, "KMTS_GPT_MODELS", []):
-                        if model_info.get("label") == current_text:
-                            model = model_info.get("id", "")
-                            break
+                model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
             if not model:
-                model = "gpt-4o-mini"
+                model = "gpt-5.5-instant"
 
             self._aits_main_reco_inflight = True
             self._aits_main_reco_last_started_ts = now_ts
@@ -21851,50 +22179,43 @@ class MainWindow(QMainWindow):
         self.ed_openai_key.setEnabled(True)
         self.ed_openai_key.setPlaceholderText("OpenAI API Key")
 
-        # ✅ KMTS 검증된 GPT 모델 리스트 (4개만 노출)
+        # ✅ KMTS 검증된 GPT 모델 리스트
         self.KMTS_GPT_MODELS = [
             {
+                "id": "gpt-5.5",
+                "label": "최신 고급 · GPT-5.5 — 최고 성능 판단",
+                "desc": "최고 성능 판단"
+            },
+            {
+                "id": "gpt-5.5-instant",
+                "label": "최신 고속 · GPT-5.5 Instant — 빠른 판단",
+                "desc": "빠른 판단"
+            },
+            {
+                "id": "gpt-5.4",
+                "label": "최신 균형 · GPT-5.4 — 고급 분석",
+                "desc": "고급 분석"
+            },
+            {
+                "id": "gpt-5.3-instant",
+                "label": "경량 고속 · GPT-5.3 Instant — 빠른 응답",
+                "desc": "빠른 응답"
+            },
+            {
+                "id": "o4-mini",
+                "label": "추론형 · o4-mini — 비용 효율 추론",
+                "desc": "비용 효율 추론"
+            },
+            {
                 "id": "gpt-4o-mini",
-                "label": "gpt-4o-mini (추천)",
-                "desc": "• 평균 응답 빠름 | 1시간 자동매매 예상 비용: $0.1 ~ $0.5 | 초보자 추천 / 자동매매 기본 권장"
+                "label": "안정 fallback · GPT-4o mini — 호환성",
+                "desc": "호환성"
             },
-            {
-                "id": "gpt-4o",
-                "label": "gpt-4o",
-                "desc": "• 정밀도 높음 / 비용 중상 | 변동성 큰 장세에 적합 | 1시간 자동매매 예상 비용: $0.5 ~ $2.0"
-            },
-            {
-                "id": "gpt-4.1",
-                "label": "gpt-4.1",
-                "desc": "• 고급 모델 | 최고 정밀도 | 대형 자금 운용 시 적합 | 비용 높음 (예상: $2.0 ~ $5.0/시간)"
-            },
-            {
-                "id": "gpt-3.5-turbo",
-                "label": "gpt-3.5-turbo",
-                "desc": "• 저비용 테스트용 | 정확도는 낮음 | 학습/테스트 목적으로만 권장"
-            }
         ]
         
         self.ed_openai_model = QComboBox()
-        self.ed_openai_model.setEditable(False)  # 하드코딩 모델만 선택 가능
-        # 검증된 모델만 추가
-        for model_info in self.KMTS_GPT_MODELS:
-            self.ed_openai_model.addItem(model_info["label"], model_info["id"])
-        self.ed_openai_model.setCurrentIndex(0)  # gpt-4o-mini 기본값
-        _old_gpt_model = self.ed_openai_model.currentText()
-        self.ed_openai_model.clear()
-        for _label, _model_id in (
-            ("gpt-4o-mini (추천)", "gpt-4o-mini"),
-            ("gpt-4.1-mini", "gpt-4.1-mini"),
-            ("gpt-4.1", "gpt-4.1"),
-            ("gpt-5-mini", "gpt-5-mini"),
-            ("gpt-5", "gpt-5"),
-        ):
-            self.ed_openai_model.addItem(_label, _model_id)
-        if _old_gpt_model:
-            _idx = self.ed_openai_model.findText(_old_gpt_model)
-            if _idx >= 0:
-                self.ed_openai_model.setCurrentIndex(_idx)
+        self._fill_model_combo(self.ed_openai_model, self._openai_model_items())
+        self._set_combo_current_model_id(self.ed_openai_model, "gpt-5.5-instant", "gpt-5.5-instant")
 
         self.ed_gemini_key = QLineEdit()
         self.ed_gemini_key.setEchoMode(QLineEdit.Password)
@@ -21902,20 +22223,8 @@ class MainWindow(QMainWindow):
         self.ed_gemini_key.setEnabled(True)
         self.ed_gemini_key.setPlaceholderText("Gemini API Key")
         self.cmb_gemini_model = QComboBox()
-        self.cmb_gemini_model.addItems(["gemini-1.5-pro", "gemini-1.5-flash"])
-        _old_gemini_model = self.cmb_gemini_model.currentText()
-        self.cmb_gemini_model.clear()
-        self.cmb_gemini_model.addItems([
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash",
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-        ])
-        if _old_gemini_model:
-            _idx = self.cmb_gemini_model.findText(_old_gemini_model)
-            if _idx >= 0:
-                self.cmb_gemini_model.setCurrentIndex(_idx)
+        self._fill_model_combo(self.cmb_gemini_model, self._gemini_model_items())
+        self._set_combo_current_model_id(self.cmb_gemini_model, "gemini-2.5-flash", "gemini-2.5-flash")
         self.lbl_gemini_test_status = QLabel("⚪ NOT TESTED")
         self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color: #666;")
         
@@ -23253,7 +23562,7 @@ class MainWindow(QMainWindow):
             pass
         _prev_openai_model = ""
         try:
-            _prev_openai_model = self.ed_openai_model.currentText()
+            _prev_openai_model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
         except Exception:
             pass
         _prev_gemini_key = ""
@@ -23263,7 +23572,7 @@ class MainWindow(QMainWindow):
             pass
         _prev_gemini_model = ""
         try:
-            _prev_gemini_model = self.cmb_gemini_model.currentText()
+            _prev_gemini_model = self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash")
         except Exception:
             pass
 
@@ -23274,18 +23583,10 @@ class MainWindow(QMainWindow):
         self.ed_openai_key_new.setPlaceholderText("OpenAI API Key")
         self.ed_openai_key_new.setText(_prev_openai_key)
         self.cmb_openai_model_new = QComboBox()
-        for _label, _model_id in (
-            ("gpt-4o-mini (추천)", "gpt-4o-mini"),
-            ("gpt-4.1-mini", "gpt-4.1-mini"),
-            ("gpt-4.1", "gpt-4.1"),
-            ("gpt-5-mini", "gpt-5-mini"),
-            ("gpt-5", "gpt-5"),
-        ):
-            self.cmb_openai_model_new.addItem(_label, _model_id)
-        if _prev_openai_model:
-            _idx = self.cmb_openai_model_new.findText(_prev_openai_model)
-            if _idx >= 0:
-                self.cmb_openai_model_new.setCurrentIndex(_idx)
+        self._fill_model_combo(self.cmb_openai_model_new, self._openai_model_items())
+        self._set_combo_current_model_id(
+            self.cmb_openai_model_new, _prev_openai_model, "gpt-5.5-instant"
+        )
         self.ed_openai_key = self.ed_openai_key_new
         self.ed_openai_model = self.cmb_openai_model_new
 
@@ -23296,17 +23597,10 @@ class MainWindow(QMainWindow):
         self.ed_gemini_key_new.setPlaceholderText("Gemini API Key")
         self.ed_gemini_key_new.setText(_prev_gemini_key)
         self.cmb_gemini_model_new = QComboBox()
-        self.cmb_gemini_model_new.addItems([
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
-            "gemini-2.0-flash",
-            "gemini-2.5-flash",
-            "gemini-2.5-pro",
-        ])
-        if _prev_gemini_model:
-            _idx = self.cmb_gemini_model_new.findText(_prev_gemini_model)
-            if _idx >= 0:
-                self.cmb_gemini_model_new.setCurrentIndex(_idx)
+        self._fill_model_combo(self.cmb_gemini_model_new, self._gemini_model_items())
+        self._set_combo_current_model_id(
+            self.cmb_gemini_model_new, _prev_gemini_model, "gemini-2.5-flash"
+        )
         self.ed_gemini_key = self.ed_gemini_key_new
         self.cmb_gemini_model = self.cmb_gemini_model_new
         try:
@@ -23315,6 +23609,12 @@ class MainWindow(QMainWindow):
             )
             self.ed_gemini_key.textChanged.connect(
                 lambda _text: self._set_ai_key_status_label("gemini")
+            )
+            self.ed_openai_model.currentIndexChanged.connect(
+                lambda _idx: self._refresh_ai_engine_card_model_from_combo("openai")
+            )
+            self.cmb_gemini_model.currentIndexChanged.connect(
+                lambda _idx: self._refresh_ai_engine_card_model_from_combo("gemini")
             )
         except Exception:
             pass
@@ -23662,22 +23962,13 @@ class MainWindow(QMainWindow):
 
         _prev_openai_text = ""
         try:
-            _prev_openai_text = self.ed_openai_model.currentText()
+            _prev_openai_text = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
         except Exception:
             pass
-        self.ed_openai_model.clear()
-        for _label, _model_id in (
-            ("gpt-4o-mini (추천)", "gpt-4o-mini"),
-            ("gpt-4.1-mini", "gpt-4.1-mini"),
-            ("gpt-4.1", "gpt-4.1"),
-            ("gpt-5-mini", "gpt-5-mini"),
-            ("gpt-5", "gpt-5"),
-        ):
-            self.ed_openai_model.addItem(_label, _model_id)
-        if _prev_openai_text:
-            _openai_idx = self.ed_openai_model.findText(_prev_openai_text)
-            if _openai_idx >= 0:
-                self.ed_openai_model.setCurrentIndex(_openai_idx)
+        self._fill_model_combo(self.ed_openai_model, self._openai_model_items())
+        self._set_combo_current_model_id(
+            self.ed_openai_model, _prev_openai_text, "gpt-5.5-instant"
+        )
 
         _openai_form = QFormLayout()
         _openai_form.setContentsMargins(0, 0, 0, 0)
@@ -23687,28 +23978,20 @@ class MainWindow(QMainWindow):
         _openai_form.addRow("모델", self.ed_openai_model)
         self.btn_engine_openai_test = QPushButton("OpenAI 연결 테스트")
         self.btn_engine_openai_test.setMinimumHeight(32)
+        self.btn_engine_openai_test.clicked.connect(self._on_test_gpt)
         _openai_settings_lay.addLayout(_openai_form)
         _openai_settings_lay.addWidget(self.btn_engine_openai_test)
+        _openai_settings_lay.addWidget(self.lbl_openai_key_status)
 
         _prev_gemini_text = ""
         try:
-            _prev_gemini_text = self.cmb_gemini_model.currentText()
+            _prev_gemini_text = self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash")
         except Exception:
             pass
-        self.cmb_gemini_model.clear()
-        self.cmb_gemini_model.addItems(
-            [
-                "gemini-1.5-flash",
-                "gemini-1.5-pro",
-                "gemini-2.0-flash",
-                "gemini-2.5-flash",
-                "gemini-2.5-pro",
-            ]
+        self._fill_model_combo(self.cmb_gemini_model, self._gemini_model_items())
+        self._set_combo_current_model_id(
+            self.cmb_gemini_model, _prev_gemini_text, "gemini-2.5-flash"
         )
-        if _prev_gemini_text:
-            _gemini_idx = self.cmb_gemini_model.findText(_prev_gemini_text)
-            if _gemini_idx >= 0:
-                self.cmb_gemini_model.setCurrentIndex(_gemini_idx)
 
         _gemini_form = QFormLayout()
         _gemini_form.setContentsMargins(0, 0, 0, 0)
@@ -23718,8 +24001,10 @@ class MainWindow(QMainWindow):
         _gemini_form.addRow("모델", self.cmb_gemini_model)
         self.btn_engine_gemini_test = QPushButton("Gemini 연결 테스트")
         self.btn_engine_gemini_test.setMinimumHeight(32)
+        self.btn_engine_gemini_test.clicked.connect(self._on_test_gemini)
         _gemini_settings_lay.addLayout(_gemini_form)
         _gemini_settings_lay.addWidget(self.btn_engine_gemini_test)
+        _gemini_settings_lay.addWidget(self.lbl_gemini_key_status)
 
         _local_status = QLabel("API Key 없이 사용 가능")
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
@@ -23782,16 +24067,10 @@ class MainWindow(QMainWindow):
         self.btn_engine_gemini.clicked.connect(lambda: _sync_engine_choice_panel("gemini"))
         self.btn_engine_local.clicked.connect(lambda: _sync_engine_choice_panel("local"))
         self.btn_engine_openai_test.clicked.connect(
-            lambda: (
-                _sync_engine_choice_panel("openai"),
-                self.btn_test_gpt.click() if hasattr(self, "btn_test_gpt") else None,
-            )
+            lambda: _sync_engine_choice_panel("openai")
         )
         self.btn_engine_gemini_test.clicked.connect(
-            lambda: (
-                _sync_engine_choice_panel("gemini"),
-                self.btn_test_gemini.click() if hasattr(self, "btn_test_gemini") else None,
-            )
+            lambda: _sync_engine_choice_panel("gemini")
         )
         self.btn_engine_local_detail.clicked.connect(_go_basic_detail_settings)
         self.btn_engine_local_ready.clicked.connect(
@@ -23959,11 +24238,9 @@ class MainWindow(QMainWindow):
                 _st = getattr(s, "strategy", None)
                 _bprov = getattr(_st, "ai_provider", "local") if _st else "local"
                 _bok = bool((getattr(_st, "ai_openai_api_key", "") or "").strip()) if _st else False
-                _bmodel = (getattr(_st, "ai_openai_model", "") or "gpt-4o-mini").strip() or "gpt-4o-mini" if _st else "gpt-4o-mini"
                 _blocal_url = (getattr(_st, "ai_local_url", "") or "").strip()
-                _blocal_model = (getattr(_st, "ai_local_model", "") or "qwen2.5").strip() or "qwen2.5" if _st else "qwen2.5"
-                self._log.info("[BOOT] prefs_loaded upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s local_url_len=%s local_model=%s",
-                    _bak, _bsk, _bprov, _bok, _bmodel, len(_blocal_url), _blocal_model)
+                self._log.info("[BOOT] prefs_loaded upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s local_url_len=%s",
+                    _bak, _bsk, _bprov, _bok, len(_blocal_url))
 
             # ✅ strategy 정규화(구버전 dict/모델 혼재 + ai_provider 보존)
             st = getattr(s, "strategy", None)
@@ -24055,8 +24332,8 @@ class MainWindow(QMainWindow):
                 ai_provider = st_dict.get("ai_provider", "local")
                 ai_local_url = (st_dict.get("ai_local_url") or "http://127.0.0.1:11434").strip()
                 ai_local_model = (st_dict.get("ai_local_model") or "qwen2.5").strip() or "qwen2.5"
-                self._log.info("[AI-SSOT] prefs_loaded ai_provider=%s local_model=%s local_url_len=%s",
-                    ai_provider, ai_local_model, len(ai_local_url))
+                self._log.info("[AI-SSOT] prefs_loaded ai_provider=%s local_url_len=%s",
+                    ai_provider, len(ai_local_url))
                 if hasattr(self, "cb_ai_provider"):
                     self.cb_ai_provider.setCurrentText(ai_provider)
                 if hasattr(self, "inp_local_url"):
@@ -24149,28 +24426,19 @@ class MainWindow(QMainWindow):
                         self.ed_gemini_key.setText(str(gemini_key_loaded or ""))
                 except Exception:
                     pass
-                # ✅ GPT 모델 로드: 저장된 모델이 검증된 리스트에 있으면 선택, 없으면 Custom 모드 활성화
+                # ✅ GPT 모델 로드: 저장된 모델이 드롭다운에 있으면 선택, 없으면 기본값
                 if hasattr(self, "ed_openai_model"):
-                    openai_model = st_dict.get("ai_openai_model", "gpt-4o-mini") or "gpt-4o-mini"
-                    # 검증된 모델 리스트에서 찾기
-                    found_in_list = False
-                    for idx, model_info in enumerate(getattr(self, "KMTS_GPT_MODELS", [])):
-                        if model_info["id"] == openai_model:
-                            self.ed_openai_model.setCurrentIndex(idx)
-                            found_in_list = True
-                            break
-                    
-                    # 검증된 리스트에 없으면 Custom 모드로 활성화
-                    if not found_in_list and openai_model:
-                        # 기본값으로 설정 (gpt-4o-mini)
-                        self.ed_openai_model.setCurrentIndex(0)
-                        # Custom 모드 활성화 및 값 설정
-                        if hasattr(self, "cb_custom_model") and hasattr(self, "inp_custom_model"):
-                            self.cb_custom_model.setChecked(True)
-                            self.inp_custom_model.setText(openai_model)
-                    elif not found_in_list:
-                        # 모델이 없으면 기본값
-                        self.ed_openai_model.setCurrentIndex(0)
+                    openai_model = st_dict.get("ai_openai_model", "gpt-5.5-instant") or "gpt-5.5-instant"
+                    self._set_combo_current_model_id(
+                        self.ed_openai_model, openai_model, "gpt-5.5-instant"
+                    )
+                    if hasattr(self, "cb_custom_model"):
+                        self.cb_custom_model.setChecked(False)
+                if hasattr(self, "cmb_gemini_model"):
+                    gemini_model = st_dict.get("ai_gemini_model", "gemini-2.5-flash") or "gemini-2.5-flash"
+                    self._set_combo_current_model_id(
+                        self.cmb_gemini_model, gemini_model, "gemini-2.5-flash"
+                    )
                 # 박스 선택·배경색·우측상단 배지 동기화 (setVisible 제거, 항상 두 박스 표시)
                 if hasattr(self, "_set_ai_provider_ui_active"):
                     self._set_ai_provider_ui_active(ai_provider)
@@ -24363,7 +24631,6 @@ class MainWindow(QMainWindow):
         # ✅ P0-1: Log save attempt
         provider = self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local"
         has_openai_key = bool(self.ed_openai_key.text().strip()) if hasattr(self, "ed_openai_key") else False
-        model = (self.ed_openai_model.currentText() if hasattr(self.ed_openai_model, "currentText") else getattr(self.ed_openai_model, "text", lambda: "")()).strip() if hasattr(self, "ed_openai_model") else "gpt-4o-mini"
         self._log.info(f"[SAVE-UI] button_text_before=\"{button_text_before}\" button_text_after=\"{button_text_before}\"")
         self._log.info("[AI-KEY] save_attempt provider=%s has_key=%s", provider, has_openai_key)
         
@@ -24422,12 +24689,9 @@ class MainWindow(QMainWindow):
             if openai_key_effective.startswith("•"):
                 _s0st = getattr(s0, "strategy", None)
                 openai_key_effective = (getattr(_s0st, "ai_openai_api_key", "") or "") if _s0st else ""
-            model_str = (self.ed_openai_model.currentText() if hasattr(self.ed_openai_model, "currentText") else getattr(self.ed_openai_model, "text", lambda: "")()).strip() if hasattr(self, "ed_openai_model") else "gpt-4o-mini"
-            if not model_str:
-                model_str = "gpt-4o-mini"
             provider_str = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower() or "local"
-            self._log.info("[SAVE] ui_snapshot upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s",
-                len(access_val), len(secret_val), provider_str, bool(openai_key_effective), model_str)
+            self._log.info("[SAVE] ui_snapshot upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s",
+                len(access_val), len(secret_val), provider_str, bool(openai_key_effective))
 
             # remember_id/saved_id: 폼을 쓰는 경우만 반영(없으면 기존 유지)
             remember_id_val = bool(self.cb_remember_id.isChecked()) if hasattr(self, "cb_remember_id") else bool(ui0.get("remember_id", False))
@@ -24571,36 +24835,25 @@ class MainWindow(QMainWindow):
                         _s0st = getattr(s0, "strategy", None)
                         openai_key = (getattr(_s0st, "ai_openai_api_key", "") or "") if _s0st else ""
                     patch["strategy"]["ai_openai_api_key"] = openai_key
-                # ✅ 모델 저장: Custom 모드 우선, 없으면 선택된 모델 ID 저장
+                # ✅ 모델 저장: 드롭다운 itemData의 내부 모델명 저장
                 model_to_save = ""
-                if hasattr(self, "cb_custom_model") and self.cb_custom_model.isChecked():
-                    custom_model = (self.inp_custom_model.text() or "").strip()
-                    if custom_model:
-                        model_to_save = custom_model
-                
-                if not model_to_save and hasattr(self, "ed_openai_model"):
-                    # 기본 모델: 콤보박스에서 ID 추출
-                    model_id = self.ed_openai_model.currentData()
-                    if model_id:
-                        model_to_save = model_id
-                    else:
-                        # 폴백: 현재 텍스트에서 ID 추출 시도
-                        current_text = self.ed_openai_model.currentText()
-                        for model_info in getattr(self, "KMTS_GPT_MODELS", []):
-                            if model_info["label"] == current_text:
-                                model_to_save = model_info["id"]
-                                break
+                if hasattr(self, "ed_openai_model"):
+                    model_to_save = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
                 
                 if model_to_save:
                     patch["strategy"]["ai_openai_model"] = model_to_save
                 else:
-                    patch["strategy"]["ai_openai_model"] = "gpt-4o-mini"  # 최종 폴백
+                    patch["strategy"]["ai_openai_model"] = "gpt-5.5-instant"  # 최종 폴백
                 # GPT 선택 시 LOCAL 필드는 patch에 넣지 않음 (base 유지)
                 patch["strategy"].pop("ai_local_url", None)
                 patch["strategy"].pop("ai_local_model", None)
             elif ui_ai_provider == "gemini":
                 if hasattr(self, "ed_gemini_key"):
                     patch["strategy"]["ai_gemini_api_key"] = self.ed_gemini_key.text().strip()
+                if hasattr(self, "cmb_gemini_model"):
+                    patch["strategy"]["ai_gemini_model"] = self._current_model_id(
+                        self.cmb_gemini_model, "gemini-2.5-flash"
+                    )
                 patch["strategy"].pop("ai_local_url", None)
                 patch["strategy"].pop("ai_local_model", None)
             else:
@@ -24723,11 +24976,9 @@ class MainWindow(QMainWindow):
                 _ps = getattr(prefs_s, "strategy", None)
                 pprov = getattr(_ps, "ai_provider", "local") if _ps else "local"
                 pok = bool((getattr(_ps, "ai_openai_api_key", "") or "").strip()) if _ps else False
-                pmodel = (getattr(_ps, "ai_openai_model", "") or "gpt-4o-mini").strip() or "gpt-4o-mini" if _ps else "gpt-4o-mini"
                 plocal_url = (getattr(_ps, "ai_local_url", "") or "").strip()
-                plocal_model = (getattr(_ps, "ai_local_model", "") or "qwen2.5").strip() or "qwen2.5" if _ps else "qwen2.5"
-                self._log.info("[SAVE] prefs_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s local_url_len=%s local_model=%s",
-                    pak, psk, pprov, pok, pmodel, len(plocal_url), plocal_model)
+                self._log.info("[SAVE] prefs_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s local_url_len=%s",
+                    pak, psk, pprov, pok, len(plocal_url))
                 try:
                     _pp = getattr(prefs_s, "poll", None)
                     _prefs_topn = int(getattr(_pp, "topN_refresh_min", 30) or 30) if _pp is not None else 30
@@ -24754,9 +25005,8 @@ class MainWindow(QMainWindow):
                 _rs = getattr(self._settings, "strategy", None)
                 rprov = getattr(_rs, "ai_provider", "local") if _rs else "local"
                 rok = bool((getattr(_rs, "ai_openai_api_key", "") or "").strip()) if _rs else False
-                rmodel = (getattr(_rs, "ai_openai_model", "") or "gpt-4o-mini").strip() or "gpt-4o-mini" if _rs else "gpt-4o-mini"
-                self._log.info("[SAVE] runtime_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s",
-                    rak, rsk, rprov, rok, rmodel)
+                self._log.info("[SAVE] runtime_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s",
+                    rak, rsk, rprov, rok)
                 self._log.info("[AI-SSOT] runtime ai_provider=%s", rprov)
             except Exception as e:
                 self._log.error("[SAVE] runtime_after failed err=%s", repr(e))
@@ -25548,42 +25798,18 @@ class MainWindow(QMainWindow):
             if hasattr(self, "gpt_test_header_status") and self.gpt_test_header_status is not None:
                 self.gpt_test_header_status.setText(msg)
 
-        provider = (self.cb_ai_provider.currentText() or "local").strip().lower()
-        if provider != "gpt":
-            QMessageBox.information(self, "GPT 연결 테스트", "AI Provider가 gpt일 때만 테스트할 수 있습니다.")
-            return
-
-        stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
-        if stage == "ready":
-            self._active_ai_engine = "gpt"
-            self._last_response_provider = "gpt"
-            self._update_active_engine_label()
-            QMessageBox.information(
-                self,
-                "GPT 연결 테스트",
-                "OpenAI 연결 확인 완료",
-            )
-            self._log.info("[GPT-TEST] already_ready")
-            return
-        if stage == "connecting":
-            QMessageBox.information(self, "GPT 연결 테스트", "GPT 연결 중입니다. 잠시만 기다려주세요.")
-            self._log.info("[GPT-TEST] connecting")
-            return
+        self._force_ai_key_status_visible("openai", "OpenAI: 연결 확인 중...")
+        self._set_ai_key_status_label("openai", "연결 확인 중...")
 
         if hasattr(self, "gpt_test_result") and self.gpt_test_result is not None:
             self.gpt_test_result.clear()
         self._gpt_test_ok = False
         self._gpt_status_stage = "connecting"
         self._force_ai_key_status_visible("openai", "OpenAI: 연결 확인 중...")
-        self._set_ai_key_status_label("openai", "연결 확인 중...")
-        self._set_ai_engine_card_test_status("openai", "테스트 필요", "확인 필요")
+        self._set_ai_engine_card_test_status("openai", "연결 확인 중", "확인 중")
         set_header("🟡 연결중...")
+        QApplication.processEvents()
         self._log.warning("[DIAG] gpt_test status=연결중")
-        try:
-            self._update_engine_ui_ssot()
-        except Exception:
-            pass
-        QMessageBox.information(self, "GPT 연결 테스트", "GPT 연결을 시도합니다. 약 30~60초 소요될 수 있습니다.")
         self._log.info("[GPT-TEST] start")
 
         # (1) 준비 단계
@@ -25603,23 +25829,77 @@ class MainWindow(QMainWindow):
             self._gpt_status_stage = "waiting"
             self._force_ai_key_status_visible("openai", "OpenAI: API Key 미입력", "#dc2626")
             self._set_ai_key_status_label("openai", "연결 실패 · API Key 미입력")
-            self._set_ai_engine_card_test_status("openai", "API Key 미입력", "준비 안 됨")
+            self._set_ai_engine_card_test_status("openai", "연결 실패", "확인 필요")
             set_header("🔴 FAIL (키 없음)")
             self._log.warning("[DIAG] gpt_test FAIL reason=키 없음")
             if hasattr(self, "_update_ai_status"):
                 self._update_ai_status()
-            self._set_ai_engine_card_test_status("openai", "API Key 미입력", "준비 안 됨")
+            self._set_ai_engine_card_test_status("openai", "연결 실패", "확인 필요")
+            QApplication.processEvents()
             QMessageBox.warning(self, "GPT 연결 테스트", "OpenAI API Key가 비어 있습니다.")
             return
 
         self._gpt_status_stage = "waiting"
         self._force_ai_key_status_visible("openai", "OpenAI: API Key 확인됨 · 실제 연결 테스트 전", "#15803d")
         self._set_ai_key_status_label("openai", "연결 테스트 준비 완료 · 실제 API 테스트 전")
-        self._set_ai_engine_card_test_status("openai", "테스트 준비 완료", "확인 필요")
+        self._set_ai_engine_card_test_status("openai", "연결 확인 중", "확인 중")
         set_header("🟡 테스트 필요")
-        out("[1/1] API Key 입력 확인 OK - 실제 API 테스트 전")
-        self._log.info("[GPT-TEST] ready_without_api_call has_key=True")
-        return
+        QApplication.processEvents()
+        out("[1/2] API Key 입력 확인 OK")
+        self._log.info("[GPT-TEST] key_present")
+        openai_model = "gpt-5.5-instant"
+        if hasattr(self, "ed_openai_model"):
+            openai_model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key, timeout=6.0)
+            client.models.list()
+            self._gpt_test_ok = True
+            self._gpt_status_stage = "ready"
+            self._force_ai_key_status_visible("openai", "OpenAI: 연결 정상", "#15803d")
+            self._set_ai_key_status_label("openai", "연결 정상")
+            self._set_ai_engine_card_test_status("openai", "연결 정상", "정상")
+            self._apply_selected_ai_engine("gpt", openai_model)
+            set_header("🟢 READY")
+            out("[2/2] OpenAI 연결 정상")
+            self._log.info("[GPT-TEST] ok method=models.list")
+            if hasattr(self, "_update_ai_status"):
+                self._update_ai_status()
+            QApplication.processEvents()
+            QMessageBox.information(self, "GPT 연결 테스트", f"OpenAI: 연결 정상 · {openai_model}")
+            return
+        except Exception as e:
+            error_type = type(e).__name__ or "Error"
+            self._gpt_test_ok = False
+            self._gpt_status_stage = "waiting"
+            self._force_ai_key_status_visible(
+                "openai",
+                f"OpenAI: 연결 실패 · {error_type}",
+                "#dc2626",
+            )
+            self._set_ai_key_status_label("openai", f"연결 실패 · {error_type}")
+            self._set_ai_engine_card_test_status(
+                "openai",
+                "연결 실패",
+                "확인 필요",
+            )
+            set_header("🔴 FAIL")
+            out(f"[2/2] OpenAI 연결 실패 - {error_type}")
+            self._log.warning(
+                "[AITS][GUI] ai_test_failed | provider=openai | error_type=%s",
+                error_type,
+            )
+            if hasattr(self, "_update_ai_status"):
+                self._update_ai_status()
+            QApplication.processEvents()
+            QMessageBox.warning(
+                self,
+                "GPT 연결 테스트",
+                f"OpenAI: 연결 실패 · {error_type}",
+            )
+            return
 
         key_len = len(api_key)
         model = ""
@@ -25628,17 +25908,9 @@ class MainWindow(QMainWindow):
             if custom_model:
                 model = custom_model
         if not model and hasattr(self, "ed_openai_model"):
-            model_id = self.ed_openai_model.currentData()
-            if model_id:
-                model = model_id
-            else:
-                current_text = (self.ed_openai_model.currentText() or "").strip()
-                for model_info in getattr(self, "KMTS_GPT_MODELS", []):
-                    if model_info.get("label") == current_text:
-                        model = model_info.get("id", "")
-                        break
+            model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
         if not model:
-            model = "gpt-4o-mini"
+            model = "gpt-5.5-instant"
 
         out(f"[1/3] API Key 로드 OK (len={key_len}), model={model}")
 
@@ -25841,19 +26113,15 @@ class MainWindow(QMainWindow):
 
     def _on_test_gemini(self):
         """Gemini 박스: REST generateContent 최소 호출로 응답 검증 후 UI·상태 동기화."""
-        provider = (self.cb_ai_provider.currentText() or "local").strip().lower() if hasattr(self, "cb_ai_provider") else "local"
-        if provider != "gemini":
-            QMessageBox.information(self, "Gemini 연결 테스트", "AI Provider가 gemini일 때만 테스트할 수 있습니다.")
-            return
-
         self._force_ai_key_status_visible("gemini", "Gemini: 연결 확인 중...")
         self._set_ai_key_status_label("gemini", "연결 확인 중...")
-        self._set_ai_engine_card_test_status("gemini", "테스트 필요", "확인 필요")
+        self._set_ai_engine_card_test_status("gemini", "연결 확인 중", "확인 중")
+        QApplication.processEvents()
         api_key = (self.ed_gemini_key.text() or "").strip() if hasattr(self, "ed_gemini_key") else ""
         if not api_key:
             self._force_ai_key_status_visible("gemini", "Gemini: API Key 미입력", "#dc2626")
             self._set_ai_key_status_label("gemini", "연결 실패 · API Key 미입력")
-            self._set_ai_engine_card_test_status("gemini", "API Key 미입력", "준비 안 됨")
+            self._set_ai_engine_card_test_status("gemini", "연결 실패", "확인 필요")
             try:
                 if self._get_aits_engine_ssot() == "gemini":
                     self._gpt_status_stage = "waiting"
@@ -25867,59 +26135,69 @@ class MainWindow(QMainWindow):
                     self._update_top_badge()
             except Exception:
                 pass
+            self._set_ai_engine_card_test_status("gemini", "연결 실패", "확인 필요")
+            QApplication.processEvents()
             QMessageBox.warning(self, "Gemini 연결 테스트", "API Key를 입력하세요.")
             return
 
         self._gpt_status_stage = "waiting"
         self._force_ai_key_status_visible("gemini", "Gemini: API Key 확인됨 · 실제 연결 테스트 전", "#15803d")
         self._set_ai_key_status_label("gemini", "연결 테스트 준비 완료 · 실제 API 테스트 전")
-        self._set_ai_engine_card_test_status("gemini", "테스트 준비 완료", "확인 필요")
+        self._set_ai_engine_card_test_status("gemini", "연결 확인 중", "확인 중")
+        QApplication.processEvents()
         if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
             self.lbl_gemini_test_status.setText("🟡 READY TO TEST")
             self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#b26a00;")
-        self._log.info("[GEMINI-TEST] ready_without_api_call has_key=True")
-        return
-
-        model_id = "gemini-1.5-flash"
+        model_id = "gemini-2.5-flash"
         if hasattr(self, "cmb_gemini_model"):
-            model_id = (self.cmb_gemini_model.currentText() or "gemini-1.5-flash").strip().replace(" ", "")
+            model_id = self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash").replace(" ", "")
         if not model_id:
-            model_id = "gemini-1.5-flash"
+            model_id = "gemini-2.5-flash"
 
         try:
             self._set_ai_key_status_label("gemini", "연결 확인 중...")
-            import requests
+            import google.generativeai as genai
 
-            url = (
-                "https://generativelanguage.googleapis.com/v1beta/models/"
-                f"{model_id}:generateContent"
-            )
-            resp = requests.post(
-                url,
-                params={"key": api_key},
-                json={"contents": [{"parts": [{"text": "ping"}]}]},
-                timeout=45,
-            )
-            if resp.status_code != 200:
-                raise RuntimeError(f"HTTP {resp.status_code}")
-            rj = resp.json() if resp.content else {}
-            cands = rj.get("candidates") or []
-            text_out = ""
-            if cands and isinstance(cands[0], dict):
-                parts = ((cands[0].get("content") or {}).get("parts") or [])
-                for p in parts:
-                    if isinstance(p, dict) and p.get("text"):
-                        text_out += str(p.get("text") or "")
-            if not str(text_out).strip():
-                raise RuntimeError("empty response")
+            genai.configure(api_key=api_key)
+            fallback_models = [
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-pro",
+                "gemini-2.0-flash",
+            ]
+            candidate_models = []
+            for _candidate in [model_id] + fallback_models:
+                _candidate = (_candidate or "").strip()
+                if _candidate and _candidate not in candidate_models:
+                    candidate_models.append(_candidate)
 
-            # [PATCH 5-3]
-            # Gemini 성공 응답 시 마지막 응답 provider를 기록한다.
-            # 선택 엔진과 실제 응답 엔진 UI 동기화를 위한 처리.
-            try:
-                self._last_response_provider = "gemini"
-            except Exception:
-                pass
+            success_model = ""
+            last_error_type = "Error"
+            last_error = None
+            for candidate_model in candidate_models:
+                try:
+                    model = genai.GenerativeModel(candidate_model)
+                    resp = model.generate_content("ping", request_options={"timeout": 6})
+                    if resp is None:
+                        raise RuntimeError("empty response")
+                    success_model = candidate_model
+                    self._log.info(
+                        "[GEMINI-TEST] ok method=google.generativeai"
+                    )
+                    break
+                except Exception as model_error:
+                    last_error_type = type(model_error).__name__ or "Error"
+                    last_error = model_error
+                    self._log.warning(
+                        "[GEMINI-TEST] model_failed error_type=%s",
+                        last_error_type,
+                    )
+                    continue
+            if not success_model:
+                if last_error is not None:
+                    raise last_error
+                raise RuntimeError("model_check_failed")
+
             try:
                 self._gpt_status_stage = "ready"
             except Exception:
@@ -25931,28 +26209,31 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                     self.lbl_aits_ai_engine_status.setText(
-                        "AITS AI 상태: Gemini 응답 정상"
+                        "AITS AI 상태: Gemini 연결 정상"
                     )
                     self._apply_aits_ai_engine_status_line_style(
-                        "AITS AI 상태: Gemini 응답 정상"
+                        "AITS AI 상태: Gemini 연결 정상"
                     )
             except Exception:
                 pass
 
-            self._active_ai_engine = "gemini"
-            self._update_active_engine_label()
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🟢 CONNECTED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
-            self._set_ai_key_status_label("gemini", "연결 정상")
-            QMessageBox.information(
-                self, "Gemini 연결 테스트", "Gemini 연결 확인 완료"
+            self._force_ai_key_status_visible(
+                "gemini", f"Gemini: 연결 정상 · {success_model}", "#15803d"
             )
-            try:
-                self._update_engine_ui_ssot()
-            except Exception:
-                pass
+            self._set_ai_key_status_label("gemini", f"연결 정상 · {success_model}")
+            self._set_ai_engine_card_test_status(
+                "gemini", "연결 정상", "정상", success_model
+            )
+            self._apply_selected_ai_engine("gemini", success_model)
+            QApplication.processEvents()
+            QMessageBox.information(
+                self, "Gemini 연결 테스트", f"Gemini: 연결 정상 · {success_model}"
+            )
         except Exception as e:
+            error_type = type(e).__name__ or "Error"
             try:
                 if self._get_aits_engine_ssot() == "gemini":
                     self._gpt_status_stage = "waiting"
@@ -25969,8 +26250,53 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🔴 FAILED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#c62828;")
-            self._set_ai_key_status_label("gemini", "연결 실패")
-            QMessageBox.critical(self, "Gemini 연결 테스트", f"Gemini 연결 실패: {str(e)}")
+            if isinstance(e, ModuleNotFoundError):
+                self._force_ai_key_status_visible(
+                    "gemini",
+                    "Gemini: 연결 실패 · google-generativeai 미설치",
+                    "#dc2626",
+                )
+                self._set_ai_key_status_label(
+                    "gemini",
+                    "연결 실패 · google-generativeai 미설치",
+                )
+                self._set_ai_engine_card_test_status(
+                    "gemini",
+                    "Gemini 모듈 없음",
+                    "설치 필요",
+                )
+                self._log.warning(
+                    "[AITS][GUI] ai_test_failed | provider=gemini | "
+                    "error_type=ModuleNotFoundError | reason=missing_google_generativeai"
+                )
+                QApplication.processEvents()
+                QMessageBox.warning(
+                    self,
+                    "Gemini 연결 테스트",
+                    "Gemini: 연결 실패 · google-generativeai 미설치",
+                )
+                return
+            self._force_ai_key_status_visible(
+                "gemini",
+                "Gemini: 연결 실패 · 모델 확인 필요",
+                "#dc2626",
+            )
+            self._set_ai_key_status_label("gemini", "연결 실패 · 모델 확인 필요")
+            self._set_ai_engine_card_test_status(
+                "gemini",
+                "연결 실패",
+                "확인 필요",
+            )
+            self._log.warning(
+                "[AITS][GUI] ai_test_failed | provider=gemini | error_type=%s",
+                error_type,
+            )
+            QApplication.processEvents()
+            QMessageBox.warning(
+                self,
+                "Gemini 연결 테스트",
+                "Gemini: 연결 실패 · 모델 확인 필요",
+            )
 
     def _on_test_upbit(self):
         """

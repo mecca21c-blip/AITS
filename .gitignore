@@ -6,3 +6,4 @@ data/prefs_backup_*.json
 data/prefs_backup_before_router_test.json
 data/shadow_history.json
 data/shadow_performance.json
+data/.claude/settings.local.json
