@@ -8657,6 +8657,9 @@ class MainWindow(QMainWindow):
         try:
             self._aits_bottom_nav_frame.setProperty("bottomNav", True)
             self._aits_bottom_nav_frame.setProperty("bottomDock", True)
+            self._aits_bottom_nav_frame.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+            )
         except Exception:
             pass
         try:
@@ -8733,6 +8736,9 @@ class MainWindow(QMainWindow):
         self._bottom_nav_actions_wrap = QWidget(self._aits_bottom_nav_frame)
         try:
             self._bottom_nav_actions_wrap.setProperty("bottomNavInner", True)
+            self._bottom_nav_actions_wrap.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+            )
         except Exception:
             pass
         _nav_act_ly = QHBoxLayout(self._bottom_nav_actions_wrap)
@@ -8759,6 +8765,12 @@ class MainWindow(QMainWindow):
                 _sb.setMinimumHeight(44)
                 _sb.setMaximumHeight(44)
                 _sb.setMinimumWidth(118)
+                _sb.setEnabled(True)
+                _sb.setVisible(True)
+                _sb.setCursor(Qt.CursorShape.PointingHandCursor)
+                _sb.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+                )
             except Exception:
                 pass
             try:
@@ -8766,6 +8778,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             _nav_act_ly.addWidget(_sb, 0)
+            try:
+                _sb.raise_()
+            except Exception:
+                pass
         _nav_ly.addWidget(self._bottom_nav_actions_wrap, 0)
 
         try:
@@ -8781,10 +8797,29 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            self.btn_nav_save.clicked.connect(self._on_save_settings)
+            self.btn_nav_save.clicked.disconnect()
         except Exception:
-            self.btn_nav_save.setEnabled(False)
-        self.btn_nav_logout.setEnabled(False)
+            pass
+        try:
+            self.btn_nav_logout.clicked.disconnect()
+        except Exception:
+            pass
+        try:
+            self.btn_nav_save.clicked.connect(self._on_nav_save_clicked)
+            self.btn_nav_logout.clicked.connect(self._on_nav_logout_clicked)
+        except Exception:
+            pass
+        for _sb in (self.btn_nav_save, self.btn_nav_logout):
+            try:
+                _sb.setEnabled(True)
+                _sb.setVisible(True)
+                _sb.setCursor(Qt.CursorShape.PointingHandCursor)
+                _sb.setAttribute(
+                    Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
+                )
+                _sb.raise_()
+            except Exception:
+                pass
         try:
             self._set_bottom_nav_active(int(self.tabs.currentIndex()))
         except Exception:
@@ -8933,6 +8968,29 @@ class MainWindow(QMainWindow):
             h.addWidget(ic, 0)
             h.addWidget(tx, 0)
             h.addStretch(1)
+        except Exception:
+            pass
+
+    def _on_nav_save_clicked(self):
+        try:
+            self._log.info("[AITS][GUI] nav_save_clicked")
+        except Exception:
+            pass
+        return self._on_save_settings()
+
+    def _on_nav_logout_clicked(self):
+        try:
+            self._log.info("[AITS][GUI] nav_logout_clicked")
+        except Exception:
+            pass
+        try:
+            st = getattr(self, "state", None) or getattr(self, "_state", None)
+            if st is not None and hasattr(st, "logout"):
+                st.logout()
+        except Exception:
+            pass
+        try:
+            self.close()
         except Exception:
             pass
 
@@ -24436,6 +24494,20 @@ class MainWindow(QMainWindow):
 
                 # GPT/OpenAI 설정 로드 — AI-SSOT: strategy 소속, local이면 OpenAI 비활성/비움
                 st_dict = st.model_dump() if hasattr(st, "model_dump") else (st if isinstance(st, dict) else {})
+                try:
+                    raw_st_dict = self._read_common_ai_raw_strategy_for_ui()
+                    if raw_st_dict:
+                        for _k in (
+                            "ai_provider",
+                            "ai_openai_api_key",
+                            "ai_gemini_api_key",
+                            "ai_openai_model",
+                            "ai_gemini_model",
+                        ):
+                            if _k in raw_st_dict:
+                                st_dict[_k] = raw_st_dict.get(_k, "")
+                except Exception:
+                    pass
                 ai_provider = st_dict.get("ai_provider", "local")
                 ai_local_url = (st_dict.get("ai_local_url") or "http://127.0.0.1:11434").strip()
                 ai_local_model = (st_dict.get("ai_local_model") or "qwen2.5").strip() or "qwen2.5"
@@ -24748,6 +24820,109 @@ class MainWindow(QMainWindow):
                 pass
             return False
 
+    def _read_common_ai_raw_strategy_for_ui(self) -> dict:
+        try:
+            from app.utils.prefs import _get_prefs_path
+
+            path = _get_prefs_path()
+            if not path or path == "unknown" or not os.path.exists(path):
+                return {}
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+            st = data.get("strategy") or {}
+            return dict(st) if isinstance(st, dict) else {}
+        except Exception:
+            return {}
+
+    def _overlay_common_ai_fields_to_prefs_file(self, fields: dict) -> str:
+        from app.utils.prefs import _get_prefs_path
+
+        path = _get_prefs_path()
+        if not path or path == "unknown":
+            raise RuntimeError("prefs_path_unknown")
+        data = {}
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f) or {}
+        if not isinstance(data, dict):
+            data = {}
+        st = data.get("strategy") or {}
+        if not isinstance(st, dict):
+            st = {}
+        for key in (
+            "ai_provider",
+            "ai_openai_api_key",
+            "ai_gemini_api_key",
+            "ai_openai_model",
+            "ai_gemini_model",
+        ):
+            if key in fields:
+                st[key] = fields.get(key, "")
+        data["strategy"] = st
+        tmp_path = path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+        return path
+
+    def _persist_common_ai_settings_direct(self, fields: dict) -> tuple[bool, str, str]:
+        from app.utils.prefs import _get_prefs_path, load_settings, save_settings
+
+        load_path = _get_prefs_path()
+        settings = load_settings()
+        save_path = _get_prefs_path()
+        st = getattr(settings, "strategy", None)
+        if st is None:
+            from app.utils.settings_schema import StrategyConfig
+
+            settings.strategy = StrategyConfig()
+            st = settings.strategy
+        for key in (
+            "ai_provider",
+            "ai_openai_api_key",
+            "ai_gemini_api_key",
+            "ai_openai_model",
+        ):
+            if hasattr(st, key):
+                setattr(st, key, fields.get(key, ""))
+            elif isinstance(st, dict):
+                st[key] = fields.get(key, "")
+        if not save_settings(settings):
+            return False, save_path, load_path
+        save_path = self._overlay_common_ai_fields_to_prefs_file(fields)
+        return True, save_path, load_path
+
+    def _verify_common_ai_clear_reload(self, requested_openai: bool, requested_gemini: bool) -> tuple[bool, bool, bool]:
+        openai_text = ""
+        gemini_text = ""
+        try:
+            if hasattr(self, "ed_openai_key"):
+                openai_text = self.ed_openai_key.text()
+                self.ed_openai_key.clear()
+            if hasattr(self, "ed_gemini_key"):
+                gemini_text = self.ed_gemini_key.text()
+                self.ed_gemini_key.clear()
+            self._load_settings_into_form()
+            openai_loaded = bool(
+                (self.ed_openai_key.text() if hasattr(self, "ed_openai_key") else "").strip()
+            )
+            gemini_loaded = bool(
+                (self.ed_gemini_key.text() if hasattr(self, "ed_gemini_key") else "").strip()
+            )
+            ok = ((not requested_openai) or openai_loaded) and (
+                (not requested_gemini) or gemini_loaded
+            )
+            return bool(ok), openai_loaded, gemini_loaded
+        except Exception:
+            try:
+                if hasattr(self, "ed_openai_key"):
+                    self.ed_openai_key.setText(openai_text)
+                if hasattr(self, "ed_gemini_key"):
+                    self.ed_gemini_key.setText(gemini_text)
+            except Exception:
+                pass
+            return False, False, False
+
     def _on_save_settings(self) -> None:
         # ✅ P0-B: Log save button text before and after
         button_text_before = getattr(self, 'btn_save', None).text() if hasattr(self, 'btn_save') else "unknown"
@@ -24786,11 +24961,6 @@ class MainWindow(QMainWindow):
             # 입력값
             access_val = self.ed_access.text().strip() if hasattr(self, "ed_access") else ""
             secret_val = self.ed_secret.text().strip() if hasattr(self, "ed_secret") else ""
-            
-            # ✅ P0-C: Log UI input lengths before processing
-            access_raw = self.ed_access.text() if hasattr(self, "ed_access") else ""
-            secret_raw = self.ed_secret.text() if hasattr(self, "ed_secret") else ""
-            self._log.info(f"[UPBIT-KEY-UI] access_len={len(access_raw)} secret_len={len(secret_raw)} access_trim_len={len(access_val)} secret_trim_len={len(secret_val)}")
 
             # (핵심) 마스킹된 값은 저장하지 않고 기존값 유지 - nested only
             if access_val.startswith("•"):
@@ -24817,8 +24987,11 @@ class MainWindow(QMainWindow):
                 _s0st = getattr(s0, "strategy", None)
                 openai_key_effective = (getattr(_s0st, "ai_openai_api_key", "") or "") if _s0st else ""
             provider_str = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower() or "local"
-            self._log.info("[SAVE] ui_snapshot upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s",
-                len(access_val), len(secret_val), provider_str, bool(openai_key_effective))
+            self._log.info(
+                "[SAVE] ui_snapshot ai_provider=%s openai_has_key=%s",
+                provider_str,
+                bool(openai_key_effective),
+            )
 
             # remember_id/saved_id: 폼을 쓰는 경우만 반영(없으면 기존 유지)
             remember_id_val = bool(self.cb_remember_id.isChecked()) if hasattr(self, "cb_remember_id") else bool(ui0.get("remember_id", False))
@@ -24959,6 +25132,13 @@ class MainWindow(QMainWindow):
                 patch["strategy"]["ai_gemini_model"] = self._current_model_id(
                     self.cmb_gemini_model, "gemini-2.5-flash"
                 )
+            common_ai_fields = {
+                "ai_provider": patch["strategy"].get("ai_provider", ui_ai_provider),
+                "ai_openai_api_key": patch["strategy"].get("ai_openai_api_key", ""),
+                "ai_gemini_api_key": patch["strategy"].get("ai_gemini_api_key", ""),
+                "ai_openai_model": patch["strategy"].get("ai_openai_model", "gpt-5.5-instant"),
+                "ai_gemini_model": patch["strategy"].get("ai_gemini_model", "gemini-2.5-flash"),
+            }
 
             # ✅ 선택된 박스만 patch에 반영. 반대쪽 필드는 patch에서 제거해 merge 시 기존값 유지.
             if ui_ai_provider == "gpt":
@@ -24987,6 +25167,8 @@ class MainWindow(QMainWindow):
                     patch["strategy"]["ai_gemini_model"] = self._current_model_id(
                         self.cmb_gemini_model, "gemini-2.5-flash"
                     )
+                common_ai_fields["ai_gemini_api_key"] = patch["strategy"].get("ai_gemini_api_key", "")
+                common_ai_fields["ai_gemini_model"] = patch["strategy"].get("ai_gemini_model", "gemini-2.5-flash")
                 patch["strategy"].pop("ai_local_url", None)
                 patch["strategy"].pop("ai_local_model", None)
             else:
@@ -24995,6 +25177,11 @@ class MainWindow(QMainWindow):
                     patch["strategy"]["ai_local_url"] = self.inp_local_url.text().strip() or "http://127.0.0.1:11434"
                 if hasattr(self, "cmb_local_model"):
                     patch["strategy"]["ai_local_model"] = (self.cmb_local_model.currentText() or "").strip() or "qwen2.5"
+            common_ai_fields["ai_provider"] = patch["strategy"].get("ai_provider", ui_ai_provider)
+            common_ai_fields["ai_openai_api_key"] = patch["strategy"].get("ai_openai_api_key", common_ai_fields.get("ai_openai_api_key", ""))
+            common_ai_fields["ai_gemini_api_key"] = patch["strategy"].get("ai_gemini_api_key", common_ai_fields.get("ai_gemini_api_key", ""))
+            common_ai_fields["ai_openai_model"] = patch["strategy"].get("ai_openai_model", common_ai_fields.get("ai_openai_model", "gpt-5.5-instant"))
+            common_ai_fields["ai_gemini_model"] = patch["strategy"].get("ai_gemini_model", common_ai_fields.get("ai_gemini_model", "gemini-2.5-flash"))
 
             # patch["strategy"]["ai_provider"]가 UI와 다르면 경고
             if patch.get("strategy", {}).get("ai_provider") != ui_ai_provider:
@@ -25028,12 +25215,9 @@ class MainWindow(QMainWindow):
             # ✅ live_trade 항상 True 저장 로그
             self._log.info(f"[SETTINGS] live_trade saved=True (always real trading)")
             
-            # ✅ 키 저장 진단 로그
-            access_len = len(access_val) if access_val else 0
-            secret_len = len(secret_val) if secret_val else 0
             from app.utils.prefs import _get_prefs_path
             prefs_path = _get_prefs_path()
-            self._log.info(f"[SETTINGS] saved upbit keys: access_len={access_len} secret_len={secret_len} path={prefs_path}")
+            self._log.info(f"[SETTINGS] prefs_path={prefs_path}")
             self._log.info(f"[SETTINGS] upbit access_key path=settings.upbit.access_key")
 
             # ⚠️ strategy 섹션은 여기서 저장하지 않는다.
@@ -25072,47 +25256,28 @@ class MainWindow(QMainWindow):
                 raise RuntimeError("설정 저장 실패: 디스크 저장 또는 검증 실패")
 
             try:
-                from app.utils.prefs import load_settings as _load_common_settings_verify
-                _verify_settings = _load_common_settings_verify()
-                _verify_strategy = getattr(_verify_settings, "strategy", None)
-                _verify_openai_key = getattr(_verify_strategy, "ai_openai_api_key", "") if _verify_strategy else ""
-                if hasattr(_verify_openai_key, "get_secret_value"):
-                    _verify_openai_key = _verify_openai_key.get_secret_value() or ""
-                _verify_gemini_key = getattr(_verify_strategy, "ai_gemini_api_key", "") if _verify_strategy else ""
-                if hasattr(_verify_gemini_key, "get_secret_value"):
-                    _verify_gemini_key = _verify_gemini_key.get_secret_value() or ""
-                _verify_provider_ok = bool(
-                    (getattr(_verify_strategy, "ai_provider", "") if _verify_strategy else "")
-                )
-                _verify_openai_model_ok = bool(
-                    (getattr(_verify_strategy, "ai_openai_model", "") if _verify_strategy else "")
-                )
-                _verify_gemini_model_ok = bool(
-                    (getattr(_verify_strategy, "ai_gemini_model", "") if _verify_strategy else "")
-                )
-                _verify_openai_has_key = bool(str(_verify_openai_key or "").strip())
-                _verify_gemini_has_key = bool(str(_verify_gemini_key or "").strip())
-                _requested_openai_has_key = bool(
-                    (patch.get("strategy", {}).get("ai_openai_api_key", "") or "").strip()
-                )
-                _requested_gemini_has_key = bool(
-                    (patch.get("strategy", {}).get("ai_gemini_api_key", "") or "").strip()
-                )
-                self._log.info(
-                    "[AITS][GUI] common_settings_saved | openai_key=%s | gemini_key=%s",
-                    _verify_openai_has_key,
-                    _verify_gemini_has_key,
-                )
-                _common_verify_ok = (
-                    _verify_provider_ok
-                    and _verify_openai_model_ok
-                    and _verify_gemini_model_ok
+                direct_ok, actual_save_path, actual_load_path = self._persist_common_ai_settings_direct(common_ai_fields)
+                if not direct_ok:
+                    raise RuntimeError("common_settings_direct_persist_failed")
+                raw_st = self._read_common_ai_raw_strategy_for_ui()
+                _requested_openai_has_key = bool(str(common_ai_fields.get("ai_openai_api_key", "") or "").strip())
+                _requested_gemini_has_key = bool(str(common_ai_fields.get("ai_gemini_api_key", "") or "").strip())
+                _verify_openai_has_key = bool(str(raw_st.get("ai_openai_api_key", "") or "").strip())
+                _verify_gemini_has_key = bool(str(raw_st.get("ai_gemini_api_key", "") or "").strip())
+                _raw_verify_ok = (
+                    bool(raw_st.get("ai_provider", ""))
+                    and bool(raw_st.get("ai_openai_model", ""))
+                    and bool(raw_st.get("ai_gemini_model", ""))
                     and ((not _requested_openai_has_key) or _verify_openai_has_key)
                     and ((not _requested_gemini_has_key) or _verify_gemini_has_key)
                 )
-                if not _common_verify_ok:
-                    raise RuntimeError("common_settings_verify_failed")
-            except Exception:
+                if not _raw_verify_ok:
+                    raise RuntimeError("common_settings_raw_verify_failed")
+            except Exception as _persist_err:
+                self._log.error(
+                    "[AITS][GUI] common_settings_persist_failed | error_type=%s",
+                    type(_persist_err).__name__,
+                )
                 raise RuntimeError("공통설정 저장 검증 실패")
 
             # ✅ P0-C: Verify prefs values after save (use self._settings which was updated by _apply_settings_patch)
@@ -25125,17 +25290,13 @@ class MainWindow(QMainWindow):
             try:
                 # Check nested upbit structure
                 upbit_obj = getattr(self._settings, "upbit", None)
-                if upbit_obj and hasattr(upbit_obj, "access_key"):
-                    saved_access_len = len(getattr(upbit_obj, "access_key", "") or "")
-                else:
-                    saved_access_len = 0
-                    
-                if upbit_obj and hasattr(upbit_obj, "secret_key"):
-                    saved_secret_len = len(getattr(upbit_obj, "secret_key", "") or "")
-                else:
-                    saved_secret_len = 0
-                    
-                self._log.info(f"[UPBIT-KEY] saved access_len={saved_access_len} secret_len={saved_secret_len}")
+                saved_access_ok = bool(getattr(upbit_obj, "access_key", "") or "") if upbit_obj else False
+                saved_secret_ok = bool(getattr(upbit_obj, "secret_key", "") or "") if upbit_obj else False
+                self._log.info(
+                    "[UPBIT-KEY] saved access_key=%s secret_key=%s",
+                    saved_access_ok,
+                    saved_secret_ok,
+                )
             except Exception as e:
                 self._log.error(f"[UPBIT-KEY-PREFS] verify failed err={e}")
 
@@ -25147,14 +25308,18 @@ class MainWindow(QMainWindow):
                 u = getattr(prefs_s, "upbit", None) or {}
                 if hasattr(u, "model_dump"):
                     u = u.model_dump()
-                pak = len((u.get("access_key") or "").strip())
-                psk = len((u.get("secret_key") or "").strip())
+                pak = bool((u.get("access_key") or "").strip())
+                psk = bool((u.get("secret_key") or "").strip())
                 _ps = getattr(prefs_s, "strategy", None)
                 pprov = getattr(_ps, "ai_provider", "local") if _ps else "local"
                 pok = bool((getattr(_ps, "ai_openai_api_key", "") or "").strip()) if _ps else False
-                plocal_url = (getattr(_ps, "ai_local_url", "") or "").strip()
-                self._log.info("[SAVE] prefs_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s local_url_len=%s",
-                    pak, psk, pprov, pok, len(plocal_url))
+                self._log.info(
+                    "[SAVE] prefs_after upbit_access_key=%s upbit_secret_key=%s ai_provider=%s openai_has_key=%s",
+                    pak,
+                    psk,
+                    pprov,
+                    pok,
+                )
                 try:
                     _pp = getattr(prefs_s, "poll", None)
                     _prefs_topn = int(getattr(_pp, "topN_refresh_min", 30) or 30) if _pp is not None else 30
@@ -25176,12 +25341,12 @@ class MainWindow(QMainWindow):
                 rup = getattr(self._settings, "upbit", None) or {}
                 if hasattr(rup, "model_dump"):
                     rup = rup.model_dump()
-                rak = len((rup.get("access_key") or "").strip())
-                rsk = len((rup.get("secret_key") or "").strip())
+                rak = bool((rup.get("access_key") or "").strip())
+                rsk = bool((rup.get("secret_key") or "").strip())
                 _rs = getattr(self._settings, "strategy", None)
                 rprov = getattr(_rs, "ai_provider", "local") if _rs else "local"
                 rok = bool((getattr(_rs, "ai_openai_api_key", "") or "").strip()) if _rs else False
-                self._log.info("[SAVE] runtime_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s",
+                self._log.info("[SAVE] runtime_after upbit_access_key=%s upbit_secret_key=%s ai_provider=%s openai_has_key=%s",
                     rak, rsk, rprov, rok)
                 self._log.info("[AI-SSOT] runtime ai_provider=%s", rprov)
             except Exception as e:
@@ -25205,11 +25370,20 @@ class MainWindow(QMainWindow):
             # (6) 저장 후 폼 리로드 — post_save 허용
             reload_ok = False
             try:
-                self._load_settings_into_form()
-                reload_ok = True
+                reload_ok, reloaded_openai, reloaded_gemini = self._verify_common_ai_clear_reload(
+                    bool(str(common_ai_fields.get("ai_openai_api_key", "") or "").strip()),
+                    bool(str(common_ai_fields.get("ai_gemini_api_key", "") or "").strip()),
+                )
             except Exception:
-                pass
-            self._log.info("[SAVE] reload_form reason=post_save ok=%s", reload_ok)
+                reload_ok, reloaded_openai, reloaded_gemini = False, False, False
+            self._log.info(
+                "[AITS][GUI] common_settings_persisted | openai_key=%s | gemini_key=%s | reload_form=%s",
+                reloaded_openai,
+                reloaded_gemini,
+                reload_ok,
+            )
+            if not reload_ok:
+                raise RuntimeError("common_settings_clear_reload_failed")
 
             # ✅ P0-B: Log save button text after successful save
             button_text_after = getattr(self, 'btn_save', None).text() if hasattr(self, 'btn_save') else "unknown"
@@ -25236,20 +25410,22 @@ class MainWindow(QMainWindow):
                 pass
 
             try:
-                self.set_status_msg("공통설정 저장 완료 · API Key 복원 가능", "#15803d")
+                self.set_status_msg("공통설정 저장 완료 · 재시작 후 복원 가능", "#15803d")
             except Exception:
                 pass
             QMessageBox.information(
-                self, "저장", "공통설정 저장 완료 · API Key 복원 가능"
+                self, "저장", "공통설정 저장 완료 · 재시작 후 복원 가능"
             )
         except Exception as e:
-            # ✅ P0-1: Log save failure
-            self._log.error(f"[AI-KEY] save_failed err={repr(e)}")
+            self._log.error(
+                "[AITS][GUI] common_settings_persist_failed | error_type=%s",
+                type(e).__name__,
+            )
             try:
-                self.set_status_msg("공통설정 저장 실패 · 로그 확인", "#dc2626")
+                self.set_status_msg("공통설정 저장 실패 · 저장 경로 확인 필요", "#dc2626")
             except Exception:
                 pass
-            QMessageBox.critical(self, "오류", "공통설정 저장 실패 · 로그 확인")
+            QMessageBox.critical(self, "오류", "공통설정 저장 실패 · 저장 경로 확인 필요")
 
     def on_watchlist_apply_symbols(self, symbols: list[str]) -> None:
         """
