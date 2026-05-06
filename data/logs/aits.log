@@ -11091,3 +11091,14 @@
 2026-05-06 22:56:01,442 | INFO | aits | Module pack runtime initialized: AI 기본 모드
 2026-05-06 22:56:01,442 | INFO | aits | AITS orchestrator initialized
 2026-05-06 22:56:03,734 | INFO | aits | UI launched via legacy-compatible entry
+2026-05-06 23:06:34,481 | INFO | aits | AITS bootstrap start
+2026-05-06 23:06:34,508 | INFO | aits | [AITS][DecisionRouter] shadow_history_loaded | count=20
+2026-05-06 23:06:34,510 | INFO | aits | [AITS][DecisionRouter] shadow_performance_loaded | count=50
+2026-05-06 23:06:34,511 | INFO | aits | [AITS][DecisionRouter] initialized | version=v2.6 | mode=shadow_provider
+2026-05-06 23:06:34,511 | INFO | aits | [AITS][Orchestrator] router_ai_provider_injection | attached=True | type=LocalProvider
+2026-05-06 23:06:34,511 | INFO | aits | [AITS][Orchestrator] ai_provider_key_injection | strategy_attached=True | openai_key_present=True | gemini_key_present=False
+2026-05-06 23:06:34,511 | INFO | aits | [AITS][Orchestrator] verifier_pool_init | local=True | openai=False | gemini=False
+2026-05-06 23:06:34,518 | INFO | aits | AITS orchestrator initialized
+2026-05-06 23:06:34,518 | INFO | aits | Module pack runtime initialized: AI 기본 모드
+2026-05-06 23:06:34,518 | INFO | aits | AITS orchestrator initialized
+2026-05-06 23:06:39,151 | INFO | aits | UI launched via legacy-compatible entry
