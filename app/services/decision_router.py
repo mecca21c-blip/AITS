@@ -1952,6 +1952,7 @@ class DecisionRouter:
             soft = raw.get("soft_override_candidate", {}) if raw else {}
             soft_action = soft.get("candidate_action", "none")
             soft_eligible = soft.get("eligible", False)
+            ai_stats = self._get_ai_suggestion_history_stats()
 
             return (
                 f"action={action} | "
@@ -1959,7 +1960,12 @@ class DecisionRouter:
                 f"fusion={fusion_action} | "
                 f"perf={perf_status} | "
                 f"soft={soft_action} | "
-                f"eligible={soft_eligible}"
+                f"eligible={soft_eligible} | "
+                f"ai_t={ai_stats.get('total_count', 0)} | "
+                f"ai_c={ai_stats.get('confirm_count', 0)} | "
+                f"ai_s={ai_stats.get('skip_count', 0)} | "
+                f"ai_r={ai_stats.get('reject_count', 0)} | "
+                "ai_a=0"
             )
         except Exception:
             return "summary_build_failed"
@@ -2089,36 +2095,43 @@ class DecisionRouter:
                     f"stored={history_stored} | applied=False"
                 )
                 stats = self._get_ai_suggestion_history_stats()
-                self._safe_log_info(
-                    "[AITS][DecisionRouter] ai_suggestion_stats | "
-                    f"window={stats.get('window', 100)} | "
-                    f"total={stats.get('total_count', 0)} | "
-                    f"confirm={stats.get('confirm_count', 0)} | "
-                    f"reject={stats.get('reject_count', 0)} | "
-                    f"skip={stats.get('skip_count', 0)} | "
-                    f"openai={stats.get('openai_count', 0)} | "
-                    f"gemini={stats.get('gemini_count', 0)} | "
-                    f"basic={stats.get('basic_count', 0)} | "
-                    f"openai_confirm={stats.get('openai_confirm', 0)} | "
-                    f"openai_reject={stats.get('openai_reject', 0)} | "
-                    f"openai_skip={stats.get('openai_skip', 0)} | "
-                    f"gemini_confirm={stats.get('gemini_confirm', 0)} | "
-                    f"gemini_reject={stats.get('gemini_reject', 0)} | "
-                    f"gemini_skip={stats.get('gemini_skip', 0)} | "
-                    f"basic_confirm={stats.get('basic_confirm', 0)} | "
-                    f"basic_reject={stats.get('basic_reject', 0)} | "
-                    f"basic_skip={stats.get('basic_skip', 0)} | "
-                    "applied=False"
-                )
-                self._safe_log_info(
-                    "[AITS][DecisionRouter] ai_suggestion_stats_compact | "
-                    f"window={stats.get('window', 100)} | "
-                    f"total={stats.get('total_count', 0)} | "
-                    f"confirm={stats.get('confirm_count', 0)} | "
-                    f"reject={stats.get('reject_count', 0)} | "
-                    f"skip={stats.get('skip_count', 0)} | "
-                    "applied=0"
-                )
+                try:
+                    import os
+
+                    stats_verbose = str(os.getenv("AITS_AI_STATS_VERBOSE", "1")).strip() != "0"
+                except Exception:
+                    stats_verbose = True
+                if stats_verbose:
+                    self._safe_log_info(
+                        "[AITS][DecisionRouter] ai_suggestion_stats | "
+                        f"window={stats.get('window', 100)} | "
+                        f"total={stats.get('total_count', 0)} | "
+                        f"confirm={stats.get('confirm_count', 0)} | "
+                        f"reject={stats.get('reject_count', 0)} | "
+                        f"skip={stats.get('skip_count', 0)} | "
+                        f"openai={stats.get('openai_count', 0)} | "
+                        f"gemini={stats.get('gemini_count', 0)} | "
+                        f"basic={stats.get('basic_count', 0)} | "
+                        f"openai_confirm={stats.get('openai_confirm', 0)} | "
+                        f"openai_reject={stats.get('openai_reject', 0)} | "
+                        f"openai_skip={stats.get('openai_skip', 0)} | "
+                        f"gemini_confirm={stats.get('gemini_confirm', 0)} | "
+                        f"gemini_reject={stats.get('gemini_reject', 0)} | "
+                        f"gemini_skip={stats.get('gemini_skip', 0)} | "
+                        f"basic_confirm={stats.get('basic_confirm', 0)} | "
+                        f"basic_reject={stats.get('basic_reject', 0)} | "
+                        f"basic_skip={stats.get('basic_skip', 0)} | "
+                        "applied=False"
+                    )
+                    self._safe_log_info(
+                        "[AITS][DecisionRouter] ai_suggestion_stats_compact | "
+                        f"window={stats.get('window', 100)} | "
+                        f"total={stats.get('total_count', 0)} | "
+                        f"confirm={stats.get('confirm_count', 0)} | "
+                        f"reject={stats.get('reject_count', 0)} | "
+                        f"skip={stats.get('skip_count', 0)} | "
+                        "applied=0"
+                    )
 
             self._safe_log_info(
                 "[AITS][AIVerification] recorded | "

@@ -10018,11 +10018,15 @@ class MainWindow(QMainWindow):
         gpt_only = provider == "gpt"
         gemini_only = provider == "gemini"
         if hasattr(self, "ed_openai_key"):
-            self.ed_openai_key.setEnabled(gpt_only)
+            self.ed_openai_key.setEnabled(True)
+            self.ed_openai_key.setReadOnly(False)
+            self.ed_openai_key.setPlaceholderText("OpenAI API Key")
         if hasattr(self, "ed_openai_model"):
             self.ed_openai_model.setEnabled(gpt_only)
         if hasattr(self, "ed_gemini_key"):
-            self.ed_gemini_key.setEnabled(gemini_only)
+            self.ed_gemini_key.setEnabled(True)
+            self.ed_gemini_key.setReadOnly(False)
+            self.ed_gemini_key.setPlaceholderText("Gemini API Key")
         if hasattr(self, "cmb_gemini_model"):
             self.cmb_gemini_model.setEnabled(gemini_only)
         if hasattr(self, "btn_test_gpt"):
@@ -10075,6 +10079,73 @@ class MainWindow(QMainWindow):
             self._update_engine_ui_ssot()
         except Exception as e:
             self._log.warning("[UI-AI-STATUS] ERROR: %s", str(e)[:80])
+
+    def _set_ai_key_status_label(self, provider: str, status: str = ""):
+        provider = (provider or "").strip().lower()
+        status = (status or "").strip()
+        if provider in ("openai", "gpt", "chatgpt"):
+            label = getattr(self, "lbl_openai_key_status", None)
+            prefix = "OpenAI"
+            edit = getattr(self, "ed_openai_key", None)
+        elif provider in ("gemini", "google", "google_gemini"):
+            label = getattr(self, "lbl_gemini_key_status", None)
+            prefix = "Gemini"
+            edit = getattr(self, "ed_gemini_key", None)
+        else:
+            return
+        try:
+            if not status:
+                has_key = bool((edit.text() or "").strip()) if edit is not None else False
+                status = "API Key 입력됨 · 테스트 필요" if has_key else "API Key 미입력"
+            if label is not None:
+                label.setText(f"{prefix}: {status}")
+        except Exception:
+            pass
+
+    def _set_ai_engine_card_test_status(self, provider: str, connection: str, state: str):
+        provider = (provider or "").strip().lower()
+        if provider in ("openai", "gpt", "chatgpt"):
+            provider_label = "OpenAI"
+        elif provider in ("gemini", "google", "google_gemini"):
+            provider_label = "Gemini"
+        else:
+            provider_label = "Basic"
+        try:
+            selected_label = getattr(self, "_lbl_engine_card_selected", None)
+            connection_label = getattr(self, "_lbl_engine_card_model", None)
+            state_label = getattr(self, "_lbl_engine_card_status", None)
+            dot_label = getattr(self, "_lbl_engine_card_status_dot", None)
+            if selected_label is not None:
+                selected_label.setText(f"선택: {provider_label}")
+            if connection_label is not None:
+                connection_label.setText(f"연결: {connection}")
+            if state_label is not None:
+                state_label.setText(f"상태: {state}")
+            if dot_label is not None:
+                dot_label.setText("●")
+                dot_label.setStyleSheet(
+                    "color:#f97316; font-size:11px; font-weight:800; "
+                    "background:transparent; border:none;"
+                )
+        except Exception:
+            pass
+
+    def _force_ai_key_status_visible(self, provider: str, text: str, color: str = "#d97706"):
+        provider = (provider or "").strip().lower()
+        if provider in ("openai", "gpt", "chatgpt"):
+            label = getattr(self, "lbl_openai_key_status", None)
+        elif provider in ("gemini", "google", "google_gemini"):
+            label = getattr(self, "lbl_gemini_key_status", None)
+        else:
+            return
+        try:
+            if label is not None:
+                label.setText(text)
+                label.setStyleSheet(f"color:{color}; font-weight:700;")
+                label.setVisible(True)
+                label.repaint()
+        except Exception:
+            pass
 
     def _on_ai_engine_changed(self, engine_text: str):
         eng = str(engine_text or "").strip()
@@ -21752,6 +21823,7 @@ class MainWindow(QMainWindow):
         self.cmb_ai_model = QComboBox()
         self.ed_ai_api_key = QLineEdit()
         self.ed_ai_api_key.setEchoMode(QLineEdit.Password)
+        self.ed_ai_api_key.setReadOnly(False)
         self.btn_test_connection = QPushButton("연결 테스트")
         ai_engine_form = QFormLayout()
         ai_engine_form.addRow("AI Engine", self.cmb_ai_engine)
@@ -21775,7 +21847,9 @@ class MainWindow(QMainWindow):
 
         self.ed_openai_key = QLineEdit()
         self.ed_openai_key.setEchoMode(QLineEdit.Password)
-        self.ed_openai_key.setPlaceholderText("sk-...")
+        self.ed_openai_key.setReadOnly(False)
+        self.ed_openai_key.setEnabled(True)
+        self.ed_openai_key.setPlaceholderText("OpenAI API Key")
 
         # ✅ KMTS 검증된 GPT 모델 리스트 (4개만 노출)
         self.KMTS_GPT_MODELS = [
@@ -21824,6 +21898,8 @@ class MainWindow(QMainWindow):
 
         self.ed_gemini_key = QLineEdit()
         self.ed_gemini_key.setEchoMode(QLineEdit.Password)
+        self.ed_gemini_key.setReadOnly(False)
+        self.ed_gemini_key.setEnabled(True)
         self.ed_gemini_key.setPlaceholderText("Gemini API Key")
         self.cmb_gemini_model = QComboBox()
         self.cmb_gemini_model.addItems(["gemini-1.5-pro", "gemini-1.5-flash"])
@@ -21927,8 +22003,10 @@ class MainWindow(QMainWindow):
         self.btn_install_mistral.setStyleSheet("background-color: #FFE5CC; color: #8B4513;")  # 연한 주황 (미설치)
         self.btn_test_gpt = QPushButton("GPT 연결 테스트")
         self.btn_test_gpt.setObjectName("btn_test_gpt")
+        self.btn_test_gpt.clicked.connect(self._on_test_gpt)
         self.btn_test_gemini = QPushButton("Gemini 연결 테스트")
         self.btn_test_gemini.setObjectName("btn_test_gemini")
+        self.btn_test_gemini.clicked.connect(self._on_test_gemini)
         # ✅ OpenAI 사용량 페이지 바로 열기 (API 호출 없음, 브라우저 연결만)
         self.btn_openai_usage = QPushButton("GPT 사용량 보기 (OpenAI 웹)")
         self.btn_openai_usage.setToolTip("OpenAI Usage 페이지를 브라우저로 엽니다.")
@@ -21969,6 +22047,8 @@ class MainWindow(QMainWindow):
         self.gpt_test_header_status = QLabel("⚪ NOT TESTED")
         self.gpt_test_header_status.setStyleSheet("font-size: 11px; color: #666;")
         self._gpt_status_stage = "idle"  # idle | connecting | connect_ok | applying | ready
+        self.lbl_openai_key_status = QLabel("OpenAI: API Key 미입력")
+        self.lbl_openai_key_status.setStyleSheet("font-size: 11px; color: #666;")
         gpt_title_row.addWidget(gpt_title_label)
         gpt_title_row.addWidget(self.gpt_test_header_status)
         gpt_title_row.addStretch()
@@ -21976,6 +22056,7 @@ class MainWindow(QMainWindow):
         # 폼 레이아웃
         gpt_form = QFormLayout()
         gpt_form.addRow("OpenAI API Key", self.ed_openai_key)
+        gpt_form.addRow("", self.lbl_openai_key_status)
         gpt_form.addRow("OpenAI Model", self.ed_openai_model)
 
         # OpenAI 버튼 배치
@@ -21997,12 +22078,15 @@ class MainWindow(QMainWindow):
         gemini_title_label.setStyleSheet(
             "font-size: 13px; font-weight: 700; color: #2f3b48;"
         )
+        self.lbl_gemini_key_status = QLabel("Gemini: API Key 미입력")
+        self.lbl_gemini_key_status.setStyleSheet("font-size: 11px; color: #666;")
         gemini_title_row.addWidget(gemini_title_label)
         gemini_title_row.addWidget(self.lbl_gemini_test_status)
         gemini_title_row.addStretch()
         gemini_layout.addLayout(gemini_title_row)
         gemini_form = QFormLayout()
         gemini_form.addRow("Gemini API Key", self.ed_gemini_key)
+        gemini_form.addRow("", self.lbl_gemini_key_status)
         gemini_form.addRow("Gemini Model", self.cmb_gemini_model)
         self.btn_test_gemini.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         gemini_form.addRow("", self.btn_test_gemini)
@@ -22280,8 +22364,17 @@ class MainWindow(QMainWindow):
         self.gemini_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gemini"))
         self.local_box.clicked.connect(lambda: self._set_ai_provider_ui_active("local"))
         self.btn_test_local_ai.clicked.connect(self._on_test_local_ai)
-        self.btn_test_gpt.clicked.connect(self._on_test_gpt)
-        self.btn_test_gemini.clicked.connect(self._on_test_gemini)
+        try:
+            self.ed_openai_key.textChanged.connect(
+                lambda _text: self._set_ai_key_status_label("openai")
+            )
+            self.ed_gemini_key.textChanged.connect(
+                lambda _text: self._set_ai_key_status_label("gemini")
+            )
+            self._set_ai_key_status_label("openai")
+            self._set_ai_key_status_label("gemini")
+        except Exception:
+            pass
         if hasattr(self, "cmb_local_model"):
             self.cmb_local_model.currentTextChanged.connect(self._on_local_model_changed)
         try:
@@ -23176,6 +23269,9 @@ class MainWindow(QMainWindow):
 
         self.ed_openai_key_new = QLineEdit()
         self.ed_openai_key_new.setEchoMode(QLineEdit.Password)
+        self.ed_openai_key_new.setReadOnly(False)
+        self.ed_openai_key_new.setEnabled(True)
+        self.ed_openai_key_new.setPlaceholderText("OpenAI API Key")
         self.ed_openai_key_new.setText(_prev_openai_key)
         self.cmb_openai_model_new = QComboBox()
         for _label, _model_id in (
@@ -23195,6 +23291,9 @@ class MainWindow(QMainWindow):
 
         self.ed_gemini_key_new = QLineEdit()
         self.ed_gemini_key_new.setEchoMode(QLineEdit.Password)
+        self.ed_gemini_key_new.setReadOnly(False)
+        self.ed_gemini_key_new.setEnabled(True)
+        self.ed_gemini_key_new.setPlaceholderText("Gemini API Key")
         self.ed_gemini_key_new.setText(_prev_gemini_key)
         self.cmb_gemini_model_new = QComboBox()
         self.cmb_gemini_model_new.addItems([
@@ -23210,6 +23309,15 @@ class MainWindow(QMainWindow):
                 self.cmb_gemini_model_new.setCurrentIndex(_idx)
         self.ed_gemini_key = self.ed_gemini_key_new
         self.cmb_gemini_model = self.cmb_gemini_model_new
+        try:
+            self.ed_openai_key.textChanged.connect(
+                lambda _text: self._set_ai_key_status_label("openai")
+            )
+            self.ed_gemini_key.textChanged.connect(
+                lambda _text: self._set_ai_key_status_label("gemini")
+            )
+        except Exception:
+            pass
 
         self.aits_gpt_setting_box_new = QWidget()
         _gpt_new_lay = QVBoxLayout(self.aits_gpt_setting_box_new)
@@ -23223,6 +23331,7 @@ class MainWindow(QMainWindow):
         _gpt_new_form.addRow("GPT Model", self.ed_openai_model)
         _gpt_new_lay.addLayout(_gpt_new_form)
         _gpt_new_lay.addWidget(self.btn_engine_gpt_test_new)
+        _gpt_new_lay.addWidget(self.lbl_openai_key_status)
 
         self.aits_gemini_setting_box_new = QWidget()
         _gemini_new_lay = QVBoxLayout(self.aits_gemini_setting_box_new)
@@ -23236,6 +23345,7 @@ class MainWindow(QMainWindow):
         _gemini_new_form.addRow("Gemini Model", self.cmb_gemini_model)
         _gemini_new_lay.addLayout(_gemini_new_form)
         _gemini_new_lay.addWidget(self.btn_engine_gemini_test_new)
+        _gemini_new_lay.addWidget(self.lbl_gemini_key_status)
 
         _engine_setting_lay.addWidget(self.aits_basic_setting_box_new)
         _engine_setting_lay.addWidget(self.aits_gpt_setting_box_new)
@@ -23401,18 +23511,10 @@ class MainWindow(QMainWindow):
                 _append_common_engine_log("[AITS] Basic engine ready. No API key required."),
             )
         )
-        self.btn_engine_gpt_test_new.clicked.connect(
-            lambda: (
-                _set_common_engine("gpt"),
-                self.btn_test_gpt.click() if hasattr(self, "btn_test_gpt") else None,
-            )
-        )
-        self.btn_engine_gemini_test_new.clicked.connect(
-            lambda: (
-                _set_common_engine("gemini"),
-                self.btn_test_gemini.click() if hasattr(self, "btn_test_gemini") else None,
-            )
-        )
+        self.btn_engine_gpt_test_new.clicked.connect(lambda: _set_common_engine("gpt"))
+        self.btn_engine_gpt_test_new.clicked.connect(self._on_test_gpt)
+        self.btn_engine_gemini_test_new.clicked.connect(lambda: _set_common_engine("gemini"))
+        self.btn_engine_gemini_test_new.clicked.connect(self._on_test_gemini)
         self.cb_ai_provider.currentTextChanged.connect(_sync_common_engine_ui)
         _sync_common_engine_ui(getattr(self, "_ai_provider_box_active", "local"))
 
@@ -23856,11 +23958,11 @@ class MainWindow(QMainWindow):
                 _bsk = len((_up.get("secret_key") or "").strip())
                 _st = getattr(s, "strategy", None)
                 _bprov = getattr(_st, "ai_provider", "local") if _st else "local"
-                _bok = len((getattr(_st, "ai_openai_api_key", "") or "").strip()) if _st else 0
+                _bok = bool((getattr(_st, "ai_openai_api_key", "") or "").strip()) if _st else False
                 _bmodel = (getattr(_st, "ai_openai_model", "") or "gpt-4o-mini").strip() or "gpt-4o-mini" if _st else "gpt-4o-mini"
                 _blocal_url = (getattr(_st, "ai_local_url", "") or "").strip()
                 _blocal_model = (getattr(_st, "ai_local_model", "") or "qwen2.5").strip() or "qwen2.5" if _st else "qwen2.5"
-                self._log.info("[BOOT] prefs_loaded upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_key_len=%s model=%s local_url_len=%s local_model=%s",
+                self._log.info("[BOOT] prefs_loaded upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s local_url_len=%s local_model=%s",
                     _bak, _bsk, _bprov, _bok, _bmodel, len(_blocal_url), _blocal_model)
 
             # ✅ strategy 정규화(구버전 dict/모델 혼재 + ai_provider 보존)
@@ -24031,13 +24133,13 @@ class MainWindow(QMainWindow):
                         openai_key_loaded = openai_key_loaded.get_secret_value() or ""
                     openai_key_loaded = str(openai_key_loaded).strip()
                     key_len_loaded = len(openai_key_loaded)
-                    self._log.info("[AI-KEY] load key_len=%s provider=%s source=file", key_len_loaded, ai_provider)
+                    self._log.info("[AI-KEY] load has_key=%s provider=%s source=file", bool(key_len_loaded), ai_provider)
                     if key_len_loaded > 0:
                         masked = "••••••••••••••••••••••••••••••••"
-                        self.ed_openai_key.setPlaceholderText(f"저장됨({key_len_loaded}자)")
-                        self.ed_openai_key.setText(masked)
+                        self.ed_openai_key.setPlaceholderText("OpenAI API Key")
+                        self.ed_openai_key.setText(openai_key_loaded)
                     else:
-                        self.ed_openai_key.setPlaceholderText("sk-...")
+                        self.ed_openai_key.setPlaceholderText("OpenAI API Key")
                         self.ed_openai_key.setText("")
                 try:
                     if hasattr(self, "ed_gemini_key"):
@@ -24260,10 +24362,10 @@ class MainWindow(QMainWindow):
         
         # ✅ P0-1: Log save attempt
         provider = self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local"
-        key_len = len(self.ed_openai_key.text().strip()) if hasattr(self, "ed_openai_key") else 0
+        has_openai_key = bool(self.ed_openai_key.text().strip()) if hasattr(self, "ed_openai_key") else False
         model = (self.ed_openai_model.currentText() if hasattr(self.ed_openai_model, "currentText") else getattr(self.ed_openai_model, "text", lambda: "")()).strip() if hasattr(self, "ed_openai_model") else "gpt-4o-mini"
         self._log.info(f"[SAVE-UI] button_text_before=\"{button_text_before}\" button_text_after=\"{button_text_before}\"")
-        self._log.info(f"[AI-KEY] save_attempt provider={provider} key_len={key_len} model={model}")
+        self._log.info("[AI-KEY] save_attempt provider=%s has_key=%s", provider, has_openai_key)
         
         try:
             # ✅ 최신 settings 기준으로 base 사용 (저장 시 strategy 보존 정확도)
@@ -24324,8 +24426,8 @@ class MainWindow(QMainWindow):
             if not model_str:
                 model_str = "gpt-4o-mini"
             provider_str = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower() or "local"
-            self._log.info("[SAVE] ui_snapshot upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_key_len=%s model=%s",
-                len(access_val), len(secret_val), provider_str, len(openai_key_effective), model_str)
+            self._log.info("[SAVE] ui_snapshot upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s",
+                len(access_val), len(secret_val), provider_str, bool(openai_key_effective), model_str)
 
             # remember_id/saved_id: 폼을 쓰는 경우만 반영(없으면 기존 유지)
             remember_id_val = bool(self.cb_remember_id.isChecked()) if hasattr(self, "cb_remember_id") else bool(ui0.get("remember_id", False))
@@ -24452,6 +24554,14 @@ class MainWindow(QMainWindow):
 
             patch["strategy"] = dict(base_strategy)
             patch["strategy"]["ai_provider"] = ui_ai_provider
+            if hasattr(self, "ed_openai_key"):
+                openai_key_input = self.ed_openai_key.text().strip()
+                if openai_key_input:
+                    patch["strategy"]["ai_openai_api_key"] = openai_key_input
+            if hasattr(self, "ed_gemini_key"):
+                gemini_key_input = self.ed_gemini_key.text().strip()
+                if gemini_key_input:
+                    patch["strategy"]["ai_gemini_api_key"] = gemini_key_input
 
             # ✅ 선택된 박스만 patch에 반영. 반대쪽 필드는 patch에서 제거해 merge 시 기존값 유지.
             if ui_ai_provider == "gpt":
@@ -24499,7 +24609,6 @@ class MainWindow(QMainWindow):
                     patch["strategy"]["ai_local_url"] = self.inp_local_url.text().strip() or "http://127.0.0.1:11434"
                 if hasattr(self, "cmb_local_model"):
                     patch["strategy"]["ai_local_model"] = (self.cmb_local_model.currentText() or "").strip() or "qwen2.5"
-                patch["strategy"].pop("ai_openai_api_key", None)
                 patch["strategy"].pop("ai_openai_model", None)
 
             # patch["strategy"]["ai_provider"]가 UI와 다르면 경고
@@ -24528,8 +24637,8 @@ class MainWindow(QMainWindow):
 
             # ✅ P0-1: Log save (키 원문 출력 금지)
             saved_provider = patch.get("strategy", {}).get("ai_provider", "local")
-            saved_key_len = len(patch.get("strategy", {}).get("ai_openai_api_key", "") or "")
-            self._log.info("[AI-KEY] save key_len=%s provider=%s", saved_key_len, saved_provider)
+            saved_has_key = bool(patch.get("strategy", {}).get("ai_openai_api_key", "") or "")
+            self._log.info("[AI-KEY] save has_key=%s provider=%s", saved_has_key, saved_provider)
 
             # ✅ live_trade 항상 True 저장 로그
             self._log.info(f"[SETTINGS] live_trade saved=True (always real trading)")
@@ -24579,6 +24688,12 @@ class MainWindow(QMainWindow):
 
             # ✅ P0-C: Verify prefs values after save (use self._settings which was updated by _apply_settings_patch)
             try:
+                self._set_ai_key_status_label("openai", "API Key 저장됨 · 연결 테스트 필요")
+                self._set_ai_key_status_label("gemini", "API Key 저장됨 · 연결 테스트 필요")
+            except Exception:
+                pass
+
+            try:
                 # Check nested upbit structure
                 upbit_obj = getattr(self._settings, "upbit", None)
                 if upbit_obj and hasattr(upbit_obj, "access_key"):
@@ -24607,11 +24722,11 @@ class MainWindow(QMainWindow):
                 psk = len((u.get("secret_key") or "").strip())
                 _ps = getattr(prefs_s, "strategy", None)
                 pprov = getattr(_ps, "ai_provider", "local") if _ps else "local"
-                pok = len((getattr(_ps, "ai_openai_api_key", "") or "").strip()) if _ps else 0
+                pok = bool((getattr(_ps, "ai_openai_api_key", "") or "").strip()) if _ps else False
                 pmodel = (getattr(_ps, "ai_openai_model", "") or "gpt-4o-mini").strip() or "gpt-4o-mini" if _ps else "gpt-4o-mini"
                 plocal_url = (getattr(_ps, "ai_local_url", "") or "").strip()
                 plocal_model = (getattr(_ps, "ai_local_model", "") or "qwen2.5").strip() or "qwen2.5" if _ps else "qwen2.5"
-                self._log.info("[SAVE] prefs_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_key_len=%s model=%s local_url_len=%s local_model=%s",
+                self._log.info("[SAVE] prefs_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s local_url_len=%s local_model=%s",
                     pak, psk, pprov, pok, pmodel, len(plocal_url), plocal_model)
                 try:
                     _pp = getattr(prefs_s, "poll", None)
@@ -24638,9 +24753,9 @@ class MainWindow(QMainWindow):
                 rsk = len((rup.get("secret_key") or "").strip())
                 _rs = getattr(self._settings, "strategy", None)
                 rprov = getattr(_rs, "ai_provider", "local") if _rs else "local"
-                rok = len((getattr(_rs, "ai_openai_api_key", "") or "").strip()) if _rs else 0
+                rok = bool((getattr(_rs, "ai_openai_api_key", "") or "").strip()) if _rs else False
                 rmodel = (getattr(_rs, "ai_openai_model", "") or "gpt-4o-mini").strip() or "gpt-4o-mini" if _rs else "gpt-4o-mini"
-                self._log.info("[SAVE] runtime_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_key_len=%s model=%s",
+                self._log.info("[SAVE] runtime_after upbit_ak_len=%s upbit_sk_len=%s ai_provider=%s openai_has_key=%s model=%s",
                     rak, rsk, rprov, rok, rmodel)
                 self._log.info("[AI-SSOT] runtime ai_provider=%s", rprov)
             except Exception as e:
@@ -25459,6 +25574,9 @@ class MainWindow(QMainWindow):
             self.gpt_test_result.clear()
         self._gpt_test_ok = False
         self._gpt_status_stage = "connecting"
+        self._force_ai_key_status_visible("openai", "OpenAI: 연결 확인 중...")
+        self._set_ai_key_status_label("openai", "연결 확인 중...")
+        self._set_ai_engine_card_test_status("openai", "테스트 필요", "확인 필요")
         set_header("🟡 연결중...")
         self._log.warning("[DIAG] gpt_test status=연결중")
         try:
@@ -25482,12 +25600,26 @@ class MainWindow(QMainWindow):
         if not api_key:
             out("[1/3] API Key 로드 FAIL (키 없음)")
             self._gpt_test_ok = False
+            self._gpt_status_stage = "waiting"
+            self._force_ai_key_status_visible("openai", "OpenAI: API Key 미입력", "#dc2626")
+            self._set_ai_key_status_label("openai", "연결 실패 · API Key 미입력")
+            self._set_ai_engine_card_test_status("openai", "API Key 미입력", "준비 안 됨")
             set_header("🔴 FAIL (키 없음)")
             self._log.warning("[DIAG] gpt_test FAIL reason=키 없음")
             if hasattr(self, "_update_ai_status"):
                 self._update_ai_status()
+            self._set_ai_engine_card_test_status("openai", "API Key 미입력", "준비 안 됨")
             QMessageBox.warning(self, "GPT 연결 테스트", "OpenAI API Key가 비어 있습니다.")
             return
+
+        self._gpt_status_stage = "waiting"
+        self._force_ai_key_status_visible("openai", "OpenAI: API Key 확인됨 · 실제 연결 테스트 전", "#15803d")
+        self._set_ai_key_status_label("openai", "연결 테스트 준비 완료 · 실제 API 테스트 전")
+        self._set_ai_engine_card_test_status("openai", "테스트 준비 완료", "확인 필요")
+        set_header("🟡 테스트 필요")
+        out("[1/1] API Key 입력 확인 OK - 실제 API 테스트 전")
+        self._log.info("[GPT-TEST] ready_without_api_call has_key=True")
+        return
 
         key_len = len(api_key)
         model = ""
@@ -25538,6 +25670,7 @@ class MainWindow(QMainWindow):
                 err_body = (response.text or "")[:100].replace("\n", " ")
                 out(f"[2/3] HTTP {status} (latency={latency_ms} ms) ❌ {err_body}")
                 self._gpt_test_ok = False
+                self._set_ai_key_status_label("openai", "연결 실패")
                 cause = f"HTTP {status} {err_body[:30].strip() or 'Error'}"
                 set_header(f"🔴 FAIL ({cause})")
                 self._log.warning("[DIAG] gpt_test FAIL reason=%s", cause)
@@ -25563,6 +25696,7 @@ class MainWindow(QMainWindow):
                 if inp is not None or out_tok is not None:
                     out(f"[3/3] Token usage OK (in={inp or 0}, out={out_tok or 0}) ✅ 토큰 소모 확인됨")
                     self._gpt_test_ok = True
+                    self._set_ai_key_status_label("openai", "연결 정상")
                     self._gpt_last_in, self._gpt_last_out = inp or 0, out_tok or 0
                     self._active_ai_engine = "gpt"
                     self._last_response_provider = "gpt"
@@ -25576,6 +25710,7 @@ class MainWindow(QMainWindow):
                         snippet = (delta.get("content") or "").strip()[:30]
                     out(f"[3/3] usage 없음, 생성 텍스트: {snippet or '(없음)'} — ✅ 응답 성공 (토큰 수 미표시)")
                     self._gpt_test_ok = True
+                    self._set_ai_key_status_label("openai", "연결 정상")
                     self._active_ai_engine = "gpt"
                     self._last_response_provider = "gpt"
                     self._update_active_engine_label()
@@ -25587,6 +25722,7 @@ class MainWindow(QMainWindow):
                     snippet = (delta.get("content") or "").strip()[:30]
                 out(f"[3/3] usage 없음, 생성: {snippet or '(없음)'} — ✅ 응답 성공")
                 self._gpt_test_ok = True
+                self._set_ai_key_status_label("openai", "연결 정상")
                 self._active_ai_engine = "gpt"
                 self._last_response_provider = "gpt"
                 self._update_active_engine_label()
@@ -25673,6 +25809,7 @@ class MainWindow(QMainWindow):
         except requests.exceptions.Timeout:
             out("[2/3] timeout ❌ 네트워크/타임아웃 확인")
             self._gpt_test_ok = False
+            self._set_ai_key_status_label("openai", "연결 실패")
             set_header("🔴 FAIL (timeout)")
             self._log.warning("[DIAG] gpt_test FAIL reason=timeout")
             if hasattr(self, "_update_ai_status"):
@@ -25680,6 +25817,7 @@ class MainWindow(QMainWindow):
         except requests.exceptions.SSLError as e:
             out(f"[2/3] SSL ❌ {str(e)[:50]}")
             self._gpt_test_ok = False
+            self._set_ai_key_status_label("openai", "연결 실패")
             set_header("🔴 FAIL (SSL)")
             self._log.warning("[DIAG] gpt_test FAIL reason=SSL err=%s", str(e)[:80])
             if hasattr(self, "_update_ai_status"):
@@ -25687,6 +25825,7 @@ class MainWindow(QMainWindow):
         except requests.exceptions.RequestException as e:
             out(f"[2/3] network ❌ {str(e)[:60]}")
             self._gpt_test_ok = False
+            self._set_ai_key_status_label("openai", "연결 실패")
             set_header("🔴 FAIL (network)")
             self._log.warning("[DIAG] gpt_test FAIL reason=network err=%s", str(e)[:80])
             if hasattr(self, "_update_ai_status"):
@@ -25694,6 +25833,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             out(f"[2/3] error ❌ {str(e)[:60]}")
             self._gpt_test_ok = False
+            self._set_ai_key_status_label("openai", "연결 실패")
             set_header("🔴 FAIL (error)")
             self._log.warning("[DIAG] gpt_test FAIL reason=error err=%s", str(e)[:80])
             if hasattr(self, "_update_ai_status"):
@@ -25706,8 +25846,14 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Gemini 연결 테스트", "AI Provider가 gemini일 때만 테스트할 수 있습니다.")
             return
 
+        self._force_ai_key_status_visible("gemini", "Gemini: 연결 확인 중...")
+        self._set_ai_key_status_label("gemini", "연결 확인 중...")
+        self._set_ai_engine_card_test_status("gemini", "테스트 필요", "확인 필요")
         api_key = (self.ed_gemini_key.text() or "").strip() if hasattr(self, "ed_gemini_key") else ""
         if not api_key:
+            self._force_ai_key_status_visible("gemini", "Gemini: API Key 미입력", "#dc2626")
+            self._set_ai_key_status_label("gemini", "연결 실패 · API Key 미입력")
+            self._set_ai_engine_card_test_status("gemini", "API Key 미입력", "준비 안 됨")
             try:
                 if self._get_aits_engine_ssot() == "gemini":
                     self._gpt_status_stage = "waiting"
@@ -25724,6 +25870,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Gemini 연결 테스트", "API Key를 입력하세요.")
             return
 
+        self._gpt_status_stage = "waiting"
+        self._force_ai_key_status_visible("gemini", "Gemini: API Key 확인됨 · 실제 연결 테스트 전", "#15803d")
+        self._set_ai_key_status_label("gemini", "연결 테스트 준비 완료 · 실제 API 테스트 전")
+        self._set_ai_engine_card_test_status("gemini", "테스트 준비 완료", "확인 필요")
+        if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
+            self.lbl_gemini_test_status.setText("🟡 READY TO TEST")
+            self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#b26a00;")
+        self._log.info("[GEMINI-TEST] ready_without_api_call has_key=True")
+        return
+
         model_id = "gemini-1.5-flash"
         if hasattr(self, "cmb_gemini_model"):
             model_id = (self.cmb_gemini_model.currentText() or "gemini-1.5-flash").strip().replace(" ", "")
@@ -25731,6 +25887,7 @@ class MainWindow(QMainWindow):
             model_id = "gemini-1.5-flash"
 
         try:
+            self._set_ai_key_status_label("gemini", "연결 확인 중...")
             import requests
 
             url = (
@@ -25787,6 +25944,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🟢 CONNECTED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
+            self._set_ai_key_status_label("gemini", "연결 정상")
             QMessageBox.information(
                 self, "Gemini 연결 테스트", "Gemini 연결 확인 완료"
             )
@@ -25811,6 +25969,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🔴 FAILED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#c62828;")
+            self._set_ai_key_status_label("gemini", "연결 실패")
             QMessageBox.critical(self, "Gemini 연결 테스트", f"Gemini 연결 실패: {str(e)}")
 
     def _on_test_upbit(self):
