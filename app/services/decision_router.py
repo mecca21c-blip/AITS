@@ -167,6 +167,10 @@ class DecisionRouter:
                     "final=passthrough"
                 )
                 self._safe_log_info(
+                    "[AITS][DecisionRouter] final_action_contract | "
+                    "final=passthrough | ai_applied=False"
+                )
+                self._safe_log_info(
                     "[AITS][DecisionRouter] fusion_signal | "
                     f"history_bias={shadow_signal.get('history_bias', 'mixed')} | "
                     f"regime={shadow_signal.get('market_regime', '')} | "
@@ -2001,6 +2005,10 @@ class DecisionRouter:
                 context=ai_verification_context,
                 raw=raw,
             )
+            self._safe_log_info(
+                "[AITS][DecisionRouter] ai_suggestion_received | "
+                "suggestion_only=True | applied_to_action=False"
+            )
             try:
                 self._last_ai_verification_suggestion = ai_verification_suggestion
             except Exception:
@@ -2059,9 +2067,20 @@ class DecisionRouter:
 
             raw_meta = raw.setdefault("meta", {})
             if isinstance(raw_meta, dict):
+                ai_suggestion_summary = {
+                    "provider": ai_verification_suggestion.get("provider"),
+                    "suggestion": ai_verification_suggestion.get("suggestion"),
+                    "delta": ai_verification_suggestion.get("observe_only_weight_delta", 0.0),
+                    "applied": False,
+                }
+                raw_meta["ai_suggestion"] = ai_suggestion_summary
                 raw_meta["ai_verification"] = ai_verification_suggestion
                 raw_meta["ai_verification_applied"] = False
                 raw_meta["ai_verification_safety"] = "suggestion_only_no_action_change"
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] ai_suggestion_stored | "
+                    "stored=True | applied=False"
+                )
 
             self._safe_log_info(
                 "[AITS][AIVerification] recorded | "
