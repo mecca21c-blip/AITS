@@ -2386,12 +2386,12 @@ class AITSLargeChartDialog(QDialog):
 
     def _translate_detail_popup_scenario_label(self, scenario_type: str):
         labels = {
-            "bullish_breakout": "상승 돌파 준비형",
-            "accumulation_ready": "매집 완료 대기형",
+            "bullish_breakout": "추세 전환 대기형",
+            "accumulation_ready": "추세 전환 대기형",
             "sideways_wait": "횡보 관찰형",
-            "weak_rebound": "약반등 확인형",
-            "bearish_drift": "하락 지속형",
-            "sharp_drop_risk": "급락 경계형",
+            "weak_rebound": "추세 전환 대기형",
+            "bearish_drift": "변동성 확대형",
+            "sharp_drop_risk": "변동성 확대형",
         }
         return labels.get(str(scenario_type or "").strip(), "횡보 관찰형")
 
@@ -2413,9 +2413,9 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_detail_popup_scenario_title.setText(
                 self._translate_detail_popup_scenario_label(scenario_type)
             )
-            self.lbl_detail_popup_scenario_type.setText(scenario_type)
+            self.lbl_detail_popup_scenario_type.setText("AI 운용 시나리오")
             self.lbl_detail_popup_scenario_confidence.setText(
-                f"방향성 확인 전 보조 시나리오 · 신뢰도 {int(round(confidence * 100.0))}%"
+                f"신뢰도 {int(round(confidence * 100.0))}%"
             )
         except Exception:
             pass
@@ -10757,19 +10757,9 @@ class MainWindow(QMainWindow):
                 result.get("normalized_provider") or result.get("provider") or provider
             )
             if parsed_valid:
-                eta = shadow_record.get("eta") or {}
-                eta_text = ""
-                if isinstance(eta, dict):
-                    remaining = eta.get("remaining_minutes")
-                    if remaining is not None:
-                        eta_text = f"{remaining}분"
-
-                scenario = shadow_record.get("scenario") or {}
-                scenario_label = str(
-                    (scenario.get("label_ko") or scenario.get("name") or "").strip()
-                )
-
-                next_action_ko = self._format_ai_analysis_next_action_ko(next_action)
+                next_action_ko = self._format_ai_next_action_ko(next_action)
+                scenario_label = self._format_ai_scenario_text(shadow_record)
+                eta_text = self._format_ai_eta_summary(shadow_record)
 
                 status_text = (
                     f"AI 분석 테스트 완료 · {normalized_provider} · "
@@ -10819,6 +10809,9 @@ class MainWindow(QMainWindow):
                 pass
 
     def _format_ai_analysis_next_action_ko(self, next_action: str) -> str:
+        return self._format_ai_next_action_ko(next_action)
+
+    def _format_ai_next_action_ko(self, action) -> str:
         mapping = {
             "watch": "관찰 유지",
             "wait": "추가 확인 대기",
@@ -10828,7 +10821,110 @@ class MainWindow(QMainWindow):
             "reduce": "비중 축소",
             "remove": "관리 제외",
         }
-        return mapping.get(str(next_action or "").strip().lower(), str(next_action or "-"))
+        key = str(action or "").strip().lower()
+        if key in mapping:
+            return mapping[key]
+        raw = str(action or "").strip()
+        if not raw:
+            return mapping["watch"]
+        low = raw.lower()
+        if any(k in low for k in ("watch", "관찰")):
+            return mapping["watch"]
+        if any(k in low for k in ("wait", "대기", "확인")):
+            return mapping["wait"]
+        if any(k in low for k in ("buy", "매수", "진입")):
+            return mapping["buy"]
+        if any(k in low for k in ("sell", "매도", "청산")):
+            return mapping["sell"]
+        if any(k in low for k in ("hold", "보유", "유지")):
+            return mapping["hold"]
+        if any(k in low for k in ("reduce", "축소")):
+            return mapping["reduce"]
+        if any(k in low for k in ("remove", "제외")):
+            return mapping["remove"]
+        return raw
+
+    def _format_ai_scenario_text(self, sr) -> str:
+        try:
+            src = sr or {}
+            scenario = src.get("scenario") if isinstance(src, dict) else {}
+            if isinstance(scenario, dict):
+                raw = str(
+                    scenario.get("type")
+                    or scenario.get("key")
+                    or scenario.get("name")
+                    or scenario.get("label_ko")
+                    or ""
+                ).strip()
+            else:
+                raw = str(scenario or "").strip()
+            joined = f"{raw} {str(src.get('reason_code') if isinstance(src, dict) else '')}".lower()
+            if any(k in joined for k in ("volume", "거래량", "거래대금", "liquidity")):
+                return "거래량 부족형"
+            if any(k in joined for k in ("volatility", "sharp", "risk", "drop", "변동성", "급락", "하락")):
+                return "변동성 확대형"
+            if any(k in joined for k in ("rebound", "breakout", "trend", "bullish", "전환", "추세", "상승", "돌파", "매집", "반등")):
+                return "추세 전환 대기형"
+            if any(k in joined for k in ("sideways", "wait", "range", "횡보", "관찰", "대기")):
+                return "횡보 관찰형"
+            return "횡보 관찰형"
+        except Exception:
+            return "횡보 관찰형"
+
+    def _format_ai_evidence_text(self, evidence_items) -> str:
+        try:
+            if isinstance(evidence_items, str):
+                items = [evidence_items] if evidence_items.strip() else []
+            elif isinstance(evidence_items, (list, tuple)):
+                items = [str(item).strip() for item in evidence_items if str(item).strip()]
+            else:
+                items = []
+
+            normalized = []
+            for item in items:
+                low = item.lower()
+                if any(k in low for k in ("volume", "trade_value", "거래량", "거래대금", "liquidity")):
+                    text = "거래대금이 진입 기준을 충분히 넘지 못함"
+                elif any(k in low for k in ("trend", "momentum", "추세", "방향", "rsi", "macd")):
+                    text = "단기 추세가 아직 명확하지 않음"
+                elif any(k in low for k in ("risk", "reward", "손익", "리스크", "기대수익", "target")):
+                    text = "리스크 대비 기대수익이 부족함"
+                else:
+                    text = item.lstrip("-•").strip()
+                if text and text not in normalized:
+                    normalized.append(text)
+
+            if not normalized:
+                normalized = [
+                    "거래대금이 진입 기준을 충분히 넘지 못함",
+                    "단기 추세가 아직 명확하지 않음",
+                    "리스크 대비 기대수익이 부족함",
+                ]
+            return "\n".join(f"• {item}" for item in normalized[:5])
+        except Exception:
+            return (
+                "• 거래대금이 진입 기준을 충분히 넘지 못함\n"
+                "• 단기 추세가 아직 명확하지 않음\n"
+                "• 리스크 대비 기대수익이 부족함"
+            )
+
+    def _format_ai_eta_summary(self, sr) -> str:
+        try:
+            data = sr or {}
+            action = self._format_ai_next_action_ko(
+                data.get("next_action") if isinstance(data, dict) else "watch"
+            )
+            eta = data.get("eta") if isinstance(data, dict) and isinstance(data.get("eta"), dict) else {}
+            value = eta.get("remaining_minutes") if eta else None
+            if value in (None, "", 0, "0") and isinstance(data, dict):
+                value = data.get("watch_minutes")
+            minutes = int(float(value or 0))
+            duration = self._format_ai_eta_text(minutes)
+            if duration == "-":
+                duration = "장기 관찰"
+            return f"{action} · {duration}"
+        except Exception:
+            return "관찰 유지 · 장기 관찰"
 
     def _format_ai_eta_text(self, value) -> str:
         try:
@@ -10871,7 +10967,12 @@ class MainWindow(QMainWindow):
             next_action = str(
                 payload.get("next_action") or result.get("next_action") or "wait"
             )
-            next_action_ko = self._format_ai_analysis_next_action_ko(next_action)
+            try:
+                if isinstance(payload, dict):
+                    payload.setdefault("next_action", next_action)
+            except Exception:
+                pass
+            next_action_ko = self._format_ai_next_action_ko(next_action)
             briefing_raw = str(
                 payload.get("briefing")
                 or result.get("briefing")
@@ -10890,34 +10991,21 @@ class MainWindow(QMainWindow):
                 evidence_items = [str(item).strip() for item in evidence if str(item).strip()]
             else:
                 evidence_items = []
-            evidence_text = (
-                "\n".join(f"• {item}" for item in evidence_items)
-                if evidence_items
-                else "• 확인 가능한 근거가 아직 없습니다"
-            )
+            evidence_text = self._format_ai_evidence_text(evidence_items)
             self._last_ai_analysis_evidence_text = evidence_text
 
             eta = payload.get("eta") if isinstance(payload.get("eta"), dict) else {}
             watch_minutes = payload.get("watch_minutes") or result.get("watch_minutes") or 0
             eta_minutes = eta.get("remaining_minutes") if eta else watch_minutes
-            eta_text = (
-                f"관찰 유지 · {eta_minutes}분"
-                if eta_minutes not in (None, "", 0, "0")
-                else "-"
-            )
+            eta_text = self._format_ai_eta_summary(payload)
             eta_available = eta_minutes not in (None, "", 0, "0")
             eta_reason = str(eta.get("reason") or "추가 데이터 확인 중") if eta else "추가 데이터 확인 중"
 
+            scenario_text = self._format_ai_scenario_text(payload)
             scenario = payload.get("scenario") or result.get("scenario") or {}
             if isinstance(scenario, dict):
-                scenario_text = str(
-                    scenario.get("label_ko") or scenario.get("name") or "-"
-                )
-                scenario_name = str(scenario.get("name") or scenario_text)
                 scenario_confidence = scenario.get("confidence")
             else:
-                scenario_text = str(scenario or "-")
-                scenario_name = scenario_text
                 scenario_confidence = None
             try:
                 scenario_confidence_text = f"신뢰도 {int(round(float(scenario_confidence) * 100))}%"
@@ -10993,7 +11081,8 @@ class MainWindow(QMainWindow):
 
             scenario_updated = False
             scenario_updated |= _set_label("lbl_detail_popup_scenario_title", scenario_text)
-            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", scenario_confidence_text)
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", "AI 운용 시나리오")
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_confidence", scenario_confidence_text)
             scenario_updated |= _set_label("lbl_detail_popup_scenario_context", briefing)
 
             _set_label("lbl_detail_popup_target_price", target_text)
@@ -11063,6 +11152,12 @@ class MainWindow(QMainWindow):
                     "[AITS][GUI] evidence_text_committed"
                     f" | target=lbl_ai_center_why | count={len(evidence_items)}"
                 )
+            try:
+                self._log.info("[AITS][GUI] ai_language_unified | main=True | detail=True")
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] ai_language_unified | main=True | detail=True"
+                )
         except Exception:
             pass
 
@@ -11078,18 +11173,7 @@ class MainWindow(QMainWindow):
 
             suggestion = str(sr.get("suggestion") or "skip")
             next_action = str(sr.get("next_action") or "wait")
-            next_action_ko = {
-                "watch": "관찰 유지",
-                "wait": "추가 확인 대기",
-                "buy": "매수 검토",
-                "sell": "매도 검토",
-                "hold": "보유 유지",
-                "reduce": "비중 축소",
-                "remove": "관리 제외",
-            }.get(
-                str(next_action or "").strip().lower(),
-                self._format_ai_analysis_next_action_ko(next_action),
-            )
+            next_action_ko = self._format_ai_next_action_ko(next_action)
             briefing = str(sr.get("briefing") or "").strip()
 
             evidence = sr.get("evidence") or []
@@ -11100,17 +11184,10 @@ class MainWindow(QMainWindow):
             else:
                 evidence_items = []
             evidence_count = len(evidence_items)
-            evidence_text = (
-                "\n".join(f"• {item}" for item in evidence_items)
-                if evidence_items
-                else "-"
-            )
+            evidence_text = self._format_ai_evidence_text(evidence_items)
 
             scenario = sr.get("scenario") if isinstance(sr.get("scenario"), dict) else {}
-            scenario_text = str(
-                scenario.get("label_ko") or scenario.get("name") or "-"
-            )
-            scenario_name = str(scenario.get("name") or scenario_text)
+            scenario_text = self._format_ai_scenario_text(sr)
             try:
                 scenario_confidence = scenario.get("confidence")
                 scenario_confidence_text = (
@@ -11126,11 +11203,7 @@ class MainWindow(QMainWindow):
             eta_minutes = eta.get("remaining_minutes") if eta else watch_minutes
             eta_reason = str(eta.get("reason") or "추가 데이터 확인 중").strip()
             eta_formatted = self._format_ai_eta_text(eta_minutes)
-            eta_main = (
-                f"{next_action_ko} · {eta_formatted}"
-                if eta_formatted != "-"
-                else next_action_ko
-            )
+            eta_main = self._format_ai_eta_summary(sr)
 
             price_plan = sr.get("price_plan") if isinstance(sr.get("price_plan"), dict) else {}
             target_text = str(price_plan.get("target_price") or "-")
@@ -11163,7 +11236,7 @@ class MainWindow(QMainWindow):
                 f"{next_action_ko}\n추가 데이터 확인 중",
             )
             _set_label(getattr(dlg, "lbl_detail_popup_scenario_title", None), scenario_text)
-            _set_label(getattr(dlg, "lbl_detail_popup_scenario_type", None), scenario_name)
+            _set_label(getattr(dlg, "lbl_detail_popup_scenario_type", None), "AI 운용 시나리오")
             _set_label(
                 getattr(dlg, "lbl_detail_popup_scenario_confidence", None),
                 scenario_confidence_text,
@@ -11197,12 +11270,16 @@ class MainWindow(QMainWindow):
                     "[AITS][GUI] eta_hint_visible | enabled=%s",
                     bool(hint_visible),
                 )
+                self._log.info("[AITS][GUI] ai_language_unified | main=True | detail=True")
             except Exception:
                 logging.getLogger("aits").info(
                     f"[AITS][GUI] eta_format_applied | formatted={eta_formatted}"
                 )
                 logging.getLogger("aits").info(
                     f"[AITS][GUI] eta_hint_visible | enabled={bool(hint_visible)}"
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] ai_language_unified | main=True | detail=True"
                 )
 
             try:
