@@ -21,6 +21,21 @@ class AIContextPack:
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
 
+    def to_compact_dict(self) -> Dict[str, Any]:
+        # Do not include API keys, secrets, tokens, or credentials in provider input.
+        return {
+            "version": self.meta.get("version"),
+            "market": self.market,
+            "portfolio": self.portfolio,
+            "opportunity": self.opportunity,
+            "risk": self.risk,
+            "news": self.news,
+            "safety": {
+                "suggestion_only": True,
+                "applied_to_action": False,
+            },
+        }
+
 
 class AIContextBuilder:
     def __init__(self, logger: Optional[Any] = None) -> None:
@@ -156,3 +171,67 @@ class AIContextBuilder:
             logging.getLogger("aits").info(message)
         except Exception:
             pass
+
+
+def build_sample_context_pack() -> AIContextPack:
+    builder = AIContextBuilder()
+    market_data = {"sample": "market"}
+    portfolio_state = {"sample": "portfolio"}
+    candidates = {"sample": "opportunity"}
+    news_items = {"sample": "news"}
+    runtime_state = {"sample": "runtime"}
+    return builder.build_context(
+        market_data=market_data,
+        portfolio_state=portfolio_state,
+        candidates=candidates,
+        news_items=news_items,
+        runtime_state=runtime_state,
+    )
+
+
+def build_sample_context_pack() -> AIContextPack:
+    market_data = {
+        "regime": "risk_on",
+        "btc_trend": "up",
+        "volatility": "medium",
+        "volume_state": "expanding",
+    }
+    portfolio_state = {
+        "cash_ratio": 0.42,
+        "positions_count": 3,
+        "unrealized_pnl_pct": 1.8,
+    }
+    candidates = [
+        {
+            "symbol": "BTC",
+            "score": 0.78,
+            "reason": "trend_strength",
+        }
+    ]
+    news_items = [
+        {
+            "title": "Market sentiment improves as volume expands",
+            "sentiment": "positive",
+        }
+    ]
+    runtime_state = {
+        "provider": "sample",
+        "execution_mode": "context_only",
+        "ai_status": "offline_sample",
+    }
+
+    context_pack = AIContextBuilder().build_context(
+        market_data=market_data,
+        portfolio_state=portfolio_state,
+        candidates=candidates,
+        news_items=news_items,
+        runtime_state=runtime_state,
+    )
+
+    try:
+        logging.getLogger("aits").info(
+            "[AITS][AIContextBuilder] sample_context_built | ok=True"
+        )
+    except Exception:
+        pass
+    return context_pack
