@@ -10677,6 +10677,84 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _on_ai_analysis_dryrun_test(self):
+        provider = "local"
+        try:
+            provider = (
+                getattr(self, "_ai_provider_box_active", "")
+                or (
+                    self.cb_ai_provider.currentText()
+                    if hasattr(self, "cb_ai_provider")
+                    else ""
+                )
+                or "local"
+            )
+            provider = str(provider or "local").strip().lower()
+        except Exception:
+            provider = "local"
+
+        try:
+            if hasattr(self, "lbl_ai_analysis_dryrun_status"):
+                self.lbl_ai_analysis_dryrun_status.setText("AI 분석 테스트 중...")
+            QApplication.processEvents()
+
+            from app.services.ai_context_builder import build_sample_context_pack
+            from app.services.ai_provider_router import AIProviderRouter
+
+            context_dict = build_sample_context_pack().to_compact_dict()
+            result = AIProviderRouter().run_shadow_cycle(
+                provider,
+                context_dict,
+                dry_run=True,
+            )
+            self._last_ai_analysis_test_result = result
+            suggestion = str(result.get("suggestion") or "skip")
+            next_action = str(result.get("next_action") or "wait")
+            parsed_valid = bool(result.get("parsed_valid"))
+            normalized_provider = str(
+                result.get("normalized_provider") or result.get("provider") or provider
+            )
+            if parsed_valid:
+                status_text = (
+                    f"AI 분석 테스트 완료 · {normalized_provider} · "
+                    f"{suggestion}/{next_action}"
+                )
+            else:
+                error_type = str(result.get("error_type") or "parse_failed")
+                status_text = f"AI 분석 테스트 실패 · {error_type}"
+            if hasattr(self, "lbl_ai_analysis_dryrun_status"):
+                self.lbl_ai_analysis_dryrun_status.setText(status_text)
+            try:
+                self._log.info(
+                    "[AITS][GUI] ai_analysis_dryrun_test | provider=%s | parsed_valid=%s | suggestion=%s | next_action=%s",
+                    normalized_provider,
+                    parsed_valid,
+                    suggestion,
+                    next_action,
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] ai_analysis_dryrun_test"
+                    f" | provider={normalized_provider}"
+                    f" | parsed_valid={parsed_valid}"
+                    f" | suggestion={suggestion}"
+                    f" | next_action={next_action}"
+                )
+        except Exception as exc:
+            error_type = type(exc).__name__
+            if hasattr(self, "lbl_ai_analysis_dryrun_status"):
+                self.lbl_ai_analysis_dryrun_status.setText(
+                    f"AI 분석 테스트 실패 · {error_type}"
+                )
+            try:
+                self._log.warning(
+                    "[AITS][GUI] ai_analysis_dryrun_test | provider=%s | parsed_valid=False | suggestion=skip | next_action=wait | error_type=%s",
+                    provider,
+                    error_type,
+                )
+            except Exception:
+                pass
+
     def _on_test_connection_clicked(self):
         eng = ""
         model = ""
@@ -17686,10 +17764,66 @@ class MainWindow(QMainWindow):
             sel_p = self._get_aits_engine_ssot()
             act_p = self._get_aits_last_response_provider()
             mismatch_status = None
-            if sel_p in ("gpt", "gemini"):
-                if act_p and act_p != sel_p:
+            dryrun_status = None
+
+            def _normalize_ai_provider_for_status(value):
+                value = str(value or "").strip().lower()
+                if value in ("gpt", "openai"):
+                    return "openai"
+                if value == "gemini":
+                    return "gemini"
+                if value in ("ollama", "local", "local_ai", "basic"):
+                    return "ollama"
+                return value
+
+            try:
+                last_dryrun = getattr(self, "_last_ai_analysis_test_result", None) or {}
+                if isinstance(last_dryrun, dict) and bool(last_dryrun.get("parsed_valid")):
+                    dryrun_selected = str(
+                        last_dryrun.get("selected_provider")
+                        or last_dryrun.get("provider")
+                        or ""
+                    ).strip().lower()
+                    dryrun_normalized = str(
+                        last_dryrun.get("normalized_provider")
+                        or last_dryrun.get("provider")
+                        or ""
+                    ).strip().lower()
+                    dryrun_selected_key = _normalize_ai_provider_for_status(dryrun_selected)
+                    dryrun_normalized_key = _normalize_ai_provider_for_status(dryrun_normalized)
+                    if dryrun_selected_key == dryrun_normalized_key:
+                        dryrun_status = "AITS AI 상태: AI 분석 테스트 정상"
+                        try:
+                            self._log.info(
+                                "[AITS][GUI] ai_engine_status_resolved | provider=%s | parsed_valid=True | status=ok",
+                                dryrun_normalized_key or dryrun_selected_key,
+                            )
+                        except Exception:
+                            logging.getLogger("aits").info(
+                                "[AITS][GUI] ai_engine_status_resolved"
+                                f" | provider={dryrun_normalized_key or dryrun_selected_key}"
+                                " | parsed_valid=True | status=ok"
+                            )
+            except Exception:
+                dryrun_status = None
+            if dryrun_status:
+                status_text = dryrun_status
+                if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                    self.lbl_aits_ai_engine_status.setText(status_text)
+                    self._apply_aits_ai_engine_status_line_style(status_text)
+                print(f"[AITS] ai engine status={status_text}")
+                try:
+                    self._update_aits_ops_summary()
+                    self._update_aits_briefing()
+                except Exception:
+                    pass
+                return
+            sel_norm = _normalize_ai_provider_for_status(sel_p)
+            act_norm = _normalize_ai_provider_for_status(act_p)
+            if sel_norm in ("openai", "gemini"):
+                if act_norm and act_norm != sel_norm:
                     mismatch_status = "AITS AI 상태: 선택 엔진과 응답 엔진 불일치"
-                elif not act_p:
+                elif not act_norm:
                     mismatch_status = "AITS AI 상태: 응답 대기 중"
             if mismatch_status:
                 status_text = mismatch_status
@@ -24195,6 +24329,17 @@ class MainWindow(QMainWindow):
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
 
+        self.btn_ai_analysis_dryrun_test = QPushButton("AI 분석 테스트")
+        self.btn_ai_analysis_dryrun_test.setMinimumHeight(32)
+        self.btn_ai_analysis_dryrun_test.clicked.connect(
+            self._on_ai_analysis_dryrun_test
+        )
+        self.lbl_ai_analysis_dryrun_status = QLabel("AI 분석 테스트: 대기")
+        self.lbl_ai_analysis_dryrun_status.setWordWrap(True)
+        self.lbl_ai_analysis_dryrun_status.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
+
         def _sync_engine_choice_panel(engine_key):
             if getattr(self, "_engine_choice_syncing", False):
                 return
@@ -24256,6 +24401,8 @@ class MainWindow(QMainWindow):
         _choice_panel_lay.addWidget(self.box_engine_gemini_settings)
         _choice_panel_lay.addWidget(self.btn_engine_local)
         _choice_panel_lay.addWidget(self.box_engine_local_settings)
+        _choice_panel_lay.addWidget(self.btn_ai_analysis_dryrun_test)
+        _choice_panel_lay.addWidget(self.lbl_ai_analysis_dryrun_status)
         _choice_panel_lay.addWidget(self.btn_save)
         _common_left.insertWidget(1, self.aits_engine_choice_panel)
         _sync_engine_choice_panel(getattr(self, "_ai_provider_box_active", "local"))
