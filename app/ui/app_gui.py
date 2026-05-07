@@ -7760,6 +7760,7 @@ class MainWindow(QMainWindow):
         self.lbl_ai_center_why.setStyleSheet(
             "font-size: 12px; font-weight: 600; color: #475569; line-height: 1.45;"
         )
+        self.lbl_ai_analysis_evidence_body = self.lbl_ai_center_why
         _wy_ly.addWidget(self.lbl_ai_center_why)
         self._frm_ai_next_card = QFrame()
         try:
@@ -10716,50 +10717,28 @@ class MainWindow(QMainWindow):
                 result.get("normalized_provider") or result.get("provider") or provider
             )
             if parsed_valid:
-                evidence = shadow_record.get("evidence")
-                if isinstance(evidence, list):
-                    evidence_text = ", ".join(
-                        str(item) for item in evidence if item is not None
-                    )
-                else:
-                    evidence_text = str(evidence or "")
-
                 eta = shadow_record.get("eta") or {}
-                eta_parts = []
+                eta_text = ""
                 if isinstance(eta, dict):
-                    mode = str(eta.get("mode") or "").strip()
                     remaining = eta.get("remaining_minutes")
-                    if mode:
-                        eta_parts.append(mode)
                     if remaining is not None:
-                        eta_parts.append(f"{remaining}분")
-                eta_text = " ".join(eta_parts).strip()
+                        eta_text = f"{remaining}분"
 
                 scenario = shadow_record.get("scenario") or {}
                 scenario_label = str(
                     (scenario.get("label_ko") or scenario.get("name") or "").strip()
                 )
 
-                price_plan = shadow_record.get("price_plan") or {}
-                price_plan_label = str(
-                    price_plan.get("entry")
-                    or price_plan.get("target_price")
-                    or price_plan.get("action")
-                    or ""
-                ).strip()
+                next_action_ko = self._format_ai_analysis_next_action_ko(next_action)
 
                 status_text = (
                     f"AI 분석 테스트 완료 · {normalized_provider} · "
-                    f"{suggestion}/{next_action}"
+                    f"{next_action_ko}"
                 )
                 if scenario_label:
-                    status_text += f" · 시나리오={scenario_label}"
+                    status_text += f" · {scenario_label}"
                 if eta_text:
-                    status_text += f" · ETA={eta_text}"
-                if evidence_text:
-                    status_text += f" · 증거={evidence_text}"
-                if price_plan_label:
-                    status_text += f" · 계획={price_plan_label}"
+                    status_text += f" · ETA {eta_text}"
             else:
                 error_type = str(result.get("error_type") or "parse_failed")
                 status_text = f"AI 분석 테스트 실패 · {error_type}"
@@ -10798,6 +10777,18 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _format_ai_analysis_next_action_ko(self, next_action: str) -> str:
+        mapping = {
+            "watch": "관찰 유지",
+            "wait": "추가 확인 대기",
+            "buy": "매수 검토",
+            "sell": "매도 검토",
+            "hold": "보유 유지",
+            "reduce": "비중 축소",
+            "remove": "관리 제외",
+        }
+        return mapping.get(str(next_action or "").strip().lower(), str(next_action or "-"))
+
     def _update_ai_analysis_dryrun_panel(self, result: dict, provider: str = ""):
         try:
             result = dict(result or {})
@@ -10817,11 +10808,18 @@ class MainWindow(QMainWindow):
             next_action = str(
                 payload.get("next_action") or result.get("next_action") or "wait"
             )
-            briefing = str(
+            next_action_ko = self._format_ai_analysis_next_action_ko(next_action)
+            briefing_raw = str(
                 payload.get("briefing")
                 or result.get("briefing")
                 or f"AI 분석 테스트 완료 · {provider or result.get('provider') or '-'} · {suggestion}/{next_action}"
             )
+            briefing_sentences = [
+                part.strip()
+                for part in briefing_raw.replace(". ", ".\n").splitlines()
+                if part.strip()
+            ]
+            briefing = "\n".join(briefing_sentences[:3]) if briefing_sentences else briefing_raw
             evidence = payload.get("evidence") or result.get("evidence") or []
             if isinstance(evidence, str):
                 evidence_items = [evidence] if evidence.strip() else []
@@ -10829,7 +10827,12 @@ class MainWindow(QMainWindow):
                 evidence_items = [str(item).strip() for item in evidence if str(item).strip()]
             else:
                 evidence_items = []
-            evidence_text = " · ".join(evidence_items) if evidence_items else "-"
+            evidence_text = (
+                "\n".join(f"• {item}" for item in evidence_items)
+                if evidence_items
+                else "• 확인 가능한 근거가 아직 없습니다"
+            )
+            self._last_ai_analysis_evidence_text = evidence_text
 
             eta = payload.get("eta") if isinstance(payload.get("eta"), dict) else {}
             watch_minutes = payload.get("watch_minutes") or result.get("watch_minutes") or 0
@@ -10840,6 +10843,7 @@ class MainWindow(QMainWindow):
                 else "-"
             )
             eta_available = eta_minutes not in (None, "", 0, "0")
+            eta_reason = str(eta.get("reason") or "추가 데이터 확인 중") if eta else "추가 데이터 확인 중"
 
             scenario = payload.get("scenario") or result.get("scenario") or {}
             if isinstance(scenario, dict):
@@ -10847,9 +10851,15 @@ class MainWindow(QMainWindow):
                     scenario.get("label_ko") or scenario.get("name") or "-"
                 )
                 scenario_name = str(scenario.get("name") or scenario_text)
+                scenario_confidence = scenario.get("confidence")
             else:
                 scenario_text = str(scenario or "-")
                 scenario_name = scenario_text
+                scenario_confidence = None
+            try:
+                scenario_confidence_text = f"신뢰도 {int(round(float(scenario_confidence) * 100))}%"
+            except Exception:
+                scenario_confidence_text = "신뢰도 -"
 
             price_plan = payload.get("price_plan") if isinstance(payload.get("price_plan"), dict) else {}
             prediction = payload.get("prediction") if isinstance(payload.get("prediction"), dict) else {}
@@ -10858,11 +10868,21 @@ class MainWindow(QMainWindow):
                 price_plan.get("risk_price")
                 or "-"
             )
+            if target_text.strip() == "-":
+                target_text = "현재 진입 조건 부족"
+            if risk_text.strip() == "-":
+                risk_text = "현재 진입 조건 부족"
+            next_action_text = f"{next_action_ko}\n추가 데이터 확인 중"
 
             def _set_label(attr_name: str, text: str) -> bool:
                 try:
                     label = getattr(self, attr_name, None)
                     if label is not None and hasattr(label, "setText"):
+                        if hasattr(label, "setWordWrap"):
+                            try:
+                                label.setWordWrap(True)
+                            except Exception:
+                                pass
                         label.setText(text)
                         return True
                 except Exception:
@@ -10875,23 +10895,34 @@ class MainWindow(QMainWindow):
             briefing_updated |= _set_label("lbl_detail_popup_decision_sub", briefing)
 
             evidence_updated = False
+            evidence_updated |= _set_label("lbl_ai_analysis_evidence_body", evidence_text)
             evidence_updated |= _set_label("lbl_ai_center_why", evidence_text)
             evidence_updated |= _set_label("lbl_detail_popup_reason_text", evidence_text)
 
-            _set_label("lbl_ai_center_next", next_action)
-            _set_label("lbl_detail_popup_next_text", next_action)
+            _set_label("lbl_ai_center_next", next_action_text)
+            _set_label("lbl_detail_popup_next_text", next_action_text)
             _set_label("lbl_detail_popup_eta_main", eta_text)
-            _set_label("lbl_detail_popup_eta_sub", f"다음 행동: {next_action}")
+            _set_label("lbl_detail_popup_eta_sub", eta_reason)
 
             scenario_updated = False
             scenario_updated |= _set_label("lbl_detail_popup_scenario_title", scenario_text)
-            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", scenario_name)
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", scenario_confidence_text)
             scenario_updated |= _set_label("lbl_detail_popup_scenario_context", briefing)
 
             _set_label("lbl_detail_popup_target_price", target_text)
             _set_label("lbl_detail_popup_risk_price", risk_text)
             _set_label("lbl_ai_detail_target", target_text)
             _set_label("lbl_ai_detail_stop", risk_text)
+            live_log_text = f"AI 판단: {next_action_ko} · {scenario_text}"
+            _set_label("lbl_ai_recent_log_bar", live_log_text)
+            try:
+                logs = getattr(self, "_aits_recent_logs", None)
+                if not isinstance(logs, list):
+                    logs = []
+                logs.append(live_log_text)
+                self._aits_recent_logs = logs[-20:]
+            except Exception:
+                pass
 
             try:
                 self._log.info(
@@ -10910,6 +10941,30 @@ class MainWindow(QMainWindow):
                     f" | evidence={bool(evidence_updated)}"
                     f" | eta={bool(eta_available)}"
                     f" | scenario={bool(scenario_updated)}"
+                )
+            try:
+                self._log.info(
+                    "[AITS][GUI] ai_analysis_ui_refined | briefing=%s | evidence_count=%s | next_action_ko=%s",
+                    bool(briefing_updated),
+                    len(evidence_items),
+                    next_action_ko,
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] ai_analysis_ui_refined"
+                    f" | briefing={bool(briefing_updated)}"
+                    f" | evidence_count={len(evidence_items)}"
+                    f" | next_action_ko={next_action_ko}"
+                )
+            try:
+                self._log.info(
+                    "[AITS][GUI] ai_evidence_panel_updated | evidence_count=%s",
+                    len(evidence_items),
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] ai_evidence_panel_updated"
+                    f" | evidence_count={len(evidence_items)}"
                 )
         except Exception:
             pass
@@ -12270,9 +12325,12 @@ class MainWindow(QMainWindow):
                     if lb_b is not None:
                         lb_b.setText(self._build_center_briefing_lines(None))
                     _wy0, _nx0 = self._build_center_why_next(None)
+                    _dryrun_evidence = str(
+                        getattr(self, "_last_ai_analysis_evidence_text", "") or ""
+                    ).strip()
                     lw = getattr(self, "lbl_ai_center_why", None)
                     if lw is not None:
-                        lw.setText(_wy0)
+                        lw.setText(_dryrun_evidence or _wy0)
                     nx = getattr(self, "lbl_ai_center_next", None)
                     if nx is not None:
                         nx.setText(_nx0)
@@ -12470,9 +12528,12 @@ class MainWindow(QMainWindow):
                 if lb_b is not None:
                     lb_b.setText(self._build_center_briefing_lines(row))
                 _why_t, _next_t = self._build_center_why_next(row)
+                _dryrun_evidence = str(
+                    getattr(self, "_last_ai_analysis_evidence_text", "") or ""
+                ).strip()
                 lw = getattr(self, "lbl_ai_center_why", None)
                 if lw is not None:
-                    lw.setText(_why_t)
+                    lw.setText(_dryrun_evidence or _why_t)
                 nx = getattr(self, "lbl_ai_center_next", None)
                 if nx is not None:
                     nx.setText(_next_t)
