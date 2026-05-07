@@ -280,8 +280,10 @@ except Exception:
     pd = None
 try:
     import mplfinance as mpf
-except Exception:
+    _AITS_MPF_IMPORT_REASON = "ok"
+except Exception as _aits_mpf_exc:
     mpf = None
+    _AITS_MPF_IMPORT_REASON = type(_aits_mpf_exc).__name__
 
 matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
@@ -1927,9 +1929,10 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_scenario_confidence = QLabel("신뢰도 55%")
         self.lbl_detail_popup_scenario_context = QLabel("진입 전 관찰 시나리오")
         self.lbl_detail_popup_eta_title = QLabel("AI ETA")
-        self.lbl_detail_popup_eta_main = QLabel("관찰 유지 --:--:--")
+        self.lbl_detail_popup_eta_main = QLabel("관찰 유지 · -")
         self.lbl_detail_popup_eta_sub = QLabel("방향성 확인 전 진입 대기")
         self.lbl_detail_popup_eta_meta = QLabel("리스크 — / 목표 —")
+        self.lbl_detail_popup_eta_hint = QLabel("시장 변화 시 ETA는 자동 조정될 수 있습니다.")
         self._detail_popup_eta_remaining_seconds = 0
         self._detail_popup_eta_state_type = "review_wait"
         self._detail_popup_eta_timer = QTimer(self)
@@ -1983,6 +1986,10 @@ class AITSLargeChartDialog(QDialog):
             "font-size:12px; font-weight:800; color:#111827; background:#f8fafc; "
             "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
         )
+        self.lbl_detail_popup_eta_hint.setWordWrap(True)
+        self.lbl_detail_popup_eta_hint.setStyleSheet(
+            "font-size:11px; font-weight:700; color:#94a3b8;"
+        )
 
         status_lay = self._frm_detail_ai_status_card.layout()
         status_lay.addWidget(self.lbl_detail_popup_decision_big)
@@ -2034,6 +2041,7 @@ class AITSLargeChartDialog(QDialog):
         eta_lay.addWidget(self.lbl_detail_popup_eta_main)
         eta_lay.addWidget(self.lbl_detail_popup_eta_sub)
         eta_lay.addWidget(self.lbl_detail_popup_eta_meta)
+        eta_lay.addWidget(self.lbl_detail_popup_eta_hint)
         eta_lay.addStretch(1)
 
         sidebar_lay.addWidget(self._frm_detail_ai_status_card, 0)
@@ -2229,12 +2237,22 @@ class AITSLargeChartDialog(QDialog):
     def _format_detail_popup_eta(self, seconds: int) -> str:
         try:
             sec = max(0, int(seconds or 0))
-            h = sec // 3600
-            m = (sec % 3600) // 60
-            s = sec % 60
-            return f"{h:02d}:{m:02d}:{s:02d}"
+            minutes = (sec + 59) // 60
+            if minutes <= 0:
+                return "-"
+            if minutes >= 10080:
+                return "장기 관찰"
+            if minutes >= 1440:
+                days = minutes // 1440
+                hours = (minutes % 1440) // 60
+                return f"{days}일 {hours}시간" if hours else f"{days}일"
+            if minutes >= 60:
+                hours = minutes // 60
+                mins = minutes % 60
+                return f"{hours}시간 {mins}분" if mins else f"{hours}시간"
+            return f"{minutes}분"
         except Exception:
-            return "--:--:--"
+            return "-"
 
     def _start_detail_popup_eta_timer(self):
         try:
@@ -2257,7 +2275,7 @@ class AITSLargeChartDialog(QDialog):
             )
             prefix = str(getattr(self, "_detail_popup_eta_prefix", "관찰 유지") or "관찰 유지")
             self.lbl_detail_popup_eta_main.setText(
-                f"{prefix} {self._format_detail_popup_eta(self._detail_popup_eta_remaining_seconds)}"
+                f"{prefix} · {self._format_detail_popup_eta(self._detail_popup_eta_remaining_seconds)}"
             )
             if self._detail_popup_eta_remaining_seconds <= 0:
                 self._stop_detail_popup_eta_timer()
@@ -2272,7 +2290,7 @@ class AITSLargeChartDialog(QDialog):
             self._detail_popup_eta_state_type = str(ctx.get("state_type") or "review_wait")
             self._detail_popup_eta_prefix = str(ctx.get("prefix") or "관찰 유지")
             self.lbl_detail_popup_eta_main.setText(
-                f"{self._detail_popup_eta_prefix} {self._format_detail_popup_eta(seconds)}"
+                f"{self._detail_popup_eta_prefix} · {self._format_detail_popup_eta(seconds)}"
             )
             self.lbl_detail_popup_eta_sub.setText(str(ctx.get("sub") or "시장 상황 반영 후 재평가"))
             self.lbl_detail_popup_eta_meta.setText(str(ctx.get("meta") or "리스크 — / 목표 —"))
@@ -7755,13 +7773,34 @@ class MainWindow(QMainWindow):
             "border-bottom: 2px solid #cbd5e1;"
         )
         _wy_ly.addWidget(_lbl_why_t)
-        self.lbl_ai_center_why = QLabel("—")
+        self.lbl_ai_center_why = QLabel("AI 분석 근거 대기 중")
+        self.lbl_ai_center_why.setText("AI 분석 근거 대기 중")
         self.lbl_ai_center_why.setWordWrap(True)
+        try:
+            self.lbl_ai_center_why.setSizePolicy(
+                QSizePolicy.Policy.Expanding,
+                QSizePolicy.Policy.Expanding,
+            )
+            self.lbl_ai_center_why.setMinimumHeight(80)
+            self.lbl_ai_center_why.setVisible(True)
+            self.lbl_ai_center_why.raise_()
+        except Exception:
+            pass
         self.lbl_ai_center_why.setStyleSheet(
-            "font-size: 12px; font-weight: 600; color: #475569; line-height: 1.45;"
+            "font-size: 12px; font-weight: 600; color: #475569; "
+            "line-height: 1.45; padding-top: 4px;"
         )
         self.lbl_ai_analysis_evidence_body = self.lbl_ai_center_why
-        _wy_ly.addWidget(self.lbl_ai_center_why)
+        try:
+            if _wy_ly.indexOf(self.lbl_ai_center_why) < 0:
+                _wy_ly.addWidget(self.lbl_ai_center_why, 1)
+            self.lbl_ai_center_why.setVisible(True)
+            self.lbl_ai_center_why.raise_()
+            logging.getLogger("aits").info(
+                "[AITS][GUI] evidence_widget_attached | attached=True"
+            )
+        except Exception:
+            _wy_ly.addWidget(self.lbl_ai_center_why, 1)
         self._frm_ai_next_card = QFrame()
         try:
             self._frm_ai_next_card.setMinimumHeight(132)
@@ -10710,6 +10749,7 @@ class MainWindow(QMainWindow):
             )
             self._last_ai_analysis_test_result = result
             shadow_record = result.get("shadow_record") or {}
+            self._last_ai_analysis_shadow_record = shadow_record
             suggestion = str(result.get("suggestion") or "skip")
             next_action = str(result.get("next_action") or "wait")
             parsed_valid = bool(result.get("parsed_valid"))
@@ -10746,6 +10786,7 @@ class MainWindow(QMainWindow):
                 self.lbl_ai_analysis_dryrun_status.setText(status_text)
             if parsed_valid:
                 self._update_ai_analysis_dryrun_panel(result, normalized_provider)
+                self._update_detail_popup_from_shadow_record(shadow_record)
             try:
                 self._log.info(
                     "[AITS][GUI] ai_analysis_dryrun_test | provider=%s | parsed_valid=%s | suggestion=%s | next_action=%s",
@@ -10788,6 +10829,28 @@ class MainWindow(QMainWindow):
             "remove": "관리 제외",
         }
         return mapping.get(str(next_action or "").strip().lower(), str(next_action or "-"))
+
+    def _format_ai_eta_text(self, value) -> str:
+        try:
+            if isinstance(value, dict):
+                value = value.get("remaining_minutes")
+            minutes = int(float(value or 0))
+        except Exception:
+            minutes = 0
+
+        if minutes <= 0:
+            return "-"
+        if minutes >= 10080:
+            return "장기 관찰"
+        if minutes >= 1440:
+            days = minutes // 1440
+            hours = (minutes % 1440) // 60
+            return f"{days}일 {hours}시간" if hours else f"{days}일"
+        if minutes >= 60:
+            hours = minutes // 60
+            mins = minutes % 60
+            return f"{hours}시간 {mins}분" if mins else f"{hours}시간"
+        return f"{minutes}분"
 
     def _update_ai_analysis_dryrun_panel(self, result: dict, provider: str = ""):
         try:
@@ -10895,9 +10958,33 @@ class MainWindow(QMainWindow):
             briefing_updated |= _set_label("lbl_detail_popup_decision_sub", briefing)
 
             evidence_updated = False
-            evidence_updated |= _set_label("lbl_ai_analysis_evidence_body", evidence_text)
             evidence_updated |= _set_label("lbl_ai_center_why", evidence_text)
+            evidence_updated |= _set_label("lbl_ai_analysis_evidence_body", evidence_text)
             evidence_updated |= _set_label("lbl_detail_popup_reason_text", evidence_text)
+            try:
+                ev_label = getattr(self, "lbl_ai_center_why", None)
+                if ev_label is not None:
+                    ev_label.setText(evidence_text)
+                    ev_label.setMinimumHeight(80)
+                    ev_label.setVisible(True)
+                    ev_label.raise_()
+                    ev_label.repaint()
+                    ev_label.update()
+            except Exception:
+                pass
+            try:
+                QTimer.singleShot(
+                    100,
+                    lambda text=evidence_text: (
+                        self.lbl_ai_center_why.setText(text),
+                        self.lbl_ai_center_why.repaint(),
+                        self.lbl_ai_center_why.update(),
+                    )
+                    if getattr(self, "lbl_ai_center_why", None) is not None
+                    else None,
+                )
+            except Exception:
+                pass
 
             _set_label("lbl_ai_center_next", next_action_text)
             _set_label("lbl_detail_popup_next_text", next_action_text)
@@ -10966,8 +11053,178 @@ class MainWindow(QMainWindow):
                     "[AITS][GUI] ai_evidence_panel_updated"
                     f" | evidence_count={len(evidence_items)}"
                 )
+            try:
+                self._log.info(
+                    "[AITS][GUI] evidence_text_committed | target=lbl_ai_center_why | count=%s",
+                    len(evidence_items),
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] evidence_text_committed"
+                    f" | target=lbl_ai_center_why | count={len(evidence_items)}"
+                )
         except Exception:
             pass
+
+    def _update_detail_popup_from_shadow_record(self, sr: dict, force: bool = False):
+        opened = False
+        evidence_count = 0
+        try:
+            sr = dict(sr or {})
+            dlg = getattr(self, "_aits_large_chart_dialog", None)
+            opened = bool(force or (dlg is not None and dlg.isVisible()))
+            if not opened:
+                return False
+
+            suggestion = str(sr.get("suggestion") or "skip")
+            next_action = str(sr.get("next_action") or "wait")
+            next_action_ko = {
+                "watch": "관찰 유지",
+                "wait": "추가 확인 대기",
+                "buy": "매수 검토",
+                "sell": "매도 검토",
+                "hold": "보유 유지",
+                "reduce": "비중 축소",
+                "remove": "관리 제외",
+            }.get(
+                str(next_action or "").strip().lower(),
+                self._format_ai_analysis_next_action_ko(next_action),
+            )
+            briefing = str(sr.get("briefing") or "").strip()
+
+            evidence = sr.get("evidence") or []
+            if isinstance(evidence, str):
+                evidence_items = [evidence] if evidence.strip() else []
+            elif isinstance(evidence, (list, tuple)):
+                evidence_items = [str(item).strip() for item in evidence if str(item).strip()]
+            else:
+                evidence_items = []
+            evidence_count = len(evidence_items)
+            evidence_text = (
+                "\n".join(f"• {item}" for item in evidence_items)
+                if evidence_items
+                else "-"
+            )
+
+            scenario = sr.get("scenario") if isinstance(sr.get("scenario"), dict) else {}
+            scenario_text = str(
+                scenario.get("label_ko") or scenario.get("name") or "-"
+            )
+            scenario_name = str(scenario.get("name") or scenario_text)
+            try:
+                scenario_confidence = scenario.get("confidence")
+                scenario_confidence_text = (
+                    f"신뢰도 {int(round(float(scenario_confidence) * 100))}%"
+                    if scenario_confidence is not None
+                    else "신뢰도 -"
+                )
+            except Exception:
+                scenario_confidence_text = "신뢰도 -"
+
+            eta = sr.get("eta") if isinstance(sr.get("eta"), dict) else {}
+            watch_minutes = sr.get("watch_minutes") or 0
+            eta_minutes = eta.get("remaining_minutes") if eta else watch_minutes
+            eta_reason = str(eta.get("reason") or "추가 데이터 확인 중").strip()
+            eta_formatted = self._format_ai_eta_text(eta_minutes)
+            eta_main = (
+                f"{next_action_ko} · {eta_formatted}"
+                if eta_formatted != "-"
+                else next_action_ko
+            )
+
+            price_plan = sr.get("price_plan") if isinstance(sr.get("price_plan"), dict) else {}
+            target_text = str(price_plan.get("target_price") or "-")
+            risk_text = str(price_plan.get("risk_price") or "-")
+            eta_meta = f"리스크 {risk_text} / 목표 {target_text}"
+
+            def _set_label(obj, text: str) -> bool:
+                try:
+                    if obj is not None and hasattr(obj, "setText"):
+                        if hasattr(obj, "setWordWrap"):
+                            try:
+                                obj.setWordWrap(True)
+                            except Exception:
+                                pass
+                        obj.setText(str(text))
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            _set_label(getattr(dlg, "lbl_detail_popup_decision", None), next_action_ko)
+            _set_label(getattr(dlg, "lbl_detail_popup_decision_big", None), next_action_ko)
+            _set_label(
+                getattr(dlg, "lbl_detail_popup_decision_sub", None),
+                briefing or f"suggestion {suggestion}",
+            )
+            _set_label(getattr(dlg, "lbl_detail_popup_reason_text", None), evidence_text)
+            _set_label(
+                getattr(dlg, "lbl_detail_popup_next_text", None),
+                f"{next_action_ko}\n추가 데이터 확인 중",
+            )
+            _set_label(getattr(dlg, "lbl_detail_popup_scenario_title", None), scenario_text)
+            _set_label(getattr(dlg, "lbl_detail_popup_scenario_type", None), scenario_name)
+            _set_label(
+                getattr(dlg, "lbl_detail_popup_scenario_confidence", None),
+                scenario_confidence_text,
+            )
+            _set_label(
+                getattr(dlg, "lbl_detail_popup_scenario_context", None),
+                briefing or scenario_text,
+            )
+            try:
+                if hasattr(dlg, "_stop_detail_popup_eta_timer"):
+                    dlg._stop_detail_popup_eta_timer()
+                dlg._detail_popup_eta_remaining_seconds = 0
+            except Exception:
+                pass
+            _set_label(getattr(dlg, "lbl_detail_popup_eta_main", None), eta_main)
+            _set_label(getattr(dlg, "lbl_detail_popup_eta_sub", None), eta_reason)
+            _set_label(getattr(dlg, "lbl_detail_popup_eta_meta", None), eta_meta)
+            hint_visible = _set_label(
+                getattr(dlg, "lbl_detail_popup_eta_hint", None),
+                "시장 변화 시 ETA는 자동 조정될 수 있습니다.",
+            )
+            _set_label(getattr(dlg, "lbl_detail_popup_target_price", None), target_text)
+            _set_label(getattr(dlg, "lbl_detail_popup_risk_price", None), risk_text)
+
+            try:
+                self._log.info(
+                    "[AITS][GUI] eta_format_applied | formatted=%s",
+                    eta_formatted,
+                )
+                self._log.info(
+                    "[AITS][GUI] eta_hint_visible | enabled=%s",
+                    bool(hint_visible),
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    f"[AITS][GUI] eta_format_applied | formatted={eta_formatted}"
+                )
+                logging.getLogger("aits").info(
+                    f"[AITS][GUI] eta_hint_visible | enabled={bool(hint_visible)}"
+                )
+
+            try:
+                dlg.update()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                self._log.info(
+                    "[AITS][GUI] detail_popup_shadow_updated | opened=%s | evidence_count=%s",
+                    opened,
+                    evidence_count,
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] detail_popup_shadow_updated"
+                    f" | opened={opened}"
+                    f" | evidence_count={evidence_count}"
+                )
 
     def _on_test_connection_clicked(self):
         eng = ""
@@ -11851,6 +12108,8 @@ class MainWindow(QMainWindow):
             src = getattr(self, "txt_ai_detail_reason", None)
             dst = getattr(self, "lbl_ai_center_why", None)
             if src is None or dst is None:
+                return
+            if getattr(self, "_last_ai_analysis_test_result", None):
                 return
             txt = src.toPlainText() if hasattr(src, "toPlainText") else src.text()
             dst.setText(txt)
@@ -12920,6 +13179,19 @@ class MainWindow(QMainWindow):
                 used = "mplfinance"
 
             _reason = str(reason or "").strip()
+            _chart_reason = _reason or "ok"
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][Chart] render_mode | used=%s | reason=%s",
+                    used,
+                    _chart_reason,
+                )
+            except Exception:
+                pass
+            try:
+                print(f"[AITS][Chart] render_mode | used={used} | reason={_chart_reason}")
+            except Exception:
+                pass
             if _reason:
                 print(f"[AITS] detail chart render_used={used} reason={_reason}")
             else:
@@ -13070,8 +13342,10 @@ class MainWindow(QMainWindow):
                 import mplfinance as _mpf
 
                 mpf = _mpf
-            except Exception:
+                globals()["_AITS_MPF_IMPORT_REASON"] = "ok"
+            except Exception as e:
                 mpf = None
+                globals()["_AITS_MPF_IMPORT_REASON"] = type(e).__name__
 
         if pd is None:
             try:
@@ -13080,6 +13354,20 @@ class MainWindow(QMainWindow):
                 pd = _pd
             except Exception:
                 pd = None
+        try:
+            _mpf_ok = mpf is not None
+            _mpf_reason = "ok" if _mpf_ok else globals().get(
+                "_AITS_MPF_IMPORT_REASON",
+                "mpf_import_none",
+            )
+            logging.getLogger("aits").info(
+                "[AITS][Chart] mpf_import_status | ok=%s | reason=%s",
+                _mpf_ok,
+                _mpf_reason,
+            )
+            print(f"[AITS][Chart] mpf_import_status | ok={_mpf_ok} | reason={_mpf_reason}")
+        except Exception:
+            pass
 
     def _on_aits_pool_item_double_clicked(self, item):
         try:
@@ -13405,6 +13693,27 @@ class MainWindow(QMainWindow):
                 pass
 
             self._render_aits_large_chart_dialog(symbol_text, dlg)
+
+            try:
+                sr = getattr(self, "_last_ai_analysis_shadow_record", None)
+                applied = False
+                evidence_count = 0
+                if isinstance(sr, dict) and sr:
+                    evidence = sr.get("evidence") or []
+                    if isinstance(evidence, str):
+                        evidence_count = 1 if evidence.strip() else 0
+                    elif isinstance(evidence, (list, tuple)):
+                        evidence_count = len([x for x in evidence if str(x).strip()])
+                    applied = bool(
+                        self._update_detail_popup_from_shadow_record(sr, force=True)
+                    )
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] detail_popup_shadow_applied_on_open | applied=%s | evidence_count=%s",
+                    applied,
+                    evidence_count,
+                )
+            except Exception:
+                pass
 
             try:
                 dlg.show()
@@ -15378,6 +15687,14 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][Chart] render_mode | used=mplfinance | reason=ok"
+                    )
+                    print("[AITS][Chart] render_mode | used=mplfinance | reason=ok")
+                except Exception:
+                    pass
+
                 dlg.canvas.draw_idle()
                 return
 
@@ -15408,6 +15725,15 @@ class MainWindow(QMainWindow):
                     ha="center",
                     va="center",
                 )
+            except Exception:
+                pass
+            try:
+                _fallback_reason = "mpf_import_none" if mpf is None else "legacy_fallback"
+                logging.getLogger("aits").info(
+                    "[AITS][Chart] render_mode | used=legacy | reason=%s",
+                    _fallback_reason,
+                )
+                print(f"[AITS][Chart] render_mode | used=legacy | reason={_fallback_reason}")
             except Exception:
                 pass
             dlg.canvas.draw_idle()
