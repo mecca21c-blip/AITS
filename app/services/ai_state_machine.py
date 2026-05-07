@@ -251,45 +251,22 @@ def format_state_snapshot_for_ui(snapshot: AIStateSnapshot) -> dict:
 
 def build_sample_state_pipeline_result() -> dict:
     symbol = "KRW-BTC"
-    shadow_record = {}
+    # Use hardcoded sample shadow_record to avoid external API calls
+    shadow_record = {
+        'next_action': 'watch',
+        'eta': {'remaining_minutes': 30},
+        'scenario': {'label_ko': '횡보 관찰형'},
+        'confidence': 0.7
+    }
     snapshot = None
-    suggestion = ""
-    next_action = ""
+    suggestion = "샘플 제안"
+    next_action = "watch"
 
-    try:
-        from app.services.ai_context_builder import build_sample_context_pack
-        from app.services.ai_provider_router import AIProviderRouter
-
-        context_dict = build_sample_context_pack().to_compact_dict()
-        result = AIProviderRouter().run_shadow_cycle(
-            "gemini",
-            context_dict,
-            dry_run=True,
-        )
-        if isinstance(result, dict):
-            shadow_record = result.get("shadow_record") or {}
-            suggestion = str(
-                result.get("suggestion")
-                or (shadow_record.get("suggestion") if isinstance(shadow_record, dict) else "")
-                or ""
-            ).strip()
-            next_action = str(
-                result.get("next_action")
-                or (shadow_record.get("next_action") if isinstance(shadow_record, dict) else "")
-                or ""
-            ).strip()
-
-        snapshot = AIStateMachine().transition(
-            symbol=symbol,
-            current_state="idle",
-            ai_shadow_record=shadow_record if isinstance(shadow_record, dict) else {},
-        )
-    except Exception:
-        snapshot = AIStateMachine().transition(
-            symbol=symbol,
-            current_state="idle",
-            ai_shadow_record={},
-        )
+    snapshot = AIStateMachine().transition(
+        symbol=symbol,
+        current_state="idle",
+        ai_shadow_record=shadow_record,
+    )
 
     state_snapshot_ready = isinstance(snapshot, AIStateSnapshot)
     shadow_record_ready = isinstance(shadow_record, dict) and bool(shadow_record)

@@ -10756,10 +10756,39 @@ class MainWindow(QMainWindow):
             normalized_provider = str(
                 result.get("normalized_provider") or result.get("provider") or provider
             )
+            state_ui = {}
+            state_status_text = ""
+            state_symbol = ""
             if parsed_valid:
                 next_action_ko = self._format_ai_next_action_ko(next_action)
                 scenario_label = self._format_ai_scenario_text(shadow_record)
                 eta_text = self._format_ai_eta_summary(shadow_record)
+                try:
+                    from app.services.ai_state_machine import (
+                        AIStateMachine,
+                        format_state_snapshot_for_ui,
+                    )
+
+                    state_symbol = str(
+                        getattr(self, "_selected_ai_pool_symbol", "")
+                        or shadow_record.get("symbol")
+                        or shadow_record.get("market")
+                        or "KRW-BTC"
+                    ).strip() or "KRW-BTC"
+                    snapshot = AIStateMachine().transition(
+                        symbol=state_symbol,
+                        current_state="idle",
+                        ai_shadow_record=shadow_record,
+                    )
+                    state_ui = format_state_snapshot_for_ui(snapshot)
+                    self._last_ai_state_snapshot = snapshot
+                    self._last_ai_state_ui = state_ui
+                    state_status_line = str(state_ui.get("status_line") or "").strip()
+                    if state_status_line:
+                        state_status_text = f"AI 운용 상태 · {state_status_line}"
+                except Exception:
+                    state_ui = {}
+                    state_status_text = ""
 
                 status_text = (
                     f"AI 분석 테스트 완료 · {normalized_provider} · "
@@ -10773,10 +10802,36 @@ class MainWindow(QMainWindow):
                 error_type = str(result.get("error_type") or "parse_failed")
                 status_text = f"AI 분석 테스트 실패 · {error_type}"
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
-                self.lbl_ai_analysis_dryrun_status.setText(status_text)
+                self.lbl_ai_analysis_dryrun_status.setText(state_status_text or status_text)
             if parsed_valid:
                 self._update_ai_analysis_dryrun_panel(result, normalized_provider)
+                if state_status_text:
+                    for attr_name in (
+                        "lbl_ai_analysis_dryrun_status",
+                        "lbl_ai_center_next_action",
+                        "lbl_ai_center_next",
+                        "lbl_aits_ops_summary",
+                    ):
+                        try:
+                            label = getattr(self, attr_name, None)
+                            if label is not None and hasattr(label, "setText"):
+                                label.setText(state_status_text)
+                        except Exception:
+                            pass
                 self._update_detail_popup_from_shadow_record(shadow_record)
+                if state_status_text:
+                    try:
+                        self._log.info(
+                            "[AITS][GUI] ai_state_ui_applied | symbol=%s | status_line=%s",
+                            state_symbol or "KRW-BTC",
+                            str(state_ui.get("status_line") or ""),
+                        )
+                    except Exception:
+                        logging.getLogger("aits").info(
+                            "[AITS][GUI] ai_state_ui_applied"
+                            f" | symbol={state_symbol or 'KRW-BTC'}"
+                            f" | status_line={str(state_ui.get('status_line') or '')}"
+                        )
             try:
                 self._log.info(
                     "[AITS][GUI] ai_analysis_dryrun_test | provider=%s | parsed_valid=%s | suggestion=%s | next_action=%s",
@@ -11204,6 +11259,13 @@ class MainWindow(QMainWindow):
             eta_reason = str(eta.get("reason") or "추가 데이터 확인 중").strip()
             eta_formatted = self._format_ai_eta_text(eta_minutes)
             eta_main = self._format_ai_eta_summary(sr)
+            state_ui = getattr(self, "_last_ai_state_ui", None)
+            if not isinstance(state_ui, dict):
+                state_ui = {}
+            state_status_line = str(state_ui.get("status_line") or "").strip()
+            state_status_text = (
+                f"AI 운용 상태 · {state_status_line}" if state_status_line else ""
+            )
 
             price_plan = sr.get("price_plan") if isinstance(sr.get("price_plan"), dict) else {}
             target_text = str(price_plan.get("target_price") or "-")
@@ -11228,7 +11290,7 @@ class MainWindow(QMainWindow):
             _set_label(getattr(dlg, "lbl_detail_popup_decision_big", None), next_action_ko)
             _set_label(
                 getattr(dlg, "lbl_detail_popup_decision_sub", None),
-                briefing or f"suggestion {suggestion}",
+                state_status_text or briefing or f"suggestion {suggestion}",
             )
             _set_label(getattr(dlg, "lbl_detail_popup_reason_text", None), evidence_text)
             _set_label(
@@ -11252,7 +11314,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             _set_label(getattr(dlg, "lbl_detail_popup_eta_main", None), eta_main)
-            _set_label(getattr(dlg, "lbl_detail_popup_eta_sub", None), eta_reason)
+            _set_label(
+                getattr(dlg, "lbl_detail_popup_eta_sub", None),
+                state_status_text or eta_reason,
+            )
             _set_label(getattr(dlg, "lbl_detail_popup_eta_meta", None), eta_meta)
             hint_visible = _set_label(
                 getattr(dlg, "lbl_detail_popup_eta_hint", None),
