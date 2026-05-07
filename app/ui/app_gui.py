@@ -10708,6 +10708,7 @@ class MainWindow(QMainWindow):
                 dry_run=True,
             )
             self._last_ai_analysis_test_result = result
+            shadow_record = result.get("shadow_record") or {}
             suggestion = str(result.get("suggestion") or "skip")
             next_action = str(result.get("next_action") or "wait")
             parsed_valid = bool(result.get("parsed_valid"))
@@ -10715,15 +10716,57 @@ class MainWindow(QMainWindow):
                 result.get("normalized_provider") or result.get("provider") or provider
             )
             if parsed_valid:
+                evidence = shadow_record.get("evidence")
+                if isinstance(evidence, list):
+                    evidence_text = ", ".join(
+                        str(item) for item in evidence if item is not None
+                    )
+                else:
+                    evidence_text = str(evidence or "")
+
+                eta = shadow_record.get("eta") or {}
+                eta_parts = []
+                if isinstance(eta, dict):
+                    mode = str(eta.get("mode") or "").strip()
+                    remaining = eta.get("remaining_minutes")
+                    if mode:
+                        eta_parts.append(mode)
+                    if remaining is not None:
+                        eta_parts.append(f"{remaining}분")
+                eta_text = " ".join(eta_parts).strip()
+
+                scenario = shadow_record.get("scenario") or {}
+                scenario_label = str(
+                    (scenario.get("label_ko") or scenario.get("name") or "").strip()
+                )
+
+                price_plan = shadow_record.get("price_plan") or {}
+                price_plan_label = str(
+                    price_plan.get("entry")
+                    or price_plan.get("target_price")
+                    or price_plan.get("action")
+                    or ""
+                ).strip()
+
                 status_text = (
                     f"AI 분석 테스트 완료 · {normalized_provider} · "
                     f"{suggestion}/{next_action}"
                 )
+                if scenario_label:
+                    status_text += f" · 시나리오={scenario_label}"
+                if eta_text:
+                    status_text += f" · ETA={eta_text}"
+                if evidence_text:
+                    status_text += f" · 증거={evidence_text}"
+                if price_plan_label:
+                    status_text += f" · 계획={price_plan_label}"
             else:
                 error_type = str(result.get("error_type") or "parse_failed")
                 status_text = f"AI 분석 테스트 실패 · {error_type}"
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(status_text)
+            if parsed_valid:
+                self._update_ai_analysis_dryrun_panel(result, normalized_provider)
             try:
                 self._log.info(
                     "[AITS][GUI] ai_analysis_dryrun_test | provider=%s | parsed_valid=%s | suggestion=%s | next_action=%s",
@@ -10754,6 +10797,122 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+
+    def _update_ai_analysis_dryrun_panel(self, result: dict, provider: str = ""):
+        try:
+            result = dict(result or {})
+            sr = result.get("shadow_record") or {}
+            payload = sr or result.get("parsed_response") or result
+            try:
+                if hasattr(payload, "to_shadow_record"):
+                    payload = payload.to_shadow_record()
+                elif hasattr(payload, "__dict__"):
+                    payload = dict(payload.__dict__)
+            except Exception:
+                pass
+            if not isinstance(payload, dict):
+                payload = result
+
+            suggestion = str(payload.get("suggestion") or result.get("suggestion") or "skip")
+            next_action = str(
+                payload.get("next_action") or result.get("next_action") or "wait"
+            )
+            briefing = str(
+                payload.get("briefing")
+                or result.get("briefing")
+                or f"AI 분석 테스트 완료 · {provider or result.get('provider') or '-'} · {suggestion}/{next_action}"
+            )
+            evidence = payload.get("evidence") or result.get("evidence") or []
+            if isinstance(evidence, str):
+                evidence_items = [evidence] if evidence.strip() else []
+            elif isinstance(evidence, (list, tuple)):
+                evidence_items = [str(item).strip() for item in evidence if str(item).strip()]
+            else:
+                evidence_items = []
+            evidence_text = " · ".join(evidence_items) if evidence_items else "-"
+
+            eta = payload.get("eta") if isinstance(payload.get("eta"), dict) else {}
+            watch_minutes = payload.get("watch_minutes") or result.get("watch_minutes") or 0
+            eta_minutes = eta.get("remaining_minutes") if eta else watch_minutes
+            eta_text = (
+                f"관찰 유지 · {eta_minutes}분"
+                if eta_minutes not in (None, "", 0, "0")
+                else "-"
+            )
+            eta_available = eta_minutes not in (None, "", 0, "0")
+
+            scenario = payload.get("scenario") or result.get("scenario") or {}
+            if isinstance(scenario, dict):
+                scenario_text = str(
+                    scenario.get("label_ko") or scenario.get("name") or "-"
+                )
+                scenario_name = str(scenario.get("name") or scenario_text)
+            else:
+                scenario_text = str(scenario or "-")
+                scenario_name = scenario_text
+
+            price_plan = payload.get("price_plan") if isinstance(payload.get("price_plan"), dict) else {}
+            prediction = payload.get("prediction") if isinstance(payload.get("prediction"), dict) else {}
+            target_text = str(price_plan.get("target_price") or "-")
+            risk_text = str(
+                price_plan.get("risk_price")
+                or "-"
+            )
+
+            def _set_label(attr_name: str, text: str) -> bool:
+                try:
+                    label = getattr(self, attr_name, None)
+                    if label is not None and hasattr(label, "setText"):
+                        label.setText(text)
+                        return True
+                except Exception:
+                    pass
+                return False
+
+            briefing_updated = False
+            briefing_updated |= _set_label("lbl_ai_briefing_card", briefing)
+            briefing_updated |= _set_label("lbl_aits_briefing", briefing)
+            briefing_updated |= _set_label("lbl_detail_popup_decision_sub", briefing)
+
+            evidence_updated = False
+            evidence_updated |= _set_label("lbl_ai_center_why", evidence_text)
+            evidence_updated |= _set_label("lbl_detail_popup_reason_text", evidence_text)
+
+            _set_label("lbl_ai_center_next", next_action)
+            _set_label("lbl_detail_popup_next_text", next_action)
+            _set_label("lbl_detail_popup_eta_main", eta_text)
+            _set_label("lbl_detail_popup_eta_sub", f"다음 행동: {next_action}")
+
+            scenario_updated = False
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_title", scenario_text)
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", scenario_name)
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_context", briefing)
+
+            _set_label("lbl_detail_popup_target_price", target_text)
+            _set_label("lbl_detail_popup_risk_price", risk_text)
+            _set_label("lbl_ai_detail_target", target_text)
+            _set_label("lbl_ai_detail_stop", risk_text)
+
+            try:
+                self._log.info(
+                    "[AITS][GUI] ai_analysis_panel_updated | provider=%s | briefing=%s | evidence=%s | eta=%s | scenario=%s",
+                    provider or result.get("provider") or "",
+                    bool(briefing_updated),
+                    bool(evidence_updated),
+                    bool(eta_available),
+                    bool(scenario_updated),
+                )
+            except Exception:
+                logging.getLogger("aits").info(
+                    "[AITS][GUI] ai_analysis_panel_updated"
+                    f" | provider={provider or result.get('provider') or ''}"
+                    f" | briefing={bool(briefing_updated)}"
+                    f" | evidence={bool(evidence_updated)}"
+                    f" | eta={bool(eta_available)}"
+                    f" | scenario={bool(scenario_updated)}"
+                )
+        except Exception:
+            pass
 
     def _on_test_connection_clicked(self):
         eng = ""

@@ -51,8 +51,8 @@ class AIProviderMockBridge:
             },
             "price_plan": {
                 "entry": "wait_for_confirmation",
-                "stop": "risk_limit",
-                "target": "mock_resistance",
+                "target_price": "mock_resistance",
+                "risk_price": "risk_limit",
             },
             "ai_score": {
                 "total": 72,
@@ -70,6 +70,12 @@ class AIProviderMockBridge:
             provider=provider_name,
         )
         shadow_record = parsed.to_shadow_record()
+        shadow_record["watch_minutes"] = parsed.watch_minutes
+        shadow_record["exit_plan"] = dict(parsed.exit_plan or {})
+        shadow_record["state_transition"] = dict(parsed.state_transition or {})
+        shadow_record["price_plan"] = dict(parsed.price_plan or {})
+        shadow_record["ai_score"] = dict(parsed.ai_score or {})
+        shadow_record["briefing_detail"] = dict(parsed.briefing_detail or {})
         shadow_record_ready = (
             "raw_text" not in shadow_record
             and shadow_record.get("applied") is False
@@ -85,6 +91,7 @@ class AIProviderMockBridge:
             "suggestion": parsed.suggestion,
             "next_action": parsed.next_action,
             "scenario": parsed.scenario.get("name"),
+            "shadow_record": shadow_record,
             "applied": shadow_record.get("applied") is True,
         }
 

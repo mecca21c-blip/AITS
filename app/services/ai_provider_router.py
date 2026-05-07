@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
+from app.services.ai_provider_mock_bridge import AIProviderMockBridge
 from app.services.gemini_provider_bridge import GeminiProviderBridge
 from app.services.gpt_provider_bridge import GPTProviderBridge
 from app.services.ollama_provider_bridge import OllamaProviderBridge
@@ -31,11 +32,17 @@ class AIProviderRouter:
     ) -> dict:
         selected_provider = str(provider or "ollama")
         normalized_provider = self._normalize_provider(selected_provider)
-        bridge = self._build_bridge(normalized_provider)
-        result = bridge.run_shadow_cycle(
-            dict(context_dict or {}),
-            dry_run=bool(dry_run),
-        )
+        if bool(dry_run):
+            result = AIProviderMockBridge().run_mock_cycle(normalized_provider)
+            result["dry_run"] = True
+        else:
+            bridge = self._build_bridge(normalized_provider)
+            result = bridge.run_shadow_cycle(
+                dict(context_dict or {}),
+                dry_run=False,
+            )
+        if "shadow_record" not in result:
+            result["shadow_record"] = {}
         result["selected_provider"] = selected_provider
         result["normalized_provider"] = normalized_provider
 
