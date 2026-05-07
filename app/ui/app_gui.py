@@ -21897,6 +21897,10 @@ class MainWindow(QMainWindow):
                 pass
             
             self.set_global_status("🟢 정상", "ok", "boot")
+            try:
+                self._restore_api_keys_after_ui_ready()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -24676,6 +24680,47 @@ class MainWindow(QMainWindow):
             self._log.info("[BOOT-GUARD] boot completed, _boot_done=True")
             try:
                 QTimer.singleShot(0, self._restore_aits_manage_splitter_sizes)
+            except Exception:
+                pass
+
+    def _restore_api_keys_after_ui_ready(self) -> None:
+        try:
+            from app.utils.prefs import load_settings
+
+            settings = load_settings()
+            st = getattr(settings, "strategy", None)
+
+            openai_key = getattr(st, "ai_openai_api_key", "") if st is not None else ""
+            gemini_key = getattr(st, "ai_gemini_api_key", "") if st is not None else ""
+            if hasattr(openai_key, "get_secret_value"):
+                openai_key = openai_key.get_secret_value() or ""
+            if hasattr(gemini_key, "get_secret_value"):
+                gemini_key = gemini_key.get_secret_value() or ""
+
+            openai_key = str(openai_key or "").strip()
+            gemini_key = str(gemini_key or "").strip()
+            openai_has_key = bool(openai_key)
+            gemini_has_key = bool(gemini_key)
+
+            if openai_has_key and hasattr(self, "ed_openai_key"):
+                self.ed_openai_key.setText(openai_key)
+                self._set_ai_key_status_label("openai", "API Key 저장됨 · 연결 테스트 필요")
+            if gemini_has_key and hasattr(self, "ed_gemini_key"):
+                self.ed_gemini_key.setText(gemini_key)
+                self._set_ai_key_status_label("gemini", "API Key 저장됨 · 연결 테스트 필요")
+
+            self._log.info(
+                "[AITS][GUI] api_key_restore_after_ui_ready | openai_key=%s | gemini_key=%s",
+                openai_has_key,
+                gemini_has_key,
+            )
+        except Exception:
+            try:
+                self._log.info(
+                    "[AITS][GUI] api_key_restore_after_ui_ready | openai_key=%s | gemini_key=%s",
+                    False,
+                    False,
+                )
             except Exception:
                 pass
 
