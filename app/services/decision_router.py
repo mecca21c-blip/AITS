@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -215,7 +216,16 @@ class DecisionRouter:
                 "shadow_signal": self.get_shadow_signal(),
                 **self._local_shadow_meta(provider_shadow_decision),
             }
-            self._attach_ai_shadow_meta(fallback_raw, context_data.get("ai_shadow"))
+            ai_shadow_for_router = self._resolve_ai_shadow_for_router(context_data)
+            self._last_resolved_ai_shadow_for_router = (
+                dict(ai_shadow_for_router) if isinstance(ai_shadow_for_router, dict) else {}
+            )
+            self._attach_ai_shadow_meta(fallback_raw, ai_shadow_for_router)
+            self._store_ai_shadow_in_shadow_history(
+                (fallback_raw.get("meta") or {}).get("ai_shadow")
+                if isinstance(fallback_raw.get("meta"), dict)
+                else None
+            )
             routed = AIDecisionState(
                 action="hold",
                 action_bias="neutral",
@@ -392,7 +402,16 @@ class DecisionRouter:
                 "context": raw_context_data,
             },
         )
-        self._attach_ai_shadow_meta(routed_result.raw, context_data.get("ai_shadow"))
+        ai_shadow_for_router = self._resolve_ai_shadow_for_router(context_data)
+        self._last_resolved_ai_shadow_for_router = (
+            dict(ai_shadow_for_router) if isinstance(ai_shadow_for_router, dict) else {}
+        )
+        self._attach_ai_shadow_meta(routed_result.raw, ai_shadow_for_router)
+        self._store_ai_shadow_in_shadow_history(
+            (routed_result.raw.get("meta") or {}).get("ai_shadow")
+            if isinstance(routed_result.raw.get("meta"), dict)
+            else None
+        )
         self._attach_router_result(decision, routed_result)
         self._log_router_summary(decision)
         return decision
@@ -1960,13 +1979,8 @@ class DecisionRouter:
             soft_action = soft.get("candidate_action", "none")
             soft_eligible = soft.get("eligible", False)
             ai_stats = self._get_ai_suggestion_history_stats()
-            meta = raw.get("meta", {}) if isinstance(raw, dict) else {}
-            ai_shadow_present = bool(
-                isinstance(meta, dict) and isinstance(meta.get("ai_shadow"), dict)
-            )
-            ai_shadow = meta.get("ai_shadow") if isinstance(meta, dict) else {}
-            if not isinstance(ai_shadow, dict):
-                ai_shadow = {}
+            ai_shadow = self._resolve_ai_shadow_for_summary(raw)
+            ai_shadow_present = bool(ai_shadow)
             ai_shadow_fields = self._extract_ai_shadow_summary_fields(ai_shadow)
 
             return (
@@ -1996,14 +2010,50 @@ class DecisionRouter:
             raw = getattr(decision, "raw", {}) if hasattr(decision, "raw") else {}
             if not isinstance(raw, dict):
                 raw = {}
+            if not raw:
+                try:
+                    router_result = getattr(decision, "decision_router_result", None)
+                    raw = dict(getattr(router_result, "raw", {}) or {})
+                except Exception:
+                    raw = {}
+            else:
+                try:
+                    router_result = getattr(decision, "decision_router_result", None)
+                    router_raw = dict(getattr(router_result, "raw", {}) or {})
+                    router_shadow = self._resolve_ai_shadow_for_summary(router_raw)
+                    raw_shadow = self._resolve_ai_shadow_for_summary(raw)
+                    if router_shadow and not raw_shadow:
+                        raw = dict(raw)
+                        raw_meta = raw.setdefault("meta", {})
+                        if not isinstance(raw_meta, dict):
+                            raw_meta = {}
+                            raw["meta"] = raw_meta
+                        raw_meta["ai_shadow"] = router_shadow
+                except Exception:
+                    pass
+            summary_ai_shadow = self._resolve_ai_shadow_for_summary(raw)
+            if summary_ai_shadow:
+                try:
+                    raw = dict(raw)
+                    raw_meta = raw.setdefault("meta", {})
+                    if not isinstance(raw_meta, dict):
+                        raw_meta = {}
+                        raw["meta"] = raw_meta
+                    raw_meta["ai_shadow"] = summary_ai_shadow
+                except Exception:
+                    pass
             summary = self._build_router_summary(decision, raw)
             self._safe_log_info(f"[AITS][RouterSummary] {summary}")
             try:
-                raw_meta = raw.get("meta") or {}
-                ai_shadow = raw_meta.get("ai_shadow") if isinstance(raw_meta, dict) else {}
-                if not isinstance(ai_shadow, dict):
-                    ai_shadow = {}
+                ai_shadow = summary_ai_shadow or self._resolve_ai_shadow_for_summary(raw)
                 ai_shadow_fields = self._extract_ai_shadow_summary_fields(ai_shadow)
+                found = bool(ai_shadow)
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] ai_shadow_summary_resolved | "
+                    f"found={found} | "
+                    f"ai_state={ai_shadow_fields.get('ai_state')} | "
+                    f"ai_action={ai_shadow_fields.get('ai_action')}"
+                )
                 self._safe_log_info(
                     "[AITS][RouterSummary] "
                     f"ai_state={ai_shadow_fields.get('ai_state')} | "
@@ -2190,6 +2240,39 @@ class DecisionRouter:
         except Exception:
             pass
 
+    def _build_sample_ai_shadow_for_router(self) -> Dict[str, Any]:
+        return {
+            "provider": "mock",
+            "suggestion": "confirm",
+            "confidence": 0.72,
+            "next_action": "watch",
+            "scenario": {"label_ko": "횡보 관찰형", "name": "sideways_watch"},
+            "eta": {
+                "remaining_minutes": 30,
+                "reason": "거래대금과 추세 재확인 필요",
+            },
+            "pool_action": {"action": "watch", "reason": "관찰 가치 있음"},
+            "valid": True,
+            "suggestion_only": True,
+            "applied_to_action": False,
+            "applied": False,
+        }
+
+    def _resolve_ai_shadow_for_router(self, context_data: Dict[str, Any]) -> dict | None:
+        try:
+            if isinstance(context_data, dict) and isinstance(context_data.get("ai_shadow"), dict):
+                return context_data.get("ai_shadow")
+            enabled = str(os.getenv("AITS_INJECT_SAMPLE_AI_SHADOW", "") or "").strip() == "1"
+            if not enabled:
+                return None
+            self._safe_log_info(
+                "[AITS][DecisionRouter] sample_ai_shadow_injected | "
+                "enabled=True | applied=False"
+            )
+            return self._build_sample_ai_shadow_for_router()
+        except Exception:
+            return None
+
     def _attach_ai_shadow_meta(self, raw: dict, ai_shadow: dict | None) -> bool:
         attached = False
         try:
@@ -2244,9 +2327,10 @@ class DecisionRouter:
             scenario_label = str(scenario.get("label_ko") or "").strip()
             scenario_name = str(scenario.get("name") or "").strip()
             next_action = str(shadow.get("next_action") or "").strip()
+            suggestion = str(shadow.get("suggestion") or "").strip()
 
-            ai_state = scenario_label or next_action or "-"
-            ai_action = next_action or "-"
+            ai_state = scenario_label or scenario_name or next_action or "-"
+            ai_action = next_action or suggestion or "-"
             ai_scenario = scenario_label or scenario_name or "-"
             ai_eta = eta.get("remaining_minutes")
             if ai_eta in (None, ""):
@@ -2267,6 +2351,26 @@ class DecisionRouter:
                 "ai_eta": "-",
                 "ai_applied": False,
             }
+
+    def _resolve_ai_shadow_for_summary(self, raw: dict | None = None) -> Dict[str, Any]:
+        try:
+            if isinstance(raw, dict):
+                meta = raw.get("meta") or {}
+                if isinstance(meta, dict) and isinstance(meta.get("ai_shadow"), dict):
+                    return meta.get("ai_shadow") or {}
+
+            resolved = getattr(self, "_last_resolved_ai_shadow_for_router", None)
+            if isinstance(resolved, dict) and resolved:
+                return resolved
+
+            history = getattr(self, "shadow_history", None)
+            if isinstance(history, list) and history:
+                latest = history[-1]
+                if isinstance(latest, dict) and isinstance(latest.get("ai_shadow"), dict):
+                    return latest.get("ai_shadow") or {}
+        except Exception:
+            pass
+        return {}
 
     def _normalize_provider(self, provider: str) -> str:
         return normalize_provider(provider)
@@ -2422,6 +2526,9 @@ class DecisionRouter:
             raw_meta = raw.get("meta", {})
             if not isinstance(raw_meta, dict):
                 raw_meta = {}
+            ai_shadow_for_history = self._sanitize_ai_shadow_history_fields(
+                raw_meta.get("ai_shadow")
+            )
             record = {
                 "timestamp": self._now_iso(),
                 "provider": str(provider or ""),
@@ -2440,14 +2547,77 @@ class DecisionRouter:
                 "final_confidence": self._safe_float(final_confidence, 0.0),
                 "execution_allowed": bool(raw.get("execution_allowed", False)),
                 "ai_suggestion": raw_meta.get("ai_suggestion"),
-                "ai_shadow": raw_meta.get("ai_shadow"),
             }
+            if ai_shadow_for_history:
+                record["ai_shadow"] = ai_shadow_for_history
             self.shadow_history.append(record)
             if len(self.shadow_history) > self.shadow_history_limit:
                 self.shadow_history = self.shadow_history[-self.shadow_history_limit :]
             self._save_shadow_history()
+            self._safe_log_info(
+                "[AITS][DecisionRouter] ai_shadow_history | "
+                f"stored={bool(ai_shadow_for_history)} | applied=False"
+            )
         except Exception:
             pass
+
+    def _sanitize_ai_shadow_history_fields(self, ai_shadow: Any) -> Dict[str, Any]:
+        try:
+            if not isinstance(ai_shadow, dict):
+                return {}
+            allowed_fields = {
+                "provider",
+                "suggestion",
+                "confidence",
+                "next_action",
+                "scenario",
+                "eta",
+                "pool_action",
+                "valid",
+            }
+            clean_shadow = {
+                key: ai_shadow.get(key)
+                for key in allowed_fields
+                if key in ai_shadow
+            }
+            clean_shadow["applied"] = False
+            clean_shadow["applied_to_action"] = False
+            return clean_shadow
+        except Exception:
+            return {}
+
+    def _store_ai_shadow_in_shadow_history(self, ai_shadow: Any) -> bool:
+        stored = False
+        try:
+            clean_shadow = self._sanitize_ai_shadow_history_fields(ai_shadow)
+            if not clean_shadow:
+                return False
+            history = getattr(self, "shadow_history", None)
+            if not isinstance(history, list):
+                history = []
+                self.shadow_history = history
+            if history:
+                latest = history[-1]
+            else:
+                latest = {
+                    "timestamp": self._now_iso(),
+                    "ai_applied": False,
+                    "submitted": 0,
+                }
+                history.append(latest)
+            if not isinstance(latest, dict):
+                return False
+            latest["ai_shadow"] = clean_shadow
+            self._save_shadow_history()
+            stored = True
+            return True
+        except Exception:
+            return False
+        finally:
+            self._safe_log_info(
+                "[AITS][DecisionRouter] ai_shadow_history | "
+                f"stored={bool(stored)} | applied=False"
+            )
 
     def _store_ai_suggestion_in_shadow_history(self, ai_suggestion: Any) -> bool:
         try:
