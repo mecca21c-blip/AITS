@@ -62,6 +62,19 @@ class LiveProviderOneShotHarness:
         allow_live: bool = False,
     ) -> dict:
         provider_name = self._runtime_validator.normalize_provider(provider)
+        session_store = None
+        session = None
+        try:
+            from app.services.ai_runtime_session_store import AIRuntimeSessionStore
+
+            session_store = AIRuntimeSessionStore()
+            session = session_store.create_session(
+                provider_name,
+                model=self._model_for_provider(provider_name),
+            )
+        except Exception:
+            session_store = None
+            session = None
         runtime_status = self._runtime_validator.validate(provider_name)
         capability = self._capability_matrix.get_capability(provider_name)
         capability_ready = capability is not None
@@ -91,6 +104,7 @@ class LiveProviderOneShotHarness:
                 guard_bundle=guard_bundle,
             )
             output = self._attach_observation(output)
+            output = self._attach_runtime_session(output, session_store, session)
             self._log_result(output)
             return output
         try:
@@ -177,6 +191,7 @@ class LiveProviderOneShotHarness:
             output["report"] = asdict(report)
             output["report_ready"] = True
             output = self._attach_observation(output, symbol=symbol)
+            output = self._attach_runtime_session(output, session_store, session)
             self._health_monitor.record_success(provider_name)
             self._log_result(output)
             return output
@@ -198,6 +213,7 @@ class LiveProviderOneShotHarness:
                 guard_bundle=failure_guard_bundle,
             )
             output = self._attach_observation(output)
+            output = self._attach_runtime_session(output, session_store, session)
             self._log_result(output)
             return output
 
@@ -234,6 +250,16 @@ class LiveProviderOneShotHarness:
             "guard_report": guard_report,
             "cooldown_blocked": bool(guard_report.cooldown_blocked),
         }
+
+    def _model_for_provider(self, provider_name: str) -> str:
+        normalized = str(provider_name or "").strip().lower()
+        if normalized == "openai":
+            return self.openai_model
+        if normalized == "gemini":
+            return self.gemini_model
+        if normalized == "ollama":
+            return self.ollama_model
+        return "-"
 
     def _guard_output_fields(self, guard_bundle: dict) -> dict:
         guard_report = guard_bundle["guard_report"]
@@ -341,6 +367,127 @@ class LiveProviderOneShotHarness:
                     "observation_report": {},
                     "observation_formatted": {},
                     "observation_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
+
+    def _attach_runtime_session(self, output: dict, session_store, session) -> dict:
+        safe_output = dict(output or {})
+        if session_store is None or session is None:
+            safe_output.update(
+                {
+                    "session_ready": False,
+                    "session_id": "",
+                    "session_status": "",
+                    "session_diagnosis": "",
+                    "session_report": {},
+                    "runtime_memory_summary": {},
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+            return safe_output
+
+        try:
+            from app.services.ai_runtime_memory import AIRuntimeMemory
+            from app.services.ai_session_diagnostics import AISessionDiagnosticsBuilder
+            from app.services.ai_session_report import AISessionReportBuilder
+
+            error = bool(safe_output.get("error_type"))
+            success = bool(safe_output.get("report_ready")) and not error
+            session_store.record_one_shot(
+                session.session_id,
+                success=success,
+                error=error,
+            )
+            if bool(safe_output.get("observation_ready")):
+                session_store.record_observation(session.session_id)
+            session_store.mark_degraded(
+                session.session_id,
+                bool(safe_output.get("degraded", False)),
+            )
+            session_store.mark_cooldown(
+                session.session_id,
+                bool(safe_output.get("cooldown_blocked", False)),
+            )
+
+            memory = AIRuntimeMemory()
+            if isinstance(safe_output.get("observation_report"), dict):
+                memory.set_item(
+                    session.session_id,
+                    "last_observation_report",
+                    safe_output["observation_report"],
+                )
+            if isinstance(safe_output.get("response_quality"), dict):
+                memory.set_item(
+                    session.session_id,
+                    "last_quality_score",
+                    safe_output["response_quality"],
+                )
+            else:
+                memory.set_item(
+                    session.session_id,
+                    "last_quality_score",
+                    {"quality_score": safe_output.get("response_quality_score", 0.0)},
+                )
+            if isinstance(safe_output.get("guard_report"), dict):
+                memory.set_item(
+                    session.session_id,
+                    "last_guard_report",
+                    safe_output["guard_report"],
+                )
+            memory.set_item(
+                session.session_id,
+                "last_state_ui",
+                {
+                    "state": safe_output.get("state", ""),
+                    "status_line": safe_output.get("status_line", ""),
+                    "state_ready": bool(safe_output.get("state_ready", False)),
+                    "state_ui_ready": bool(safe_output.get("state_ui_ready", False)),
+                },
+            )
+            memory_summary = memory.build_summary()
+            diagnostics = AISessionDiagnosticsBuilder().build(
+                session,
+                observation_report=safe_output.get("observation_report"),
+                guard_report=safe_output.get("guard_report"),
+                quality_score=safe_output.get("response_quality"),
+            )
+            session_report = AISessionReportBuilder().build_report(
+                session,
+                diagnostics=diagnostics,
+                memory_summary=memory_summary,
+            )
+            safe_output.update(
+                {
+                    "session_ready": True,
+                    "session_id": str(session.session_id or ""),
+                    "session_status": str(session.status or ""),
+                    "session_diagnosis": str(diagnostics.diagnosis or ""),
+                    "session_report": asdict(session_report),
+                    "runtime_memory_summary": memory_summary,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "session_ready": False,
+                    "session_id": str(getattr(session, "session_id", "") or ""),
+                    "session_status": str(getattr(session, "status", "") or ""),
+                    "session_diagnosis": "",
+                    "session_report": {},
+                    "runtime_memory_summary": {},
+                    "session_error": type(exc).__name__,
                     "submitted": 0,
                     "real_order": False,
                     "applied": False,
