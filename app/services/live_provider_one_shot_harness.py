@@ -105,6 +105,7 @@ class LiveProviderOneShotHarness:
             )
             output = self._attach_observation(output)
             output = self._attach_runtime_session(output, session_store, session)
+            output = self._attach_runtime_ui(output)
             self._log_result(output)
             return output
         try:
@@ -192,6 +193,7 @@ class LiveProviderOneShotHarness:
             output["report_ready"] = True
             output = self._attach_observation(output, symbol=symbol)
             output = self._attach_runtime_session(output, session_store, session)
+            output = self._attach_runtime_ui(output)
             self._health_monitor.record_success(provider_name)
             self._log_result(output)
             return output
@@ -214,6 +216,7 @@ class LiveProviderOneShotHarness:
             )
             output = self._attach_observation(output)
             output = self._attach_runtime_session(output, session_store, session)
+            output = self._attach_runtime_ui(output)
             self._log_result(output)
             return output
 
@@ -488,6 +491,61 @@ class LiveProviderOneShotHarness:
                     "session_report": {},
                     "runtime_memory_summary": {},
                     "session_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
+
+    def _attach_runtime_ui(self, output: dict) -> dict:
+        safe_output = dict(output or {})
+        try:
+            from app.services.ai_runtime_badge_builder import AIRuntimeBadgeBuilder
+            from app.services.ai_runtime_dashboard_summary import (
+                AIRuntimeDashboardSummaryBuilder,
+            )
+            from app.services.ai_runtime_status_color import AIRuntimeStatusColorResolver
+            from app.services.ai_runtime_ui_bundle import AIRuntimeUIBundleBuilder
+            from app.services.ai_runtime_ui_formatter import AIRuntimeUIFormatter
+
+            bundle = AIRuntimeUIBundleBuilder().build_bundle(
+                safe_output,
+                session_report=safe_output.get("session_report"),
+                observation_report=safe_output.get("observation_report"),
+                guard_report=safe_output.get("guard_report"),
+                quality_score=safe_output.get("response_quality"),
+            )
+            badges = AIRuntimeBadgeBuilder().build_badges(bundle)
+            bundle.badges = badges
+            formatted = AIRuntimeUIFormatter().format_bundle(bundle)
+            dashboard_summary = AIRuntimeDashboardSummaryBuilder().build_summary([bundle])
+            colors = AIRuntimeStatusColorResolver().resolve(bundle.diagnosis)
+            safe_output.update(
+                {
+                    "runtime_ui_ready": True,
+                    "runtime_ui_bundle": asdict(bundle),
+                    "runtime_ui_formatted": formatted,
+                    "runtime_dashboard_summary": asdict(dashboard_summary),
+                    "runtime_badges": badges,
+                    "runtime_status_colors": colors,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "runtime_ui_ready": False,
+                    "runtime_ui_bundle": {},
+                    "runtime_ui_formatted": {},
+                    "runtime_dashboard_summary": {},
+                    "runtime_badges": [],
+                    "runtime_status_colors": {},
+                    "runtime_ui_error": type(exc).__name__,
                     "submitted": 0,
                     "real_order": False,
                     "applied": False,
