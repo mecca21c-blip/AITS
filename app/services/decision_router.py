@@ -12,6 +12,7 @@ from app.services.ai_engine_provider import (
     build_default_provider_registry,
     get_provider,
 )
+from app.services.ai_provider_comparison_stats import AIProviderComparisonStats
 
 ROUTER_VERSION = "v2.6"
 AI_VERIFICATION_SUGGESTIONS = {
@@ -1982,6 +1983,7 @@ class DecisionRouter:
             ai_shadow = self._resolve_ai_shadow_for_summary(raw)
             ai_shadow_present = bool(ai_shadow)
             ai_shadow_fields = self._extract_ai_shadow_summary_fields(ai_shadow)
+            provider_stats = self._build_ai_provider_stats_summary()
 
             return (
                 f"action={action} | "
@@ -1999,6 +2001,8 @@ class DecisionRouter:
                 f"ai_action={ai_shadow_fields.get('ai_action')} | "
                 f"ai_scenario={ai_shadow_fields.get('ai_scenario')} | "
                 f"ai_eta={ai_shadow_fields.get('ai_eta')} | "
+                f"ai_stats_total={provider_stats.get('total')} | "
+                f"ai_stats={provider_stats.get('compact')} | "
                 "ai_applied=False | "
                 "ai_a=0"
             )
@@ -2045,6 +2049,12 @@ class DecisionRouter:
             summary = self._build_router_summary(decision, raw)
             self._safe_log_info(f"[AITS][RouterSummary] {summary}")
             try:
+                provider_stats = self._build_ai_provider_stats_summary()
+                self._safe_log_info(
+                    "[AITS][DecisionRouter] ai_provider_stats_summary | "
+                    f"total={provider_stats.get('total')} | "
+                    f"providers={provider_stats.get('provider_count')}"
+                )
                 ai_shadow = summary_ai_shadow or self._resolve_ai_shadow_for_summary(raw)
                 ai_shadow_fields = self._extract_ai_shadow_summary_fields(ai_shadow)
                 found = bool(ai_shadow)
@@ -2371,6 +2381,39 @@ class DecisionRouter:
         except Exception:
             pass
         return {}
+
+    def _build_ai_provider_stats_summary(self) -> Dict[str, Any]:
+        try:
+            history = getattr(self, "shadow_history", None)
+            records = list(history) if isinstance(history, list) else []
+            stats = AIProviderComparisonStats().build_stats(records)
+            providers = stats.get("providers") if isinstance(stats, dict) else {}
+            if not isinstance(providers, dict):
+                providers = {}
+            parts = []
+            for provider in sorted(providers):
+                bucket = providers.get(provider) or {}
+                if not isinstance(bucket, dict):
+                    continue
+                parts.append(
+                    f"{provider}:"
+                    f"t{int(bucket.get('total') or 0)}/"
+                    f"c{int(bucket.get('confirm') or 0)}/"
+                    f"s{int(bucket.get('skip') or 0)}/"
+                    f"w{int(bucket.get('watch') or 0)}/"
+                    f"a{int(bucket.get('applied_count') or 0)}"
+                )
+            return {
+                "total": int(stats.get("total") or 0) if isinstance(stats, dict) else 0,
+                "provider_count": len(providers),
+                "compact": " | ".join(parts) if parts else "-",
+            }
+        except Exception:
+            return {
+                "total": 0,
+                "provider_count": 0,
+                "compact": "-",
+            }
 
     def _normalize_provider(self, provider: str) -> str:
         return normalize_provider(provider)
