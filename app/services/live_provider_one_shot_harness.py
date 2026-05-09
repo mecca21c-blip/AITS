@@ -90,6 +90,7 @@ class LiveProviderOneShotHarness:
                 error_type="unknown_provider",
                 guard_bundle=guard_bundle,
             )
+            output = self._attach_observation(output)
             self._log_result(output)
             return output
         try:
@@ -175,6 +176,7 @@ class LiveProviderOneShotHarness:
             report = self._report_builder.build_report(output, runtime_status=runtime_status)
             output["report"] = asdict(report)
             output["report_ready"] = True
+            output = self._attach_observation(output, symbol=symbol)
             self._health_monitor.record_success(provider_name)
             self._log_result(output)
             return output
@@ -195,6 +197,7 @@ class LiveProviderOneShotHarness:
                 error_type=type(exc).__name__,
                 guard_bundle=failure_guard_bundle,
             )
+            output = self._attach_observation(output)
             self._log_result(output)
             return output
 
@@ -300,6 +303,51 @@ class LiveProviderOneShotHarness:
         output["report"] = asdict(report)
         output["report_ready"] = True
         return output
+
+    def _attach_observation(self, output: dict, symbol: str = "KRW-BTC") -> dict:
+        safe_output = dict(output or {})
+        try:
+            from app.services.ai_observation_pipeline import AIObservationPipeline
+            from app.services.ai_observation_report_formatter import (
+                AIObservationReportFormatter,
+            )
+
+            pipeline_result = AIObservationPipeline().run_once(safe_output, symbol=symbol)
+            observation_report = dict(pipeline_result.get("report") or {})
+            formatted = AIObservationReportFormatter().format_report(observation_report)
+            safe_output.update(
+                {
+                    "observation_ready": bool(pipeline_result.get("report_ready")),
+                    "observation_health_label": str(
+                        pipeline_result.get("health_label") or ""
+                    ),
+                    "observation_summary_line": str(
+                        pipeline_result.get("summary_line") or ""
+                    ),
+                    "observation_report": observation_report,
+                    "observation_formatted": formatted,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "observation_ready": False,
+                    "observation_health_label": "",
+                    "observation_summary_line": "",
+                    "observation_report": {},
+                    "observation_formatted": {},
+                    "observation_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
 
     def _log_result(self, output: dict) -> None:
         try:
