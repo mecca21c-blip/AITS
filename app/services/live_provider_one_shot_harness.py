@@ -106,6 +106,9 @@ class LiveProviderOneShotHarness:
             output = self._attach_observation(output)
             output = self._attach_runtime_session(output, session_store, session)
             output = self._attach_runtime_ui(output)
+            output = self._attach_runtime_events(output)
+            output = self._attach_runtime_incidents(output)
+            output = self._attach_runtime_snapshot(output)
             self._log_result(output)
             return output
         try:
@@ -194,6 +197,9 @@ class LiveProviderOneShotHarness:
             output = self._attach_observation(output, symbol=symbol)
             output = self._attach_runtime_session(output, session_store, session)
             output = self._attach_runtime_ui(output)
+            output = self._attach_runtime_events(output)
+            output = self._attach_runtime_incidents(output)
+            output = self._attach_runtime_snapshot(output)
             self._health_monitor.record_success(provider_name)
             self._log_result(output)
             return output
@@ -217,6 +223,9 @@ class LiveProviderOneShotHarness:
             output = self._attach_observation(output)
             output = self._attach_runtime_session(output, session_store, session)
             output = self._attach_runtime_ui(output)
+            output = self._attach_runtime_events(output)
+            output = self._attach_runtime_incidents(output)
+            output = self._attach_runtime_snapshot(output)
             self._log_result(output)
             return output
 
@@ -546,6 +555,320 @@ class LiveProviderOneShotHarness:
                     "runtime_badges": [],
                     "runtime_status_colors": {},
                     "runtime_ui_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
+
+    def _attach_runtime_events(self, output: dict) -> dict:
+        safe_output = dict(output or {})
+        try:
+            from app.services.ai_runtime_event import build_runtime_event
+            from app.services.ai_runtime_event_formatter import AIRuntimeEventFormatter
+            from app.services.ai_runtime_event_stream import AIRuntimeEventStream
+            from app.services.ai_runtime_event_summary import AIRuntimeEventSummaryBuilder
+            from app.services.ai_runtime_timeline import AIRuntimeTimelineBuilder
+
+            provider = str(safe_output.get("provider") or "unknown")
+            session_id = str(safe_output.get("session_id") or "")
+            symbol = self._symbol_from_result(safe_output)
+            stream = AIRuntimeEventStream()
+            events = [
+                build_runtime_event(
+                    session_id=session_id,
+                    provider=provider,
+                    symbol=symbol,
+                    event_type="one_shot_started",
+                    severity="info",
+                    title="One-shot started",
+                    message=f"{provider} one-shot started",
+                    source="live_provider_one_shot_harness",
+                ),
+                build_runtime_event(
+                    session_id=session_id,
+                    provider=provider,
+                    symbol=symbol,
+                    event_type="guard_checked",
+                    severity="warning" if safe_output.get("degraded") else "info",
+                    title="Guard checked",
+                    message=str(safe_output.get("guard_reason") or "runtime guard checked"),
+                    source="provider_guard_report",
+                    metadata={
+                        "guard_ready": bool(safe_output.get("guard_ready", False)),
+                        "degraded": bool(safe_output.get("degraded", False)),
+                        "cooldown_blocked": bool(safe_output.get("cooldown_blocked", False)),
+                    },
+                ),
+                build_runtime_event(
+                    session_id=session_id,
+                    provider=provider,
+                    symbol=symbol,
+                    event_type="quality_scored",
+                    severity="warning"
+                    if float(safe_output.get("response_quality_score") or 0.0) < 0.4
+                    else "info",
+                    title="Quality scored",
+                    message=f"quality={float(safe_output.get('response_quality_score') or 0.0):.2f}",
+                    source="ai_response_quality_score",
+                    metadata={
+                        "quality_ready": bool(safe_output.get("response_quality_ready", False)),
+                        "quality_score": float(safe_output.get("response_quality_score") or 0.0),
+                    },
+                ),
+                build_runtime_event(
+                    session_id=session_id,
+                    provider=provider,
+                    symbol=symbol,
+                    event_type="observation_recorded",
+                    severity="info" if safe_output.get("observation_ready") else "warning",
+                    title="Observation recorded",
+                    message=str(safe_output.get("observation_summary_line") or "observation unavailable"),
+                    source="ai_observation_pipeline",
+                    metadata={
+                        "observation_ready": bool(safe_output.get("observation_ready", False)),
+                        "health_label": str(safe_output.get("observation_health_label") or ""),
+                    },
+                ),
+                build_runtime_event(
+                    session_id=session_id,
+                    provider=provider,
+                    symbol=symbol,
+                    event_type="session_reported",
+                    severity="info" if safe_output.get("session_ready") else "warning",
+                    title="Session reported",
+                    message=str(safe_output.get("session_diagnosis") or "session unavailable"),
+                    source="ai_session_report",
+                    metadata={
+                        "session_ready": bool(safe_output.get("session_ready", False)),
+                        "session_status": str(safe_output.get("session_status") or ""),
+                    },
+                ),
+            ]
+            if bool(safe_output.get("safety_blocked")):
+                events.append(
+                    build_runtime_event(
+                        session_id=session_id,
+                        provider=provider,
+                        symbol=symbol,
+                        event_type="safety_blocked",
+                        severity="critical",
+                        title="Safety blocked",
+                        message="one-shot remained blocked by runtime safety",
+                        source="live_provider_one_shot_harness",
+                    )
+                )
+            observation_report = safe_output.get("observation_report")
+            if isinstance(observation_report, dict):
+                if bool(observation_report.get("anomaly_detected", False)):
+                    events.append(
+                        build_runtime_event(
+                            session_id=session_id,
+                            provider=provider,
+                            symbol=symbol,
+                            event_type="anomaly_detected",
+                            severity="warning",
+                            title="Anomaly detected",
+                            message="observation anomaly detected",
+                            source="ai_observation_report",
+                        )
+                    )
+                if bool(observation_report.get("confidence_drift", False)) or bool(
+                    observation_report.get("scenario_drift", False)
+                ):
+                    events.append(
+                        build_runtime_event(
+                            session_id=session_id,
+                            provider=provider,
+                            symbol=symbol,
+                            event_type="drift_detected",
+                            severity="warning",
+                            title="Drift detected",
+                            message="runtime observation drift detected",
+                            source="ai_observation_report",
+                            metadata={
+                                "confidence_drift": bool(
+                                    observation_report.get("confidence_drift", False)
+                                ),
+                                "scenario_drift": bool(
+                                    observation_report.get("scenario_drift", False)
+                                ),
+                            },
+                        )
+                    )
+            events.append(
+                build_runtime_event(
+                    session_id=session_id,
+                    provider=provider,
+                    symbol=symbol,
+                    event_type="one_shot_completed",
+                    severity="error" if safe_output.get("error_type") else "info",
+                    title="One-shot completed",
+                    message=str(safe_output.get("status_line") or "one-shot completed"),
+                    source="live_provider_one_shot_harness",
+                    metadata={
+                        "report_ready": bool(safe_output.get("report_ready", False)),
+                        "runtime_ui_ready": bool(safe_output.get("runtime_ui_ready", False)),
+                    },
+                )
+            )
+            for event in events:
+                stream.append(event)
+            event_list = stream.list_events()
+            timeline = AIRuntimeTimelineBuilder().build_timeline(event_list)
+            formatter = AIRuntimeEventFormatter()
+            feed = [formatter.format_timeline_item(item) for item in timeline]
+            summary = AIRuntimeEventSummaryBuilder().build_report(event_list)
+            safe_output.update(
+                {
+                    "runtime_events_ready": True,
+                    "runtime_events": [asdict(event) for event in event_list],
+                    "runtime_timeline": [asdict(item) for item in timeline],
+                    "runtime_event_summary": asdict(summary),
+                    "runtime_event_feed": feed,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "runtime_events_ready": False,
+                    "runtime_events": [],
+                    "runtime_timeline": [],
+                    "runtime_event_summary": {},
+                    "runtime_event_feed": [],
+                    "runtime_event_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
+
+    def _symbol_from_result(self, output: dict) -> str:
+        shadow = output.get("shadow_record") if isinstance(output.get("shadow_record"), dict) else {}
+        return str(
+            shadow.get("symbol")
+            or shadow.get("market")
+            or output.get("symbol")
+            or "KRW-BTC"
+        ).strip() or "KRW-BTC"
+
+    def _attach_runtime_incidents(self, output: dict) -> dict:
+        safe_output = dict(output or {})
+        try:
+            from app.services.ai_runtime_alert_builder import AIRuntimeAlertBuilder
+            from app.services.ai_runtime_incident_escalation import (
+                AIRuntimeIncidentEscalation,
+            )
+            from app.services.ai_runtime_incident_report import (
+                AIRuntimeIncidentReportBuilder,
+            )
+            from app.services.ai_runtime_incident_store import AIRuntimeIncidentStore
+
+            incidents = AIRuntimeAlertBuilder().build_alerts(
+                safe_output,
+                observation_report=safe_output.get("observation_report"),
+                diagnostics=safe_output.get("session_report"),
+                guard_report=safe_output.get("guard_report"),
+            )
+            store = AIRuntimeIncidentStore()
+            for incident in incidents:
+                store.append(incident)
+            stored = store.list_incidents()
+            report = AIRuntimeIncidentReportBuilder().build_report(stored)
+            escalation = AIRuntimeIncidentEscalation().evaluate(stored)
+            alert_feed = [
+                {
+                    "label": incident.title,
+                    "message": incident.description,
+                    "severity": incident.severity,
+                    "incident_type": incident.incident_type,
+                    "active": bool(incident.active),
+                    "metadata": dict(incident.metadata or {}),
+                }
+                for incident in stored
+            ]
+            safe_output.update(
+                {
+                    "runtime_incidents_ready": True,
+                    "runtime_incidents": [asdict(incident) for incident in stored],
+                    "runtime_incident_report": asdict(report),
+                    "runtime_escalation": asdict(escalation),
+                    "runtime_alert_feed": alert_feed,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "runtime_incidents_ready": False,
+                    "runtime_incidents": [],
+                    "runtime_incident_report": {},
+                    "runtime_escalation": {},
+                    "runtime_alert_feed": [],
+                    "runtime_incident_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
+
+    def _attach_runtime_snapshot(self, output: dict) -> dict:
+        safe_output = dict(output or {})
+        try:
+            from app.services.ai_runtime_export_payload import (
+                AIRuntimeExportPayloadBuilder,
+            )
+            from app.services.ai_runtime_snapshot_builder import AIRuntimeSnapshotBuilder
+            from app.services.ai_runtime_snapshot_formatter import (
+                AIRuntimeSnapshotFormatter,
+            )
+
+            snapshot = AIRuntimeSnapshotBuilder().build_snapshot(
+                safe_output,
+                symbol=self._symbol_from_result(safe_output),
+            )
+            export_payload = AIRuntimeExportPayloadBuilder().build_payload(
+                snapshot,
+                format="json",
+            )
+            formatted = AIRuntimeSnapshotFormatter().format_snapshot(snapshot)
+            safe_output.update(
+                {
+                    "runtime_snapshot_ready": True,
+                    "runtime_snapshot": asdict(snapshot),
+                    "runtime_export_payload": asdict(export_payload),
+                    "runtime_snapshot_formatted": formatted,
+                    "runtime_export_safe": bool(export_payload.safe_to_persist),
+                    "runtime_export_redacted": bool(export_payload.redacted),
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "runtime_snapshot_ready": False,
+                    "runtime_snapshot": {},
+                    "runtime_export_payload": {},
+                    "runtime_snapshot_formatted": {},
+                    "runtime_export_safe": False,
+                    "runtime_export_redacted": True,
+                    "runtime_snapshot_error": type(exc).__name__,
                     "submitted": 0,
                     "real_order": False,
                     "applied": False,
