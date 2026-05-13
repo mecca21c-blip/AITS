@@ -73,6 +73,16 @@ class AIRuntimeCapabilityRegistry:
                 metadata=_metadata(),
             )
         if normalized == "ollama":
+            metadata = _metadata()
+            metadata.update(
+                {
+                    "local_runtime_inventory_supported": True,
+                    "model_inventory_command": "ollama list",
+                    "inference_called": False,
+                    "capability_executes_inference": False,
+                    "live_one_shot_limited": True,
+                }
+            )
             return AIRuntimeCapabilityProfile(
                 provider=normalized,
                 model=model_name,
@@ -85,7 +95,7 @@ class AIRuntimeCapabilityRegistry:
                 supports_snapshot_export=True,
                 supports_local_runtime=True,
                 supports_vision=False,
-                metadata=_metadata(),
+                metadata=metadata,
             )
         return AIRuntimeCapabilityProfile(
             provider=normalized or "unknown",

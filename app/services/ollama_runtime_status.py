@@ -33,6 +33,12 @@ class OllamaRuntimeStatus:
     model_dir_ready: bool
     inference_ready: bool
     process_health: dict
+    model_inventory: dict
+    model_selection: dict
+    model_count: int
+    selected_model: str
+    selected_model_ready: bool
+    inventory_check_ok: bool
     runtime_ready: bool
     dry_run_supported: bool
     live_supported: bool
@@ -53,23 +59,32 @@ class OllamaRuntimeStatusProbe:
             model=model or "qwen2.5:7b-instruct-q4"
         )
         from app.services.ollama_process_health import OllamaProcessHealthChecker
+        from app.services.ollama_model_inventory import OllamaModelInventory
+        from app.services.ollama_model_selector import OllamaModelSelector
 
         process_health = OllamaProcessHealthChecker().check(timeout_sec=3)
+        model_inventory = OllamaModelInventory().list_models(timeout_sec=5)
+        model_selection = OllamaModelSelector().select(model_inventory)
         executable_path = process_health.executable_path
         executable_found = bool(process_health.executable_exists)
         model_configured = bool(str(cfg.model or "").strip())
         executable_ready = bool(process_health.available)
         model_dir_ready = bool(process_health.model_dir_exists)
-        inference_ready = False
+        selected_model_ready = bool(model_selection.selected)
+        inference_ready = bool(executable_ready and selected_model_ready)
         runtime_ready = bool(executable_ready)
         status = "dry-run-only"
-        if executable_ready and model_configured:
+        if executable_ready and selected_model_ready:
             status = "available"
+        elif executable_ready and not selected_model_ready:
+            status = "model-missing"
         elif not model_configured:
             status = "unavailable"
         elif executable_found and not executable_ready:
             status = "degraded"
         reason = "local_runtime_detected" if executable_ready else process_health.reason
+        if executable_ready and not selected_model_ready:
+            reason = "model_missing"
         if not model_configured:
             reason = "missing_model"
         metadata = _metadata()
@@ -82,8 +97,13 @@ class OllamaRuntimeStatusProbe:
                 "ollama_model_dir_ready": model_dir_ready,
                 "ollama_inference_ready": inference_ready,
                 "ollama_service_checked": bool(process_health.version_check_ok),
-                "model_list_checked": False,
+                "model_list_checked": bool(model_inventory.inventory_check_ok),
                 "process_health": asdict(process_health),
+                "model_inventory": asdict(model_inventory),
+                "model_selection": asdict(model_selection),
+                "model_count": int(model_inventory.model_count),
+                "selected_model": model_selection.selected_model,
+                "selected_model_ready": selected_model_ready,
                 "dry_run_only": True,
             }
         )
@@ -98,6 +118,12 @@ class OllamaRuntimeStatusProbe:
             model_dir_ready=model_dir_ready,
             inference_ready=inference_ready,
             process_health=asdict(process_health),
+            model_inventory=asdict(model_inventory),
+            model_selection=asdict(model_selection),
+            model_count=int(model_inventory.model_count),
+            selected_model=model_selection.selected_model,
+            selected_model_ready=selected_model_ready,
+            inventory_check_ok=bool(model_inventory.inventory_check_ok),
             runtime_ready=runtime_ready,
             dry_run_supported=True,
             live_supported=False,

@@ -60,6 +60,7 @@ class LiveProviderOneShotHarness:
         provider: str,
         context_dict: dict | None = None,
         allow_live: bool = False,
+        explicit_local_inference: bool = False,
     ) -> dict:
         provider_name = self._runtime_validator.normalize_provider(provider)
         session_store = None
@@ -110,6 +111,7 @@ class LiveProviderOneShotHarness:
             output = self._attach_runtime_incidents(output)
             output = self._attach_runtime_snapshot(output)
             output = self._attach_runtime_capability(output)
+            output = self._attach_local_inference_gate(output, explicit_local_inference)
             self._log_result(output)
             return output
         try:
@@ -119,17 +121,23 @@ class LiveProviderOneShotHarness:
                 else build_sample_context_pack().to_compact_dict()
             )
             dry_run = not live_allowed
-            result = AIProviderRouter(
-                openai_api_key=self.openai_api_key,
-                gemini_api_key=self.gemini_api_key,
-                openai_model=self.openai_model,
-                gemini_model=self.gemini_model,
-                ollama_model=self.ollama_model,
-            ).run_shadow_cycle(
-                provider_name,
-                context,
-                dry_run=dry_run,
-            )
+            if provider_name == "ollama" and bool(allow_live):
+                result = self._run_ollama_local_path(
+                    context,
+                    explicit_local_inference=bool(explicit_local_inference),
+                )
+            else:
+                result = AIProviderRouter(
+                    openai_api_key=self.openai_api_key,
+                    gemini_api_key=self.gemini_api_key,
+                    openai_model=self.openai_model,
+                    gemini_model=self.gemini_model,
+                    ollama_model=self.ollama_model,
+                ).run_shadow_cycle(
+                    provider_name,
+                    context,
+                    dry_run=dry_run,
+                )
 
             shadow_record = result.get("shadow_record") if isinstance(result, dict) else {}
             if not isinstance(shadow_record, dict):
@@ -202,6 +210,7 @@ class LiveProviderOneShotHarness:
             output = self._attach_runtime_incidents(output)
             output = self._attach_runtime_snapshot(output)
             output = self._attach_runtime_capability(output)
+            output = self._attach_local_inference_gate(output, explicit_local_inference, result)
             self._health_monitor.record_success(provider_name)
             self._log_result(output)
             return output
@@ -229,6 +238,7 @@ class LiveProviderOneShotHarness:
             output = self._attach_runtime_incidents(output)
             output = self._attach_runtime_snapshot(output)
             output = self._attach_runtime_capability(output)
+            output = self._attach_local_inference_gate(output, explicit_local_inference)
             self._log_result(output)
             return output
 
@@ -265,6 +275,99 @@ class LiveProviderOneShotHarness:
             "guard_report": guard_report,
             "cooldown_blocked": bool(guard_report.cooldown_blocked),
         }
+
+    def _run_ollama_local_path(
+        self,
+        context: dict,
+        explicit_local_inference: bool,
+    ) -> dict:
+        try:
+            from app.services.ai_prompt_builder import AIPromptBuilder
+            from app.services.ollama_runtime_config import OllamaRuntimeConfigBuilder
+            from app.services.ollama_runtime_provider import OllamaRuntimeProvider
+
+            config = OllamaRuntimeConfigBuilder().build_default_config(
+                model=self.ollama_model
+            )
+            prompt = AIPromptBuilder().build_full_prompt(dict(context or {}))
+            return OllamaRuntimeProvider(config).generate_local_one_shot(
+                prompt,
+                explicit_enable=bool(explicit_local_inference),
+                timeout_sec=30,
+            )
+        except Exception as exc:
+            return {
+                "provider": "ollama",
+                "model": self.ollama_model,
+                "parsed_valid": False,
+                "shadow_record_ready": False,
+                "suggestion": "skip",
+                "next_action": "wait",
+                "applied": False,
+                "applied_to_action": False,
+                "submitted": 0,
+                "real_order": False,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "one_shot": True,
+                "actual_inference_called": False,
+                "actual_local_inference_called": False,
+                "local_inference_allowed": False,
+                "error_type": type(exc).__name__,
+            }
+
+    def _attach_local_inference_gate(
+        self,
+        output: dict,
+        explicit_local_inference: bool,
+        result: dict | None = None,
+    ) -> dict:
+        safe_output = dict(output or {})
+        if str(safe_output.get("provider") or "").strip().lower() != "ollama":
+            safe_output.update(
+                {
+                    "local_inference_gate": {},
+                    "local_inference_allowed": False,
+                    "actual_local_inference_called": False,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+            return safe_output
+        result_dict = dict(result or {})
+        gate = result_dict.get("local_inference_gate")
+        if not isinstance(gate, dict):
+            try:
+                from app.services.ollama_local_inference_gate import OllamaLocalInferenceGate
+
+                gate_obj = OllamaLocalInferenceGate().evaluate(
+                    explicit_enable=bool(explicit_local_inference),
+                    timeout_sec=30,
+                )
+                gate = asdict(gate_obj)
+            except Exception as exc:
+                gate = {
+                    "allowed": False,
+                    "reason": type(exc).__name__,
+                    "metadata": {"submitted": 0, "real_order": False},
+                }
+        safe_output.update(
+            {
+                "local_inference_gate": gate,
+                "local_inference_allowed": bool(result_dict.get("local_inference_allowed") or gate.get("allowed")),
+                "actual_local_inference_called": bool(
+                    result_dict.get("actual_local_inference_called")
+                    or result_dict.get("actual_inference_called")
+                ),
+                "submitted": 0,
+                "real_order": False,
+                "applied": False,
+                "applied_to_action": False,
+            }
+        )
+        return safe_output
 
     def _model_for_provider(self, provider_name: str) -> str:
         normalized = str(provider_name or "").strip().lower()

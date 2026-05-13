@@ -105,7 +105,7 @@ class ProviderRuntimeValidator:
                 model=self.ollama_model
             )
             local_status = OllamaRuntimeStatusProbe().check_status(config)
-            model_ready = bool(local_status.model_configured)
+            model_ready = bool(local_status.selected_model_ready)
             metadata = dict(local_status.metadata or {})
             metadata.update(
                 {
@@ -119,6 +119,10 @@ class ProviderRuntimeValidator:
                     "ollama_executable_ready": local_status.executable_ready,
                     "ollama_model_dir_ready": local_status.model_dir_ready,
                     "ollama_inference_ready": local_status.inference_ready,
+                    "ollama_inventory_check_ok": local_status.inventory_check_ok,
+                    "ollama_model_count": local_status.model_count,
+                    "ollama_selected_model": local_status.selected_model,
+                    "ollama_selected_model_ready": local_status.selected_model_ready,
                     "ollama_reachable_checked": False,
                 }
             )

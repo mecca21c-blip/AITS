@@ -24,12 +24,29 @@ class OllamaProviderBridge:
         self,
         context_dict: dict,
         dry_run: bool = True,
+        explicit_enable: bool = False,
+        prompt_profile: str = "compact",
+        timeout_sec: int | None = None,
     ) -> dict:
         try:
             context = dict(context_dict or {})
-            AIPromptBuilder().build_full_prompt(context)
+            prompt = AIPromptBuilder().build_full_prompt(context)
             if not dry_run:
-                return self._not_implemented_result(dry_run=False)
+                from app.services.ollama_runtime_config import OllamaRuntimeConfigBuilder
+                from app.services.ollama_runtime_provider import OllamaRuntimeProvider
+                from app.services.ollama_structured_prompt import OllamaStructuredPromptBuilder
+
+                config = OllamaRuntimeConfigBuilder().build_default_config(
+                    model=self.model,
+                    base_url=self.base_url,
+                    timeout_sec=self.timeout,
+                )
+                return OllamaRuntimeProvider(config).generate_local_one_shot(
+                    OllamaStructuredPromptBuilder().build_prompt(context, profile=prompt_profile),
+                    explicit_enable=bool(explicit_enable),
+                    timeout_sec=int(timeout_sec or self.timeout or 60),
+                    prompt_profile=prompt_profile,
+                )
 
             raw_text = self._build_mock_response()
             parsed = AIResponseParser().parse_json_response(
