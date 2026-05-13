@@ -5,6 +5,9 @@ import time
 from dataclasses import asdict
 
 from app.services.ai_response_parser import AIResponseParser
+from app.services.ollama_generate_options import OllamaGenerateOptionsBuilder
+from app.services.ollama_http_client import OllamaHttpClient
+from app.services.ollama_http_inference_gate import OllamaHttpInferenceGate
 from app.services.ollama_inference_timing import OllamaInferenceTimingResult
 from app.services.ollama_local_inference_gate import OllamaLocalInferenceGate
 from app.services.ollama_provider_bridge import OllamaProviderBridge
@@ -69,16 +72,31 @@ class OllamaRuntimeProvider:
         explicit_enable: bool = False,
         timeout_sec: int = 60,
         prompt_profile: str = "compact",
+        transport: str = "http",
+        option_profile: str = "speed",
     ) -> dict:
+        profile_name = str(prompt_profile or "compact")
+        transport_name = str(transport or "http").lower()
+        if transport_name == "http":
+            return self._generate_http_local_one_shot(
+                prompt=prompt,
+                explicit_enable=bool(explicit_enable),
+                timeout_sec=int(timeout_sec or 60),
+                prompt_profile=profile_name,
+                option_profile=str(option_profile or "speed"),
+            )
+
         gate = OllamaLocalInferenceGate().evaluate(
             explicit_enable=bool(explicit_enable),
             timeout_sec=int(timeout_sec or 60),
         )
-        profile_name = str(prompt_profile or "compact")
         base = {
             "provider": "ollama",
             "engine": "basic",
             "model": gate.model or self.config.model,
+            "transport": "cli",
+            "http_ready": False,
+            "http_status_code": 0,
             "explicit_enable": bool(explicit_enable),
             "local_inference_gate": asdict(gate),
             "local_inference_allowed": bool(gate.allowed),
@@ -211,6 +229,166 @@ class OllamaRuntimeProvider:
             )
             base["error_type"] = type(exc).__name__
             return base
+
+    def _generate_http_local_one_shot(
+        self,
+        prompt: str,
+        explicit_enable: bool,
+        timeout_sec: int,
+        prompt_profile: str,
+        option_profile: str,
+    ) -> dict:
+        timeout = int(timeout_sec) if timeout_sec is not None else 60
+        generate_options = OllamaGenerateOptionsBuilder().build(option_profile)
+        options_dict = {
+            "num_predict": int(generate_options.num_predict),
+            "temperature": float(generate_options.temperature),
+            "top_p": float(generate_options.top_p),
+            "repeat_penalty": float(generate_options.repeat_penalty),
+            "stop": list(generate_options.stop or []),
+        }
+        gate = OllamaHttpInferenceGate().evaluate(
+            explicit_enable=bool(explicit_enable),
+            timeout_sec=timeout,
+        )
+        model = str(gate.model or self.config.model)
+        base = {
+            "provider": "ollama",
+            "engine": "basic",
+            "model": model,
+            "transport": "http",
+            "http_ready": bool(gate.http_ready),
+            "http_status_code": 0,
+            "explicit_enable": bool(explicit_enable),
+            "local_inference_gate": asdict(gate),
+            "local_inference_allowed": bool(gate.allowed),
+            "actual_inference_called": False,
+            "actual_local_inference_called": False,
+            "parsed_valid": False,
+            "ollama_schema_valid": False,
+            "ollama_quality_score": 0.0,
+            "ollama_recovery_used": False,
+            "ollama_quality_warnings": [],
+            "shadow_record_ready": False,
+            "suggestion": "skip",
+            "next_action": "wait",
+            "applied": False,
+            "applied_to_action": False,
+            "submitted": 0,
+            "real_order": False,
+            "shadow_only": True,
+            "suggestion_only": True,
+            "one_shot": True,
+            "research_mode": True,
+            "prompt_profile": str(prompt_profile or "compact"),
+            "option_profile": generate_options.profile,
+            "num_predict": int(generate_options.num_predict),
+            "generate_options": {
+                "num_predict": int(generate_options.num_predict),
+                "temperature": float(generate_options.temperature),
+                "top_p": float(generate_options.top_p),
+                "repeat_penalty": float(generate_options.repeat_penalty),
+                "stop": list(generate_options.stop or []),
+            },
+            "response_chars": 0,
+            "elapsed_sec": 0.0,
+            "timed_out": False,
+            "timing": asdict(
+                self._timing(
+                    model,
+                    prompt_profile,
+                    timeout,
+                    0.0,
+                    False,
+                    False,
+                    False,
+                )
+            ),
+        }
+        if not gate.allowed:
+            base["error_type"] = gate.reason
+            return base
+
+        final_prompt = self._build_structured_prompt(prompt, prompt_profile)
+        result = OllamaHttpClient().generate(
+            model=model,
+            prompt=final_prompt,
+            timeout_sec=timeout,
+            options=options_dict,
+            option_profile=generate_options.profile,
+        )
+        raw_response = str((result.data or {}).get("response") or "")
+        timed_out = result.error_type == "timeout"
+        base.update(
+            {
+                "actual_inference_called": True,
+                "actual_local_inference_called": True,
+                "elapsed_sec": float(result.elapsed_sec or 0.0),
+                "timed_out": bool(timed_out),
+                "http_status_code": int(result.status_code or 0),
+                "response_chars": len(raw_response),
+            }
+        )
+        if not result.ok:
+            base.update(
+                {
+                    "error_type": result.error_type or result.reason,
+                    "timing": asdict(
+                        self._timing(
+                            model,
+                            prompt_profile,
+                            timeout,
+                            result.elapsed_sec,
+                            timed_out,
+                            False,
+                            False,
+                        )
+                    ),
+                }
+            )
+            return base
+
+        quality = OllamaResponseQualityChecker().check(raw_response, provider="ollama")
+        parsed = AIResponseParser().parse_json_response(raw_response, provider="ollama")
+        shadow_record = parsed.to_shadow_record()
+        shadow_record.update(
+            {
+                "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "real_order": False,
+                "submitted": 0,
+                "research_mode": True,
+            }
+        )
+        base.update(
+            {
+                "parsed_valid": bool(parsed.valid),
+                "ollama_schema_valid": bool(quality.schema_valid),
+                "ollama_quality_score": float(quality.quality_score),
+                "ollama_recovery_used": bool(quality.recovery_used),
+                "ollama_quality_warnings": list(quality.warnings or []),
+                "response_quality": asdict(quality),
+                "shadow_record": shadow_record,
+                "shadow_record_ready": bool(shadow_record),
+                "suggestion": str(parsed.suggestion or "skip"),
+                "next_action": str(parsed.next_action or "wait"),
+                "error_type": None if parsed.valid else (parsed.error or "parse_failed"),
+                "timing": asdict(
+                    self._timing(
+                        model,
+                        prompt_profile,
+                            timeout,
+                        result.elapsed_sec,
+                        False,
+                        True,
+                        bool(parsed.valid),
+                    )
+                ),
+            }
+        )
+        return base
 
     def _build_structured_prompt(self, prompt: str, prompt_profile: str = "compact") -> str:
         raw = str(prompt or "").strip()

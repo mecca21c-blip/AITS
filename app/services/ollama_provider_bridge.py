@@ -25,8 +25,10 @@ class OllamaProviderBridge:
         context_dict: dict,
         dry_run: bool = True,
         explicit_enable: bool = False,
-        prompt_profile: str = "compact",
+        prompt_profile: str = "speed_test",
         timeout_sec: int | None = None,
+        transport: str = "http",
+        option_profile: str = "speed",
     ) -> dict:
         try:
             context = dict(context_dict or {})
@@ -44,8 +46,10 @@ class OllamaProviderBridge:
                 return OllamaRuntimeProvider(config).generate_local_one_shot(
                     OllamaStructuredPromptBuilder().build_prompt(context, profile=prompt_profile),
                     explicit_enable=bool(explicit_enable),
-                    timeout_sec=int(timeout_sec or self.timeout or 60),
+                    timeout_sec=int(timeout_sec or 30),
                     prompt_profile=prompt_profile,
+                    transport=transport,
+                    option_profile=option_profile,
                 )
 
             raw_text = self._build_mock_response()
