@@ -37,6 +37,17 @@ class OllamaProviderBridge:
                 provider=self.provider,
             )
             shadow_record = parsed.to_shadow_record()
+            shadow_record.update(
+                {
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "applied": False,
+                    "applied_to_action": False,
+                    "real_order": False,
+                    "submitted": 0,
+                    "research_mode": True,
+                }
+            )
             shadow_record_ready = (
                 "raw_text" not in shadow_record
                 and shadow_record.get("applied") is False
@@ -47,11 +58,17 @@ class OllamaProviderBridge:
                 "model": self.model,
                 "dry_run": True,
                 "parsed_valid": parsed.valid,
+                "shadow_record": shadow_record,
                 "shadow_record_ready": shadow_record_ready,
                 "suggestion": parsed.suggestion,
                 "next_action": parsed.next_action,
                 "applied": False,
                 "applied_to_action": False,
+                "real_order": False,
+                "submitted": 0,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "research_mode": True,
                 "error_type": None,
             }
             self._log_done(
@@ -71,6 +88,11 @@ class OllamaProviderBridge:
                 "next_action": "wait",
                 "applied": False,
                 "applied_to_action": False,
+                "real_order": False,
+                "submitted": 0,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "research_mode": True,
                 "error_type": type(exc).__name__,
             }
             self._log_done(
@@ -91,6 +113,11 @@ class OllamaProviderBridge:
             "next_action": "wait",
             "applied": False,
             "applied_to_action": False,
+            "real_order": False,
+            "submitted": 0,
+            "shadow_only": True,
+            "suggestion_only": True,
+            "research_mode": True,
             "error_type": "not_implemented",
         }
         self._log_done(

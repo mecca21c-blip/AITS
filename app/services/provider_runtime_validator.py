@@ -24,6 +24,7 @@ class ProviderRuntimeValidator:
         "gpt": "openai",
         "openai": "openai",
         "gemini": "gemini",
+        "basic": "ollama",
         "ollama": "ollama",
         "local": "ollama",
         "local_ai": "ollama",
@@ -97,22 +98,40 @@ class ProviderRuntimeValidator:
             )
 
         if normalized == "ollama":
-            model_ready = bool(self.ollama_model)
+            from app.services.ollama_runtime_config import OllamaRuntimeConfigBuilder
+            from app.services.ollama_runtime_status import OllamaRuntimeStatusProbe
+
+            config = OllamaRuntimeConfigBuilder().build_default_config(
+                model=self.ollama_model
+            )
+            local_status = OllamaRuntimeStatusProbe().check_status(config)
+            model_ready = bool(local_status.model_configured)
+            metadata = dict(local_status.metadata or {})
+            metadata.update(
+                {
+                    "key_required": False,
+                    "model": self.ollama_model,
+                    "local_runtime": True,
+                    "normalized_provider": "ollama",
+                    "runtime_state": local_status.status,
+                    "ollama_executable_found": local_status.executable_found,
+                    "ollama_executable_path": local_status.executable_path,
+                    "ollama_executable_ready": local_status.executable_ready,
+                    "ollama_model_dir_ready": local_status.model_dir_ready,
+                    "ollama_inference_ready": local_status.inference_ready,
+                    "ollama_reachable_checked": False,
+                }
+            )
             return self._status(
                 provider=normalized,
                 available=True,
                 key_ready=True,
                 model_ready=model_ready,
-                runtime_ready=model_ready,
+                runtime_ready=bool(local_status.runtime_ready),
                 dry_run_supported=True,
-                live_supported=model_ready,
-                reason="ready" if model_ready else "missing_model",
-                metadata={
-                    "key_required": False,
-                    "model": self.ollama_model,
-                    "local_runtime": True,
-                    "ollama_reachable_checked": False,
-                },
+                live_supported=False,
+                reason=local_status.reason,
+                metadata=metadata,
             )
 
         return self._status(
@@ -145,6 +164,10 @@ class ProviderRuntimeValidator:
                 "real_order": False,
                 "submitted": 0,
                 "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "research_mode": True,
                 "one_shot": True,
             }
         )

@@ -109,6 +109,7 @@ class LiveProviderOneShotHarness:
             output = self._attach_runtime_events(output)
             output = self._attach_runtime_incidents(output)
             output = self._attach_runtime_snapshot(output)
+            output = self._attach_runtime_capability(output)
             self._log_result(output)
             return output
         try:
@@ -200,6 +201,7 @@ class LiveProviderOneShotHarness:
             output = self._attach_runtime_events(output)
             output = self._attach_runtime_incidents(output)
             output = self._attach_runtime_snapshot(output)
+            output = self._attach_runtime_capability(output)
             self._health_monitor.record_success(provider_name)
             self._log_result(output)
             return output
@@ -226,6 +228,7 @@ class LiveProviderOneShotHarness:
             output = self._attach_runtime_events(output)
             output = self._attach_runtime_incidents(output)
             output = self._attach_runtime_snapshot(output)
+            output = self._attach_runtime_capability(output)
             self._log_result(output)
             return output
 
@@ -869,6 +872,60 @@ class LiveProviderOneShotHarness:
                     "runtime_export_safe": False,
                     "runtime_export_redacted": True,
                     "runtime_snapshot_error": type(exc).__name__,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        return safe_output
+
+    def _attach_runtime_capability(self, output: dict) -> dict:
+        safe_output = dict(output or {})
+        try:
+            from app.services.ai_runtime_capability_formatter import AIRuntimeCapabilityFormatter
+            from app.services.ai_runtime_capability_registry import AIRuntimeCapabilityRegistry
+            from app.services.ai_runtime_capability_report import AIRuntimeCapabilityReportBuilder
+            from app.services.ai_runtime_compatibility_checker import AIRuntimeCompatibilityChecker
+            from app.services.ai_runtime_feature_matrix import AIRuntimeFeatureMatrixBuilder
+
+            provider = str(safe_output.get("provider") or "unknown")
+            model = str(safe_output.get("model") or self._model_for_provider(provider) or "-")
+            requested_feature = "one_shot_live" if bool(safe_output.get("allow_live")) else "one_shot_dry_run"
+
+            profile = AIRuntimeCapabilityRegistry().get_profile(provider, model)
+            matrix = AIRuntimeFeatureMatrixBuilder().build_matrix(profile)
+            compatibility = AIRuntimeCompatibilityChecker().check(provider, model, requested_feature)
+            report = AIRuntimeCapabilityReportBuilder().build_report(
+                profile=profile,
+                matrix=matrix,
+                compatibility=compatibility,
+            )
+            formatted = AIRuntimeCapabilityFormatter().format_report(report, matrix=matrix)
+            safe_output.update(
+                {
+                    "runtime_capability_ready": True,
+                    "runtime_capability_profile": asdict(profile),
+                    "runtime_feature_matrix": asdict(matrix),
+                    "runtime_compatibility": asdict(compatibility),
+                    "runtime_capability_report": asdict(report),
+                    "runtime_capability_formatted": formatted,
+                    "submitted": 0,
+                    "real_order": False,
+                    "applied": False,
+                    "applied_to_action": False,
+                }
+            )
+        except Exception as exc:
+            safe_output.update(
+                {
+                    "runtime_capability_ready": False,
+                    "runtime_capability_profile": {},
+                    "runtime_feature_matrix": {},
+                    "runtime_compatibility": {},
+                    "runtime_capability_report": {},
+                    "runtime_capability_formatted": {},
+                    "runtime_capability_error": type(exc).__name__,
                     "submitted": 0,
                     "real_order": False,
                     "applied": False,

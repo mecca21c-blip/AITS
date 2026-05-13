@@ -7,6 +7,8 @@ from app.services.ai_provider_mock_bridge import AIProviderMockBridge
 from app.services.gemini_provider_bridge import GeminiProviderBridge
 from app.services.gpt_provider_bridge import GPTProviderBridge
 from app.services.ollama_provider_bridge import OllamaProviderBridge
+from app.services.ollama_runtime_config import OllamaRuntimeConfigBuilder
+from app.services.ollama_runtime_provider import OllamaRuntimeProvider
 
 
 class AIProviderRouter:
@@ -33,8 +35,17 @@ class AIProviderRouter:
         selected_provider = str(provider or "ollama")
         normalized_provider = self._normalize_provider(selected_provider)
         if bool(dry_run):
-            result = AIProviderMockBridge().run_mock_cycle(normalized_provider)
-            result["dry_run"] = True
+            if normalized_provider == "ollama":
+                config = OllamaRuntimeConfigBuilder().build_default_config(
+                    model=self.ollama_model
+                )
+                result = OllamaRuntimeProvider(config).generate_one_shot(
+                    context_dict,
+                    dry_run=True,
+                )
+            else:
+                result = AIProviderMockBridge().run_mock_cycle(normalized_provider)
+                result["dry_run"] = True
         else:
             bridge = self._build_bridge(normalized_provider)
             result = bridge.run_shadow_cycle(
@@ -61,7 +72,7 @@ class AIProviderRouter:
             return "openai"
         if provider_norm == "gemini":
             return "gemini"
-        if provider_norm in ("ollama", "local", "local_ai"):
+        if provider_norm in ("ollama", "local", "local_ai", "basic"):
             return "ollama"
         return "ollama"
 

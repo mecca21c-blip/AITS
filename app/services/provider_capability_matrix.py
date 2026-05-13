@@ -30,7 +30,15 @@ class ProviderCapabilityMatrix:
                 long_context=True,
                 vision=True,
                 research_mode=True,
-                metadata={"real_order": False, "submitted": 0},
+                metadata={
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "applied": False,
+                    "applied_to_action": False,
+                    "real_order": False,
+                    "submitted": 0,
+                    "research_mode": True,
+                },
             ),
             "gemini": ProviderCapability(
                 provider="gemini",
@@ -41,18 +49,36 @@ class ProviderCapabilityMatrix:
                 long_context=True,
                 vision=True,
                 research_mode=True,
-                metadata={"real_order": False, "submitted": 0},
+                metadata={
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "applied": False,
+                    "applied_to_action": False,
+                    "real_order": False,
+                    "submitted": 0,
+                    "research_mode": True,
+                },
             ),
             "ollama": ProviderCapability(
                 provider="ollama",
                 dry_run=True,
-                live_one_shot=True,
+                live_one_shot=False,
                 local_runtime=True,
                 structured_json=True,
                 long_context=False,
                 vision=False,
                 research_mode=True,
-                metadata={"real_order": False, "submitted": 0},
+                metadata={
+                    "real_order": False,
+                    "submitted": 0,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "applied": False,
+                    "applied_to_action": False,
+                    "research_mode": True,
+                    "engine": "basic",
+                    "dry_run_only": True,
+                },
             ),
             "mock": ProviderCapability(
                 provider="mock",
@@ -63,7 +89,15 @@ class ProviderCapabilityMatrix:
                 long_context=False,
                 vision=False,
                 research_mode=True,
-                metadata={"real_order": False, "submitted": 0},
+                metadata={
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "applied": False,
+                    "applied_to_action": False,
+                    "real_order": False,
+                    "submitted": 0,
+                    "research_mode": True,
+                },
             ),
         }
 
@@ -71,7 +105,7 @@ class ProviderCapabilityMatrix:
         normalized = str(provider or "").strip().lower()
         if normalized == "gpt":
             normalized = "openai"
-        elif normalized in {"local", "local_ai"}:
+        elif normalized in {"local", "local_ai", "basic"}:
             normalized = "ollama"
         return self._capabilities.get(normalized)
 

@@ -24932,7 +24932,7 @@ class MainWindow(QMainWindow):
             "gemini", "Gemini API", "유료 클라우드 고급 판단 엔진"
         )
         self.btn_engine_local = _make_engine_choice_button(
-            "local", "Local Engine", "무료 내장 기본 엔진"
+            "local", "BASIC(Local)", "반복 판단 및 저비용 추론을 수행합니다."
         )
 
         self.engine_choice_group = QButtonGroup(self)
@@ -24997,14 +24997,14 @@ class MainWindow(QMainWindow):
         _gemini_settings_lay.addWidget(self.btn_engine_gemini_test)
         _gemini_settings_lay.addWidget(self.lbl_gemini_key_status)
 
-        _local_status = QLabel("API Key 없이 사용 가능")
+        _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
         _local_desc = QLabel(
-            "Local Engine은 무료 내장 기본 엔진이며 반복 분석과 기본 자동매매 판단을 담당합니다."
+            "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
         )
         _local_desc.setWordWrap(True)
         self.btn_engine_local_detail = QPushButton("Local 세부설정")
-        self.btn_engine_local_ready = QPushButton("Local 활성화 확인")
+        self.btn_engine_local_ready = QPushButton("Runtime 상태 확인")
         for _local_btn in (self.btn_engine_local_detail, self.btn_engine_local_ready):
             _local_btn.setMinimumHeight(32)
             _local_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -25048,7 +25048,7 @@ class MainWindow(QMainWindow):
                 button_texts = {
                     "openai": "OpenAI API\n유료 클라우드 고급 판단 엔진",
                     "gemini": "Gemini API\n유료 클라우드 고급 판단 엔진",
-                    "local": "Local Engine\n무료 내장 기본 엔진",
+                    "local": "BASIC(Local)\n반복 판단 및 저비용 추론을 수행합니다.",
                 }
                 for _key, _button in selected.items():
                     _button.blockSignals(True)
@@ -25078,7 +25078,8 @@ class MainWindow(QMainWindow):
         self.btn_engine_local_ready.clicked.connect(
             lambda: (
                 _sync_engine_choice_panel("local"),
-                _append_engine_choice_log("[AITS] Local Engine ready. No API key required."),
+                self._on_basic_runtime_ready_check(),
+                _append_engine_choice_log("[AITS] BASIC(Local) runtime status checked."),
             )
         )
         self.cb_ai_provider.currentTextChanged.connect(_sync_engine_choice_panel)
@@ -26509,6 +26510,74 @@ class MainWindow(QMainWindow):
             self._update_engine_status_box()
         except Exception:
             pass
+
+    def _on_basic_runtime_ready_check(self):
+        """BASIC(Local) runtime status check without inference, file writes, or orders."""
+        try:
+            from app.services.ollama_runtime_config import OllamaRuntimeConfigBuilder
+            from app.services.ollama_runtime_status import OllamaRuntimeStatusProbe
+
+            base_url = "http://127.0.0.1:11434"
+            model = "qwen2.5:7b-instruct-q4"
+            try:
+                if hasattr(self, "inp_local_url") and self.inp_local_url is not None:
+                    base_url = (self.inp_local_url.text() or base_url).strip() or base_url
+            except Exception:
+                pass
+            try:
+                if hasattr(self, "cmb_local_model") and self.cmb_local_model is not None:
+                    model = (self.cmb_local_model.currentText() or model).strip() or model
+            except Exception:
+                pass
+            config = OllamaRuntimeConfigBuilder().build_default_config(
+                model=model,
+                base_url=base_url,
+            )
+            status = OllamaRuntimeStatusProbe().check_status(config)
+            self._selected_ai_provider = "basic"
+            self._selected_ai_model = status.model
+            self._applied_ai_provider = "basic"
+            self._applied_ai_model = status.model
+            self._active_ai_engine = "basic"
+            self._last_response_provider = "basic"
+            self._ai_connection_status = "정상" if status.runtime_ready else "확인 필요"
+            self._ai_engine_last_checked_text = "방금 전"
+            try:
+                if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                    self.lbl_aits_ai_engine_status.setText(
+                        f"AITS AI 상태: BASIC(Local) {status.status} · submitted=0"
+                    )
+                    self._apply_aits_ai_engine_status_line_style(
+                        self.lbl_aits_ai_engine_status.text()
+                    )
+            except Exception:
+                pass
+            try:
+                self._set_ai_engine_card_test_status(
+                    "basic",
+                    "BASIC(Local)",
+                    self._ai_connection_status,
+                    status.model,
+                )
+            except Exception:
+                self._render_ai_engine_state()
+            try:
+                self._log.info(
+                    "[BASIC-RUNTIME] status=%s model=%s executable=%s submitted=0",
+                    status.status,
+                    status.model,
+                    status.executable_found,
+                )
+            except Exception:
+                pass
+            return status
+        except Exception as exc:
+            try:
+                self._set_ai_engine_card_test_status("basic", "BASIC(Local)", "확인 필요")
+                self._log.warning("[BASIC-RUNTIME] status_check_failed err=%s", str(exc)[:80])
+            except Exception:
+                pass
+            return None
 
     def _on_test_local_ai(self):
         """provider=local일 때 로컬 AI(Ollama) 연결 테스트. tags → generate 순서."""
