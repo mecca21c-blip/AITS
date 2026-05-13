@@ -10292,6 +10292,237 @@ class MainWindow(QMainWindow):
             self._mark_ai_selection_changed(provider)
         except Exception as e:
             self._log.warning("[UI-AI-STATUS] ERROR: %s", str(e)[:80])
+        if local_en:
+            try:
+                self._sync_basic_runtime_status_card()
+            except Exception as e:
+                try:
+                    print(f"[AITS][UIRuntime] basic_runtime_status_sync_failed | error={e}")
+                except Exception:
+                    pass
+
+    def _build_basic_runtime_ui_status(self):
+        """Build display-only BASIC(Local) runtime status without inference."""
+        status = {
+            "provider": "basic",
+            "runtime": "ollama",
+            "runtime_ready": False,
+            "model_ready": False,
+            "inference_ready": False,
+            "selected_model": "mistral:latest",
+            "degraded": True,
+            "cooldown": False,
+            "reason": "status_unavailable",
+            "shadow_only": True,
+            "suggestion_only": True,
+            "applied": False,
+            "applied_to_action": False,
+            "real_order": False,
+            "submitted": 0,
+            "research_mode": True,
+            "models": [],
+            "selector_model": "",
+            "mistral_found": False,
+            "llama31_found": False,
+            "qwen25_found": False,
+        }
+        try:
+            from dataclasses import asdict, is_dataclass
+
+            def _to_dict(value):
+                if isinstance(value, dict):
+                    return dict(value)
+                if is_dataclass(value):
+                    return asdict(value)
+                return {}
+
+            def _model_names(models):
+                names = []
+                for item in models or []:
+                    data = _to_dict(item)
+                    if data:
+                        name = str(data.get("name") or data.get("model") or "").strip()
+                    else:
+                        name = str(item or "").strip()
+                    if name:
+                        names.append(name)
+                return names
+
+            runtime_dict = {}
+            try:
+                from app.services.ollama_runtime_status import OllamaRuntimeStatusProbe
+
+                runtime_dict = _to_dict(OllamaRuntimeStatusProbe().check_status())
+            except Exception as exc:
+                status["reason"] = f"runtime_status_failed:{type(exc).__name__}"
+
+            inventory_dict = {}
+            try:
+                from app.services.ollama_model_inventory import OllamaModelInventory
+
+                inventory = OllamaModelInventory().list_models(timeout_sec=5)
+                inventory_dict = _to_dict(inventory)
+            except Exception as exc:
+                if status["reason"] == "status_unavailable":
+                    status["reason"] = f"inventory_failed:{type(exc).__name__}"
+
+            selector_dict = {}
+            try:
+                if inventory_dict:
+                    from app.services.ollama_model_selector import OllamaModelSelector
+
+                    selector_dict = _to_dict(OllamaModelSelector().select(inventory_dict))
+            except Exception:
+                selector_dict = {}
+
+            inv_models = inventory_dict.get("models") or []
+            rt_inventory = runtime_dict.get("model_inventory") or {}
+            if isinstance(rt_inventory, dict) and not inv_models:
+                inv_models = rt_inventory.get("models") or []
+            models = _model_names(inv_models)
+            lowered = {name.lower(): name for name in models}
+            status["models"] = models
+            status["runtime_ready"] = bool(
+                runtime_dict.get("runtime_ready")
+                or runtime_dict.get("executable_ready")
+                or inventory_dict.get("available")
+            )
+            status["mistral_found"] = "mistral:latest" in lowered
+            status["llama31_found"] = "llama3.1:latest" in lowered
+            status["qwen25_found"] = "qwen2.5:latest" in lowered
+            selector_model = str(selector_dict.get("selected_model") or "").strip()
+            status["selector_model"] = selector_model
+
+            selected = "not_found"
+            reason = "model_not_found"
+            if selector_model and selector_model.lower() in ("mistral:latest", "llama3.1:latest"):
+                selected = selector_model
+                reason = "selector_usable_candidate"
+            elif status["mistral_found"]:
+                selected = "mistral:latest"
+                reason = "benchmark_fastest_usable_candidate"
+            elif status["llama31_found"]:
+                selected = "llama3.1:latest"
+                reason = "benchmark_usable_candidate"
+            elif status["qwen25_found"]:
+                selected = "qwen2.5:latest"
+                reason = "qwen_slow_candidate"
+            elif not models:
+                selected = "mistral:latest"
+                reason = "inventory_unavailable_display_candidate"
+
+            status["selected_model"] = selected
+            status["model_ready"] = bool(selected != "not_found" and selected in models)
+            status["inference_ready"] = False
+            status["degraded"] = not bool(status["runtime_ready"] and status["model_ready"])
+            status["reason"] = reason
+            try:
+                self._basic_runtime_ui_status = dict(status)
+            except Exception:
+                pass
+            return status
+        except Exception as exc:
+            status["reason"] = f"ui_status_failed:{type(exc).__name__}"
+            try:
+                self._basic_runtime_ui_status = dict(status)
+            except Exception:
+                pass
+            return status
+
+    def _get_basic_runtime_selected_model_for_ui(self):
+        """
+        UI display-only BASIC Runtime selected_model accessor.
+        Never use this for inference, order, routing, or action calculation.
+        """
+        try:
+            cached = getattr(self, "_basic_runtime_ui_status", None)
+            if isinstance(cached, dict):
+                model = str(cached.get("selected_model") or "").strip()
+                if model:
+                    return model
+        except Exception:
+            pass
+        return "mistral:latest"
+
+    def _sync_basic_runtime_status_card(self):
+        """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
+        status = self._build_basic_runtime_ui_status()
+        try:
+            ready_text = "OK" if status.get("runtime_ready") else "확인 불가"
+            model_text = "OK" if status.get("model_ready") else "대기"
+            degraded_text = "YES" if status.get("degraded") else "NO"
+            cooldown_text = "ON" if status.get("cooldown") else "OFF"
+            selected_model = self._get_basic_runtime_selected_model_for_ui()
+            status["selected_model"] = selected_model
+            compact = (
+                "BASIC Runtime: Ollama | "
+                f"model={selected_model} | "
+                f"runtime={ready_text} | "
+                f"model_ready={model_text} | "
+                "inference=display-only | shadow/research"
+            )
+            detail = (
+                "BASIC(Local) Runtime\n"
+                "- Runtime: Ollama\n"
+                f"- Runtime Ready: {ready_text}\n"
+                f"- Model Ready: {model_text}\n"
+                "- Inference Ready: 표시 전용\n"
+                f"- Selected Model: {selected_model}\n"
+                "- Mode: Research / Shadow Only\n"
+                f"- Cooldown: {cooldown_text}\n"
+                f"- Degraded: {degraded_text}"
+            )
+            label = getattr(self, "lbl_basic_runtime_status", None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(compact)
+                try:
+                    label.setToolTip(detail)
+                except Exception:
+                    pass
+            status_line = getattr(self, "lbl_aits_ai_engine_status", None)
+            if status_line is not None and hasattr(status_line, "setText"):
+                status_line.setText(
+                    f"BASIC(Local) Runtime | Ollama | model={selected_model} | "
+                    f"runtime={ready_text} | submitted=0"
+                )
+                try:
+                    self._apply_aits_ai_engine_status_line_style(status_line.text())
+                except Exception:
+                    pass
+            try:
+                self._ai_connection_status = "정상" if status.get("runtime_ready") else "확인 필요"
+                self._selected_ai_provider = "basic"
+                self._selected_ai_model = selected_model
+                self._render_ai_engine_state()
+            except Exception:
+                pass
+            try:
+                log_key = (
+                    str(status.get("selected_model")),
+                    bool(status.get("runtime_ready")),
+                    bool(status.get("model_ready")),
+                    bool(status.get("inference_ready")),
+                    bool(status.get("degraded")),
+                )
+                if getattr(self, "_last_basic_runtime_ui_log_key", None) != log_key:
+                    self._last_basic_runtime_ui_log_key = log_key
+                    print(
+                        "[AITS][UIRuntime] basic_runtime_status_synced "
+                        f"| runtime=ollama | selected_model={selected_model} "
+                        f"| runtime_ready={bool(status.get('runtime_ready'))} "
+                        f"| model_ready={bool(status.get('model_ready'))} "
+                        f"| inference_ready={bool(status.get('inference_ready'))} "
+                        f"| shadow_only={bool(status.get('shadow_only'))} "
+                        f"| research_mode={bool(status.get('research_mode'))}"
+                    )
+            except Exception:
+                pass
+        except Exception as e:
+            try:
+                print(f"[AITS][UIRuntime] basic_runtime_status_card_failed | error={e}")
+            except Exception:
+                pass
+        return status
 
     def _set_ai_key_status_label(self, provider: str, status: str = ""):
         provider = (provider or "").strip().lower()
@@ -24998,6 +25229,7 @@ class MainWindow(QMainWindow):
         _gemini_settings_lay.addWidget(self.lbl_gemini_key_status)
 
         _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
+        self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
         _local_desc = QLabel(
             "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
