@@ -10455,10 +10455,9 @@ class MainWindow(QMainWindow):
             selected_model = self._get_basic_runtime_selected_model_for_ui()
             status["selected_model"] = selected_model
             compact = (
-                "BASIC Runtime: Ollama | "
+                "BASIC(Local): Ollama Runtime | "
                 f"model={selected_model} | "
-                f"runtime={ready_text} | "
-                f"model_ready={model_text} | "
+                f"ready={ready_text if status.get('runtime_ready') and status.get('model_ready') else model_text} | "
                 "inference=display-only | shadow/research"
             )
             detail = (
@@ -10481,10 +10480,7 @@ class MainWindow(QMainWindow):
                     pass
             status_line = getattr(self, "lbl_aits_ai_engine_status", None)
             if status_line is not None and hasattr(status_line, "setText"):
-                status_line.setText(
-                    f"BASIC(Local) Runtime | Ollama | model={selected_model} | "
-                    f"runtime={ready_text} | submitted=0"
-                )
+                status_line.setText("AI Engine: BASIC(Local) / Ollama / display-only")
                 try:
                     self._apply_aits_ai_engine_status_line_style(status_line.text())
                 except Exception:
@@ -10494,6 +10490,16 @@ class MainWindow(QMainWindow):
                 self._selected_ai_provider = "basic"
                 self._selected_ai_model = selected_model
                 self._render_ai_engine_state()
+            except Exception:
+                pass
+            try:
+                chip = getattr(self, "_chip_connection_status", None)
+                chip_text = getattr(chip, "_text", None)
+                if chip_text is not None and hasattr(chip_text, "setText"):
+                    if status.get("runtime_ready") and status.get("model_ready"):
+                        chip_text.setText("Local Runtime Ready")
+                    else:
+                        chip_text.setText("Local Runtime Check Needed")
             except Exception:
                 pass
             try:
