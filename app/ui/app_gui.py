@@ -10444,9 +10444,86 @@ class MainWindow(QMainWindow):
             pass
         return "mistral:latest"
 
+    def _build_runtime_ui_snapshot_bundle(self):
+        """
+        UI display-only runtime snapshot bundle.
+        This must never be used for inference, orders, routing, or action calculation.
+        """
+        try:
+            status = self._build_basic_runtime_ui_status()
+            selected_model = str(status.get("selected_model") or "").strip() or "mistral:latest"
+            snapshot = {
+                "provider": "basic",
+                "runtime": "ollama",
+                "selected_model": selected_model,
+                "runtime_ready": bool(status.get("runtime_ready")),
+                "model_ready": bool(status.get("model_ready")),
+                "inference_ready": False,
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "real_order": False,
+                "research_mode": True,
+                "cooldown": bool(status.get("cooldown")),
+                "degraded": bool(status.get("degraded")),
+                "submitted": 0,
+                "reason": str(status.get("reason") or ""),
+            }
+            try:
+                self._runtime_ui_snapshot_bundle = dict(snapshot)
+            except Exception:
+                pass
+            return snapshot
+        except Exception as exc:
+            snapshot = {
+                "provider": "basic",
+                "runtime": "ollama",
+                "selected_model": "mistral:latest",
+                "runtime_ready": False,
+                "model_ready": False,
+                "inference_ready": False,
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "real_order": False,
+                "research_mode": True,
+                "cooldown": False,
+                "degraded": True,
+                "submitted": 0,
+                "reason": f"snapshot_failed:{type(exc).__name__}",
+            }
+            try:
+                self._runtime_ui_snapshot_bundle = dict(snapshot)
+            except Exception:
+                pass
+            return snapshot
+
+    def _format_runtime_ui_snapshot_text(self, snapshot):
+        """Format a display-only runtime snapshot into compact UI strings."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        selected_model = str(snapshot.get("selected_model") or "").strip() or "mistral:latest"
+        ready = bool(snapshot.get("runtime_ready")) and bool(snapshot.get("model_ready"))
+        ready_text = "OK" if ready else "CHECK"
+        chip_text = "Local Runtime Ready" if ready else "Local Runtime Check Needed"
+        return {
+            "main": (
+                "BASIC(Local): Ollama Runtime | "
+                f"model={selected_model} | "
+                f"ready={ready_text} | "
+                "inference=display-only | shadow/research"
+            ),
+            "engine": "AI Engine: BASIC(Local) / Ollama / display-only",
+            "chip": chip_text,
+        }
+
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
-        status = self._build_basic_runtime_ui_status()
+        status = self._build_runtime_ui_snapshot_bundle()
         try:
             ready_text = "OK" if status.get("runtime_ready") else "확인 불가"
             model_text = "OK" if status.get("model_ready") else "대기"
@@ -10454,6 +10531,7 @@ class MainWindow(QMainWindow):
             cooldown_text = "ON" if status.get("cooldown") else "OFF"
             selected_model = self._get_basic_runtime_selected_model_for_ui()
             status["selected_model"] = selected_model
+            texts = self._format_runtime_ui_snapshot_text(status)
             compact = (
                 "BASIC(Local): Ollama Runtime | "
                 f"model={selected_model} | "
@@ -10473,14 +10551,14 @@ class MainWindow(QMainWindow):
             )
             label = getattr(self, "lbl_basic_runtime_status", None)
             if label is not None and hasattr(label, "setText"):
-                label.setText(compact)
+                label.setText(texts["main"])
                 try:
-                    label.setToolTip(detail)
+                    label.setToolTip(texts["main"])
                 except Exception:
                     pass
             status_line = getattr(self, "lbl_aits_ai_engine_status", None)
             if status_line is not None and hasattr(status_line, "setText"):
-                status_line.setText("AI Engine: BASIC(Local) / Ollama / display-only")
+                status_line.setText(texts["engine"])
                 try:
                     self._apply_aits_ai_engine_status_line_style(status_line.text())
                 except Exception:
@@ -10496,10 +10574,7 @@ class MainWindow(QMainWindow):
                 chip = getattr(self, "_chip_connection_status", None)
                 chip_text = getattr(chip, "_text", None)
                 if chip_text is not None and hasattr(chip_text, "setText"):
-                    if status.get("runtime_ready") and status.get("model_ready"):
-                        chip_text.setText("Local Runtime Ready")
-                    else:
-                        chip_text.setText("Local Runtime Check Needed")
+                    chip_text.setText(texts["chip"])
             except Exception:
                 pass
             try:
