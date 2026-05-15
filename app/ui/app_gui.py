@@ -10785,6 +10785,54 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_replay_snapshot(self):
+        """
+        Build a display-only replay snapshot payload.
+        This must never execute replay, playback, rewind, recovery, inference, or orders.
+        """
+        try:
+            timeline_event = self._build_runtime_timeline_event()
+            if not isinstance(timeline_event, dict):
+                timeline_event = {}
+        except Exception:
+            timeline_event = {}
+        try:
+            incident_snapshot = self._build_runtime_incident_snapshot()
+            if not isinstance(incident_snapshot, dict):
+                incident_snapshot = {}
+        except Exception:
+            incident_snapshot = {}
+        try:
+            export_payload = self._build_runtime_diagnostics_export_payload()
+            if not isinstance(export_payload, dict):
+                export_payload = {}
+        except Exception:
+            export_payload = {}
+        return {
+            "schema": "runtime_replay_snapshot.v1",
+            "replay_source": "app_gui.runtime",
+            "replay_ready": True,
+            "replay_executed": False,
+            "playback_allowed": False,
+            "rewind_allowed": False,
+            "recovery_allowed": False,
+            "timeline_event": timeline_event,
+            "incident_snapshot": incident_snapshot,
+            "export_payload": export_payload,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "replay_action_allowed": False,
+                "recovery_action_allowed": False,
+                "persistence_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
