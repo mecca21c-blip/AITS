@@ -10833,6 +10833,61 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_persistence_gate(self):
+        """
+        Build a display-only persistence gate payload.
+        This must never write files, write DB rows, archive data, replay, recover, or order.
+        """
+        try:
+            replay_snapshot = self._build_runtime_replay_snapshot()
+            if not isinstance(replay_snapshot, dict):
+                replay_snapshot = {}
+        except Exception:
+            replay_snapshot = {}
+        try:
+            timeline_event = self._build_runtime_timeline_event()
+            if not isinstance(timeline_event, dict):
+                timeline_event = {}
+        except Exception:
+            timeline_event = {}
+        try:
+            incident_snapshot = self._build_runtime_incident_snapshot()
+            if not isinstance(incident_snapshot, dict):
+                incident_snapshot = {}
+        except Exception:
+            incident_snapshot = {}
+        try:
+            export_payload = self._build_runtime_diagnostics_export_payload()
+            if not isinstance(export_payload, dict):
+                export_payload = {}
+        except Exception:
+            export_payload = {}
+        return {
+            "schema": "runtime_persistence_gate.v1",
+            "gate_source": "app_gui.runtime",
+            "gate_ready": True,
+            "persistence_allowed": False,
+            "write_performed": False,
+            "storage_target": "none",
+            "reason": "persistence_not_enabled",
+            "replay_snapshot": replay_snapshot,
+            "timeline_event": timeline_event,
+            "incident_snapshot": incident_snapshot,
+            "export_payload": export_payload,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "file_write_allowed": False,
+                "db_write_allowed": False,
+                "archive_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
