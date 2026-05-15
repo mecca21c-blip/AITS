@@ -10562,6 +10562,69 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_diagnostics_export_payload(self):
+        """
+        Build an export-ready diagnostics payload only.
+        This must never write files, call APIs, run inference, or touch order/action paths.
+        """
+        try:
+            diagnostics = self._build_runtime_diagnostics_snapshot()
+            if not isinstance(diagnostics, dict):
+                diagnostics = {}
+        except Exception as exc:
+            diagnostics = {
+                "schema": "runtime_diagnostics_snapshot.v1",
+                "provider": "basic",
+                "runtime": "ollama",
+                "selected_model": "mistral:latest",
+                "runtime_ready": False,
+                "model_ready": False,
+                "inference_ready": False,
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "real_order": False,
+                "research_mode": True,
+                "submitted": 0,
+                "cooldown": False,
+                "degraded": True,
+                "reason": f"diagnostics_export_source_failed:{type(exc).__name__}",
+                "diagnostics": {
+                    "ui_snapshot_ready": False,
+                    "safe_for_order": False,
+                    "safe_for_inference": False,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "benchmark_preferred_model": "mistral:latest",
+                    "fallback_policy": "mistral_first_no_qwen_fallback",
+                },
+            }
+        selected_model = str(diagnostics.get("selected_model") or "").strip() or "mistral:latest"
+        return {
+            "schema": "runtime_diagnostics_export.v1",
+            "source": "app_gui.runtime_diagnostics",
+            "export_ready": True,
+            "write_performed": False,
+            "diagnostics": diagnostics,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "file_write_allowed": False,
+            },
+            "meta": {
+                "provider": "basic",
+                "runtime": "ollama",
+                "selected_model": selected_model,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
