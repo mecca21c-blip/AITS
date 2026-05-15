@@ -10705,6 +10705,86 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_incident_snapshot(self):
+        """
+        Build a display-only runtime incident snapshot.
+        This must never alert, persist, recover, replay, call inference, or touch orders.
+        """
+        try:
+            diagnostics = self._build_runtime_diagnostics_snapshot()
+            if not isinstance(diagnostics, dict):
+                diagnostics = {}
+        except Exception as exc:
+            diagnostics = {
+                "schema": "runtime_diagnostics_snapshot.v1",
+                "provider": "basic",
+                "runtime": "ollama",
+                "selected_model": "mistral:latest",
+                "runtime_ready": False,
+                "model_ready": False,
+                "inference_ready": False,
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "real_order": False,
+                "research_mode": True,
+                "submitted": 0,
+                "cooldown": False,
+                "degraded": True,
+                "reason": f"incident_diagnostics_source_failed:{type(exc).__name__}",
+            }
+        try:
+            timeline_event = self._build_runtime_timeline_event()
+            if not isinstance(timeline_event, dict):
+                timeline_event = {}
+        except Exception:
+            timeline_event = {}
+        try:
+            from datetime import datetime
+
+            incident_time = datetime.utcnow().isoformat()
+        except Exception:
+            incident_time = ""
+        runtime_ready = bool(diagnostics.get("runtime_ready"))
+        model_ready = bool(diagnostics.get("model_ready"))
+        degraded = bool(diagnostics.get("degraded"))
+        incident_active = degraded or not runtime_ready or not model_ready
+        if not runtime_ready:
+            severity = "critical"
+        elif degraded:
+            severity = "warning"
+        else:
+            severity = "info"
+        return {
+            "schema": "runtime_incident_snapshot.v1",
+            "incident_type": "runtime_degraded",
+            "incident_source": "app_gui.runtime",
+            "incident_ready": True,
+            "incident_time": incident_time,
+            "incident_active": incident_active,
+            "severity": severity,
+            "runtime": "ollama",
+            "provider": "basic",
+            "selected_model": str(diagnostics.get("selected_model") or "").strip()
+            or "mistral:latest",
+            "reason": str(diagnostics.get("reason") or ""),
+            "diagnostics": diagnostics,
+            "timeline_event": timeline_event,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "incident_persist_allowed": False,
+                "recovery_action_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
