@@ -10625,6 +10625,86 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_timeline_event(self):
+        """
+        Build a display-only runtime timeline event.
+        This must never write streams, persist data, replay events, or call inference/orders.
+        """
+        try:
+            payload = self._build_runtime_diagnostics_export_payload()
+            if not isinstance(payload, dict):
+                payload = {}
+        except Exception as exc:
+            payload = {
+                "schema": "runtime_diagnostics_export.v1",
+                "source": "app_gui.runtime_diagnostics",
+                "export_ready": False,
+                "write_performed": False,
+                "diagnostics": {
+                    "schema": "runtime_diagnostics_snapshot.v1",
+                    "provider": "basic",
+                    "runtime": "ollama",
+                    "selected_model": "mistral:latest",
+                    "runtime_ready": False,
+                    "model_ready": False,
+                    "inference_ready": False,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "applied": False,
+                    "applied_to_action": False,
+                    "real_order": False,
+                    "research_mode": True,
+                    "submitted": 0,
+                    "cooldown": False,
+                    "degraded": True,
+                    "reason": f"timeline_payload_source_failed:{type(exc).__name__}",
+                },
+                "safety": {
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "file_write_allowed": False,
+                },
+                "meta": {
+                    "provider": "basic",
+                    "runtime": "ollama",
+                    "selected_model": "mistral:latest",
+                },
+            }
+        try:
+            from datetime import datetime
+
+            event_time = datetime.utcnow().isoformat()
+        except Exception:
+            event_time = ""
+        return {
+            "schema": "runtime_timeline_event.v1",
+            "event_type": "runtime_snapshot",
+            "event_source": "app_gui.runtime",
+            "event_time": event_time,
+            "event_ready": True,
+            "stream_connected": False,
+            "persisted": False,
+            "replayed": False,
+            "payload": payload,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "stream_write_allowed": False,
+                "persistence_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
