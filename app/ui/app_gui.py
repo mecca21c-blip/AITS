@@ -10502,6 +10502,66 @@ class MainWindow(QMainWindow):
                 pass
             return snapshot
 
+    def _build_runtime_diagnostics_snapshot(self):
+        """
+        Build an attach-only diagnostics snapshot for UI/runtime inspection.
+        This must never call inference, APIs, orders, routing, or action calculation.
+        """
+        try:
+            snapshot = self._build_runtime_ui_snapshot_bundle()
+            if not isinstance(snapshot, dict):
+                snapshot = {}
+        except Exception as exc:
+            snapshot = {
+                "provider": "basic",
+                "runtime": "ollama",
+                "selected_model": "mistral:latest",
+                "runtime_ready": False,
+                "model_ready": False,
+                "inference_ready": False,
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "applied": False,
+                "applied_to_action": False,
+                "real_order": False,
+                "research_mode": True,
+                "cooldown": False,
+                "degraded": True,
+                "submitted": 0,
+                "reason": f"diagnostics_source_failed:{type(exc).__name__}",
+            }
+        return {
+            "schema": "runtime_diagnostics_snapshot.v1",
+            "provider": "basic",
+            "runtime": "ollama",
+            "selected_model": str(snapshot.get("selected_model") or "").strip()
+            or "mistral:latest",
+            "runtime_ready": bool(snapshot.get("runtime_ready")),
+            "model_ready": bool(snapshot.get("model_ready")),
+            "inference_ready": False,
+            "display_only": True,
+            "shadow_only": True,
+            "suggestion_only": True,
+            "applied": False,
+            "applied_to_action": False,
+            "real_order": False,
+            "research_mode": True,
+            "submitted": 0,
+            "cooldown": bool(snapshot.get("cooldown")),
+            "degraded": bool(snapshot.get("degraded")),
+            "reason": str(snapshot.get("reason") or ""),
+            "diagnostics": {
+                "ui_snapshot_ready": True,
+                "safe_for_order": False,
+                "safe_for_inference": False,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "benchmark_preferred_model": "mistral:latest",
+                "fallback_policy": "mistral_first_no_qwen_fallback",
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
