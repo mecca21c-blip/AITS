@@ -11009,6 +11009,82 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_unified_runtime_context(self):
+        """
+        Build a display-only unified runtime context.
+        This must never connect UI, persist data, replay, recover, infer, or order.
+        """
+        try:
+            session = self._build_runtime_session_snapshot()
+            if not isinstance(session, dict):
+                session = {}
+        except Exception:
+            session = {}
+        try:
+            archive = self._build_runtime_archive_payload()
+            if not isinstance(archive, dict):
+                archive = {}
+        except Exception:
+            archive = {}
+        try:
+            replay = self._build_runtime_replay_snapshot()
+            if not isinstance(replay, dict):
+                replay = {}
+        except Exception:
+            replay = {}
+        try:
+            incident = self._build_runtime_incident_snapshot()
+            if not isinstance(incident, dict):
+                incident = {}
+        except Exception:
+            incident = {}
+        try:
+            timeline = self._build_runtime_timeline_event()
+            if not isinstance(timeline, dict):
+                timeline = {}
+        except Exception:
+            timeline = {}
+        try:
+            diagnostics = self._build_runtime_diagnostics_snapshot()
+            if not isinstance(diagnostics, dict):
+                diagnostics = {}
+        except Exception:
+            diagnostics = {}
+        try:
+            ui_snapshot = self._build_runtime_ui_snapshot_bundle()
+            if not isinstance(ui_snapshot, dict):
+                ui_snapshot = {}
+        except Exception:
+            ui_snapshot = {}
+        selected_model = str(ui_snapshot.get("selected_model") or "").strip() or "mistral:latest"
+        return {
+            "schema": "unified_runtime_context.v1",
+            "context_source": "app_gui.runtime",
+            "context_ready": True,
+            "runtime": "ollama",
+            "provider": "basic",
+            "selected_model": selected_model,
+            "session": session,
+            "archive": archive,
+            "replay": replay,
+            "incident": incident,
+            "timeline": timeline,
+            "diagnostics": diagnostics,
+            "ui_snapshot": ui_snapshot,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "persistence_allowed": False,
+                "replay_action_allowed": False,
+                "recovery_action_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
