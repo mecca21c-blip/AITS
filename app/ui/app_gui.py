@@ -10948,6 +10948,67 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_session_snapshot(self):
+        """
+        Build a display-only runtime session snapshot.
+        This must never persist sessions, restore sessions, replay, recover, infer, or order.
+        """
+        try:
+            archive_payload = self._build_runtime_archive_payload()
+            if not isinstance(archive_payload, dict):
+                archive_payload = {}
+        except Exception:
+            archive_payload = {}
+        try:
+            replay_snapshot = self._build_runtime_replay_snapshot()
+            if not isinstance(replay_snapshot, dict):
+                replay_snapshot = {}
+        except Exception:
+            replay_snapshot = {}
+        try:
+            incident_snapshot = self._build_runtime_incident_snapshot()
+            if not isinstance(incident_snapshot, dict):
+                incident_snapshot = {}
+        except Exception:
+            incident_snapshot = {}
+        try:
+            timeline_event = self._build_runtime_timeline_event()
+            if not isinstance(timeline_event, dict):
+                timeline_event = {}
+        except Exception:
+            timeline_event = {}
+        try:
+            diagnostics = self._build_runtime_diagnostics_snapshot()
+            if not isinstance(diagnostics, dict):
+                diagnostics = {}
+        except Exception:
+            diagnostics = {}
+        return {
+            "schema": "runtime_session_snapshot.v1",
+            "session_source": "app_gui.runtime",
+            "session_ready": True,
+            "session_restored": False,
+            "session_persisted": False,
+            "session_id": "",
+            "archive_payload": archive_payload,
+            "replay_snapshot": replay_snapshot,
+            "incident_snapshot": incident_snapshot,
+            "timeline_event": timeline_event,
+            "diagnostics": diagnostics,
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "session_write_allowed": False,
+                "session_restore_allowed": False,
+                "persistence_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
