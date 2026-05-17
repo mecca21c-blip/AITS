@@ -11243,6 +11243,50 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_local_runtime_inference_envelope(self):
+        """
+        Build a local runtime inference envelope only.
+        This must never create/send requests, call Ollama/provider APIs, apply actions, or order.
+        """
+        try:
+            prompt_context = self._build_local_runtime_prompt_context()
+            if not isinstance(prompt_context, dict):
+                prompt_context = {}
+        except Exception:
+            prompt_context = {}
+        selected_model = str(prompt_context.get("selected_model") or "").strip() or "mistral:latest"
+        return {
+            "schema": "local_runtime_inference_envelope.v1",
+            "envelope_source": "app_gui.runtime",
+            "envelope_ready": True,
+            "inference_executed": False,
+            "provider": "basic",
+            "runtime": "ollama",
+            "selected_model": selected_model,
+            "prompt_context": prompt_context,
+            "transport": {
+                "endpoint_type": "ollama_local",
+                "method": "none",
+                "request_prepared": True,
+                "request_sent": False,
+                "stream": False,
+                "timeout_sec": 15,
+                "temperature": 0.2,
+                "num_predict": 128,
+            },
+            "constraints": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "action_apply_allowed": False,
+                "network_call_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
