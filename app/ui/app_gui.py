@@ -11196,6 +11196,53 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_local_runtime_prompt_context(self):
+        """
+        Build a local runtime prompt-ready context only.
+        This must never create/send prompt text, call inference, apply actions, or order.
+        """
+        try:
+            inference_context = self._build_local_runtime_inference_context()
+            if not isinstance(inference_context, dict):
+                inference_context = {}
+        except Exception:
+            inference_context = {}
+        selected_model = str(inference_context.get("selected_model") or "").strip() or "mistral:latest"
+        return {
+            "schema": "local_runtime_prompt_context.v1",
+            "prompt_source": "app_gui.runtime",
+            "prompt_ready": True,
+            "prompt_sent": False,
+            "provider": "basic",
+            "runtime": "ollama",
+            "selected_model": selected_model,
+            "inference_context": inference_context,
+            "role": {
+                "system_role": "AITS BASIC local runtime analyst",
+                "task": "observe_and_explain_runtime_state",
+                "language": "ko",
+            },
+            "prompt_sections": {
+                "runtime_state": True,
+                "market_data": False,
+                "portfolio": False,
+                "strategy": False,
+                "risk": False,
+                "user_command": False,
+            },
+            "constraints": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "action_apply_allowed": False,
+                "prompt_send_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
