@@ -11148,6 +11148,54 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_local_runtime_inference_context(self):
+        """
+        Build a local runtime inference input context only.
+        This must never call Ollama, provider APIs, orders, action apply, or UI render paths.
+        """
+        try:
+            runtime_context = self._build_unified_runtime_context()
+            if not isinstance(runtime_context, dict):
+                runtime_context = {}
+        except Exception:
+            runtime_context = {}
+        try:
+            inspector = self._build_runtime_inspector_snapshot()
+            if not isinstance(inspector, dict):
+                inspector = {}
+        except Exception:
+            inspector = {}
+        selected_model = str(runtime_context.get("selected_model") or "").strip() or "mistral:latest"
+        return {
+            "schema": "local_runtime_inference_context.v1",
+            "context_source": "app_gui.runtime",
+            "provider": "basic",
+            "runtime": "ollama",
+            "selected_model": selected_model,
+            "inference_context_ready": True,
+            "inference_executed": False,
+            "auto_call_allowed": False,
+            "runtime_context": runtime_context,
+            "inspector": inspector,
+            "inputs": {
+                "market_data_attached": False,
+                "portfolio_attached": False,
+                "strategy_attached": False,
+                "risk_attached": False,
+                "user_command_attached": False,
+            },
+            "constraints": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "action_apply_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
