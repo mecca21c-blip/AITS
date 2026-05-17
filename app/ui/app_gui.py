@@ -11085,6 +11085,69 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_runtime_inspector_snapshot(self):
+        """
+        Build a display-only inspector snapshot from the unified runtime context.
+        This must never render UI, read/write files, replay, recover, infer, or order.
+        """
+        try:
+            context = self._build_unified_runtime_context()
+            if not isinstance(context, dict):
+                context = {}
+        except Exception:
+            context = {}
+        ui_snapshot = context.get("ui_snapshot")
+        if not isinstance(ui_snapshot, dict):
+            ui_snapshot = {}
+        diagnostics = context.get("diagnostics")
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        incident = context.get("incident")
+        if not isinstance(incident, dict):
+            incident = {}
+        summary = {
+            "provider": "basic",
+            "runtime": "ollama",
+            "selected_model": str(context.get("selected_model") or "").strip()
+            or str(ui_snapshot.get("selected_model") or "").strip()
+            or "mistral:latest",
+            "runtime_ready": bool(ui_snapshot.get("runtime_ready") or diagnostics.get("runtime_ready")),
+            "model_ready": bool(ui_snapshot.get("model_ready") or diagnostics.get("model_ready")),
+            "inference_ready": False,
+            "degraded": bool(ui_snapshot.get("degraded") or diagnostics.get("degraded")),
+            "incident_active": bool(incident.get("incident_active")),
+            "severity": str(incident.get("severity") or "info"),
+            "submitted": 0,
+        }
+        return {
+            "schema": "runtime_inspector_snapshot.v1",
+            "inspector_source": "app_gui.runtime",
+            "inspector_ready": True,
+            "context": context,
+            "summary": summary,
+            "flags": {
+                "display_only": True,
+                "safe_for_order": False,
+                "safe_for_inference": False,
+                "has_timeline": isinstance(context.get("timeline"), dict),
+                "has_incident": isinstance(context.get("incident"), dict),
+                "has_replay": isinstance(context.get("replay"), dict),
+                "has_archive": isinstance(context.get("archive"), dict),
+                "has_session": isinstance(context.get("session"), dict),
+            },
+            "safety": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "ui_render_allowed": False,
+                "persistence_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
