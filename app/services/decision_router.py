@@ -1447,6 +1447,21 @@ class DecisionRouter:
         - 토큰 절약을 위해 RouterSummary 수준의 핵심값만 담는다.
         """
         try:
+            perf = performance_boost if isinstance(performance_boost, dict) else {}
+            fusion = fusion_signal if isinstance(fusion_signal, dict) else {}
+            soft = soft_override_candidate if isinstance(soft_override_candidate, dict) else {}
+
+            return {
+                "final_action": final_action or "none",
+                "final_confidence": round(float(final_confidence or 0.0), 3),
+                "fusion_action": fusion.get("fusion_action", "none"),
+                "performance_status": perf.get("status", "unknown"),
+                "performance_multiplier": perf.get("multiplier", 1.0),
+                "soft_candidate": soft.get("candidate_action", "none"),
+                "soft_eligible": soft.get("eligible", False),
+                "router_version": ROUTER_VERSION,
+            }
+
             context = {
                 "router_version": ROUTER_VERSION,
                 "final_action": final_action,
@@ -1475,6 +1490,70 @@ class DecisionRouter:
                 "safety_note": "verification_only_no_action_change",
                 "context_error": type(exc).__name__,
             }
+
+    def _run_ai_verification_shadow(self, provider: str, context: dict) -> dict:
+        """
+        AI verification layer 1.
+        This stage never calls provider APIs; it only returns provider-specific shadow metadata.
+        """
+        provider = str(provider or "local").lower().strip()
+        context = context if isinstance(context, dict) else {}
+
+        base = {
+            "called": False,
+            "provider": provider or "local",
+            "suggestion": "skip",
+            "reason": "not_called",
+            "context": context,
+            "applied": False,
+            "observe_only_weight_delta": 0.0,
+            "observe_only_weight_reason": "verification_shadow_no_api_call",
+            "observe_only_weight_applied": False,
+            "shadow_confidence_delta": 0.0,
+            "shadow_confidence_policy": "verification_shadow_no_action_effect",
+            "shadow_confidence_applied": False,
+        }
+
+        if provider in ("local", "basic", "none", ""):
+            base.update(
+                {
+                    "provider": "local",
+                    "suggestion": "skip",
+                    "reason": "local_provider_no_api_call",
+                    "observe_only_weight_reason": "ai_local_skip_no_api_call",
+                    "shadow_confidence_policy": "local_skip_no_shadow_effect",
+                }
+            )
+            return base
+
+        if provider in ("openai", "gpt"):
+            base.update(
+                {
+                    "provider": "openai",
+                    "suggestion": "pending_api_integration",
+                    "reason": "openai_shadow_verification_not_called_yet",
+                }
+            )
+            return base
+
+        if provider in ("gemini", "google"):
+            base.update(
+                {
+                    "provider": "gemini",
+                    "suggestion": "pending_api_integration",
+                    "reason": "gemini_shadow_verification_not_called_yet",
+                }
+            )
+            return base
+
+        base.update(
+            {
+                "provider": provider,
+                "suggestion": "skip",
+                "reason": "unknown_provider",
+            }
+        )
+        return base
 
     def _resolve_ai_verification_provider(self, raw=None):
         """
@@ -2085,7 +2164,7 @@ class DecisionRouter:
             ai_verification_context = self._build_ai_verification_context(
                 final_action=getattr(decision, "action", None),
                 final_confidence=self._safe_float(getattr(decision, "confidence", 0.0), 0.0),
-                fusion_signal=shadow_signal,
+                fusion_signal=fusion_override,
                 performance_boost=performance_boost,
                 soft_override_candidate=soft_override_candidate,
                 market_regime=(
@@ -2101,10 +2180,16 @@ class DecisionRouter:
                 execution_allowed=raw.get("provider_shadow_execution_allowed"),
             )
 
-            ai_verification_suggestion = self._run_ai_verification_suggestion(
-                provider=ai_verification_provider,
-                context=ai_verification_context,
-                raw=raw,
+            ai_verification_suggestion = self._run_ai_verification_shadow(
+                ai_verification_provider,
+                ai_verification_context,
+            )
+            self._safe_log_info(
+                "[AITS][AIVerification] "
+                f"provider={ai_verification_suggestion.get('provider')} | "
+                f"called={ai_verification_suggestion.get('called')} | "
+                f"suggestion={ai_verification_suggestion.get('suggestion')} | "
+                f"reason={ai_verification_suggestion.get('reason')}"
             )
             self._safe_log_info(
                 "[AITS][DecisionRouter] ai_suggestion_received | "
@@ -2175,6 +2260,7 @@ class DecisionRouter:
                     "applied": False,
                 }
                 raw_meta["ai_suggestion"] = ai_suggestion_summary
+                raw_meta["ai_verification_context"] = ai_verification_context
                 raw_meta["ai_verification"] = ai_verification_suggestion
                 raw_meta["ai_verification_applied"] = False
                 raw_meta["ai_verification_safety"] = "suggestion_only_no_action_change"
