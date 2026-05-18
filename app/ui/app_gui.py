@@ -11471,6 +11471,63 @@ class MainWindow(QMainWindow):
                 },
             }
 
+    def _build_portfolio_snapshot_attachment(self):
+        """
+        Build an empty portfolio snapshot attachment only.
+        This must never fetch balances/accounts, call Upbit/provider APIs, apply actions, or order.
+        """
+        try:
+            return {
+                "schema": "portfolio_snapshot_attachment.v1",
+                "attachment_source": "app_gui.portfolio",
+                "attachment_ready": True,
+                "portfolio_attached": False,
+                "data_fetch_performed": False,
+                "provider": "upbit",
+                "portfolio": {
+                    "base_currency": "KRW",
+                    "total_krw": 0.0,
+                    "cash_krw": 0.0,
+                    "positions": [],
+                    "position_count": 0,
+                    "exposure": {},
+                    "pnl_snapshot": {},
+                    "allocation_snapshot": {},
+                },
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                },
+            }
+        except Exception:
+            return {
+                "schema": "portfolio_snapshot_attachment.v1",
+                "attachment_source": "app_gui.portfolio",
+                "attachment_ready": False,
+                "portfolio_attached": False,
+                "data_fetch_performed": False,
+                "provider": "upbit",
+                "portfolio": {},
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                },
+            }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
