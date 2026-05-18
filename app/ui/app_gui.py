@@ -11335,6 +11335,45 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_local_runtime_response_validation(self):
+        """
+        Build a local runtime response validation payload only.
+        This must never parse responses, extract actions, call inference/provider APIs, apply decisions, or order.
+        """
+        try:
+            response_envelope = self._build_local_runtime_response_envelope()
+            if not isinstance(response_envelope, dict):
+                response_envelope = {}
+        except Exception:
+            response_envelope = {}
+        return {
+            "schema": "local_runtime_response_validation.v1",
+            "validation_source": "app_gui.runtime",
+            "validation_ready": True,
+            "validation_executed": False,
+            "response_envelope": response_envelope,
+            "result": {
+                "schema_valid": False,
+                "quality_valid": False,
+                "safe_response": False,
+                "reasoning_detected": False,
+                "action_detected": False,
+                "hallucination_risk": "unknown",
+                "safe_to_apply": False,
+            },
+            "constraints": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "action_apply_allowed": False,
+                "decision_apply_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
