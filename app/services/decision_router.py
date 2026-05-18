@@ -14,7 +14,7 @@ from app.services.ai_engine_provider import (
 )
 from app.services.ai_provider_comparison_stats import AIProviderComparisonStats
 
-ROUTER_VERSION = "v2.6"
+ROUTER_VERSION = "v2.7"
 AI_VERIFICATION_SUGGESTIONS = {
     "confirm",
     "override_wait",
@@ -1436,6 +1436,7 @@ class DecisionRouter:
         positions_count=None,
         symbol=None,
         execution_allowed=None,
+        selected_provider=None,
     ):
         """
         Decision Router v2.6
@@ -1459,6 +1460,7 @@ class DecisionRouter:
                 "performance_multiplier": perf.get("multiplier", 1.0),
                 "soft_candidate": soft.get("candidate_action", "none"),
                 "soft_eligible": soft.get("eligible", False),
+                "selected_provider": self._normalize_ai_verification_provider(selected_provider),
                 "router_version": ROUTER_VERSION,
             }
 
@@ -1488,6 +1490,7 @@ class DecisionRouter:
             return {
                 "router_version": ROUTER_VERSION,
                 "safety_note": "verification_only_no_action_change",
+                "selected_provider": "local",
                 "context_error": type(exc).__name__,
             }
 
@@ -1496,7 +1499,7 @@ class DecisionRouter:
         AI verification layer 1.
         This stage never calls provider APIs; it only returns provider-specific shadow metadata.
         """
-        provider = str(provider or "local").lower().strip()
+        provider = self._normalize_ai_verification_provider(provider)
         context = context if isinstance(context, dict) else {}
 
         base = {
@@ -1554,6 +1557,50 @@ class DecisionRouter:
             }
         )
         return base
+
+    def _normalize_ai_verification_provider(self, value) -> str:
+        try:
+            key = str(value or "").strip().lower()
+        except Exception:
+            key = ""
+
+        if key in ("gpt", "openai", "openai_gpt", "openai gpt"):
+            return "openai"
+        if key in ("gemini", "google", "google_gemini", "google gemini"):
+            return "gemini"
+        if key in ("basic", "local", "local_engine", "basic_ai", "basic ai", "none", ""):
+            return "local"
+        return "local"
+
+    def _read_ai_verification_provider(self, raw: dict) -> str:
+        """
+        Read the AI verification provider without calling any provider API.
+        SSOT is strategy.ai_provider when present; otherwise use safe raw/context fallbacks.
+        """
+        try:
+            raw = raw or {}
+
+            strategy = raw.get("strategy")
+            if isinstance(strategy, dict):
+                val = strategy.get("ai_provider")
+                if val:
+                    return self._normalize_ai_verification_provider(val)
+
+            for key in ("selected_provider", "ai_provider", "provider", "engine"):
+                val = raw.get(key)
+                if val:
+                    return self._normalize_ai_verification_provider(val)
+
+            ctx = raw.get("context")
+            if isinstance(ctx, dict):
+                for key in ("selected_provider", "ai_provider", "provider", "engine"):
+                    val = ctx.get(key)
+                    if val:
+                        return self._normalize_ai_verification_provider(val)
+        except Exception:
+            pass
+
+        return "local"
 
     def _resolve_ai_verification_provider(self, raw=None):
         """
@@ -2152,7 +2199,8 @@ class DecisionRouter:
             except Exception:
                 pass
 
-            ai_verification_provider = self._resolve_ai_verification_provider(raw)
+            selected_provider = self._read_ai_verification_provider(raw)
+            ai_verification_provider = selected_provider
             performance_boost = raw.get("performance_boost", {})
             fusion_override = raw.get("fusion_override", {})
             soft_override_candidate = raw.get("soft_override_candidate", {})
@@ -2178,14 +2226,20 @@ class DecisionRouter:
                 positions_count=raw.get("provider_shadow_positions_count") or context_data.get("positions_count"),
                 symbol=getattr(decision, "selected_symbol", None) or raw.get("symbol"),
                 execution_allowed=raw.get("provider_shadow_execution_allowed"),
+                selected_provider=selected_provider,
             )
 
             ai_verification_suggestion = self._run_ai_verification_shadow(
                 ai_verification_provider,
                 ai_verification_context,
             )
+            try:
+                ai_verification_suggestion["selected_provider"] = selected_provider
+            except Exception:
+                pass
             self._safe_log_info(
                 "[AITS][AIVerification] "
+                f"selected_provider={selected_provider} | "
                 f"provider={ai_verification_suggestion.get('provider')} | "
                 f"called={ai_verification_suggestion.get('called')} | "
                 f"suggestion={ai_verification_suggestion.get('suggestion')} | "
@@ -2255,6 +2309,7 @@ class DecisionRouter:
             if isinstance(raw_meta, dict):
                 ai_suggestion_summary = {
                     "provider": ai_verification_suggestion.get("provider"),
+                    "selected_provider": ai_verification_suggestion.get("selected_provider"),
                     "suggestion": ai_verification_suggestion.get("suggestion"),
                     "delta": ai_verification_suggestion.get("observe_only_weight_delta", 0.0),
                     "applied": False,
