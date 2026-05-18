@@ -11415,6 +11415,62 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_market_snapshot_attachment(self):
+        """
+        Build an empty market snapshot attachment only.
+        This must never fetch market data, call Upbit/provider APIs, apply actions, or order.
+        """
+        try:
+            return {
+                "schema": "market_snapshot_attachment.v1",
+                "attachment_source": "app_gui.market",
+                "attachment_ready": True,
+                "market_data_attached": False,
+                "data_fetch_performed": False,
+                "provider": "upbit",
+                "market": {
+                    "symbols": [],
+                    "base_currency": "KRW",
+                    "timeframe": "",
+                    "price_snapshot": {},
+                    "volume_snapshot": {},
+                    "trend_snapshot": {},
+                    "volatility_snapshot": {},
+                },
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                },
+            }
+        except Exception:
+            return {
+                "schema": "market_snapshot_attachment.v1",
+                "attachment_source": "app_gui.market",
+                "attachment_ready": False,
+                "market_data_attached": False,
+                "data_fetch_performed": False,
+                "provider": "upbit",
+                "market": {},
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                },
+            }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
