@@ -11374,6 +11374,47 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_local_runtime_decision_safety_gate(self):
+        """
+        Build a local runtime decision safety gate only.
+        This must never calculate decisions, extract actions, apply decisions, call providers, or order.
+        """
+        try:
+            validation = self._build_local_runtime_response_validation()
+            if not isinstance(validation, dict):
+                validation = {}
+        except Exception:
+            validation = {}
+        return {
+            "schema": "local_runtime_decision_safety_gate.v1",
+            "gate_source": "app_gui.runtime",
+            "gate_ready": True,
+            "decision_allowed": False,
+            "action_blocked": True,
+            "apply_allowed": False,
+            "human_review_required": True,
+            "validation": validation,
+            "decision": {
+                "action": "none",
+                "confidence": 0.0,
+                "confidence_safe": False,
+                "risk_safe": False,
+                "reason": "not_executed",
+            },
+            "constraints": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "action_apply_allowed": False,
+                "decision_apply_allowed": False,
+                "human_review_required": True,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
