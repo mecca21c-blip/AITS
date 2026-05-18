@@ -11287,6 +11287,54 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_local_runtime_response_envelope(self):
+        """
+        Build a local runtime response envelope only.
+        This must never generate/parse responses, call inference/provider APIs, apply actions, or order.
+        """
+        try:
+            inference_envelope = self._build_local_runtime_inference_envelope()
+            if not isinstance(inference_envelope, dict):
+                inference_envelope = {}
+        except Exception:
+            inference_envelope = {}
+        selected_model = str(inference_envelope.get("selected_model") or "").strip() or "mistral:latest"
+        return {
+            "schema": "local_runtime_response_envelope.v1",
+            "response_source": "app_gui.runtime",
+            "response_ready": True,
+            "response_received": False,
+            "response_validated": False,
+            "provider": "basic",
+            "runtime": "ollama",
+            "selected_model": selected_model,
+            "inference_envelope": inference_envelope,
+            "response": {
+                "status": "not_executed",
+                "text": "",
+                "elapsed_sec": 0.0,
+                "response_chars": 0,
+                "first_response": False,
+                "finish_reason": "",
+            },
+            "validation": {
+                "schema_checked": False,
+                "quality_checked": False,
+                "action_extracted": False,
+                "safe_to_apply": False,
+            },
+            "constraints": {
+                "display_only": True,
+                "shadow_only": True,
+                "suggestion_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "api_call_allowed": False,
+                "order_call_allowed": False,
+                "action_apply_allowed": False,
+            },
+        }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
