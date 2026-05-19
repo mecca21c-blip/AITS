@@ -11640,6 +11640,62 @@ class MainWindow(QMainWindow):
                 },
             }
 
+    def _build_user_command_attachment(self):
+        """
+        Build an empty user command attachment only.
+        This must never parse/execute commands, call providers, apply actions, or order.
+        """
+        try:
+            return {
+                "schema": "user_command_attachment.v1",
+                "attachment_source": "app_gui.user_command",
+                "attachment_ready": True,
+                "user_command_attached": False,
+                "command_parse_performed": False,
+                "command": {
+                    "raw_text": "",
+                    "normalized_text": "",
+                    "intent": "",
+                    "target": "",
+                    "urgency": "",
+                    "constraints": {},
+                    "notes": [],
+                },
+                "safety": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                    "command_execute_allowed": False,
+                },
+            }
+        except Exception:
+            return {
+                "schema": "user_command_attachment.v1",
+                "attachment_source": "app_gui.user_command",
+                "attachment_ready": False,
+                "user_command_attached": False,
+                "command_parse_performed": False,
+                "command": {},
+                "safety": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                    "command_execute_allowed": False,
+                },
+            }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
