@@ -11897,10 +11897,13 @@ class MainWindow(QMainWindow):
                 submitted = int(submitted or 0)
             except Exception:
                 submitted = 0
-            order_text = "blocked" if not bool(constraints.get("order_call_allowed")) else "allowed"
-            action_text = "blocked" if not bool(constraints.get("action_apply_allowed")) else "allowed"
+            display_text = "display-only" if bool(constraints.get("display_only", True)) else "active"
+            decision_allowed = bool(gate.get("decision_allowed", False))
+            action_blocked = bool(gate.get("action_blocked", True))
+            order_text = "allowed" if decision_allowed else "blocked"
+            action_text = "blocked" if action_blocked else "allowed"
             return (
-                "AI Safety: display-only | "
+                f"AI Safety: {display_text} | "
                 f"order={order_text} | "
                 f"action={action_text} | "
                 f"submitted={submitted}"
