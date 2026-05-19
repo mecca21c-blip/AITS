@@ -32864,6 +32864,21 @@ QLabel[managedMetricText="true"]{
     border:none;
 }
 
+QLabel#aitsRuntimeInputSummary {
+    color: #4b5563;
+    font-size: 11px;
+}
+
+QLabel#aitsRuntimeSafetySummary[runtimeState="safe_blocked"] {
+    color: #6b4f1d;
+    font-size: 11px;
+}
+
+QLabel#aitsRuntimeDecisionGateSummary[runtimeState="blocked"] {
+    color: #7f1d1d;
+    font-size: 11px;
+}
+
 """
 
 
