@@ -11583,6 +11583,63 @@ class MainWindow(QMainWindow):
                 },
             }
 
+    def _build_risk_snapshot_attachment(self):
+        """
+        Build an empty risk snapshot attachment only.
+        This must never calculate risk, connect order blocking, call providers, apply actions, or order.
+        """
+        try:
+            return {
+                "schema": "risk_snapshot_attachment.v1",
+                "attachment_source": "app_gui.risk",
+                "attachment_ready": True,
+                "risk_attached": False,
+                "risk_calc_performed": False,
+                "risk": {
+                    "risk_level": "",
+                    "cooldown_active": False,
+                    "daily_loss_limit": {},
+                    "max_position_limit": {},
+                    "exposure_limit": {},
+                    "emergency_stop": False,
+                    "blocked_reasons": [],
+                    "warnings": [],
+                },
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                    "risk_apply_allowed": False,
+                },
+            }
+        except Exception:
+            return {
+                "schema": "risk_snapshot_attachment.v1",
+                "attachment_source": "app_gui.risk",
+                "attachment_ready": False,
+                "risk_attached": False,
+                "risk_calc_performed": False,
+                "risk": {},
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                    "risk_apply_allowed": False,
+                },
+            }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
