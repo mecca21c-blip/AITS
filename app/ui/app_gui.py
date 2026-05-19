@@ -11933,18 +11933,30 @@ class MainWindow(QMainWindow):
             input_summary = getattr(self, "lbl_runtime_input_summary", None)
             if input_summary is not None and hasattr(input_summary, "setText"):
                 input_summary.setText(self._format_runtime_input_summary_text())
+                try:
+                    input_summary.setProperty("runtimeState", "waiting")
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
             safety_summary = getattr(self, "lbl_runtime_safety_summary", None)
             if safety_summary is not None and hasattr(safety_summary, "setText"):
                 safety_summary.setText(self._format_runtime_safety_summary_text())
+                try:
+                    safety_summary.setProperty("runtimeState", "safe_blocked")
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
             decision_gate = getattr(self, "lbl_runtime_decision_gate_summary", None)
             if decision_gate is not None and hasattr(decision_gate, "setText"):
                 decision_gate.setText(self._format_runtime_decision_gate_summary_text())
+                try:
+                    decision_gate.setProperty("runtimeState", "blocked")
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -26746,18 +26758,21 @@ class MainWindow(QMainWindow):
         self.lbl_runtime_input_summary = QLabel(
             "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
         )
+        self.lbl_runtime_input_summary.setObjectName("aitsRuntimeInputSummary")
         self.lbl_runtime_input_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
         self.lbl_runtime_safety_summary = QLabel(
             "AI Safety: display-only | order=blocked | action=blocked | submitted=0"
         )
+        self.lbl_runtime_safety_summary.setObjectName("aitsRuntimeSafetySummary")
         self.lbl_runtime_safety_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
         self.lbl_runtime_decision_gate_summary = QLabel(
             "AI Decision Gate: allowed=NO | action=blocked | review=required"
         )
+        self.lbl_runtime_decision_gate_summary.setObjectName("aitsRuntimeDecisionGateSummary")
         self.lbl_runtime_decision_gate_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
