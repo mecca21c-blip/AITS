@@ -11857,6 +11857,31 @@ class MainWindow(QMainWindow):
             "chip": chip_text,
         }
 
+    def _format_runtime_input_summary_text(self):
+        """Format runtime attachment state for UI display only."""
+        default_text = "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
+        try:
+            bundle = self._build_runtime_attachment_bundle()
+            if not isinstance(bundle, dict):
+                return default_text
+            summary = bundle.get("summary", {})
+            if not isinstance(summary, dict):
+                return default_text
+
+            def _state(key):
+                return "연결" if bool(summary.get(key)) else "대기"
+
+            return (
+                "AI Inputs: "
+                f"Market={_state('market_data_attached')} | "
+                f"Portfolio={_state('portfolio_attached')} | "
+                f"Strategy={_state('strategy_attached')} | "
+                f"Risk={_state('risk_attached')} | "
+                f"Command={_state('user_command_attached')}"
+            )
+        except Exception:
+            return default_text
+
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
         status = self._build_runtime_ui_snapshot_bundle()
@@ -11911,6 +11936,12 @@ class MainWindow(QMainWindow):
                 chip_text = getattr(chip, "_text", None)
                 if chip_text is not None and hasattr(chip_text, "setText"):
                     chip_text.setText(texts["chip"])
+            except Exception:
+                pass
+            try:
+                input_summary = getattr(self, "lbl_runtime_input_summary", None)
+                if input_summary is not None and hasattr(input_summary, "setText"):
+                    input_summary.setText(self._format_runtime_input_summary_text())
             except Exception:
                 pass
             try:
@@ -26648,6 +26679,12 @@ class MainWindow(QMainWindow):
         _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
+        self.lbl_runtime_input_summary = QLabel(
+            "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
+        )
+        self.lbl_runtime_input_summary.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
         _local_desc = QLabel(
             "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
         )
@@ -26663,6 +26700,7 @@ class MainWindow(QMainWindow):
         _local_btn_row.addWidget(self.btn_engine_local_detail)
         _local_btn_row.addWidget(self.btn_engine_local_ready)
         _local_settings_lay.addWidget(_local_status)
+        _local_settings_lay.addWidget(self.lbl_runtime_input_summary)
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
 
