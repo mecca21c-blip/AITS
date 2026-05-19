@@ -11426,6 +11426,23 @@ class MainWindow(QMainWindow):
                 validation = {}
         except Exception:
             validation = {}
+        attachment_summary = validation.get("attachment_summary", {}) if isinstance(validation.get("attachment_summary"), dict) else {
+            "market_data_attached": False,
+            "portfolio_attached": False,
+            "strategy_attached": False,
+            "risk_attached": False,
+            "user_command_attached": False,
+        }
+        input_context_ready = any(
+            bool(attachment_summary.get(key, False))
+            for key in (
+                "market_data_attached",
+                "portfolio_attached",
+                "strategy_attached",
+                "risk_attached",
+                "user_command_attached",
+            )
+        )
         return {
             "schema": "local_runtime_decision_safety_gate.v1",
             "gate_source": "app_gui.runtime",
@@ -11435,12 +11452,20 @@ class MainWindow(QMainWindow):
             "apply_allowed": False,
             "human_review_required": True,
             "validation": validation,
+            "attachment_summary": {
+                "market_data_attached": bool(attachment_summary.get("market_data_attached", False)),
+                "portfolio_attached": bool(attachment_summary.get("portfolio_attached", False)),
+                "strategy_attached": bool(attachment_summary.get("strategy_attached", False)),
+                "risk_attached": bool(attachment_summary.get("risk_attached", False)),
+                "user_command_attached": bool(attachment_summary.get("user_command_attached", False)),
+            },
             "decision": {
                 "action": "none",
                 "confidence": 0.0,
                 "confidence_safe": False,
                 "risk_safe": False,
                 "reason": "not_executed",
+                "input_context_ready": input_context_ready,
             },
             "constraints": {
                 "display_only": True,
