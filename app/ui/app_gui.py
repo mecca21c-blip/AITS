@@ -11919,7 +11919,7 @@ class MainWindow(QMainWindow):
             if not isinstance(gate, dict):
                 return default_text
             allowed_text = "YES" if bool(gate.get("decision_allowed")) else "NO"
-            action_text = "blocked" if bool(gate.get("action_blocked", True)) else "open"
+            action_text = "blocked" if bool(gate.get("action_blocked", True)) else "ready"
             review_text = "required" if bool(gate.get("human_review_required", True)) else "optional"
             return (
                 "AI Decision Gate: "
