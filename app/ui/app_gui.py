@@ -11696,6 +11696,82 @@ class MainWindow(QMainWindow):
                 },
             }
 
+    def _build_runtime_attachment_bundle(self):
+        """
+        Build a read-only runtime attachment bundle only.
+        This must never fetch data, build prompts, call inference/providers, apply actions, or order.
+        """
+        try:
+            market = self._build_market_snapshot_attachment()
+            portfolio = self._build_portfolio_snapshot_attachment()
+            strategy = self._build_strategy_snapshot_attachment()
+            risk = self._build_risk_snapshot_attachment()
+            user_command = self._build_user_command_attachment()
+
+            return {
+                "schema": "runtime_attachment_bundle.v1",
+                "bundle_source": "app_gui.runtime",
+                "bundle_ready": True,
+                "attachments_merged": True,
+                "market": market,
+                "portfolio": portfolio,
+                "strategy": strategy,
+                "risk": risk,
+                "user_command": user_command,
+                "summary": {
+                    "market_data_attached": False,
+                    "portfolio_attached": False,
+                    "strategy_attached": False,
+                    "risk_attached": False,
+                    "user_command_attached": False,
+                },
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                    "prompt_attach_allowed": False,
+                    "inference_attach_allowed": False,
+                },
+            }
+        except Exception:
+            return {
+                "schema": "runtime_attachment_bundle.v1",
+                "bundle_source": "app_gui.runtime",
+                "bundle_ready": False,
+                "attachments_merged": False,
+                "market": {},
+                "portfolio": {},
+                "strategy": {},
+                "risk": {},
+                "user_command": {},
+                "summary": {
+                    "market_data_attached": False,
+                    "portfolio_attached": False,
+                    "strategy_attached": False,
+                    "risk_attached": False,
+                    "user_command_attached": False,
+                },
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                    "prompt_attach_allowed": False,
+                    "inference_attach_allowed": False,
+                },
+            }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
