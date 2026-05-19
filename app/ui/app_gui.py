@@ -11908,6 +11908,25 @@ class MainWindow(QMainWindow):
         except Exception:
             return default_text
 
+    def _format_runtime_decision_gate_summary_text(self):
+        """Format decision gate state for UI display only."""
+        default_text = "AI Decision Gate: allowed=NO | action=blocked | review=required"
+        try:
+            gate = self._build_local_runtime_decision_safety_gate()
+            if not isinstance(gate, dict):
+                return default_text
+            allowed_text = "YES" if bool(gate.get("decision_allowed")) else "NO"
+            action_text = "blocked" if bool(gate.get("action_blocked", True)) else "open"
+            review_text = "required" if bool(gate.get("human_review_required", True)) else "optional"
+            return (
+                "AI Decision Gate: "
+                f"allowed={allowed_text} | "
+                f"action={action_text} | "
+                f"review={review_text}"
+            )
+        except Exception:
+            return default_text
+
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
         status = self._build_runtime_ui_snapshot_bundle()
@@ -11974,6 +11993,12 @@ class MainWindow(QMainWindow):
                 safety_summary = getattr(self, "lbl_runtime_safety_summary", None)
                 if safety_summary is not None and hasattr(safety_summary, "setText"):
                     safety_summary.setText(self._format_runtime_safety_summary_text())
+            except Exception:
+                pass
+            try:
+                decision_gate = getattr(self, "lbl_runtime_decision_gate_summary", None)
+                if decision_gate is not None and hasattr(decision_gate, "setText"):
+                    decision_gate.setText(self._format_runtime_decision_gate_summary_text())
             except Exception:
                 pass
             try:
@@ -26723,6 +26748,12 @@ class MainWindow(QMainWindow):
         self.lbl_runtime_safety_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
+        self.lbl_runtime_decision_gate_summary = QLabel(
+            "AI Decision Gate: allowed=NO | action=blocked | review=required"
+        )
+        self.lbl_runtime_decision_gate_summary.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
         _local_desc = QLabel(
             "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
         )
@@ -26740,6 +26771,7 @@ class MainWindow(QMainWindow):
         _local_settings_lay.addWidget(_local_status)
         _local_settings_lay.addWidget(self.lbl_runtime_input_summary)
         _local_settings_lay.addWidget(self.lbl_runtime_safety_summary)
+        _local_settings_lay.addWidget(self.lbl_runtime_decision_gate_summary)
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
 
