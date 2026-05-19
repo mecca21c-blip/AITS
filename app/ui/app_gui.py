@@ -11215,6 +11215,8 @@ class MainWindow(QMainWindow):
                 inference_context = {}
         except Exception:
             inference_context = {}
+        attachments = inference_context.get("attachments", {}) if isinstance(inference_context.get("attachments"), dict) else {}
+        attachment_summary = attachments.get("summary", {}) if isinstance(attachments.get("summary"), dict) else {}
         selected_model = str(inference_context.get("selected_model") or "").strip() or "mistral:latest"
         return {
             "schema": "local_runtime_prompt_context.v1",
@@ -11225,6 +11227,7 @@ class MainWindow(QMainWindow):
             "runtime": "ollama",
             "selected_model": selected_model,
             "inference_context": inference_context,
+            "attachments": attachments,
             "role": {
                 "system_role": "AITS BASIC local runtime analyst",
                 "task": "observe_and_explain_runtime_state",
@@ -11232,11 +11235,11 @@ class MainWindow(QMainWindow):
             },
             "prompt_sections": {
                 "runtime_state": True,
-                "market_data": False,
-                "portfolio": False,
-                "strategy": False,
-                "risk": False,
-                "user_command": False,
+                "market_data": bool(attachment_summary.get("market_data_attached", False)),
+                "portfolio": bool(attachment_summary.get("portfolio_attached", False)),
+                "strategy": bool(attachment_summary.get("strategy_attached", False)),
+                "risk": bool(attachment_summary.get("risk_attached", False)),
+                "user_command": bool(attachment_summary.get("user_command_attached", False)),
             },
             "constraints": {
                 "display_only": True,
@@ -11262,6 +11265,14 @@ class MainWindow(QMainWindow):
                 prompt_context = {}
         except Exception:
             prompt_context = {}
+        attachments = prompt_context.get("attachments", {}) if isinstance(prompt_context.get("attachments"), dict) else {}
+        attachment_summary = attachments.get("summary", {}) if isinstance(attachments.get("summary"), dict) else {
+            "market_data_attached": False,
+            "portfolio_attached": False,
+            "strategy_attached": False,
+            "risk_attached": False,
+            "user_command_attached": False,
+        }
         selected_model = str(prompt_context.get("selected_model") or "").strip() or "mistral:latest"
         return {
             "schema": "local_runtime_inference_envelope.v1",
@@ -11272,6 +11283,13 @@ class MainWindow(QMainWindow):
             "runtime": "ollama",
             "selected_model": selected_model,
             "prompt_context": prompt_context,
+            "attachment_summary": {
+                "market_data_attached": bool(attachment_summary.get("market_data_attached", False)),
+                "portfolio_attached": bool(attachment_summary.get("portfolio_attached", False)),
+                "strategy_attached": bool(attachment_summary.get("strategy_attached", False)),
+                "risk_attached": bool(attachment_summary.get("risk_attached", False)),
+                "user_command_attached": bool(attachment_summary.get("user_command_attached", False)),
+            },
             "transport": {
                 "endpoint_type": "ollama_local",
                 "method": "none",
@@ -11354,12 +11372,27 @@ class MainWindow(QMainWindow):
                 response_envelope = {}
         except Exception:
             response_envelope = {}
+        inference_envelope = response_envelope.get("inference_envelope", {}) if isinstance(response_envelope.get("inference_envelope"), dict) else {}
+        attachment_summary = inference_envelope.get("attachment_summary", {}) if isinstance(inference_envelope.get("attachment_summary"), dict) else {
+            "market_data_attached": False,
+            "portfolio_attached": False,
+            "strategy_attached": False,
+            "risk_attached": False,
+            "user_command_attached": False,
+        }
         return {
             "schema": "local_runtime_response_validation.v1",
             "validation_source": "app_gui.runtime",
             "validation_ready": True,
             "validation_executed": False,
             "response_envelope": response_envelope,
+            "attachment_summary": {
+                "market_data_attached": bool(attachment_summary.get("market_data_attached", False)),
+                "portfolio_attached": bool(attachment_summary.get("portfolio_attached", False)),
+                "strategy_attached": bool(attachment_summary.get("strategy_attached", False)),
+                "risk_attached": bool(attachment_summary.get("risk_attached", False)),
+                "user_command_attached": bool(attachment_summary.get("user_command_attached", False)),
+            },
             "result": {
                 "schema_valid": False,
                 "quality_valid": False,
