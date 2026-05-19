@@ -11528,6 +11528,61 @@ class MainWindow(QMainWindow):
                 },
             }
 
+    def _build_strategy_snapshot_attachment(self):
+        """
+        Build an empty strategy snapshot attachment only.
+        This must never load settings, calculate strategy, call providers, apply actions, or order.
+        """
+        try:
+            return {
+                "schema": "strategy_snapshot_attachment.v1",
+                "attachment_source": "app_gui.strategy",
+                "attachment_ready": True,
+                "strategy_attached": False,
+                "strategy_load_performed": False,
+                "strategy": {
+                    "mode": "",
+                    "aggressiveness": "",
+                    "risk_profile": "",
+                    "watchlist": [],
+                    "whitelist": [],
+                    "blacklist": [],
+                    "rules": {},
+                    "parameters": {},
+                },
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                },
+            }
+        except Exception:
+            return {
+                "schema": "strategy_snapshot_attachment.v1",
+                "attachment_source": "app_gui.strategy",
+                "attachment_ready": False,
+                "strategy_attached": False,
+                "strategy_load_performed": False,
+                "strategy": {},
+                "constraints": {
+                    "read_only": True,
+                    "display_only": True,
+                    "shadow_only": True,
+                    "suggestion_only": True,
+                    "real_order": False,
+                    "submitted": 0,
+                    "api_call_allowed": False,
+                    "order_call_allowed": False,
+                    "action_apply_allowed": False,
+                },
+            }
+
     def _format_runtime_ui_snapshot_text(self, snapshot):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
