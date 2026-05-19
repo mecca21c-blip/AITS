@@ -11927,6 +11927,27 @@ class MainWindow(QMainWindow):
         except Exception:
             return default_text
 
+    def _sync_runtime_summary_labels(self):
+        """Refresh runtime summary labels only; no inference, action, or order calls."""
+        try:
+            input_summary = getattr(self, "lbl_runtime_input_summary", None)
+            if input_summary is not None and hasattr(input_summary, "setText"):
+                input_summary.setText(self._format_runtime_input_summary_text())
+        except Exception:
+            pass
+        try:
+            safety_summary = getattr(self, "lbl_runtime_safety_summary", None)
+            if safety_summary is not None and hasattr(safety_summary, "setText"):
+                safety_summary.setText(self._format_runtime_safety_summary_text())
+        except Exception:
+            pass
+        try:
+            decision_gate = getattr(self, "lbl_runtime_decision_gate_summary", None)
+            if decision_gate is not None and hasattr(decision_gate, "setText"):
+                decision_gate.setText(self._format_runtime_decision_gate_summary_text())
+        except Exception:
+            pass
+
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
         status = self._build_runtime_ui_snapshot_bundle()
@@ -11984,21 +12005,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
-                input_summary = getattr(self, "lbl_runtime_input_summary", None)
-                if input_summary is not None and hasattr(input_summary, "setText"):
-                    input_summary.setText(self._format_runtime_input_summary_text())
-            except Exception:
-                pass
-            try:
-                safety_summary = getattr(self, "lbl_runtime_safety_summary", None)
-                if safety_summary is not None and hasattr(safety_summary, "setText"):
-                    safety_summary.setText(self._format_runtime_safety_summary_text())
-            except Exception:
-                pass
-            try:
-                decision_gate = getattr(self, "lbl_runtime_decision_gate_summary", None)
-                if decision_gate is not None and hasattr(decision_gate, "setText"):
-                    decision_gate.setText(self._format_runtime_decision_gate_summary_text())
+                self._sync_runtime_summary_labels()
             except Exception:
                 pass
             try:
