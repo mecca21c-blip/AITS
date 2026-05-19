@@ -11165,6 +11165,13 @@ class MainWindow(QMainWindow):
                 inspector = {}
         except Exception:
             inspector = {}
+        try:
+            attachments = self._build_runtime_attachment_bundle()
+            if not isinstance(attachments, dict):
+                attachments = {}
+        except Exception:
+            attachments = {}
+        attachment_summary = attachments.get("summary", {}) if isinstance(attachments.get("summary"), dict) else {}
         selected_model = str(runtime_context.get("selected_model") or "").strip() or "mistral:latest"
         return {
             "schema": "local_runtime_inference_context.v1",
@@ -11177,12 +11184,13 @@ class MainWindow(QMainWindow):
             "auto_call_allowed": False,
             "runtime_context": runtime_context,
             "inspector": inspector,
+            "attachments": attachments,
             "inputs": {
-                "market_data_attached": False,
-                "portfolio_attached": False,
-                "strategy_attached": False,
-                "risk_attached": False,
-                "user_command_attached": False,
+                "market_data_attached": bool(attachment_summary.get("market_data_attached", False)),
+                "portfolio_attached": bool(attachment_summary.get("portfolio_attached", False)),
+                "strategy_attached": bool(attachment_summary.get("strategy_attached", False)),
+                "risk_attached": bool(attachment_summary.get("risk_attached", False)),
+                "user_command_attached": bool(attachment_summary.get("user_command_attached", False)),
             },
             "constraints": {
                 "display_only": True,
