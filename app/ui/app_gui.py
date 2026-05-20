@@ -11649,11 +11649,47 @@ class MainWindow(QMainWindow):
         This must never load settings, calculate strategy, call providers, apply actions, or order.
         """
         try:
+            strategy_attached = False
+            for attr_name in (
+                "strategy_ready",
+                "strategy_loaded",
+                "config_ready",
+                "_strategy_ready",
+                "_strategy_loaded",
+                "_config_ready",
+            ):
+                try:
+                    if bool(getattr(self, attr_name, False)):
+                        strategy_attached = True
+                        break
+                except Exception:
+                    pass
+            for attr_name in (
+                "strategy_config",
+                "strategy_settings",
+                "current_strategy",
+                "watchlist",
+                "whitelist",
+                "blacklist",
+                "_strategy_config",
+                "_strategy_settings",
+                "_current_strategy",
+                "_watchlist",
+                "_whitelist",
+                "_blacklist",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (dict, list)) and len(value) > 0:
+                        strategy_attached = True
+                        break
+                except Exception:
+                    pass
             return {
                 "schema": "strategy_snapshot_attachment.v1",
                 "attachment_source": "app_gui.strategy",
                 "attachment_ready": True,
-                "strategy_attached": False,
+                "strategy_attached": strategy_attached,
                 "strategy_load_performed": False,
                 "strategy": {
                     "mode": "",
