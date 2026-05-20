@@ -11740,21 +11740,68 @@ class MainWindow(QMainWindow):
         This must never calculate risk, connect order blocking, call providers, apply actions, or order.
         """
         try:
+            risk_attached = False
+            cooldown_active = False
+            emergency_stop = False
+            blocked_reasons = []
+            warnings = []
+            for attr_name in (
+                "risk_ready",
+                "risk_loaded",
+                "cooldown_active",
+                "emergency_stop",
+                "_risk_ready",
+                "_risk_loaded",
+                "_cooldown_active",
+                "_emergency_stop",
+            ):
+                try:
+                    value = getattr(self, attr_name, False)
+                    if bool(value):
+                        risk_attached = True
+                    if attr_name in ("cooldown_active", "_cooldown_active"):
+                        cooldown_active = bool(value)
+                    if attr_name in ("emergency_stop", "_emergency_stop"):
+                        emergency_stop = bool(value)
+                except Exception:
+                    pass
+            for attr_name in (
+                "risk_state",
+                "risk_config",
+                "risk_limits",
+                "blocked_reasons",
+                "risk_warnings",
+                "_risk_state",
+                "_risk_config",
+                "_risk_limits",
+                "_blocked_reasons",
+                "_risk_warnings",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (dict, list)) and len(value) > 0:
+                        risk_attached = True
+                    if attr_name in ("blocked_reasons", "_blocked_reasons") and isinstance(value, list):
+                        blocked_reasons = list(value)
+                    if attr_name in ("risk_warnings", "_risk_warnings") and isinstance(value, list):
+                        warnings = list(value)
+                except Exception:
+                    pass
             return {
                 "schema": "risk_snapshot_attachment.v1",
                 "attachment_source": "app_gui.risk",
                 "attachment_ready": True,
-                "risk_attached": False,
+                "risk_attached": risk_attached,
                 "risk_calc_performed": False,
                 "risk": {
                     "risk_level": "",
-                    "cooldown_active": False,
+                    "cooldown_active": cooldown_active,
                     "daily_loss_limit": {},
                     "max_position_limit": {},
                     "exposure_limit": {},
-                    "emergency_stop": False,
-                    "blocked_reasons": [],
-                    "warnings": [],
+                    "emergency_stop": emergency_stop,
+                    "blocked_reasons": blocked_reasons,
+                    "warnings": warnings,
                 },
                 "constraints": {
                     "read_only": True,
