@@ -11487,11 +11487,25 @@ class MainWindow(QMainWindow):
         This must never fetch market data, call Upbit/provider APIs, apply actions, or order.
         """
         try:
+            market_data_attached = False
+            for attr_name in (
+                "exchange_connected",
+                "upbit_connected",
+                "is_exchange_connected",
+                "_exchange_connected",
+                "_upbit_connected",
+            ):
+                try:
+                    if bool(getattr(self, attr_name, False)):
+                        market_data_attached = True
+                        break
+                except Exception:
+                    pass
             return {
                 "schema": "market_snapshot_attachment.v1",
                 "attachment_source": "app_gui.market",
                 "attachment_ready": True,
-                "market_data_attached": False,
+                "market_data_attached": market_data_attached,
                 "data_fetch_performed": False,
                 "provider": "upbit",
                 "market": {
