@@ -11844,14 +11844,46 @@ class MainWindow(QMainWindow):
         This must never parse/execute commands, call providers, apply actions, or order.
         """
         try:
+            user_command_attached = False
+            raw_text = ""
+            for attr_name in (
+                "user_command",
+                "current_user_command",
+                "ai_user_command",
+                "runtime_user_command",
+                "_user_command",
+                "_current_user_command",
+                "_ai_user_command",
+                "_runtime_user_command",
+            ):
+                try:
+                    value = getattr(self, attr_name, "")
+                    if isinstance(value, str) and value.strip():
+                        user_command_attached = True
+                        if not raw_text:
+                            raw_text = value.strip()[:120]
+                except Exception:
+                    pass
+            for attr_name in (
+                "user_command_ready",
+                "command_ready",
+                "_user_command_ready",
+                "_command_ready",
+            ):
+                try:
+                    if bool(getattr(self, attr_name, False)):
+                        user_command_attached = True
+                        break
+                except Exception:
+                    pass
             return {
                 "schema": "user_command_attachment.v1",
                 "attachment_source": "app_gui.user_command",
                 "attachment_ready": True,
-                "user_command_attached": False,
+                "user_command_attached": user_command_attached,
                 "command_parse_performed": False,
                 "command": {
-                    "raw_text": "",
+                    "raw_text": raw_text,
                     "normalized_text": "",
                     "intent": "",
                     "target": "",
