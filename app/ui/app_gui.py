@@ -11557,11 +11557,46 @@ class MainWindow(QMainWindow):
         This must never fetch balances/accounts, call Upbit/provider APIs, apply actions, or order.
         """
         try:
+            portfolio_attached = False
+            position_count = 0
+            for attr_name in (
+                "portfolio_ready",
+                "balance_ready",
+                "account_ready",
+                "_portfolio_ready",
+                "_balance_ready",
+                "_account_ready",
+            ):
+                try:
+                    if bool(getattr(self, attr_name, False)):
+                        portfolio_attached = True
+                        break
+                except Exception:
+                    pass
+            for attr_name in (
+                "current_positions",
+                "positions",
+                "holdings",
+                "balances",
+                "_current_positions",
+                "_positions",
+                "_holdings",
+                "_balances",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict)):
+                        count = len(value)
+                        if count > 0:
+                            portfolio_attached = True
+                            position_count = max(position_count, count)
+                except Exception:
+                    pass
             return {
                 "schema": "portfolio_snapshot_attachment.v1",
                 "attachment_source": "app_gui.portfolio",
                 "attachment_ready": True,
-                "portfolio_attached": False,
+                "portfolio_attached": portfolio_attached,
                 "data_fetch_performed": False,
                 "provider": "upbit",
                 "portfolio": {
@@ -11569,7 +11604,7 @@ class MainWindow(QMainWindow):
                     "total_krw": 0.0,
                     "cash_krw": 0.0,
                     "positions": [],
-                    "position_count": 0,
+                    "position_count": position_count,
                     "exposure": {},
                     "pnl_snapshot": {},
                     "allocation_snapshot": {},
