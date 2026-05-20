@@ -14,7 +14,7 @@ from app.services.ai_engine_provider import (
 )
 from app.services.ai_provider_comparison_stats import AIProviderComparisonStats
 
-ROUTER_VERSION = "v2.7"
+ROUTER_VERSION = "v2.8"
 AI_VERIFICATION_SUGGESTIONS = {
     "confirm",
     "override_wait",
@@ -1602,6 +1602,85 @@ class DecisionRouter:
 
         return "local"
 
+    def _build_ai_verification_payload_preview(self, context: dict) -> dict:
+        """
+        Build a compact OpenAI/Gemini verification payload preview.
+        This is for log validation only and must never include secrets, keys, raw dumps, or full prompts.
+        """
+        try:
+            context = context or {}
+
+            return {
+                "task": "verify_trading_decision",
+                "schema": "aits_ai_verification_preview.v1",
+                "router_version": ROUTER_VERSION,
+                "selected_provider": context.get("selected_provider", "local"),
+                "decision": {
+                    "action": context.get("final_action", "none"),
+                    "confidence": context.get("final_confidence", 0.0),
+                },
+                "router_signals": {
+                    "fusion_action": context.get("fusion_action", "none"),
+                    "performance_status": context.get("performance_status", "unknown"),
+                    "performance_multiplier": context.get("performance_multiplier", 1.0),
+                    "soft_candidate": context.get("soft_candidate", "none"),
+                    "soft_eligible": context.get("soft_eligible", False),
+                },
+                "allowed_outputs": [
+                    "confirm",
+                    "override_wait",
+                    "override_buy",
+                    "override_reduce",
+                    "override_sell",
+                    "reject_signal",
+                ],
+                "constraints": {
+                    "no_order_execution": True,
+                    "suggestion_only": True,
+                    "final_action_unchanged": True,
+                },
+            }
+        except Exception:
+            return {
+                "task": "verify_trading_decision",
+                "schema": "aits_ai_verification_preview.v1",
+                "router_version": ROUTER_VERSION,
+                "selected_provider": "local",
+                "error": "payload_preview_build_failed",
+            }
+
+    def _log_ai_payload_preview(self, provider: str, payload: dict) -> None:
+        """
+        Log a compact one-line payload preview.
+        This must never print full JSON, secrets, raw responses, or full prompts.
+        """
+        try:
+            provider = self._normalize_ai_verification_provider(provider)
+            payload = payload if isinstance(payload, dict) else {}
+            decision = payload.get("decision", {}) if isinstance(payload.get("decision"), dict) else {}
+            signals = payload.get("router_signals", {}) if isinstance(payload.get("router_signals"), dict) else {}
+
+            self._safe_log_info(
+                "[AITS][AIPayloadPreview] "
+                f"provider={provider} | "
+                f"task={payload.get('task')} | "
+                f"schema={payload.get('schema')} | "
+                f"action={decision.get('action')} | "
+                f"confidence={decision.get('confidence')} | "
+                f"fusion={signals.get('fusion_action')} | "
+                f"perf={signals.get('performance_status')} | "
+                f"soft={signals.get('soft_candidate')} | "
+                f"eligible={signals.get('soft_eligible')} | "
+                "suggestion_only=True"
+            )
+        except Exception as exc:
+            try:
+                self._safe_log_warning(
+                    f"[AITS][AIPayloadPreview] failed | error={type(exc).__name__}"
+                )
+            except Exception:
+                pass
+
     def _resolve_ai_verification_provider(self, raw=None):
         """
         Decision Router v2.6
@@ -2229,6 +2308,9 @@ class DecisionRouter:
                 selected_provider=selected_provider,
             )
 
+            payload_preview = self._build_ai_verification_payload_preview(ai_verification_context)
+            self._log_ai_payload_preview(selected_provider, payload_preview)
+
             ai_verification_suggestion = self._run_ai_verification_shadow(
                 ai_verification_provider,
                 ai_verification_context,
@@ -2316,6 +2398,7 @@ class DecisionRouter:
                 }
                 raw_meta["ai_suggestion"] = ai_suggestion_summary
                 raw_meta["ai_verification_context"] = ai_verification_context
+                raw_meta["ai_verification_payload_preview"] = payload_preview
                 raw_meta["ai_verification"] = ai_verification_suggestion
                 raw_meta["ai_verification_applied"] = False
                 raw_meta["ai_verification_safety"] = "suggestion_only_no_action_change"
