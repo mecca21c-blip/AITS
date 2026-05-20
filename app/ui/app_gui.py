@@ -10210,6 +10210,12 @@ class MainWindow(QMainWindow):
             self._update_aits_briefing()
         except Exception:
             pass
+        try:
+            provider = str(getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
+            if provider in ("local", "basic", "ollama"):
+                self._sync_runtime_summary_labels()
+        except Exception:
+            pass
 
     def _set_ai_provider_ui_active(self, provider: str):
         """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화."""
