@@ -12027,6 +12027,36 @@ class MainWindow(QMainWindow):
             "chip": chip_text,
         }
 
+    def _format_runtime_live_indicator_text(self):
+        """Format the current BASIC runtime snapshot for UI display only."""
+        default_text = (
+            "AI Runtime: CHECK | BASIC(Local) | Ollama | "
+            "mistral:latest | display-only"
+        )
+        try:
+            snapshot = self._build_runtime_ui_snapshot_bundle()
+            if not isinstance(snapshot, dict):
+                return default_text
+            selected_model = (
+                str(snapshot.get("selected_model") or "").strip()
+                or "mistral:latest"
+            )
+            runtime_ready = bool(snapshot.get("runtime_ready"))
+            model_ready = bool(snapshot.get("model_ready"))
+            degraded = bool(snapshot.get("degraded"))
+            if degraded:
+                state = "DEGRADED"
+            elif runtime_ready and model_ready:
+                state = "READY"
+            else:
+                state = "CHECK"
+            return (
+                f"AI Runtime: {state} | BASIC(Local) | Ollama | "
+                f"{selected_model} | display-only"
+            )
+        except Exception:
+            return default_text
+
     def _format_runtime_input_summary_text(self):
         """Format runtime attachment state for UI display only."""
         default_text = "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
@@ -12102,6 +12132,12 @@ class MainWindow(QMainWindow):
 
     def _sync_runtime_summary_labels(self):
         """Refresh runtime summary labels only; no inference, action, or order calls."""
+        try:
+            live_indicator = getattr(self, "lbl_runtime_live_indicator", None)
+            if live_indicator is not None and hasattr(live_indicator, "setText"):
+                live_indicator.setText(self._format_runtime_live_indicator_text())
+        except Exception:
+            pass
         try:
             input_summary = getattr(self, "lbl_runtime_input_summary", None)
             if input_summary is not None and hasattr(input_summary, "setText"):
@@ -26928,6 +26964,13 @@ class MainWindow(QMainWindow):
         _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
+        self.lbl_runtime_live_indicator = QLabel(
+            "AI Runtime: READY | BASIC(Local) | Ollama | mistral:latest | display-only"
+        )
+        self.lbl_runtime_live_indicator.setObjectName("aitsRuntimeLiveIndicator")
+        self.lbl_runtime_live_indicator.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #1f2937;"
+        )
         self.lbl_runtime_input_summary = QLabel(
             "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
         )
@@ -26964,6 +27007,7 @@ class MainWindow(QMainWindow):
         _local_btn_row.addWidget(self.btn_engine_local_detail)
         _local_btn_row.addWidget(self.btn_engine_local_ready)
         _local_settings_lay.addWidget(_local_status)
+        _local_settings_lay.addWidget(self.lbl_runtime_live_indicator)
         _local_settings_lay.addWidget(self.lbl_runtime_input_summary)
         _local_settings_lay.addWidget(self.lbl_runtime_safety_summary)
         _local_settings_lay.addWidget(self.lbl_runtime_decision_gate_summary)
@@ -33035,6 +33079,12 @@ QLabel[managedMetricText="true"]{
     font-weight:700;
     background:transparent;
     border:none;
+}
+
+QLabel#aitsRuntimeLiveIndicator {
+    color: #1f2937;
+    font-size: 12px;
+    font-weight: 700;
 }
 
 QLabel#aitsRuntimeInputSummary {
