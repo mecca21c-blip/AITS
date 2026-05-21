@@ -1,6 +1,7 @@
 import os
 import sys
 import logging
+import threading
 
 try:
     from dotenv import load_dotenv
@@ -129,8 +130,155 @@ def init_aits(app_context: Dict[str, Any]) -> AITSOrchestrator:
     return orchestrator
 
 
+def _install_smoke_exit_hook(logger: logging.Logger, timeout_ms: int = 4000) -> None:
+    try:
+        from PySide6.QtCore import QTimer
+        from PySide6.QtWidgets import QApplication, QDialog
+    except Exception:
+        logger.exception("[AITS][SmokeExit] hook_import_failed")
+        return
+
+    try:
+        original_exec = QApplication.exec
+        if getattr(original_exec, "_aits_smoke_exit_wrapped", False):
+            return
+        original_dialog_exec = QDialog.exec
+        smoke_state = {"done": False}
+
+        def _flush_logs():
+            try:
+                for handler in logger.handlers:
+                    try:
+                        handler.flush()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        def _mark_quit_logged():
+            if smoke_state.get("done"):
+                return False
+            smoke_state["done"] = True
+            try:
+                logger.info("[AITS][SmokeExit] quit")
+                _flush_logs()
+            except Exception:
+                pass
+            return True
+
+        def _force_quit():
+            if _mark_quit_logged():
+                os._exit(0)
+
+        logger.info("[AITS][SmokeExit] scheduled")
+        _flush_logs()
+        watchdog = threading.Timer(max(float(timeout_ms) / 1000.0, 1.0), _force_quit)
+        watchdog.daemon = True
+        watchdog.start()
+
+        def _smoke_exec(self, *args, **kwargs):
+            try:
+                def _quit():
+                    if _mark_quit_logged():
+                        try:
+                            app = QApplication.instance()
+                            if app is not None:
+                                app.quit()
+                        except Exception:
+                            pass
+
+                QTimer.singleShot(int(timeout_ms), _quit)
+            except Exception:
+                logger.exception("[AITS][SmokeExit] schedule_failed")
+            return original_exec(self, *args, **kwargs)
+
+        def _smoke_dialog_exec(self, *args, **kwargs):
+            try:
+                QTimer.singleShot(500, self.accept)
+            except Exception:
+                pass
+            return original_dialog_exec(self, *args, **kwargs)
+
+        setattr(_smoke_exec, "_aits_smoke_exit_wrapped", True)
+        setattr(_smoke_dialog_exec, "_aits_smoke_exit_wrapped", True)
+        QApplication.exec = _smoke_exec
+        QDialog.exec = _smoke_dialog_exec
+    except Exception:
+        logger.exception("[AITS][SmokeExit] hook_failed")
+
+
+def _install_smoke_runtime_stubs(logger: logging.Logger) -> None:
+    try:
+        class _SmokeResponse:
+            status_code = 200
+            text = "[]"
+
+            def json(self):
+                return []
+
+            def raise_for_status(self):
+                return None
+
+        def _empty_list(*args, **kwargs):
+            return []
+
+        def _empty_dict(*args, **kwargs):
+            return {}
+
+        def _holdings_stub(*args, **kwargs):
+            return {"ok": True, "items": [], "krw": 0.0, "err": ""}
+
+        try:
+            import requests
+
+            requests.get = lambda *args, **kwargs: _SmokeResponse()
+        except Exception:
+            pass
+
+        try:
+            from app.services import market_feed
+
+            market_feed.get_markets = _empty_list
+            market_feed.get_markets_with_names = _empty_list
+            market_feed.get_tickers = _empty_dict
+            market_feed.get_top_markets_by_volume = _empty_list
+            market_feed.get_candle_minute = _empty_list
+        except Exception:
+            pass
+
+        try:
+            from app.services import upbit
+
+            upbit.get_tickers = _empty_list
+            upbit.get_top_markets_by_volume = _empty_list
+            upbit.get_all_markets = _empty_list
+        except Exception:
+            pass
+
+        try:
+            from app.services import holdings_service
+
+            holdings_service.fetch_live_holdings = _holdings_stub
+        except Exception:
+            pass
+
+        try:
+            from app.services.order_service import OrderService
+
+            OrderService.fetch_accounts = lambda self: []
+        except Exception:
+            pass
+
+        logger.info("[AITS][SmokeExit] runtime_stubs_installed")
+    except Exception:
+        logger.exception("[AITS][SmokeExit] runtime_stubs_failed")
+
+
 def launch_ui(app_context: Dict[str, Any]) -> int:
     logger = app_context["logger"]
+    if app_context.get("smoke_exit"):
+        _install_smoke_runtime_stubs(logger)
+        _install_smoke_exit_hook(logger)
     try:
         from app.ui.main_window import main as ui_main
     except Exception:
@@ -163,6 +311,8 @@ def main() -> int:
     run_mode = "ui"
     if "--headless" in sys.argv:
         run_mode = "headless"
+    elif "--smoke-exit" in sys.argv:
+        run_mode = "smoke_exit"
     logger: Optional[logging.Logger] = None
     try:
         paths = resolve_paths()
@@ -176,6 +326,7 @@ def main() -> int:
             logger,
             run_mode,
         )
+        app_context["smoke_exit"] = run_mode == "smoke_exit"
         init_aits(app_context)
         if run_mode == "headless":
             return run_headless(app_context)
