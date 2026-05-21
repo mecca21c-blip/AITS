@@ -4427,6 +4427,12 @@ class MainWindow(QMainWindow):
 
         try:
             log.info(f"[ACCT] start reason={reason}")
+            if getattr(self, "_startup_lazy_loading", False) and str(reason) in (
+                "boot",
+                "startup",
+            ):
+                self._log_startup_lazy_load_skip_once()
+                return
             
             # ✅ P0-KEY-SSOT-AUDIT: SSOT 스냅샷 로그
             # settings 소스 통일: self._settings 우선
@@ -4700,6 +4706,8 @@ class MainWindow(QMainWindow):
         self._market_sort_order = "desc"   # desc | asc
         self._polling_started = False
         self._poll_timer = None  # 타이머 참조 저장용
+        self._startup_lazy_loading = True
+        self._startup_lazy_load_skip_logged = False
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
         self._geometry_restored = False
         
@@ -4742,6 +4750,12 @@ class MainWindow(QMainWindow):
             self._ui_built = True
             self._log.info(f"[BOOT-GUARD] enter fn=_build_ui count=1")
             self._build_ui()
+        try:
+            QTimer.singleShot(
+                1500, lambda: setattr(self, "_startup_lazy_loading", False)
+            )
+        except Exception:
+            self._startup_lazy_loading = False
 
         # ✅ 폴링 메서드 정의 (인스턴스 생성 후 보장)
         def start_polling(self):
@@ -4906,6 +4920,17 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log.warning("snapshot save failed: %s", e)
 
+    def _log_startup_lazy_load_skip_once(self):
+        try:
+            if getattr(self, "_startup_lazy_load_skip_logged", False):
+                return
+            self._startup_lazy_load_skip_logged = True
+            logging.getLogger(__name__).info(
+                "[AITS][StartupLazyLoad] skipped initial holdings/account fetch"
+            )
+        except Exception:
+            pass
+
     # ---------- Utility: Upbit로 총자산/주문가능 계산 ----------
     def _compute_upbit_totals(self) -> tuple[float, float]:
         """
@@ -4916,6 +4941,11 @@ class MainWindow(QMainWindow):
         - 주문가능(available_krw): KRW balance - KRW locked
         - 네트워크/인증 오류 등으로 계산 실패 시: **직전 정상값**을 그대로 반환 (0으로 떨어지지 않게)
         """
+        if getattr(self, "_startup_lazy_loading", False):
+            self._log_startup_lazy_load_skip_once()
+            if self._last_total_asset is not None:
+                return self._last_total_asset, self._last_available_krw or 0.0
+            return 0.0, 0.0
         try:
             rows = svc_order.fetch_accounts() or []
         except Exception as e:
