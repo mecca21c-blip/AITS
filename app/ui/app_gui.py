@@ -12057,6 +12057,22 @@ class MainWindow(QMainWindow):
         except Exception:
             return default_text
 
+    def _get_runtime_live_indicator_state(self):
+        """Return the display-only runtime state property for the live indicator."""
+        try:
+            snapshot = self._build_runtime_ui_snapshot_bundle()
+            if not isinstance(snapshot, dict):
+                return "check"
+            if bool(snapshot.get("degraded")):
+                return "degraded"
+            runtime_ready = bool(snapshot.get("runtime_ready"))
+            model_ready = bool(snapshot.get("model_ready"))
+            if not runtime_ready or not model_ready:
+                return "check"
+            return "ready"
+        except Exception:
+            return "check"
+
     def _format_runtime_input_summary_text(self):
         """Format runtime attachment state for UI display only."""
         default_text = "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
@@ -12135,6 +12151,12 @@ class MainWindow(QMainWindow):
         try:
             live_indicator = getattr(self, "lbl_runtime_live_indicator", None)
             if live_indicator is not None and hasattr(live_indicator, "setText"):
+                try:
+                    live_indicator.setProperty(
+                        "runtimeState", self._get_runtime_live_indicator_state()
+                    )
+                except Exception:
+                    pass
                 live_indicator.setText(self._format_runtime_live_indicator_text())
         except Exception:
             pass
@@ -33085,6 +33107,18 @@ QLabel#aitsRuntimeLiveIndicator {
     color: #1f2937;
     font-size: 12px;
     font-weight: 700;
+}
+
+QLabel#aitsRuntimeLiveIndicator[runtimeState="ready"] {
+    color: #166534;
+}
+
+QLabel#aitsRuntimeLiveIndicator[runtimeState="check"] {
+    color: #92400e;
+}
+
+QLabel#aitsRuntimeLiveIndicator[runtimeState="degraded"] {
+    color: #991b1b;
 }
 
 QLabel#aitsRuntimeInputSummary {
