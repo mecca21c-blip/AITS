@@ -27040,6 +27040,9 @@ class MainWindow(QMainWindow):
         self.runtime_panel_layout = QVBoxLayout(self.runtime_panel_container)
         self.runtime_panel_layout.setContentsMargins(0, 0, 0, 0)
         self.runtime_panel_layout.setSpacing(2)
+        self.lbl_runtime_panel_header = QLabel("AI Runtime Status")
+        self.lbl_runtime_panel_header.setObjectName("aitsRuntimePanelHeader")
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_panel_header)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_live_indicator)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
@@ -33133,6 +33136,13 @@ QLabel[managedMetricText="true"]{
 QFrame#aitsRuntimePanelContainer {
     border: none;
     background: transparent;
+}
+
+QLabel#aitsRuntimePanelHeader {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 700;
+    padding-bottom: 2px;
 }
 
 QLabel#aitsRuntimeLiveIndicator {
