@@ -26990,6 +26990,12 @@ class MainWindow(QMainWindow):
             "AI Runtime: READY | BASIC(Local) | Ollama | mistral:latest | display-only"
         )
         self.lbl_runtime_live_indicator.setObjectName("aitsRuntimeLiveIndicator")
+        self.lbl_runtime_live_indicator.setToolTip(
+            "READY: Ollama runtime과 선택 모델이 준비된 상태입니다.\n"
+            "CHECK: Runtime 또는 모델 상태 확인이 필요합니다.\n"
+            "DEGRADED: Runtime이 제한/저하 상태입니다.\n"
+            "현재는 display-only / shadow / suggestion-only 모드이며 주문은 차단됩니다."
+        )
         self.lbl_runtime_live_indicator.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #1f2937;"
         )
