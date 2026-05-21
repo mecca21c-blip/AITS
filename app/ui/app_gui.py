@@ -33134,8 +33134,10 @@ QLabel[managedMetricText="true"]{
 }
 
 QFrame#aitsRuntimePanelContainer {
-    border: none;
-    background: transparent;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+    padding: 8px;
 }
 
 QLabel#aitsRuntimePanelHeader {
