@@ -27003,6 +27003,11 @@ class MainWindow(QMainWindow):
             "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
         )
         self.lbl_runtime_input_summary.setObjectName("aitsRuntimeInputSummary")
+        self.lbl_runtime_input_summary.setToolTip(
+            "AI Inputs 상태입니다.\n"
+            "Market / Portfolio / Strategy / Risk / Command 입력 연결 상태를 표시합니다.\n"
+            "현재는 runtime attachment skeleton 기반 상태만 표시합니다."
+        )
         self.lbl_runtime_input_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
@@ -27010,6 +27015,11 @@ class MainWindow(QMainWindow):
             "AI Safety: display-only | order=blocked | action=blocked | submitted=0"
         )
         self.lbl_runtime_safety_summary.setObjectName("aitsRuntimeSafetySummary")
+        self.lbl_runtime_safety_summary.setToolTip(
+            "AI Safety 상태입니다.\n"
+            "display-only / order blocked / action blocked 상태를 표시합니다.\n"
+            "현재는 실제 주문 실행이 차단된 shadow/safe 모드입니다."
+        )
         self.lbl_runtime_safety_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
@@ -27017,6 +27027,11 @@ class MainWindow(QMainWindow):
             "AI Decision Gate: allowed=NO | action=blocked | review=required"
         )
         self.lbl_runtime_decision_gate_summary.setObjectName("aitsRuntimeDecisionGateSummary")
+        self.lbl_runtime_decision_gate_summary.setToolTip(
+            "AI Decision Gate 상태입니다.\n"
+            "AI decision 적용 가능 여부와 human review 필요 여부를 표시합니다.\n"
+            "현재는 review-required / action-blocked 상태입니다."
+        )
         self.lbl_runtime_decision_gate_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
