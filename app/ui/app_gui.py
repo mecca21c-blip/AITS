@@ -27035,6 +27035,15 @@ class MainWindow(QMainWindow):
         self.lbl_runtime_decision_gate_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
+        self.runtime_panel_container = QFrame()
+        self.runtime_panel_container.setObjectName("aitsRuntimePanelContainer")
+        self.runtime_panel_layout = QVBoxLayout(self.runtime_panel_container)
+        self.runtime_panel_layout.setContentsMargins(0, 0, 0, 0)
+        self.runtime_panel_layout.setSpacing(2)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_live_indicator)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
         _local_desc = QLabel(
             "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
         )
@@ -27050,10 +27059,7 @@ class MainWindow(QMainWindow):
         _local_btn_row.addWidget(self.btn_engine_local_detail)
         _local_btn_row.addWidget(self.btn_engine_local_ready)
         _local_settings_lay.addWidget(_local_status)
-        _local_settings_lay.addWidget(self.lbl_runtime_live_indicator)
-        _local_settings_lay.addWidget(self.lbl_runtime_input_summary)
-        _local_settings_lay.addWidget(self.lbl_runtime_safety_summary)
-        _local_settings_lay.addWidget(self.lbl_runtime_decision_gate_summary)
+        _local_settings_lay.addWidget(self.runtime_panel_container)
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
 
@@ -33122,6 +33128,11 @@ QLabel[managedMetricText="true"]{
     font-weight:700;
     background:transparent;
     border:none;
+}
+
+QFrame#aitsRuntimePanelContainer {
+    border: none;
+    background: transparent;
 }
 
 QLabel#aitsRuntimeLiveIndicator {
