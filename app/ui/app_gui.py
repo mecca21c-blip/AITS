@@ -3575,6 +3575,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _fix_top_left_ghost_box(self):
+        _aits_t0 = self._aits_perf_log("_fix_top_left_ghost_box.start")
         try:
             targets = []
             roots = []
@@ -3719,6 +3720,8 @@ class MainWindow(QMainWindow):
                 pass
         except Exception:
             pass
+        finally:
+            self._aits_perf_log("_fix_top_left_ghost_box.end", _aits_t0)
 
     def _sweep_shell_status_row_strays(self) -> None:
         """_shell_status_row 아래 레거시 시각 위젯을 parking으로 옮기거나 제거한다."""
@@ -4424,6 +4427,7 @@ class MainWindow(QMainWindow):
         """
         import traceback
         log = logging.getLogger(__name__)
+        _aits_t0 = self._aits_perf_log("refresh_account_summary.start")
 
         try:
             log.info(f"[ACCT] start reason={reason}")
@@ -4546,6 +4550,9 @@ class MainWindow(QMainWindow):
                     pass
 
     # [추가] 간단 로그 헬퍼 (UI용)
+        finally:
+            self._aits_perf_log("refresh_account_summary.end", _aits_t0)
+
     def _log_info(self, msg: str):
         try:
             import logging
@@ -4572,6 +4579,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, state, root_dir=None, data_dir=None):
         super().__init__()
+        _aits_init_t0 = self._aits_perf_log("MainWindow.__init__.start")
         self.state = state
         self._root_dir = root_dir
         self._data_dir = data_dir
@@ -4718,12 +4726,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AITS | AI Trading System")
 
         # ✅ P0-BOOT-LOADING: 초기 로딩 팝업 표시
+        _aits_progress_t0 = self._aits_perf_log("startup_progress_dialog.create.start")
         self._loading_progress = QProgressDialog("KMTS에 접속중입니다...\n초기 데이터를 불러오는 중입니다.", None, 0, 0, self)
         self._startup_progress_dialog = self._loading_progress
         self._loading_progress.setWindowTitle("초기화 중")
         self._loading_progress.setCancelButton(None)
         self._loading_progress.setWindowModality(Qt.ApplicationModal)
         self._loading_progress.show()
+        self._aits_perf_log("startup_progress_dialog.create.end", _aits_progress_t0)
         try:
             self._close_startup_progress_dialog()
         except Exception:
@@ -4911,6 +4921,7 @@ class MainWindow(QMainWindow):
                 pass
 
         self._on_watchlist_tick = _on_watchlist_tick.__get__(self, self.__class__)
+        self._aits_perf_log("MainWindow.__init__.end", _aits_init_t0)
 
     # ---------- Utility: KST 날짜 키 & Snapshot IO ----------
     def _today_key_kst(self) -> str:
@@ -4933,6 +4944,22 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log.warning("snapshot save failed: %s", e)
 
+    def _aits_perf_log(self, label, started_at=None):
+        try:
+            now = time.perf_counter()
+            if started_at is None:
+                logging.getLogger("aits").info("[AITS][StartupPerf] %s", label)
+                return now
+            elapsed_ms = int((now - float(started_at)) * 1000)
+            prefix = "[AITS][StartupPerf][SLOW]" if elapsed_ms >= 500 else "[AITS][StartupPerf]"
+            logging.getLogger("aits").info("%s %s elapsed_ms=%s", prefix, label, elapsed_ms)
+            return elapsed_ms
+        except Exception:
+            try:
+                return time.perf_counter()
+            except Exception:
+                return 0.0
+
     def _log_startup_lazy_load_skip_once(self):
         try:
             if getattr(self, "_startup_lazy_load_skip_logged", False):
@@ -4945,6 +4972,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _close_startup_progress_dialog(self):
+        _aits_t0 = self._aits_perf_log("_close_startup_progress_dialog.start")
         closed = False
         dialogs = []
         try:
@@ -5005,6 +5033,8 @@ class MainWindow(QMainWindow):
                 pass
 
     # ---------- Utility: Upbit로 총자산/주문가능 계산 ----------
+        self._aits_perf_log("_close_startup_progress_dialog.end", _aits_t0)
+
     def _compute_upbit_totals(self) -> tuple[float, float]:
         """
         returns (total_asset, available_krw)
@@ -5014,10 +5044,13 @@ class MainWindow(QMainWindow):
         - 주문가능(available_krw): KRW balance - KRW locked
         - 네트워크/인증 오류 등으로 계산 실패 시: **직전 정상값**을 그대로 반환 (0으로 떨어지지 않게)
         """
+        _aits_t0 = self._aits_perf_log("_compute_upbit_totals.start")
         if getattr(self, "_startup_lazy_loading", False):
             self._log_startup_lazy_load_skip_once()
             if self._last_total_asset is not None:
+                self._aits_perf_log("_compute_upbit_totals.end", _aits_t0)
                 return self._last_total_asset, self._last_available_krw or 0.0
+            self._aits_perf_log("_compute_upbit_totals.end", _aits_t0)
             return 0.0, 0.0
         try:
             rows = svc_order.fetch_accounts() or []
@@ -5030,8 +5063,10 @@ class MainWindow(QMainWindow):
             
             if self._last_total_asset is not None:
                 log.info(f"[UPBIT-TOTALS] fallback to last known values")
+                self._aits_perf_log("_compute_upbit_totals.end", _aits_t0)
                 return self._last_total_asset, self._last_available_krw or 0.0
             log.warning(f"[UPBIT-TOTALS] no previous values, returning 0.0, 0.0")
+            self._aits_perf_log("_compute_upbit_totals.end", _aits_t0)
             return 0.0, 0.0
 
         krw_balance = 0.0
@@ -5096,6 +5131,7 @@ class MainWindow(QMainWindow):
 
         self._last_total_asset = total_asset
         self._last_available_krw = available_krw
+        self._aits_perf_log("_compute_upbit_totals.end", _aits_t0)
         return total_asset, available_krw
 
     # ---------- UI ----------
@@ -10301,6 +10337,7 @@ class MainWindow(QMainWindow):
 
     def _update_ai_status(self):
         """우측상단 표시: 엔진 종류는 _get_aits_engine_ssot() 기준으로 lbl_engine_status에 반영."""
+        _aits_t0 = self._aits_perf_log("_update_ai_status.start")
         try:
             self._update_engine_ui_ssot()
         except Exception:
@@ -10320,6 +10357,7 @@ class MainWindow(QMainWindow):
                 self._sync_runtime_summary_labels()
         except Exception:
             pass
+        self._aits_perf_log("_update_ai_status.end", _aits_t0)
 
     def _set_ai_provider_ui_active(self, provider: str):
         """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화."""
@@ -12297,6 +12335,7 @@ class MainWindow(QMainWindow):
 
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
+        _aits_t0 = self._aits_perf_log("_sync_basic_runtime_status_card.start")
         status = self._build_runtime_ui_snapshot_bundle()
         try:
             ready_text = "OK" if status.get("runtime_ready") else "확인 불가"
@@ -12381,6 +12420,7 @@ class MainWindow(QMainWindow):
                 print(f"[AITS][UIRuntime] basic_runtime_status_card_failed | error={e}")
             except Exception:
                 pass
+        self._aits_perf_log("_sync_basic_runtime_status_card.end", _aits_t0)
         return status
 
     def _set_ai_key_status_label(self, provider: str, status: str = ""):
@@ -13654,10 +13694,12 @@ class MainWindow(QMainWindow):
         return card, lay
 
     def _rebuild_center_dashboard_layout(self) -> None:
+        _aits_t0 = self._aits_perf_log("_rebuild_center_dashboard_layout.start")
         CENTER_INFO_CARD_H = 132
         CENTER_LOG_BAR_H = 42
         root_widget = getattr(self, "_gb_ai_detail", None)
         if root_widget is None:
+            self._aits_perf_log("_rebuild_center_dashboard_layout.end", _aits_t0)
             return
         outer_layout = root_widget.layout()
         if outer_layout is None:
@@ -14201,6 +14243,7 @@ class MainWindow(QMainWindow):
             print("[AITS] center layout rebuilt with scroll + single-line live log")
         except Exception:
             pass
+        self._aits_perf_log("_rebuild_center_dashboard_layout.end", _aits_t0)
 
     def _center_dashboard_escape_html(self, text: str) -> str:
         try:
@@ -17989,6 +18032,7 @@ class MainWindow(QMainWindow):
             pass
 
     def _refresh_ai_detail_chart(self) -> None:
+        _aits_t0 = self._aits_perf_log("_refresh_ai_detail_chart.start")
         render_used = "legacy"
         mpf_rendered = False
         render_reason = ""
@@ -18355,6 +18399,7 @@ class MainWindow(QMainWindow):
                 self._aits_log_detail_render_used(render_used, render_reason)
             except Exception:
                 pass
+            self._aits_perf_log("_refresh_ai_detail_chart.end", _aits_t0)
 
     def _apply_aits_saas_chart_style(self, fig=None, axes=None, title: str = "") -> None:
         try:
@@ -33404,6 +33449,16 @@ def main(root_dir: str, data_dir: str):
     state.login(login_dlg.email.text())
 
     # 메인 윈도우 생성 및 표시
+    _mw_t0 = time.perf_counter()
+    logging.getLogger("aits").info("[AITS][StartupPerf] app_gui.main_window_create.start")
     window = MainWindow(state, root_dir, data_dir)
+    _mw_ms = int((time.perf_counter() - _mw_t0) * 1000)
+    _mw_prefix = "[AITS][StartupPerf][SLOW]" if _mw_ms >= 500 else "[AITS][StartupPerf]"
+    logging.getLogger("aits").info("%s app_gui.main_window_create.end elapsed_ms=%s", _mw_prefix, _mw_ms)
+    _show_t0 = time.perf_counter()
+    logging.getLogger("aits").info("[AITS][StartupPerf] app_gui.window_show.start")
     window.show()
+    _show_ms = int((time.perf_counter() - _show_t0) * 1000)
+    _show_prefix = "[AITS][StartupPerf][SLOW]" if _show_ms >= 500 else "[AITS][StartupPerf]"
+    logging.getLogger("aits").info("%s app_gui.window_show.end elapsed_ms=%s", _show_prefix, _show_ms)
     sys.exit(app.exec())
