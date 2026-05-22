@@ -4708,6 +4708,9 @@ class MainWindow(QMainWindow):
         self._poll_timer = None  # 타이머 참조 저장용
         self._startup_lazy_loading = True
         self._startup_lazy_load_skip_logged = False
+        self._startup_progress_dialog = None
+        self._startup_progress_closed_logged = False
+        self._startup_progress_show_close_scheduled = False
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
         self._geometry_restored = False
         
@@ -4716,10 +4719,15 @@ class MainWindow(QMainWindow):
 
         # ✅ P0-BOOT-LOADING: 초기 로딩 팝업 표시
         self._loading_progress = QProgressDialog("KMTS에 접속중입니다...\n초기 데이터를 불러오는 중입니다.", None, 0, 0, self)
+        self._startup_progress_dialog = self._loading_progress
         self._loading_progress.setWindowTitle("초기화 중")
         self._loading_progress.setCancelButton(None)
         self._loading_progress.setWindowModality(Qt.ApplicationModal)
         self._loading_progress.show()
+        try:
+            self._close_startup_progress_dialog()
+        except Exception:
+            pass
 
         # ✅ P0-BOOT-SCORE-INITIAL: 부트 리프레시 플래그
         self._boot_refresh_done = False
@@ -4756,6 +4764,11 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             self._startup_lazy_loading = False
+        try:
+            QTimer.singleShot(1000, self._close_startup_progress_dialog)
+            QTimer.singleShot(3000, self._close_startup_progress_dialog)
+        except Exception:
+            pass
 
         # ✅ 폴링 메서드 정의 (인스턴스 생성 후 보장)
         def start_polling(self):
@@ -4930,6 +4943,66 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+
+    def _close_startup_progress_dialog(self):
+        closed = False
+        dialogs = []
+        try:
+            dlg = getattr(self, "_startup_progress_dialog", None)
+            if dlg is not None:
+                dialogs.append(dlg)
+        except Exception:
+            pass
+        try:
+            dlg = getattr(self, "_loading_progress", None)
+            if dlg is not None and dlg not in dialogs:
+                dialogs.append(dlg)
+        except Exception:
+            pass
+        try:
+            for dlg in self.findChildren(QProgressDialog):
+                if dlg is not None and dlg not in dialogs:
+                    dialogs.append(dlg)
+        except Exception:
+            pass
+        try:
+            for dlg in QApplication.topLevelWidgets():
+                if isinstance(dlg, QProgressDialog) and dlg not in dialogs:
+                    dialogs.append(dlg)
+        except Exception:
+            pass
+        for dlg in dialogs:
+            try:
+                try:
+                    dlg.setValue(dlg.maximum())
+                except Exception:
+                    pass
+                try:
+                    dlg.close()
+                except Exception:
+                    pass
+                try:
+                    dlg.hide()
+                except Exception:
+                    pass
+                try:
+                    dlg.deleteLater()
+                except Exception:
+                    pass
+                closed = True
+            except Exception:
+                pass
+        try:
+            self._startup_progress_dialog = None
+        except Exception:
+            pass
+        if closed:
+            try:
+                if not getattr(self, "_startup_progress_closed_logged", False):
+                    self._startup_progress_closed_logged = True
+                    logging.getLogger("aits").info("[AITS][StartupProgress] closed")
+            except Exception:
+                pass
 
     # ---------- Utility: Upbit로 총자산/주문가능 계산 ----------
     def _compute_upbit_totals(self) -> tuple[float, float]:
@@ -6828,6 +6901,7 @@ class MainWindow(QMainWindow):
             self._dump_top_level_children_geometry("BEFORE_GHOST_FIX")
             self._fix_top_left_ghost_box()
             self._dump_top_level_children_geometry("AFTER_GHOST_FIX")
+            self._close_startup_progress_dialog()
         except Exception:
             pass
 
@@ -31285,6 +31359,13 @@ class MainWindow(QMainWindow):
         """✅ WIN: 로그인 후 첫 표시 시 geometry 복원 또는 중앙 배치, 화면 밖 방지"""
         super().showEvent(event)
         try:
+            if not getattr(self, "_startup_progress_show_close_scheduled", False):
+                self._startup_progress_show_close_scheduled = True
+                QTimer.singleShot(0, self._close_startup_progress_dialog)
+                QTimer.singleShot(1000, self._close_startup_progress_dialog)
+        except Exception:
+            pass
+        try:
             if getattr(self, "_geometry_restored", True):
                 return
             s = QSettings("KMTS", "KMTS-v3")
@@ -31315,6 +31396,10 @@ class MainWindow(QMainWindow):
         finally:
             try:
                 self._fix_top_left_ghost_box()
+            except Exception:
+                pass
+            try:
+                self._close_startup_progress_dialog()
             except Exception:
                 pass
 
