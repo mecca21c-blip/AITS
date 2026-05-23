@@ -12347,6 +12347,23 @@ class MainWindow(QMainWindow):
 
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
+        t0 = self._aits_perf_log("_sync_basic_runtime_status_card.enter")
+        if getattr(self, "_sync_basic_runtime_status_card_busy", False):
+            self._aits_perf_log("_sync_basic_runtime_status_card.skip_busy", t0)
+            return
+        self._sync_basic_runtime_status_card_busy = True
+        if getattr(self, "_startup_lazy_loading", False):
+            try:
+                self._sync_runtime_summary_labels()
+            except Exception:
+                pass
+            try:
+                self._sync_basic_runtime_status_card_busy = False
+            except Exception:
+                pass
+            self._aits_perf_log("_sync_basic_runtime_status_card.skip_startup_lazy", t0)
+            self._aits_perf_log("_sync_basic_runtime_status_card.leave", t0)
+            return
         _aits_t0 = self._aits_perf_log("_sync_basic_runtime_status_card.start")
         t_part = self._aits_perf_log("_sync_basic_runtime_status_card.build_snapshot.start")
         status = self._build_runtime_ui_snapshot_bundle()
@@ -12445,6 +12462,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         self._aits_perf_log("_sync_basic_runtime_status_card.end", _aits_t0)
+        try:
+            self._sync_basic_runtime_status_card_busy = False
+        except Exception:
+            pass
+        self._aits_perf_log("_sync_basic_runtime_status_card.leave", t0)
         return status
 
     def _set_ai_key_status_label(self, provider: str, status: str = ""):
