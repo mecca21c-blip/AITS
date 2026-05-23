@@ -10497,14 +10497,17 @@ class MainWindow(QMainWindow):
                 return names
 
             runtime_dict = {}
+            t_part = self._aits_perf_log("_build_basic_runtime_ui_status.runtime_status.start")
             try:
                 from app.services.ollama_runtime_status import OllamaRuntimeStatusProbe
 
                 runtime_dict = _to_dict(OllamaRuntimeStatusProbe().check_status())
             except Exception as exc:
                 status["reason"] = f"runtime_status_failed:{type(exc).__name__}"
+            self._aits_perf_log("_build_basic_runtime_ui_status.runtime_status.end", t_part)
 
             inventory_dict = {}
+            t_part = self._aits_perf_log("_build_basic_runtime_ui_status.model_inventory.start")
             try:
                 from app.services.ollama_model_inventory import OllamaModelInventory
 
@@ -10513,8 +10516,10 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 if status["reason"] == "status_unavailable":
                     status["reason"] = f"inventory_failed:{type(exc).__name__}"
+            self._aits_perf_log("_build_basic_runtime_ui_status.model_inventory.end", t_part)
 
             selector_dict = {}
+            t_part = self._aits_perf_log("_build_basic_runtime_ui_status.model_selection.start")
             try:
                 if inventory_dict:
                     from app.services.ollama_model_selector import OllamaModelSelector
@@ -10522,7 +10527,9 @@ class MainWindow(QMainWindow):
                     selector_dict = _to_dict(OllamaModelSelector().select(inventory_dict))
             except Exception:
                 selector_dict = {}
+            self._aits_perf_log("_build_basic_runtime_ui_status.model_selection.end", t_part)
 
+            t_part = self._aits_perf_log("_build_basic_runtime_ui_status.result_build.start")
             inv_models = inventory_dict.get("models") or []
             rt_inventory = runtime_dict.get("model_inventory") or {}
             if isinstance(rt_inventory, dict) and not inv_models:
@@ -10568,6 +10575,7 @@ class MainWindow(QMainWindow):
                 self._basic_runtime_ui_status = dict(status)
             except Exception:
                 pass
+            self._aits_perf_log("_build_basic_runtime_ui_status.result_build.end", t_part)
             return status
         except Exception as exc:
             status["reason"] = f"ui_status_failed:{type(exc).__name__}"
@@ -10598,7 +10606,10 @@ class MainWindow(QMainWindow):
         This must never be used for inference, orders, routing, or action calculation.
         """
         try:
+            t_part = self._aits_perf_log("_build_runtime_ui_snapshot_bundle.basic_status.start")
             status = self._build_basic_runtime_ui_status()
+            self._aits_perf_log("_build_runtime_ui_snapshot_bundle.basic_status.end", t_part)
+            t_part = self._aits_perf_log("_build_runtime_ui_snapshot_bundle.snapshot_dict.start")
             selected_model = str(status.get("selected_model") or "").strip() or "mistral:latest"
             snapshot = {
                 "provider": "basic",
@@ -10623,6 +10634,7 @@ class MainWindow(QMainWindow):
                 self._runtime_ui_snapshot_bundle = dict(snapshot)
             except Exception:
                 pass
+            self._aits_perf_log("_build_runtime_ui_snapshot_bundle.snapshot_dict.end", t_part)
             return snapshot
         except Exception as exc:
             snapshot = {
@@ -12336,8 +12348,11 @@ class MainWindow(QMainWindow):
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
         _aits_t0 = self._aits_perf_log("_sync_basic_runtime_status_card.start")
+        t_part = self._aits_perf_log("_sync_basic_runtime_status_card.build_snapshot.start")
         status = self._build_runtime_ui_snapshot_bundle()
+        self._aits_perf_log("_sync_basic_runtime_status_card.build_snapshot.end", t_part)
         try:
+            t_part = self._aits_perf_log("_sync_basic_runtime_status_card.format_text.start")
             ready_text = "OK" if status.get("runtime_ready") else "확인 불가"
             model_text = "OK" if status.get("model_ready") else "대기"
             degraded_text = "YES" if status.get("degraded") else "NO"
@@ -12362,6 +12377,8 @@ class MainWindow(QMainWindow):
                 f"- Cooldown: {cooldown_text}\n"
                 f"- Degraded: {degraded_text}"
             )
+            self._aits_perf_log("_sync_basic_runtime_status_card.format_text.end", t_part)
+            t_part = self._aits_perf_log("_sync_basic_runtime_status_card.set_main_label.start")
             label = getattr(self, "lbl_basic_runtime_status", None)
             if label is not None and hasattr(label, "setText"):
                 label.setText(texts["main"])
@@ -12369,6 +12386,8 @@ class MainWindow(QMainWindow):
                     label.setToolTip(texts["main"])
                 except Exception:
                     pass
+            self._aits_perf_log("_sync_basic_runtime_status_card.set_main_label.end", t_part)
+            t_part = self._aits_perf_log("_sync_basic_runtime_status_card.set_engine_label.start")
             status_line = getattr(self, "lbl_aits_ai_engine_status", None)
             if status_line is not None and hasattr(status_line, "setText"):
                 status_line.setText(texts["engine"])
@@ -12383,6 +12402,8 @@ class MainWindow(QMainWindow):
                 self._render_ai_engine_state()
             except Exception:
                 pass
+            self._aits_perf_log("_sync_basic_runtime_status_card.set_engine_label.end", t_part)
+            t_part = self._aits_perf_log("_sync_basic_runtime_status_card.set_chip.start")
             try:
                 chip = getattr(self, "_chip_connection_status", None)
                 chip_text = getattr(chip, "_text", None)
@@ -12390,10 +12411,13 @@ class MainWindow(QMainWindow):
                     chip_text.setText(texts["chip"])
             except Exception:
                 pass
+            self._aits_perf_log("_sync_basic_runtime_status_card.set_chip.end", t_part)
+            t_part = self._aits_perf_log("_sync_basic_runtime_status_card.sync_summary_labels.start")
             try:
                 self._sync_runtime_summary_labels()
             except Exception:
                 pass
+            self._aits_perf_log("_sync_basic_runtime_status_card.sync_summary_labels.end", t_part)
             try:
                 log_key = (
                     str(status.get("selected_model")),
