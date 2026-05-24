@@ -4719,6 +4719,7 @@ class MainWindow(QMainWindow):
         self._startup_progress_dialog = None
         self._startup_progress_closed_logged = False
         self._startup_progress_show_close_scheduled = False
+        self._runtime_panel_promoted = False
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
         self._geometry_restored = False
         
@@ -12282,6 +12283,19 @@ class MainWindow(QMainWindow):
         self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
         return self.runtime_panel_container
+
+    def _get_runtime_panel_parent_layout(self):
+        """Return the current Runtime Panel parent layout; default keeps the existing location."""
+        default_layout = None
+        try:
+            default_layout = getattr(self, "_runtime_panel_default_layout", None)
+            if bool(getattr(self, "_runtime_panel_promoted", False)):
+                target_layout = getattr(self, "runtime_panel_target_layout", None)
+                if target_layout is not None and hasattr(target_layout, "addWidget"):
+                    return target_layout
+        except Exception:
+            pass
+        return default_layout
 
     def _format_runtime_live_indicator_text(self):
         """Format the current BASIC runtime snapshot for UI display only."""
@@ -27233,6 +27247,7 @@ class MainWindow(QMainWindow):
         self.box_engine_local_settings, _local_settings_lay = _make_engine_settings_box(
             "box_engine_local_settings"
         )
+        self._runtime_panel_default_layout = _local_settings_lay
 
         _prev_openai_text = ""
         try:
@@ -27299,7 +27314,8 @@ class MainWindow(QMainWindow):
         _local_btn_row.addWidget(self.btn_engine_local_detail)
         _local_btn_row.addWidget(self.btn_engine_local_ready)
         _local_settings_lay.addWidget(_local_status)
-        _local_settings_lay.addWidget(runtime_panel)
+        parent_layout = self._get_runtime_panel_parent_layout() or _local_settings_lay
+        parent_layout.addWidget(runtime_panel)
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
 
