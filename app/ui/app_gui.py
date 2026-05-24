@@ -4947,12 +4947,26 @@ class MainWindow(QMainWindow):
     def _aits_perf_log(self, label, started_at=None):
         try:
             now = time.perf_counter()
+            label = str(label or "")
+            guard_labels = (
+                "_sync_basic_runtime_status_card.skip_startup_lazy",
+                "_sync_basic_runtime_status_card.skip_busy",
+            )
             if started_at is None:
-                logging.getLogger("aits").info("[AITS][StartupPerf] %s", label)
                 return now
             elapsed_ms = int((now - float(started_at)) * 1000)
-            prefix = "[AITS][StartupPerf][SLOW]" if elapsed_ms >= 500 else "[AITS][StartupPerf]"
-            logging.getLogger("aits").info("%s %s elapsed_ms=%s", prefix, label, elapsed_ms)
+            if elapsed_ms >= 500:
+                logging.getLogger("aits").info(
+                    "[AITS][StartupPerf][SLOW] %s elapsed_ms=%s",
+                    label,
+                    elapsed_ms,
+                )
+            elif label in guard_labels:
+                logging.getLogger("aits").info(
+                    "[AITS][StartupPerf] %s elapsed_ms=%s",
+                    label,
+                    elapsed_ms,
+                )
             return elapsed_ms
         except Exception:
             try:
