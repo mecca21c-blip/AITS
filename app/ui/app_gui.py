@@ -6190,6 +6190,23 @@ class MainWindow(QMainWindow):
 
         self._shell_top_header.setProperty("kpiHeaderWrap", True)
         self._shell_root_ly.addWidget(self._shell_top_header)
+        # Future target placeholder for promoted Runtime Panel. Do not move panel in this sprint.
+        self.runtime_panel_target_placeholder = QFrame(self._shell_root)
+        self.runtime_panel_target_placeholder.setObjectName("aitsRuntimePanelTargetPlaceholder")
+        self.runtime_panel_target_placeholder.setVisible(False)
+        self.runtime_panel_target_placeholder.setMinimumHeight(0)
+        self.runtime_panel_target_placeholder.setMaximumHeight(0)
+        try:
+            self.runtime_panel_target_placeholder.setSizePolicy(
+                QSizePolicy.Policy.Ignored,
+                QSizePolicy.Policy.Fixed,
+            )
+        except Exception:
+            pass
+        self.runtime_panel_target_layout = QVBoxLayout(self.runtime_panel_target_placeholder)
+        self.runtime_panel_target_layout.setContentsMargins(0, 0, 0, 0)
+        self.runtime_panel_target_layout.setSpacing(0)
+        self._shell_root_ly.addWidget(self.runtime_panel_target_placeholder)
         try:
             self._refresh_header_png_slots()
         except Exception:
@@ -33369,6 +33386,11 @@ QFrame#aitsRuntimePanelContainer {
     border-radius: 8px;
     background: #f9fafb;
     padding: 8px;
+}
+
+QFrame#aitsRuntimePanelTargetPlaceholder {
+    border: none;
+    background: transparent;
 }
 
 QLabel#aitsRuntimePanelHeader {
