@@ -12195,6 +12195,77 @@ class MainWindow(QMainWindow):
             "chip": chip_text,
         }
 
+    def _build_runtime_panel_container(self):
+        """Build the reusable Runtime Panel container without moving its UI location."""
+        self.runtime_panel_container = QFrame()
+        self.runtime_panel_container.setObjectName("aitsRuntimePanelContainer")
+        self.runtime_panel_layout = QVBoxLayout(self.runtime_panel_container)
+        self.runtime_panel_layout.setContentsMargins(0, 0, 0, 0)
+        self.runtime_panel_layout.setSpacing(2)
+
+        self.lbl_runtime_panel_header = QLabel("AI Runtime Status")
+        self.lbl_runtime_panel_header.setObjectName("aitsRuntimePanelHeader")
+
+        self.lbl_runtime_live_indicator = QLabel(
+            "AI Runtime: READY | BASIC(Local) | Ollama | mistral:latest | display-only"
+        )
+        self.lbl_runtime_live_indicator.setObjectName("aitsRuntimeLiveIndicator")
+        self.lbl_runtime_live_indicator.setToolTip(
+            "READY: Ollama runtime과 선택 모델이 준비된 상태입니다.\n"
+            "CHECK: Runtime 또는 모델 상태 확인이 필요합니다.\n"
+            "DEGRADED: Runtime이 제한/저하 상태입니다.\n"
+            "현재는 display-only / shadow / suggestion-only 모드이며 주문은 차단됩니다."
+        )
+        self.lbl_runtime_live_indicator.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #1f2937;"
+        )
+
+        self.lbl_runtime_input_summary = QLabel(
+            "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
+        )
+        self.lbl_runtime_input_summary.setObjectName("aitsRuntimeInputSummary")
+        self.lbl_runtime_input_summary.setToolTip(
+            "AI Inputs 상태입니다.\n"
+            "Market / Portfolio / Strategy / Risk / Command 입력 연결 상태를 표시합니다.\n"
+            "현재는 runtime attachment skeleton 기반 상태만 표시합니다."
+        )
+        self.lbl_runtime_input_summary.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
+
+        self.lbl_runtime_safety_summary = QLabel(
+            "AI Safety: display-only | order=blocked | action=blocked | submitted=0"
+        )
+        self.lbl_runtime_safety_summary.setObjectName("aitsRuntimeSafetySummary")
+        self.lbl_runtime_safety_summary.setToolTip(
+            "AI Safety 상태입니다.\n"
+            "display-only / order blocked / action blocked 상태를 표시합니다.\n"
+            "현재는 실제 주문 실행이 차단된 shadow/safe 모드입니다."
+        )
+        self.lbl_runtime_safety_summary.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
+
+        self.lbl_runtime_decision_gate_summary = QLabel(
+            "AI Decision Gate: allowed=NO | action=blocked | review=required"
+        )
+        self.lbl_runtime_decision_gate_summary.setObjectName("aitsRuntimeDecisionGateSummary")
+        self.lbl_runtime_decision_gate_summary.setToolTip(
+            "AI Decision Gate 상태입니다.\n"
+            "AI decision 적용 가능 여부와 human review 필요 여부를 표시합니다.\n"
+            "현재는 review-required / action-blocked 상태입니다."
+        )
+        self.lbl_runtime_decision_gate_summary.setStyleSheet(
+            "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
+
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_panel_header)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_live_indicator)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
+        self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
+        return self.runtime_panel_container
+
     def _format_runtime_live_indicator_text(self):
         """Format the current BASIC runtime snapshot for UI display only."""
         default_text = (
@@ -27195,67 +27266,7 @@ class MainWindow(QMainWindow):
         _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
-        self.lbl_runtime_live_indicator = QLabel(
-            "AI Runtime: READY | BASIC(Local) | Ollama | mistral:latest | display-only"
-        )
-        self.lbl_runtime_live_indicator.setObjectName("aitsRuntimeLiveIndicator")
-        self.lbl_runtime_live_indicator.setToolTip(
-            "READY: Ollama runtime과 선택 모델이 준비된 상태입니다.\n"
-            "CHECK: Runtime 또는 모델 상태 확인이 필요합니다.\n"
-            "DEGRADED: Runtime이 제한/저하 상태입니다.\n"
-            "현재는 display-only / shadow / suggestion-only 모드이며 주문은 차단됩니다."
-        )
-        self.lbl_runtime_live_indicator.setStyleSheet(
-            "font-size: 12px; font-weight: 700; color: #1f2937;"
-        )
-        self.lbl_runtime_input_summary = QLabel(
-            "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
-        )
-        self.lbl_runtime_input_summary.setObjectName("aitsRuntimeInputSummary")
-        self.lbl_runtime_input_summary.setToolTip(
-            "AI Inputs 상태입니다.\n"
-            "Market / Portfolio / Strategy / Risk / Command 입력 연결 상태를 표시합니다.\n"
-            "현재는 runtime attachment skeleton 기반 상태만 표시합니다."
-        )
-        self.lbl_runtime_input_summary.setStyleSheet(
-            "font-size: 12px; font-weight: 700; color: #64748b;"
-        )
-        self.lbl_runtime_safety_summary = QLabel(
-            "AI Safety: display-only | order=blocked | action=blocked | submitted=0"
-        )
-        self.lbl_runtime_safety_summary.setObjectName("aitsRuntimeSafetySummary")
-        self.lbl_runtime_safety_summary.setToolTip(
-            "AI Safety 상태입니다.\n"
-            "display-only / order blocked / action blocked 상태를 표시합니다.\n"
-            "현재는 실제 주문 실행이 차단된 shadow/safe 모드입니다."
-        )
-        self.lbl_runtime_safety_summary.setStyleSheet(
-            "font-size: 12px; font-weight: 700; color: #64748b;"
-        )
-        self.lbl_runtime_decision_gate_summary = QLabel(
-            "AI Decision Gate: allowed=NO | action=blocked | review=required"
-        )
-        self.lbl_runtime_decision_gate_summary.setObjectName("aitsRuntimeDecisionGateSummary")
-        self.lbl_runtime_decision_gate_summary.setToolTip(
-            "AI Decision Gate 상태입니다.\n"
-            "AI decision 적용 가능 여부와 human review 필요 여부를 표시합니다.\n"
-            "현재는 review-required / action-blocked 상태입니다."
-        )
-        self.lbl_runtime_decision_gate_summary.setStyleSheet(
-            "font-size: 12px; font-weight: 700; color: #64748b;"
-        )
-        self.runtime_panel_container = QFrame()
-        self.runtime_panel_container.setObjectName("aitsRuntimePanelContainer")
-        self.runtime_panel_layout = QVBoxLayout(self.runtime_panel_container)
-        self.runtime_panel_layout.setContentsMargins(0, 0, 0, 0)
-        self.runtime_panel_layout.setSpacing(2)
-        self.lbl_runtime_panel_header = QLabel("AI Runtime Status")
-        self.lbl_runtime_panel_header.setObjectName("aitsRuntimePanelHeader")
-        self.runtime_panel_layout.addWidget(self.lbl_runtime_panel_header)
-        self.runtime_panel_layout.addWidget(self.lbl_runtime_live_indicator)
-        self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
-        self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
-        self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
+        runtime_panel = self._build_runtime_panel_container()
         _local_desc = QLabel(
             "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
         )
@@ -27271,7 +27282,7 @@ class MainWindow(QMainWindow):
         _local_btn_row.addWidget(self.btn_engine_local_detail)
         _local_btn_row.addWidget(self.btn_engine_local_ready)
         _local_settings_lay.addWidget(_local_status)
-        _local_settings_lay.addWidget(self.runtime_panel_container)
+        _local_settings_lay.addWidget(runtime_panel)
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
 
