@@ -12319,6 +12319,7 @@ class MainWindow(QMainWindow):
         self.lbl_runtime_status_compact_header.setObjectName("aitsRuntimeStatusCompactHeader")
         self.lbl_runtime_status_compact_line = QLabel("Runtime status unavailable")
         self.lbl_runtime_status_compact_line.setObjectName("aitsRuntimeStatusCompactLine")
+        self.lbl_runtime_status_compact_line.setProperty("runtimeState", "check")
         try:
             self.lbl_runtime_status_compact_line.setWordWrap(False)
         except Exception:
@@ -12506,6 +12507,12 @@ class MainWindow(QMainWindow):
             if not hasattr(compact_line, "setText") or not hasattr(live_indicator, "text"):
                 return
             compact_line.setText(str(live_indicator.text() or "Runtime status unavailable"))
+            try:
+                state = live_indicator.property("runtimeState")
+                if state:
+                    compact_line.setProperty("runtimeState", state)
+            except Exception:
+                pass
             try:
                 compact_line.setToolTip(str(live_indicator.toolTip() or ""))
             except Exception:
@@ -33477,6 +33484,18 @@ QLabel#aitsRuntimeStatusCompactHeader {
 QLabel#aitsRuntimeStatusCompactLine {
     font-size: 11px;
     color: #111827;
+}
+
+QLabel#aitsRuntimeStatusCompactLine[runtimeState="ready"] {
+    color: #166534;
+}
+
+QLabel#aitsRuntimeStatusCompactLine[runtimeState="check"] {
+    color: #92400e;
+}
+
+QLabel#aitsRuntimeStatusCompactLine[runtimeState="degraded"] {
+    color: #991b1b;
 }
 
 QLabel#aitsRuntimePanelHeader {
