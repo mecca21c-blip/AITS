@@ -3803,7 +3803,8 @@ class MainWindow(QMainWindow):
                     logb.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
         except Exception:
             pass
-        _protected = {x for x in (br, logb) if x is not None}
+        compact_runtime = getattr(self, "runtime_status_compact_container", None)
+        _protected = {x for x in (br, logb, compact_runtime) if x is not None}
         while ly.count() > 0:
             try:
                 _it = ly.takeAt(0)
@@ -3941,6 +3942,15 @@ class MainWindow(QMainWindow):
             ly.addWidget(left, 0, Qt.AlignmentFlag.AlignVCenter)
         except Exception:
             ly.addWidget(left, 0)
+        try:
+            compact_runtime = getattr(self, "runtime_status_compact_container", None)
+            if compact_runtime is None:
+                compact_runtime = self._build_runtime_status_compact_container()
+            compact_runtime.setParent(row)
+            compact_runtime.setVisible(True)
+            ly.addWidget(compact_runtime, 0, Qt.AlignmentFlag.AlignVCenter)
+        except Exception:
+            pass
         ly.addStretch(1)
         if br is not None:
             try:
@@ -12297,6 +12307,27 @@ class MainWindow(QMainWindow):
             pass
         return default_layout
 
+    def _build_runtime_status_compact_container(self):
+        """Build the read-only compact Runtime Status mirror for the operation area."""
+        self.runtime_status_compact_container = QFrame()
+        self.runtime_status_compact_container.setObjectName("aitsRuntimeStatusCompactContainer")
+        self.runtime_status_compact_layout = QVBoxLayout(self.runtime_status_compact_container)
+        self.runtime_status_compact_layout.setContentsMargins(0, 0, 0, 0)
+        self.runtime_status_compact_layout.setSpacing(1)
+
+        self.lbl_runtime_status_compact_header = QLabel("AI Runtime")
+        self.lbl_runtime_status_compact_header.setObjectName("aitsRuntimeStatusCompactHeader")
+        self.lbl_runtime_status_compact_line = QLabel("Runtime status unavailable")
+        self.lbl_runtime_status_compact_line.setObjectName("aitsRuntimeStatusCompactLine")
+        try:
+            self.lbl_runtime_status_compact_line.setWordWrap(False)
+        except Exception:
+            pass
+
+        self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_header)
+        self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_line)
+        return self.runtime_status_compact_container
+
     def _format_runtime_live_indicator_text(self):
         """Format the current BASIC runtime snapshot for UI display only."""
         default_text = (
@@ -12460,6 +12491,27 @@ class MainWindow(QMainWindow):
                     pass
         except Exception:
             pass
+        try:
+            self._sync_runtime_status_compact_panel()
+        except Exception:
+            pass
+
+    def _sync_runtime_status_compact_panel(self):
+        """Mirror the existing runtime live indicator into the compact read-only panel."""
+        try:
+            compact_line = getattr(self, "lbl_runtime_status_compact_line", None)
+            live_indicator = getattr(self, "lbl_runtime_live_indicator", None)
+            if compact_line is None or live_indicator is None:
+                return
+            if not hasattr(compact_line, "setText") or not hasattr(live_indicator, "text"):
+                return
+            compact_line.setText(str(live_indicator.text() or "Runtime status unavailable"))
+            try:
+                compact_line.setToolTip(str(live_indicator.toolTip() or ""))
+            except Exception:
+                pass
+        except Exception:
+            return
 
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
@@ -33407,6 +33459,24 @@ QFrame#aitsRuntimePanelContainer {
 QFrame#aitsRuntimePanelTargetPlaceholder {
     border: none;
     background: transparent;
+}
+
+QFrame#aitsRuntimeStatusCompactContainer {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #ffffff;
+    padding: 6px;
+}
+
+QLabel#aitsRuntimeStatusCompactHeader {
+    font-size: 11px;
+    font-weight: 700;
+    color: #374151;
+}
+
+QLabel#aitsRuntimeStatusCompactLine {
+    font-size: 11px;
+    color: #111827;
 }
 
 QLabel#aitsRuntimePanelHeader {
