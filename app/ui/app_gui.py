@@ -12317,9 +12317,15 @@ class MainWindow(QMainWindow):
 
         self.lbl_runtime_status_compact_header = QLabel("AI Runtime")
         self.lbl_runtime_status_compact_header.setObjectName("aitsRuntimeStatusCompactHeader")
+        self.lbl_runtime_status_compact_header.setToolTip(
+            "현재 AI Runtime의 운영 상태를 상단에 요약 표시합니다."
+        )
         self.lbl_runtime_status_compact_line = QLabel("Runtime status unavailable")
         self.lbl_runtime_status_compact_line.setObjectName("aitsRuntimeStatusCompactLine")
         self.lbl_runtime_status_compact_line.setProperty("runtimeState", "check")
+        self.lbl_runtime_status_compact_line.setToolTip(
+            "AI Runtime 상태가 준비/점검/저하 중 어디에 있는지 표시합니다."
+        )
         try:
             self.lbl_runtime_status_compact_line.setWordWrap(False)
         except Exception:
@@ -12514,7 +12520,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
-                compact_line.setToolTip(str(live_indicator.toolTip() or ""))
+                tooltip = live_indicator.toolTip()
+                if tooltip:
+                    compact_line.setToolTip(str(tooltip))
             except Exception:
                 pass
         except Exception:
