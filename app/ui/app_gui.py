@@ -11837,6 +11837,7 @@ class MainWindow(QMainWindow):
         try:
             portfolio_attached = False
             position_count = 0
+            source_hint = ""
             for attr_name in (
                 "portfolio_ready",
                 "balance_ready",
@@ -11848,6 +11849,7 @@ class MainWindow(QMainWindow):
                 try:
                     if bool(getattr(self, attr_name, False)):
                         portfolio_attached = True
+                        source_hint = "ready_flag"
                         break
                 except Exception:
                     pass
@@ -11863,11 +11865,54 @@ class MainWindow(QMainWindow):
             ):
                 try:
                     value = getattr(self, attr_name, None)
-                    if isinstance(value, (list, dict)):
+                    if isinstance(value, (list, dict, tuple, set)):
                         count = len(value)
                         if count > 0:
                             portfolio_attached = True
                             position_count = max(position_count, count)
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "portfolio_rows",
+                "account_rows",
+                "balance_rows",
+                "holding_rows",
+                "_portfolio_rows",
+                "_account_rows",
+                "_balance_rows",
+                "_holding_rows",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict, tuple, set)):
+                        count = len(value)
+                        if count > 0:
+                            portfolio_attached = True
+                            position_count = max(position_count, count)
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "tblPortfolio",
+                "tblHoldings",
+                "tblBalances",
+                "tblAccount",
+                "tbl_portfolio",
+                "tbl_holdings",
+                "tbl_balances",
+                "tbl_account",
+            ):
+                try:
+                    table = getattr(self, attr_name, None)
+                    row_count = int(table.rowCount()) if hasattr(table, "rowCount") else 0
+                    if row_count > 0:
+                        portfolio_attached = True
+                        position_count = max(position_count, row_count)
+                        if not source_hint:
+                            source_hint = "ui_cache"
                 except Exception:
                     pass
             return {
@@ -11883,6 +11928,7 @@ class MainWindow(QMainWindow):
                     "cash_krw": 0.0,
                     "positions": [],
                     "position_count": position_count,
+                    "source_hint": source_hint,
                     "exposure": {},
                     "pnl_snapshot": {},
                     "allocation_snapshot": {},
