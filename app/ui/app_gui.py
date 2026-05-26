@@ -11974,6 +11974,10 @@ class MainWindow(QMainWindow):
         """
         try:
             strategy_attached = False
+            watchlist_count = 0
+            whitelist_count = 0
+            blacklist_count = 0
+            source_hint = ""
             for attr_name in (
                 "strategy_ready",
                 "strategy_loaded",
@@ -11985,6 +11989,7 @@ class MainWindow(QMainWindow):
                 try:
                     if bool(getattr(self, attr_name, False)):
                         strategy_attached = True
+                        source_hint = "ready_flag"
                         break
                 except Exception:
                     pass
@@ -12004,9 +12009,76 @@ class MainWindow(QMainWindow):
             ):
                 try:
                     value = getattr(self, attr_name, None)
-                    if isinstance(value, (dict, list)) and len(value) > 0:
+                    if isinstance(value, (dict, list, tuple, set)) and len(value) > 0:
                         strategy_attached = True
-                        break
+                        count = len(value)
+                        if "white" in attr_name:
+                            whitelist_count = max(whitelist_count, count)
+                        elif "black" in attr_name:
+                            blacklist_count = max(blacklist_count, count)
+                        elif "watch" in attr_name:
+                            watchlist_count = max(watchlist_count, count)
+                        if not source_hint:
+                            source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "strategy_rows",
+                "config_rows",
+                "watchlist_rows",
+                "whitelist_rows",
+                "blacklist_rows",
+                "managed_symbols",
+                "ai_managed_symbols",
+                "_strategy_rows",
+                "_config_rows",
+                "_watchlist_rows",
+                "_whitelist_rows",
+                "_blacklist_rows",
+                "_managed_symbols",
+                "_ai_managed_symbols",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict, tuple, set)):
+                        count = len(value)
+                        if count > 0:
+                            strategy_attached = True
+                            if "white" in attr_name:
+                                whitelist_count = max(whitelist_count, count)
+                            elif "black" in attr_name:
+                                blacklist_count = max(blacklist_count, count)
+                            elif "watch" in attr_name or "managed" in attr_name:
+                                watchlist_count = max(watchlist_count, count)
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "tblStrategy",
+                "tblWatchlist",
+                "tblWhitelist",
+                "tblBlacklist",
+                "tblAiManaged",
+                "tbl_strategy",
+                "tbl_watchlist",
+                "tbl_whitelist",
+                "tbl_blacklist",
+                "tbl_ai_managed",
+            ):
+                try:
+                    table = getattr(self, attr_name, None)
+                    row_count = int(table.rowCount()) if hasattr(table, "rowCount") else 0
+                    if row_count > 0:
+                        strategy_attached = True
+                        if "Whitelist" in attr_name or "whitelist" in attr_name:
+                            whitelist_count = max(whitelist_count, row_count)
+                        elif "Blacklist" in attr_name or "blacklist" in attr_name:
+                            blacklist_count = max(blacklist_count, row_count)
+                        elif "Watchlist" in attr_name or "watchlist" in attr_name or "AiManaged" in attr_name or "ai_managed" in attr_name:
+                            watchlist_count = max(watchlist_count, row_count)
+                        if not source_hint:
+                            source_hint = "ui_cache"
                 except Exception:
                     pass
             return {
@@ -12024,6 +12096,10 @@ class MainWindow(QMainWindow):
                     "blacklist": [],
                     "rules": {},
                     "parameters": {},
+                    "watchlist_count": watchlist_count,
+                    "whitelist_count": whitelist_count,
+                    "blacklist_count": blacklist_count,
+                    "source_hint": source_hint,
                 },
                 "constraints": {
                     "read_only": True,
