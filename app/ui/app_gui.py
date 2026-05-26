@@ -4731,6 +4731,9 @@ class MainWindow(QMainWindow):
         self._startup_progress_show_close_scheduled = False
         self._ai_scores_boot_retry_count = 0
         self._ai_scores_boot_retry_max = 20
+        self._basic_runtime_status_cache = None
+        self._basic_runtime_status_cache_ts = 0.0
+        self._basic_runtime_status_cache_ttl_sec = 10.0
         self._runtime_panel_promoted = False
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
         self._geometry_restored = False
@@ -10519,6 +10522,21 @@ class MainWindow(QMainWindow):
             "qwen25_found": False,
         }
         try:
+            now = time.monotonic()
+            cached = getattr(self, "_basic_runtime_status_cache", None)
+            cache_ts = float(getattr(self, "_basic_runtime_status_cache_ts", 0.0) or 0.0)
+            ttl = float(getattr(self, "_basic_runtime_status_cache_ttl_sec", 10.0) or 10.0)
+            if isinstance(cached, dict) and (now - cache_ts) < ttl:
+                result = dict(cached)
+                result["from_cache"] = True
+                try:
+                    self._basic_runtime_ui_status = dict(result)
+                except Exception:
+                    pass
+                return result
+        except Exception:
+            pass
+        try:
             from dataclasses import asdict, is_dataclass
 
             def _to_dict(value):
@@ -10619,12 +10637,22 @@ class MainWindow(QMainWindow):
                 self._basic_runtime_ui_status = dict(status)
             except Exception:
                 pass
+            try:
+                self._basic_runtime_status_cache = dict(status)
+                self._basic_runtime_status_cache_ts = time.monotonic()
+            except Exception:
+                pass
             self._aits_perf_log("_build_basic_runtime_ui_status.result_build.end", t_part)
             return status
         except Exception as exc:
             status["reason"] = f"ui_status_failed:{type(exc).__name__}"
             try:
                 self._basic_runtime_ui_status = dict(status)
+            except Exception:
+                pass
+            try:
+                self._basic_runtime_status_cache = dict(status)
+                self._basic_runtime_status_cache_ts = time.monotonic()
             except Exception:
                 pass
             return status
