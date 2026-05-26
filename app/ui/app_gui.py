@@ -12145,12 +12145,19 @@ class MainWindow(QMainWindow):
             emergency_stop = False
             blocked_reasons = []
             warnings = []
+            rule_count = 0
+            profile_count = 0
+            source_hint = ""
             for attr_name in (
                 "risk_ready",
+                "risk_enabled",
+                "risk_configured",
                 "risk_loaded",
                 "cooldown_active",
                 "emergency_stop",
                 "_risk_ready",
+                "_risk_enabled",
+                "_risk_configured",
                 "_risk_loaded",
                 "_cooldown_active",
                 "_emergency_stop",
@@ -12159,6 +12166,8 @@ class MainWindow(QMainWindow):
                     value = getattr(self, attr_name, False)
                     if bool(value):
                         risk_attached = True
+                        if not source_hint:
+                            source_hint = "ready_flag"
                     if attr_name in ("cooldown_active", "_cooldown_active"):
                         cooldown_active = bool(value)
                     if attr_name in ("emergency_stop", "_emergency_stop"):
@@ -12167,24 +12176,112 @@ class MainWindow(QMainWindow):
                     pass
             for attr_name in (
                 "risk_state",
+                "risk_settings",
                 "risk_config",
+                "sltp_settings",
                 "risk_limits",
                 "blocked_reasons",
                 "risk_warnings",
                 "_risk_state",
+                "_risk_settings",
                 "_risk_config",
+                "_sltp_settings",
                 "_risk_limits",
                 "_blocked_reasons",
                 "_risk_warnings",
             ):
                 try:
                     value = getattr(self, attr_name, None)
-                    if isinstance(value, (dict, list)) and len(value) > 0:
+                    if isinstance(value, (dict, list, tuple, set)) and len(value) > 0:
                         risk_attached = True
+                        count = len(value)
+                        if "warning" in attr_name or "reason" in attr_name or "rule" in attr_name:
+                            rule_count = max(rule_count, count)
+                        elif "profile" in attr_name:
+                            profile_count = max(profile_count, count)
+                        if not source_hint:
+                            source_hint = "ui_cache"
                     if attr_name in ("blocked_reasons", "_blocked_reasons") and isinstance(value, list):
                         blocked_reasons = list(value)
                     if attr_name in ("risk_warnings", "_risk_warnings") and isinstance(value, list):
                         warnings = list(value)
+                except Exception:
+                    pass
+            for attr_name in (
+                "risk_rows",
+                "risk_rules",
+                "sltp_rows",
+                "stoploss_rows",
+                "takeprofit_rows",
+                "risk_profiles",
+                "_risk_rows",
+                "_risk_rules",
+                "_sltp_rows",
+                "_stoploss_rows",
+                "_takeprofit_rows",
+                "_risk_profiles",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict, tuple, set)):
+                        count = len(value)
+                        if count > 0:
+                            risk_attached = True
+                            if "profile" in attr_name:
+                                profile_count = max(profile_count, count)
+                            else:
+                                rule_count = max(rule_count, count)
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "tblRisk",
+                "tblRiskRules",
+                "tblSLTP",
+                "tblStopLoss",
+                "tblTakeProfit",
+                "tbl_risk",
+                "tbl_risk_rules",
+                "tbl_sltp",
+                "tbl_stoploss",
+                "tbl_takeprofit",
+            ):
+                try:
+                    table = getattr(self, attr_name, None)
+                    row_count = int(table.rowCount()) if hasattr(table, "rowCount") else 0
+                    if row_count > 0:
+                        risk_attached = True
+                        rule_count = max(rule_count, row_count)
+                        if not source_hint:
+                            source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "chkEnableRisk",
+                "chkEnableSL",
+                "chkEnableTP",
+                "cmbRiskMode",
+                "lblRiskStatus",
+                "spinMaxLoss",
+                "spinTakeProfit",
+                "spinStopLoss",
+            ):
+                try:
+                    control = getattr(self, attr_name, None)
+                    attached = False
+                    if hasattr(control, "isChecked"):
+                        attached = bool(control.isChecked())
+                    elif hasattr(control, "currentText"):
+                        attached = bool(str(control.currentText() or "").strip())
+                    elif hasattr(control, "text"):
+                        attached = bool(str(control.text() or "").strip())
+                    elif hasattr(control, "value"):
+                        attached = float(control.value() or 0.0) != 0.0
+                    if attached:
+                        risk_attached = True
+                        if not source_hint:
+                            source_hint = "ui_control"
                 except Exception:
                     pass
             return {
@@ -12193,6 +12290,7 @@ class MainWindow(QMainWindow):
                 "attachment_ready": True,
                 "risk_attached": risk_attached,
                 "risk_calc_performed": False,
+                "risk_evaluation_performed": False,
                 "risk": {
                     "risk_level": "",
                     "cooldown_active": cooldown_active,
@@ -12202,6 +12300,9 @@ class MainWindow(QMainWindow):
                     "emergency_stop": emergency_stop,
                     "blocked_reasons": blocked_reasons,
                     "warnings": warnings,
+                    "rule_count": rule_count,
+                    "profile_count": profile_count,
+                    "source_hint": source_hint,
                 },
                 "constraints": {
                     "read_only": True,
@@ -12223,6 +12324,7 @@ class MainWindow(QMainWindow):
                 "attachment_ready": False,
                 "risk_attached": False,
                 "risk_calc_performed": False,
+                "risk_evaluation_performed": False,
                 "risk": {},
                 "constraints": {
                     "read_only": True,
