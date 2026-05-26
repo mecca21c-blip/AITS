@@ -12360,14 +12360,14 @@ class MainWindow(QMainWindow):
             self.lbl_runtime_status_compact_line.setWordWrap(False)
         except Exception:
             pass
-        self.lbl_runtime_status_compact_meta = QLabel("Mode: display-only | shadow/research")
+        self.lbl_runtime_status_compact_meta = QLabel("안전 모니터링 모드")
         self.lbl_runtime_status_compact_meta.setObjectName("aitsRuntimeStatusCompactMeta")
         self.lbl_runtime_status_compact_gate = QLabel(
-            "Gate: blocked | review=required | submitted=0"
+            "보호모드 활성 | 주문 차단"
         )
         self.lbl_runtime_status_compact_gate.setObjectName("aitsRuntimeStatusCompactGate")
         self.lbl_runtime_status_compact_inputs = QLabel(
-            "Inputs: M 대기 | P 대기 | S 대기 | R 대기 | C 대기"
+            "입력상태: 데이터 대기 중"
         )
         self.lbl_runtime_status_compact_inputs.setObjectName("aitsRuntimeStatusCompactInputs")
 
@@ -12572,7 +12572,7 @@ class MainWindow(QMainWindow):
                 meta_label = getattr(self, "lbl_runtime_status_compact_meta", None)
                 gate_label = getattr(self, "lbl_runtime_status_compact_gate", None)
                 if meta_label is not None and hasattr(meta_label, "setText"):
-                    meta_label.setText("Mode: display-only | shadow/research")
+                    meta_label.setText("안전 모니터링 모드")
                 if gate_label is not None and hasattr(gate_label, "setText"):
                     gate = self._build_local_runtime_decision_safety_gate()
                     if not isinstance(gate, dict):
@@ -12580,24 +12580,26 @@ class MainWindow(QMainWindow):
                     constraints = gate.get("constraints", {})
                     if not isinstance(constraints, dict):
                         constraints = {}
-                    action_state = "blocked" if bool(gate.get("action_blocked", True)) else "ready"
-                    review_state = (
-                        "required"
-                        if bool(gate.get("human_review_required", True))
-                        else "optional"
-                    )
                     submitted = constraints.get("submitted", gate.get("submitted", 0))
-                    gate_label.setText(
-                        f"Gate: {action_state} | review={review_state} | submitted={submitted or 0}"
-                    )
+                    try:
+                        submitted_count = int(submitted or 0)
+                    except Exception:
+                        submitted_count = 0
+                    if bool(gate.get("action_blocked", True)):
+                        gate_text = "보호모드 활성 | 주문 차단"
+                    else:
+                        gate_text = "자동 실행 가능"
+                    if submitted_count > 0:
+                        gate_text = f"{gate_text} | 주문 제출: {submitted_count}건"
+                    gate_label.setText(gate_text)
             except Exception:
                 try:
                     meta_label = getattr(self, "lbl_runtime_status_compact_meta", None)
                     gate_label = getattr(self, "lbl_runtime_status_compact_gate", None)
                     if meta_label is not None and hasattr(meta_label, "setText"):
-                        meta_label.setText("Mode: display-only | shadow/research")
+                        meta_label.setText("안전 모니터링 모드")
                     if gate_label is not None and hasattr(gate_label, "setText"):
-                        gate_label.setText("Gate: blocked | review=required | submitted=0")
+                        gate_label.setText("보호모드 활성 | 주문 차단")
                 except Exception:
                     pass
             try:
@@ -12608,24 +12610,26 @@ class MainWindow(QMainWindow):
                     if not isinstance(summary, dict):
                         summary = {}
 
-                    def _state(key):
-                        return "연결" if bool(summary.get(key)) else "대기"
-
-                    inputs_label.setText(
-                        "Inputs: "
-                        f"M {_state('market_data_attached')} | "
-                        f"P {_state('portfolio_attached')} | "
-                        f"S {_state('strategy_attached')} | "
-                        f"R {_state('risk_attached')} | "
-                        f"C {_state('user_command_attached')}"
-                    )
+                    attached = []
+                    if bool(summary.get("market_data_attached")):
+                        attached.append("시장")
+                    if bool(summary.get("portfolio_attached")):
+                        attached.append("포트폴리오")
+                    if bool(summary.get("strategy_attached")):
+                        attached.append("전략")
+                    if bool(summary.get("risk_attached")):
+                        attached.append("리스크")
+                    if bool(summary.get("user_command_attached")):
+                        attached.append("명령")
+                    if attached:
+                        inputs_label.setText(f"입력상태: {'/'.join(attached)} 연결")
+                    else:
+                        inputs_label.setText("입력상태: 데이터 대기 중")
             except Exception:
                 try:
                     inputs_label = getattr(self, "lbl_runtime_status_compact_inputs", None)
                     if inputs_label is not None and hasattr(inputs_label, "setText"):
-                        inputs_label.setText(
-                            "Inputs: M 대기 | P 대기 | S 대기 | R 대기 | C 대기"
-                        )
+                        inputs_label.setText("입력상태: 데이터 대기 중")
                 except Exception:
                     pass
         except Exception:
