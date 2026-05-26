@@ -4729,6 +4729,8 @@ class MainWindow(QMainWindow):
         self._startup_progress_dialog = None
         self._startup_progress_closed_logged = False
         self._startup_progress_show_close_scheduled = False
+        self._ai_scores_boot_retry_count = 0
+        self._ai_scores_boot_retry_max = 20
         self._runtime_panel_promoted = False
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
         self._geometry_restored = False
@@ -25100,10 +25102,19 @@ class MainWindow(QMainWindow):
             
             # ✅ (B) 준비 안 됐으면 재시도 (안 A)
             if not (tab_exists and tbl_exists and row_count > 0):
-                log.warning("[BOOT-SCORE] watchlist not ready, retry in 300ms")
+                self._ai_scores_boot_retry_count = int(
+                    getattr(self, "_ai_scores_boot_retry_count", 0) or 0
+                ) + 1
+                max_retry = int(getattr(self, "_ai_scores_boot_retry_max", 20) or 20)
+                if self._ai_scores_boot_retry_count > max_retry:
+                    print("[AITS][AIScoresBoot] retry_limit_reached | skip boot ai score load")
+                    return
+                if self._ai_scores_boot_retry_count == 1:
+                    log.warning("[BOOT-SCORE] watchlist not ready, retry in 300ms")
                 QTimer.singleShot(300, self._load_ai_scores_on_boot)
                 return
             
+            self._ai_scores_boot_retry_count = 0
             self.set_global_status("⏳ 종목점수 계산 중...", "busy", "boot")
             QApplication.processEvents()
             
