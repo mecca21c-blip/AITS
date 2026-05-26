@@ -12336,11 +12336,16 @@ class MainWindow(QMainWindow):
             "Gate: blocked | review=required | submitted=0"
         )
         self.lbl_runtime_status_compact_gate.setObjectName("aitsRuntimeStatusCompactGate")
+        self.lbl_runtime_status_compact_inputs = QLabel(
+            "Inputs: M 대기 | P 대기 | S 대기 | R 대기 | C 대기"
+        )
+        self.lbl_runtime_status_compact_inputs.setObjectName("aitsRuntimeStatusCompactInputs")
 
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_header)
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_line)
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_meta)
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_gate)
+        self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_inputs)
         return self.runtime_status_compact_container
 
     def _format_runtime_live_indicator_text(self):
@@ -12563,6 +12568,34 @@ class MainWindow(QMainWindow):
                         meta_label.setText("Mode: display-only | shadow/research")
                     if gate_label is not None and hasattr(gate_label, "setText"):
                         gate_label.setText("Gate: blocked | review=required | submitted=0")
+                except Exception:
+                    pass
+            try:
+                inputs_label = getattr(self, "lbl_runtime_status_compact_inputs", None)
+                if inputs_label is not None and hasattr(inputs_label, "setText"):
+                    bundle = self._build_runtime_attachment_bundle()
+                    summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
+                    if not isinstance(summary, dict):
+                        summary = {}
+
+                    def _state(key):
+                        return "연결" if bool(summary.get(key)) else "대기"
+
+                    inputs_label.setText(
+                        "Inputs: "
+                        f"M {_state('market_data_attached')} | "
+                        f"P {_state('portfolio_attached')} | "
+                        f"S {_state('strategy_attached')} | "
+                        f"R {_state('risk_attached')} | "
+                        f"C {_state('user_command_attached')}"
+                    )
+            except Exception:
+                try:
+                    inputs_label = getattr(self, "lbl_runtime_status_compact_inputs", None)
+                    if inputs_label is not None and hasattr(inputs_label, "setText"):
+                        inputs_label.setText(
+                            "Inputs: M 대기 | P 대기 | S 대기 | R 대기 | C 대기"
+                        )
                 except Exception:
                     pass
         except Exception:
@@ -33554,6 +33587,11 @@ QLabel#aitsRuntimeStatusCompactMeta {
 QLabel#aitsRuntimeStatusCompactGate {
     font-size: 10px;
     color: #6b7280;
+}
+
+QLabel#aitsRuntimeStatusCompactInputs {
+    font-size: 10px;
+    color: #4b5563;
 }
 
 QLabel#aitsRuntimePanelHeader {
