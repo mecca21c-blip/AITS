@@ -12362,14 +12362,16 @@ class MainWindow(QMainWindow):
             pass
         self.lbl_runtime_status_compact_meta = QLabel("안전 모니터링 모드")
         self.lbl_runtime_status_compact_meta.setObjectName("aitsRuntimeStatusCompactMeta")
+        self.lbl_runtime_status_compact_meta.setVisible(False)
         self.lbl_runtime_status_compact_gate = QLabel(
-            "보호모드 활성 | 주문 차단"
+            "보호모드 활성 | 주문 차단 · 입력상태: 데이터 대기 중"
         )
         self.lbl_runtime_status_compact_gate.setObjectName("aitsRuntimeStatusCompactGate")
         self.lbl_runtime_status_compact_inputs = QLabel(
             "입력상태: 데이터 대기 중"
         )
         self.lbl_runtime_status_compact_inputs.setObjectName("aitsRuntimeStatusCompactInputs")
+        self.lbl_runtime_status_compact_inputs.setVisible(False)
 
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_header)
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_line)
@@ -12555,7 +12557,11 @@ class MainWindow(QMainWindow):
                 return
             if not hasattr(compact_line, "setText") or not hasattr(live_indicator, "text"):
                 return
-            compact_line.setText(str(live_indicator.text() or "Runtime status unavailable"))
+            line_text = str(live_indicator.text() or "Runtime status unavailable")
+            if line_text.startswith("AI Runtime: "):
+                line_text = line_text[len("AI Runtime: "):]
+            line_text = line_text.replace(" | display-only", "")
+            compact_line.setText(line_text)
             try:
                 state = live_indicator.property("runtimeState")
                 if state:
@@ -12591,7 +12597,28 @@ class MainWindow(QMainWindow):
                         gate_text = "자동 실행 가능"
                     if submitted_count > 0:
                         gate_text = f"{gate_text} | 주문 제출: {submitted_count}건"
-                    gate_label.setText(gate_text)
+                    input_text = "입력상태: 데이터 대기 중"
+                    try:
+                        bundle = self._build_runtime_attachment_bundle()
+                        summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
+                        if not isinstance(summary, dict):
+                            summary = {}
+                        attached = []
+                        if bool(summary.get("market_data_attached")):
+                            attached.append("시장")
+                        if bool(summary.get("portfolio_attached")):
+                            attached.append("포트폴리오")
+                        if bool(summary.get("strategy_attached")):
+                            attached.append("전략")
+                        if bool(summary.get("risk_attached")):
+                            attached.append("리스크")
+                        if bool(summary.get("user_command_attached")):
+                            attached.append("명령")
+                        if attached:
+                            input_text = f"입력상태: {'/'.join(attached)} 연결"
+                    except Exception:
+                        input_text = "입력상태: 데이터 대기 중"
+                    gate_label.setText(f"{gate_text} · {input_text}")
             except Exception:
                 try:
                     meta_label = getattr(self, "lbl_runtime_status_compact_meta", None)
@@ -12599,7 +12626,7 @@ class MainWindow(QMainWindow):
                     if meta_label is not None and hasattr(meta_label, "setText"):
                         meta_label.setText("안전 모니터링 모드")
                     if gate_label is not None and hasattr(gate_label, "setText"):
-                        gate_label.setText("보호모드 활성 | 주문 차단")
+                        gate_label.setText("보호모드 활성 | 주문 차단 · 입력상태: 데이터 대기 중")
                 except Exception:
                     pass
             try:
