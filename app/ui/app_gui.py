@@ -11720,6 +11720,8 @@ class MainWindow(QMainWindow):
         """
         try:
             market_data_attached = False
+            symbol_count = 0
+            source_hint = ""
             for attr_name in (
                 "exchange_connected",
                 "upbit_connected",
@@ -11730,9 +11732,51 @@ class MainWindow(QMainWindow):
                 try:
                     if bool(getattr(self, attr_name, False)):
                         market_data_attached = True
+                        source_hint = "connection_flag"
                         break
                 except Exception:
                     pass
+            for attr_name in (
+                "market_rows",
+                "markets",
+                "tickers",
+                "top_markets",
+                "_market_rows",
+                "_markets",
+                "_tickers",
+                "_top_markets",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict, tuple, set)):
+                        count = len(value)
+                        if count > 0:
+                            market_data_attached = True
+                            if symbol_count <= 0:
+                                symbol_count = count
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                            break
+                except Exception:
+                    pass
+            if symbol_count <= 0:
+                for attr_name in (
+                    "tblAiManaged",
+                    "tblWatchlist",
+                    "tbl_ai_managed",
+                    "tbl_watchlist",
+                ):
+                    try:
+                        table = getattr(self, attr_name, None)
+                        row_count = int(table.rowCount()) if hasattr(table, "rowCount") else 0
+                        if row_count > 0:
+                            market_data_attached = True
+                            symbol_count = row_count
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                            break
+                    except Exception:
+                        pass
             return {
                 "schema": "market_snapshot_attachment.v1",
                 "attachment_source": "app_gui.market",
@@ -11748,6 +11792,8 @@ class MainWindow(QMainWindow):
                     "volume_snapshot": {},
                     "trend_snapshot": {},
                     "volatility_snapshot": {},
+                    "symbol_count": symbol_count,
+                    "source_hint": source_hint,
                 },
                 "constraints": {
                     "read_only": True,
