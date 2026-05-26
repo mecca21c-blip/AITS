@@ -12330,9 +12330,17 @@ class MainWindow(QMainWindow):
             self.lbl_runtime_status_compact_line.setWordWrap(False)
         except Exception:
             pass
+        self.lbl_runtime_status_compact_meta = QLabel("Mode: display-only | shadow/research")
+        self.lbl_runtime_status_compact_meta.setObjectName("aitsRuntimeStatusCompactMeta")
+        self.lbl_runtime_status_compact_gate = QLabel(
+            "Gate: blocked | review=required | submitted=0"
+        )
+        self.lbl_runtime_status_compact_gate.setObjectName("aitsRuntimeStatusCompactGate")
 
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_header)
         self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_line)
+        self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_meta)
+        self.runtime_status_compact_layout.addWidget(self.lbl_runtime_status_compact_gate)
         return self.runtime_status_compact_container
 
     def _format_runtime_live_indicator_text(self):
@@ -12525,6 +12533,38 @@ class MainWindow(QMainWindow):
                     compact_line.setToolTip(str(tooltip))
             except Exception:
                 pass
+            try:
+                meta_label = getattr(self, "lbl_runtime_status_compact_meta", None)
+                gate_label = getattr(self, "lbl_runtime_status_compact_gate", None)
+                if meta_label is not None and hasattr(meta_label, "setText"):
+                    meta_label.setText("Mode: display-only | shadow/research")
+                if gate_label is not None and hasattr(gate_label, "setText"):
+                    gate = self._build_local_runtime_decision_safety_gate()
+                    if not isinstance(gate, dict):
+                        gate = {}
+                    constraints = gate.get("constraints", {})
+                    if not isinstance(constraints, dict):
+                        constraints = {}
+                    action_state = "blocked" if bool(gate.get("action_blocked", True)) else "ready"
+                    review_state = (
+                        "required"
+                        if bool(gate.get("human_review_required", True))
+                        else "optional"
+                    )
+                    submitted = constraints.get("submitted", gate.get("submitted", 0))
+                    gate_label.setText(
+                        f"Gate: {action_state} | review={review_state} | submitted={submitted or 0}"
+                    )
+            except Exception:
+                try:
+                    meta_label = getattr(self, "lbl_runtime_status_compact_meta", None)
+                    gate_label = getattr(self, "lbl_runtime_status_compact_gate", None)
+                    if meta_label is not None and hasattr(meta_label, "setText"):
+                        meta_label.setText("Mode: display-only | shadow/research")
+                    if gate_label is not None and hasattr(gate_label, "setText"):
+                        gate_label.setText("Gate: blocked | review=required | submitted=0")
+                except Exception:
+                    pass
         except Exception:
             return
 
@@ -33504,6 +33544,16 @@ QLabel#aitsRuntimeStatusCompactLine[runtimeState="check"] {
 
 QLabel#aitsRuntimeStatusCompactLine[runtimeState="degraded"] {
     color: #991b1b;
+}
+
+QLabel#aitsRuntimeStatusCompactMeta {
+    font-size: 10px;
+    color: #4b5563;
+}
+
+QLabel#aitsRuntimeStatusCompactGate {
+    font-size: 10px;
+    color: #6b7280;
 }
 
 QLabel#aitsRuntimePanelHeader {
