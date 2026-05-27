@@ -12980,7 +12980,7 @@ class MainWindow(QMainWindow):
             reasoning_preview = getattr(self, "lbl_ai_reasoning_preview", None)
             if reasoning_preview is not None and hasattr(reasoning_preview, "setText"):
                 snapshot = self._build_ai_reasoning_preview_snapshot()
-                reasoning_preview.setText(self._format_ai_reasoning_preview_text(snapshot))
+                reasoning_preview.setText(self._build_runtime_preview_compact_text())
                 try:
                     reasoning_preview.setProperty(
                         "reasoningState",
@@ -13174,13 +13174,9 @@ class MainWindow(QMainWindow):
             if bool(snapshot.get("reasoning_ready"))
             else "AI 판단 준비 미완료"
         )
-        safe_line = "현재 보호모드 활성" if bool(snapshot.get("safe_mode", True)) else "보호모드 확인 필요"
-        order_line = (
-            "실주문 차단 / shadow preview only"
-            if bool(snapshot.get("order_blocked", True))
-            else "실행 권한 확인 필요"
-        )
-        return "\n".join((ready_line, input_line, safe_line, order_line))
+        if input_count <= 0:
+            return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
+        return f"{ready_line}\n{input_line} · shadow preview only"
 
     def _format_ai_reasoning_preview_tooltip(self, snapshot):
         """Format compact tooltip detail for the read-only AI reasoning preview."""
@@ -13202,9 +13198,8 @@ class MainWindow(QMainWindow):
             "AI Reasoning Preview\n"
             f"- 입력 연결: {input_count}/5\n"
             f"- 판단 준비: {ready_text}\n"
-            f"- 보호모드: {safe_text}\n"
-            f"- 주문 실행: {order_text}\n"
-            "- Preview Mode: Shadow Only"
+            f"- Preview Mode: Shadow Only\n"
+            f"- 보호/실행: {safe_text} / {order_text}"
         )
 
     def _build_shadow_decision_preview_snapshot(self):
@@ -13275,11 +13270,39 @@ class MainWindow(QMainWindow):
         if not isinstance(snapshot, dict):
             snapshot = {}
         candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
-        reason_text = str(
-            snapshot.get("reason_text")
-            or "preview snapshot을 안전하게 생성하지 못했습니다."
-        )
-        return f"Shadow Preview: {candidate_text}\n이유: {reason_text}"
+        state = str(snapshot.get("candidate_state") or "waiting")
+        if state == "waiting":
+            compact_reason = "시장/포트폴리오 준비 필요"
+        elif state == "ready_for_review":
+            compact_reason = "현재 shadow preview only"
+        else:
+            compact_reason = "입력 연결 후 수동 검토 가능"
+        return f"Shadow Preview: {candidate_text}\n{compact_reason}"
+
+    def _build_runtime_preview_compact_text(self):
+        """Build a two-line runtime preview summary from existing preview snapshots."""
+        try:
+            reasoning = self._build_ai_reasoning_preview_snapshot()
+            shadow = self._build_shadow_decision_preview_snapshot()
+            if not isinstance(reasoning, dict):
+                reasoning = {}
+            if not isinstance(shadow, dict):
+                shadow = {}
+            input_count = int(reasoning.get("input_count") or 0)
+            candidate_text = str(shadow.get("candidate_text") or "판단 대기")
+            if input_count <= 0:
+                return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
+            if input_count >= 4:
+                return (
+                    "검토 준비 상태\n"
+                    f"입력 연결: {input_count}/5 · Shadow Preview: {candidate_text}"
+                )
+            return (
+                "AI 판단 준비 중\n"
+                f"입력 연결: {input_count}/5 · Shadow Preview: {candidate_text}"
+            )
+        except Exception:
+            return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
 
     def _format_shadow_decision_preview_tooltip(self, snapshot):
         """Format compact tooltip detail for shadow-only decision preview."""
@@ -13297,6 +13320,33 @@ class MainWindow(QMainWindow):
             f"- 이유: {reason_text}\n"
             f"- 실행: {execution_text}\n"
             "- preview_only=True"
+        )
+
+    def _format_runtime_preview_compact_tooltip(self, reasoning_snapshot, shadow_snapshot):
+        """Format concise combined preview tooltip without repeating protection text."""
+        if not isinstance(reasoning_snapshot, dict):
+            reasoning_snapshot = {}
+        if not isinstance(shadow_snapshot, dict):
+            shadow_snapshot = {}
+        try:
+            input_count = int(reasoning_snapshot.get("input_count") or 0)
+        except Exception:
+            input_count = 0
+        if input_count >= 4:
+            ready_text = "READY"
+        elif input_count >= 2:
+            ready_text = "PARTIAL"
+        else:
+            ready_text = "WAITING"
+        candidate_text = str(shadow_snapshot.get("candidate_text") or "판단 대기")
+        reason_text = str(shadow_snapshot.get("reason_text") or "입력 상태를 확인 중입니다.")
+        return (
+            "Runtime Preview\n"
+            f"- 입력 연결: {input_count}/5\n"
+            f"- 판단 준비: {ready_text}\n"
+            f"- Shadow 상태: {candidate_text}\n"
+            f"- 이유: {reason_text}\n"
+            "- 보호/실행: shadow_only=True, submitted=0"
         )
 
     def _sync_runtime_status_compact_panel(self):
@@ -13326,16 +13376,14 @@ class MainWindow(QMainWindow):
             try:
                 tooltip = live_indicator.toolTip()
                 detail_tooltip = self._format_runtime_input_tooltip_text(summary)
-                reasoning_tooltip = self._format_ai_reasoning_preview_tooltip(
-                    self._build_ai_reasoning_preview_snapshot()
+                reasoning_snapshot = self._build_ai_reasoning_preview_snapshot()
+                shadow_snapshot = self._build_shadow_decision_preview_snapshot()
+                preview_tooltip = self._format_runtime_preview_compact_tooltip(
+                    reasoning_snapshot,
+                    shadow_snapshot,
                 )
-                if reasoning_tooltip:
-                    detail_tooltip = f"{detail_tooltip}\n\n{reasoning_tooltip}"
-                shadow_tooltip = self._format_shadow_decision_preview_tooltip(
-                    self._build_shadow_decision_preview_snapshot()
-                )
-                if shadow_tooltip:
-                    detail_tooltip = f"{detail_tooltip}\n\n{shadow_tooltip}"
+                if preview_tooltip:
+                    detail_tooltip = f"{detail_tooltip}\n\n{preview_tooltip}"
                 merged_tooltip = str(tooltip or "").strip()
                 if merged_tooltip:
                     merged_tooltip = f"{merged_tooltip}\n\n{detail_tooltip}"
