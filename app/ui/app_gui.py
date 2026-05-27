@@ -1668,6 +1668,202 @@ class AITSLargeChartDialog(QDialog):
             return "#b45309"
         return "#111827"
 
+    def _build_asset_policy_snapshot(self, symbol=None):
+        try:
+            if symbol is None:
+                symbol = getattr(self, "_symbol", "") or ""
+                if not symbol:
+                    symbol = str(self.lbl_detail_popup_header_symbol.text() or "").strip()
+            policy_style = "전역 정책 따름"
+            autonomy_level = 50
+            max_weight_pct = 0
+            try:
+                policy_style = str(self.cmb_asset_policy_style.currentText() or policy_style)
+            except Exception:
+                pass
+            try:
+                autonomy_level = int(self.slider_asset_policy_autonomy.value())
+            except Exception:
+                pass
+            try:
+                max_weight_pct = int(self.spin_asset_policy_max_weight.value())
+            except Exception:
+                pass
+            return {
+                "schema": "aits_asset_policy_snapshot.v1",
+                "symbol": str(symbol or "").strip(),
+                "policy_style": policy_style,
+                "autonomy_level": autonomy_level,
+                "max_weight_pct": max_weight_pct,
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_order": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_asset_policy_snapshot.v1",
+                "symbol": "",
+                "policy_style": "전역 정책 따름",
+                "autonomy_level": 50,
+                "max_weight_pct": 0,
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_order": False,
+            }
+
+    def _sync_asset_policy_summary(self, *args):
+        try:
+            snapshot = self._build_asset_policy_snapshot()
+            max_weight = int(snapshot.get("max_weight_pct", 0) or 0)
+            max_weight_text = "전역" if max_weight <= 0 else f"{max_weight}%"
+            autonomy = int(snapshot.get("autonomy_level", 50) or 50)
+            self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
+            self.lbl_asset_policy_summary.setText(
+                "종목 정책: "
+                f"{snapshot.get('policy_style', '전역 정책 따름')} · "
+                f"AI 자율도 {autonomy} · 최대비중 {max_weight_text}"
+            )
+        except Exception:
+            pass
+
+    def _toggle_asset_advanced_policy(self):
+        try:
+            target = getattr(self, "asset_advanced_policy_container", None)
+            if target is None:
+                return
+            visible = not bool(target.isVisible())
+            target.setVisible(visible)
+            self.btn_toggle_asset_advanced_policy.setText(
+                "[ 고급 종목 정책 접기 ]" if visible else "[ 고급 종목 정책 ]"
+            )
+        except Exception:
+            pass
+
+    def _build_asset_policy_panel(self):
+        self.asset_policy_container = QFrame(self)
+        self.asset_policy_container.setObjectName("aitsAssetPolicyContainer")
+        try:
+            self.asset_policy_container.setStyleSheet(
+                "QFrame#aitsAssetPolicyContainer {"
+                "border: 1px solid #334155; border-radius: 8px; "
+                "background: rgba(15, 23, 42, 0.35); padding: 8px;"
+                "}"
+                "QFrame#aitsAssetPolicyContainer QLabel { color: #e5e7eb; }"
+                "QFrame#aitsAssetPolicyContainer QComboBox, "
+                "QFrame#aitsAssetPolicyContainer QSpinBox {"
+                "min-height: 24px; border:1px solid #475569; border-radius:6px; "
+                "background:#ffffff; color:#111827; padding:2px 6px;"
+                "}"
+                "QFrame#aitsAssetPolicyContainer QPushButton {"
+                "min-height: 24px; border:1px solid #475569; border-radius:6px; "
+                "background:#f8fafc; color:#111827; font-weight:700;"
+                "}"
+            )
+        except Exception:
+            pass
+        self.asset_policy_layout = QVBoxLayout(self.asset_policy_container)
+        self.asset_policy_layout.setContentsMargins(10, 10, 10, 10)
+        self.asset_policy_layout.setSpacing(7)
+
+        title = QLabel("개별 종목 AI 정책")
+        desc = QLabel(
+            "이 종목에만 적용할 AI 운용 성향을 설정합니다.\n"
+            "현재는 preview-only이며 실제 주문에는 적용되지 않습니다."
+        )
+        try:
+            title.setTextFormat(Qt.TextFormat.PlainText)
+            title.setStyleSheet("font-size:13px; font-weight:900; color:#f8fafc;")
+            desc.setTextFormat(Qt.TextFormat.PlainText)
+            desc.setWordWrap(True)
+            desc.setStyleSheet("font-size:11px; font-weight:600; color:#cbd5e1;")
+        except Exception:
+            pass
+        self.asset_policy_layout.addWidget(title)
+        self.asset_policy_layout.addWidget(desc)
+
+        style_row = QHBoxLayout()
+        style_row.setContentsMargins(0, 0, 0, 0)
+        style_row.setSpacing(6)
+        style_row.addWidget(QLabel("종목 성향"))
+        self.cmb_asset_policy_style = QComboBox()
+        self.cmb_asset_policy_style.addItems(["전역 정책 따름", "안정형", "중립형", "공격형"])
+        style_row.addWidget(self.cmb_asset_policy_style, 1)
+        self.asset_policy_layout.addLayout(style_row)
+
+        self.lbl_asset_policy_autonomy = QLabel("AI 자율도: 50")
+        self.slider_asset_policy_autonomy = QSlider(Qt.Orientation.Horizontal)
+        try:
+            self.slider_asset_policy_autonomy.setRange(0, 100)
+            self.slider_asset_policy_autonomy.setValue(50)
+        except Exception:
+            pass
+        self.asset_policy_layout.addWidget(self.lbl_asset_policy_autonomy)
+        self.asset_policy_layout.addWidget(self.slider_asset_policy_autonomy)
+
+        weight_row = QHBoxLayout()
+        weight_row.setContentsMargins(0, 0, 0, 0)
+        weight_row.setSpacing(6)
+        weight_row.addWidget(QLabel("최대 투자 비중"))
+        self.spin_asset_policy_max_weight = QSpinBox()
+        try:
+            self.spin_asset_policy_max_weight.setRange(0, 100)
+            self.spin_asset_policy_max_weight.setValue(0)
+            self.spin_asset_policy_max_weight.setSuffix("%")
+        except Exception:
+            pass
+        weight_row.addWidget(self.spin_asset_policy_max_weight, 1)
+        self.asset_policy_layout.addLayout(weight_row)
+
+        weight_hint = QLabel("0%는 전역 정책 따름")
+        try:
+            weight_hint.setTextFormat(Qt.TextFormat.PlainText)
+            weight_hint.setStyleSheet("font-size:10px; font-weight:600; color:#94a3b8;")
+        except Exception:
+            pass
+        self.asset_policy_layout.addWidget(weight_hint)
+
+        self.lbl_asset_policy_summary = QLabel(
+            "종목 정책: 전역 정책 따름 · AI 자율도 50 · 최대비중 전역"
+        )
+        try:
+            self.lbl_asset_policy_summary.setTextFormat(Qt.TextFormat.PlainText)
+            self.lbl_asset_policy_summary.setWordWrap(True)
+            self.lbl_asset_policy_summary.setStyleSheet(
+                "font-size:11px; font-weight:800; color:#f8fafc;"
+            )
+        except Exception:
+            pass
+        self.asset_policy_layout.addWidget(self.lbl_asset_policy_summary)
+
+        self.btn_toggle_asset_advanced_policy = QPushButton("[ 고급 종목 정책 ]")
+        self.asset_policy_layout.addWidget(self.btn_toggle_asset_advanced_policy)
+        self.asset_advanced_policy_container = QFrame(self.asset_policy_container)
+        advanced_lay = QVBoxLayout(self.asset_advanced_policy_container)
+        advanced_lay.setContentsMargins(0, 0, 0, 0)
+        advanced_lay.setSpacing(4)
+        advanced_label = QLabel("고급 종목 정책은 다음 단계에서 추가됩니다.")
+        try:
+            advanced_label.setTextFormat(Qt.TextFormat.PlainText)
+            advanced_label.setWordWrap(True)
+            advanced_label.setStyleSheet("font-size:11px; font-weight:600; color:#cbd5e1;")
+        except Exception:
+            pass
+        advanced_lay.addWidget(advanced_label)
+        self.asset_advanced_policy_container.setVisible(False)
+        self.asset_policy_layout.addWidget(self.asset_advanced_policy_container)
+
+        try:
+            self.cmb_asset_policy_style.currentTextChanged.connect(self._sync_asset_policy_summary)
+            self.slider_asset_policy_autonomy.valueChanged.connect(self._sync_asset_policy_summary)
+            self.spin_asset_policy_max_weight.valueChanged.connect(self._sync_asset_policy_summary)
+            self.btn_toggle_asset_advanced_policy.clicked.connect(
+                self._toggle_asset_advanced_policy
+            )
+        except Exception:
+            pass
+        self._sync_asset_policy_summary()
+        return self.asset_policy_container
+
     def _rebuild_detail_popup_saas_layout(self, root):
         try:
             self.setWindowTitle("AITS 상세 차트")
@@ -2050,6 +2246,7 @@ class AITSLargeChartDialog(QDialog):
         sidebar_lay.addWidget(self._frm_detail_ai_metrics_card, 0)
         sidebar_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
         sidebar_lay.addWidget(self._frm_detail_popup_eta_card, 0)
+        sidebar_lay.addWidget(self._build_asset_policy_panel(), 0)
         sidebar_lay.addStretch(1)
 
         content_row.addWidget(self._frm_detail_left_chart_area, 7)
