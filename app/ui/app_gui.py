@@ -8777,6 +8777,7 @@ class MainWindow(QMainWindow):
         # ---- 전략설정 탭 (StrategyTab) : 단 1회 생성 + 단 1회 addTab ----
         if getattr(self, "tab_strategy", None) is None:
             self.tab_strategy = StrategyTab(self, parent=self.tabs)
+        self._install_ai_policy_center()
 
         # 이미 addTab 했는지 중복 방지 (탭이 QScrollArea로 래핑된 경우 widget()으로 비교)
         already = False
@@ -8787,7 +8788,7 @@ class MainWindow(QMainWindow):
                 break
 
         if not already:
-            self.tabs.addTab(self._wrap_tab_scroll(self.tab_strategy), "전략설정")
+            self.tabs.addTab(self._wrap_tab_scroll(self.tab_strategy), "AI 정책 센터")
             # ✅ P0-UI-GLOBAL-STATUS: StrategyTab에 parent_window 참조 전달
             self.tab_strategy._parent_window = self
         _strategy_tab_tooltip = (
@@ -8798,6 +8799,7 @@ class MainWindow(QMainWindow):
             if _tw is self.tab_strategy or (
                 isinstance(_tw, QScrollArea) and _tw.widget() is self.tab_strategy
             ):
+                self.tabs.setTabText(_ti, "AI 정책 센터")
                 self.tabs.setTabToolTip(_ti, _strategy_tab_tooltip)
                 break
 
@@ -8932,8 +8934,8 @@ class MainWindow(QMainWindow):
         )
         self.btn_nav_strategy = _AitsBottomNavTile(
             "✣",
-            "전략설정",
-            "정책 · 리스크 · 규칙",
+            "AI 정책 센터",
+            "철학 · 리스크 · 자율도",
             self._bottom_nav_left_wrap,
         )
         self.btn_nav_settings = _AitsBottomNavTile(
@@ -13146,6 +13148,247 @@ class MainWindow(QMainWindow):
             return f"입력상태: {'/'.join(attached)} 연결"
         return f"입력상태: {count}개 입력 연결"
 
+    def _install_ai_policy_center(self):
+        """Add the read-only AI policy center UI above the existing StrategyTab."""
+        try:
+            if bool(getattr(self, "_ai_policy_center_installed", False)):
+                return
+            tab = getattr(self, "tab_strategy", None)
+            if tab is None or not hasattr(tab, "layout"):
+                return
+            root_layout = tab.layout()
+            if root_layout is None or not hasattr(root_layout, "insertWidget"):
+                return
+            self._build_ai_policy_center_widgets()
+            container = getattr(self, "ai_policy_hero_container", None)
+            if container is None:
+                return
+            root_layout.insertWidget(0, container)
+            self._ai_policy_center_installed = True
+            self._sync_ai_policy_summary()
+        except Exception:
+            pass
+
+    def _build_ai_policy_center_widgets(self):
+        """Create policy center widgets without connecting them to runtime decisions."""
+        self.ai_policy_hero_container = QFrame()
+        self.ai_policy_hero_container.setObjectName("aitsAiPolicyHeroContainer")
+        self.ai_policy_hero_container.setStyleSheet(
+            "QFrame#aitsAiPolicyHeroContainer {"
+            "border: 1px solid #d1d5db; border-radius: 8px;"
+            "background: #f9fafb; padding: 8px;"
+            "}"
+            "QFrame#aitsAiPolicyHeroContainer QLabel { color: #111827; }"
+            "QFrame#aitsAiPolicyHeroContainer QComboBox,"
+            "QFrame#aitsAiPolicyHeroContainer QSlider { min-height: 24px; }"
+            "QFrame#aitsAiPolicyHeroContainer QPushButton { min-height: 26px; }"
+        )
+        self.ai_policy_hero_layout = QVBoxLayout(self.ai_policy_hero_container)
+        self.ai_policy_hero_layout.setContentsMargins(8, 8, 8, 8)
+        self.ai_policy_hero_layout.setSpacing(8)
+
+        title = QLabel("AI 운용 정책 센터")
+        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #111827;")
+        desc = QLabel(
+            "사용자는 투자 철학을 설정하고,\n"
+            "AI는 그 방향에 맞춰 운용 판단을 수행합니다."
+        )
+        desc.setWordWrap(True)
+        desc.setStyleSheet("font-size: 11px; color: #4b5563;")
+        self.ai_policy_hero_layout.addWidget(title)
+        self.ai_policy_hero_layout.addWidget(desc)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(8)
+        self.policy_style_card = self._build_ai_policy_style_card()
+        self.policy_risk_card = self._build_ai_policy_slider_card(
+            "리스크 수준",
+            "낮음 ───●──── 높음",
+            "slider_policy_risk",
+            50,
+        )
+        self.policy_wait_card = self._build_ai_policy_slider_card(
+            "관망 성향",
+            "빠른 진입 ───●──── 신중 관망",
+            "slider_policy_wait",
+            50,
+        )
+        self.policy_autonomy_card = self._build_ai_policy_slider_card(
+            "AI 자율도",
+            "사용자 중심 ───●──── AI 중심",
+            "slider_policy_autonomy",
+            50,
+        )
+        grid.addWidget(self.policy_style_card, 0, 0)
+        grid.addWidget(self.policy_risk_card, 0, 1)
+        grid.addWidget(self.policy_wait_card, 1, 0)
+        grid.addWidget(self.policy_autonomy_card, 1, 1)
+        self.ai_policy_hero_layout.addLayout(grid)
+
+        self.lbl_ai_policy_summary = QLabel(
+            "현재 정책:\n균형형 · 리스크 중간 · 신중 관망 · AI 자율도 중간"
+        )
+        self.lbl_ai_policy_summary.setWordWrap(True)
+        self.lbl_ai_policy_summary.setStyleSheet(
+            "font-size: 12px; font-weight: 600; color: #1f2937;"
+        )
+        self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_summary)
+
+        self.btn_toggle_advanced_policy = QPushButton("고급 정책 펼치기")
+        self.btn_toggle_advanced_policy.clicked.connect(self._toggle_advanced_policy_container)
+        self.ai_policy_hero_layout.addWidget(self.btn_toggle_advanced_policy)
+
+        self.advanced_policy_container = QFrame()
+        self.advanced_policy_container.setObjectName("aitsAdvancedPolicyContainer")
+        advanced_layout = QVBoxLayout(self.advanced_policy_container)
+        advanced_layout.setContentsMargins(8, 6, 8, 6)
+        advanced_layout.setSpacing(4)
+        advanced_label = QLabel(
+            "기존 RSI/MACD 및 세부 룰 설정은 하위 고급 정책 영역으로 유지됩니다."
+        )
+        advanced_label.setWordWrap(True)
+        advanced_label.setStyleSheet("font-size: 11px; color: #6b7280;")
+        advanced_layout.addWidget(advanced_label)
+        self.advanced_policy_container.setVisible(False)
+        self.ai_policy_hero_layout.addWidget(self.advanced_policy_container)
+
+    def _build_ai_policy_style_card(self):
+        card = self._build_ai_policy_card("운용 스타일")
+        layout = card.layout()
+        self.cmb_ai_policy_style = QComboBox()
+        self.cmb_ai_policy_style.addItems(["안정형", "균형형", "공격형", "AI 자율형"])
+        self.cmb_ai_policy_style.setCurrentText("균형형")
+        self.cmb_ai_policy_style.currentTextChanged.connect(self._sync_ai_policy_summary)
+        layout.addWidget(self.cmb_ai_policy_style)
+        help_label = QLabel(
+            "안정형: 관망 우선 / 리스크 최소화\n"
+            "균형형: 기회와 안정성 균형\n"
+            "공격형: 빠른 진입 / 높은 변동 허용\n"
+            "AI 자율형: AI 판단 비중 확대"
+        )
+        help_label.setWordWrap(True)
+        help_label.setStyleSheet("font-size: 10px; color: #6b7280;")
+        layout.addWidget(help_label)
+        return card
+
+    def _build_ai_policy_slider_card(self, title, caption, attr_name, default_value):
+        card = self._build_ai_policy_card(title)
+        layout = card.layout()
+        slider = QSlider(Qt.Horizontal)
+        slider.setRange(0, 100)
+        slider.setValue(int(default_value))
+        slider.valueChanged.connect(self._sync_ai_policy_summary)
+        setattr(self, attr_name, slider)
+        caption_label = QLabel(caption)
+        caption_label.setWordWrap(True)
+        caption_label.setStyleSheet("font-size: 10px; color: #6b7280;")
+        layout.addWidget(slider)
+        layout.addWidget(caption_label)
+        return card
+
+    def _build_ai_policy_card(self, title):
+        card = QFrame()
+        card.setObjectName("aitsPolicyCard")
+        card.setStyleSheet(
+            "QFrame#aitsPolicyCard {"
+            "border: 1px solid #e5e7eb; border-radius: 8px;"
+            "background: #ffffff; padding: 8px;"
+            "}"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+        label = QLabel(title)
+        label.setStyleSheet("font-size: 12px; font-weight: 700; color: #111827;")
+        layout.addWidget(label)
+        return card
+
+    def _toggle_advanced_policy_container(self):
+        try:
+            container = getattr(self, "advanced_policy_container", None)
+            button = getattr(self, "btn_toggle_advanced_policy", None)
+            if container is None:
+                return
+            visible = not bool(container.isVisible())
+            container.setVisible(visible)
+            if button is not None:
+                button.setText("고급 정책 접기" if visible else "고급 정책 펼치기")
+        except Exception:
+            pass
+
+    def _policy_level_text(self, value, *, low, mid, high):
+        try:
+            value = int(value)
+        except Exception:
+            value = 50
+        if value < 34:
+            return low
+        if value < 67:
+            return mid
+        return high
+
+    def _build_ai_policy_snapshot(self):
+        """Build a UI-only AI policy snapshot; never apply it to runtime or orders."""
+        try:
+            style = "균형형"
+            if hasattr(self, "cmb_ai_policy_style"):
+                style = str(self.cmb_ai_policy_style.currentText() or "균형형")
+            risk = int(getattr(self, "slider_policy_risk", None).value()) if hasattr(self, "slider_policy_risk") else 50
+            wait = int(getattr(self, "slider_policy_wait", None).value()) if hasattr(self, "slider_policy_wait") else 50
+            autonomy = int(getattr(self, "slider_policy_autonomy", None).value()) if hasattr(self, "slider_policy_autonomy") else 50
+            return {
+                "schema": "aits_ai_policy_snapshot.v1",
+                "policy_style": style,
+                "risk_level": risk,
+                "wait_preference": wait,
+                "autonomy_level": autonomy,
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_order": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_ai_policy_snapshot.v1",
+                "policy_style": "균형형",
+                "risk_level": 50,
+                "wait_preference": 50,
+                "autonomy_level": 50,
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_order": False,
+            }
+
+    def _sync_ai_policy_summary(self):
+        try:
+            snapshot = self._build_ai_policy_snapshot()
+            risk_text = self._policy_level_text(
+                snapshot.get("risk_level"),
+                low="리스크 낮음",
+                mid="리스크 중간",
+                high="리스크 높음",
+            )
+            wait_text = self._policy_level_text(
+                snapshot.get("wait_preference"),
+                low="빠른 진입",
+                mid="신중 관망",
+                high="관망 우선",
+            )
+            autonomy_text = self._policy_level_text(
+                snapshot.get("autonomy_level"),
+                low="사용자 중심",
+                mid="AI 자율도 중간",
+                high="AI 중심",
+            )
+            label = getattr(self, "lbl_ai_policy_summary", None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(
+                    "현재 정책:\n"
+                    f"{snapshot.get('policy_style')} · {risk_text} · {wait_text} · {autonomy_text}"
+                )
+        except Exception:
+            pass
+
     def _format_runtime_input_tooltip_text(self, summary):
         """Format compressed runtime preview tooltip for operator UI."""
         return self._build_runtime_preview_tooltip_text()
@@ -13198,6 +13441,9 @@ class MainWindow(QMainWindow):
                 "",
             )
             submitted = int(router.get("submitted") or 0)
+            policy = self._build_ai_policy_snapshot()
+            if not isinstance(policy, dict):
+                policy = {}
 
             return (
                 "[1] 현재 AI 상태\n"
@@ -13208,7 +13454,13 @@ class MainWindow(QMainWindow):
                 f"- 연결: {connected_text} / 부족: {missing_text}\n"
                 "[3] Preview\n"
                 f"- Reasoning: {reasoning_text} | Shadow: {shadow_text}\n"
-                f"- Router: {router_text} | 실행: preview only / submitted={submitted}"
+                f"- Router: {router_text} | 실행: preview only / submitted={submitted}\n"
+                "AI 정책\n"
+                f"- 스타일: {policy.get('policy_style') or '균형형'} | "
+                f"리스크: {int(policy.get('risk_level') or 50)} | "
+                f"관망: {int(policy.get('wait_preference') or 50)} | "
+                f"자율도: {int(policy.get('autonomy_level') or 50)} | "
+                "preview_only=True"
             )
         except Exception:
             return fallback
