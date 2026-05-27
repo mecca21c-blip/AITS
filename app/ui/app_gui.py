@@ -13164,6 +13164,7 @@ class MainWindow(QMainWindow):
             if container is None:
                 return
             root_layout.insertWidget(0, container)
+            self._wrap_legacy_strategy_policy_area(root_layout)
             self._ai_policy_center_installed = True
             self._restore_ai_policy_snapshot()
             self._sync_ai_policy_summary()
@@ -13198,6 +13199,15 @@ class MainWindow(QMainWindow):
         desc.setStyleSheet("font-size: 11px; color: #4b5563;")
         self.ai_policy_hero_layout.addWidget(title)
         self.ai_policy_hero_layout.addWidget(desc)
+
+        self.lbl_ai_policy_guidance = QLabel(
+            "AITS는 사용자의 운용 철학을 기반으로 AI가 Runtime 판단을 수행합니다."
+        )
+        self.lbl_ai_policy_guidance.setWordWrap(True)
+        self.lbl_ai_policy_guidance.setStyleSheet(
+            "font-size: 11px; font-weight: 600; color: #1f2937;"
+        )
+        self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_guidance)
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -13236,6 +13246,15 @@ class MainWindow(QMainWindow):
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_summary)
 
+        self.lbl_ai_policy_local_runtime_notice = QLabel(
+            "Local AI Runtime 및 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
+        )
+        self.lbl_ai_policy_local_runtime_notice.setWordWrap(True)
+        self.lbl_ai_policy_local_runtime_notice.setStyleSheet(
+            "font-size: 10px; color: #6b7280;"
+        )
+        self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_local_runtime_notice)
+
         self.btn_toggle_advanced_policy = QPushButton("고급 정책 펼치기")
         self.btn_toggle_advanced_policy.clicked.connect(self._toggle_advanced_policy_container)
         self.ai_policy_hero_layout.addWidget(self.btn_toggle_advanced_policy)
@@ -13253,6 +13272,104 @@ class MainWindow(QMainWindow):
         advanced_layout.addWidget(advanced_label)
         self.advanced_policy_container.setVisible(False)
         self.ai_policy_hero_layout.addWidget(self.advanced_policy_container)
+
+    def _wrap_legacy_strategy_policy_area(self, root_layout):
+        """Move existing StrategyTab UI under a collapsed legacy policy container."""
+        moved_items = []
+        try:
+            if bool(getattr(self, "_legacy_policy_area_wrapped", False)):
+                return
+            if root_layout is None or not hasattr(root_layout, "takeAt"):
+                return
+
+            while root_layout.count() > 1:
+                item = root_layout.takeAt(1)
+                if item is not None:
+                    moved_items.append(item)
+            if not moved_items:
+                return
+
+            self.legacy_policy_container = QFrame()
+            self.legacy_policy_container.setObjectName("aitsLegacyPolicyContainer")
+            self.legacy_policy_container.setStyleSheet(
+                "QFrame#aitsLegacyPolicyContainer {"
+                "border: 1px solid #e5e7eb; border-radius: 8px;"
+                "background: #fbfbfc; padding: 8px;"
+                "}"
+                "QFrame#aitsLegacyPolicyContainer QLabel { color: #6b7280; }"
+            )
+            legacy_layout = QVBoxLayout(self.legacy_policy_container)
+            legacy_layout.setContentsMargins(8, 8, 8, 8)
+            legacy_layout.setSpacing(6)
+
+            self.lbl_legacy_policy_header = QLabel("고급 정책 및 레거시 설정")
+            self.lbl_legacy_policy_header.setObjectName("aitsLegacyPolicyLabel")
+            self.lbl_legacy_policy_header.setStyleSheet(
+                "font-size: 12px; font-weight: 700; color: #374151;"
+            )
+            legacy_layout.addWidget(self.lbl_legacy_policy_header)
+
+            self.lbl_legacy_policy_desc = QLabel(
+                "아래 설정은 고급 사용자 및\n"
+                "레거시 전략 호환을 위한 옵션입니다."
+            )
+            self.lbl_legacy_policy_desc.setObjectName("aitsLegacyPolicyLabel")
+            self.lbl_legacy_policy_desc.setWordWrap(True)
+            self.lbl_legacy_policy_desc.setStyleSheet("font-size: 11px; color: #6b7280;")
+            legacy_layout.addWidget(self.lbl_legacy_policy_desc)
+
+            self.btn_toggle_legacy_policy = QPushButton("고급 정책 펼치기")
+            self.btn_toggle_legacy_policy.clicked.connect(self._toggle_legacy_policy_container)
+            legacy_layout.addWidget(self.btn_toggle_legacy_policy)
+
+            self.legacy_policy_content_container = QFrame()
+            self.legacy_policy_content_container.setObjectName("aitsLegacyPolicyContent")
+            self.legacy_policy_content_container.setStyleSheet(
+                "QFrame#aitsLegacyPolicyContent { border: none; background: transparent; }"
+            )
+            content_layout = QVBoxLayout(self.legacy_policy_content_container)
+            content_layout.setContentsMargins(0, 4, 0, 0)
+            content_layout.setSpacing(4)
+            for item in moved_items:
+                widget = item.widget()
+                child_layout = item.layout()
+                if widget is not None:
+                    content_layout.addWidget(widget)
+                elif child_layout is not None:
+                    content_layout.addLayout(child_layout)
+                else:
+                    content_layout.addItem(item)
+            self.legacy_policy_content_container.setVisible(False)
+            legacy_layout.addWidget(self.legacy_policy_content_container)
+
+            root_layout.addWidget(self.legacy_policy_container)
+            self._legacy_policy_area_wrapped = True
+        except Exception:
+            try:
+                for item in moved_items:
+                    widget = item.widget()
+                    child_layout = item.layout()
+                    if widget is not None:
+                        root_layout.addWidget(widget)
+                    elif child_layout is not None:
+                        root_layout.addLayout(child_layout)
+                    else:
+                        root_layout.addItem(item)
+            except Exception:
+                pass
+
+    def _toggle_legacy_policy_container(self):
+        try:
+            content = getattr(self, "legacy_policy_content_container", None)
+            button = getattr(self, "btn_toggle_legacy_policy", None)
+            if content is None:
+                return
+            visible = not bool(content.isVisible())
+            content.setVisible(visible)
+            if button is not None:
+                button.setText("고급 정책 접기" if visible else "고급 정책 펼치기")
+        except Exception:
+            pass
 
     def _build_ai_policy_style_card(self):
         card = self._build_ai_policy_card("운용 스타일")
@@ -13549,7 +13666,8 @@ class MainWindow(QMainWindow):
                 f"리스크: {int(policy.get('risk_level') or 50)} | "
                 f"관망: {int(policy.get('wait_preference') or 50)} | "
                 f"자율도: {int(policy.get('autonomy_level') or 50)} | "
-                "preview_only=True"
+                "preview_only=True\n"
+                "AITS는 운용 철학 기반 AI Runtime 시스템입니다."
             )
         except Exception:
             return fallback
