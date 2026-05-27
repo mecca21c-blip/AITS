@@ -12770,6 +12770,44 @@ class MainWindow(QMainWindow):
             pass
         return default_layout
 
+    def _build_runtime_preview_container(self):
+        """Build the operation-area Runtime Preview container and move existing preview labels."""
+        self.runtime_preview_container = QFrame()
+        self.runtime_preview_container.setObjectName("aitsRuntimePreviewContainer")
+        self.runtime_preview_layout = QVBoxLayout(self.runtime_preview_container)
+        self.runtime_preview_layout.setContentsMargins(8, 8, 8, 8)
+        self.runtime_preview_layout.setSpacing(3)
+
+        self.lbl_runtime_preview_header = QLabel("AI Runtime 운영 상태")
+        self.lbl_runtime_preview_header.setObjectName("aitsRuntimePreviewHeader")
+        self.runtime_preview_layout.addWidget(self.lbl_runtime_preview_header)
+
+        source_layout = getattr(self, "runtime_panel_layout", None)
+        for widget in (
+            getattr(self, "lbl_runtime_live_indicator", None),
+            getattr(self, "lbl_runtime_input_summary", None),
+            getattr(self, "lbl_runtime_safety_summary", None),
+            getattr(self, "lbl_runtime_decision_gate_summary", None),
+            getattr(self, "lbl_ai_reasoning_preview", None),
+            getattr(self, "lbl_shadow_decision_preview", None),
+        ):
+            if widget is None:
+                continue
+            try:
+                if source_layout is not None:
+                    source_layout.removeWidget(widget)
+            except Exception:
+                pass
+            try:
+                widget.setParent(self.runtime_preview_container)
+            except Exception:
+                pass
+            try:
+                self.runtime_preview_layout.addWidget(widget)
+            except Exception:
+                pass
+        return self.runtime_preview_container
+
     def _build_runtime_status_compact_container(self):
         """Build the read-only compact Runtime Status mirror for the operation area."""
         self.runtime_status_compact_container = QFrame()
@@ -28290,7 +28328,8 @@ class MainWindow(QMainWindow):
         _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
-        runtime_panel = self._build_runtime_panel_container()
+        self._build_runtime_panel_container()
+        runtime_preview = self._build_runtime_preview_container()
         _local_desc = QLabel(
             "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
         )
@@ -28306,10 +28345,9 @@ class MainWindow(QMainWindow):
         _local_btn_row.addWidget(self.btn_engine_local_detail)
         _local_btn_row.addWidget(self.btn_engine_local_ready)
         _local_settings_lay.addWidget(_local_status)
-        parent_layout = self._get_runtime_panel_parent_layout() or _local_settings_lay
-        parent_layout.addWidget(runtime_panel)
         _local_settings_lay.addWidget(_local_desc)
         _local_settings_lay.addLayout(_local_btn_row)
+        _common_right.addWidget(runtime_preview)
 
         self.btn_ai_analysis_dryrun_test = QPushButton("AI 분석 테스트")
         self.btn_ai_analysis_dryrun_test.setMinimumHeight(32)
@@ -34394,6 +34432,20 @@ QFrame#aitsRuntimePanelContainer {
     border-radius: 8px;
     background: #f9fafb;
     padding: 8px;
+}
+
+QFrame#aitsRuntimePreviewContainer {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f9fafb;
+    padding: 8px;
+}
+
+QLabel#aitsRuntimePreviewHeader {
+    color: #111827;
+    font-size: 13px;
+    font-weight: 700;
+    padding-bottom: 2px;
 }
 
 QFrame#aitsRuntimePanelTargetPlaceholder {
