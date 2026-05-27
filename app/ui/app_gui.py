@@ -11815,7 +11815,10 @@ class MainWindow(QMainWindow):
                 "market_data_attached": False,
                 "data_fetch_performed": False,
                 "provider": "upbit",
-                "market": {},
+                "market": {
+                    "symbol_count": 0,
+                    "source_hint": "",
+                },
                 "constraints": {
                     "read_only": True,
                     "display_only": True,
@@ -11953,7 +11956,10 @@ class MainWindow(QMainWindow):
                 "portfolio_attached": False,
                 "data_fetch_performed": False,
                 "provider": "upbit",
-                "portfolio": {},
+                "portfolio": {
+                    "position_count": 0,
+                    "source_hint": "",
+                },
                 "constraints": {
                     "read_only": True,
                     "display_only": True,
@@ -12120,7 +12126,12 @@ class MainWindow(QMainWindow):
                 "attachment_ready": False,
                 "strategy_attached": False,
                 "strategy_load_performed": False,
-                "strategy": {},
+                "strategy": {
+                    "watchlist_count": 0,
+                    "whitelist_count": 0,
+                    "blacklist_count": 0,
+                    "source_hint": "",
+                },
                 "constraints": {
                     "read_only": True,
                     "display_only": True,
@@ -12325,7 +12336,11 @@ class MainWindow(QMainWindow):
                 "risk_attached": False,
                 "risk_calc_performed": False,
                 "risk_evaluation_performed": False,
-                "risk": {},
+                "risk": {
+                    "rule_count": 0,
+                    "profile_count": 0,
+                    "source_hint": "",
+                },
                 "constraints": {
                     "read_only": True,
                     "display_only": True,
@@ -12488,7 +12503,11 @@ class MainWindow(QMainWindow):
                 "user_command_attached": False,
                 "command_parse_performed": False,
                 "command_execution_performed": False,
-                "command": {},
+                "command": {
+                    "pending_count": 0,
+                    "history_count": 0,
+                    "source_hint": "",
+                },
                 "safety": {
                     "read_only": True,
                     "display_only": True,
@@ -12514,6 +12533,21 @@ class MainWindow(QMainWindow):
             strategy = self._build_strategy_snapshot_attachment()
             risk = self._build_risk_snapshot_attachment()
             user_command = self._build_user_command_attachment()
+            market_body = market.get("market", {}) if isinstance(market, dict) else {}
+            portfolio_body = portfolio.get("portfolio", {}) if isinstance(portfolio, dict) else {}
+            strategy_body = strategy.get("strategy", {}) if isinstance(strategy, dict) else {}
+            risk_body = risk.get("risk", {}) if isinstance(risk, dict) else {}
+            command_body = user_command.get("command", {}) if isinstance(user_command, dict) else {}
+            if not isinstance(market_body, dict):
+                market_body = {}
+            if not isinstance(portfolio_body, dict):
+                portfolio_body = {}
+            if not isinstance(strategy_body, dict):
+                strategy_body = {}
+            if not isinstance(risk_body, dict):
+                risk_body = {}
+            if not isinstance(command_body, dict):
+                command_body = {}
 
             return {
                 "schema": "runtime_attachment_bundle.v1",
@@ -12526,11 +12560,23 @@ class MainWindow(QMainWindow):
                 "risk": risk,
                 "user_command": user_command,
                 "summary": {
-                    "market_data_attached": False,
-                    "portfolio_attached": False,
-                    "strategy_attached": False,
-                    "risk_attached": False,
-                    "user_command_attached": False,
+                    "market_data_attached": bool(market.get("market_data_attached")) if isinstance(market, dict) else False,
+                    "portfolio_attached": bool(portfolio.get("portfolio_attached")) if isinstance(portfolio, dict) else False,
+                    "strategy_attached": bool(strategy.get("strategy_attached")) if isinstance(strategy, dict) else False,
+                    "risk_attached": bool(risk.get("risk_attached")) if isinstance(risk, dict) else False,
+                    "user_command_attached": bool(user_command.get("user_command_attached")) if isinstance(user_command, dict) else False,
+                    "market_symbol_count": int(market_body.get("symbol_count") or 0),
+                    "portfolio_position_count": int(portfolio_body.get("position_count") or 0),
+                    "strategy_watchlist_count": int(strategy_body.get("watchlist_count") or 0),
+                    "risk_rule_count": int(risk_body.get("rule_count") or 0),
+                    "command_pending_count": int(command_body.get("pending_count") or 0),
+                    "source_hints": {
+                        "market": str(market_body.get("source_hint") or ""),
+                        "portfolio": str(portfolio_body.get("source_hint") or ""),
+                        "strategy": str(strategy_body.get("source_hint") or ""),
+                        "risk": str(risk_body.get("source_hint") or ""),
+                        "command": str(command_body.get("source_hint") or ""),
+                    },
                 },
                 "constraints": {
                     "read_only": True,
@@ -12563,6 +12609,18 @@ class MainWindow(QMainWindow):
                     "strategy_attached": False,
                     "risk_attached": False,
                     "user_command_attached": False,
+                    "market_symbol_count": 0,
+                    "portfolio_position_count": 0,
+                    "strategy_watchlist_count": 0,
+                    "risk_rule_count": 0,
+                    "command_pending_count": 0,
+                    "source_hints": {
+                        "market": "",
+                        "portfolio": "",
+                        "strategy": "",
+                        "risk": "",
+                        "command": "",
+                    },
                 },
                 "constraints": {
                     "read_only": True,
@@ -12893,6 +12951,56 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _format_runtime_compact_input_text(self, summary):
+        """Format compact read-only runtime input state."""
+        if not isinstance(summary, dict):
+            summary = {}
+        attached = []
+        if bool(summary.get("market_data_attached")):
+            attached.append("시장")
+        if bool(summary.get("portfolio_attached")):
+            attached.append("포트폴리오")
+        if bool(summary.get("strategy_attached")):
+            attached.append("전략")
+        if bool(summary.get("risk_attached")):
+            attached.append("리스크")
+        if bool(summary.get("user_command_attached")):
+            attached.append("명령")
+        count = len(attached)
+        if count <= 0:
+            return "입력상태: 데이터 대기 중"
+        if count <= 3:
+            return f"입력상태: {'/'.join(attached)} 연결"
+        return f"입력상태: {count}개 입력 연결"
+
+    def _format_runtime_input_tooltip_text(self, summary):
+        """Format compact tooltip detail from read-only runtime input summary."""
+        if not isinstance(summary, dict):
+            summary = {}
+        hints = summary.get("source_hints", {})
+        if not isinstance(hints, dict):
+            hints = {}
+
+        def _state(key):
+            return "연결" if bool(summary.get(key)) else "대기"
+
+        def _hint(key):
+            return str(hints.get(key) or "")
+
+        return (
+            "Runtime 입력 상태:\n"
+            f"- 시장: {_state('market_data_attached')} "
+            f"(source={_hint('market')}, count={int(summary.get('market_symbol_count') or 0)})\n"
+            f"- 포트폴리오: {_state('portfolio_attached')} "
+            f"(source={_hint('portfolio')}, count={int(summary.get('portfolio_position_count') or 0)})\n"
+            f"- 전략: {_state('strategy_attached')} "
+            f"(source={_hint('strategy')}, watchlist={int(summary.get('strategy_watchlist_count') or 0)})\n"
+            f"- 리스크: {_state('risk_attached')} "
+            f"(source={_hint('risk')}, rules={int(summary.get('risk_rule_count') or 0)})\n"
+            f"- 명령: {_state('user_command_attached')} "
+            f"(source={_hint('command')}, pending={int(summary.get('command_pending_count') or 0)})"
+        )
+
     def _sync_runtime_status_compact_panel(self):
         """Mirror the existing runtime live indicator into the compact read-only panel."""
         try:
@@ -12902,6 +13010,10 @@ class MainWindow(QMainWindow):
                 return
             if not hasattr(compact_line, "setText") or not hasattr(live_indicator, "text"):
                 return
+            bundle = self._build_runtime_attachment_bundle()
+            summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
+            if not isinstance(summary, dict):
+                summary = {}
             line_text = str(live_indicator.text() or "Runtime status unavailable")
             if line_text.startswith("AI Runtime: "):
                 line_text = line_text[len("AI Runtime: "):]
@@ -12915,8 +13027,16 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 tooltip = live_indicator.toolTip()
-                if tooltip:
-                    compact_line.setToolTip(str(tooltip))
+                detail_tooltip = self._format_runtime_input_tooltip_text(summary)
+                merged_tooltip = str(tooltip or "").strip()
+                if merged_tooltip:
+                    merged_tooltip = f"{merged_tooltip}\n\n{detail_tooltip}"
+                else:
+                    merged_tooltip = detail_tooltip
+                compact_line.setToolTip(merged_tooltip)
+                compact_container = getattr(self, "runtime_status_compact_container", None)
+                if compact_container is not None and hasattr(compact_container, "setToolTip"):
+                    compact_container.setToolTip(merged_tooltip)
             except Exception:
                 pass
             try:
@@ -12942,27 +13062,7 @@ class MainWindow(QMainWindow):
                         gate_text = "자동 실행 가능"
                     if submitted_count > 0:
                         gate_text = f"{gate_text} | 주문 제출: {submitted_count}건"
-                    input_text = "입력상태: 데이터 대기 중"
-                    try:
-                        bundle = self._build_runtime_attachment_bundle()
-                        summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
-                        if not isinstance(summary, dict):
-                            summary = {}
-                        attached = []
-                        if bool(summary.get("market_data_attached")):
-                            attached.append("시장")
-                        if bool(summary.get("portfolio_attached")):
-                            attached.append("포트폴리오")
-                        if bool(summary.get("strategy_attached")):
-                            attached.append("전략")
-                        if bool(summary.get("risk_attached")):
-                            attached.append("리스크")
-                        if bool(summary.get("user_command_attached")):
-                            attached.append("명령")
-                        if attached:
-                            input_text = f"입력상태: {'/'.join(attached)} 연결"
-                    except Exception:
-                        input_text = "입력상태: 데이터 대기 중"
+                    input_text = self._format_runtime_compact_input_text(summary)
                     gate_label.setText(f"{gate_text} · {input_text}")
             except Exception:
                 try:
@@ -12977,26 +13077,7 @@ class MainWindow(QMainWindow):
             try:
                 inputs_label = getattr(self, "lbl_runtime_status_compact_inputs", None)
                 if inputs_label is not None and hasattr(inputs_label, "setText"):
-                    bundle = self._build_runtime_attachment_bundle()
-                    summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
-                    if not isinstance(summary, dict):
-                        summary = {}
-
-                    attached = []
-                    if bool(summary.get("market_data_attached")):
-                        attached.append("시장")
-                    if bool(summary.get("portfolio_attached")):
-                        attached.append("포트폴리오")
-                    if bool(summary.get("strategy_attached")):
-                        attached.append("전략")
-                    if bool(summary.get("risk_attached")):
-                        attached.append("리스크")
-                    if bool(summary.get("user_command_attached")):
-                        attached.append("명령")
-                    if attached:
-                        inputs_label.setText(f"입력상태: {'/'.join(attached)} 연결")
-                    else:
-                        inputs_label.setText("입력상태: 데이터 대기 중")
+                    inputs_label.setText(self._format_runtime_compact_input_text(summary))
             except Exception:
                 try:
                     inputs_label = getattr(self, "lbl_runtime_status_compact_inputs", None)
