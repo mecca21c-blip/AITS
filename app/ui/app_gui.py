@@ -12728,8 +12728,8 @@ class MainWindow(QMainWindow):
         self.lbl_ai_reasoning_preview.setObjectName("aitsAiReasoningPreview")
         self.lbl_ai_reasoning_preview.setProperty("reasoningState", "waiting")
         self.lbl_ai_reasoning_preview.setToolTip(
-            "AI가 현재 어떤 입력을 보고 판단 준비 중인지 표시합니다.\n"
-            "실제 추론, 주문, action 적용은 실행하지 않습니다."
+            "AI Runtime preview 상태를 표시합니다.\n"
+            "현재 preview only / 주문 차단 상태입니다."
         )
         try:
             self.lbl_ai_reasoning_preview.setWordWrap(True)
@@ -12740,8 +12740,8 @@ class MainWindow(QMainWindow):
         self.lbl_shadow_decision_preview.setObjectName("aitsShadowDecisionPreview")
         self.lbl_shadow_decision_preview.setProperty("shadowState", "waiting")
         self.lbl_shadow_decision_preview.setToolTip(
-            "실제 AI 호출 없이 다음 판단 가능 상태를 shadow preview로 표시합니다.\n"
-            "방향성 예측, 주문, action 적용은 실행하지 않습니다."
+            "AI Runtime preview 상태를 표시합니다.\n"
+            "현재 preview only / 주문 차단 상태입니다."
         )
         try:
             self.lbl_shadow_decision_preview.setWordWrap(True)
@@ -12915,26 +12915,8 @@ class MainWindow(QMainWindow):
             return "CHECK | BASIC(Local) | Ollama | mistral:latest"
 
     def _format_runtime_live_indicator_tooltip_text(self):
-        """Format technical runtime status details for tooltip only."""
-        try:
-            parts = self._build_runtime_live_indicator_parts()
-            return (
-                f"Engine: {parts.get('provider') or 'BASIC(Local)'}\n"
-                f"Runtime: {parts.get('runtime') or 'Ollama'}\n"
-                f"Model: {parts.get('selected_model') or 'mistral:latest'}\n"
-                f"Mode: {parts.get('mode') or 'display-only'}\n"
-                f"상태: {parts.get('display_state') or '확인 필요'}\n"
-                "주문: 차단"
-            )
-        except Exception:
-            return (
-                "Engine: BASIC(Local)\n"
-                "Runtime: Ollama\n"
-                "Model: mistral:latest\n"
-                "Mode: display-only\n"
-                "상태: 확인 필요\n"
-                "주문: 차단"
-            )
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
     def _get_runtime_live_indicator_state(self):
         """Return the display-only runtime state property for the live indicator."""
@@ -13008,30 +12990,8 @@ class MainWindow(QMainWindow):
             return default_text
 
     def _format_runtime_safety_tooltip_text(self):
-        """Format technical safety gate details for tooltip only."""
-        try:
-            gate = self._build_local_runtime_decision_safety_gate()
-            if not isinstance(gate, dict):
-                gate = {}
-            constraints = gate.get("constraints", {})
-            if not isinstance(constraints, dict):
-                constraints = {}
-            submitted = constraints.get("submitted", gate.get("submitted", 0))
-            try:
-                submitted = int(submitted or 0)
-            except Exception:
-                submitted = 0
-            display_text = "display-only" if bool(constraints.get("display_only", True)) else "active"
-            order_text = "allowed" if bool(gate.get("decision_allowed", False)) else "blocked"
-            action_text = "blocked" if bool(gate.get("action_blocked", True)) else "allowed"
-            return (
-                f"AI Safety: {display_text}\n"
-                f"order={order_text}\n"
-                f"action={action_text}\n"
-                f"submitted={submitted}"
-            )
-        except Exception:
-            return "AI Safety: display-only\norder=blocked\naction=blocked\nsubmitted=0"
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
     def _format_runtime_decision_gate_summary_text(self):
         """Format decision gate state for UI display only."""
@@ -13054,22 +13014,8 @@ class MainWindow(QMainWindow):
             return default_text
 
     def _format_runtime_decision_gate_tooltip_text(self):
-        """Format technical decision gate details for tooltip only."""
-        try:
-            gate = self._build_local_runtime_decision_safety_gate()
-            if not isinstance(gate, dict):
-                gate = {}
-            allowed_text = "YES" if bool(gate.get("decision_allowed")) else "NO"
-            action_text = "blocked" if bool(gate.get("action_blocked", True)) else "ready"
-            review_text = "required" if bool(gate.get("human_review_required", True)) else "optional"
-            return (
-                "AI Decision Gate\n"
-                f"allowed={allowed_text}\n"
-                f"action={action_text}\n"
-                f"review={review_text}"
-            )
-        except Exception:
-            return "AI Decision Gate\nallowed=NO\naction=blocked\nreview=required"
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
     def _sync_runtime_summary_labels(self):
         """Refresh runtime summary labels only; no inference, action, or order calls."""
@@ -13201,32 +13147,71 @@ class MainWindow(QMainWindow):
         return f"입력상태: {count}개 입력 연결"
 
     def _format_runtime_input_tooltip_text(self, summary):
-        """Format compact tooltip detail from read-only runtime input summary."""
-        if not isinstance(summary, dict):
-            summary = {}
-        hints = summary.get("source_hints", {})
-        if not isinstance(hints, dict):
-            hints = {}
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
-        def _state(key):
-            return "연결" if bool(summary.get(key)) else "대기"
-
-        def _hint(key):
-            return str(hints.get(key) or "")
-
-        return (
-            "Runtime 입력 상태:\n"
-            f"- 시장: {_state('market_data_attached')} "
-            f"(source={_hint('market')}, count={int(summary.get('market_symbol_count') or 0)})\n"
-            f"- 포트폴리오: {_state('portfolio_attached')} "
-            f"(source={_hint('portfolio')}, count={int(summary.get('portfolio_position_count') or 0)})\n"
-            f"- 전략: {_state('strategy_attached')} "
-            f"(source={_hint('strategy')}, watchlist={int(summary.get('strategy_watchlist_count') or 0)})\n"
-            f"- 리스크: {_state('risk_attached')} "
-            f"(source={_hint('risk')}, rules={int(summary.get('risk_rule_count') or 0)})\n"
-            f"- 명령: {_state('user_command_attached')} "
-            f"(source={_hint('command')}, pending={int(summary.get('command_pending_count') or 0)})"
+    def _build_runtime_preview_tooltip_text(self):
+        """Build one compressed operator tooltip from existing read-only snapshots."""
+        fallback = (
+            "AI Runtime preview 상태를 표시합니다.\n"
+            "현재 preview only / 주문 차단 상태입니다."
         )
+        try:
+            parts = self._build_runtime_live_indicator_parts()
+            if not isinstance(parts, dict):
+                parts = {}
+            bundle = self._build_runtime_attachment_bundle()
+            summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
+            if not isinstance(summary, dict):
+                summary = {}
+            reasoning = self._build_ai_reasoning_preview_snapshot()
+            if not isinstance(reasoning, dict):
+                reasoning = {}
+            shadow = self._build_shadow_decision_preview_snapshot()
+            if not isinstance(shadow, dict):
+                shadow = {}
+            router = self._get_router_preview_snapshot()
+            if not isinstance(router, dict):
+                router = {}
+
+            input_names = (
+                ("market_data_attached", "시장"),
+                ("portfolio_attached", "포트폴리오"),
+                ("strategy_attached", "전략"),
+                ("risk_attached", "리스크"),
+                ("user_command_attached", "명령"),
+            )
+            connected = [name for key, name in input_names if bool(summary.get(key))]
+            missing = [name for key, name in input_names if not bool(summary.get(key))]
+            input_count = len(connected)
+            connected_text = "/".join(connected) if connected else "없음"
+            missing_text = "/".join(missing) if missing else "없음"
+
+            state_text = str(parts.get("display_state") or "확인 필요")
+            provider = str(parts.get("provider") or "BASIC(Local)")
+            runtime = str(parts.get("runtime") or "Ollama")
+            selected_model = str(parts.get("selected_model") or "mistral:latest")
+            reasoning_text = "준비" if bool(reasoning.get("reasoning_ready")) else "대기"
+            shadow_text = str(shadow.get("candidate_text") or "판단 대기")
+            router_text = self._format_router_preview_humanized_text(router).replace(
+                "Router Preview: ",
+                "",
+            )
+            submitted = int(router.get("submitted") or 0)
+
+            return (
+                "[1] 현재 AI 상태\n"
+                f"- 상태: {state_text} | 모드: 안전 모니터링 | 주문: 차단\n"
+                f"- 엔진: {provider} / {runtime} / {selected_model}\n"
+                "[2] 입력 연결\n"
+                f"- 입력: {input_count}/5 연결\n"
+                f"- 연결: {connected_text} / 부족: {missing_text}\n"
+                "[3] Preview\n"
+                f"- Reasoning: {reasoning_text} | Shadow: {shadow_text}\n"
+                f"- Router: {router_text} | 실행: preview only / submitted={submitted}"
+            )
+        except Exception:
+            return fallback
 
     def _build_ai_reasoning_preview_snapshot(self):
         """Build a read-only preview of whether AI reasoning has enough runtime inputs."""
@@ -13336,28 +13321,8 @@ class MainWindow(QMainWindow):
         return f"{ready_line}\n{input_line} · shadow preview only"
 
     def _format_ai_reasoning_preview_tooltip(self, snapshot):
-        """Format compact tooltip detail for the read-only AI reasoning preview."""
-        if not isinstance(snapshot, dict):
-            snapshot = {}
-        try:
-            input_count = int(snapshot.get("input_count") or 0)
-        except Exception:
-            input_count = 0
-        if input_count >= 4:
-            ready_text = "READY"
-        elif input_count >= 2:
-            ready_text = "PARTIAL"
-        else:
-            ready_text = "WAITING"
-        safe_text = "활성" if bool(snapshot.get("safe_mode", True)) else "확인 필요"
-        order_text = "차단" if bool(snapshot.get("order_blocked", True)) else "확인 필요"
-        return (
-            "AI Reasoning Preview\n"
-            f"- 입력 연결: {input_count}/5\n"
-            f"- 판단 준비: {ready_text}\n"
-            f"- Preview Mode: Shadow Only\n"
-            f"- 보호/실행: {safe_text} / {order_text}"
-        )
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
     def _build_shadow_decision_preview_snapshot(self):
         """Build a shadow-only decision readiness preview without calculating an action."""
@@ -13516,66 +13481,12 @@ class MainWindow(QMainWindow):
             return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
 
     def _format_shadow_decision_preview_tooltip(self, snapshot):
-        """Format compact tooltip detail for shadow-only decision preview."""
-        if not isinstance(snapshot, dict):
-            snapshot = {}
-        candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
-        reason_text = str(
-            snapshot.get("reason_text")
-            or "preview snapshot을 안전하게 생성하지 못했습니다."
-        )
-        execution_text = "차단됨" if bool(snapshot.get("order_blocked", True)) else "수동 검토 필요"
-        return (
-            "Shadow Decision Preview\n"
-            f"- 상태: {candidate_text}\n"
-            f"- 이유: {reason_text}\n"
-            f"- 실행: {execution_text}\n"
-            "- preview_only=True"
-        )
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
     def _format_runtime_preview_compact_tooltip(self, reasoning_snapshot, shadow_snapshot):
-        """Format concise combined preview tooltip without repeating protection text."""
-        if not isinstance(reasoning_snapshot, dict):
-            reasoning_snapshot = {}
-        if not isinstance(shadow_snapshot, dict):
-            shadow_snapshot = {}
-        try:
-            input_count = int(reasoning_snapshot.get("input_count") or 0)
-        except Exception:
-            input_count = 0
-        if input_count >= 4:
-            ready_text = "READY"
-        elif input_count >= 2:
-            ready_text = "PARTIAL"
-        else:
-            ready_text = "WAITING"
-        candidate_text = str(shadow_snapshot.get("candidate_text") or "판단 대기")
-        reason_text = str(shadow_snapshot.get("reason_text") or "입력 상태를 확인 중입니다.")
-        router_snapshot = self._get_router_preview_snapshot()
-        if not isinstance(router_snapshot, dict):
-            router_snapshot = {}
-        router_version = str(router_snapshot.get("router_version") or "v2.8")
-        router_confidence = 0.0
-        try:
-            router_confidence = float(router_snapshot.get("candidate_confidence") or 0.0)
-        except Exception:
-            router_confidence = 0.0
-        router_review = "required" if bool(router_snapshot.get("review_required", True)) else "optional"
-        return (
-            "Runtime Preview\n"
-            f"- 입력 연결: {input_count}/5\n"
-            f"- 판단 준비: {ready_text}\n"
-            f"- Shadow 상태: {candidate_text}\n"
-            f"- 이유: {reason_text}\n"
-            "- 보호/실행: shadow_only=True, submitted=0\n\n"
-            "DecisionRouter Preview\n"
-            f"- Router: {router_version}\n"
-            "- Candidate: WAIT\n"
-            f"- Confidence: {router_confidence:.2f}\n"
-            f"- Review: {router_review}\n"
-            "- Apply: blocked\n"
-            "- preview_only=True"
-        )
+        """Format compressed runtime preview tooltip for operator UI."""
+        return self._build_runtime_preview_tooltip_text()
 
     def _sync_runtime_status_compact_panel(self):
         """Mirror the existing runtime live indicator into the compact read-only panel."""
@@ -13599,21 +13510,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
-                tooltip = live_indicator.toolTip()
-                detail_tooltip = self._format_runtime_input_tooltip_text(summary)
-                reasoning_snapshot = self._build_ai_reasoning_preview_snapshot()
-                shadow_snapshot = self._build_shadow_decision_preview_snapshot()
-                preview_tooltip = self._format_runtime_preview_compact_tooltip(
-                    reasoning_snapshot,
-                    shadow_snapshot,
-                )
-                if preview_tooltip:
-                    detail_tooltip = f"{detail_tooltip}\n\n{preview_tooltip}"
-                merged_tooltip = str(tooltip or "").strip()
-                if merged_tooltip:
-                    merged_tooltip = f"{merged_tooltip}\n\n{detail_tooltip}"
-                else:
-                    merged_tooltip = detail_tooltip
+                merged_tooltip = self._build_runtime_preview_tooltip_text()
                 compact_line.setToolTip(merged_tooltip)
                 compact_container = getattr(self, "runtime_status_compact_container", None)
                 if compact_container is not None and hasattr(compact_container, "setToolTip"):
