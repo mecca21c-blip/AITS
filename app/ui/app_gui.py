@@ -12736,12 +12736,25 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        self.lbl_shadow_decision_preview = QLabel("Shadow Preview: 판단 대기")
+        self.lbl_shadow_decision_preview.setObjectName("aitsShadowDecisionPreview")
+        self.lbl_shadow_decision_preview.setProperty("shadowState", "waiting")
+        self.lbl_shadow_decision_preview.setToolTip(
+            "실제 AI 호출 없이 다음 판단 가능 상태를 shadow preview로 표시합니다.\n"
+            "방향성 예측, 주문, action 적용은 실행하지 않습니다."
+        )
+        try:
+            self.lbl_shadow_decision_preview.setWordWrap(True)
+        except Exception:
+            pass
+
         self.runtime_panel_layout.addWidget(self.lbl_runtime_panel_header)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_live_indicator)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
         self.runtime_panel_layout.addWidget(self.lbl_ai_reasoning_preview)
+        self.runtime_panel_layout.addWidget(self.lbl_shadow_decision_preview)
         return self.runtime_panel_container
 
     def _get_runtime_panel_parent_layout(self):
@@ -12984,6 +12997,26 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
+            shadow_preview = getattr(self, "lbl_shadow_decision_preview", None)
+            if shadow_preview is not None and hasattr(shadow_preview, "setText"):
+                snapshot = self._build_shadow_decision_preview_snapshot()
+                shadow_preview.setText(self._format_shadow_decision_preview_text(snapshot))
+                try:
+                    shadow_preview.setProperty(
+                        "shadowState",
+                        str(snapshot.get("candidate_state") or "waiting"),
+                    )
+                except Exception:
+                    pass
+                try:
+                    shadow_preview.setToolTip(
+                        self._format_shadow_decision_preview_tooltip(snapshot)
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
             self._sync_runtime_status_compact_panel()
         except Exception:
             pass
@@ -13174,6 +13207,98 @@ class MainWindow(QMainWindow):
             "- Preview Mode: Shadow Only"
         )
 
+    def _build_shadow_decision_preview_snapshot(self):
+        """Build a shadow-only decision readiness preview without calculating an action."""
+        fallback = {
+            "schema": "aits_shadow_decision_preview.v1",
+            "preview_only": True,
+            "shadow_only": True,
+            "real_order": False,
+            "submitted": 0,
+            "action_apply_allowed": False,
+            "order_call_allowed": False,
+            "input_count": 0,
+            "reasoning_ready": False,
+            "order_blocked": True,
+            "human_review_required": True,
+            "candidate_state": "waiting",
+            "candidate_text": "판단 대기",
+            "reason_text": "preview snapshot을 안전하게 생성하지 못했습니다.",
+        }
+        try:
+            reasoning = self._build_ai_reasoning_preview_snapshot()
+            if not isinstance(reasoning, dict):
+                reasoning = {}
+            gate = self._build_local_runtime_decision_safety_gate()
+            if not isinstance(gate, dict):
+                gate = {}
+            try:
+                input_count = int(reasoning.get("input_count") or 0)
+            except Exception:
+                input_count = 0
+            order_blocked = bool(gate.get("action_blocked", True))
+            human_review_required = bool(gate.get("human_review_required", True))
+            reasoning_ready = bool(reasoning.get("reasoning_ready"))
+            if input_count < 2:
+                candidate_state = "waiting"
+                candidate_text = "입력 데이터 대기"
+                reason_text = "시장/포트폴리오/전략/리스크 입력이 아직 충분하지 않습니다."
+            elif input_count >= 4 and not order_blocked:
+                candidate_state = "ready_for_review"
+                candidate_text = "검토 준비"
+                reason_text = "입력 데이터가 충분해 수동 검토 가능한 상태입니다."
+            else:
+                candidate_state = "blocked"
+                candidate_text = "보호모드 관망"
+                reason_text = "입력은 일부 준비되었지만 현재 보호모드로 주문 실행은 차단됩니다."
+            return {
+                "schema": "aits_shadow_decision_preview.v1",
+                "preview_only": True,
+                "shadow_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "action_apply_allowed": False,
+                "order_call_allowed": False,
+                "input_count": input_count,
+                "reasoning_ready": reasoning_ready,
+                "order_blocked": order_blocked,
+                "human_review_required": human_review_required,
+                "candidate_state": candidate_state,
+                "candidate_text": candidate_text,
+                "reason_text": reason_text,
+            }
+        except Exception:
+            return fallback
+
+    def _format_shadow_decision_preview_text(self, snapshot):
+        """Format shadow decision preview text without buy/sell/action prediction."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
+        reason_text = str(
+            snapshot.get("reason_text")
+            or "preview snapshot을 안전하게 생성하지 못했습니다."
+        )
+        return f"Shadow Preview: {candidate_text}\n이유: {reason_text}"
+
+    def _format_shadow_decision_preview_tooltip(self, snapshot):
+        """Format compact tooltip detail for shadow-only decision preview."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
+        reason_text = str(
+            snapshot.get("reason_text")
+            or "preview snapshot을 안전하게 생성하지 못했습니다."
+        )
+        execution_text = "차단됨" if bool(snapshot.get("order_blocked", True)) else "수동 검토 필요"
+        return (
+            "Shadow Decision Preview\n"
+            f"- 상태: {candidate_text}\n"
+            f"- 이유: {reason_text}\n"
+            f"- 실행: {execution_text}\n"
+            "- preview_only=True"
+        )
+
     def _sync_runtime_status_compact_panel(self):
         """Mirror the existing runtime live indicator into the compact read-only panel."""
         try:
@@ -13206,6 +13331,11 @@ class MainWindow(QMainWindow):
                 )
                 if reasoning_tooltip:
                     detail_tooltip = f"{detail_tooltip}\n\n{reasoning_tooltip}"
+                shadow_tooltip = self._format_shadow_decision_preview_tooltip(
+                    self._build_shadow_decision_preview_snapshot()
+                )
+                if shadow_tooltip:
+                    detail_tooltip = f"{detail_tooltip}\n\n{shadow_tooltip}"
                 merged_tooltip = str(tooltip or "").strip()
                 if merged_tooltip:
                     merged_tooltip = f"{merged_tooltip}\n\n{detail_tooltip}"
@@ -34323,6 +34453,23 @@ QLabel#aitsAiReasoningPreview[reasoningState="partial"] {
 
 QLabel#aitsAiReasoningPreview[reasoningState="waiting"] {
     color: #4b5563;
+}
+
+QLabel#aitsShadowDecisionPreview {
+    font-size: 11px;
+    color: #374151;
+}
+
+QLabel#aitsShadowDecisionPreview[shadowState="waiting"] {
+    color: #6b7280;
+}
+
+QLabel#aitsShadowDecisionPreview[shadowState="blocked"] {
+    color: #92400e;
+}
+
+QLabel#aitsShadowDecisionPreview[shadowState="ready_for_review"] {
+    color: #166534;
 }
 
 """
