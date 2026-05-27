@@ -12853,14 +12853,27 @@ class MainWindow(QMainWindow):
 
     def _format_runtime_live_indicator_text(self):
         """Format the current BASIC runtime snapshot for UI display only."""
-        default_text = (
-            "AI Runtime: CHECK | BASIC(Local) | Ollama | "
-            "mistral:latest | display-only"
-        )
+        default_text = "AI 상태: 확인 필요"
+        try:
+            parts = self._build_runtime_live_indicator_parts()
+            return f"AI 상태: {parts.get('display_state') or '확인 필요'}"
+        except Exception:
+            return default_text
+
+    def _build_runtime_live_indicator_parts(self):
+        """Build display and tooltip parts for runtime status without side effects."""
+        result = {
+            "state": "CHECK",
+            "display_state": "확인 필요",
+            "provider": "BASIC(Local)",
+            "runtime": "Ollama",
+            "selected_model": "mistral:latest",
+            "mode": "display-only",
+        }
         try:
             snapshot = self._build_runtime_ui_snapshot_bundle()
             if not isinstance(snapshot, dict):
-                return default_text
+                return result
             selected_model = (
                 str(snapshot.get("selected_model") or "").strip()
                 or "mistral:latest"
@@ -12870,16 +12883,58 @@ class MainWindow(QMainWindow):
             degraded = bool(snapshot.get("degraded"))
             if degraded:
                 state = "DEGRADED"
+                display_state = "제한 상태"
             elif runtime_ready and model_ready:
                 state = "READY"
+                display_state = "준비 완료"
             else:
                 state = "CHECK"
-            return (
-                f"AI Runtime: {state} | BASIC(Local) | Ollama | "
-                f"{selected_model} | display-only"
+                display_state = "확인 필요"
+            result.update(
+                {
+                    "state": state,
+                    "display_state": display_state,
+                    "selected_model": selected_model,
+                }
             )
         except Exception:
-            return default_text
+            pass
+        return result
+
+    def _format_runtime_live_indicator_technical_text(self):
+        """Format the compact technical runtime status line for the top mirror."""
+        try:
+            parts = self._build_runtime_live_indicator_parts()
+            return (
+                f"{parts.get('state') or 'CHECK'} | "
+                f"{parts.get('provider') or 'BASIC(Local)'} | "
+                f"{parts.get('runtime') or 'Ollama'} | "
+                f"{parts.get('selected_model') or 'mistral:latest'}"
+            )
+        except Exception:
+            return "CHECK | BASIC(Local) | Ollama | mistral:latest"
+
+    def _format_runtime_live_indicator_tooltip_text(self):
+        """Format technical runtime status details for tooltip only."""
+        try:
+            parts = self._build_runtime_live_indicator_parts()
+            return (
+                f"Engine: {parts.get('provider') or 'BASIC(Local)'}\n"
+                f"Runtime: {parts.get('runtime') or 'Ollama'}\n"
+                f"Model: {parts.get('selected_model') or 'mistral:latest'}\n"
+                f"Mode: {parts.get('mode') or 'display-only'}\n"
+                f"상태: {parts.get('display_state') or '확인 필요'}\n"
+                "주문: 차단"
+            )
+        except Exception:
+            return (
+                "Engine: BASIC(Local)\n"
+                "Runtime: Ollama\n"
+                "Model: mistral:latest\n"
+                "Mode: display-only\n"
+                "상태: 확인 필요\n"
+                "주문: 차단"
+            )
 
     def _get_runtime_live_indicator_state(self):
         """Return the display-only runtime state property for the live indicator."""
@@ -12899,7 +12954,7 @@ class MainWindow(QMainWindow):
 
     def _format_runtime_input_summary_text(self):
         """Format runtime attachment state for UI display only."""
-        default_text = "AI Inputs: Market=대기 | Portfolio=대기 | Strategy=대기 | Risk=대기 | Command=대기"
+        default_text = "입력 연결: 데이터 대기 중"
         try:
             bundle = self._build_runtime_attachment_bundle()
             if not isinstance(bundle, dict):
@@ -12907,24 +12962,28 @@ class MainWindow(QMainWindow):
             summary = bundle.get("summary", {})
             if not isinstance(summary, dict):
                 return default_text
-
-            def _state(key):
-                return "연결" if bool(summary.get(key)) else "대기"
-
-            return (
-                "AI Inputs: "
-                f"Market={_state('market_data_attached')} | "
-                f"Portfolio={_state('portfolio_attached')} | "
-                f"Strategy={_state('strategy_attached')} | "
-                f"Risk={_state('risk_attached')} | "
-                f"Command={_state('user_command_attached')}"
+            attached_count = sum(
+                1
+                for key in (
+                    "market_data_attached",
+                    "portfolio_attached",
+                    "strategy_attached",
+                    "risk_attached",
+                    "user_command_attached",
+                )
+                if bool(summary.get(key))
             )
+            if attached_count <= 0:
+                return "입력 연결: 데이터 대기 중"
+            if attached_count <= 2:
+                return "입력 연결: 일부 연결"
+            return "입력 연결: 정상"
         except Exception:
             return default_text
 
     def _format_runtime_safety_summary_text(self):
         """Format runtime safety gate state for UI display only."""
-        default_text = "AI Safety: display-only | order=blocked | action=blocked | submitted=0"
+        default_text = "안전 상태: 보호모드 활성 · 주문 차단"
         try:
             gate = self._build_local_runtime_decision_safety_gate()
             if not isinstance(gate, dict):
@@ -12940,35 +12999,77 @@ class MainWindow(QMainWindow):
             display_text = "display-only" if bool(constraints.get("display_only", True)) else "active"
             decision_allowed = bool(gate.get("decision_allowed", False))
             action_blocked = bool(gate.get("action_blocked", True))
-            order_text = "allowed" if decision_allowed else "blocked"
-            action_text = "blocked" if action_blocked else "allowed"
-            return (
-                f"AI Safety: {display_text} | "
-                f"order={order_text} | "
-                f"action={action_text} | "
-                f"submitted={submitted}"
-            )
+            if submitted > 0:
+                return f"안전 상태: 실행 감지 · 제출 {submitted}건"
+            if (not decision_allowed) or action_blocked:
+                return "안전 상태: 보호모드 활성 · 주문 차단"
+            return "안전 상태: 실행 검토 가능"
         except Exception:
             return default_text
 
+    def _format_runtime_safety_tooltip_text(self):
+        """Format technical safety gate details for tooltip only."""
+        try:
+            gate = self._build_local_runtime_decision_safety_gate()
+            if not isinstance(gate, dict):
+                gate = {}
+            constraints = gate.get("constraints", {})
+            if not isinstance(constraints, dict):
+                constraints = {}
+            submitted = constraints.get("submitted", gate.get("submitted", 0))
+            try:
+                submitted = int(submitted or 0)
+            except Exception:
+                submitted = 0
+            display_text = "display-only" if bool(constraints.get("display_only", True)) else "active"
+            order_text = "allowed" if bool(gate.get("decision_allowed", False)) else "blocked"
+            action_text = "blocked" if bool(gate.get("action_blocked", True)) else "allowed"
+            return (
+                f"AI Safety: {display_text}\n"
+                f"order={order_text}\n"
+                f"action={action_text}\n"
+                f"submitted={submitted}"
+            )
+        except Exception:
+            return "AI Safety: display-only\norder=blocked\naction=blocked\nsubmitted=0"
+
     def _format_runtime_decision_gate_summary_text(self):
         """Format decision gate state for UI display only."""
-        default_text = "AI Decision Gate: allowed=NO | action=blocked | review=required"
+        default_text = "판단 게이트: 수동 검토 필요"
         try:
             gate = self._build_local_runtime_decision_safety_gate()
             if not isinstance(gate, dict):
                 return default_text
+            decision_allowed = bool(gate.get("decision_allowed"))
+            action_blocked = bool(gate.get("action_blocked", True))
+            review_required = bool(gate.get("human_review_required", True))
+            if action_blocked:
+                return "판단 게이트: 실행 차단"
+            if decision_allowed and not action_blocked:
+                return "판단 게이트: 검토 준비"
+            if review_required:
+                return "판단 게이트: 수동 검토 필요"
+            return "판단 게이트: 수동 검토 필요"
+        except Exception:
+            return default_text
+
+    def _format_runtime_decision_gate_tooltip_text(self):
+        """Format technical decision gate details for tooltip only."""
+        try:
+            gate = self._build_local_runtime_decision_safety_gate()
+            if not isinstance(gate, dict):
+                gate = {}
             allowed_text = "YES" if bool(gate.get("decision_allowed")) else "NO"
             action_text = "blocked" if bool(gate.get("action_blocked", True)) else "ready"
             review_text = "required" if bool(gate.get("human_review_required", True)) else "optional"
             return (
-                "AI Decision Gate: "
-                f"allowed={allowed_text} | "
-                f"action={action_text} | "
+                "AI Decision Gate\n"
+                f"allowed={allowed_text}\n"
+                f"action={action_text}\n"
                 f"review={review_text}"
             )
         except Exception:
-            return default_text
+            return "AI Decision Gate\nallowed=NO\naction=blocked\nreview=required"
 
     def _sync_runtime_summary_labels(self):
         """Refresh runtime summary labels only; no inference, action, or order calls."""
@@ -12982,12 +13083,22 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 live_indicator.setText(self._format_runtime_live_indicator_text())
+                try:
+                    live_indicator.setToolTip(self._format_runtime_live_indicator_tooltip_text())
+                except Exception:
+                    pass
         except Exception:
             pass
         try:
             input_summary = getattr(self, "lbl_runtime_input_summary", None)
             if input_summary is not None and hasattr(input_summary, "setText"):
                 input_summary.setText(self._format_runtime_input_summary_text())
+                try:
+                    bundle = self._build_runtime_attachment_bundle()
+                    summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
+                    input_summary.setToolTip(self._format_runtime_input_tooltip_text(summary))
+                except Exception:
+                    pass
                 try:
                     input_summary.setProperty("runtimeState", "waiting")
                 except Exception:
@@ -12999,6 +13110,10 @@ class MainWindow(QMainWindow):
             if safety_summary is not None and hasattr(safety_summary, "setText"):
                 safety_summary.setText(self._format_runtime_safety_summary_text())
                 try:
+                    safety_summary.setToolTip(self._format_runtime_safety_tooltip_text())
+                except Exception:
+                    pass
+                try:
                     safety_summary.setProperty("runtimeState", "safe_blocked")
                 except Exception:
                     pass
@@ -13008,6 +13123,10 @@ class MainWindow(QMainWindow):
             decision_gate = getattr(self, "lbl_runtime_decision_gate_summary", None)
             if decision_gate is not None and hasattr(decision_gate, "setText"):
                 decision_gate.setText(self._format_runtime_decision_gate_summary_text())
+                try:
+                    decision_gate.setToolTip(self._format_runtime_decision_gate_tooltip_text())
+                except Exception:
+                    pass
                 try:
                     decision_gate.setProperty("runtimeState", "blocked")
                 except Exception:
@@ -13400,10 +13519,7 @@ class MainWindow(QMainWindow):
             summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
             if not isinstance(summary, dict):
                 summary = {}
-            line_text = str(live_indicator.text() or "Runtime status unavailable")
-            if line_text.startswith("AI Runtime: "):
-                line_text = line_text[len("AI Runtime: "):]
-            line_text = line_text.replace(" | display-only", "")
+            line_text = self._format_runtime_live_indicator_technical_text()
             compact_line.setText(line_text)
             try:
                 state = live_indicator.property("runtimeState")
