@@ -101,6 +101,7 @@ class DecisionRouter:
             history_path,
         )
         self.shadow_performance = self._load_shadow_performance()
+        self._last_router_preview_snapshot = self._build_router_preview_snapshot()
         # AITS Decision Router v2.8
         # Optional AI verifier/provider injection.
         # Safety: stored only; no forced API call, no action change.
@@ -114,6 +115,91 @@ class DecisionRouter:
         self._safe_log_info(
             f"[AITS][DecisionRouter] initialized | version={ROUTER_VERSION} | mode={self.mode}"
         )
+
+    def _build_router_preview_snapshot(self, payload=None) -> Dict[str, Any]:
+        """
+        Build a read-only router preview snapshot.
+        This never changes final action, confidence, order, or apply paths.
+        """
+        fallback = {
+            "schema": "aits_router_preview.v1",
+            "router_version": ROUTER_VERSION,
+            "preview_only": True,
+            "shadow_only": True,
+            "real_order": False,
+            "submitted": 0,
+            "provider": "local",
+            "candidate_action": "wait",
+            "candidate_confidence": 0.0,
+            "allowed": False,
+            "review_required": True,
+            "blocked_reason": "preview_fallback",
+            "input_summary": "",
+        }
+        try:
+            data = payload if isinstance(payload, dict) else {}
+            provider = (
+                data.get("selected_provider")
+                or data.get("provider")
+                or data.get("engine")
+                or "local"
+            )
+            candidate_action = (
+                data.get("candidate_action")
+                or data.get("original_action")
+                or data.get("final_action")
+                or "wait"
+            )
+            candidate_action = str(candidate_action or "wait").strip().lower() or "wait"
+            if candidate_action in ("hold", "none", "stay"):
+                candidate_action = "wait"
+            candidate_confidence = self._safe_float(
+                data.get("candidate_confidence", data.get("original_confidence", 0.0)),
+                0.0,
+            )
+            allowed = bool(
+                data.get(
+                    "provider_shadow_execution_allowed",
+                    data.get("execution_allowed", False),
+                )
+            )
+            review_required = not allowed
+            blocked_reason = ""
+            if not allowed:
+                blocked_reason = (
+                    str(data.get("provider_shadow_error") or "").strip()
+                    or "preview_only_or_execution_blocked"
+                )
+            context_data = data.get("context", {})
+            if not isinstance(context_data, dict):
+                context_data = {}
+            candidate_count = data.get("provider_shadow_candidate_count")
+            if candidate_count is None:
+                candidate_count = context_data.get("candidate_count")
+            positions_count = data.get("provider_shadow_positions_count")
+            if positions_count is None:
+                positions_count = context_data.get("positions_count")
+            input_summary = (
+                f"candidates={self._safe_int(candidate_count, 0)} | "
+                f"positions={self._safe_int(positions_count, 0)}"
+            )
+            return {
+                "schema": "aits_router_preview.v1",
+                "router_version": ROUTER_VERSION,
+                "preview_only": True,
+                "shadow_only": True,
+                "real_order": False,
+                "submitted": 0,
+                "provider": self._normalize_ai_verification_provider(provider),
+                "candidate_action": candidate_action,
+                "candidate_confidence": round(float(candidate_confidence or 0.0), 3),
+                "allowed": allowed,
+                "review_required": review_required,
+                "blocked_reason": blocked_reason,
+                "input_summary": input_summary,
+            }
+        except Exception:
+            return fallback
 
     def route(
         self,
@@ -250,6 +336,12 @@ class DecisionRouter:
                     raw=fallback_raw,
                 ),
             )
+            try:
+                preview = self._build_router_preview_snapshot(fallback_raw)
+                fallback_raw.setdefault("meta", {})["router_preview"] = preview
+                self._last_router_preview_snapshot = preview
+            except Exception:
+                pass
             return routed
 
         raw_action = getattr(decision, "action", "")
@@ -408,6 +500,12 @@ class DecisionRouter:
             dict(ai_shadow_for_router) if isinstance(ai_shadow_for_router, dict) else {}
         )
         self._attach_ai_shadow_meta(routed_result.raw, ai_shadow_for_router)
+        try:
+            preview = self._build_router_preview_snapshot(routed_result.raw)
+            routed_result.raw.setdefault("meta", {})["router_preview"] = preview
+            self._last_router_preview_snapshot = preview
+        except Exception:
+            pass
         self._store_ai_shadow_in_shadow_history(
             (routed_result.raw.get("meta") or {}).get("ai_shadow")
             if isinstance(routed_result.raw.get("meta"), dict)

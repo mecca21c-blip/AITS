@@ -13422,19 +13422,70 @@ class MainWindow(QMainWindow):
         except Exception:
             return fallback
 
+    def _get_router_preview_snapshot(self):
+        """Read the latest DecisionRouter preview snapshot without invoking the router."""
+        fallback = {
+            "schema": "aits_router_preview.v1",
+            "router_version": "v2.8",
+            "preview_only": True,
+            "shadow_only": True,
+            "real_order": False,
+            "submitted": 0,
+            "provider": "local",
+            "candidate_action": "wait",
+            "candidate_confidence": 0.0,
+            "allowed": False,
+            "review_required": True,
+            "blocked_reason": "preview_unavailable",
+            "input_summary": "",
+        }
+        try:
+            orch = self._get_aits_orchestrator()
+            router = getattr(orch, "decision_router", None) if orch is not None else None
+            snapshot = (
+                getattr(router, "_last_router_preview_snapshot", None)
+                if router is not None
+                else None
+            )
+            if isinstance(snapshot, dict):
+                return dict(snapshot)
+            local_snapshot = getattr(self, "_last_router_preview_snapshot", None)
+            if isinstance(local_snapshot, dict):
+                return dict(local_snapshot)
+        except Exception:
+            pass
+        return fallback
+
+    def _format_router_preview_humanized_text(self, snapshot):
+        """Format router preview as operator-friendly text without action recommendation."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        try:
+            confidence = float(snapshot.get("candidate_confidence") or 0.0)
+        except Exception:
+            confidence = 0.0
+        allowed = bool(snapshot.get("allowed", False))
+        review_required = bool(snapshot.get("review_required", True))
+        candidate_action = str(snapshot.get("candidate_action") or "wait").strip().lower()
+        if confidence <= 0.05:
+            return "Router Preview: 입력 부족"
+        if allowed:
+            return "Router Preview: 검토 준비"
+        if (not allowed) and review_required:
+            return "Router Preview: 검토 대기"
+        if candidate_action in ("wait", "hold", "none", "stay"):
+            return "Router Preview: 보호모드 관망"
+        return "Router Preview: 검토 대기"
+
     def _format_shadow_decision_preview_text(self, snapshot):
         """Format shadow decision preview text without buy/sell/action prediction."""
         if not isinstance(snapshot, dict):
             snapshot = {}
         candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
-        state = str(snapshot.get("candidate_state") or "waiting")
-        if state == "waiting":
-            compact_reason = "시장/포트폴리오 준비 필요"
-        elif state == "ready_for_review":
-            compact_reason = "현재 shadow preview only"
-        else:
-            compact_reason = "입력 연결 후 수동 검토 가능"
-        return f"Shadow Preview: {candidate_text}\n{compact_reason}"
+        router_text = self._format_router_preview_humanized_text(
+            self._get_router_preview_snapshot()
+        )
+        return f"Shadow Preview: {candidate_text}\n{router_text}"
 
     def _build_runtime_preview_compact_text(self):
         """Build a two-line runtime preview summary from existing preview snapshots."""
@@ -13447,16 +13498,19 @@ class MainWindow(QMainWindow):
                 shadow = {}
             input_count = int(reasoning.get("input_count") or 0)
             candidate_text = str(shadow.get("candidate_text") or "판단 대기")
+            router_text = self._format_router_preview_humanized_text(
+                self._get_router_preview_snapshot()
+            )
             if input_count <= 0:
-                return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
+                return f"입력 데이터 대기 중\n{router_text}"
             if input_count >= 4:
                 return (
                     "검토 준비 상태\n"
-                    f"입력 연결: {input_count}/5 · Shadow Preview: {candidate_text}"
+                    f"입력 연결: {input_count}/5 · {router_text}"
                 )
             return (
                 "AI 판단 준비 중\n"
-                f"입력 연결: {input_count}/5 · Shadow Preview: {candidate_text}"
+                f"입력 연결: {input_count}/5 · {router_text}"
             )
         except Exception:
             return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
@@ -13497,13 +13551,30 @@ class MainWindow(QMainWindow):
             ready_text = "WAITING"
         candidate_text = str(shadow_snapshot.get("candidate_text") or "판단 대기")
         reason_text = str(shadow_snapshot.get("reason_text") or "입력 상태를 확인 중입니다.")
+        router_snapshot = self._get_router_preview_snapshot()
+        if not isinstance(router_snapshot, dict):
+            router_snapshot = {}
+        router_version = str(router_snapshot.get("router_version") or "v2.8")
+        router_confidence = 0.0
+        try:
+            router_confidence = float(router_snapshot.get("candidate_confidence") or 0.0)
+        except Exception:
+            router_confidence = 0.0
+        router_review = "required" if bool(router_snapshot.get("review_required", True)) else "optional"
         return (
             "Runtime Preview\n"
             f"- 입력 연결: {input_count}/5\n"
             f"- 판단 준비: {ready_text}\n"
             f"- Shadow 상태: {candidate_text}\n"
             f"- 이유: {reason_text}\n"
-            "- 보호/실행: shadow_only=True, submitted=0"
+            "- 보호/실행: shadow_only=True, submitted=0\n\n"
+            "DecisionRouter Preview\n"
+            f"- Router: {router_version}\n"
+            "- Candidate: WAIT\n"
+            f"- Confidence: {router_confidence:.2f}\n"
+            f"- Review: {router_review}\n"
+            "- Apply: blocked\n"
+            "- preview_only=True"
         )
 
     def _sync_runtime_status_compact_panel(self):
