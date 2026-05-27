@@ -12720,11 +12720,28 @@ class MainWindow(QMainWindow):
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
 
+        self.lbl_ai_reasoning_preview = QLabel(
+            "AI 판단 준비 상태\n"
+            "입력 연결: 0/5\n"
+            "현재 보호모드 활성 (실주문 차단)"
+        )
+        self.lbl_ai_reasoning_preview.setObjectName("aitsAiReasoningPreview")
+        self.lbl_ai_reasoning_preview.setProperty("reasoningState", "waiting")
+        self.lbl_ai_reasoning_preview.setToolTip(
+            "AI가 현재 어떤 입력을 보고 판단 준비 중인지 표시합니다.\n"
+            "실제 추론, 주문, action 적용은 실행하지 않습니다."
+        )
+        try:
+            self.lbl_ai_reasoning_preview.setWordWrap(True)
+        except Exception:
+            pass
+
         self.runtime_panel_layout.addWidget(self.lbl_runtime_panel_header)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_live_indicator)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
+        self.runtime_panel_layout.addWidget(self.lbl_ai_reasoning_preview)
         return self.runtime_panel_container
 
     def _get_runtime_panel_parent_layout(self):
@@ -12947,6 +12964,26 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
+            reasoning_preview = getattr(self, "lbl_ai_reasoning_preview", None)
+            if reasoning_preview is not None and hasattr(reasoning_preview, "setText"):
+                snapshot = self._build_ai_reasoning_preview_snapshot()
+                reasoning_preview.setText(self._format_ai_reasoning_preview_text(snapshot))
+                try:
+                    reasoning_preview.setProperty(
+                        "reasoningState",
+                        self._get_ai_reasoning_preview_state(snapshot),
+                    )
+                except Exception:
+                    pass
+                try:
+                    reasoning_preview.setToolTip(
+                        self._format_ai_reasoning_preview_tooltip(snapshot)
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
             self._sync_runtime_status_compact_panel()
         except Exception:
             pass
@@ -13001,6 +13038,142 @@ class MainWindow(QMainWindow):
             f"(source={_hint('command')}, pending={int(summary.get('command_pending_count') or 0)})"
         )
 
+    def _build_ai_reasoning_preview_snapshot(self):
+        """Build a read-only preview of whether AI reasoning has enough runtime inputs."""
+        fallback = {
+            "schema": "aits_ai_reasoning_preview.v1",
+            "runtime_ready": False,
+            "market_attached": False,
+            "portfolio_attached": False,
+            "strategy_attached": False,
+            "risk_attached": False,
+            "command_attached": False,
+            "input_count": 0,
+            "reasoning_ready": False,
+            "safe_mode": True,
+            "shadow_mode": True,
+            "order_blocked": True,
+            "submitted": 0,
+            "real_order": False,
+            "preview_only": True,
+            "summary_text": "",
+        }
+        try:
+            bundle = self._build_runtime_attachment_bundle()
+            summary = bundle.get("summary", {}) if isinstance(bundle, dict) else {}
+            if not isinstance(summary, dict):
+                summary = {}
+            market_attached = bool(summary.get("market_data_attached"))
+            portfolio_attached = bool(summary.get("portfolio_attached"))
+            strategy_attached = bool(summary.get("strategy_attached"))
+            risk_attached = bool(summary.get("risk_attached"))
+            command_attached = bool(summary.get("user_command_attached"))
+            input_count = sum(
+                1
+                for attached in (
+                    market_attached,
+                    portfolio_attached,
+                    strategy_attached,
+                    risk_attached,
+                    command_attached,
+                )
+                if attached
+            )
+            runtime_snapshot = self._build_runtime_ui_snapshot_bundle()
+            runtime_ready = False
+            if isinstance(runtime_snapshot, dict):
+                runtime_ready = bool(
+                    runtime_snapshot.get("runtime_ready")
+                    and runtime_snapshot.get("model_ready")
+                )
+            snapshot = {
+                "schema": "aits_ai_reasoning_preview.v1",
+                "runtime_ready": runtime_ready,
+                "market_attached": market_attached,
+                "portfolio_attached": portfolio_attached,
+                "strategy_attached": strategy_attached,
+                "risk_attached": risk_attached,
+                "command_attached": command_attached,
+                "input_count": int(input_count),
+                "reasoning_ready": bool(runtime_ready and input_count >= 4),
+                "safe_mode": True,
+                "shadow_mode": True,
+                "order_blocked": True,
+                "submitted": 0,
+                "real_order": False,
+                "preview_only": True,
+                "summary_text": "",
+            }
+            snapshot["summary_text"] = self._format_ai_reasoning_preview_text(snapshot)
+            return snapshot
+        except Exception:
+            fallback["summary_text"] = self._format_ai_reasoning_preview_text(fallback)
+            return fallback
+
+    def _get_ai_reasoning_preview_state(self, snapshot):
+        """Return a UI-only preview state from attached input count."""
+        try:
+            input_count = int((snapshot or {}).get("input_count") or 0)
+        except Exception:
+            input_count = 0
+        if input_count >= 4:
+            return "ready"
+        if input_count >= 2:
+            return "partial"
+        return "waiting"
+
+    def _format_ai_reasoning_preview_text(self, snapshot):
+        """Format operator-friendly AI reasoning preview text without prediction."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        try:
+            input_count = int(snapshot.get("input_count") or 0)
+        except Exception:
+            input_count = 0
+        if input_count >= 5:
+            input_line = "입력 5개 연결 완료"
+        elif input_count > 0:
+            input_line = f"입력 연결: {input_count}/5"
+        else:
+            input_line = "입력 데이터 대기 중"
+        ready_line = (
+            "AI 판단 준비 상태"
+            if bool(snapshot.get("reasoning_ready"))
+            else "AI 판단 준비 미완료"
+        )
+        safe_line = "현재 보호모드 활성" if bool(snapshot.get("safe_mode", True)) else "보호모드 확인 필요"
+        order_line = (
+            "실주문 차단 / shadow preview only"
+            if bool(snapshot.get("order_blocked", True))
+            else "실행 권한 확인 필요"
+        )
+        return "\n".join((ready_line, input_line, safe_line, order_line))
+
+    def _format_ai_reasoning_preview_tooltip(self, snapshot):
+        """Format compact tooltip detail for the read-only AI reasoning preview."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        try:
+            input_count = int(snapshot.get("input_count") or 0)
+        except Exception:
+            input_count = 0
+        if input_count >= 4:
+            ready_text = "READY"
+        elif input_count >= 2:
+            ready_text = "PARTIAL"
+        else:
+            ready_text = "WAITING"
+        safe_text = "활성" if bool(snapshot.get("safe_mode", True)) else "확인 필요"
+        order_text = "차단" if bool(snapshot.get("order_blocked", True)) else "확인 필요"
+        return (
+            "AI Reasoning Preview\n"
+            f"- 입력 연결: {input_count}/5\n"
+            f"- 판단 준비: {ready_text}\n"
+            f"- 보호모드: {safe_text}\n"
+            f"- 주문 실행: {order_text}\n"
+            "- Preview Mode: Shadow Only"
+        )
+
     def _sync_runtime_status_compact_panel(self):
         """Mirror the existing runtime live indicator into the compact read-only panel."""
         try:
@@ -13028,6 +13201,11 @@ class MainWindow(QMainWindow):
             try:
                 tooltip = live_indicator.toolTip()
                 detail_tooltip = self._format_runtime_input_tooltip_text(summary)
+                reasoning_tooltip = self._format_ai_reasoning_preview_tooltip(
+                    self._build_ai_reasoning_preview_snapshot()
+                )
+                if reasoning_tooltip:
+                    detail_tooltip = f"{detail_tooltip}\n\n{reasoning_tooltip}"
                 merged_tooltip = str(tooltip or "").strip()
                 if merged_tooltip:
                     merged_tooltip = f"{merged_tooltip}\n\n{detail_tooltip}"
@@ -34128,6 +34306,23 @@ QLabel#aitsRuntimeSafetySummary[runtimeState="safe_blocked"] {
 QLabel#aitsRuntimeDecisionGateSummary[runtimeState="blocked"] {
     color: #7f1d1d;
     font-size: 11px;
+}
+
+QLabel#aitsAiReasoningPreview {
+    color: #4b5563;
+    font-size: 11px;
+}
+
+QLabel#aitsAiReasoningPreview[reasoningState="ready"] {
+    color: #166534;
+}
+
+QLabel#aitsAiReasoningPreview[reasoningState="partial"] {
+    color: #92400e;
+}
+
+QLabel#aitsAiReasoningPreview[reasoningState="waiting"] {
+    color: #4b5563;
 }
 
 """
