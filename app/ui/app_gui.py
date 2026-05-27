@@ -12348,6 +12348,9 @@ class MainWindow(QMainWindow):
         try:
             user_command_attached = False
             raw_text = ""
+            pending_count = 0
+            history_count = 0
+            source_hint = ""
             for attr_name in (
                 "user_command",
                 "current_user_command",
@@ -12362,6 +12365,8 @@ class MainWindow(QMainWindow):
                     value = getattr(self, attr_name, "")
                     if isinstance(value, str) and value.strip():
                         user_command_attached = True
+                        if not source_hint:
+                            source_hint = "ui_cache"
                         if not raw_text:
                             raw_text = value.strip()[:120]
                 except Exception:
@@ -12375,7 +12380,72 @@ class MainWindow(QMainWindow):
                 try:
                     if bool(getattr(self, attr_name, False)):
                         user_command_attached = True
+                        if not source_hint:
+                            source_hint = "ready_flag"
                         break
+                except Exception:
+                    pass
+            for attr_name in (
+                "command_queue",
+                "pending_commands",
+                "runtime_commands",
+                "_command_queue",
+                "_pending_commands",
+                "_runtime_commands",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict, tuple, set)):
+                        count = len(value)
+                        if count > 0:
+                            user_command_attached = True
+                            pending_count = max(pending_count, count)
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "command_history",
+                "_command_history",
+            ):
+                try:
+                    value = getattr(self, attr_name, None)
+                    if isinstance(value, (list, dict, tuple, set)):
+                        count = len(value)
+                        if count > 0:
+                            user_command_attached = True
+                            history_count = max(history_count, count)
+                            if not source_hint:
+                                source_hint = "ui_cache"
+                except Exception:
+                    pass
+            for attr_name in (
+                "txtUserCommand",
+                "txtAiCommand",
+                "txtRuntimeCommand",
+                "txt_user_command",
+                "txt_ai_command",
+                "txt_runtime_command",
+                "lblUserCommand",
+                "lblAiCommand",
+                "lblRuntimeCommand",
+                "lbl_user_command",
+                "lbl_ai_command",
+                "lbl_runtime_command",
+            ):
+                try:
+                    control = getattr(self, attr_name, None)
+                    text = ""
+                    if hasattr(control, "toPlainText"):
+                        text = str(control.toPlainText() or "").strip()
+                    elif hasattr(control, "text"):
+                        text = str(control.text() or "").strip()
+                    if text:
+                        user_command_attached = True
+                        if not raw_text:
+                            raw_text = text[:120]
+                        if not source_hint:
+                            source_hint = "ui_control"
                 except Exception:
                     pass
             return {
@@ -12384,6 +12454,7 @@ class MainWindow(QMainWindow):
                 "attachment_ready": True,
                 "user_command_attached": user_command_attached,
                 "command_parse_performed": False,
+                "command_execution_performed": False,
                 "command": {
                     "raw_text": raw_text,
                     "normalized_text": "",
@@ -12392,6 +12463,9 @@ class MainWindow(QMainWindow):
                     "urgency": "",
                     "constraints": {},
                     "notes": [],
+                    "pending_count": pending_count,
+                    "history_count": history_count,
+                    "source_hint": source_hint,
                 },
                 "safety": {
                     "read_only": True,
@@ -12413,6 +12487,7 @@ class MainWindow(QMainWindow):
                 "attachment_ready": False,
                 "user_command_attached": False,
                 "command_parse_performed": False,
+                "command_execution_performed": False,
                 "command": {},
                 "safety": {
                     "read_only": True,
