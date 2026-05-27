@@ -13165,6 +13165,7 @@ class MainWindow(QMainWindow):
                 return
             root_layout.insertWidget(0, container)
             self._ai_policy_center_installed = True
+            self._restore_ai_policy_snapshot()
             self._sync_ai_policy_summary()
         except Exception:
             pass
@@ -13259,7 +13260,7 @@ class MainWindow(QMainWindow):
         self.cmb_ai_policy_style = QComboBox()
         self.cmb_ai_policy_style.addItems(["안정형", "균형형", "공격형", "AI 자율형"])
         self.cmb_ai_policy_style.setCurrentText("균형형")
-        self.cmb_ai_policy_style.currentTextChanged.connect(self._sync_ai_policy_summary)
+        self.cmb_ai_policy_style.currentTextChanged.connect(self._on_ai_policy_changed)
         layout.addWidget(self.cmb_ai_policy_style)
         help_label = QLabel(
             "안정형: 관망 우선 / 리스크 최소화\n"
@@ -13278,7 +13279,7 @@ class MainWindow(QMainWindow):
         slider = QSlider(Qt.Horizontal)
         slider.setRange(0, 100)
         slider.setValue(int(default_value))
-        slider.valueChanged.connect(self._sync_ai_policy_summary)
+        slider.valueChanged.connect(self._on_ai_policy_changed)
         setattr(self, attr_name, slider)
         caption_label = QLabel(caption)
         caption_label.setWordWrap(True)
@@ -13358,6 +13359,94 @@ class MainWindow(QMainWindow):
                 "applied_to_runtime": False,
                 "applied_to_order": False,
             }
+
+    def _save_ai_policy_snapshot(self):
+        """Persist the UI-only AI policy snapshot in existing prefs ui_state."""
+        try:
+            snapshot = self._build_ai_policy_snapshot()
+            settings = getattr(self, "_settings", None) or load_settings()
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            ui_state["ai_policy_snapshot"] = dict(snapshot)
+            try:
+                setattr(settings, "ui_state", ui_state)
+            except Exception:
+                settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else {}
+                settings_dict["ui_state"] = ui_state
+                settings = type(settings)(**settings_dict)
+            save_settings(settings)
+            self._settings = settings
+            try:
+                self._log.info("[AITS][AIPolicy] saved")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _restore_ai_policy_snapshot(self):
+        """Restore the UI-only AI policy snapshot from existing prefs ui_state."""
+        try:
+            settings = getattr(self, "_settings", None) or load_settings()
+            self._settings = settings
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            snapshot = ui_state.get("ai_policy_snapshot", {})
+            if not isinstance(snapshot, dict):
+                snapshot = {}
+            style = str(snapshot.get("policy_style") or "균형형")
+            risk = int(snapshot.get("risk_level") or 50)
+            wait = int(snapshot.get("wait_preference") or 50)
+            autonomy = int(snapshot.get("autonomy_level") or 50)
+            widgets = (
+                getattr(self, "cmb_ai_policy_style", None),
+                getattr(self, "slider_policy_risk", None),
+                getattr(self, "slider_policy_wait", None),
+                getattr(self, "slider_policy_autonomy", None),
+            )
+            for widget in widgets:
+                try:
+                    if widget is not None:
+                        widget.blockSignals(True)
+                except Exception:
+                    pass
+            try:
+                if hasattr(self, "cmb_ai_policy_style"):
+                    if self.cmb_ai_policy_style.findText(style) < 0:
+                        style = "균형형"
+                    self.cmb_ai_policy_style.setCurrentText(style)
+                if hasattr(self, "slider_policy_risk"):
+                    self.slider_policy_risk.setValue(max(0, min(100, risk)))
+                if hasattr(self, "slider_policy_wait"):
+                    self.slider_policy_wait.setValue(max(0, min(100, wait)))
+                if hasattr(self, "slider_policy_autonomy"):
+                    self.slider_policy_autonomy.setValue(max(0, min(100, autonomy)))
+            finally:
+                for widget in widgets:
+                    try:
+                        if widget is not None:
+                            widget.blockSignals(False)
+                    except Exception:
+                        pass
+            self._sync_ai_policy_summary()
+            try:
+                self._log.info("[AITS][AIPolicy] restored")
+            except Exception:
+                pass
+        except Exception:
+            self._sync_ai_policy_summary()
+
+    def _on_ai_policy_changed(self, *args):
+        try:
+            self._sync_ai_policy_summary()
+            self._save_ai_policy_snapshot()
+        except Exception:
+            pass
 
     def _sync_ai_policy_summary(self):
         try:
