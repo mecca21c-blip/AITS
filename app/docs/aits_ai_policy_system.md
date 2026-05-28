@@ -194,3 +194,17 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 즉, 저장/복원은 UI 상태 유지 목적이며 Runtime, DecisionRouter, OrderAdapter, ExecutionBridge, 실제 주문 경로에는 적용하지 않는다.
 
 정책을 실제 Runtime 판단이나 주문 적용 흐름에 연결하는 작업은 별도 Sprint에서 고위험 단계로 다룬다.
+
+---
+
+## 12. 개별 종목 정책 저장/복원
+
+개별 종목 정책은 관리종목 상세차트 창에서 설정한다.
+
+저장 단위는 종목 symbol이다.
+
+저장 위치는 기존 설정 저장 흐름의 `AppSettings.ui_state["asset_policy_snapshots"]`이다.
+
+현재 단계에서는 preview-only이며 Runtime, DecisionRouter, OrderAdapter, ExecutionBridge, 실제 주문 경로에는 적용하지 않는다.
+
+전역 정책보다 개별 종목 정책이 우선될 수 있으나, 실제 적용은 별도 Sprint에서 진행한다.

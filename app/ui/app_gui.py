@@ -1726,6 +1726,119 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
+    def _save_asset_policy_snapshot(self, symbol=None, snapshot=None):
+        try:
+            if snapshot is None:
+                snapshot = self._build_asset_policy_snapshot(symbol)
+            if not isinstance(snapshot, dict):
+                return
+            symbol = str(symbol or snapshot.get("symbol") or "").strip()
+            if not symbol or symbol == "—":
+                return
+            snapshot = dict(snapshot)
+            snapshot["symbol"] = symbol
+
+            settings = load_settings()
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            snapshots = ui_state.get("asset_policy_snapshots", {})
+            if not isinstance(snapshots, dict):
+                snapshots = {}
+            snapshots[symbol] = snapshot
+            ui_state["asset_policy_snapshots"] = snapshots
+            try:
+                setattr(settings, "ui_state", ui_state)
+            except Exception:
+                settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else {}
+                settings_dict["ui_state"] = ui_state
+                settings = type(settings)(**settings_dict)
+            save_settings(settings)
+            try:
+                logging.getLogger("aits").info("[AITS][AssetPolicy] saved | symbol=%s", symbol)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _restore_asset_policy_snapshot(self, symbol=None):
+        try:
+            symbol = str(symbol or getattr(self, "_symbol", "") or "").strip()
+            if not symbol:
+                try:
+                    symbol = str(self.lbl_detail_popup_header_symbol.text() or "").strip()
+                except Exception:
+                    symbol = ""
+            if not symbol or symbol == "—":
+                return
+
+            settings = load_settings()
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            snapshots = ui_state.get("asset_policy_snapshots", {})
+            if not isinstance(snapshots, dict):
+                snapshots = {}
+            snapshot = snapshots.get(symbol, {})
+            if not isinstance(snapshot, dict):
+                snapshot = {}
+
+            style = str(snapshot.get("policy_style") or "전역 정책 따름")
+            autonomy = int(snapshot.get("autonomy_level") or 50)
+            max_weight = int(snapshot.get("max_weight_pct") or 0)
+            autonomy = max(0, min(100, autonomy))
+            max_weight = max(0, min(100, max_weight))
+
+            widgets = (
+                getattr(self, "cmb_asset_policy_style", None),
+                getattr(self, "slider_asset_policy_autonomy", None),
+                getattr(self, "spin_asset_policy_max_weight", None),
+            )
+            previous = []
+            self._asset_policy_restoring = True
+            try:
+                for widget in widgets:
+                    if widget is None:
+                        previous.append(False)
+                        continue
+                    previous.append(bool(widget.blockSignals(True)))
+                if self.cmb_asset_policy_style.findText(style) < 0:
+                    style = "전역 정책 따름"
+                self.cmb_asset_policy_style.setCurrentText(style)
+                self.slider_asset_policy_autonomy.setValue(autonomy)
+                self.spin_asset_policy_max_weight.setValue(max_weight)
+            finally:
+                for widget, was_blocked in zip(widgets, previous):
+                    try:
+                        if widget is not None:
+                            widget.blockSignals(was_blocked)
+                    except Exception:
+                        pass
+                self._asset_policy_restoring = False
+            self._sync_asset_policy_summary()
+            try:
+                logging.getLogger("aits").info("[AITS][AssetPolicy] restored | symbol=%s", symbol)
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self._asset_policy_restoring = False
+            except Exception:
+                pass
+
+    def _on_asset_policy_changed(self, *args):
+        try:
+            self._sync_asset_policy_summary()
+            if getattr(self, "_asset_policy_restoring", False):
+                return
+            self._save_asset_policy_snapshot()
+        except Exception:
+            pass
+
     def _toggle_asset_advanced_policy(self):
         try:
             target = getattr(self, "asset_advanced_policy_container", None)
@@ -1853,9 +1966,9 @@ class AITSLargeChartDialog(QDialog):
         self.asset_policy_layout.addWidget(self.asset_advanced_policy_container)
 
         try:
-            self.cmb_asset_policy_style.currentTextChanged.connect(self._sync_asset_policy_summary)
-            self.slider_asset_policy_autonomy.valueChanged.connect(self._sync_asset_policy_summary)
-            self.spin_asset_policy_max_weight.valueChanged.connect(self._sync_asset_policy_summary)
+            self.cmb_asset_policy_style.currentTextChanged.connect(self._on_asset_policy_changed)
+            self.slider_asset_policy_autonomy.valueChanged.connect(self._on_asset_policy_changed)
+            self.spin_asset_policy_max_weight.valueChanged.connect(self._on_asset_policy_changed)
             self.btn_toggle_asset_advanced_policy.clicked.connect(
                 self._toggle_asset_advanced_policy
             )
@@ -2301,6 +2414,11 @@ class AITSLargeChartDialog(QDialog):
 
             self.lbl_detail_popup_header_name.setText(display_name or "—")
             self.lbl_detail_popup_header_symbol.setText(symbol_text or "—")
+            self._symbol = symbol_text if symbol_text and symbol_text != "—" else ""
+            try:
+                self._restore_asset_policy_snapshot(self._symbol)
+            except Exception:
+                pass
             self.lbl_detail_popup_chart_title.setText(
                 f"{display_name} ({symbol_text})" if symbol_text and symbol_text != "—" else display_name
             )
