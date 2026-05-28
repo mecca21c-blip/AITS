@@ -1754,7 +1754,7 @@ class AITSLargeChartDialog(QDialog):
             autonomy_profile = "사용자 중심" if autonomy < 34 else "AI 중심" if autonomy >= 67 else "AI 자율도 50" if autonomy == 50 else f"AI 자율도 {autonomy}"
             self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
             self.lbl_asset_policy_summary.setText(
-                f"{style_text}\n{preset_text} · {autonomy_profile} · 최대비중 {max_weight_text}"
+                f"{style_text}\n{autonomy_profile}\n최대비중 {max_weight_text}"
             )
             title = getattr(self, "lbl_asset_policy_title", None)
             if title is not None and hasattr(title, "setText"):
@@ -1773,7 +1773,7 @@ class AITSLargeChartDialog(QDialog):
             visible = not bool(content.isVisible())
             content.setVisible(visible)
             if button is not None:
-                button.setText("운용 조정 접기" if visible else "운용 조정 펼치기")
+                button.setText("접기 ▲" if visible else "펼치기 ▼")
         except Exception:
             pass
 
@@ -1915,7 +1915,7 @@ class AITSLargeChartDialog(QDialog):
             self.asset_policy_container.setStyleSheet(
                 "QFrame#aitsAssetPolicyContainer {"
                 "border: 1px solid #334155; border-radius: 8px; "
-                "background: rgba(15, 23, 42, 0.42); padding: 6px;"
+                "background: rgba(30, 41, 59, 0.28); padding: 5px;"
                 "}"
                 "QFrame#aitsAssetPolicyContainer QLabel { color: #e5e7eb; }"
                 "QFrame#aitsAssetPolicyContainer QComboBox, "
@@ -1931,7 +1931,7 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         self.asset_policy_layout = QVBoxLayout(self.asset_policy_container)
-        self.asset_policy_layout.setContentsMargins(8, 7, 8, 7)
+        self.asset_policy_layout.setContentsMargins(6, 5, 6, 5)
         self.asset_policy_layout.setSpacing(4)
 
         self.lbl_asset_policy_title = QLabel("종목 AI 운용 프로필")
@@ -1948,11 +1948,9 @@ class AITSLargeChartDialog(QDialog):
             desc.setStyleSheet("font-size:10px; font-weight:600; color:#cbd5e1;")
         except Exception:
             pass
-        self.asset_policy_layout.addWidget(self.lbl_asset_policy_title)
-        self.asset_policy_layout.addWidget(desc)
 
         self.lbl_asset_policy_summary = QLabel(
-            "전역 정책 따름\n균형 운용형 · AI 자율도 50 · 최대비중 전역"
+            "전역 정책 따름\nAI 자율도 50\n최대비중 전역"
         )
         try:
             self.lbl_asset_policy_summary.setTextFormat(Qt.TextFormat.PlainText)
@@ -1964,17 +1962,6 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         self.asset_policy_layout.addWidget(self.lbl_asset_policy_summary)
-
-        self.btn_toggle_asset_ai_control = QPushButton("운용 조정 접기")
-        try:
-            self.btn_toggle_asset_ai_control.setStyleSheet(
-                "min-height:22px; border:1px solid #475569; border-radius:6px; "
-                "background:#e2e8f0; color:#111827; font-weight:800;"
-            )
-            self.btn_toggle_asset_ai_control.clicked.connect(self._toggle_asset_ai_control)
-        except Exception:
-            pass
-        self.asset_policy_layout.addWidget(self.btn_toggle_asset_ai_control)
 
         self.asset_policy_controls_container = QFrame(self.asset_policy_container)
         self.asset_policy_controls_container.setObjectName("aitsAssetPolicyControlsContainer")
@@ -2055,6 +2042,7 @@ class AITSLargeChartDialog(QDialog):
         self.asset_advanced_policy_container.setVisible(False)
         controls_layout.addWidget(self.asset_advanced_policy_container)
         self.asset_policy_layout.addWidget(self.asset_policy_controls_container)
+        self.asset_policy_controls_container.setVisible(False)
 
         try:
             self.cmb_asset_policy_preset.currentIndexChanged.connect(
@@ -2066,6 +2054,9 @@ class AITSLargeChartDialog(QDialog):
             self.btn_toggle_asset_advanced_policy.clicked.connect(
                 self._toggle_asset_advanced_policy
             )
+            button = getattr(self, "btn_toggle_asset_ai_control", None)
+            if button is not None:
+                button.setText("펼치기 ▼")
         except Exception:
             pass
         self._sync_asset_policy_summary()
@@ -2398,7 +2389,6 @@ class AITSLargeChartDialog(QDialog):
         status_lay.addWidget(self.lbl_detail_popup_decision_big)
         status_lay.addWidget(self.lbl_detail_popup_decision_sub)
         status_lay.addWidget(self.lbl_detail_popup_score)
-        status_lay.addStretch(1)
 
         self._frm_detail_ai_reason_card.layout().addWidget(self.lbl_detail_popup_reason_text, 1)
         self._frm_detail_ai_next_card.layout().addWidget(self.lbl_detail_popup_next_text, 1)
@@ -2415,9 +2405,8 @@ class AITSLargeChartDialog(QDialog):
             )
         except Exception:
             pass
-        self._frm_detail_ai_metrics_card.layout().addWidget(
-            self.lbl_detail_popup_core_metrics_compact
-        )
+        status_lay.addWidget(self.lbl_detail_popup_core_metrics_compact)
+        status_lay.addStretch(1)
 
         scenario_lay = self._frm_detail_popup_scenario_card.layout()
         scenario_lay.addWidget(self.lbl_detail_popup_scenario_title)
@@ -2437,41 +2426,51 @@ class AITSLargeChartDialog(QDialog):
         self.asset_ai_status_container.setObjectName("aitsAssetAIStatusContainer")
         self.asset_ai_status_container.setStyleSheet(
             "QFrame#aitsAssetAIStatusContainer {"
-            "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
+            "background:#ffffff; border:1px solid #cbd5e1; border-radius:12px;"
             "}"
         )
         status_container_lay = QVBoxLayout(self.asset_ai_status_container)
-        status_container_lay.setContentsMargins(8, 8, 8, 8)
-        status_container_lay.setSpacing(6)
+        status_container_lay.setContentsMargins(9, 9, 9, 9)
+        status_container_lay.setSpacing(7)
         status_header = QLabel("AI 현황")
-        status_header.setStyleSheet("font-size:13px; font-weight:900; color:#111827;")
+        status_header.setStyleSheet("font-size:14px; font-weight:900; color:#111827;")
         status_container_lay.addWidget(status_header)
         status_container_lay.addWidget(self._frm_detail_ai_status_card, 0)
         status_container_lay.addWidget(self._frm_detail_ai_reason_card, 1)
         status_container_lay.addWidget(self._frm_detail_ai_next_card, 1)
         status_container_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
         status_container_lay.addWidget(self._frm_detail_popup_eta_card, 0)
-        status_container_lay.addWidget(self._frm_detail_ai_metrics_card, 0)
 
         self.asset_ai_control_container = QFrame(self)
         self.asset_ai_control_container.setObjectName("aitsAssetAIControlContainer")
         self.asset_ai_control_container.setStyleSheet(
             "QFrame#aitsAssetAIControlContainer {"
-            "background:#0f172a; border:1px solid #334155; border-radius:12px;"
+            "background:#1e293b; border:1px solid #475569; border-radius:12px;"
             "}"
         )
         control_container_lay = QVBoxLayout(self.asset_ai_control_container)
-        control_container_lay.setContentsMargins(8, 8, 8, 8)
-        control_container_lay.setSpacing(5)
+        control_container_lay.setContentsMargins(7, 7, 7, 7)
+        control_container_lay.setSpacing(4)
+        control_header_row = QHBoxLayout()
+        control_header_row.setContentsMargins(0, 0, 0, 0)
+        control_header_row.setSpacing(6)
         control_header = QLabel("AI 운용 조정")
         control_subtitle = QLabel("필요 시 이 종목의 AI 운용 성향을 조정합니다.")
+        self.btn_toggle_asset_ai_control = QPushButton("펼치기 ▼")
         try:
             control_header.setStyleSheet("font-size:13px; font-weight:900; color:#f8fafc;")
             control_subtitle.setWordWrap(True)
             control_subtitle.setStyleSheet("font-size:10px; font-weight:600; color:#cbd5e1;")
+            self.btn_toggle_asset_ai_control.setStyleSheet(
+                "min-height:22px; border:1px solid #64748b; border-radius:6px; "
+                "background:#f8fafc; color:#111827; font-weight:800; padding:2px 8px;"
+            )
+            self.btn_toggle_asset_ai_control.clicked.connect(self._toggle_asset_ai_control)
         except Exception:
             pass
-        control_container_lay.addWidget(control_header)
+        control_header_row.addWidget(control_header, 1)
+        control_header_row.addWidget(self.btn_toggle_asset_ai_control, 0)
+        control_container_lay.addLayout(control_header_row)
         control_container_lay.addWidget(control_subtitle)
         control_container_lay.addWidget(self._build_asset_policy_panel(), 0)
 
