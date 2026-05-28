@@ -1766,14 +1766,20 @@ class AITSLargeChartDialog(QDialog):
 
     def _toggle_asset_ai_control(self):
         try:
-            content = getattr(self, "asset_policy_controls_container", None)
+            content = getattr(self, "asset_ai_control_container", None)
+            drawer = getattr(self, "asset_policy_drawer_container", None)
             button = getattr(self, "btn_toggle_asset_ai_control", None)
             if content is None:
                 return
             visible = not bool(content.isVisible())
             content.setVisible(visible)
+            try:
+                if drawer is not None:
+                    drawer.setFixedWidth(300 if visible else 64)
+            except Exception:
+                pass
             if button is not None:
-                button.setText("접기 ▲" if visible else "펼치기 ▼")
+                button.setText("◀ 접기" if visible else "▶")
         except Exception:
             pass
 
@@ -2031,7 +2037,7 @@ class AITSLargeChartDialog(QDialog):
         advanced_lay = QVBoxLayout(self.asset_advanced_policy_container)
         advanced_lay.setContentsMargins(0, 0, 0, 0)
         advanced_lay.setSpacing(4)
-        advanced_label = QLabel("고급 종목 정책은 다음 단계에서 추가됩니다.")
+        advanced_label = QLabel("향후 고급 종목 정책 영역입니다. 공격 제한, 회전 제한, 관망 bias 등을 이 drawer 안에서 확장합니다.")
         try:
             advanced_label.setTextFormat(Qt.TextFormat.PlainText)
             advanced_label.setWordWrap(True)
@@ -2054,9 +2060,6 @@ class AITSLargeChartDialog(QDialog):
             self.btn_toggle_asset_advanced_policy.clicked.connect(
                 self._toggle_asset_advanced_policy
             )
-            button = getattr(self, "btn_toggle_asset_ai_control", None)
-            if button is not None:
-                button.setText("펼치기 ▼")
         except Exception:
             pass
         self._sync_asset_policy_summary()
@@ -2451,35 +2454,65 @@ class AITSLargeChartDialog(QDialog):
         control_container_lay = QVBoxLayout(self.asset_ai_control_container)
         control_container_lay.setContentsMargins(7, 7, 7, 7)
         control_container_lay.setSpacing(4)
-        control_header_row = QHBoxLayout()
-        control_header_row.setContentsMargins(0, 0, 0, 0)
-        control_header_row.setSpacing(6)
         control_header = QLabel("AI 운용 조정")
         control_subtitle = QLabel("필요 시 이 종목의 AI 운용 성향을 조정합니다.")
-        self.btn_toggle_asset_ai_control = QPushButton("펼치기 ▼")
         try:
             control_header.setStyleSheet("font-size:13px; font-weight:900; color:#f8fafc;")
             control_subtitle.setWordWrap(True)
             control_subtitle.setStyleSheet("font-size:10px; font-weight:600; color:#cbd5e1;")
-            self.btn_toggle_asset_ai_control.setStyleSheet(
-                "min-height:22px; border:1px solid #64748b; border-radius:6px; "
-                "background:#f8fafc; color:#111827; font-weight:800; padding:2px 8px;"
-            )
-            self.btn_toggle_asset_ai_control.clicked.connect(self._toggle_asset_ai_control)
         except Exception:
             pass
-        control_header_row.addWidget(control_header, 1)
-        control_header_row.addWidget(self.btn_toggle_asset_ai_control, 0)
-        control_container_lay.addLayout(control_header_row)
+        control_container_lay.addWidget(control_header)
         control_container_lay.addWidget(control_subtitle)
         control_container_lay.addWidget(self._build_asset_policy_panel(), 0)
+        self.asset_ai_control_container.setVisible(False)
 
-        sidebar_lay.addWidget(self.asset_ai_status_container, 1)
-        sidebar_lay.addWidget(self.asset_ai_control_container, 0)
+        self.asset_policy_drawer_container = QFrame(self)
+        self.asset_policy_drawer_container.setObjectName("aitsAssetPolicyDrawerContainer")
+        self.asset_policy_drawer_container.setStyleSheet(
+            "QFrame#aitsAssetPolicyDrawerContainer {"
+            "background:#0f172a; border:1px solid #334155; border-radius:12px;"
+            "}"
+        )
+        self.asset_policy_drawer_container.setFixedWidth(64)
+        drawer_lay = QHBoxLayout(self.asset_policy_drawer_container)
+        drawer_lay.setContentsMargins(6, 6, 6, 6)
+        drawer_lay.setSpacing(6)
+
+        self.asset_policy_drawer_handle = QFrame(self.asset_policy_drawer_container)
+        self.asset_policy_drawer_handle.setObjectName("aitsAssetPolicyDrawerHandle")
+        self.asset_policy_drawer_handle.setStyleSheet(
+            "QFrame#aitsAssetPolicyDrawerHandle {"
+            "background:#1e293b; border:1px solid #475569; border-radius:10px;"
+            "}"
+        )
+        handle_lay = QVBoxLayout(self.asset_policy_drawer_handle)
+        handle_lay.setContentsMargins(4, 6, 4, 6)
+        handle_lay.setSpacing(6)
+        self.btn_toggle_asset_ai_control = QPushButton("▶")
+        self.lbl_asset_policy_drawer_collapsed = QLabel("AI\n조정")
+        try:
+            self.btn_toggle_asset_ai_control.setStyleSheet(
+                "min-height:24px; border:1px solid #64748b; border-radius:7px; "
+                "background:#f8fafc; color:#111827; font-weight:900; padding:2px 4px;"
+            )
+            self.btn_toggle_asset_ai_control.clicked.connect(self._toggle_asset_ai_control)
+            self.lbl_asset_policy_drawer_collapsed.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.lbl_asset_policy_drawer_collapsed.setStyleSheet(
+                "font-size:11px; font-weight:900; color:#e2e8f0;"
+            )
+        except Exception:
+            pass
+        handle_lay.addWidget(self.btn_toggle_asset_ai_control)
+        handle_lay.addWidget(self.lbl_asset_policy_drawer_collapsed, 1)
+        drawer_lay.addWidget(self.asset_policy_drawer_handle, 0)
+        drawer_lay.addWidget(self.asset_ai_control_container, 1)
+
         sidebar_lay.addStretch(1)
 
-        content_row.addWidget(self._frm_detail_left_chart_area, 7)
-        content_row.addWidget(self._frm_detail_ai_sidebar, 3)
+        content_row.addWidget(self._frm_detail_left_chart_area, 8)
+        content_row.addWidget(self.asset_ai_status_container, 3)
+        content_row.addWidget(self.asset_policy_drawer_container, 0)
         root.addLayout(content_row, 1)
 
     def set_summary(

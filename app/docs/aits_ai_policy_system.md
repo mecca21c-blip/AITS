@@ -252,3 +252,16 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - 상세차트 UX 흐름은 `차트 확인 → AI 상태 이해 → 필요 시 운용 개입` 순서를 따른다.
 - Hidden intervention 구조는 차트 가시성과 AI 현황 우선순위를 높이기 위한 UI 정책이다.
 - 운용 조정 값은 계속 preview-only이며 Runtime, Router, Order에는 직접 적용하지 않는다.
+
+---
+
+## 17. Right Drawer Intervention Architecture
+
+- 상세차트에서 AI 현황과 사용자 개입 영역은 물리적으로 분리된다.
+- AI 현황은 AI reasoning, 시나리오, ETA를 이해하는 상태 영역이다.
+- 운용 조정은 사용자가 필요할 때만 여는 intervention 영역이다.
+- intervention은 우측 side drawer 방식으로 제공된다.
+- drawer open 여부와 관계없이 AI 현황 column은 독립적으로 유지된다.
+- collapsed drawer는 차트 dominance와 작은 화면 가시성을 우선한다.
+- 향후 고급 종목 정책은 drawer 내부 확장으로 처리한다.
+- drawer 내부 정책 값은 계속 preview-only이며 Runtime, Router, Order에는 직접 적용하지 않는다.
