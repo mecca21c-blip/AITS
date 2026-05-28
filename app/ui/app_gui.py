@@ -1332,6 +1332,8 @@ class AITSLargeChartDialog(QDialog):
         self._title_label = None
         self._meta_label = None
         self._reason_box = None
+        self._asset_policy_drawer_expanded = False
+        self._detail_chart_layout_restoring = False
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
@@ -1785,6 +1787,136 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
+    def _toggle_asset_ai_control(self):
+        try:
+            expanded = not bool(getattr(self, "_asset_policy_drawer_expanded", False))
+            self._set_asset_policy_drawer_expanded(expanded, save=True)
+        except Exception:
+            pass
+
+    def _set_asset_policy_drawer_expanded(self, expanded, save=False):
+        try:
+            expanded = bool(expanded)
+            content = getattr(self, "asset_ai_control_container", None)
+            drawer = getattr(self, "asset_policy_drawer_container", None)
+            button = getattr(self, "btn_toggle_asset_ai_control", None)
+            if content is not None:
+                content.setVisible(expanded)
+            if drawer is not None:
+                if expanded:
+                    drawer.setMinimumWidth(220)
+                    drawer.setMaximumWidth(280)
+                    drawer.resize(260, max(1, drawer.height()))
+                else:
+                    drawer.setMinimumWidth(52)
+                    drawer.setMaximumWidth(52)
+                    drawer.setFixedWidth(52)
+            if button is not None:
+                button.setText("접기 ◀" if expanded else "▶")
+            self._asset_policy_drawer_expanded = expanded
+            splitter = getattr(self, "detail_chart_main_splitter", None)
+            if splitter is not None:
+                try:
+                    sizes = list(splitter.sizes())
+                    if len(sizes) >= 3:
+                        sizes[2] = 260 if expanded else 52
+                        splitter.setSizes(sizes)
+                    else:
+                        splitter.setSizes([900, 320, 260 if expanded else 52])
+                except Exception:
+                    pass
+            if save:
+                self._save_detail_chart_layout_state()
+        except Exception:
+            pass
+
+    def _get_detail_chart_ui_state(self):
+        try:
+            settings = load_settings()
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            return settings, ui_state
+        except Exception:
+            return None, {}
+
+    def _save_detail_chart_layout_state(self):
+        try:
+            if bool(getattr(self, "_detail_chart_layout_restoring", False)):
+                return
+            settings, ui_state = self._get_detail_chart_ui_state()
+            if settings is None:
+                return
+            splitter = getattr(self, "detail_chart_main_splitter", None)
+            geom = self.geometry()
+            state = {
+                "schema": "aits_detail_chart_layout_state.v1",
+                "window_geometry": {
+                    "x": int(geom.x()),
+                    "y": int(geom.y()),
+                    "w": int(geom.width()),
+                    "h": int(geom.height()),
+                },
+                "splitter_sizes": list(splitter.sizes()) if splitter is not None else [900, 320, 52],
+                "drawer_expanded": bool(getattr(self, "_asset_policy_drawer_expanded", False)),
+            }
+            ui_state["detail_chart_layout_state"] = state
+            try:
+                setattr(settings, "ui_state", ui_state)
+            except Exception:
+                settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else {}
+                settings_dict["ui_state"] = ui_state
+                settings = type(settings)(**settings_dict)
+            save_settings(settings)
+        except Exception:
+            pass
+
+    def _restore_detail_chart_layout_state(self):
+        self._detail_chart_layout_restoring = True
+        try:
+            _settings, ui_state = self._get_detail_chart_ui_state()
+            state = ui_state.get("detail_chart_layout_state", {})
+            if not isinstance(state, dict):
+                state = {}
+            geom = state.get("window_geometry", {})
+            if isinstance(geom, dict):
+                try:
+                    x = int(geom.get("x", self.x()))
+                    y = int(geom.get("y", self.y()))
+                    w = max(1200, int(geom.get("w", self.width())))
+                    h = max(780, int(geom.get("h", self.height())))
+                    self.setGeometry(x, y, w, h)
+                except Exception:
+                    pass
+            expanded = bool(state.get("drawer_expanded", False))
+            self._set_asset_policy_drawer_expanded(expanded, save=False)
+            splitter = getattr(self, "detail_chart_main_splitter", None)
+            if splitter is not None:
+                sizes = state.get("splitter_sizes", [900, 320, 260 if expanded else 52])
+                if not isinstance(sizes, (list, tuple)) or len(sizes) < 3:
+                    sizes = [900, 320, 260 if expanded else 52]
+                try:
+                    sizes = [max(1, int(v)) for v in list(sizes)[:3]]
+                    if not expanded:
+                        sizes[2] = 52
+                    elif sizes[2] < 220:
+                        sizes[2] = 260
+                    splitter.setSizes(sizes)
+                except Exception:
+                    splitter.setSizes([900, 320, 260 if expanded else 52])
+        except Exception:
+            try:
+                self._set_asset_policy_drawer_expanded(False, save=False)
+                splitter = getattr(self, "detail_chart_main_splitter", None)
+                if splitter is not None:
+                    splitter.setSizes([900, 320, 52])
+            except Exception:
+                pass
+        finally:
+            self._detail_chart_layout_restoring = False
+
     def _save_asset_policy_snapshot(self, symbol=None, snapshot=None):
         try:
             if snapshot is None:
@@ -2166,9 +2298,19 @@ class AITSLargeChartDialog(QDialog):
         header_lay.addWidget(self.lbl_detail_popup_header_change_badge, 0)
         root.addWidget(self._frm_detail_popup_header, 0)
 
-        content_row = QHBoxLayout()
-        content_row.setContentsMargins(0, 0, 0, 0)
-        content_row.setSpacing(10)
+        self.detail_chart_main_splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self.detail_chart_main_splitter.setObjectName("aitsDetailChartMainSplitter")
+        try:
+            self.detail_chart_main_splitter.setChildrenCollapsible(False)
+            self.detail_chart_main_splitter.setHandleWidth(7)
+        except Exception:
+            pass
+        try:
+            self.detail_chart_main_splitter.splitterMoved.connect(
+                lambda _pos, _index: self._save_detail_chart_layout_state()
+            )
+        except Exception:
+            pass
 
         self._frm_detail_left_chart_area = QFrame(self)
         self._frm_detail_left_chart_area.setObjectName("frmDetailLeftChartArea")
@@ -2476,6 +2618,7 @@ class AITSLargeChartDialog(QDialog):
             "background:#1e293b; border:1px solid #475569; border-radius:10px;"
             "}"
         )
+        self._asset_policy_drawer_expanded = False
         self.asset_policy_drawer_container.setFixedWidth(52)
         self.asset_policy_drawer_container.setMinimumWidth(52)
         self.asset_policy_drawer_container.setMaximumWidth(52)
@@ -2514,10 +2657,23 @@ class AITSLargeChartDialog(QDialog):
 
         sidebar_lay.addStretch(1)
 
-        content_row.addWidget(self._frm_detail_left_chart_area, 8)
-        content_row.addWidget(self.asset_ai_status_container, 3)
-        content_row.addWidget(self.asset_policy_drawer_container, 0)
-        root.addLayout(content_row, 1)
+        try:
+            self._frm_detail_left_chart_area.setMinimumWidth(520)
+            self.asset_ai_status_container.setMinimumWidth(280)
+        except Exception:
+            pass
+        self.detail_chart_main_splitter.addWidget(self._frm_detail_left_chart_area)
+        self.detail_chart_main_splitter.addWidget(self.asset_ai_status_container)
+        self.detail_chart_main_splitter.addWidget(self.asset_policy_drawer_container)
+        try:
+            self.detail_chart_main_splitter.setStretchFactor(0, 8)
+            self.detail_chart_main_splitter.setStretchFactor(1, 3)
+            self.detail_chart_main_splitter.setStretchFactor(2, 0)
+            self.detail_chart_main_splitter.setSizes([900, 320, 52])
+        except Exception:
+            pass
+        root.addWidget(self.detail_chart_main_splitter, 1)
+        self._restore_detail_chart_layout_state()
 
     def set_summary(
         self,
@@ -2777,6 +2933,10 @@ class AITSLargeChartDialog(QDialog):
             pass
 
     def closeEvent(self, event):
+        try:
+            self._save_detail_chart_layout_state()
+        except Exception:
+            pass
         try:
             self._stop_detail_popup_eta_timer()
         except Exception:

@@ -265,3 +265,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - collapsed drawer는 차트 dominance와 작은 화면 가시성을 우선한다.
 - 향후 고급 종목 정책은 drawer 내부 확장으로 처리한다.
 - drawer 내부 정책 값은 계속 preview-only이며 Runtime, Router, Order에는 직접 적용하지 않는다.
+
+---
+
+## 18. Resizable Detail Layout Persistence
+
+- AITS의 화면 관련 설정은 마지막 사용 상태를 복원한다.
+- 상세차트는 차트 | AI 현황 | AI 조정 3영역으로 구성된다.
+- 각 영역은 사용자가 splitter로 폭을 조정할 수 있다.
+- 창 크기/위치/splitter 폭/drawer 상태는 AppSettings.ui_state에 저장된다.
+- 해상도별 고정값을 찾기보다 사용자 환경에 맞춰 조정 가능한 구조를 우선한다.
