@@ -1775,11 +1775,13 @@ class AITSLargeChartDialog(QDialog):
             content.setVisible(visible)
             try:
                 if drawer is not None:
-                    drawer.setFixedWidth(300 if visible else 64)
+                    drawer.setMinimumWidth(260 if visible else 52)
+                    drawer.setMaximumWidth(260 if visible else 52)
+                    drawer.setFixedWidth(260 if visible else 52)
             except Exception:
                 pass
             if button is not None:
-                button.setText("◀ 접기" if visible else "▶")
+                button.setText("접기 ◀" if visible else "▶")
         except Exception:
             pass
 
@@ -2448,11 +2450,11 @@ class AITSLargeChartDialog(QDialog):
         self.asset_ai_control_container.setObjectName("aitsAssetAIControlContainer")
         self.asset_ai_control_container.setStyleSheet(
             "QFrame#aitsAssetAIControlContainer {"
-            "background:#1e293b; border:1px solid #475569; border-radius:12px;"
+            "background:#334155; border:1px solid #64748b; border-radius:10px;"
             "}"
         )
         control_container_lay = QVBoxLayout(self.asset_ai_control_container)
-        control_container_lay.setContentsMargins(7, 7, 7, 7)
+        control_container_lay.setContentsMargins(6, 6, 6, 6)
         control_container_lay.setSpacing(4)
         control_header = QLabel("AI 운용 조정")
         control_subtitle = QLabel("필요 시 이 종목의 AI 운용 성향을 조정합니다.")
@@ -2471,29 +2473,31 @@ class AITSLargeChartDialog(QDialog):
         self.asset_policy_drawer_container.setObjectName("aitsAssetPolicyDrawerContainer")
         self.asset_policy_drawer_container.setStyleSheet(
             "QFrame#aitsAssetPolicyDrawerContainer {"
-            "background:#0f172a; border:1px solid #334155; border-radius:12px;"
+            "background:#1e293b; border:1px solid #475569; border-radius:10px;"
             "}"
         )
-        self.asset_policy_drawer_container.setFixedWidth(64)
+        self.asset_policy_drawer_container.setFixedWidth(52)
+        self.asset_policy_drawer_container.setMinimumWidth(52)
+        self.asset_policy_drawer_container.setMaximumWidth(52)
         drawer_lay = QHBoxLayout(self.asset_policy_drawer_container)
-        drawer_lay.setContentsMargins(6, 6, 6, 6)
-        drawer_lay.setSpacing(6)
+        drawer_lay.setContentsMargins(4, 5, 4, 5)
+        drawer_lay.setSpacing(5)
 
         self.asset_policy_drawer_handle = QFrame(self.asset_policy_drawer_container)
         self.asset_policy_drawer_handle.setObjectName("aitsAssetPolicyDrawerHandle")
         self.asset_policy_drawer_handle.setStyleSheet(
             "QFrame#aitsAssetPolicyDrawerHandle {"
-            "background:#1e293b; border:1px solid #475569; border-radius:10px;"
+            "background:#334155; border:1px solid #64748b; border-radius:9px;"
             "}"
         )
         handle_lay = QVBoxLayout(self.asset_policy_drawer_handle)
-        handle_lay.setContentsMargins(4, 6, 4, 6)
-        handle_lay.setSpacing(6)
+        handle_lay.setContentsMargins(3, 5, 3, 5)
+        handle_lay.setSpacing(5)
         self.btn_toggle_asset_ai_control = QPushButton("▶")
         self.lbl_asset_policy_drawer_collapsed = QLabel("AI\n조정")
         try:
             self.btn_toggle_asset_ai_control.setStyleSheet(
-                "min-height:24px; border:1px solid #64748b; border-radius:7px; "
+                "min-height:24px; border:1px solid #94a3b8; border-radius:7px; "
                 "background:#f8fafc; color:#111827; font-weight:900; padding:2px 4px;"
             )
             self.btn_toggle_asset_ai_control.clicked.connect(self._toggle_asset_ai_control)
