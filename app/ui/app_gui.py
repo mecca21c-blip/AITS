@@ -1675,10 +1675,15 @@ class AITSLargeChartDialog(QDialog):
                 if not symbol:
                     symbol = str(self.lbl_detail_popup_header_symbol.text() or "").strip()
             policy_style = "전역 정책 따름"
+            preset_name = "global"
             autonomy_level = 50
             max_weight_pct = 0
             try:
                 policy_style = str(self.cmb_asset_policy_style.currentText() or policy_style)
+            except Exception:
+                pass
+            try:
+                preset_name = str(self.cmb_asset_policy_preset.currentData() or preset_name)
             except Exception:
                 pass
             try:
@@ -1693,6 +1698,7 @@ class AITSLargeChartDialog(QDialog):
                 "schema": "aits_asset_policy_snapshot.v1",
                 "symbol": str(symbol or "").strip(),
                 "policy_style": policy_style,
+                "preset_name": preset_name,
                 "autonomy_level": autonomy_level,
                 "max_weight_pct": max_weight_pct,
                 "preview_only": True,
@@ -1704,6 +1710,7 @@ class AITSLargeChartDialog(QDialog):
                 "schema": "aits_asset_policy_snapshot.v1",
                 "symbol": "",
                 "policy_style": "전역 정책 따름",
+                "preset_name": "global",
                 "autonomy_level": 50,
                 "max_weight_pct": 0,
                 "preview_only": True,
@@ -1719,9 +1726,20 @@ class AITSLargeChartDialog(QDialog):
             autonomy = int(snapshot.get("autonomy_level", 50) or 50)
             style = str(snapshot.get("policy_style", "전역 정책 따름") or "전역 정책 따름")
             style_text = "전역 정책 따름" if style == "전역 정책 따름" else f"{style} override"
+            preset_key = str(snapshot.get("preset_name") or "global")
+            preset_map = {
+                "global": "전역 preset",
+                "safe": "초보 안정형",
+                "balanced": "균형 운용형",
+                "aggressive": "단기 공격형",
+                "swing": "관망 스윙형",
+                "autonomous": "AI 자율 극대형",
+                "custom": "사용자 커스텀",
+            }
+            preset_text = preset_map.get(preset_key, "전역 preset")
             self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
             self.lbl_asset_policy_summary.setText(
-                f"{style_text}\nAI 자율도 {autonomy} · 최대비중 {max_weight_text}"
+                f"{style_text}\n{preset_text} · AI 자율도 {autonomy} · 최대비중 {max_weight_text}"
             )
             title = getattr(self, "lbl_asset_policy_title", None)
             if title is not None and hasattr(title, "setText"):
@@ -1793,6 +1811,7 @@ class AITSLargeChartDialog(QDialog):
                 snapshot = {}
 
             style = str(snapshot.get("policy_style") or "전역 정책 따름")
+            preset_name = str(snapshot.get("preset_name") or "global")
             autonomy = int(snapshot.get("autonomy_level") or 50)
             max_weight = int(snapshot.get("max_weight_pct") or 0)
             autonomy = max(0, min(100, autonomy))
@@ -1800,6 +1819,7 @@ class AITSLargeChartDialog(QDialog):
 
             widgets = (
                 getattr(self, "cmb_asset_policy_style", None),
+                getattr(self, "cmb_asset_policy_preset", None),
                 getattr(self, "slider_asset_policy_autonomy", None),
                 getattr(self, "spin_asset_policy_max_weight", None),
             )
@@ -1814,6 +1834,9 @@ class AITSLargeChartDialog(QDialog):
                 if self.cmb_asset_policy_style.findText(style) < 0:
                     style = "전역 정책 따름"
                 self.cmb_asset_policy_style.setCurrentText(style)
+                if hasattr(self, "cmb_asset_policy_preset"):
+                    preset_index = self.cmb_asset_policy_preset.findData(preset_name)
+                    self.cmb_asset_policy_preset.setCurrentIndex(max(0, preset_index))
                 self.slider_asset_policy_autonomy.setValue(autonomy)
                 self.spin_asset_policy_max_weight.setValue(max_weight)
             finally:
@@ -1900,6 +1923,21 @@ class AITSLargeChartDialog(QDialog):
         self.asset_policy_layout.addWidget(self.lbl_asset_policy_title)
         self.asset_policy_layout.addWidget(desc)
 
+        preset_row = QHBoxLayout()
+        preset_row.setContentsMargins(0, 0, 0, 0)
+        preset_row.setSpacing(6)
+        preset_row.addWidget(QLabel("운용 preset"))
+        self.cmb_asset_policy_preset = QComboBox()
+        self.cmb_asset_policy_preset.addItem("전역 정책 따름", "global")
+        self.cmb_asset_policy_preset.addItem("초보 안정형", "safe")
+        self.cmb_asset_policy_preset.addItem("균형 운용형", "balanced")
+        self.cmb_asset_policy_preset.addItem("단기 공격형", "aggressive")
+        self.cmb_asset_policy_preset.addItem("관망 스윙형", "swing")
+        self.cmb_asset_policy_preset.addItem("AI 자율 극대형", "autonomous")
+        self.cmb_asset_policy_preset.addItem("사용자 커스텀", "custom")
+        preset_row.addWidget(self.cmb_asset_policy_preset, 1)
+        self.asset_policy_layout.addLayout(preset_row)
+
         style_row = QHBoxLayout()
         style_row.setContentsMargins(0, 0, 0, 0)
         style_row.setSpacing(6)
@@ -1973,6 +2011,9 @@ class AITSLargeChartDialog(QDialog):
         self.asset_policy_layout.addWidget(self.asset_advanced_policy_container)
 
         try:
+            self.cmb_asset_policy_preset.currentIndexChanged.connect(
+                self._on_asset_policy_changed
+            )
             self.cmb_asset_policy_style.currentTextChanged.connect(self._on_asset_policy_changed)
             self.slider_asset_policy_autonomy.valueChanged.connect(self._on_asset_policy_changed)
             self.spin_asset_policy_max_weight.valueChanged.connect(self._on_asset_policy_changed)
@@ -13560,6 +13601,42 @@ class MainWindow(QMainWindow):
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_flow)
 
+        self.ai_policy_preset_container = QFrame()
+        self.ai_policy_preset_container.setObjectName("aitsPolicyPresetContainer")
+        preset_layout = QVBoxLayout(self.ai_policy_preset_container)
+        preset_layout.setContentsMargins(8, 8, 8, 8)
+        preset_layout.setSpacing(6)
+        preset_title = QLabel("AI 운용 프로필")
+        preset_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #111827;")
+        preset_subtitle = QLabel("AI의 기본 운용 성향을 빠르게 선택합니다.")
+        preset_subtitle.setStyleSheet("font-size: 10px; color: #64748b;")
+        preset_layout.addWidget(preset_title)
+        preset_layout.addWidget(preset_subtitle)
+
+        preset_button_row = QHBoxLayout()
+        preset_button_row.setContentsMargins(0, 0, 0, 0)
+        preset_button_row.setSpacing(5)
+        preset_buttons = (
+            ("btn_policy_preset_safe", "초보 안정형", "safe"),
+            ("btn_policy_preset_balanced", "균형 운용형", "balanced"),
+            ("btn_policy_preset_aggressive", "단기 공격형", "aggressive"),
+            ("btn_policy_preset_swing", "관망 스윙형", "swing"),
+            ("btn_policy_preset_autonomous", "AI 자율 극대형", "autonomous"),
+        )
+        for attr_name, text, preset_name in preset_buttons:
+            button = QPushButton(text)
+            button.setObjectName("aitsPolicyPresetButton")
+            button.clicked.connect(lambda checked=False, name=preset_name: self._apply_ai_policy_preset(name))
+            setattr(self, attr_name, button)
+            preset_button_row.addWidget(button)
+        preset_layout.addLayout(preset_button_row)
+
+        self.lbl_ai_policy_preset_desc = QLabel("균형형 AI 운용 프로필입니다.")
+        self.lbl_ai_policy_preset_desc.setWordWrap(True)
+        self.lbl_ai_policy_preset_desc.setStyleSheet("font-size: 10px; color: #475569;")
+        preset_layout.addWidget(self.lbl_ai_policy_preset_desc)
+        self.ai_policy_hero_layout.addWidget(self.ai_policy_preset_container)
+
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(8)
@@ -13599,6 +13676,15 @@ class MainWindow(QMainWindow):
             "padding: 7px 9px;"
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_summary)
+
+        self.lbl_ai_policy_preset_badge = QLabel("Preset: 균형 운용형")
+        self.lbl_ai_policy_preset_badge.setObjectName("aitsPolicyPresetBadge")
+        self.lbl_ai_policy_preset_badge.setStyleSheet(
+            "font-size: 11px; font-weight: 800; color: #334155;"
+            "background: #f1f5f9; border: 1px solid #dbe3ee; border-radius: 7px;"
+            "padding: 5px 8px;"
+        )
+        self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_preset_badge)
 
         self.lbl_ai_policy_local_runtime_notice = QLabel(
             "GPT · Gemini · Local AI = 동등 독립 운용 엔진. 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
@@ -13803,6 +13889,120 @@ class MainWindow(QMainWindow):
             return mid
         return high
 
+    def _ai_policy_preset_meta(self, preset_name=None):
+        presets = {
+            "safe": {
+                "label": "초보 안정형",
+                "desc": "관망 우선 · 낮은 리스크 · 사용자 중심 판단",
+                "style": "안정형",
+                "risk": 25,
+                "wait": 80,
+                "autonomy": 30,
+            },
+            "balanced": {
+                "label": "균형 운용형",
+                "desc": "균형형 AI 운용 프로필입니다.",
+                "style": "균형형",
+                "risk": 50,
+                "wait": 50,
+                "autonomy": 50,
+            },
+            "aggressive": {
+                "label": "단기 공격형",
+                "desc": "빠른 진입 · 높은 리스크 허용 · 기회 탐색 강화",
+                "style": "공격형",
+                "risk": 80,
+                "wait": 20,
+                "autonomy": 70,
+            },
+            "swing": {
+                "label": "관망 스윙형",
+                "desc": "추세 확인 · 신중 관망 · 중기 기회 포착",
+                "style": "균형형",
+                "risk": 55,
+                "wait": 75,
+                "autonomy": 60,
+            },
+            "autonomous": {
+                "label": "AI 자율 극대형",
+                "desc": "빠른 판단 · 높은 자율성 · 공격적 기회 탐색",
+                "style": "공격형",
+                "risk": 70,
+                "wait": 25,
+                "autonomy": 95,
+            },
+            "custom": {
+                "label": "사용자 커스텀",
+                "desc": "사용자가 직접 조정한 AI 운용 프로필입니다.",
+                "style": "균형형",
+                "risk": 50,
+                "wait": 50,
+                "autonomy": 50,
+            },
+        }
+        return dict(presets.get(str(preset_name or "balanced"), presets["balanced"]))
+
+    def _set_ai_policy_preset_badge(self, preset_name=None):
+        try:
+            meta = self._ai_policy_preset_meta(preset_name or getattr(self, "_ai_policy_preset_name", "balanced"))
+            badge = getattr(self, "lbl_ai_policy_preset_badge", None)
+            if badge is not None and hasattr(badge, "setText"):
+                badge.setText(f"Preset: {meta.get('label', '균형 운용형')}")
+            desc = getattr(self, "lbl_ai_policy_preset_desc", None)
+            if desc is not None and hasattr(desc, "setText"):
+                desc.setText(str(meta.get("desc") or "균형형 AI 운용 프로필입니다."))
+        except Exception:
+            pass
+
+    def _apply_ai_policy_preset(self, preset_name):
+        """Apply a UI-only AI policy preset to existing controls; never apply to runtime."""
+        try:
+            preset_name = str(preset_name or "balanced")
+            meta = self._ai_policy_preset_meta(preset_name)
+            widgets = (
+                getattr(self, "cmb_ai_policy_style", None),
+                getattr(self, "slider_policy_risk", None),
+                getattr(self, "slider_policy_wait", None),
+                getattr(self, "slider_policy_autonomy", None),
+            )
+            previous = []
+            self._ai_policy_applying_preset = True
+            try:
+                for widget in widgets:
+                    if widget is None:
+                        previous.append(False)
+                        continue
+                    previous.append(bool(widget.blockSignals(True)))
+                if hasattr(self, "cmb_ai_policy_style"):
+                    self.cmb_ai_policy_style.setCurrentText(str(meta.get("style") or "균형형"))
+                if hasattr(self, "slider_policy_risk"):
+                    self.slider_policy_risk.setValue(int(meta.get("risk", 50)))
+                if hasattr(self, "slider_policy_wait"):
+                    self.slider_policy_wait.setValue(int(meta.get("wait", 50)))
+                if hasattr(self, "slider_policy_autonomy"):
+                    self.slider_policy_autonomy.setValue(int(meta.get("autonomy", 50)))
+            finally:
+                for widget, was_blocked in zip(widgets, previous):
+                    try:
+                        if widget is not None:
+                            widget.blockSignals(was_blocked)
+                    except Exception:
+                        pass
+                self._ai_policy_applying_preset = False
+            self._ai_policy_preset_name = preset_name
+            self._set_ai_policy_preset_badge(preset_name)
+            self._sync_ai_policy_summary()
+            self._save_ai_policy_snapshot()
+            try:
+                self._sync_runtime_summary_labels()
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self._ai_policy_applying_preset = False
+            except Exception:
+                pass
+
     def _build_ai_policy_snapshot(self):
         """Build a UI-only AI policy snapshot; never apply it to runtime or orders."""
         try:
@@ -13812,9 +14012,11 @@ class MainWindow(QMainWindow):
             risk = int(getattr(self, "slider_policy_risk", None).value()) if hasattr(self, "slider_policy_risk") else 50
             wait = int(getattr(self, "slider_policy_wait", None).value()) if hasattr(self, "slider_policy_wait") else 50
             autonomy = int(getattr(self, "slider_policy_autonomy", None).value()) if hasattr(self, "slider_policy_autonomy") else 50
+            preset_name = str(getattr(self, "_ai_policy_preset_name", "balanced") or "balanced")
             return {
                 "schema": "aits_ai_policy_snapshot.v1",
                 "policy_style": style,
+                "preset_name": preset_name,
                 "risk_level": risk,
                 "wait_preference": wait,
                 "autonomy_level": autonomy,
@@ -13826,6 +14028,7 @@ class MainWindow(QMainWindow):
             return {
                 "schema": "aits_ai_policy_snapshot.v1",
                 "policy_style": "균형형",
+                "preset_name": "balanced",
                 "risk_level": 50,
                 "wait_preference": 50,
                 "autonomy_level": 50,
@@ -13841,6 +14044,7 @@ class MainWindow(QMainWindow):
             "schema": "aits_asset_policy_snapshot.v1",
             "symbol": symbol,
             "policy_style": "전역 정책 따름",
+            "preset_name": "global",
             "autonomy_level": 50,
             "max_weight_pct": 0,
             "preview_only": True,
@@ -13868,6 +14072,7 @@ class MainWindow(QMainWindow):
                     "schema": "aits_asset_policy_snapshot.v1",
                     "symbol": symbol,
                     "policy_style": str(snapshot.get("policy_style") or "전역 정책 따름"),
+                    "preset_name": str(snapshot.get("preset_name") or "global"),
                     "autonomy_level": int(snapshot.get("autonomy_level") or 50),
                     "max_weight_pct": int(snapshot.get("max_weight_pct") or 0),
                     "preview_only": True,
@@ -13890,16 +14095,22 @@ class MainWindow(QMainWindow):
             if not isinstance(asset_policy, dict):
                 asset_policy = {}
             global_style = str(global_policy.get("policy_style") or "균형형")
+            global_preset = str(global_policy.get("preset_name") or "balanced")
             asset_style = str(asset_policy.get("policy_style") or "전역 정책 따름")
+            asset_preset = str(asset_policy.get("preset_name") or "global")
             effective_style = global_style if asset_style == "전역 정책 따름" else asset_style
+            effective_preset = global_preset if asset_preset == "global" else asset_preset
             max_weight = int(asset_policy.get("max_weight_pct") or 0)
             asset_override_active = bool(asset_style != "전역 정책 따름" or max_weight > 0)
             return {
                 "schema": "aits_effective_policy_preview.v1",
                 "symbol": symbol,
                 "global_policy_style": global_style,
+                "global_preset_name": global_preset,
                 "asset_policy_style": asset_style,
+                "asset_preset_name": asset_preset,
                 "effective_policy_style": effective_style,
+                "effective_preset_name": effective_preset,
                 "risk_level": int(global_policy.get("risk_level") or 50),
                 "wait_preference": int(global_policy.get("wait_preference") or 50),
                 "autonomy_level": int(asset_policy.get("autonomy_level") or global_policy.get("autonomy_level") or 50),
@@ -13915,8 +14126,11 @@ class MainWindow(QMainWindow):
                 "schema": "aits_effective_policy_preview.v1",
                 "symbol": str(symbol or "").strip() if symbol is not None else "",
                 "global_policy_style": "균형형",
+                "global_preset_name": "balanced",
                 "asset_policy_style": "전역 정책 따름",
+                "asset_preset_name": "global",
                 "effective_policy_style": "균형형",
+                "effective_preset_name": "balanced",
                 "risk_level": 50,
                 "wait_preference": 50,
                 "autonomy_level": 50,
@@ -13935,11 +14149,15 @@ class MainWindow(QMainWindow):
         try:
             style = str(snapshot.get("effective_policy_style") or "균형형")
             asset_style = str(snapshot.get("asset_policy_style") or "전역 정책 따름")
+            preset_name = str(snapshot.get("effective_preset_name") or "balanced")
+            preset_label = self._ai_policy_preset_meta(preset_name).get("label", "균형 운용형")
             symbol = str(snapshot.get("symbol") or "").strip()
             override = bool(snapshot.get("asset_override_active"))
             if override and asset_style != "전역 정책 따름":
                 symbol_text = symbol.replace("KRW-", "") if symbol else "종목"
                 return f"정책 Preview: {symbol_text} {asset_style} override"
+            if preset_name and preset_name != "custom":
+                return f"정책 Preview: {preset_label}"
             if asset_style == "전역 정책 따름":
                 return f"정책 Preview: {style} 기준"
             return f"정책 Preview: {style} 기준"
@@ -14001,6 +14219,7 @@ class MainWindow(QMainWindow):
             if not isinstance(snapshot, dict):
                 snapshot = {}
             style = str(snapshot.get("policy_style") or "균형형")
+            preset_name = str(snapshot.get("preset_name") or "balanced")
             risk = int(snapshot.get("risk_level") or 50)
             wait = int(snapshot.get("wait_preference") or 50)
             autonomy = int(snapshot.get("autonomy_level") or 50)
@@ -14034,6 +14253,8 @@ class MainWindow(QMainWindow):
                             widget.blockSignals(False)
                     except Exception:
                         pass
+            self._ai_policy_preset_name = preset_name
+            self._set_ai_policy_preset_badge(preset_name)
             self._sync_ai_policy_summary()
             try:
                 self._log.info("[AITS][AIPolicy] restored")
@@ -14044,6 +14265,9 @@ class MainWindow(QMainWindow):
 
     def _on_ai_policy_changed(self, *args):
         try:
+            if not bool(getattr(self, "_ai_policy_applying_preset", False)):
+                self._ai_policy_preset_name = "custom"
+                self._set_ai_policy_preset_badge("custom")
             self._sync_ai_policy_summary()
             self._save_ai_policy_snapshot()
         except Exception:
@@ -14136,6 +14360,9 @@ class MainWindow(QMainWindow):
                 policy = {}
             asset_policy = str(policy.get("asset_policy_style") or "전역 정책 따름")
             effective_policy = str(policy.get("effective_policy_style") or "균형형")
+            preset_label = self._ai_policy_preset_meta(
+                policy.get("effective_preset_name") or "balanced"
+            ).get("label", "균형 운용형")
             autonomy = int(policy.get("autonomy_level") or 50)
             max_weight = int(policy.get("max_weight_pct") or 0)
             weight_text = "전역" if max_weight <= 0 else f"{max_weight}%"
@@ -14149,7 +14376,7 @@ class MainWindow(QMainWindow):
                 f"- 부족: {missing_text}\n"
                 "[3] Preview\n"
                 f"- Reasoning {reasoning_text} · Shadow {shadow_text} · Router {router_text}\n"
-                f"- 정책: {effective_policy} (종목 {asset_policy})\n"
+                f"- 정책: {preset_label} · {effective_policy} (종목 {asset_policy})\n"
                 f"- 자율도 {autonomy} · 최대비중 {weight_text} · submitted={submitted}\n"
                 "AITS는 운용 철학 기반 AI Runtime 시스템입니다."
             )
@@ -35465,6 +35692,28 @@ QFrame#aitsRuntimePreviewContainer {
     border-radius: 8px;
     background: #f8fafc;
     padding: 10px;
+}
+
+QFrame#aitsPolicyPresetContainer {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    background: #ffffff;
+    padding: 8px;
+}
+
+QPushButton#aitsPolicyPresetButton {
+    border: 1px solid #d8e1ec;
+    border-radius: 7px;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 8px;
+}
+
+QPushButton#aitsPolicyPresetButton:hover {
+    background: #eef2ff;
+    border-color: #c7d2fe;
 }
 
 QLabel#aitsRuntimePreviewHeader {

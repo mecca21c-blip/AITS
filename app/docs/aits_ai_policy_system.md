@@ -218,3 +218,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - 종목별 정책이 "전역 정책 따름"이면 전역 정책을 effective policy로 표시한다.
 - 종목별 정책이 지정되면 override로 표시한다.
 - 모든 표시는 `preview_only=True` 원칙을 유지한다.
+
+---
+
+## 14. AI 운용 프로필 Preset 시스템
+
+- 사용자는 slider를 직접 조정하지 않아도 preset 기반으로 AI 운용 성향을 선택할 수 있다.
+- preset은 Runtime, DecisionRouter, OrderAdapter, ExecutionBridge, 실제 주문 경로에 직접 적용되지 않는다.
+- 현재 단계의 preset은 UI 저장/복원 및 preview/reference 용도이다.
+- slider 또는 정책 combo를 직접 변경하면 preset 상태는 "사용자 커스텀"으로 전환된다.
+- 전역 preset과 종목별 preset은 독립적으로 존재할 수 있다.
+- 종목별 preset도 현재는 preview-only이며 실제 Runtime/Router/Order 판단에는 적용하지 않는다.
