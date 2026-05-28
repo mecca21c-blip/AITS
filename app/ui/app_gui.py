@@ -1721,8 +1721,13 @@ class AITSLargeChartDialog(QDialog):
             style_text = "전역 정책 따름" if style == "전역 정책 따름" else f"{style} override"
             self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
             self.lbl_asset_policy_summary.setText(
-                f"종목 정책: {style_text} · 자율도 {autonomy} · 최대비중 {max_weight_text}"
+                f"{style_text}\nAI 자율도 {autonomy} · 최대비중 {max_weight_text}"
             )
+            title = getattr(self, "lbl_asset_policy_title", None)
+            if title is not None and hasattr(title, "setText"):
+                symbol = str(snapshot.get("symbol") or getattr(self, "_symbol", "") or "").strip()
+                base_symbol = symbol.replace("KRW-", "") if symbol else "종목"
+                title.setText(f"{base_symbol} 운용 프로필")
         except Exception:
             pass
 
@@ -1859,7 +1864,7 @@ class AITSLargeChartDialog(QDialog):
             self.asset_policy_container.setStyleSheet(
                 "QFrame#aitsAssetPolicyContainer {"
                 "border: 1px solid #334155; border-radius: 8px; "
-                "background: rgba(15, 23, 42, 0.35); padding: 6px;"
+                "background: rgba(15, 23, 42, 0.42); padding: 6px;"
                 "}"
                 "QFrame#aitsAssetPolicyContainer QLabel { color: #e5e7eb; }"
                 "QFrame#aitsAssetPolicyContainer QComboBox, "
@@ -1875,22 +1880,24 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         self.asset_policy_layout = QVBoxLayout(self.asset_policy_container)
-        self.asset_policy_layout.setContentsMargins(8, 8, 8, 8)
-        self.asset_policy_layout.setSpacing(5)
+        self.asset_policy_layout.setContentsMargins(8, 7, 8, 7)
+        self.asset_policy_layout.setSpacing(4)
 
-        title = QLabel("개별 종목 AI 정책")
+        self.lbl_asset_policy_title = QLabel("종목 AI 운용 프로필")
         desc = QLabel(
-            "종목별 운용 성향 preview입니다. 실제 주문에는 적용되지 않습니다."
+            "이 종목의 운용 성향 preview입니다. 실제 주문에는 적용되지 않습니다."
         )
         try:
-            title.setTextFormat(Qt.TextFormat.PlainText)
-            title.setStyleSheet("font-size:13px; font-weight:900; color:#f8fafc;")
+            self.lbl_asset_policy_title.setTextFormat(Qt.TextFormat.PlainText)
+            self.lbl_asset_policy_title.setStyleSheet(
+                "font-size:13px; font-weight:900; color:#f8fafc;"
+            )
             desc.setTextFormat(Qt.TextFormat.PlainText)
             desc.setWordWrap(True)
-            desc.setStyleSheet("font-size:11px; font-weight:600; color:#cbd5e1;")
+            desc.setStyleSheet("font-size:10px; font-weight:600; color:#cbd5e1;")
         except Exception:
             pass
-        self.asset_policy_layout.addWidget(title)
+        self.asset_policy_layout.addWidget(self.lbl_asset_policy_title)
         self.asset_policy_layout.addWidget(desc)
 
         style_row = QHBoxLayout()
@@ -1935,13 +1942,14 @@ class AITSLargeChartDialog(QDialog):
         self.asset_policy_layout.addWidget(weight_hint)
 
         self.lbl_asset_policy_summary = QLabel(
-            "종목 정책: 전역 정책 따름 · AI 자율도 50 · 최대비중 전역"
+            "전역 정책 따름\nAI 자율도 50 · 최대비중 전역"
         )
         try:
             self.lbl_asset_policy_summary.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_asset_policy_summary.setWordWrap(True)
             self.lbl_asset_policy_summary.setStyleSheet(
                 "font-size:11px; font-weight:800; color:#f8fafc;"
+                "background:rgba(30,41,59,0.58); border-radius:6px; padding:4px 6px;"
             )
         except Exception:
             pass
@@ -13103,8 +13111,8 @@ class MainWindow(QMainWindow):
         self.runtime_preview_container = QFrame()
         self.runtime_preview_container.setObjectName("aitsRuntimePreviewContainer")
         self.runtime_preview_layout = QVBoxLayout(self.runtime_preview_container)
-        self.runtime_preview_layout.setContentsMargins(8, 8, 8, 8)
-        self.runtime_preview_layout.setSpacing(3)
+        self.runtime_preview_layout.setContentsMargins(10, 10, 10, 10)
+        self.runtime_preview_layout.setSpacing(5)
 
         self.lbl_runtime_preview_header = QLabel("AI Runtime 운영 상태")
         self.lbl_runtime_preview_header.setObjectName("aitsRuntimePreviewHeader")
@@ -13515,8 +13523,8 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_container.setObjectName("aitsAiPolicyHeroContainer")
         self.ai_policy_hero_container.setStyleSheet(
             "QFrame#aitsAiPolicyHeroContainer {"
-            "border: 1px solid #d1d5db; border-radius: 8px;"
-            "background: #f8fafc; padding: 10px;"
+            "border: 1px solid #d8e1ec; border-radius: 8px;"
+            "background: #f8fafc; padding: 12px;"
             "}"
             "QFrame#aitsAiPolicyHeroContainer QLabel { color: #111827; }"
             "QFrame#aitsAiPolicyHeroContainer QComboBox,"
@@ -13524,21 +13532,21 @@ class MainWindow(QMainWindow):
             "QFrame#aitsAiPolicyHeroContainer QPushButton { min-height: 26px; }"
         )
         self.ai_policy_hero_layout = QVBoxLayout(self.ai_policy_hero_container)
-        self.ai_policy_hero_layout.setContentsMargins(10, 10, 10, 10)
-        self.ai_policy_hero_layout.setSpacing(8)
+        self.ai_policy_hero_layout.setContentsMargins(12, 12, 12, 12)
+        self.ai_policy_hero_layout.setSpacing(9)
 
-        title = QLabel("AI 운용 정책 센터")
-        title.setStyleSheet("font-size: 16px; font-weight: 800; color: #111827;")
+        title = QLabel("AI 운용 프로필 센터")
+        title.setStyleSheet("font-size: 16px; font-weight: 900; color: #111827;")
         desc = QLabel(
-            "사용자는 투자 철학을 설정하고, AI는 그 방향에 맞춰 운용 판단을 준비합니다."
+            "투자 철학을 운용 프로필로 관리하고, AI Runtime은 이 방향을 preview로 해석합니다."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("font-size: 11px; color: #4b5563;")
+        desc.setStyleSheet("font-size: 11px; color: #64748b;")
         self.ai_policy_hero_layout.addWidget(title)
         self.ai_policy_hero_layout.addWidget(desc)
 
         self.lbl_ai_policy_guidance = QLabel(
-            "AITS는 사용자의 운용 철학을 기반으로 AI가 Runtime 판단을 수행합니다."
+            "AITS는 사용자의 운용 철학을 기반으로 AI가 Runtime 판단을 준비합니다."
         )
         self.lbl_ai_policy_guidance.setWordWrap(True)
         self.lbl_ai_policy_guidance.setStyleSheet(
@@ -13546,9 +13554,9 @@ class MainWindow(QMainWindow):
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_guidance)
 
-        self.lbl_ai_policy_flow = QLabel("전역 정책 → 종목 정책 → AI Runtime Preview")
+        self.lbl_ai_policy_flow = QLabel("운용 프로필 → 종목 Override → AI Runtime Preview")
         self.lbl_ai_policy_flow.setStyleSheet(
-            "font-size: 11px; font-weight: 700; color: #334155;"
+            "font-size: 11px; font-weight: 700; color: #475569;"
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_flow)
 
@@ -13581,16 +13589,19 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addLayout(grid)
 
         self.lbl_ai_policy_summary = QLabel(
-            "현재 정책:\n균형형 · 리스크 중간 · 신중 관망 · AI 자율도 중간"
+            "현재 AI 운용 프로필\n균형형 · 리스크 중간 · 관망 우선 · AI 자율도 중간"
         )
         self.lbl_ai_policy_summary.setWordWrap(True)
+        self.lbl_ai_policy_summary.setObjectName("aitsPolicyBadge")
         self.lbl_ai_policy_summary.setStyleSheet(
-            "font-size: 12px; font-weight: 600; color: #1f2937;"
+            "font-size: 12px; font-weight: 800; color: #1f2937;"
+            "background: #eef2ff; border: 1px solid #dbe4ff; border-radius: 7px;"
+            "padding: 7px 9px;"
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_summary)
 
         self.lbl_ai_policy_local_runtime_notice = QLabel(
-            "Local AI는 GPT/Gemini와 동등한 독립 AI 운용 엔진입니다. 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
+            "GPT · Gemini · Local AI = 동등 독립 운용 엔진. 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
         )
         self.lbl_ai_policy_local_runtime_notice.setWordWrap(True)
         self.lbl_ai_policy_local_runtime_notice.setStyleSheet(
@@ -13637,31 +13648,34 @@ class MainWindow(QMainWindow):
             self.legacy_policy_container.setStyleSheet(
                 "QFrame#aitsLegacyPolicyContainer {"
                 "border: 1px solid #e5e7eb; border-radius: 8px;"
-                "background: #fbfbfc; padding: 8px;"
+                "background: #fbfbfc; padding: 6px;"
                 "}"
                 "QFrame#aitsLegacyPolicyContainer QLabel { color: #6b7280; }"
             )
             legacy_layout = QVBoxLayout(self.legacy_policy_container)
-            legacy_layout.setContentsMargins(8, 8, 8, 8)
-            legacy_layout.setSpacing(6)
+            legacy_layout.setContentsMargins(6, 6, 6, 6)
+            legacy_layout.setSpacing(4)
 
             self.lbl_legacy_policy_header = QLabel("고급 정책 및 레거시 설정")
             self.lbl_legacy_policy_header.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_header.setStyleSheet(
-                "font-size: 12px; font-weight: 700; color: #374151;"
+                "font-size: 11px; font-weight: 700; color: #475569;"
             )
             legacy_layout.addWidget(self.lbl_legacy_policy_header)
 
             self.lbl_legacy_policy_desc = QLabel(
-                "아래 설정은 고급 사용자 및\n"
-                "레거시 전략 호환을 위한 옵션입니다."
+                "고급 사용자 및 레거시 전략 호환 옵션입니다."
             )
             self.lbl_legacy_policy_desc.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_desc.setWordWrap(True)
-            self.lbl_legacy_policy_desc.setStyleSheet("font-size: 11px; color: #6b7280;")
+            self.lbl_legacy_policy_desc.setStyleSheet("font-size: 10px; color: #94a3b8;")
             legacy_layout.addWidget(self.lbl_legacy_policy_desc)
 
             self.btn_toggle_legacy_policy = QPushButton("고급 정책 펼치기")
+            self.btn_toggle_legacy_policy.setStyleSheet(
+                "font-size: 11px; color: #64748b; background: #f8fafc;"
+                "border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 8px;"
+            )
             self.btn_toggle_legacy_policy.clicked.connect(self._toggle_legacy_policy_container)
             legacy_layout.addWidget(self.btn_toggle_legacy_policy)
 
@@ -13753,15 +13767,15 @@ class MainWindow(QMainWindow):
         card.setObjectName("aitsPolicyCard")
         card.setStyleSheet(
             "QFrame#aitsPolicyCard {"
-            "border: 1px solid #dbe3ee; border-radius: 8px;"
-            "background: #ffffff; padding: 8px;"
+            "border: 1px solid #d8e1ec; border-radius: 8px;"
+            "background: #ffffff; padding: 10px;"
             "}"
         )
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(7)
         label = QLabel(title)
-        label.setStyleSheet("font-size: 12px; font-weight: 700; color: #111827;")
+        label.setStyleSheet("font-size: 12px; font-weight: 800; color: #111827;")
         layout.addWidget(label)
         return card
 
@@ -14059,7 +14073,7 @@ class MainWindow(QMainWindow):
             label = getattr(self, "lbl_ai_policy_summary", None)
             if label is not None and hasattr(label, "setText"):
                 label.setText(
-                    "현재 정책:\n"
+                    "현재 AI 운용 프로필\n"
                     f"{snapshot.get('policy_style')} · {risk_text} · {wait_text} · {autonomy_text}"
                 )
         except Exception:
@@ -35449,8 +35463,8 @@ QFrame#aitsRuntimePanelContainer {
 QFrame#aitsRuntimePreviewContainer {
     border: 1px solid #e5e7eb;
     border-radius: 8px;
-    background: #f9fafb;
-    padding: 8px;
+    background: #f8fafc;
+    padding: 10px;
 }
 
 QLabel#aitsRuntimePreviewHeader {
