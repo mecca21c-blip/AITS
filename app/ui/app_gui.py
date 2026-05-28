@@ -1721,8 +1721,7 @@ class AITSLargeChartDialog(QDialog):
             style_text = "전역 정책 따름" if style == "전역 정책 따름" else f"{style} override"
             self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
             self.lbl_asset_policy_summary.setText(
-                f"종목 정책: {style_text} · "
-                f"AI 자율도 {autonomy} · 최대비중 {max_weight_text} · preview only"
+                f"종목 정책: {style_text} · 자율도 {autonomy} · 최대비중 {max_weight_text}"
             )
         except Exception:
             pass
@@ -1860,7 +1859,7 @@ class AITSLargeChartDialog(QDialog):
             self.asset_policy_container.setStyleSheet(
                 "QFrame#aitsAssetPolicyContainer {"
                 "border: 1px solid #334155; border-radius: 8px; "
-                "background: rgba(15, 23, 42, 0.35); padding: 8px;"
+                "background: rgba(15, 23, 42, 0.35); padding: 6px;"
                 "}"
                 "QFrame#aitsAssetPolicyContainer QLabel { color: #e5e7eb; }"
                 "QFrame#aitsAssetPolicyContainer QComboBox, "
@@ -1876,13 +1875,12 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         self.asset_policy_layout = QVBoxLayout(self.asset_policy_container)
-        self.asset_policy_layout.setContentsMargins(10, 10, 10, 10)
-        self.asset_policy_layout.setSpacing(7)
+        self.asset_policy_layout.setContentsMargins(8, 8, 8, 8)
+        self.asset_policy_layout.setSpacing(5)
 
         title = QLabel("개별 종목 AI 정책")
         desc = QLabel(
-            "이 종목에만 적용할 AI 운용 성향을 설정합니다.\n"
-            "현재는 preview-only이며 실제 주문에는 적용되지 않습니다."
+            "종목별 운용 성향 preview입니다. 실제 주문에는 적용되지 않습니다."
         )
         try:
             title.setTextFormat(Qt.TextFormat.PlainText)
@@ -13518,7 +13516,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_container.setStyleSheet(
             "QFrame#aitsAiPolicyHeroContainer {"
             "border: 1px solid #d1d5db; border-radius: 8px;"
-            "background: #f9fafb; padding: 8px;"
+            "background: #f8fafc; padding: 10px;"
             "}"
             "QFrame#aitsAiPolicyHeroContainer QLabel { color: #111827; }"
             "QFrame#aitsAiPolicyHeroContainer QComboBox,"
@@ -13526,14 +13524,13 @@ class MainWindow(QMainWindow):
             "QFrame#aitsAiPolicyHeroContainer QPushButton { min-height: 26px; }"
         )
         self.ai_policy_hero_layout = QVBoxLayout(self.ai_policy_hero_container)
-        self.ai_policy_hero_layout.setContentsMargins(8, 8, 8, 8)
+        self.ai_policy_hero_layout.setContentsMargins(10, 10, 10, 10)
         self.ai_policy_hero_layout.setSpacing(8)
 
         title = QLabel("AI 운용 정책 센터")
-        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #111827;")
+        title.setStyleSheet("font-size: 16px; font-weight: 800; color: #111827;")
         desc = QLabel(
-            "사용자는 투자 철학을 설정하고,\n"
-            "AI는 그 방향에 맞춰 운용 판단을 수행합니다."
+            "사용자는 투자 철학을 설정하고, AI는 그 방향에 맞춰 운용 판단을 준비합니다."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 11px; color: #4b5563;")
@@ -13548,6 +13545,12 @@ class MainWindow(QMainWindow):
             "font-size: 11px; font-weight: 600; color: #1f2937;"
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_guidance)
+
+        self.lbl_ai_policy_flow = QLabel("전역 정책 → 종목 정책 → AI Runtime Preview")
+        self.lbl_ai_policy_flow.setStyleSheet(
+            "font-size: 11px; font-weight: 700; color: #334155;"
+        )
+        self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_flow)
 
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
@@ -13587,7 +13590,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_summary)
 
         self.lbl_ai_policy_local_runtime_notice = QLabel(
-            "Local AI Runtime 및 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
+            "Local AI는 GPT/Gemini와 동등한 독립 AI 운용 엔진입니다. 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
         )
         self.lbl_ai_policy_local_runtime_notice.setWordWrap(True)
         self.lbl_ai_policy_local_runtime_notice.setStyleSheet(
@@ -13750,7 +13753,7 @@ class MainWindow(QMainWindow):
         card.setObjectName("aitsPolicyCard")
         card.setStyleSheet(
             "QFrame#aitsPolicyCard {"
-            "border: 1px solid #e5e7eb; border-radius: 8px;"
+            "border: 1px solid #dbe3ee; border-radius: 8px;"
             "background: #ffffff; padding: 8px;"
             "}"
         )
@@ -13919,21 +13922,13 @@ class MainWindow(QMainWindow):
             style = str(snapshot.get("effective_policy_style") or "균형형")
             asset_style = str(snapshot.get("asset_policy_style") or "전역 정책 따름")
             symbol = str(snapshot.get("symbol") or "").strip()
-            risk = int(snapshot.get("risk_level") or 50)
-            wait = int(snapshot.get("wait_preference") or 50)
-            autonomy = int(snapshot.get("autonomy_level") or 50)
-            max_weight = int(snapshot.get("max_weight_pct") or 0)
             override = bool(snapshot.get("asset_override_active"))
             if override and asset_style != "전역 정책 따름":
                 symbol_text = symbol.replace("KRW-", "") if symbol else "종목"
-                weight_text = f" · 최대비중 {max_weight}%" if max_weight > 0 else ""
-                return f"정책 Preview: {symbol_text} {asset_style} override{weight_text} · preview only"
+                return f"정책 Preview: {symbol_text} {asset_style} override"
             if asset_style == "전역 정책 따름":
-                return (
-                    f"정책 Preview: {style} · 리스크 {risk} · "
-                    f"관망 {wait} · 자율도 {autonomy}"
-                )
-            return f"정책 Preview: {style} 참고 예정 · preview only"
+                return f"정책 Preview: {style} 기준"
+            return f"정책 Preview: {style} 기준"
         except Exception:
             return "정책 Preview: 전역 정책 기준"
 
@@ -13947,7 +13942,7 @@ class MainWindow(QMainWindow):
             symbol = str(snapshot.get("symbol") or "").strip().replace("KRW-", "")
             if bool(snapshot.get("asset_override_active")) and asset_style != "전역 정책 따름":
                 target = symbol or "종목"
-                return f"정책 힌트: {target} {asset_style} override 참고 예정"
+                return f"정책 힌트: {target} {asset_style} override"
             return f"정책 힌트: {style} 기준으로 판단 준비"
         except Exception:
             return "정책 힌트: 전역 정책 기준으로 판단 준비"
@@ -14127,21 +14122,21 @@ class MainWindow(QMainWindow):
                 policy = {}
             asset_policy = str(policy.get("asset_policy_style") or "전역 정책 따름")
             effective_policy = str(policy.get("effective_policy_style") or "균형형")
+            autonomy = int(policy.get("autonomy_level") or 50)
+            max_weight = int(policy.get("max_weight_pct") or 0)
+            weight_text = "전역" if max_weight <= 0 else f"{max_weight}%"
 
             return (
                 "[1] 현재 AI 상태\n"
-                f"- 상태: {state_text} | 모드: 안전 모니터링 | 주문: 차단\n"
                 f"- 엔진: {provider} / {runtime} / {selected_model}\n"
+                f"- 상태: {state_text} · 안전 모니터링 · 주문 차단\n"
                 "[2] 입력 연결\n"
-                f"- 입력: {input_count}/5 연결\n"
-                f"- 연결: {connected_text} / 부족: {missing_text}\n"
+                f"- {input_count}/5 연결: {connected_text}\n"
+                f"- 부족: {missing_text}\n"
                 "[3] Preview\n"
-                f"- Reasoning: {reasoning_text} | Shadow: {shadow_text}\n"
-                f"- Router: {router_text} | 실행: preview only / submitted={submitted}\n"
-                "정책 Preview\n"
-                f"- 전역: {policy.get('global_policy_style') or '균형형'} | "
-                f"종목: {asset_policy}\n"
-                f"- 유효 정책: {effective_policy} | 적용: preview only\n"
+                f"- Reasoning {reasoning_text} · Shadow {shadow_text} · Router {router_text}\n"
+                f"- 정책: {effective_policy} (종목 {asset_policy})\n"
+                f"- 자율도 {autonomy} · 최대비중 {weight_text} · submitted={submitted}\n"
                 "AITS는 운용 철학 기반 AI Runtime 시스템입니다."
             )
         except Exception:
@@ -14381,8 +14376,11 @@ class MainWindow(QMainWindow):
         if not isinstance(snapshot, dict):
             snapshot = {}
         candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
-        policy_hint = self._format_policy_hint_text()
-        return f"Shadow Preview: {candidate_text}\n{policy_hint}"
+        router_text = self._format_router_preview_humanized_text(
+            self._get_router_preview_snapshot()
+        ).replace("Router Preview: ", "Router: ")
+        policy_hint = self._format_policy_hint_text().replace("정책 힌트: ", "정책: ")
+        return f"Shadow Preview: {candidate_text}\n{router_text} · {policy_hint}"
 
     def _build_runtime_preview_compact_text(self):
         """Build a two-line runtime preview summary from existing preview snapshots."""
@@ -35554,7 +35552,8 @@ QLabel#aitsRuntimeDecisionGateSummary[runtimeState="blocked"] {
 
 QLabel#aitsPolicyPreview {
     font-size: 11px;
-    color: #94a3b8;
+    color: #64748b;
+    font-weight: 700;
 }
 
 QLabel#aitsAiReasoningPreview {
