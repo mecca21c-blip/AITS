@@ -1768,27 +1768,6 @@ class AITSLargeChartDialog(QDialog):
 
     def _toggle_asset_ai_control(self):
         try:
-            content = getattr(self, "asset_ai_control_container", None)
-            drawer = getattr(self, "asset_policy_drawer_container", None)
-            button = getattr(self, "btn_toggle_asset_ai_control", None)
-            if content is None:
-                return
-            visible = not bool(content.isVisible())
-            content.setVisible(visible)
-            try:
-                if drawer is not None:
-                    drawer.setMinimumWidth(260 if visible else 52)
-                    drawer.setMaximumWidth(260 if visible else 52)
-                    drawer.setFixedWidth(260 if visible else 52)
-            except Exception:
-                pass
-            if button is not None:
-                button.setText("접기 ◀" if visible else "▶")
-        except Exception:
-            pass
-
-    def _toggle_asset_ai_control(self):
-        try:
             expanded = not bool(getattr(self, "_asset_policy_drawer_expanded", False))
             self._set_asset_policy_drawer_expanded(expanded, save=True)
         except Exception:
@@ -1860,6 +1839,9 @@ class AITSLargeChartDialog(QDialog):
                     "h": int(geom.height()),
                 },
                 "splitter_sizes": list(splitter.sizes()) if splitter is not None else [900, 320, 52],
+                "ai_status_splitter_sizes": list(
+                    self.detail_ai_status_vertical_splitter.sizes()
+                ) if getattr(self, "detail_ai_status_vertical_splitter", None) is not None else [130, 120, 110, 150, 130],
                 "drawer_expanded": bool(getattr(self, "_asset_policy_drawer_expanded", False)),
             }
             ui_state["detail_chart_layout_state"] = state
@@ -1906,12 +1888,24 @@ class AITSLargeChartDialog(QDialog):
                     splitter.setSizes(sizes)
                 except Exception:
                     splitter.setSizes([900, 320, 260 if expanded else 52])
+            ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
+            if ai_splitter is not None:
+                ai_sizes = state.get("ai_status_splitter_sizes", [130, 120, 110, 150, 130])
+                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 5:
+                    ai_sizes = [130, 120, 110, 150, 130]
+                try:
+                    ai_splitter.setSizes([max(1, int(v)) for v in list(ai_sizes)[:5]])
+                except Exception:
+                    ai_splitter.setSizes([130, 120, 110, 150, 130])
         except Exception:
             try:
                 self._set_asset_policy_drawer_expanded(False, save=False)
                 splitter = getattr(self, "detail_chart_main_splitter", None)
                 if splitter is not None:
                     splitter.setSizes([900, 320, 52])
+                ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
+                if ai_splitter is not None:
+                    ai_splitter.setSizes([130, 120, 110, 150, 130])
             except Exception:
                 pass
         finally:
@@ -2495,6 +2489,10 @@ class AITSLargeChartDialog(QDialog):
         )
         for lb in (self.lbl_detail_popup_reason_text, self.lbl_detail_popup_next_text):
             lb.setWordWrap(True)
+            try:
+                lb.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            except Exception:
+                pass
             lb.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
             lb.setStyleSheet("font-size:12px; font-weight:600; color:#111827; line-height:140%;")
         self.lbl_detail_popup_scenario_title.setWordWrap(True)
@@ -2509,6 +2507,10 @@ class AITSLargeChartDialog(QDialog):
             "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
         )
         self.lbl_detail_popup_scenario_context.setWordWrap(True)
+        try:
+            self.lbl_detail_popup_scenario_context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        except Exception:
+            pass
         self.lbl_detail_popup_scenario_context.setStyleSheet(
             "font-size:12px; font-weight:700; color:#6b7280;"
         )
@@ -2519,6 +2521,10 @@ class AITSLargeChartDialog(QDialog):
             "font-size:20px; font-weight:900; color:#111827;"
         )
         self.lbl_detail_popup_eta_sub.setWordWrap(True)
+        try:
+            self.lbl_detail_popup_eta_sub.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        except Exception:
+            pass
         self.lbl_detail_popup_eta_sub.setStyleSheet(
             "font-size:12px; font-weight:700; color:#6b7280;"
         )
@@ -2528,6 +2534,10 @@ class AITSLargeChartDialog(QDialog):
             "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
         )
         self.lbl_detail_popup_eta_hint.setWordWrap(True)
+        try:
+            self.lbl_detail_popup_eta_hint.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        except Exception:
+            pass
         self.lbl_detail_popup_eta_hint.setStyleSheet(
             "font-size:11px; font-weight:700; color:#94a3b8;"
         )
@@ -2582,11 +2592,34 @@ class AITSLargeChartDialog(QDialog):
         status_header = QLabel("AI 현황")
         status_header.setStyleSheet("font-size:14px; font-weight:900; color:#111827;")
         status_container_lay.addWidget(status_header)
-        status_container_lay.addWidget(self._frm_detail_ai_status_card, 0)
-        status_container_lay.addWidget(self._frm_detail_ai_reason_card, 1)
-        status_container_lay.addWidget(self._frm_detail_ai_next_card, 1)
-        status_container_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
-        status_container_lay.addWidget(self._frm_detail_popup_eta_card, 0)
+        self.detail_ai_status_vertical_splitter = QSplitter(Qt.Orientation.Vertical, self.asset_ai_status_container)
+        self.detail_ai_status_vertical_splitter.setObjectName("aitsDetailAIStatusVerticalSplitter")
+        try:
+            self.detail_ai_status_vertical_splitter.setChildrenCollapsible(False)
+            self.detail_ai_status_vertical_splitter.setHandleWidth(5)
+            self.detail_ai_status_vertical_splitter.splitterMoved.connect(
+                lambda _pos, _index: self._save_detail_chart_layout_state()
+            )
+        except Exception:
+            pass
+        for card, min_height in (
+            (self._frm_detail_ai_status_card, 110),
+            (self._frm_detail_ai_reason_card, 90),
+            (self._frm_detail_ai_next_card, 80),
+            (self._frm_detail_popup_scenario_card, 120),
+            (self._frm_detail_popup_eta_card, 100),
+        ):
+            try:
+                card.setMinimumHeight(min_height)
+                card.setMaximumHeight(16777215)
+            except Exception:
+                pass
+            self.detail_ai_status_vertical_splitter.addWidget(card)
+        try:
+            self.detail_ai_status_vertical_splitter.setSizes([130, 120, 110, 150, 130])
+        except Exception:
+            pass
+        status_container_lay.addWidget(self.detail_ai_status_vertical_splitter, 1)
 
         self.asset_ai_control_container = QFrame(self)
         self.asset_ai_control_container.setObjectName("aitsAssetAIControlContainer")

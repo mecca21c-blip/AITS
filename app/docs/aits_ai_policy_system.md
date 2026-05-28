@@ -275,3 +275,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - 각 영역은 사용자가 splitter로 폭을 조정할 수 있다.
 - 창 크기/위치/splitter 폭/drawer 상태는 AppSettings.ui_state에 저장된다.
 - 해상도별 고정값을 찾기보다 사용자 환경에 맞춰 조정 가능한 구조를 우선한다.
+
+---
+
+## 19. Detail Status Card Resize Safety
+
+- 상세차트의 AI 현황 영역은 내부 카드를 세로 splitter로 조정할 수 있다.
+- AI 판단, 판단 근거, 다음 행동, AI 시나리오, AI ETA 카드는 각각 최소 높이를 유지한다.
+- 긴 판단 근거와 시나리오 설명은 word wrap과 텍스트 선택을 허용해 잘림 위험을 줄인다.
+- AI 현황 카드 높이 정보는 AppSettings.ui_state["detail_chart_layout_state"]["ai_status_splitter_sizes"]에 저장된다.
+- 이 구조는 AI 판단/ETA/점수 계산과 주문/Runtime 적용 경로를 변경하지 않는다.
