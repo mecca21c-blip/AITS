@@ -208,3 +208,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 현재 단계에서는 preview-only이며 Runtime, DecisionRouter, OrderAdapter, ExecutionBridge, 실제 주문 경로에는 적용하지 않는다.
 
 전역 정책보다 개별 종목 정책이 우선될 수 있으나, 실제 적용은 별도 Sprint에서 진행한다.
+
+---
+
+## 13. 정책 Preview 연계
+
+- 전역 정책과 종목별 정책은 Runtime, Reasoning, Shadow Preview에 read-only로 표시된다.
+- 이 단계에서는 실제 Runtime, DecisionRouter, OrderAdapter, ExecutionBridge, 주문 판단에는 적용하지 않는다.
+- 종목별 정책이 "전역 정책 따름"이면 전역 정책을 effective policy로 표시한다.
+- 종목별 정책이 지정되면 override로 표시한다.
+- 모든 표시는 `preview_only=True` 원칙을 유지한다.

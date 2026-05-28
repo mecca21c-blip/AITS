@@ -1717,11 +1717,12 @@ class AITSLargeChartDialog(QDialog):
             max_weight = int(snapshot.get("max_weight_pct", 0) or 0)
             max_weight_text = "전역" if max_weight <= 0 else f"{max_weight}%"
             autonomy = int(snapshot.get("autonomy_level", 50) or 50)
+            style = str(snapshot.get("policy_style", "전역 정책 따름") or "전역 정책 따름")
+            style_text = "전역 정책 따름" if style == "전역 정책 따름" else f"{style} override"
             self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
             self.lbl_asset_policy_summary.setText(
-                "종목 정책: "
-                f"{snapshot.get('policy_style', '전역 정책 따름')} · "
-                f"AI 자율도 {autonomy} · 최대비중 {max_weight_text}"
+                f"종목 정책: {style_text} · "
+                f"AI 자율도 {autonomy} · 최대비중 {max_weight_text} · preview only"
             )
         except Exception:
             pass
@@ -13037,6 +13038,17 @@ class MainWindow(QMainWindow):
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
 
+        self.lbl_policy_preview = QLabel("정책 Preview: 전역 정책 기준")
+        self.lbl_policy_preview.setObjectName("aitsPolicyPreview")
+        self.lbl_policy_preview.setToolTip(
+            "AI 정책 preview 상태를 표시합니다.\n"
+            "현재 preview only이며 Runtime/Router/Order에는 적용되지 않습니다."
+        )
+        try:
+            self.lbl_policy_preview.setWordWrap(True)
+        except Exception:
+            pass
+
         self.lbl_ai_reasoning_preview = QLabel(
             "AI 판단 준비 상태\n"
             "입력 연결: 0/5\n"
@@ -13070,6 +13082,7 @@ class MainWindow(QMainWindow):
         self.runtime_panel_layout.addWidget(self.lbl_runtime_input_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_safety_summary)
         self.runtime_panel_layout.addWidget(self.lbl_runtime_decision_gate_summary)
+        self.runtime_panel_layout.addWidget(self.lbl_policy_preview)
         self.runtime_panel_layout.addWidget(self.lbl_ai_reasoning_preview)
         self.runtime_panel_layout.addWidget(self.lbl_shadow_decision_preview)
         return self.runtime_panel_container
@@ -13105,6 +13118,7 @@ class MainWindow(QMainWindow):
             getattr(self, "lbl_runtime_input_summary", None),
             getattr(self, "lbl_runtime_safety_summary", None),
             getattr(self, "lbl_runtime_decision_gate_summary", None),
+            getattr(self, "lbl_policy_preview", None),
             getattr(self, "lbl_ai_reasoning_preview", None),
             getattr(self, "lbl_shadow_decision_preview", None),
         ):
@@ -13392,6 +13406,17 @@ class MainWindow(QMainWindow):
                     pass
                 try:
                     decision_gate.setProperty("runtimeState", "blocked")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            policy_preview = getattr(self, "lbl_policy_preview", None)
+            if policy_preview is not None and hasattr(policy_preview, "setText"):
+                snapshot = self._build_effective_policy_preview_snapshot()
+                policy_preview.setText(self._format_policy_preview_text(snapshot))
+                try:
+                    policy_preview.setToolTip(self._build_runtime_preview_tooltip_text())
                 except Exception:
                     pass
         except Exception:
@@ -13792,6 +13817,141 @@ class MainWindow(QMainWindow):
                 "applied_to_order": False,
             }
 
+    def _get_asset_policy_preview_snapshot(self, symbol=None):
+        """Read a saved asset policy snapshot only; never save or apply it."""
+        symbol = str(symbol or getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+        fallback = {
+            "schema": "aits_asset_policy_snapshot.v1",
+            "symbol": symbol,
+            "policy_style": "전역 정책 따름",
+            "autonomy_level": 50,
+            "max_weight_pct": 0,
+            "preview_only": True,
+            "applied_to_runtime": False,
+            "applied_to_order": False,
+        }
+        try:
+            if not symbol:
+                return fallback
+            settings = load_settings()
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            snapshots = ui_state.get("asset_policy_snapshots", {})
+            if not isinstance(snapshots, dict):
+                return fallback
+            snapshot = snapshots.get(symbol)
+            if not isinstance(snapshot, dict):
+                return fallback
+            result = dict(fallback)
+            result.update(
+                {
+                    "schema": "aits_asset_policy_snapshot.v1",
+                    "symbol": symbol,
+                    "policy_style": str(snapshot.get("policy_style") or "전역 정책 따름"),
+                    "autonomy_level": int(snapshot.get("autonomy_level") or 50),
+                    "max_weight_pct": int(snapshot.get("max_weight_pct") or 0),
+                    "preview_only": True,
+                    "applied_to_runtime": False,
+                    "applied_to_order": False,
+                }
+            )
+            return result
+        except Exception:
+            return fallback
+
+    def _build_effective_policy_preview_snapshot(self, symbol=None):
+        """Merge global and asset policies as read-only preview data."""
+        try:
+            symbol = str(symbol or getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            global_policy = self._build_ai_policy_snapshot()
+            if not isinstance(global_policy, dict):
+                global_policy = {}
+            asset_policy = self._get_asset_policy_preview_snapshot(symbol)
+            if not isinstance(asset_policy, dict):
+                asset_policy = {}
+            global_style = str(global_policy.get("policy_style") or "균형형")
+            asset_style = str(asset_policy.get("policy_style") or "전역 정책 따름")
+            effective_style = global_style if asset_style == "전역 정책 따름" else asset_style
+            max_weight = int(asset_policy.get("max_weight_pct") or 0)
+            asset_override_active = bool(asset_style != "전역 정책 따름" or max_weight > 0)
+            return {
+                "schema": "aits_effective_policy_preview.v1",
+                "symbol": symbol,
+                "global_policy_style": global_style,
+                "asset_policy_style": asset_style,
+                "effective_policy_style": effective_style,
+                "risk_level": int(global_policy.get("risk_level") or 50),
+                "wait_preference": int(global_policy.get("wait_preference") or 50),
+                "autonomy_level": int(asset_policy.get("autonomy_level") or global_policy.get("autonomy_level") or 50),
+                "max_weight_pct": max_weight,
+                "asset_override_active": asset_override_active,
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_router": False,
+                "applied_to_order": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_effective_policy_preview.v1",
+                "symbol": str(symbol or "").strip() if symbol is not None else "",
+                "global_policy_style": "균형형",
+                "asset_policy_style": "전역 정책 따름",
+                "effective_policy_style": "균형형",
+                "risk_level": 50,
+                "wait_preference": 50,
+                "autonomy_level": 50,
+                "max_weight_pct": 0,
+                "asset_override_active": False,
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_router": False,
+                "applied_to_order": False,
+            }
+
+    def _format_policy_preview_text(self, snapshot):
+        """Format read-only policy preview text without implying application."""
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        try:
+            style = str(snapshot.get("effective_policy_style") or "균형형")
+            asset_style = str(snapshot.get("asset_policy_style") or "전역 정책 따름")
+            symbol = str(snapshot.get("symbol") or "").strip()
+            risk = int(snapshot.get("risk_level") or 50)
+            wait = int(snapshot.get("wait_preference") or 50)
+            autonomy = int(snapshot.get("autonomy_level") or 50)
+            max_weight = int(snapshot.get("max_weight_pct") or 0)
+            override = bool(snapshot.get("asset_override_active"))
+            if override and asset_style != "전역 정책 따름":
+                symbol_text = symbol.replace("KRW-", "") if symbol else "종목"
+                weight_text = f" · 최대비중 {max_weight}%" if max_weight > 0 else ""
+                return f"정책 Preview: {symbol_text} {asset_style} override{weight_text} · preview only"
+            if asset_style == "전역 정책 따름":
+                return (
+                    f"정책 Preview: {style} · 리스크 {risk} · "
+                    f"관망 {wait} · 자율도 {autonomy}"
+                )
+            return f"정책 Preview: {style} 참고 예정 · preview only"
+        except Exception:
+            return "정책 Preview: 전역 정책 기준"
+
+    def _format_policy_hint_text(self, snapshot=None):
+        """Format a short policy hint for preview labels."""
+        if not isinstance(snapshot, dict):
+            snapshot = self._build_effective_policy_preview_snapshot()
+        try:
+            style = str(snapshot.get("effective_policy_style") or "균형형")
+            asset_style = str(snapshot.get("asset_policy_style") or "전역 정책 따름")
+            symbol = str(snapshot.get("symbol") or "").strip().replace("KRW-", "")
+            if bool(snapshot.get("asset_override_active")) and asset_style != "전역 정책 따름":
+                target = symbol or "종목"
+                return f"정책 힌트: {target} {asset_style} override 참고 예정"
+            return f"정책 힌트: {style} 기준으로 판단 준비"
+        except Exception:
+            return "정책 힌트: 전역 정책 기준으로 판단 준비"
+
     def _save_ai_policy_snapshot(self):
         """Persist the UI-only AI policy snapshot in existing prefs ui_state."""
         try:
@@ -13962,9 +14122,11 @@ class MainWindow(QMainWindow):
                 "",
             )
             submitted = int(router.get("submitted") or 0)
-            policy = self._build_ai_policy_snapshot()
+            policy = self._build_effective_policy_preview_snapshot()
             if not isinstance(policy, dict):
                 policy = {}
+            asset_policy = str(policy.get("asset_policy_style") or "전역 정책 따름")
+            effective_policy = str(policy.get("effective_policy_style") or "균형형")
 
             return (
                 "[1] 현재 AI 상태\n"
@@ -13976,12 +14138,10 @@ class MainWindow(QMainWindow):
                 "[3] Preview\n"
                 f"- Reasoning: {reasoning_text} | Shadow: {shadow_text}\n"
                 f"- Router: {router_text} | 실행: preview only / submitted={submitted}\n"
-                "AI 정책\n"
-                f"- 스타일: {policy.get('policy_style') or '균형형'} | "
-                f"리스크: {int(policy.get('risk_level') or 50)} | "
-                f"관망: {int(policy.get('wait_preference') or 50)} | "
-                f"자율도: {int(policy.get('autonomy_level') or 50)} | "
-                "preview_only=True\n"
+                "정책 Preview\n"
+                f"- 전역: {policy.get('global_policy_style') or '균형형'} | "
+                f"종목: {asset_policy}\n"
+                f"- 유효 정책: {effective_policy} | 적용: preview only\n"
                 "AITS는 운용 철학 기반 AI Runtime 시스템입니다."
             )
         except Exception:
@@ -14221,35 +14381,31 @@ class MainWindow(QMainWindow):
         if not isinstance(snapshot, dict):
             snapshot = {}
         candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
-        router_text = self._format_router_preview_humanized_text(
-            self._get_router_preview_snapshot()
-        )
-        return f"Shadow Preview: {candidate_text}\n{router_text}"
+        policy_hint = self._format_policy_hint_text()
+        return f"Shadow Preview: {candidate_text}\n{policy_hint}"
 
     def _build_runtime_preview_compact_text(self):
         """Build a two-line runtime preview summary from existing preview snapshots."""
         try:
             reasoning = self._build_ai_reasoning_preview_snapshot()
             shadow = self._build_shadow_decision_preview_snapshot()
+            policy = self._build_effective_policy_preview_snapshot()
             if not isinstance(reasoning, dict):
                 reasoning = {}
             if not isinstance(shadow, dict):
                 shadow = {}
             input_count = int(reasoning.get("input_count") or 0)
-            candidate_text = str(shadow.get("candidate_text") or "판단 대기")
-            router_text = self._format_router_preview_humanized_text(
-                self._get_router_preview_snapshot()
-            )
+            policy_hint = self._format_policy_hint_text(policy)
             if input_count <= 0:
-                return f"입력 데이터 대기 중\n{router_text}"
+                return f"입력 데이터 대기 중\n{policy_hint}"
             if input_count >= 4:
                 return (
                     "검토 준비 상태\n"
-                    f"입력 연결: {input_count}/5 · {router_text}"
+                    f"입력 연결: {input_count}/5 · {policy_hint}"
                 )
             return (
                 "AI 판단 준비 중\n"
-                f"입력 연결: {input_count}/5 · {router_text}"
+                f"입력 연결: {input_count}/5 · {policy_hint}"
             )
         except Exception:
             return "입력 데이터 대기 중\n시장/포트폴리오 데이터 준비 필요"
@@ -35394,6 +35550,11 @@ QLabel#aitsRuntimeSafetySummary[runtimeState="safe_blocked"] {
 QLabel#aitsRuntimeDecisionGateSummary[runtimeState="blocked"] {
     color: #7f1d1d;
     font-size: 11px;
+}
+
+QLabel#aitsPolicyPreview {
+    font-size: 11px;
+    color: #94a3b8;
 }
 
 QLabel#aitsAiReasoningPreview {
