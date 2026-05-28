@@ -229,3 +229,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - slider 또는 정책 combo를 직접 변경하면 preset 상태는 "사용자 커스텀"으로 전환된다.
 - 전역 preset과 종목별 preset은 독립적으로 존재할 수 있다.
 - 종목별 preset도 현재는 preview-only이며 실제 Runtime/Router/Order 판단에는 적용하지 않는다.
+
+---
+
+## 15. Detail Chart Information Architecture
+
+- 상세차트는 `차트 확인 → AI 현황 이해 → 필요 시 운용 조정` 흐름으로 구성한다.
+- AI 판단, 판단 근거, 다음 행동, 시나리오, ETA는 "현재 AI 상태" 영역에 배치한다.
+- 핵심 수치는 현재가, 목표가, 리스크 기준을 compact row로 표시해 우측 패널 과밀을 줄인다.
+- 운용 프로필은 "사용자의 선택적 개입" 영역으로 분리한다.
+- 운용 조정 영역은 접기/펼치기를 지원해 작은 화면에서 차트와 AI 현황을 우선 표시한다.
+- 운용 조정 값은 preview-only 정책 시스템이며 Runtime, Router, Order에는 직접 적용하지 않는다.
