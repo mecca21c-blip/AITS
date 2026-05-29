@@ -1583,6 +1583,66 @@ class AITSLargeChartDialog(QDialog):
         lay.addWidget(title, 0)
         return card
 
+    def _make_ai_briefing_center_card(self):
+        card = QFrame(self)
+        card.setObjectName("aitsAiBriefingCenter")
+        try:
+            card.setStyleSheet(
+                "QFrame#aitsAiBriefingCenter {"
+                "background:#f8fafc; border:1px solid #cbd5e1; border-radius:14px;"
+                "}"
+            )
+        except Exception:
+            pass
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(7)
+        self.lbl_ai_briefing_title = QLabel("AI 브리핑 센터")
+        self.lbl_ai_briefing_summary = QLabel(
+            "현재 AI가 보고 있는 시장 상황과\n운용 방향을 요약합니다."
+        )
+        self.lbl_ai_briefing_keypoints = QLabel("관찰 포인트\n• 거래량 변화\n• 시장 강도\n• 방향성 확인")
+        self.lbl_ai_intent_placeholder = QLabel("현재 목표: 준비 중\n현재 관찰 포인트: 준비 중")
+        self.lbl_ai_review_learning_placeholder = QLabel("최근 복기: 준비 중\n정책 변화: 준비 중")
+        for lb in (
+            self.lbl_ai_briefing_title,
+            self.lbl_ai_briefing_summary,
+            self.lbl_ai_briefing_keypoints,
+            self.lbl_ai_intent_placeholder,
+            self.lbl_ai_review_learning_placeholder,
+        ):
+            try:
+                lb.setTextFormat(Qt.TextFormat.PlainText)
+                lb.setWordWrap(True)
+            except Exception:
+                pass
+        try:
+            self.lbl_ai_briefing_title.setStyleSheet("font-size:15px; font-weight:900; color:#111827;")
+            self.lbl_ai_briefing_summary.setStyleSheet("font-size:13px; font-weight:800; color:#334155; line-height:145%;")
+            self.lbl_ai_briefing_keypoints.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:145%;")
+            self.lbl_ai_intent_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#64748b;")
+            self.lbl_ai_review_learning_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#94a3b8;")
+        except Exception:
+            pass
+        try:
+            self.lbl_ai_briefing_title.setText("AI 브리핑 센터")
+            self.lbl_ai_briefing_summary.setText(
+                "현재 AI가 보고 있는 시장 상황과\n운용 방향을 요약합니다."
+            )
+            self.lbl_ai_briefing_keypoints.setText(
+                "관찰 포인트\n• 거래량 변화\n• 시장 강도\n• 방향성 확인"
+            )
+            self.lbl_ai_intent_placeholder.setText("현재 목표: 준비 중\n현재 관찰 포인트: 준비 중")
+            self.lbl_ai_review_learning_placeholder.setText("최근 복기: 준비 중\n정책 변화: 준비 중")
+        except Exception:
+            pass
+        lay.addWidget(self.lbl_ai_briefing_title)
+        lay.addWidget(self.lbl_ai_briefing_summary)
+        lay.addWidget(self.lbl_ai_briefing_keypoints)
+        lay.addWidget(self.lbl_ai_intent_placeholder)
+        lay.addWidget(self.lbl_ai_review_learning_placeholder)
+        return card
+
     def _make_detail_popup_value_label(self):
         lb = QLabel("—")
         try:
@@ -2463,8 +2523,8 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_scenario_type = QLabel("sideways_wait")
         self.lbl_detail_popup_scenario_confidence = QLabel("신뢰도 55%")
         self.lbl_detail_popup_scenario_context = QLabel("진입 전 관찰 시나리오")
-        self.lbl_detail_popup_eta_title = QLabel("AI ETA")
-        self.lbl_detail_popup_eta_main = QLabel("관찰 유지 · -")
+        self.lbl_detail_popup_eta_title = QLabel("유지 예상")
+        self.lbl_detail_popup_eta_main = QLabel("유지 예상 · -")
         self.lbl_detail_popup_eta_sub = QLabel("방향성 확인 전 진입 대기")
         self.lbl_detail_popup_eta_meta = QLabel("리스크 — / 목표 —")
         self.lbl_detail_popup_eta_hint = QLabel("시장 변화 시 ETA는 자동 조정될 수 있습니다.")
@@ -2577,6 +2637,8 @@ class AITSLargeChartDialog(QDialog):
         status_lay.addWidget(self.lbl_detail_popup_core_metrics_compact)
         status_lay.addStretch(1)
 
+        self.ai_briefing_center_container = self._make_ai_briefing_center_card()
+
         scenario_lay = self._frm_detail_popup_scenario_card.layout()
         scenario_lay.addWidget(self.lbl_detail_popup_scenario_title)
         scenario_lay.addWidget(self.lbl_detail_popup_scenario_type)
@@ -2604,6 +2666,7 @@ class AITSLargeChartDialog(QDialog):
         status_header = QLabel("AI 현황")
         status_header.setStyleSheet("font-size:14px; font-weight:900; color:#111827;")
         status_container_lay.addWidget(status_header)
+        status_container_lay.addWidget(self.ai_briefing_center_container, 0)
         self.detail_ai_status_vertical_splitter = QSplitter(Qt.Orientation.Vertical, self.asset_ai_status_container)
         self.detail_ai_status_vertical_splitter.setObjectName("aitsDetailAIStatusVerticalSplitter")
         try:
@@ -2859,6 +2922,14 @@ class AITSLargeChartDialog(QDialog):
                 str(narrative.get("narrative_plan") or "—")
             )
 
+            briefing = self._build_ai_briefing_snapshot(
+                decision_text=decision_text,
+                state_text=state_text,
+                reason_lines=reason_lines,
+                scenario_type=getattr(self, "_detail_popup_scenario_type", "sideways_wait"),
+            )
+            self._sync_ai_briefing_center(briefing)
+
             if decision_color == "#15803d":
                 badge_bg, badge_border, status_bg = "#ecfdf5", "#86efac", "#f3fcf6"
             elif decision_color == "#b91c1c":
@@ -2960,6 +3031,7 @@ class AITSLargeChartDialog(QDialog):
             return "횡보 시나리오: 방향성 확인 전까지 현재 구간이 유지될 수 있습니다."
 
     def _format_reasoning_narrative_eta(self, seconds=0, base_text=""):
+        return "현재 운용 시나리오 유지 예상 구간입니다. 시장 변화 시 조정될 수 있습니다."
         try:
             eta = self._format_detail_popup_eta(int(seconds or 0))
             if eta and eta != "-":
@@ -3006,6 +3078,86 @@ class AITSLargeChartDialog(QDialog):
                 "runtime_applied": False,
                 "order_applied": False,
             }
+
+    def _build_ai_briefing_snapshot(
+        self,
+        decision_text="",
+        state_text="",
+        reason_lines=None,
+        scenario_type=None,
+    ):
+        try:
+            raw = f"{decision_text} {state_text}".upper()
+            if "BUY" in raw or "공격" in str(decision_text):
+                summary_title = "시장 강도 확인 중"
+                summary_text = "거래대금은 유지되고 있으나 추세 강도는 추가 확인이 필요합니다."
+                briefing_state = "strength_check"
+            elif "SELL" in raw or "RISK" in raw or "위험" in str(state_text):
+                summary_title = "방어적 관찰"
+                summary_text = "변동성 확대 가능성이 있어 방어적인 관찰이 우선입니다."
+                briefing_state = "risk_watch"
+            elif "STAY" in raw or "WATCH" in raw or "HOLD" in raw:
+                summary_title = "관찰 유지"
+                summary_text = "시장 방향성이 아직 충분히 확인되지 않아 현재는 관찰 유지가 우선인 구간입니다."
+                briefing_state = "observe"
+            else:
+                summary_title = "방향성 확인 중"
+                summary_text = "시장 강도와 방향성을 함께 확인하는 구간입니다."
+                briefing_state = "checking"
+
+            keypoints = []
+            for item in reason_lines or []:
+                point = self._strip_detail_popup_narrative_item(item)
+                if point:
+                    keypoints.append(point)
+                if len(keypoints) >= 3:
+                    break
+            if not keypoints:
+                keypoints = ["거래량 변화", "시장 강도", "방향성 확인"]
+
+            return {
+                "schema": "aits_ai_briefing.v1",
+                "summary_title": summary_title,
+                "summary_text": summary_text,
+                "briefing_state": briefing_state,
+                "keypoints": keypoints[:3],
+                "scenario_type": str(scenario_type or ""),
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_ai_briefing.v1",
+                "summary_title": "방향성 확인 중",
+                "summary_text": "현재 시장 상태를 안전하게 요약하지 못했습니다.",
+                "briefing_state": "checking",
+                "keypoints": ["거래량 변화", "시장 강도", "방향성 확인"],
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+
+    def _sync_ai_briefing_center(self, snapshot=None):
+        try:
+            data = snapshot or self._build_ai_briefing_snapshot()
+            title = str(data.get("summary_title") or "방향성 확인 중")
+            text = str(data.get("summary_text") or "시장 상태를 확인하는 구간입니다.")
+            points = [
+                str(v).strip()
+                for v in (data.get("keypoints") or [])
+                if str(v).strip()
+            ][:3]
+            if not points:
+                points = ["거래량 변화", "시장 강도", "방향성 확인"]
+            self.lbl_ai_briefing_summary.setText(f"{title}\n{text}")
+            self.lbl_ai_briefing_keypoints.setText(
+                "관찰 포인트\n" + "\n".join(f"• {point}" for point in points)
+            )
+            self.lbl_ai_intent_placeholder.setText("현재 목표: 준비 중\n현재 관찰 포인트: 준비 중")
+            self.lbl_ai_review_learning_placeholder.setText("최근 복기: 준비 중\n정책 변화: 준비 중")
+        except Exception:
+            pass
 
     def _format_detail_popup_bullet_lines(self, text: str, limit: int = 4):
         try:
@@ -3095,7 +3247,7 @@ class AITSLargeChartDialog(QDialog):
             self._detail_popup_eta_remaining_seconds = max(
                 0, int(getattr(self, "_detail_popup_eta_remaining_seconds", 0) or 0) - 1
             )
-            prefix = str(getattr(self, "_detail_popup_eta_prefix", "관찰 유지") or "관찰 유지")
+            prefix = "유지 예상"
             self.lbl_detail_popup_eta_main.setText(
                 f"{prefix} · {self._format_detail_popup_eta(self._detail_popup_eta_remaining_seconds)}"
             )
@@ -3110,7 +3262,7 @@ class AITSLargeChartDialog(QDialog):
             seconds = max(0, int(ctx.get("seconds") or 0))
             self._detail_popup_eta_remaining_seconds = seconds
             self._detail_popup_eta_state_type = str(ctx.get("state_type") or "review_wait")
-            self._detail_popup_eta_prefix = str(ctx.get("prefix") or "관찰 유지")
+            self._detail_popup_eta_prefix = "유지 예상"
             self.lbl_detail_popup_eta_main.setText(
                 f"{self._detail_popup_eta_prefix} · {self._format_detail_popup_eta(seconds)}"
             )
@@ -16020,9 +16172,9 @@ class MainWindow(QMainWindow):
             duration = self._format_ai_eta_text(minutes)
             if duration == "-":
                 duration = "장기 관찰"
-            return f"{action} · {duration}"
+            return f"유지 예상 · {duration}"
         except Exception:
-            return "관찰 유지 · 장기 관찰"
+            return "유지 예상 · 장기 관찰"
 
     def _format_ai_eta_text(self, value) -> str:
         try:
