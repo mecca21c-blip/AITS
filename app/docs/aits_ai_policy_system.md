@@ -285,3 +285,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - 긴 판단 근거와 시나리오 설명은 word wrap과 텍스트 선택을 허용해 잘림 위험을 줄인다.
 - AI 현황 카드 높이 정보는 AppSettings.ui_state["detail_chart_layout_state"]["ai_status_splitter_sizes"]에 저장된다.
 - 이 구조는 AI 판단/ETA/점수 계산과 주문/Runtime 적용 경로를 변경하지 않는다.
+
+---
+
+## 20. AI Reasoning Narrative Layer
+
+- AITS는 AI의 판단 근거를 사람이 이해 가능한 문장으로 설명한다.
+- Narrative Layer는 Runtime, Router, Order, apply 경로에 영향을 주지 않는다.
+- Narrative는 AI 상태 설명용 브리핑 계층이며 preview-only 원칙을 유지한다.
+- 판단 근거, 다음 행동, 시나리오, ETA는 불릿 나열보다 자연어 설명을 우선한다.
+- 사용자는 AI가 무엇을 관찰하고 왜 기다리는지 이해할 수 있어야 한다.

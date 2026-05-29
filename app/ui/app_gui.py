@@ -2490,11 +2490,15 @@ class AITSLargeChartDialog(QDialog):
         for lb in (self.lbl_detail_popup_reason_text, self.lbl_detail_popup_next_text):
             lb.setWordWrap(True)
             try:
+                lb.setObjectName("aitsNarrativeLabel")
+            except Exception:
+                pass
+            try:
                 lb.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             except Exception:
                 pass
             lb.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-            lb.setStyleSheet("font-size:12px; font-weight:600; color:#111827; line-height:140%;")
+            lb.setStyleSheet("font-size:12px; font-weight:600; color:#111827; line-height:150%;")
         self.lbl_detail_popup_scenario_title.setWordWrap(True)
         self.lbl_detail_popup_scenario_title.setStyleSheet(
             "font-size:18px; font-weight:900; color:#111827;"
@@ -2507,6 +2511,10 @@ class AITSLargeChartDialog(QDialog):
             "border:1px solid #d9dde3; border-radius:10px; padding:4px 8px;"
         )
         self.lbl_detail_popup_scenario_context.setWordWrap(True)
+        try:
+            self.lbl_detail_popup_scenario_context.setObjectName("aitsNarrativeLabel")
+        except Exception:
+            pass
         try:
             self.lbl_detail_popup_scenario_context.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         except Exception:
@@ -2521,6 +2529,10 @@ class AITSLargeChartDialog(QDialog):
             "font-size:20px; font-weight:900; color:#111827;"
         )
         self.lbl_detail_popup_eta_sub.setWordWrap(True)
+        try:
+            self.lbl_detail_popup_eta_sub.setObjectName("aitsNarrativeLabel")
+        except Exception:
+            pass
         try:
             self.lbl_detail_popup_eta_sub.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         except Exception:
@@ -2829,6 +2841,23 @@ class AITSLargeChartDialog(QDialog):
                 )
             self.lbl_detail_popup_reason_text.setText("\n".join(reason_lines[:4]) or "—")
             self.lbl_detail_popup_next_text.setText("\n".join(next_lines[:2]) or "—")
+            narrative = self._build_ai_reasoning_narrative_snapshot(
+                decision_text=decision_text,
+                state_text=state_text,
+                reason_lines=reason_lines,
+                plan_lines=next_lines,
+                scenario_type=getattr(self, "_detail_popup_scenario_type", "sideways_wait"),
+                eta_seconds=getattr(self, "_detail_popup_eta_remaining_seconds", 0),
+            )
+            self.lbl_detail_popup_decision_sub.setText(
+                str(narrative.get("narrative_status") or state_text or "—")
+            )
+            self.lbl_detail_popup_reason_text.setText(
+                str(narrative.get("narrative_reason") or "—")
+            )
+            self.lbl_detail_popup_next_text.setText(
+                str(narrative.get("narrative_plan") or "—")
+            )
 
             if decision_color == "#15803d":
                 badge_bg, badge_border, status_bg = "#ecfdf5", "#86efac", "#f3fcf6"
@@ -2851,6 +2880,134 @@ class AITSLargeChartDialog(QDialog):
             )
         except Exception:
             pass
+
+    def _strip_detail_popup_narrative_item(self, text):
+        try:
+            item = str(text or "").strip()
+            item = item.lstrip("-•·*쨌").strip()
+            if ":" in item and len(item.split(":", 1)[0]) <= 14:
+                item = item.split(":", 1)[-1].strip()
+            return item
+        except Exception:
+            return ""
+
+    def _format_reasoning_narrative_status(self, decision_text="", state_text=""):
+        try:
+            raw = f"{decision_text} {state_text}".upper()
+            if "BUY" in raw or "공격" in str(decision_text):
+                return "거래대금과 추세 조건이 일부 충족되어 AI는 진입 가능성을 관찰하고 있습니다."
+            if "SELL" in raw or "RISK" in raw or "위험" in str(state_text):
+                return "변동성 위험이 커져 AI는 방어적인 관찰을 우선하고 있습니다."
+            if "STAY" in raw or "WATCH" in raw or "HOLD" in raw:
+                return "현재 시장 흐름은 확인 중이며 AI는 추가 신호를 기다리고 있습니다."
+            return "현재 시장 방향성이 충분히 확인되지 않아 AI는 관망을 우선합니다."
+        except Exception:
+            return "AI는 현재 조건을 관찰하며 다음 판단을 준비하고 있습니다."
+
+    def _format_reasoning_narrative_reason(self, reason_lines=None, decision_text=""):
+        try:
+            items = [
+                self._strip_detail_popup_narrative_item(v)
+                for v in (reason_lines or [])
+                if self._strip_detail_popup_narrative_item(v)
+            ]
+            joined = " ".join(items)
+            if not items:
+                return "아직 충분한 판단 근거가 누적되지 않아 AI는 시장 흐름을 추가로 확인하고 있습니다."
+            if len(items) == 1:
+                return f"{items[0]} 조건을 중심으로 현재 상태를 점검하고 있습니다."
+            if any("약세" in item or "하락" in item for item in items):
+                return f"{items[0]} 조건은 확인되었지만, {items[1]} 흐름이 남아 있어 AI는 신중한 관찰을 유지합니다."
+            if any("거래" in item or "대금" in item or "volume" in item.lower() for item in items):
+                return "시장 참여는 확인되고 있으나, 추세 강도와 방향성은 추가 확인이 필요합니다."
+            return f"{items[0]} 흐름과 {items[1]} 조건을 함께 보며 AI는 현재 판단의 신뢰도를 점검하고 있습니다."
+        except Exception:
+            return "AI는 현재 입력된 시장 조건을 바탕으로 판단 근거를 정리하고 있습니다."
+
+    def _format_reasoning_narrative_plan(self, plan_lines=None, decision_text=""):
+        try:
+            items = [
+                self._strip_detail_popup_narrative_item(v)
+                for v in (plan_lines or [])
+                if self._strip_detail_popup_narrative_item(v)
+            ]
+            raw = " ".join(items + [str(decision_text or "")]).upper()
+            if "BUY" in raw:
+                return "AI는 추가 거래량과 방향성을 확인한 뒤 진입 가능성을 다시 점검합니다."
+            if "SELL" in raw or "RISK" in raw:
+                return "AI는 변동성 확대 여부를 관찰하며 방어적 대응 필요성을 재평가합니다."
+            if items:
+                return f"{items[0]} 흐름을 이어 보며 조건 변화가 생기면 다음 판단을 재평가합니다."
+            return "AI는 현재 조건 변화를 지속적으로 관찰하고 있습니다."
+        except Exception:
+            return "AI는 추가 신호가 확인될 때까지 현재 상황을 관찰합니다."
+
+    def _format_reasoning_narrative_scenario(self, scenario_type="", base_text=""):
+        try:
+            scenario_type = str(scenario_type or "sideways_wait").strip()
+            prefix = str(base_text or "").strip()
+            if scenario_type in ("bullish_breakout", "accumulation_ready", "weak_rebound"):
+                body = "거래량 증가와 함께 추세 강도가 개선될 경우 긍정적 흐름을 다시 검토할 수 있습니다."
+                title = "상승 시나리오"
+            elif scenario_type in ("bearish_drift", "sharp_drop_risk"):
+                body = "시장 참여 감소나 변동성 확대가 이어질 경우 관망 비중이 높아질 수 있습니다."
+                title = "하락 시나리오"
+            else:
+                body = "현재 구간에서는 방향성 확인이 우선이며, AI는 신호가 선명해질 때까지 관찰합니다."
+                title = "횡보 시나리오"
+            if prefix:
+                return f"{title}: {body}\n참고 흐름: {prefix}"
+            return f"{title}: {body}"
+        except Exception:
+            return "횡보 시나리오: 현재 구간에서는 방향성 확인이 우선입니다."
+
+    def _format_reasoning_narrative_eta(self, seconds=0, base_text=""):
+        try:
+            eta = self._format_detail_popup_eta(int(seconds or 0))
+            if eta and eta != "-":
+                return f"AI는 약 {eta} 주기로 현재 상황을 다시 검토합니다."
+            base = str(base_text or "").strip()
+            return base or "다음 주요 평가 시점까지 시장 변화를 관찰합니다."
+        except Exception:
+            return "AI는 다음 평가 시점까지 현재 상황을 관찰합니다."
+
+    def _build_ai_reasoning_narrative_snapshot(
+        self,
+        decision_text="",
+        state_text="",
+        reason_lines=None,
+        plan_lines=None,
+        scenario_type=None,
+        eta_seconds=None,
+    ):
+        try:
+            return {
+                "schema": "aits_reasoning_narrative.v1",
+                "narrative_status": self._format_reasoning_narrative_status(decision_text, state_text),
+                "narrative_reason": self._format_reasoning_narrative_reason(reason_lines, decision_text),
+                "narrative_plan": self._format_reasoning_narrative_plan(plan_lines, decision_text),
+                "narrative_scenario": self._format_reasoning_narrative_scenario(
+                    scenario_type or getattr(self, "_detail_popup_scenario_type", "sideways_wait"),
+                    "",
+                ),
+                "narrative_eta": self._format_reasoning_narrative_eta(
+                    eta_seconds if eta_seconds is not None else getattr(self, "_detail_popup_eta_remaining_seconds", 0),
+                    "",
+                ),
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_reasoning_narrative.v1",
+                "narrative_status": "AI는 현재 조건을 관찰하며 다음 판단을 준비하고 있습니다.",
+                "narrative_reason": "판단 근거를 안전하게 구성하지 못했습니다.",
+                "narrative_plan": "추가 신호가 확인될 때까지 관찰합니다.",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
 
     def _format_detail_popup_bullet_lines(self, text: str, limit: int = 4):
         try:
@@ -2961,6 +3118,9 @@ class AITSLargeChartDialog(QDialog):
             )
             self.lbl_detail_popup_eta_sub.setText(str(ctx.get("sub") or "시장 상황 반영 후 재평가"))
             self.lbl_detail_popup_eta_meta.setText(str(ctx.get("meta") or "리스크 — / 목표 —"))
+            self.lbl_detail_popup_eta_sub.setText(
+                self._format_reasoning_narrative_eta(seconds, str(ctx.get("sub") or ""))
+            )
             self._start_detail_popup_eta_timer()
         except Exception:
             pass
@@ -3085,6 +3245,12 @@ class AITSLargeChartDialog(QDialog):
                 self._translate_detail_popup_scenario_label(scenario_type)
             )
             self.lbl_detail_popup_scenario_type.setText("AI 운용 시나리오")
+            self.lbl_detail_popup_scenario_context.setText(
+                self._format_reasoning_narrative_scenario(
+                    scenario_type,
+                    self.lbl_detail_popup_scenario_context.text(),
+                )
+            )
             self.lbl_detail_popup_scenario_confidence.setText(
                 f"신뢰도 {int(round(confidence * 100.0))}%"
             )
@@ -20363,7 +20529,9 @@ class MainWindow(QMainWindow):
                             base_desc = f"보유 포지션 기준 · {base_desc}"
                         else:
                             base_desc = f"진입 전 관찰 기준 · {base_desc}"
-                        dlg.lbl_detail_popup_scenario_context.setText(base_desc)
+                        dlg.lbl_detail_popup_scenario_context.setText(
+                            dlg._format_reasoning_narrative_scenario(scenario_type, base_desc)
+                        )
                 except Exception:
                     pass
                 try:
