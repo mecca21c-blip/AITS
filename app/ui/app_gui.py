@@ -2428,8 +2428,8 @@ class AITSLargeChartDialog(QDialog):
         sidebar_lay.setSpacing(10)
 
         self._frm_detail_ai_status_card = self._make_detail_sidebar_card("AI 판단")
-        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("판단 근거")
-        self._frm_detail_ai_next_card = self._make_detail_sidebar_card("다음 행동")
+        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("시장 해석")
+        self._frm_detail_ai_next_card = self._make_detail_sidebar_card("운용 계획")
         self._frm_detail_ai_metrics_card = self._make_detail_sidebar_card("핵심 수치")
         self._frm_detail_popup_scenario_card = self._make_detail_sidebar_card("AI 시나리오")
         self._frm_detail_popup_eta_card = self._make_detail_sidebar_card("AI ETA")
@@ -2895,14 +2895,14 @@ class AITSLargeChartDialog(QDialog):
         try:
             raw = f"{decision_text} {state_text}".upper()
             if "BUY" in raw or "공격" in str(decision_text):
-                return "거래대금과 추세 조건이 일부 충족되어 AI는 진입 가능성을 관찰하고 있습니다."
+                return "거래대금과 추세 조건이 일부 충족된 구간입니다. 방향성 확인이 필요합니다."
             if "SELL" in raw or "RISK" in raw or "위험" in str(state_text):
-                return "변동성 위험이 커져 AI는 방어적인 관찰을 우선하고 있습니다."
+                return "변동성 위험이 커진 구간입니다. 방어적인 관찰이 우선입니다."
             if "STAY" in raw or "WATCH" in raw or "HOLD" in raw:
-                return "현재 시장 흐름은 확인 중이며 AI는 추가 신호를 기다리고 있습니다."
-            return "현재 시장 방향성이 충분히 확인되지 않아 AI는 관망을 우선합니다."
+                return "시장 흐름 확인이 우선인 구간입니다. 추가 신호 확인이 필요합니다."
+            return "시장 방향성이 아직 충분히 확인되지 않았습니다. 관망 우선 구간입니다."
         except Exception:
-            return "AI는 현재 조건을 관찰하며 다음 판단을 준비하고 있습니다."
+            return "현재 조건을 확인하는 구간입니다. 추가 신호가 필요합니다."
 
     def _format_reasoning_narrative_reason(self, reason_lines=None, decision_text=""):
         try:
@@ -2913,16 +2913,16 @@ class AITSLargeChartDialog(QDialog):
             ]
             joined = " ".join(items)
             if not items:
-                return "아직 충분한 판단 근거가 누적되지 않아 AI는 시장 흐름을 추가로 확인하고 있습니다."
+                return "판단 근거가 아직 충분하지 않습니다. 시장 흐름 확인이 필요합니다."
             if len(items) == 1:
-                return f"{items[0]} 조건을 중심으로 현재 상태를 점검하고 있습니다."
+                return f"{items[0]} 조건을 중심으로 현재 상태를 점검합니다."
             if any("약세" in item or "하락" in item for item in items):
-                return f"{items[0]} 조건은 확인되었지만, {items[1]} 흐름이 남아 있어 AI는 신중한 관찰을 유지합니다."
+                return f"{items[0]} 조건은 확인됐지만 {items[1]} 흐름이 남아 있습니다. 시장 강도는 제한적입니다."
             if any("거래" in item or "대금" in item or "volume" in item.lower() for item in items):
-                return "시장 참여는 확인되고 있으나, 추세 강도와 방향성은 추가 확인이 필요합니다."
-            return f"{items[0]} 흐름과 {items[1]} 조건을 함께 보며 AI는 현재 판단의 신뢰도를 점검하고 있습니다."
+                return "시장 참여는 유지되고 있으나 방향성은 아직 충분히 확인되지 않았습니다."
+            return f"{items[0]} 흐름과 {items[1]} 조건을 함께 확인 중입니다. 추가 해석이 필요합니다."
         except Exception:
-            return "AI는 현재 입력된 시장 조건을 바탕으로 판단 근거를 정리하고 있습니다."
+            return "현재 입력된 시장 조건을 기준으로 해석을 정리하는 중입니다."
 
     def _format_reasoning_narrative_plan(self, plan_lines=None, decision_text=""):
         try:
@@ -2933,43 +2933,41 @@ class AITSLargeChartDialog(QDialog):
             ]
             raw = " ".join(items + [str(decision_text or "")]).upper()
             if "BUY" in raw:
-                return "AI는 추가 거래량과 방향성을 확인한 뒤 진입 가능성을 다시 점검합니다."
+                return "거래량과 방향성 개선 여부를 우선 점검합니다."
             if "SELL" in raw or "RISK" in raw:
-                return "AI는 변동성 확대 여부를 관찰하며 방어적 대응 필요성을 재평가합니다."
+                return "변동성 확대 여부를 확인하며 방어적 상태를 유지합니다."
             if items:
-                return f"{items[0]} 흐름을 이어 보며 조건 변화가 생기면 다음 판단을 재평가합니다."
-            return "AI는 현재 조건 변화를 지속적으로 관찰하고 있습니다."
+                return f"{items[0]} 흐름을 유지하며 조건 변화를 확인합니다."
+            return "추가 신호 확인 전까지 현재 상태를 유지합니다."
         except Exception:
-            return "AI는 추가 신호가 확인될 때까지 현재 상황을 관찰합니다."
+            return "추가 신호 확인 전까지 현재 상태를 유지합니다."
 
     def _format_reasoning_narrative_scenario(self, scenario_type="", base_text=""):
         try:
             scenario_type = str(scenario_type or "sideways_wait").strip()
             prefix = str(base_text or "").strip()
             if scenario_type in ("bullish_breakout", "accumulation_ready", "weak_rebound"):
-                body = "거래량 증가와 함께 추세 강도가 개선될 경우 긍정적 흐름을 다시 검토할 수 있습니다."
+                body = "거래량 증가 시 긍정적 흐름이 이어질 수 있습니다."
                 title = "상승 시나리오"
             elif scenario_type in ("bearish_drift", "sharp_drop_risk"):
-                body = "시장 참여 감소나 변동성 확대가 이어질 경우 관망 비중이 높아질 수 있습니다."
+                body = "시장 참여 감소 시 관망 가능성이 높아질 수 있습니다."
                 title = "하락 시나리오"
             else:
-                body = "현재 구간에서는 방향성 확인이 우선이며, AI는 신호가 선명해질 때까지 관찰합니다."
+                body = "방향성 확인 전까지 현재 구간이 유지될 수 있습니다."
                 title = "횡보 시나리오"
-            if prefix:
-                return f"{title}: {body}\n참고 흐름: {prefix}"
             return f"{title}: {body}"
         except Exception:
-            return "횡보 시나리오: 현재 구간에서는 방향성 확인이 우선입니다."
+            return "횡보 시나리오: 방향성 확인 전까지 현재 구간이 유지될 수 있습니다."
 
     def _format_reasoning_narrative_eta(self, seconds=0, base_text=""):
         try:
             eta = self._format_detail_popup_eta(int(seconds or 0))
             if eta and eta != "-":
-                return f"AI는 약 {eta} 주기로 현재 상황을 다시 검토합니다."
+                return f"다음 평가까지 약 {eta} 남았습니다."
             base = str(base_text or "").strip()
-            return base or "다음 주요 평가 시점까지 시장 변화를 관찰합니다."
+            return base or "다음 주요 평가까지 시장 변화를 확인합니다."
         except Exception:
-            return "AI는 다음 평가 시점까지 현재 상황을 관찰합니다."
+            return "다음 주요 평가까지 시장 변화를 확인합니다."
 
     def _build_ai_reasoning_narrative_snapshot(
         self,
@@ -3001,9 +2999,9 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return {
                 "schema": "aits_reasoning_narrative.v1",
-                "narrative_status": "AI는 현재 조건을 관찰하며 다음 판단을 준비하고 있습니다.",
-                "narrative_reason": "판단 근거를 안전하게 구성하지 못했습니다.",
-                "narrative_plan": "추가 신호가 확인될 때까지 관찰합니다.",
+                "narrative_status": "현재 조건을 확인하는 구간입니다.",
+                "narrative_reason": "시장 해석을 안전하게 구성하지 못했습니다.",
+                "narrative_plan": "추가 신호 확인 전까지 현재 상태를 유지합니다.",
                 "preview_only": True,
                 "runtime_applied": False,
                 "order_applied": False,
@@ -15109,6 +15107,11 @@ class MainWindow(QMainWindow):
                 shadow = {}
             input_count = int(reasoning.get("input_count") or 0)
             policy_hint = self._format_policy_hint_text(policy)
+            if input_count <= 0:
+                return f"시장 강도 확인 중\n{policy_hint}"
+            if input_count >= 4:
+                return f"검토 준비 · 방향성 확인 중\n입력 연결: {input_count}/5 · {policy_hint}"
+            return f"방향성 대기 · 신호 확인 중\n입력 연결: {input_count}/5 · {policy_hint}"
             if input_count <= 0:
                 return f"입력 데이터 대기 중\n{policy_hint}"
             if input_count >= 4:
