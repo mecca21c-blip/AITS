@@ -3291,6 +3291,150 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
+    def _format_ai_intent_goal(self, decision_text="", state_text="", briefing_state=""):
+        try:
+            raw = f"{decision_text} {state_text} {briefing_state}".upper()
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch" or "RISK" in raw:
+                return "하락 압력 완화 여부 확인"
+            if state == "strength_check" or "BUY" in raw:
+                return "거래대금 회복 후 운용 후보 탐색"
+            if "ROTATE" in raw or "로테이션" in str(state_text):
+                return "로테이션 후보 발생 여부 관찰"
+            if state == "observe" or "STAY" in raw or "WATCH" in raw or "HOLD" in raw:
+                return "추세 전환 가능성 확인"
+            return "시장 강도 회복 여부 확인"
+        except Exception:
+            return "시장 강도 회복 여부 확인"
+
+    def _format_ai_intent_observation(self, reason_lines=None, briefing_state=""):
+        try:
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch":
+                points = ["손실 확대 속도", "지지선 이탈 여부", "거래대금 감소", "시장 동반 약세 여부"]
+            elif state == "strength_check":
+                points = ["거래량 증가 유지", "단기 고점 돌파", "RSI 과열 여부", "시장 동반 강세 여부"]
+            elif state == "rotation_watch":
+                points = ["기존 보유 종목 둔화", "신규 후보 강도", "기회비용 증가", "현금 비중 여유"]
+            else:
+                points = ["거래대금 기준 회복", "RSI 회복 흐름", "단기 추세 전환", "시장 평균 강도 개선"]
+            clean_reason_points = []
+            for item in reason_lines or []:
+                point = self._strip_detail_popup_narrative_item(item)
+                if point and len(point) <= 32:
+                    clean_reason_points.append(point)
+                if len(clean_reason_points) >= 2:
+                    break
+            if clean_reason_points:
+                points = (clean_reason_points + points)[:4]
+            return points[:4]
+        except Exception:
+            return ["거래대금 기준 회복", "RSI 회복 흐름", "단기 추세 전환"]
+
+    def _format_ai_intent_conditions(self, briefing_state="", decision_text=""):
+        try:
+            raw = f"{briefing_state} {decision_text}".upper()
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch" or "RISK" in raw:
+                return "위험 신호가 확대되면 비중 축소 후보로 재평가합니다."
+            if state == "strength_check" or "BUY" in raw:
+                return "조건 충족 시 초기 진입 후보로 재평가합니다."
+            if "ROTATE" in raw or state == "rotation_watch":
+                return "신규 후보 강도가 높아지면 로테이션 후보로 검토합니다."
+            if state == "observe" or "STAY" in raw or "WATCH" in raw:
+                return "조건이 약화되면 관망 유지가 우선입니다."
+            return "조건 충족 시 운용 후보를 다시 검토합니다."
+        except Exception:
+            return "조건 충족 시 운용 후보를 다시 검토합니다."
+
+    def _format_ai_intent_transition(self, briefing_state="", decision_text=""):
+        try:
+            raw = f"{briefing_state} {decision_text}".upper()
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch" or "RISK" in raw:
+                return "비중 축소 후보"
+            if state == "strength_check" or "BUY" in raw:
+                return "진입 후보 재평가"
+            if "ROTATE" in raw or state == "rotation_watch":
+                return "로테이션 후보"
+            if state == "observe" or "STAY" in raw or "WATCH" in raw:
+                return "관망 유지"
+            return "운용 후보 재검토"
+        except Exception:
+            return "운용 후보 재검토"
+
+    def _build_ai_intent_snapshot(
+        self,
+        decision_text="",
+        state_text="",
+        reason_lines=None,
+        briefing_state="",
+    ):
+        try:
+            state = str(briefing_state or "").strip() or "checking"
+            current_goal = self._format_ai_intent_goal(decision_text, state_text, state)
+            observation_points = self._format_ai_intent_observation(reason_lines, state)
+            action_conditions = self._format_ai_intent_conditions(state, decision_text)
+            candidate_transition = self._format_ai_intent_transition(state, decision_text)
+            return {
+                "schema": "aits_ai_intent.v1",
+                "intent_state": state,
+                "intent_title": "운용 의도 공개",
+                "current_goal": current_goal,
+                "observation_points": observation_points,
+                "action_conditions": action_conditions,
+                "candidate_transition": candidate_transition,
+                "intent_type": state,
+                "intent_summary": f"{current_goal} · {candidate_transition}",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_ai_intent.v1",
+                "intent_state": "checking",
+                "intent_title": "운용 의도 공개",
+                "current_goal": "시장 강도 회복 여부 확인",
+                "observation_points": ["거래대금 기준 회복", "RSI 회복 흐름", "단기 추세 전환"],
+                "action_conditions": "조건 충족 시 운용 후보를 다시 검토합니다.",
+                "candidate_transition": "운용 후보 재검토",
+                "intent_type": "checking",
+                "intent_summary": "시장 강도 회복 여부 확인 · 운용 후보 재검토",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+
+    def _sync_ai_intent_labels(self, snapshot=None):
+        try:
+            intent = snapshot or self._build_ai_intent_snapshot()
+            self.lbl_ai_intent_placeholder.setVisible(False)
+            current_goal = str(intent.get("current_goal") or "시장 강도 회복 여부 확인")
+            raw_points = intent.get("observation_points") or []
+            if isinstance(raw_points, str):
+                points = [
+                    line.strip().lstrip("•-").strip()
+                    for line in raw_points.splitlines()
+                    if line.strip()
+                ]
+                points = [p for p in points if "관찰" not in p][:4]
+            else:
+                points = [str(p).strip() for p in raw_points if str(p).strip()][:4]
+            if len(points) < 2:
+                points = ["거래대금 기준 회복", "RSI 회복 흐름", "단기 추세 전환"]
+            action_conditions = str(intent.get("action_conditions") or "조건 충족 시 운용 후보를 다시 검토합니다.")
+            transition = str(intent.get("candidate_transition") or "운용 후보 재검토")
+            self.lbl_ai_intent_goal.setText(f"현재 목표\n{current_goal}")
+            self.lbl_ai_intent_observation.setText(
+                "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:4])
+            )
+            self.lbl_ai_intent_conditions.setText(
+                f"행동 조건\n{action_conditions}\n전환 후보\n{transition}"
+            )
+        except Exception:
+            pass
+
     def _format_detail_popup_bullet_lines(self, text: str, limit: int = 4):
         try:
             lines = []
