@@ -1607,6 +1607,14 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_ai_intent_goal = QLabel("현재 목표\n방향성 확인")
         self.lbl_ai_intent_observation = QLabel("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
         self.lbl_ai_intent_conditions = QLabel("행동 조건\n추가 신호 확인 전까지 관찰 유지")
+        self.lbl_ai_intent_transition = QLabel("전환 후보\n운용 후보 재검토")
+        try:
+            self.lbl_ai_intent_goal.setObjectName("aitsIntentGoalLabel")
+            self.lbl_ai_intent_observation.setObjectName("aitsIntentWatchLabel")
+            self.lbl_ai_intent_conditions.setObjectName("aitsIntentConditionLabel")
+            self.lbl_ai_intent_transition.setObjectName("aitsIntentTransitionLabel")
+        except Exception:
+            pass
         for lb in (
             self.lbl_ai_briefing_title,
             self.lbl_ai_briefing_summary,
@@ -1615,6 +1623,7 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_goal,
             self.lbl_ai_intent_observation,
             self.lbl_ai_intent_conditions,
+            self.lbl_ai_intent_transition,
             self.lbl_ai_review_learning_placeholder,
         ):
             try:
@@ -1630,9 +1639,34 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_goal.setStyleSheet("font-size:11px; font-weight:800; color:#334155; line-height:140%;")
             self.lbl_ai_intent_observation.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:140%;")
             self.lbl_ai_intent_conditions.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:140%;")
+            self.lbl_ai_intent_transition.setStyleSheet("font-size:11px; font-weight:800; color:#1d4ed8; line-height:140%;")
             self.lbl_ai_review_learning_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#94a3b8;")
         except Exception:
             pass
+        self.ai_intent_container = QFrame(card)
+        self.ai_intent_container.setObjectName("aitsIntentContainer")
+        try:
+            self.ai_intent_container.setStyleSheet(
+                "QFrame#aitsIntentContainer {"
+                "background:#ffffff; border:1px solid #e2e8f0; border-radius:10px;"
+                "}"
+            )
+        except Exception:
+            pass
+        intent_lay = QVBoxLayout(self.ai_intent_container)
+        intent_lay.setContentsMargins(10, 8, 10, 8)
+        intent_lay.setSpacing(5)
+        self.lbl_ai_intent_section_title = QLabel("AI Intent")
+        try:
+            self.lbl_ai_intent_section_title.setTextFormat(Qt.TextFormat.PlainText)
+            self.lbl_ai_intent_section_title.setStyleSheet("font-size:11px; font-weight:900; color:#1f2937;")
+        except Exception:
+            pass
+        intent_lay.addWidget(self.lbl_ai_intent_section_title)
+        intent_lay.addWidget(self.lbl_ai_intent_goal)
+        intent_lay.addWidget(self.lbl_ai_intent_observation)
+        intent_lay.addWidget(self.lbl_ai_intent_conditions)
+        intent_lay.addWidget(self.lbl_ai_intent_transition)
         try:
             self.lbl_ai_briefing_title.setText("AI 브리핑 센터")
             self.lbl_ai_briefing_summary.setText(
@@ -1647,18 +1681,19 @@ class AITSLargeChartDialog(QDialog):
             pass
         try:
             self.lbl_ai_intent_placeholder.setVisible(False)
+            self.lbl_ai_briefing_keypoints.setVisible(False)
             self.lbl_ai_intent_goal.setText("현재 목표\n방향성 확인")
             self.lbl_ai_intent_observation.setText("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
             self.lbl_ai_intent_conditions.setText("행동 조건\n추가 신호 확인 전까지 관찰 유지")
+            self.lbl_ai_intent_transition.setText("전환 후보\n운용 후보 재검토")
+            self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
         except Exception:
             pass
         lay.addWidget(self.lbl_ai_briefing_title)
         lay.addWidget(self.lbl_ai_briefing_summary)
         lay.addWidget(self.lbl_ai_briefing_keypoints)
         lay.addWidget(self.lbl_ai_intent_placeholder)
-        lay.addWidget(self.lbl_ai_intent_goal)
-        lay.addWidget(self.lbl_ai_intent_observation)
-        lay.addWidget(self.lbl_ai_intent_conditions)
+        lay.addWidget(self.ai_intent_container)
         lay.addWidget(self.lbl_ai_review_learning_placeholder)
         return card
 
@@ -3410,6 +3445,7 @@ class AITSLargeChartDialog(QDialog):
         try:
             intent = snapshot or self._build_ai_intent_snapshot()
             self.lbl_ai_intent_placeholder.setVisible(False)
+            self.lbl_ai_briefing_keypoints.setVisible(False)
             current_goal = str(intent.get("current_goal") or "시장 강도 회복 여부 확인")
             raw_points = intent.get("observation_points") or []
             if isinstance(raw_points, str):
@@ -3429,9 +3465,9 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_observation.setText(
                 "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:4])
             )
-            self.lbl_ai_intent_conditions.setText(
-                f"행동 조건\n{action_conditions}\n전환 후보\n{transition}"
-            )
+            self.lbl_ai_intent_conditions.setText(f"행동 조건\n{action_conditions}")
+            self.lbl_ai_intent_transition.setText(f"전환 후보\n{transition}")
+            self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
         except Exception:
             pass
 

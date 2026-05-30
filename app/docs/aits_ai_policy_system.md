@@ -339,3 +339,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Intent는 주문 약속이 아니며 매수/매도/주문 확정 표현을 사용하지 않는다.
 - Intent는 Runtime, Router, Order, apply 경로에 적용되지 않는 preview-only 계층이다.
 - 사용자는 Intent를 통해 AI가 무엇을 기다리고 어떤 조건을 중요하게 보는지 이해할 수 있어야 한다.
+
+---
+
+## 25. AI Intent UI Hierarchy
+
+- AI 브리핑 센터 상단은 현재 요약을 담당한다.
+- 상단 브리핑에는 상태 헤드라인과 1~2문장 요약만 둔다.
+- AI Intent 영역은 별도 시각 블록으로 분리한다.
+- Intent 블록은 현재 목표, 관찰 포인트, 행동 조건, 전환 후보를 구분해 표시한다.
+- Review/Learning은 P17/P18 영역이며 P16에서는 보조 placeholder로만 작게 표시한다.
+- Intent는 주문 약속이 아니라 현재 관찰 전략을 설명하는 preview-only 계층이다.
