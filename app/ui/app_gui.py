@@ -1604,11 +1604,17 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_ai_briefing_keypoints = QLabel("관찰 포인트\n• 거래량 변화\n• 시장 강도\n• 방향성 확인")
         self.lbl_ai_intent_placeholder = QLabel("현재 목표: 준비 중\n현재 관찰 포인트: 준비 중")
         self.lbl_ai_review_learning_placeholder = QLabel("최근 복기: 준비 중\n정책 변화: 준비 중")
+        self.lbl_ai_intent_goal = QLabel("현재 목표\n방향성 확인")
+        self.lbl_ai_intent_observation = QLabel("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
+        self.lbl_ai_intent_conditions = QLabel("행동 조건\n추가 신호 확인 전까지 관찰 유지")
         for lb in (
             self.lbl_ai_briefing_title,
             self.lbl_ai_briefing_summary,
             self.lbl_ai_briefing_keypoints,
             self.lbl_ai_intent_placeholder,
+            self.lbl_ai_intent_goal,
+            self.lbl_ai_intent_observation,
+            self.lbl_ai_intent_conditions,
             self.lbl_ai_review_learning_placeholder,
         ):
             try:
@@ -1621,6 +1627,9 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_briefing_summary.setStyleSheet("font-size:13px; font-weight:800; color:#334155; line-height:145%;")
             self.lbl_ai_briefing_keypoints.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:145%;")
             self.lbl_ai_intent_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#64748b;")
+            self.lbl_ai_intent_goal.setStyleSheet("font-size:11px; font-weight:800; color:#334155; line-height:140%;")
+            self.lbl_ai_intent_observation.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:140%;")
+            self.lbl_ai_intent_conditions.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:140%;")
             self.lbl_ai_review_learning_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#94a3b8;")
         except Exception:
             pass
@@ -1636,10 +1645,20 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_review_learning_placeholder.setText("최근 복기: 준비 중\n정책 변화: 준비 중")
         except Exception:
             pass
+        try:
+            self.lbl_ai_intent_placeholder.setVisible(False)
+            self.lbl_ai_intent_goal.setText("현재 목표\n방향성 확인")
+            self.lbl_ai_intent_observation.setText("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
+            self.lbl_ai_intent_conditions.setText("행동 조건\n추가 신호 확인 전까지 관찰 유지")
+        except Exception:
+            pass
         lay.addWidget(self.lbl_ai_briefing_title)
         lay.addWidget(self.lbl_ai_briefing_summary)
         lay.addWidget(self.lbl_ai_briefing_keypoints)
         lay.addWidget(self.lbl_ai_intent_placeholder)
+        lay.addWidget(self.lbl_ai_intent_goal)
+        lay.addWidget(self.lbl_ai_intent_observation)
+        lay.addWidget(self.lbl_ai_intent_conditions)
         lay.addWidget(self.lbl_ai_review_learning_placeholder)
         return card
 
@@ -2929,6 +2948,13 @@ class AITSLargeChartDialog(QDialog):
                 scenario_type=getattr(self, "_detail_popup_scenario_type", "sideways_wait"),
             )
             self._sync_ai_briefing_center(briefing)
+            intent = self._build_ai_intent_snapshot(
+                decision_text=decision_text,
+                state_text=state_text,
+                reason_lines=reason_lines,
+                briefing_state=str(briefing.get("briefing_state") or ""),
+            )
+            self._sync_ai_intent_labels(intent)
 
             if decision_color == "#15803d":
                 badge_bg, badge_border, status_bg = "#ecfdf5", "#86efac", "#f3fcf6"
@@ -3079,6 +3105,95 @@ class AITSLargeChartDialog(QDialog):
                 "order_applied": False,
             }
 
+    def _format_ai_intent_goal(self, decision_text="", state_text="", briefing_state=""):
+        try:
+            raw = f"{decision_text} {state_text} {briefing_state}".upper()
+            if "BUY" in raw or "STRENGTH" in raw:
+                return "시장 강도 확인\n운용 변화보다 조건 충족 여부를 우선 관찰합니다."
+            if "SELL" in raw or "RISK" in raw:
+                return "리스크 변화 점검\n변동성 확대 여부를 먼저 확인합니다."
+            if "STAY" in raw or "WATCH" in raw or "OBSERVE" in raw:
+                return "관찰 유지\n방향성이 확인될 때까지 현재 상태를 유지합니다."
+            return "방향성 확인\n시장 강도와 거래 흐름을 함께 점검합니다."
+        except Exception:
+            return "방향성 확인\n시장 상태를 안전하게 확인합니다."
+
+    def _format_ai_intent_observation(self, reason_lines=None, briefing_state=""):
+        try:
+            points = []
+            for item in reason_lines or []:
+                point = self._strip_detail_popup_narrative_item(item)
+                if point:
+                    points.append(point)
+                if len(points) >= 3:
+                    break
+            if not points:
+                if str(briefing_state or "") == "risk_watch":
+                    points = ["변동성 변화", "시장 참여 감소", "리스크 기준"]
+                elif str(briefing_state or "") == "strength_check":
+                    points = ["거래량 증가", "추세 강도", "시장 평균 흐름"]
+                else:
+                    points = ["거래량 변화", "시장 강도", "방향성 확인"]
+            return "관찰 포인트\n" + " · ".join(points[:3])
+        except Exception:
+            return "관찰 포인트\n거래량 변화 · 시장 강도 · 방향성 확인"
+
+    def _format_ai_intent_conditions(self, briefing_state="", decision_text=""):
+        try:
+            raw = f"{briefing_state} {decision_text}".upper()
+            if "RISK" in raw or str(briefing_state or "") == "risk_watch":
+                return "행동 조건\n변동성이 완화되고 리스크 기준이 안정되어야 합니다."
+            if "BUY" in raw or str(briefing_state or "") == "strength_check":
+                return "행동 조건\n거래량과 추세 강도가 함께 개선되어야 합니다."
+            if "STAY" in raw or "WATCH" in raw or str(briefing_state or "") == "observe":
+                return "행동 조건\n방향성과 시장 참여가 추가로 확인되어야 합니다."
+            return "행동 조건\n추가 신호 확인 전까지 관찰을 유지합니다."
+        except Exception:
+            return "행동 조건\n추가 신호 확인 전까지 관찰을 유지합니다."
+
+    def _build_ai_intent_snapshot(
+        self,
+        decision_text="",
+        state_text="",
+        reason_lines=None,
+        briefing_state="",
+    ):
+        try:
+            current_goal = self._format_ai_intent_goal(decision_text, state_text, briefing_state)
+            observation_points = self._format_ai_intent_observation(reason_lines, briefing_state)
+            action_conditions = self._format_ai_intent_conditions(briefing_state, decision_text)
+            if str(briefing_state or "") == "risk_watch":
+                intent_type = "risk_watch"
+            elif str(briefing_state or "") == "strength_check":
+                intent_type = "strength_check"
+            elif str(briefing_state or "") == "observe":
+                intent_type = "observe"
+            else:
+                intent_type = "checking"
+            return {
+                "schema": "aits_ai_intent.v1",
+                "current_goal": current_goal,
+                "observation_points": observation_points,
+                "action_conditions": action_conditions,
+                "intent_type": intent_type,
+                "intent_summary": f"{intent_type} · preview only",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_ai_intent.v1",
+                "current_goal": "방향성 확인\n시장 상태를 안전하게 확인합니다.",
+                "observation_points": "관찰 포인트\n거래량 변화 · 시장 강도 · 방향성 확인",
+                "action_conditions": "행동 조건\n추가 신호 확인 전까지 관찰을 유지합니다.",
+                "intent_type": "checking",
+                "intent_summary": "checking · preview only",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+
     def _build_ai_briefing_snapshot(
         self,
         decision_text="",
@@ -3138,9 +3253,12 @@ class AITSLargeChartDialog(QDialog):
                 "order_applied": False,
             }
 
-    def _sync_ai_briefing_center(self, snapshot=None):
+    def _sync_ai_briefing_center(self, snapshot=None, intent_snapshot=None):
         try:
             data = snapshot or self._build_ai_briefing_snapshot()
+            intent = intent_snapshot or self._build_ai_intent_snapshot(
+                briefing_state=str(data.get("briefing_state") or ""),
+            )
             title = str(data.get("summary_title") or "방향성 확인 중")
             text = str(data.get("summary_text") or "시장 상태를 확인하는 구간입니다.")
             points = [
@@ -3156,6 +3274,20 @@ class AITSLargeChartDialog(QDialog):
             )
             self.lbl_ai_intent_placeholder.setText("현재 목표: 준비 중\n현재 관찰 포인트: 준비 중")
             self.lbl_ai_review_learning_placeholder.setText("최근 복기: 준비 중\n정책 변화: 준비 중")
+        except Exception:
+            pass
+
+    def _sync_ai_intent_labels(self, snapshot=None):
+        try:
+            intent = snapshot or self._build_ai_intent_snapshot()
+            self.lbl_ai_intent_placeholder.setVisible(False)
+            self.lbl_ai_intent_goal.setText(str(intent.get("current_goal") or "현재 목표\n방향성 확인"))
+            self.lbl_ai_intent_observation.setText(
+                str(intent.get("observation_points") or "관찰 포인트\n거래량 변화 · 시장 강도 · 방향성 확인")
+            )
+            self.lbl_ai_intent_conditions.setText(
+                str(intent.get("action_conditions") or "행동 조건\n추가 신호 확인 전까지 관찰 유지")
+            )
         except Exception:
             pass
 
