@@ -350,3 +350,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Intent 블록은 현재 목표, 관찰 포인트, 행동 조건, 전환 후보를 구분해 표시한다.
 - Review/Learning은 P17/P18 영역이며 P16에서는 보조 placeholder로만 작게 표시한다.
 - Intent는 주문 약속이 아니라 현재 관찰 전략을 설명하는 preview-only 계층이다.
+
+---
+
+## 26. Detail Chart Role Separation
+
+- AI 현황 column은 판단, 시장 해석, 운용 계획, Intent를 담당한다.
+- AI 조정 column은 AI 시나리오, 유지 예상/ETA, 사용자 조정을 담당한다.
+- 시나리오와 ETA는 AI가 제안하는 기본 운용값으로 표시한다.
+- 사용자가 조정하면 향후 사용자 override 값으로 표시할 수 있다.
+- 현재 단계에서는 preview-only이며 Runtime, Router, Order, apply 경로에 적용하지 않는다.
+- 역할 분리는 우측 패널 과밀을 줄이고 판단/의도와 조정 영역을 분리하기 위한 UI 구조다.

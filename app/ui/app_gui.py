@@ -1955,7 +1955,7 @@ class AITSLargeChartDialog(QDialog):
                 "splitter_sizes": list(splitter.sizes()) if splitter is not None else [900, 320, 52],
                 "ai_status_splitter_sizes": list(
                     self.detail_ai_status_vertical_splitter.sizes()
-                ) if getattr(self, "detail_ai_status_vertical_splitter", None) is not None else [130, 120, 110, 150, 130],
+                ) if getattr(self, "detail_ai_status_vertical_splitter", None) is not None else [140, 125, 115],
                 "drawer_expanded": bool(getattr(self, "_asset_policy_drawer_expanded", False)),
             }
             ui_state["detail_chart_layout_state"] = state
@@ -1986,7 +1986,7 @@ class AITSLargeChartDialog(QDialog):
                     self.setGeometry(x, y, w, h)
                 except Exception:
                     pass
-            expanded = bool(state.get("drawer_expanded", False))
+            expanded = bool(state.get("drawer_expanded", True))
             self._set_asset_policy_drawer_expanded(expanded, save=False)
             splitter = getattr(self, "detail_chart_main_splitter", None)
             if splitter is not None:
@@ -2004,13 +2004,13 @@ class AITSLargeChartDialog(QDialog):
                     splitter.setSizes([900, 320, 260 if expanded else 52])
             ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
             if ai_splitter is not None:
-                ai_sizes = state.get("ai_status_splitter_sizes", [130, 120, 110, 150, 130])
-                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 5:
-                    ai_sizes = [130, 120, 110, 150, 130]
+                ai_sizes = state.get("ai_status_splitter_sizes", [140, 125, 115])
+                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 3:
+                    ai_sizes = [140, 125, 115]
                 try:
-                    ai_splitter.setSizes([max(1, int(v)) for v in list(ai_sizes)[:5]])
+                    ai_splitter.setSizes([max(1, int(v)) for v in list(ai_sizes)[:3]])
                 except Exception:
-                    ai_splitter.setSizes([130, 120, 110, 150, 130])
+                    ai_splitter.setSizes([140, 125, 115])
         except Exception:
             try:
                 self._set_asset_policy_drawer_expanded(False, save=False)
@@ -2019,7 +2019,7 @@ class AITSLargeChartDialog(QDialog):
                     splitter.setSizes([900, 320, 52])
                 ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
                 if ai_splitter is not None:
-                    ai_splitter.setSizes([130, 120, 110, 150, 130])
+                    ai_splitter.setSizes([140, 125, 115])
             except Exception:
                 pass
         finally:
@@ -2546,7 +2546,7 @@ class AITSLargeChartDialog(QDialog):
         self._frm_detail_ai_next_card = self._make_detail_sidebar_card("운용 계획")
         self._frm_detail_ai_metrics_card = self._make_detail_sidebar_card("핵심 수치")
         self._frm_detail_popup_scenario_card = self._make_detail_sidebar_card("AI 시나리오")
-        self._frm_detail_popup_eta_card = self._make_detail_sidebar_card("AI ETA")
+        self._frm_detail_popup_eta_card = self._make_detail_sidebar_card("유지 예상 / ETA")
         try:
             self._frm_detail_popup_scenario_card.setStyleSheet(
                 "QFrame#frmDetailSidebarCard {"
@@ -2574,10 +2574,12 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_risk_price = self._make_detail_popup_value_label()
         self.lbl_detail_popup_state = self.lbl_detail_popup_decision_sub
         self.lbl_detail_popup_scenario_title = QLabel("횡보 관찰형")
+        self.lbl_asset_scenario_source = QLabel("기준: AI 기본값")
         self.lbl_detail_popup_scenario_type = QLabel("sideways_wait")
         self.lbl_detail_popup_scenario_confidence = QLabel("신뢰도 55%")
         self.lbl_detail_popup_scenario_context = QLabel("진입 전 관찰 시나리오")
         self.lbl_detail_popup_eta_title = QLabel("유지 예상")
+        self.lbl_asset_eta_source = QLabel("기준: AI 기본값")
         self.lbl_detail_popup_eta_main = QLabel("유지 예상 · -")
         self.lbl_detail_popup_eta_sub = QLabel("방향성 확인 전 진입 대기")
         self.lbl_detail_popup_eta_meta = QLabel("리스크 — / 목표 —")
@@ -2617,6 +2619,9 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_scenario_title.setStyleSheet(
             "font-size:18px; font-weight:900; color:#111827;"
         )
+        self.lbl_asset_scenario_source.setStyleSheet(
+            "font-size:10px; font-weight:800; color:#64748b;"
+        )
         self.lbl_detail_popup_scenario_type.setStyleSheet(
             "font-size:12px; font-weight:700; color:#6b7280;"
         )
@@ -2638,6 +2643,9 @@ class AITSLargeChartDialog(QDialog):
         )
         self.lbl_detail_popup_eta_title.setStyleSheet(
             "font-size:12px; font-weight:800; color:#6b7280;"
+        )
+        self.lbl_asset_eta_source.setStyleSheet(
+            "font-size:10px; font-weight:800; color:#64748b;"
         )
         self.lbl_detail_popup_eta_main.setStyleSheet(
             "font-size:20px; font-weight:900; color:#111827;"
@@ -2694,6 +2702,7 @@ class AITSLargeChartDialog(QDialog):
         self.ai_briefing_center_container = self._make_ai_briefing_center_card()
 
         scenario_lay = self._frm_detail_popup_scenario_card.layout()
+        scenario_lay.addWidget(self.lbl_asset_scenario_source)
         scenario_lay.addWidget(self.lbl_detail_popup_scenario_title)
         scenario_lay.addWidget(self.lbl_detail_popup_scenario_type)
         scenario_lay.addWidget(self.lbl_detail_popup_scenario_context)
@@ -2701,6 +2710,7 @@ class AITSLargeChartDialog(QDialog):
         scenario_lay.addStretch(1)
 
         eta_lay = self._frm_detail_popup_eta_card.layout()
+        eta_lay.addWidget(self.lbl_asset_eta_source)
         eta_lay.addWidget(self.lbl_detail_popup_eta_main)
         eta_lay.addWidget(self.lbl_detail_popup_eta_sub)
         eta_lay.addWidget(self.lbl_detail_popup_eta_meta)
@@ -2735,8 +2745,6 @@ class AITSLargeChartDialog(QDialog):
             (self._frm_detail_ai_status_card, 110),
             (self._frm_detail_ai_reason_card, 90),
             (self._frm_detail_ai_next_card, 80),
-            (self._frm_detail_popup_scenario_card, 120),
-            (self._frm_detail_popup_eta_card, 100),
         ):
             try:
                 card.setMinimumHeight(min_height)
@@ -2745,7 +2753,7 @@ class AITSLargeChartDialog(QDialog):
                 pass
             self.detail_ai_status_vertical_splitter.addWidget(card)
         try:
-            self.detail_ai_status_vertical_splitter.setSizes([130, 120, 110, 150, 130])
+            self.detail_ai_status_vertical_splitter.setSizes([140, 125, 115])
         except Exception:
             pass
         status_container_lay.addWidget(self.detail_ai_status_vertical_splitter, 1)
@@ -2770,6 +2778,8 @@ class AITSLargeChartDialog(QDialog):
             pass
         control_container_lay.addWidget(control_header)
         control_container_lay.addWidget(control_subtitle)
+        control_container_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
+        control_container_lay.addWidget(self._frm_detail_popup_eta_card, 0)
         control_container_lay.addWidget(self._build_asset_policy_panel(), 0)
         self.asset_ai_control_container.setVisible(False)
 
