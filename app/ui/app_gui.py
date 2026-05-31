@@ -1597,7 +1597,7 @@ class AITSLargeChartDialog(QDialog):
         lay = QVBoxLayout(card)
         lay.setContentsMargins(14, 12, 14, 12)
         lay.setSpacing(7)
-        self.lbl_ai_briefing_title = QLabel("AI 브리핑 센터")
+        self.lbl_ai_briefing_title = QLabel("AI Intent")
         self.lbl_ai_briefing_summary = QLabel(
             "현재 AI가 보고 있는 시장 상황과\n운용 방향을 요약합니다."
         )
@@ -1668,7 +1668,7 @@ class AITSLargeChartDialog(QDialog):
         intent_lay.addWidget(self.lbl_ai_intent_conditions)
         intent_lay.addWidget(self.lbl_ai_intent_transition)
         try:
-            self.lbl_ai_briefing_title.setText("AI 브리핑 센터")
+            self.lbl_ai_briefing_title.setText("AI Intent")
             self.lbl_ai_briefing_summary.setText(
                 "현재 AI가 보고 있는 시장 상황과\n운용 방향을 요약합니다."
             )
@@ -1889,22 +1889,26 @@ class AITSLargeChartDialog(QDialog):
 
     def _set_asset_policy_drawer_expanded(self, expanded, save=False):
         try:
-            expanded = bool(expanded)
+            expanded = True
             content = getattr(self, "asset_ai_control_container", None)
             drawer = getattr(self, "asset_policy_drawer_container", None)
             button = getattr(self, "btn_toggle_asset_ai_control", None)
             if content is not None:
-                content.setVisible(expanded)
+                content.setVisible(True)
             if drawer is not None:
                 if expanded:
-                    drawer.setMinimumWidth(220)
-                    drawer.setMaximumWidth(280)
-                    drawer.resize(260, max(1, drawer.height()))
+                    drawer.setMinimumWidth(260)
+                    drawer.setMaximumWidth(360)
+                    drawer.resize(300, max(1, drawer.height()))
                 else:
-                    drawer.setMinimumWidth(52)
-                    drawer.setMaximumWidth(52)
-                    drawer.setFixedWidth(52)
+                    drawer.setMinimumWidth(260)
+                    drawer.setMaximumWidth(360)
+                    drawer.resize(300, max(1, drawer.height()))
             if button is not None:
+                try:
+                    button.setVisible(False)
+                except Exception:
+                    pass
                 button.setText("접기 ◀" if expanded else "▶")
             self._asset_policy_drawer_expanded = expanded
             splitter = getattr(self, "detail_chart_main_splitter", None)
@@ -1912,10 +1916,10 @@ class AITSLargeChartDialog(QDialog):
                 try:
                     sizes = list(splitter.sizes())
                     if len(sizes) >= 3:
-                        sizes[2] = 260 if expanded else 52
+                        sizes[2] = max(300, int(sizes[2] or 0))
                         splitter.setSizes(sizes)
                     else:
-                        splitter.setSizes([900, 320, 260 if expanded else 52])
+                        splitter.setSizes([760, 420, 320])
                 except Exception:
                     pass
             if save:
@@ -1952,10 +1956,10 @@ class AITSLargeChartDialog(QDialog):
                     "w": int(geom.width()),
                     "h": int(geom.height()),
                 },
-                "splitter_sizes": list(splitter.sizes()) if splitter is not None else [900, 320, 52],
+                "splitter_sizes": list(splitter.sizes()) if splitter is not None else [760, 420, 320],
                 "ai_status_splitter_sizes": list(
                     self.detail_ai_status_vertical_splitter.sizes()
-                ) if getattr(self, "detail_ai_status_vertical_splitter", None) is not None else [140, 125, 115],
+                ) if getattr(self, "detail_ai_status_vertical_splitter", None) is not None else [150, 150],
                 "drawer_expanded": bool(getattr(self, "_asset_policy_drawer_expanded", False)),
             }
             ui_state["detail_chart_layout_state"] = state
@@ -1990,36 +1994,34 @@ class AITSLargeChartDialog(QDialog):
             self._set_asset_policy_drawer_expanded(expanded, save=False)
             splitter = getattr(self, "detail_chart_main_splitter", None)
             if splitter is not None:
-                sizes = state.get("splitter_sizes", [900, 320, 260 if expanded else 52])
+                sizes = state.get("splitter_sizes", [760, 420, 320])
                 if not isinstance(sizes, (list, tuple)) or len(sizes) < 3:
-                    sizes = [900, 320, 260 if expanded else 52]
+                    sizes = [760, 420, 320]
                 try:
                     sizes = [max(1, int(v)) for v in list(sizes)[:3]]
-                    if not expanded:
-                        sizes[2] = 52
-                    elif sizes[2] < 220:
-                        sizes[2] = 260
+                    if sizes[2] < 260:
+                        sizes[2] = 320
                     splitter.setSizes(sizes)
                 except Exception:
-                    splitter.setSizes([900, 320, 260 if expanded else 52])
+                    splitter.setSizes([760, 420, 320])
             ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
             if ai_splitter is not None:
-                ai_sizes = state.get("ai_status_splitter_sizes", [140, 125, 115])
-                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 3:
-                    ai_sizes = [140, 125, 115]
+                ai_sizes = state.get("ai_status_splitter_sizes", [150, 150])
+                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 2:
+                    ai_sizes = [150, 150]
                 try:
-                    ai_splitter.setSizes([max(1, int(v)) for v in list(ai_sizes)[:3]])
+                    ai_splitter.setSizes([max(1, int(v)) for v in list(ai_sizes)[:2]])
                 except Exception:
-                    ai_splitter.setSizes([140, 125, 115])
+                    ai_splitter.setSizes([150, 150])
         except Exception:
             try:
                 self._set_asset_policy_drawer_expanded(False, save=False)
                 splitter = getattr(self, "detail_chart_main_splitter", None)
                 if splitter is not None:
-                    splitter.setSizes([900, 320, 52])
+                    splitter.setSizes([760, 420, 320])
                 ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
                 if ai_splitter is not None:
-                    ai_splitter.setSizes([140, 125, 115])
+                    ai_splitter.setSizes([150, 150])
             except Exception:
                 pass
         finally:
@@ -2542,7 +2544,7 @@ class AITSLargeChartDialog(QDialog):
         sidebar_lay.setSpacing(10)
 
         self._frm_detail_ai_status_card = self._make_detail_sidebar_card("AI 판단")
-        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("시장 해석")
+        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("판단 근거")
         self._frm_detail_ai_next_card = self._make_detail_sidebar_card("운용 계획")
         self._frm_detail_ai_metrics_card = self._make_detail_sidebar_card("핵심 수치")
         self._frm_detail_popup_scenario_card = self._make_detail_sidebar_card("AI 시나리오")
@@ -2622,6 +2624,11 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_asset_scenario_source.setStyleSheet(
             "font-size:10px; font-weight:800; color:#64748b;"
         )
+        try:
+            self.lbl_asset_scenario_source.setText("기준: AI 기본값")
+            self.lbl_asset_eta_source.setText("기준: AI 기본값")
+        except Exception:
+            pass
         self.lbl_detail_popup_scenario_type.setStyleSheet(
             "font-size:12px; font-weight:700; color:#6b7280;"
         )
@@ -2744,7 +2751,6 @@ class AITSLargeChartDialog(QDialog):
         for card, min_height in (
             (self._frm_detail_ai_status_card, 110),
             (self._frm_detail_ai_reason_card, 90),
-            (self._frm_detail_ai_next_card, 80),
         ):
             try:
                 card.setMinimumHeight(min_height)
@@ -2753,7 +2759,7 @@ class AITSLargeChartDialog(QDialog):
                 pass
             self.detail_ai_status_vertical_splitter.addWidget(card)
         try:
-            self.detail_ai_status_vertical_splitter.setSizes([140, 125, 115])
+            self.detail_ai_status_vertical_splitter.setSizes([150, 150])
         except Exception:
             pass
         status_container_lay.addWidget(self.detail_ai_status_vertical_splitter, 1)
@@ -2762,7 +2768,7 @@ class AITSLargeChartDialog(QDialog):
         self.asset_ai_control_container.setObjectName("aitsAssetAIControlContainer")
         self.asset_ai_control_container.setStyleSheet(
             "QFrame#aitsAssetAIControlContainer {"
-            "background:#334155; border:1px solid #64748b; border-radius:10px;"
+            "background:#ffffff; border:1px solid #e2e8f0; border-radius:10px;"
             "}"
         )
         control_container_lay = QVBoxLayout(self.asset_ai_control_container)
@@ -2771,9 +2777,11 @@ class AITSLargeChartDialog(QDialog):
         control_header = QLabel("AI 운용 조정")
         control_subtitle = QLabel("필요 시 이 종목의 AI 운용 성향을 조정합니다.")
         try:
-            control_header.setStyleSheet("font-size:13px; font-weight:900; color:#f8fafc;")
+            control_header.setText("AI 운영센터")
+            control_subtitle.setText("시나리오와 유지 예상, 종목별 운용 조정을 관리합니다.")
+            control_header.setStyleSheet("font-size:13px; font-weight:900; color:#111827;")
             control_subtitle.setWordWrap(True)
-            control_subtitle.setStyleSheet("font-size:10px; font-weight:600; color:#cbd5e1;")
+            control_subtitle.setStyleSheet("font-size:10px; font-weight:600; color:#64748b;")
         except Exception:
             pass
         control_container_lay.addWidget(control_header)
@@ -2781,19 +2789,18 @@ class AITSLargeChartDialog(QDialog):
         control_container_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
         control_container_lay.addWidget(self._frm_detail_popup_eta_card, 0)
         control_container_lay.addWidget(self._build_asset_policy_panel(), 0)
-        self.asset_ai_control_container.setVisible(False)
+        self.asset_ai_control_container.setVisible(True)
 
         self.asset_policy_drawer_container = QFrame(self)
         self.asset_policy_drawer_container.setObjectName("aitsAssetPolicyDrawerContainer")
         self.asset_policy_drawer_container.setStyleSheet(
             "QFrame#aitsAssetPolicyDrawerContainer {"
-            "background:#1e293b; border:1px solid #475569; border-radius:10px;"
+            "background:#f8fafc; border:1px solid #cbd5e1; border-radius:12px;"
             "}"
         )
-        self._asset_policy_drawer_expanded = False
-        self.asset_policy_drawer_container.setFixedWidth(52)
-        self.asset_policy_drawer_container.setMinimumWidth(52)
-        self.asset_policy_drawer_container.setMaximumWidth(52)
+        self._asset_policy_drawer_expanded = True
+        self.asset_policy_drawer_container.setMinimumWidth(260)
+        self.asset_policy_drawer_container.setMaximumWidth(360)
         drawer_lay = QHBoxLayout(self.asset_policy_drawer_container)
         drawer_lay.setContentsMargins(4, 5, 4, 5)
         drawer_lay.setSpacing(5)
@@ -2802,7 +2809,7 @@ class AITSLargeChartDialog(QDialog):
         self.asset_policy_drawer_handle.setObjectName("aitsAssetPolicyDrawerHandle")
         self.asset_policy_drawer_handle.setStyleSheet(
             "QFrame#aitsAssetPolicyDrawerHandle {"
-            "background:#334155; border:1px solid #64748b; border-radius:9px;"
+            "background:#e2e8f0; border:1px solid #cbd5e1; border-radius:9px;"
             "}"
         )
         handle_lay = QVBoxLayout(self.asset_policy_drawer_handle)
@@ -2824,6 +2831,10 @@ class AITSLargeChartDialog(QDialog):
             pass
         handle_lay.addWidget(self.btn_toggle_asset_ai_control)
         handle_lay.addWidget(self.lbl_asset_policy_drawer_collapsed, 1)
+        try:
+            self.asset_policy_drawer_handle.setVisible(False)
+        except Exception:
+            pass
         drawer_lay.addWidget(self.asset_policy_drawer_handle, 0)
         drawer_lay.addWidget(self.asset_ai_control_container, 1)
 
@@ -2838,10 +2849,10 @@ class AITSLargeChartDialog(QDialog):
         self.detail_chart_main_splitter.addWidget(self.asset_ai_status_container)
         self.detail_chart_main_splitter.addWidget(self.asset_policy_drawer_container)
         try:
-            self.detail_chart_main_splitter.setStretchFactor(0, 8)
+            self.detail_chart_main_splitter.setStretchFactor(0, 5)
             self.detail_chart_main_splitter.setStretchFactor(1, 3)
-            self.detail_chart_main_splitter.setStretchFactor(2, 0)
-            self.detail_chart_main_splitter.setSizes([900, 320, 52])
+            self.detail_chart_main_splitter.setStretchFactor(2, 3)
+            self.detail_chart_main_splitter.setSizes([760, 420, 320])
         except Exception:
             pass
         root.addWidget(self.detail_chart_main_splitter, 1)
@@ -3313,7 +3324,8 @@ class AITSLargeChartDialog(QDialog):
             ][:3]
             if not points:
                 points = ["거래량 변화", "시장 강도", "방향성 확인"]
-            self.lbl_ai_briefing_summary.setText(f"{title}\n{text}")
+            self.lbl_ai_briefing_title.setText("AI Intent")
+            self.lbl_ai_briefing_summary.setText("무엇을 기다리는가?")
             self.lbl_ai_briefing_keypoints.setText(
                 "관찰 포인트\n" + "\n".join(f"• {point}" for point in points)
             )

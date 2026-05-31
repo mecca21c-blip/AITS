@@ -361,3 +361,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - 사용자가 조정하면 향후 사용자 override 값으로 표시할 수 있다.
 - 현재 단계에서는 preview-only이며 Runtime, Router, Order, apply 경로에 적용하지 않는다.
 - 역할 분리는 우측 패널 과밀을 줄이고 판단/의도와 조정 영역을 분리하기 위한 UI 구조다.
+
+---
+
+## 27. Detail Chart Intent-first Layout
+
+- AI 브리핑 센터는 AI Intent Center로 승격된다.
+- 중앙 AI 현황 column은 Intent, AI 판단, 판단 근거만 담당한다.
+- 시장 해석과 운용 계획은 별도 중복 카드로 유지하지 않고 판단 근거와 Intent에 흡수한다.
+- 우측 AI 운영센터는 시나리오, 유지 예상/ETA, 사용자 조정, 고급 종목 정책을 담당한다.
+- AI 조정은 종목별 사용자 개입 영역으로 상시 노출된다.
+- 모든 내용은 preview-only이며 Runtime, Router, Order, apply 경로에 적용하지 않는다.
