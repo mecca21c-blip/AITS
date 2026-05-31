@@ -2158,23 +2158,60 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
+    def _reset_asset_policy_defaults(self):
+        try:
+            widgets = (
+                getattr(self, "cmb_asset_policy_preset", None),
+                getattr(self, "cmb_asset_policy_style", None),
+                getattr(self, "slider_asset_policy_autonomy", None),
+                getattr(self, "spin_asset_policy_max_weight", None),
+            )
+            previous = []
+            self._asset_policy_restoring = True
+            try:
+                for widget in widgets:
+                    if widget is None:
+                        previous.append(False)
+                        continue
+                    previous.append(bool(widget.blockSignals(True)))
+                if getattr(self, "cmb_asset_policy_preset", None) is not None:
+                    self.cmb_asset_policy_preset.setCurrentIndex(0)
+                if getattr(self, "cmb_asset_policy_style", None) is not None:
+                    self.cmb_asset_policy_style.setCurrentIndex(0)
+                if getattr(self, "slider_asset_policy_autonomy", None) is not None:
+                    self.slider_asset_policy_autonomy.setValue(50)
+                if getattr(self, "spin_asset_policy_max_weight", None) is not None:
+                    self.spin_asset_policy_max_weight.setValue(0)
+            finally:
+                for widget, was_blocked in zip(widgets, previous):
+                    try:
+                        if widget is not None:
+                            widget.blockSignals(was_blocked)
+                    except Exception:
+                        pass
+                self._asset_policy_restoring = False
+            self._sync_asset_policy_summary()
+            self._save_asset_policy_snapshot()
+        except Exception:
+            pass
+
     def _build_asset_policy_panel(self):
         self.asset_policy_container = QFrame(self)
         self.asset_policy_container.setObjectName("aitsAssetPolicyContainer")
         try:
             self.asset_policy_container.setStyleSheet(
                 "QFrame#aitsAssetPolicyContainer {"
-                "border: 1px solid #334155; border-radius: 8px; "
-                "background: rgba(30, 41, 59, 0.28); padding: 5px;"
+                "border: 1px solid #e2e8f0; border-radius: 10px; "
+                "background: #ffffff; padding: 6px;"
                 "}"
-                "QFrame#aitsAssetPolicyContainer QLabel { color: #e5e7eb; }"
+                "QFrame#aitsAssetPolicyContainer QLabel { color: #334155; }"
                 "QFrame#aitsAssetPolicyContainer QComboBox, "
                 "QFrame#aitsAssetPolicyContainer QSpinBox {"
-                "min-height: 24px; border:1px solid #475569; border-radius:6px; "
+                "min-height: 24px; border:1px solid #cbd5e1; border-radius:6px; "
                 "background:#ffffff; color:#111827; padding:2px 6px;"
                 "}"
                 "QFrame#aitsAssetPolicyContainer QPushButton {"
-                "min-height: 24px; border:1px solid #475569; border-radius:6px; "
+                "min-height: 24px; border:1px solid #cbd5e1; border-radius:6px; "
                 "background:#f8fafc; color:#111827; font-weight:700;"
                 "}"
             )
@@ -2191,11 +2228,11 @@ class AITSLargeChartDialog(QDialog):
         try:
             self.lbl_asset_policy_title.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_asset_policy_title.setStyleSheet(
-                "font-size:13px; font-weight:900; color:#f8fafc;"
+                "font-size:13px; font-weight:900; color:#111827;"
             )
             desc.setTextFormat(Qt.TextFormat.PlainText)
             desc.setWordWrap(True)
-            desc.setStyleSheet("font-size:10px; font-weight:600; color:#cbd5e1;")
+            desc.setStyleSheet("font-size:10px; font-weight:600; color:#64748b;")
         except Exception:
             pass
 
@@ -2206,8 +2243,8 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_asset_policy_summary.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_asset_policy_summary.setWordWrap(True)
             self.lbl_asset_policy_summary.setStyleSheet(
-                "font-size:11px; font-weight:800; color:#f8fafc;"
-                "background:rgba(30,41,59,0.58); border-radius:6px; padding:4px 6px;"
+                "font-size:11px; font-weight:800; color:#334155;"
+                "background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:4px 6px;"
             )
         except Exception:
             pass
@@ -2269,13 +2306,26 @@ class AITSLargeChartDialog(QDialog):
 
         weight_hint = QLabel("0%는 전역 정책 따름")
         try:
+            weight_hint.setText("0%는 전역 정책 따름")
             weight_hint.setTextFormat(Qt.TextFormat.PlainText)
             weight_hint.setStyleSheet("font-size:10px; font-weight:600; color:#94a3b8;")
         except Exception:
             pass
         controls_layout.addWidget(weight_hint)
+        self.btn_reset_asset_policy_defaults = QPushButton("기본값 복원")
+        try:
+            weight_hint.setText("0%는 전역 정책 따름")
+            weight_hint.setStyleSheet("font-size:10px; font-weight:600; color:#64748b;")
+            self.btn_reset_asset_policy_defaults.setText("기본값 복원")
+        except Exception:
+            pass
+        controls_layout.addWidget(self.btn_reset_asset_policy_defaults)
 
         self.btn_toggle_asset_advanced_policy = QPushButton("[ 고급 종목 정책 ]")
+        try:
+            self.btn_toggle_asset_advanced_policy.setText("고급 종목 정책")
+        except Exception:
+            pass
         controls_layout.addWidget(self.btn_toggle_asset_advanced_policy)
         self.asset_advanced_policy_container = QFrame(self.asset_policy_container)
         advanced_lay = QVBoxLayout(self.asset_advanced_policy_container)
@@ -2285,14 +2335,14 @@ class AITSLargeChartDialog(QDialog):
         try:
             advanced_label.setTextFormat(Qt.TextFormat.PlainText)
             advanced_label.setWordWrap(True)
-            advanced_label.setStyleSheet("font-size:11px; font-weight:600; color:#cbd5e1;")
+            advanced_label.setStyleSheet("font-size:11px; font-weight:600; color:#64748b;")
         except Exception:
             pass
         advanced_lay.addWidget(advanced_label)
         self.asset_advanced_policy_container.setVisible(False)
         controls_layout.addWidget(self.asset_advanced_policy_container)
         self.asset_policy_layout.addWidget(self.asset_policy_controls_container)
-        self.asset_policy_controls_container.setVisible(False)
+        self.asset_policy_controls_container.setVisible(True)
 
         try:
             self.cmb_asset_policy_preset.currentIndexChanged.connect(
@@ -2301,6 +2351,9 @@ class AITSLargeChartDialog(QDialog):
             self.cmb_asset_policy_style.currentTextChanged.connect(self._on_asset_policy_changed)
             self.slider_asset_policy_autonomy.valueChanged.connect(self._on_asset_policy_changed)
             self.spin_asset_policy_max_weight.valueChanged.connect(self._on_asset_policy_changed)
+            self.btn_reset_asset_policy_defaults.clicked.connect(
+                self._reset_asset_policy_defaults
+            )
             self.btn_toggle_asset_advanced_policy.clicked.connect(
                 self._toggle_asset_advanced_policy
             )
@@ -2788,7 +2841,7 @@ class AITSLargeChartDialog(QDialog):
         control_container_lay.addWidget(control_subtitle)
         control_container_lay.addWidget(self._frm_detail_popup_scenario_card, 0)
         control_container_lay.addWidget(self._frm_detail_popup_eta_card, 0)
-        control_container_lay.addWidget(self._build_asset_policy_panel(), 0)
+        control_container_lay.addWidget(self._build_asset_policy_panel(), 1)
         self.asset_ai_control_container.setVisible(True)
 
         self.asset_policy_drawer_container = QFrame(self)

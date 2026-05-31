@@ -372,3 +372,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - 우측 AI 운영센터는 시나리오, 유지 예상/ETA, 사용자 조정, 고급 종목 정책을 담당한다.
 - AI 조정은 종목별 사용자 개입 영역으로 상시 노출된다.
 - 모든 내용은 preview-only이며 Runtime, Router, Order, apply 경로에 적용하지 않는다.
+
+---
+
+## 28. AI Operations Center Recovery
+
+- 상세차트 우측 column은 Drawer가 아니라 고정 AI 운영센터로 사용한다.
+- AI 운영센터는 AI 시나리오, 유지 예상/ETA, AI 조정, 고급 종목 정책 순서로 표시한다.
+- AI 조정 영역에는 운용 프로필, 종목 성향, AI 자율도, 최대 투자비중, 기본값 복원을 상시 노출한다.
+- 요약 박스는 현재 상태를 빠르게 확인하는 보조 정보이며 설정 UI를 대체하지 않는다.
+- 이 구조는 preview-only이며 Runtime, Router, Order, Execution 경로에 적용하지 않는다.
