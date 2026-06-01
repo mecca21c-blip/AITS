@@ -3678,7 +3678,17 @@ class AITSLargeChartDialog(QDialog):
             action_conditions = str(
                 intent.get("action_conditions") or "조건이 개선되면 다음 운용 후보로 다시 검토합니다."
             )
-            transition = str(intent.get("candidate_transition") or "다음 후보 검토")
+            transition_candidates = intent.get("intent_transition_candidates") or []
+            if isinstance(transition_candidates, (list, tuple)):
+                transition = " · ".join(
+                    str(item).strip()
+                    for item in list(transition_candidates)[:3]
+                    if str(item).strip()
+                )
+            else:
+                transition = str(transition_candidates or "").strip()
+            if not transition:
+                transition = str(intent.get("candidate_transition") or "다음 후보 검토")
             self.lbl_ai_intent_goal.setText(f"현재 목표\n{current_goal}")
             self.lbl_ai_intent_observation.setText(
                 "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:3])
@@ -3688,6 +3698,169 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
         except Exception:
             pass
+
+    def _build_ai_intent_runtime_context(
+        self,
+        decision_text="",
+        state_text="",
+        reason_lines=None,
+        briefing_state="",
+    ):
+        try:
+            parts = [
+                str(decision_text or ""),
+                str(state_text or ""),
+                str(briefing_state or ""),
+            ]
+            parts.extend(str(item or "") for item in (reason_lines or []))
+            for attr in (
+                "lbl_detail_popup_score",
+                "lbl_detail_popup_scenario_type",
+                "lbl_detail_popup_scenario_context",
+                "lbl_detail_popup_eta_sub",
+                "lbl_detail_popup_eta_meta",
+            ):
+                try:
+                    widget = getattr(self, attr, None)
+                    if widget is not None and hasattr(widget, "text"):
+                        parts.append(str(widget.text() or ""))
+                except Exception:
+                    pass
+            text = " ".join(parts)
+            upper = text.upper()
+            volume_weak = any(token in text for token in ("거래대금 부족", "거래량 부족", "시장 참여", "volume"))
+            rsi_oversold = any(token in text for token in ("RSI", "과매도", "oversold"))
+            trend_weak = any(token in text for token in ("추세 약세", "시장 약세", "하락", "weak", "risk"))
+            strength = any(token in upper for token in ("BUY", "STRENGTH", "상승", "강세"))
+            defensive = any(token in upper for token in ("SELL", "RISK", "손실", "방어"))
+            return {
+                "raw_text": text,
+                "volume_weak": volume_weak,
+                "rsi_oversold": rsi_oversold,
+                "trend_weak": trend_weak,
+                "strength": strength,
+                "defensive": defensive,
+                "state": str(briefing_state or "").strip() or "checking",
+            }
+        except Exception:
+            return {
+                "raw_text": "",
+                "volume_weak": False,
+                "rsi_oversold": False,
+                "trend_weak": False,
+                "strength": False,
+                "defensive": False,
+                "state": "checking",
+            }
+
+    def _build_ai_intent_snapshot(
+        self,
+        decision_text="",
+        state_text="",
+        reason_lines=None,
+        briefing_state="",
+    ):
+        try:
+            ctx = self._build_ai_intent_runtime_context(
+                decision_text=decision_text,
+                state_text=state_text,
+                reason_lines=reason_lines,
+                briefing_state=briefing_state,
+            )
+            blockers = []
+            trigger_parts = []
+            if ctx.get("volume_weak"):
+                current_goal = "시장 참여 회복 확인"
+                blockers.append("시장 참여가 아직 충분하지 않음")
+                trigger_parts.append("거래대금 증가")
+            elif ctx.get("rsi_oversold"):
+                current_goal = "매수세 유입 여부 확인"
+                trigger_parts.append("과매도 이후 회복 지속")
+            elif ctx.get("trend_weak") or ctx.get("defensive"):
+                current_goal = "하락 압력 완화 확인"
+                blockers.append("단기 흐름이 아직 약함")
+                trigger_parts.append("하락 압력 완화")
+            elif ctx.get("strength"):
+                current_goal = "회복 흐름 지속 여부 확인"
+                trigger_parts.append("매수세 지속")
+            else:
+                current_goal = self._format_ai_intent_goal(decision_text, state_text, briefing_state)
+                trigger_parts.append("방향성 확인")
+
+            observation_points = []
+            if ctx.get("volume_weak") or trigger_parts:
+                observation_points.append("거래대금 증가 여부")
+            if ctx.get("rsi_oversold") or "RSI" in str(ctx.get("raw_text") or ""):
+                observation_points.append("RSI 회복 지속 여부")
+            if ctx.get("trend_weak") or ctx.get("strength"):
+                observation_points.append("단기 추세 반전 여부")
+            observation_points.append("시장 위험 선호 회복 여부")
+            observation_points = list(dict.fromkeys(observation_points))[:4]
+
+            transition_candidates = ["계속 관찰"]
+            if ctx.get("strength") or ctx.get("rsi_oversold"):
+                transition_candidates.insert(0, "초기 진입 검토")
+            if ctx.get("defensive") or ctx.get("trend_weak"):
+                transition_candidates.append("비중 축소 검토")
+            if "익절" in str(ctx.get("raw_text") or ""):
+                transition_candidates.append("익절 검토")
+            if "로테이션" in str(ctx.get("raw_text") or ""):
+                transition_candidates.append("로테이션 검토")
+            transition_candidates = list(dict.fromkeys(transition_candidates))[:3]
+
+            if ctx.get("defensive") or ctx.get("trend_weak"):
+                action_conditions = "위험 확대 시 비중 축소 후보로 검토합니다."
+            elif ctx.get("strength") or ctx.get("rsi_oversold"):
+                action_conditions = "조건 충족 시 진입 후보로 재평가합니다."
+            elif ctx.get("volume_weak"):
+                action_conditions = "조건 악화 시 관찰 유지를 우선합니다."
+            else:
+                action_conditions = self._format_ai_intent_conditions(briefing_state, decision_text)
+
+            intent_reason = " · ".join(blockers or observation_points[:2])
+            intent_trigger = " · ".join(trigger_parts[:2]) or "방향성 확인"
+            candidate_transition = transition_candidates[0] if transition_candidates else "계속 관찰"
+            return {
+                "schema": "aits_ai_intent.v2",
+                "intent_state": str(ctx.get("state") or "checking"),
+                "intent_title": "AI Intent",
+                "current_goal": current_goal,
+                "observation_points": observation_points,
+                "action_conditions": action_conditions,
+                "candidate_transition": candidate_transition,
+                "intent_transition_candidates": transition_candidates,
+                "intent_reason": intent_reason,
+                "intent_trigger": intent_trigger,
+                "intent_blockers": blockers,
+                "intent_type": str(ctx.get("state") or "checking"),
+                "intent_summary": f"{current_goal} · {candidate_transition}",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_ai_intent.v2",
+                "intent_state": "checking",
+                "intent_title": "AI Intent",
+                "current_goal": "시장 참여 회복 확인",
+                "observation_points": [
+                    "거래대금 증가 여부",
+                    "RSI 회복 지속 여부",
+                    "단기 추세 반전 여부",
+                ],
+                "action_conditions": "조건 충족 시 진입 후보로 재평가합니다.",
+                "candidate_transition": "계속 관찰",
+                "intent_transition_candidates": ["계속 관찰"],
+                "intent_reason": "preview context fallback",
+                "intent_trigger": "방향성 확인",
+                "intent_blockers": [],
+                "intent_type": "checking",
+                "intent_summary": "시장 참여 회복 확인 · 계속 관찰",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
 
     def _format_detail_popup_bullet_lines(self, text: str, limit: int = 4):
         try:
