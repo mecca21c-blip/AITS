@@ -3675,6 +3675,36 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_placeholder.setVisible(False)
             self.lbl_ai_briefing_keypoints.setVisible(False)
             self.lbl_ai_intent_section_title.setVisible(False)
+            if not bool(intent.get("ai_output_available")):
+                basic_preview = intent.get("basic_preview") or {}
+                basic_points = basic_preview.get("observation_points") or []
+                if isinstance(basic_points, str):
+                    basic_points = [
+                        line.strip().lstrip("•").strip()
+                        for line in basic_points.splitlines()
+                        if line.strip()
+                    ]
+                else:
+                    basic_points = [str(p).strip() for p in basic_points if str(p).strip()]
+                if not basic_points:
+                    basic_points = ["계산 기반 관찰 후보 대기"]
+                self.lbl_ai_intent_goal.setText("현재 목표\nAI 판단 대기")
+                self.lbl_ai_intent_observation.setText(
+                    "Basic Preview\n"
+                    + "\n".join(f"• {point}" for point in basic_points[:3])
+                    + "\nAI 판단 아님"
+                )
+                self.lbl_ai_intent_wait_reason.setText(
+                    "AI 판단 이유 대기\n현재 AI Engine 결과가 없습니다."
+                )
+                self.lbl_ai_intent_conditions.setText(
+                    "행동 조건\nAI Engine 연결 후 Intent가 표시됩니다."
+                )
+                self.lbl_ai_intent_transition.setText(
+                    "전환 후보\nBasic 계산은 참고 정보이며 주문 판단이 아닙니다."
+                )
+                self.lbl_ai_review_learning_placeholder.setText("복기/학습: AI 결과 대기")
+                return
             current_goal = str(intent.get("current_goal") or "시장 흐름이 상승 방향으로 바뀌는지 확인")
             raw_points = intent.get("observation_points") or []
             if isinstance(raw_points, str):
@@ -4049,6 +4079,132 @@ class AITSLargeChartDialog(QDialog):
                 "order_applied": False,
             }
 
+    def _resolve_ai_output_source(self):
+        try:
+            raw_values = []
+            for attr in (
+                "_detail_popup_ai_output_source",
+                "_last_ai_output_source",
+                "_last_response_provider",
+                "_active_ai_engine",
+            ):
+                try:
+                    raw_values.append(str(getattr(self, attr, "") or "").strip().lower())
+                except Exception:
+                    pass
+            try:
+                parent_obj = self.parent()
+            except Exception:
+                parent_obj = None
+            if parent_obj is not None:
+                try:
+                    if hasattr(parent_obj, "_get_aits_last_response_provider"):
+                        raw_values.append(str(parent_obj._get_aits_last_response_provider() or "").strip().lower())
+                except Exception:
+                    pass
+                for attr in (
+                    "_last_ai_output_source",
+                    "_last_response_provider",
+                    "_active_ai_engine",
+                    "_applied_ai_provider",
+                ):
+                    try:
+                        raw_values.append(str(getattr(parent_obj, attr, "") or "").strip().lower())
+                    except Exception:
+                        pass
+            for raw in raw_values:
+                if raw in ("openai", "gpt", "chatgpt"):
+                    return {
+                        "ai_output_available": True,
+                        "ai_output_source": "openai",
+                        "ai_output_provider": "openai",
+                        "basic_preview_available": False,
+                    }
+                if raw in ("gemini", "google", "google_gemini"):
+                    return {
+                        "ai_output_available": True,
+                        "ai_output_source": "gemini",
+                        "ai_output_provider": "gemini",
+                        "basic_preview_available": False,
+                    }
+                if raw in ("local_ai", "ollama", "local_provider", "ollama_provider"):
+                    return {
+                        "ai_output_available": True,
+                        "ai_output_source": "local_ai",
+                        "ai_output_provider": raw,
+                        "basic_preview_available": False,
+                    }
+            return {
+                "ai_output_available": False,
+                "ai_output_source": "basic_preview",
+                "ai_output_provider": "none",
+                "basic_preview_available": True,
+            }
+        except Exception:
+            return {
+                "ai_output_available": False,
+                "ai_output_source": "none",
+                "ai_output_provider": "none",
+                "basic_preview_available": False,
+            }
+
+    def _build_basic_observation_preview(self, ctx=None, asset_intent=None, points=None):
+        try:
+            ctx = dict(ctx or {})
+            asset_intent = dict(asset_intent or {})
+            raw_points = [str(p).strip() for p in (points or []) if str(p).strip()]
+            support_label = str(asset_intent.get("support_label") or "").strip()
+            resistance_label = str(asset_intent.get("resistance_label") or "").strip()
+            target_label = str(asset_intent.get("target_label") or "").strip()
+            basic_points = []
+            if support_label:
+                basic_points.append(f"{support_label} 지지선 유지 여부")
+            if resistance_label:
+                basic_points.append(f"{resistance_label} 저항선 돌파 여부")
+            if target_label and target_label != resistance_label:
+                basic_points.append(f"목표가 {target_label} 접근 여부")
+            if bool(ctx.get("volume_weak")):
+                basic_points.append("거래량 회복 여부")
+            elif bool(ctx.get("volume_rising")):
+                basic_points.append("거래량 증가 지속 여부")
+            if bool(ctx.get("rsi_oversold")):
+                basic_points.append("과매도 이후 회복 흐름")
+            elif bool(ctx.get("rsi_recovery")):
+                basic_points.append("RSI 회복 지속 여부")
+            if bool(ctx.get("ma_bearish")) or bool(ctx.get("trend_weak")):
+                basic_points.append("단기 약세 완화 여부")
+            elif bool(ctx.get("ma_bullish")):
+                basic_points.append("단기 상승 흐름 유지 여부")
+            for point in raw_points:
+                if point not in basic_points:
+                    basic_points.append(point)
+            basic_points = list(dict.fromkeys(basic_points))[:4]
+            if not basic_points:
+                basic_points = ["가격 흐름과 거래량 변화 확인"]
+            return {
+                "schema": "aits_basic_observation_preview.v1",
+                "preview_title": "Basic Preview",
+                "preview_label": "계산 기반 관찰 후보",
+                "observation_points": basic_points,
+                "source": "basic_preview",
+                "ai_judgement": False,
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_basic_observation_preview.v1",
+                "preview_title": "Basic Preview",
+                "preview_label": "계산 기반 관찰 후보",
+                "observation_points": ["가격 흐름과 거래량 변화 확인"],
+                "source": "basic_preview",
+                "ai_judgement": False,
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+
     def _build_ai_intent_snapshot(
         self,
         decision_text="",
@@ -4066,6 +4222,7 @@ class AITSLargeChartDialog(QDialog):
             raw_text = str(ctx.get("raw_text") or "")
             scenario_type = str(ctx.get("scenario_type") or "")
             asset_intent = self._build_asset_intent_snapshot(ctx)
+            source_info = self._resolve_ai_output_source()
             blockers = []
             trigger_parts = []
 
@@ -4305,6 +4462,47 @@ class AITSLargeChartDialog(QDialog):
             intent_reason = " · ".join(blockers or observation_points[:2])
             intent_trigger = " · ".join(trigger_parts[:2]) or "방향성 확인"
             candidate_transition = transition_candidates[0] if transition_candidates else "계속 관찰"
+            basic_preview = self._build_basic_observation_preview(ctx, asset_intent, observation_points)
+            if not bool(source_info.get("ai_output_available")):
+                return {
+                    "schema": "aits_ai_intent.v4",
+                    "intent_state": "waiting_ai_output",
+                    "intent_title": "AI Intent",
+                    "current_goal": "AI 판단 대기",
+                    "observation_points": [],
+                    "action_conditions": "AI Engine 연결 후 Intent가 표시됩니다.",
+                    "candidate_transition": "AI 판단 대기",
+                    "intent_transition_candidates": [],
+                    "intent_reason": "",
+                    "intent_trigger": "",
+                    "intent_blockers": [],
+                    "wait_reason_title": "AI 판단 이유 대기",
+                    "wait_reason_detail": "현재 AI Engine 결과가 없습니다. Basic 계산 결과는 Basic Preview에서 확인하세요.",
+                    "why_not_buy": "",
+                    "why_not_sell": "",
+                    "blocker_signals": [],
+                    "required_confirmation": "",
+                    "asset_intent": asset_intent,
+                    "basic_preview": basic_preview,
+                    "ai_output_available": False,
+                    "ai_output_source": str(source_info.get("ai_output_source") or "basic_preview"),
+                    "ai_output_provider": str(source_info.get("ai_output_provider") or "none"),
+                    "basic_preview_available": bool(source_info.get("basic_preview_available", True)),
+                    "intent_chart_state": {
+                        "rsi": ctx.get("rsi"),
+                        "rsi_delta": ctx.get("rsi_delta"),
+                        "target_gap_pct": ctx.get("target_gap_pct"),
+                        "volume_ratio": ctx.get("volume_ratio"),
+                        "nearest_support": asset_intent.get("nearest_support"),
+                        "nearest_resistance": asset_intent.get("nearest_resistance"),
+                        "chart_bias": chart_bias,
+                    },
+                    "intent_type": "waiting_ai_output",
+                    "intent_summary": "AI 판단 대기 · Basic Preview 분리",
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                }
             return {
                 "schema": "aits_ai_intent.v4",
                 "intent_state": str(ctx.get("state") or "checking"),
@@ -4324,6 +4522,11 @@ class AITSLargeChartDialog(QDialog):
                 "blocker_signals": blocker_signals,
                 "required_confirmation": required_confirmation,
                 "asset_intent": asset_intent,
+                "basic_preview": basic_preview,
+                "ai_output_available": True,
+                "ai_output_source": str(source_info.get("ai_output_source") or "none"),
+                "ai_output_provider": str(source_info.get("ai_output_provider") or "none"),
+                "basic_preview_available": False,
                 "intent_chart_state": {
                     "rsi": ctx.get("rsi"),
                     "rsi_delta": ctx.get("rsi_delta"),
@@ -4365,6 +4568,27 @@ class AITSLargeChartDialog(QDialog):
                 "why_not_sell": "축소 후보로 확정하기 위한 위험 신호가 충분하지 않습니다.",
                 "blocker_signals": ["확인 조건 부족"],
                 "required_confirmation": "가격 흐름과 거래량 변화를 추가 확인합니다.",
+                "asset_intent": {
+                    "schema": "aits_asset_intent.v1",
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                },
+                "basic_preview": {
+                    "schema": "aits_basic_observation_preview.v1",
+                    "preview_title": "Basic Preview",
+                    "preview_label": "계산 기반 관찰 후보",
+                    "observation_points": ["가격 흐름과 거래량 변화 확인"],
+                    "source": "basic_preview",
+                    "ai_judgement": False,
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                },
+                "ai_output_available": False,
+                "ai_output_source": "none",
+                "ai_output_provider": "none",
+                "basic_preview_available": False,
                 "intent_chart_state": {},
                 "intent_type": "checking",
                 "intent_summary": "방향성 확정 신호 확인 · 계속 관찰",
@@ -4645,6 +4869,39 @@ class AITSLargeChartDialog(QDialog):
                 scenario_type = "sideways_wait"
             confidence = max(0.0, min(1.0, float(confidence or 0.55)))
             snapshot = self._build_detail_popup_scenario_snapshot(scenario_type, confidence)
+            source_info = self._resolve_ai_output_source()
+            if not bool(source_info.get("ai_output_available")):
+                snapshot.update(
+                    {
+                        "ai_output_available": False,
+                        "ai_output_source": str(source_info.get("ai_output_source") or "basic_preview"),
+                        "ai_output_provider": str(source_info.get("ai_output_provider") or "none"),
+                        "basic_preview_available": True,
+                    }
+                )
+                self._detail_popup_scenario_snapshot = snapshot
+                self._detail_popup_scenario_type = scenario_type
+                self._detail_popup_scenario_confidence = confidence
+                self.lbl_detail_popup_scenario_title.setText("AI 시나리오 대기")
+                self.lbl_detail_popup_scenario_type.setText("기준: AI 대기")
+                self.lbl_detail_popup_scenario_context.setText(
+                    "AI Engine 연결 후 시나리오가 표시됩니다.\n"
+                    "Basic Preview는 계산 기반 참고 정보입니다."
+                )
+                self.lbl_detail_popup_scenario_confidence.setText("Basic Preview · AI 판단 아님")
+                try:
+                    self.lbl_asset_scenario_source.setText("기준: AI 대기")
+                except Exception:
+                    pass
+                return
+            snapshot.update(
+                {
+                    "ai_output_available": True,
+                    "ai_output_source": str(source_info.get("ai_output_source") or "unknown_ai"),
+                    "ai_output_provider": str(source_info.get("ai_output_provider") or "unknown"),
+                    "basic_preview_available": False,
+                }
+            )
             self._detail_popup_scenario_snapshot = snapshot
             self._detail_popup_scenario_type = scenario_type
             self._detail_popup_scenario_confidence = confidence
@@ -4658,6 +4915,10 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_detail_popup_scenario_confidence.setText(
                 f"신뢰도 {int(round(confidence * 100.0))}%"
             )
+            try:
+                self.lbl_asset_scenario_source.setText("기준: AI 기본값")
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -4742,6 +5003,9 @@ class AITSLargeChartDialog(QDialog):
                 "scenario_confidence": conf,
                 "scenario_risk_bias": risk_bias,
                 "scenario_trigger": trigger,
+                "ai_output_available": True,
+                "ai_output_source": "unknown_ai",
+                "basic_preview_available": False,
                 "preview_only": True,
                 "runtime_applied": False,
                 "order_applied": False,
@@ -4755,6 +5019,9 @@ class AITSLargeChartDialog(QDialog):
                 "scenario_confidence": 0.55,
                 "scenario_risk_bias": "neutral",
                 "scenario_trigger": "fallback",
+                "ai_output_available": False,
+                "ai_output_source": "none",
+                "basic_preview_available": False,
                 "preview_only": True,
                 "runtime_applied": False,
                 "order_applied": False,

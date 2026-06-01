@@ -415,3 +415,17 @@ AI ì •ì±… ì„¼í„°ì˜ ì „ì—­ ì •ì±…ì€ ì•± ì¬ì‹¤í–‰ í›„ ìœ ì§€í•œë‹¤.
 - Ç¥½Ã ÈÄº¸´Â »ó½Â ÀüÈ¯ °üÂûÇü, ¹æ¾î °üÂûÇü, È¾º¸ È®ÀÎÇü, ¸ñÇ¥ ±¸°£ Á¢±ÙÇü, º¯µ¿¼º °æ°èÇüÀÌ´Ù.
 - Scenario snapshot schema´Â aits_ai_scenario.v2¸¦ »ç¿ëÇÑ´Ù.
 - Scenario´Â Runtime, Router, Order, Execution, RiskGuard¿¡ Àû¿ëÇÏÁö ¾Ê´Â´Ù.
+
+
+---
+
+## AI Output Source Separation
+
+- Basic Engine is the Fact, Candidate, Risk, and Portfolio calculation layer.
+- AI Engine is the Decision, Reasoning, Intent, Scenario, and Why generation layer.
+- Basic Preview is not AI judgement; it is calculation-based observation context only.
+- When no AI Engine output is available, AI Intent, AI Scenario, and Why areas must show a waiting state.
+- Only GPT/OpenAI, Gemini, and Local AI/Ollama outputs may be displayed as AI judgement.
+- Local AI is an independent AI Engine that can operate without an external API; it is not the Basic Engine.
+- Until the Local AI Provider path is ready, Basic calculations must not be presented as Local AI judgement.
+- This policy does not affect Runtime, Router, Order, Execution, or RiskGuard paths.
