@@ -3707,6 +3707,37 @@ class AITSLargeChartDialog(QDialog):
         briefing_state="",
     ):
         try:
+            import re
+
+            def _label_text(attr):
+                try:
+                    widget = getattr(self, attr, None)
+                    if widget is not None and hasattr(widget, "text"):
+                        return str(widget.text() or "")
+                except Exception:
+                    pass
+                return ""
+
+            def _first_number(value):
+                try:
+                    text_value = str(value or "").replace(",", "")
+                    match = re.search(r"-?\d+(?:\.\d+)?", text_value)
+                    if match:
+                        return float(match.group(0))
+                except Exception:
+                    pass
+                return None
+
+            def _rsi_value(value):
+                try:
+                    text_value = str(value or "")
+                    match = re.search(r"RSI[^\d-]*(-?\d+(?:\.\d+)?)", text_value, re.IGNORECASE)
+                    if match:
+                        return float(match.group(1))
+                except Exception:
+                    pass
+                return None
+
             parts = [
                 str(decision_text or ""),
                 str(state_text or ""),
@@ -3719,25 +3750,90 @@ class AITSLargeChartDialog(QDialog):
                 "lbl_detail_popup_scenario_context",
                 "lbl_detail_popup_eta_sub",
                 "lbl_detail_popup_eta_meta",
+                "lbl_detail_popup_chart_price",
+                "lbl_detail_popup_chart_target",
+                "lbl_detail_popup_current_price",
+                "lbl_detail_popup_target_price",
+                "lbl_detail_popup_change_rate",
+                "lbl_detail_popup_score",
             ):
                 try:
-                    widget = getattr(self, attr, None)
-                    if widget is not None and hasattr(widget, "text"):
-                        parts.append(str(widget.text() or ""))
+                    text_part = _label_text(attr)
+                    if text_part:
+                        parts.append(text_part)
                 except Exception:
                     pass
             text = " ".join(parts)
             upper = text.upper()
-            volume_weak = any(token in text for token in ("거래대금 부족", "거래량 부족", "시장 참여", "volume"))
-            rsi_oversold = any(token in text for token in ("RSI", "과매도", "oversold"))
-            trend_weak = any(token in text for token in ("추세 약세", "시장 약세", "하락", "weak", "risk"))
+            scenario_type = str(getattr(self, "_detail_popup_scenario_type", "") or "").strip()
+            current_price = _first_number(
+                _label_text("lbl_detail_popup_current_price")
+                or _label_text("lbl_detail_popup_chart_price")
+            )
+            target_price = _first_number(
+                _label_text("lbl_detail_popup_target_price")
+                or _label_text("lbl_detail_popup_chart_target")
+            )
+            target_gap_pct = None
+            if current_price and target_price:
+                try:
+                    target_gap_pct = ((float(target_price) - float(current_price)) / float(current_price)) * 100.0
+                except Exception:
+                    target_gap_pct = None
+            rsi = _rsi_value(text)
+            volume_weak = any(
+                token in text
+                for token in (
+                    "거래대금 부족",
+                    "거래량 부족",
+                    "시장 참여가 아직",
+                    "시장 참여 부족",
+                    "volume weak",
+                    "low volume",
+                )
+            )
+            volume_rising = any(
+                token in text
+                for token in (
+                    "거래량 증가",
+                    "거래대금 증가",
+                    "시장 참여 증가",
+                    "volume up",
+                    "volume rising",
+                )
+            )
+            rsi_oversold = (
+                any(token in text for token in ("RSI 과매도", "과매도", "oversold"))
+                or (rsi is not None and rsi <= 35.0)
+            )
+            rsi_recovery = (
+                any(token in text for token in ("RSI 회복", "회복 흐름", "rebound"))
+                or (rsi is not None and 35.0 < rsi < 55.0)
+            )
+            trend_weak = (
+                any(token in text for token in ("추세 약세", "시장 약세", "하락", "weak", "risk"))
+                or scenario_type in ("bearish_drift", "sharp_drop_risk")
+            )
+            sideways = scenario_type in ("sideways_wait", "")
+            target_near = target_gap_pct is not None and 0.0 <= target_gap_pct <= 2.5
+            target_far = target_gap_pct is not None and target_gap_pct >= 5.0
             strength = any(token in upper for token in ("BUY", "STRENGTH", "상승", "강세"))
             defensive = any(token in upper for token in ("SELL", "RISK", "손실", "방어"))
             return {
                 "raw_text": text,
+                "scenario_type": scenario_type,
+                "current_price": current_price,
+                "target_price": target_price,
+                "target_gap_pct": target_gap_pct,
+                "rsi": rsi,
                 "volume_weak": volume_weak,
+                "volume_rising": volume_rising,
                 "rsi_oversold": rsi_oversold,
+                "rsi_recovery": rsi_recovery,
                 "trend_weak": trend_weak,
+                "sideways": sideways,
+                "target_near": target_near,
+                "target_far": target_far,
                 "strength": strength,
                 "defensive": defensive,
                 "state": str(briefing_state or "").strip() or "checking",
@@ -3745,9 +3841,19 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return {
                 "raw_text": "",
+                "scenario_type": "",
+                "current_price": None,
+                "target_price": None,
+                "target_gap_pct": None,
+                "rsi": None,
                 "volume_weak": False,
+                "volume_rising": False,
                 "rsi_oversold": False,
+                "rsi_recovery": False,
                 "trend_weak": False,
+                "sideways": True,
+                "target_near": False,
+                "target_far": False,
                 "strength": False,
                 "defensive": False,
                 "state": "checking",
@@ -3767,9 +3873,25 @@ class AITSLargeChartDialog(QDialog):
                 reason_lines=reason_lines,
                 briefing_state=briefing_state,
             )
+            raw_text = str(ctx.get("raw_text") or "")
+            scenario_type = str(ctx.get("scenario_type") or "")
             blockers = []
             trigger_parts = []
-            if ctx.get("volume_weak"):
+
+            if ctx.get("target_near"):
+                current_goal = "목표 구간 진입 가능성 확인"
+                trigger_parts.append("목표 구간 접근")
+            elif ctx.get("rsi_recovery") and (ctx.get("volume_rising") or ctx.get("strength")):
+                current_goal = "상승 전환 가능성 확인"
+                trigger_parts.append("회복 흐름과 시장 참여 동반")
+            elif ctx.get("target_far") and (ctx.get("rsi_oversold") or ctx.get("trend_weak") or ctx.get("defensive")):
+                current_goal = "하락 압력 완화 확인"
+                blockers.append("목표 구간까지 여유가 있으나 흐름이 약함")
+                trigger_parts.append("매도 압력 완화")
+            elif ctx.get("sideways"):
+                current_goal = "방향성 확정 신호 확인"
+                trigger_parts.append("횡보 구간 돌파 여부")
+            elif ctx.get("volume_weak"):
                 current_goal = "시장 참여 회복 확인"
                 blockers.append("시장 참여가 아직 충분하지 않음")
                 trigger_parts.append("거래대금 증가")
@@ -3781,39 +3903,68 @@ class AITSLargeChartDialog(QDialog):
                 blockers.append("단기 흐름이 아직 약함")
                 trigger_parts.append("하락 압력 완화")
             elif ctx.get("strength"):
-                current_goal = "회복 흐름 지속 여부 확인"
+                current_goal = "상승 흐름 지속 여부 확인"
                 trigger_parts.append("매수세 지속")
             else:
                 current_goal = self._format_ai_intent_goal(decision_text, state_text, briefing_state)
                 trigger_parts.append("방향성 확인")
 
             observation_points = []
-            if ctx.get("volume_weak") or trigger_parts:
-                observation_points.append("거래대금 증가 여부")
-            if ctx.get("rsi_oversold") or "RSI" in str(ctx.get("raw_text") or ""):
-                observation_points.append("RSI 회복 지속 여부")
-            if ctx.get("trend_weak") or ctx.get("strength"):
-                observation_points.append("단기 추세 반전 여부")
-            observation_points.append("시장 위험 선호 회복 여부")
+            if ctx.get("target_near"):
+                observation_points.extend(["목표 구간 접근 여부", "매도 압력 완화 여부"])
+            if ctx.get("target_far"):
+                observation_points.append("지지선 유지 여부")
+            if ctx.get("volume_weak"):
+                observation_points.append("시장 참여 회복 여부")
+            elif ctx.get("volume_rising") or ctx.get("strength"):
+                observation_points.append("거래량 증가 지속 여부")
+            else:
+                observation_points.append("거래대금 변화 여부")
+            if ctx.get("rsi_oversold"):
+                observation_points.append("과매도 이후 회복 흐름")
+            elif ctx.get("rsi_recovery") or "RSI" in raw_text:
+                observation_points.append("RSI 50 회복 여부")
+            if ctx.get("sideways"):
+                observation_points.append("방향성 확정 신호")
+            elif ctx.get("trend_weak") or ctx.get("defensive"):
+                observation_points.append("매도 압력 완화 여부")
+            elif ctx.get("strength"):
+                observation_points.append("최근 고점 돌파 여부")
+            if scenario_type in ("accumulation_ready", "weak_rebound"):
+                observation_points.append("회복 흐름 지속 여부")
+            elif scenario_type in ("bearish_drift", "sharp_drop_risk"):
+                observation_points.append("시장 위험 확대 여부")
+            else:
+                observation_points.append("시장 위험 선호 회복 여부")
             observation_points = list(dict.fromkeys(observation_points))[:4]
 
-            transition_candidates = ["계속 관찰"]
-            if ctx.get("strength") or ctx.get("rsi_oversold"):
-                transition_candidates.insert(0, "초기 진입 검토")
+            transition_candidates = []
+            if ctx.get("target_near"):
+                transition_candidates.extend(["목표 구간 재평가", "익절 검토"])
+            if ctx.get("strength") or (ctx.get("rsi_recovery") and ctx.get("volume_rising")):
+                transition_candidates.append("초기 진입 검토")
             if ctx.get("defensive") or ctx.get("trend_weak"):
                 transition_candidates.append("비중 축소 검토")
-            if "익절" in str(ctx.get("raw_text") or ""):
+            if ctx.get("sideways") or ctx.get("volume_weak"):
+                transition_candidates.append("계속 관찰")
+            if "익절" in raw_text:
                 transition_candidates.append("익절 검토")
-            if "로테이션" in str(ctx.get("raw_text") or ""):
+            if "로테이션" in raw_text:
                 transition_candidates.append("로테이션 검토")
+            if not transition_candidates:
+                transition_candidates.append("계속 관찰")
             transition_candidates = list(dict.fromkeys(transition_candidates))[:3]
 
-            if ctx.get("defensive") or ctx.get("trend_weak"):
+            if ctx.get("target_near"):
+                action_conditions = "목표 구간 접근이 이어지면 목표 구간 재평가 후보로 검토합니다."
+            elif ctx.get("defensive") or ctx.get("trend_weak"):
                 action_conditions = "위험 확대 시 비중 축소 후보로 검토합니다."
-            elif ctx.get("strength") or ctx.get("rsi_oversold"):
+            elif ctx.get("strength") or ctx.get("rsi_oversold") or ctx.get("rsi_recovery"):
                 action_conditions = "조건 충족 시 진입 후보로 재평가합니다."
             elif ctx.get("volume_weak"):
                 action_conditions = "조건 악화 시 관찰 유지를 우선합니다."
+            elif ctx.get("sideways"):
+                action_conditions = "방향성이 확인되면 다음 후보로 재평가합니다."
             else:
                 action_conditions = self._format_ai_intent_conditions(briefing_state, decision_text)
 
@@ -3821,7 +3972,7 @@ class AITSLargeChartDialog(QDialog):
             intent_trigger = " · ".join(trigger_parts[:2]) or "방향성 확인"
             candidate_transition = transition_candidates[0] if transition_candidates else "계속 관찰"
             return {
-                "schema": "aits_ai_intent.v2",
+                "schema": "aits_ai_intent.v3",
                 "intent_state": str(ctx.get("state") or "checking"),
                 "intent_title": "AI Intent",
                 "current_goal": current_goal,
@@ -3840,16 +3991,16 @@ class AITSLargeChartDialog(QDialog):
             }
         except Exception:
             return {
-                "schema": "aits_ai_intent.v2",
+                "schema": "aits_ai_intent.v3",
                 "intent_state": "checking",
                 "intent_title": "AI Intent",
-                "current_goal": "시장 참여 회복 확인",
+                "current_goal": "방향성 확정 신호 확인",
                 "observation_points": [
-                    "거래대금 증가 여부",
-                    "RSI 회복 지속 여부",
-                    "단기 추세 반전 여부",
+                    "거래대금 변화 여부",
+                    "RSI 50 회복 여부",
+                    "방향성 확정 신호",
                 ],
-                "action_conditions": "조건 충족 시 진입 후보로 재평가합니다.",
+                "action_conditions": "방향성이 확인되면 다음 후보로 재평가합니다.",
                 "candidate_transition": "계속 관찰",
                 "intent_transition_candidates": ["계속 관찰"],
                 "intent_reason": "preview context fallback",
