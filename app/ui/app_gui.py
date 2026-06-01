@@ -1606,11 +1606,13 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_ai_review_learning_placeholder = QLabel("최근 복기: 준비 중\n정책 변화: 준비 중")
         self.lbl_ai_intent_goal = QLabel("현재 목표\n방향성 확인")
         self.lbl_ai_intent_observation = QLabel("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
+        self.lbl_ai_intent_wait_reason = QLabel("대기 이유\n추가 확인 전까지 관찰을 유지합니다.")
         self.lbl_ai_intent_conditions = QLabel("행동 조건\n추가 신호 확인 전까지 관찰 유지")
         self.lbl_ai_intent_transition = QLabel("전환 후보\n운용 후보 재검토")
         try:
             self.lbl_ai_intent_goal.setObjectName("aitsIntentGoalLabel")
             self.lbl_ai_intent_observation.setObjectName("aitsIntentWatchLabel")
+            self.lbl_ai_intent_wait_reason.setObjectName("aitsIntentWaitReasonLabel")
             self.lbl_ai_intent_conditions.setObjectName("aitsIntentConditionLabel")
             self.lbl_ai_intent_transition.setObjectName("aitsIntentTransitionLabel")
         except Exception:
@@ -1622,6 +1624,7 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_placeholder,
             self.lbl_ai_intent_goal,
             self.lbl_ai_intent_observation,
+            self.lbl_ai_intent_wait_reason,
             self.lbl_ai_intent_conditions,
             self.lbl_ai_intent_transition,
             self.lbl_ai_review_learning_placeholder,
@@ -1638,6 +1641,7 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#64748b;")
             self.lbl_ai_intent_goal.setStyleSheet("font-size:11px; font-weight:800; color:#334155; line-height:140%;")
             self.lbl_ai_intent_observation.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:140%;")
+            self.lbl_ai_intent_wait_reason.setStyleSheet("font-size:11px; font-weight:800; color:#92400e; line-height:140%;")
             self.lbl_ai_intent_conditions.setStyleSheet("font-size:11px; font-weight:700; color:#475569; line-height:140%;")
             self.lbl_ai_intent_transition.setStyleSheet("font-size:11px; font-weight:800; color:#1d4ed8; line-height:140%;")
             self.lbl_ai_review_learning_placeholder.setStyleSheet("font-size:10px; font-weight:700; color:#94a3b8;")
@@ -1665,6 +1669,7 @@ class AITSLargeChartDialog(QDialog):
         intent_lay.addWidget(self.lbl_ai_intent_section_title)
         intent_lay.addWidget(self.lbl_ai_intent_goal)
         intent_lay.addWidget(self.lbl_ai_intent_observation)
+        intent_lay.addWidget(self.lbl_ai_intent_wait_reason)
         intent_lay.addWidget(self.lbl_ai_intent_conditions)
         intent_lay.addWidget(self.lbl_ai_intent_transition)
         try:
@@ -1688,6 +1693,7 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_briefing_keypoints.setVisible(False)
             self.lbl_ai_intent_goal.setText("현재 목표\n방향성 확인")
             self.lbl_ai_intent_observation.setText("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
+            self.lbl_ai_intent_wait_reason.setText("대기 이유\n추가 확인 전까지 관찰을 유지합니다.")
             self.lbl_ai_intent_conditions.setText("행동 조건\n추가 신호 확인 전까지 관찰 유지")
             self.lbl_ai_intent_transition.setText("전환 후보\n운용 후보 재검토")
             self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
@@ -3693,6 +3699,12 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_observation.setText(
                 "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:3])
             )
+            wait_reason = str(
+                intent.get("wait_reason_detail")
+                or intent.get("why_not_buy")
+                or "추가 확인 전까지 관찰을 유지합니다."
+            ).strip()
+            self.lbl_ai_intent_wait_reason.setText(f"대기 이유\n{wait_reason}")
             self.lbl_ai_intent_conditions.setText(f"행동 조건\n{action_conditions}")
             self.lbl_ai_intent_transition.setText(f"전환 후보\n{transition}")
             self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
@@ -3924,40 +3936,106 @@ class AITSLargeChartDialog(QDialog):
             if chart_uptrend:
                 current_goal = "상승 흐름 유지 여부 확인"
                 trigger_parts.append("RSI 회복과 단기 추세 회복")
+                wait_reason_title = "추세 확인 대기"
+                wait_reason_detail = "회복 흐름은 보이지만 추세와 거래량이 유지되는지 확인이 필요합니다."
+                why_not_buy = "성급한 진입보다 매수세 지속 여부를 먼저 확인합니다."
+                why_not_sell = "상승 회복 신호가 남아 있어 즉시 축소를 확정할 단계는 아닙니다."
+                blocker_signals = ["추세 지속 확인 필요", "거래량 유지 확인 필요"]
+                required_confirmation = "매수세와 단기 추세가 함께 유지되는지 확인합니다."
             elif chart_downtrend:
                 current_goal = "하락 압력 완화 확인"
                 blockers.append("RSI와 거래량, 이동평균 흐름이 약함")
                 trigger_parts.append("저점 방어와 거래량 회복")
+                wait_reason_title = "저점 안정화 대기"
+                wait_reason_detail = "하락 압력이 남아 있어 저점 안정화가 먼저 필요합니다."
+                why_not_buy = "매수세가 충분히 확인되지 않아 성급한 진입은 보류합니다."
+                why_not_sell = "위험 신호는 있으나 즉시 축소를 확정할 만큼 강하지 않습니다."
+                blocker_signals = ["저점 방어 미확인", "거래량 회복 미확인", "이동평균 하방 흐름"]
+                required_confirmation = "저점 방어와 매도 압력 완화를 확인합니다."
             elif ctx.get("target_near"):
                 current_goal = "목표 구간 진입 가능성 확인"
                 trigger_parts.append("목표 구간 접근")
+                wait_reason_title = "목표 구간 확인 대기"
+                wait_reason_detail = "목표 구간에 가까워 무리한 신규 진입보다 수익과 위험 균형 확인이 우선입니다."
+                why_not_buy = "목표 구간 근접 상태라 돌파 지속 확인 전까지 신규 진입은 보류합니다."
+                why_not_sell = "돌파가 이어질 수 있어 차익실현 압력과 흐름 지속을 함께 확인합니다."
+                blocker_signals = ["목표 구간 근접", "차익실현 압력 확인 필요"]
+                required_confirmation = "돌파 지속 또는 차익실현 압력을 확인합니다."
             elif ctx.get("rsi_recovery") and (ctx.get("volume_rising") or ctx.get("strength")):
                 current_goal = "상승 전환 가능성 확인"
                 trigger_parts.append("회복 흐름과 시장 참여 동반")
+                wait_reason_title = "전환 확인 대기"
+                wait_reason_detail = "회복 흐름은 보이지만 아직 단기 추세 전환이 확정되지 않았습니다."
+                why_not_buy = "RSI 회복과 거래량 증가가 유지되는지 확인한 뒤 후보를 재평가합니다."
+                why_not_sell = "회복 시도가 남아 있어 즉시 방어 대응으로 확정하지 않습니다."
+                blocker_signals = ["단기 추세 전환 미확정", "회복 지속 확인 필요"]
+                required_confirmation = "RSI 회복이 유지되는지 확인합니다."
             elif ctx.get("target_far") and (ctx.get("rsi_oversold") or ctx.get("trend_weak") or ctx.get("defensive")):
                 current_goal = "하락 압력 완화 확인"
                 blockers.append("목표 구간까지 여유가 있으나 흐름이 약함")
                 trigger_parts.append("매도 압력 완화")
+                wait_reason_title = "약세 완화 대기"
+                wait_reason_detail = "하락 압력이 남아 있어 저점 안정화가 먼저 필요합니다."
+                why_not_buy = "목표 여력은 있어도 매도 압력 완화가 확인되기 전까지 진입은 보류합니다."
+                why_not_sell = "축소 후보는 검토하되 회복 여부를 추가 확인합니다."
+                blocker_signals = ["목표가 대비 거리 존재", "약세 흐름 지속"]
+                required_confirmation = "저점 방어와 매도 압력 완화를 확인합니다."
             elif ctx.get("sideways"):
                 current_goal = "방향성 확정 신호 확인"
                 trigger_parts.append("횡보 구간 돌파 여부")
+                wait_reason_title = "방향성 대기"
+                wait_reason_detail = "방향성이 아직 충분히 확인되지 않아 관찰 유지가 우선입니다."
+                why_not_buy = "돌파나 거래량 증가가 확인되기 전까지 진입 후보로 확정하지 않습니다."
+                why_not_sell = "하락 위험이 확정되지 않아 방어 대응도 보류합니다."
+                blocker_signals = ["방향성 미확정", "돌파 신호 부족"]
+                required_confirmation = "방향성 확정 신호와 거래량 변화를 확인합니다."
             elif ctx.get("volume_weak"):
                 current_goal = "시장 참여 회복 확인"
                 blockers.append("시장 참여가 아직 충분하지 않음")
                 trigger_parts.append("거래대금 증가")
+                wait_reason_title = "시장 참여 대기"
+                wait_reason_detail = "매수세가 아직 충분히 확인되지 않아 성급한 진입은 보류합니다."
+                why_not_buy = "거래량 증가가 동반되는지 확인하기 전까지 진입 후보로 확정하지 않습니다."
+                why_not_sell = "거래량 부족만으로 즉시 축소를 확정하지 않고 흐름 변화를 확인합니다."
+                blocker_signals = ["거래량 부족", "시장 참여 약함"]
+                required_confirmation = "거래량 증가가 동반되는지 확인합니다."
             elif ctx.get("rsi_oversold"):
                 current_goal = "매수세 유입 여부 확인"
                 trigger_parts.append("과매도 이후 회복 지속")
+                wait_reason_title = "회복 확인 대기"
+                wait_reason_detail = "과매도 구간 이후 회복 흐름이 실제 매수세로 이어지는지 확인이 필요합니다."
+                why_not_buy = "반등 신호가 단기 회복에 그칠 수 있어 RSI 회복 지속을 먼저 확인합니다."
+                why_not_sell = "과매도 구간에서는 급한 방어보다 회복 여부 확인이 필요합니다."
+                blocker_signals = ["RSI 과매도", "회복 지속 미확인"]
+                required_confirmation = "RSI 회복이 유지되는지 확인합니다."
             elif ctx.get("trend_weak") or ctx.get("defensive"):
                 current_goal = "하락 압력 완화 확인"
                 blockers.append("단기 흐름이 아직 약함")
                 trigger_parts.append("하락 압력 완화")
+                wait_reason_title = "위험 완화 대기"
+                wait_reason_detail = "하락 압력이 남아 있어 저점 안정화가 먼저 필요합니다."
+                why_not_buy = "추세 약세가 완화되기 전까지 진입 후보로 확정하지 않습니다."
+                why_not_sell = "위험 신호는 있으나 즉시 축소를 확정할 만큼 강하지 않습니다."
+                blocker_signals = ["단기 흐름 약세", "하락 압력 잔존"]
+                required_confirmation = "지지선 이탈 또는 회복 여부를 추가 확인합니다."
             elif ctx.get("strength"):
                 current_goal = "상승 흐름 지속 여부 확인"
                 trigger_parts.append("매수세 지속")
+                wait_reason_title = "지속성 확인 대기"
+                wait_reason_detail = "강한 흐름은 보이지만 과열 또는 추격 위험을 함께 확인해야 합니다."
+                why_not_buy = "추격 진입보다 매수세 지속과 눌림 안정성을 확인합니다."
+                why_not_sell = "상승 흐름이 남아 있어 즉시 방어 대응으로 확정하지 않습니다."
+                blocker_signals = ["추격 위험", "지속성 확인 필요"]
+                required_confirmation = "거래량 유지와 단기 고점 돌파 여부를 확인합니다."
             else:
                 current_goal = self._format_ai_intent_goal(decision_text, state_text, briefing_state)
                 trigger_parts.append("방향성 확인")
+                wait_reason_title = "추가 확인 대기"
+                wait_reason_detail = "핵심 조건이 아직 충분히 모이지 않아 관찰을 유지합니다."
+                why_not_buy = "진입 후보로 확정하기 위한 추가 확인이 필요합니다."
+                why_not_sell = "축소 후보로 확정하기 위한 위험 신호가 충분하지 않습니다."
+                blocker_signals = ["확인 조건 부족"]
+                required_confirmation = "가격 흐름과 거래량 변화를 추가 확인합니다."
 
             observation_points = []
             if chart_uptrend:
@@ -4034,7 +4112,7 @@ class AITSLargeChartDialog(QDialog):
             intent_trigger = " · ".join(trigger_parts[:2]) or "방향성 확인"
             candidate_transition = transition_candidates[0] if transition_candidates else "계속 관찰"
             return {
-                "schema": "aits_ai_intent.v3",
+                "schema": "aits_ai_intent.v4",
                 "intent_state": str(ctx.get("state") or "checking"),
                 "intent_title": "AI Intent",
                 "current_goal": current_goal,
@@ -4045,6 +4123,12 @@ class AITSLargeChartDialog(QDialog):
                 "intent_reason": intent_reason,
                 "intent_trigger": intent_trigger,
                 "intent_blockers": blockers,
+                "wait_reason_title": wait_reason_title,
+                "wait_reason_detail": wait_reason_detail,
+                "why_not_buy": why_not_buy,
+                "why_not_sell": why_not_sell,
+                "blocker_signals": blocker_signals,
+                "required_confirmation": required_confirmation,
                 "intent_chart_state": {
                     "rsi": ctx.get("rsi"),
                     "rsi_delta": ctx.get("rsi_delta"),
@@ -4062,7 +4146,7 @@ class AITSLargeChartDialog(QDialog):
             }
         except Exception:
             return {
-                "schema": "aits_ai_intent.v3",
+                "schema": "aits_ai_intent.v4",
                 "intent_state": "checking",
                 "intent_title": "AI Intent",
                 "current_goal": "방향성 확정 신호 확인",
@@ -4077,6 +4161,12 @@ class AITSLargeChartDialog(QDialog):
                 "intent_reason": "preview context fallback",
                 "intent_trigger": "방향성 확인",
                 "intent_blockers": [],
+                "wait_reason_title": "추가 확인 대기",
+                "wait_reason_detail": "핵심 조건이 아직 충분히 모이지 않아 관찰을 유지합니다.",
+                "why_not_buy": "진입 후보로 확정하기 위한 추가 확인이 필요합니다.",
+                "why_not_sell": "축소 후보로 확정하기 위한 위험 신호가 충분하지 않습니다.",
+                "blocker_signals": ["확인 조건 부족"],
+                "required_confirmation": "가격 흐름과 거래량 변화를 추가 확인합니다.",
                 "intent_chart_state": {},
                 "intent_type": "checking",
                 "intent_summary": "방향성 확정 신호 확인 · 계속 관찰",
