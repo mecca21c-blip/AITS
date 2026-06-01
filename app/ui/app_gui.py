@@ -1542,7 +1542,7 @@ class AITSLargeChartDialog(QDialog):
         try:
             card.setStyleSheet(
                 "QFrame#frmDetailPopupCard {"
-                "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
+                "background:#ffffff; border:1px solid #E5E7EB; border-radius:12px;"
                 "}"
             )
         except Exception:
@@ -1572,12 +1572,12 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(14, 12, 14, 12)
-        lay.setSpacing(8)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
         title = QLabel(title_text)
         try:
             title.setTextFormat(Qt.TextFormat.PlainText)
-            title.setStyleSheet("font-size:13px; font-weight:800; color:#111827;")
+            title.setStyleSheet("font-size:13px; font-weight:900; color:#111827;")
         except Exception:
             pass
         lay.addWidget(title, 0)
@@ -1667,6 +1667,10 @@ class AITSLargeChartDialog(QDialog):
         intent_lay.addWidget(self.lbl_ai_intent_observation)
         intent_lay.addWidget(self.lbl_ai_intent_conditions)
         intent_lay.addWidget(self.lbl_ai_intent_transition)
+        try:
+            self.lbl_ai_intent_section_title.setVisible(False)
+        except Exception:
+            pass
         try:
             self.lbl_ai_briefing_title.setText("AI Intent")
             self.lbl_ai_briefing_summary.setText(
@@ -2605,18 +2609,19 @@ class AITSLargeChartDialog(QDialog):
         try:
             self._frm_detail_popup_scenario_card.setStyleSheet(
                 "QFrame#frmDetailSidebarCard {"
-                "background:#f8fafc; border:1px solid #d9dde3; border-radius:12px;"
+                "background:#f8fafc; border:1px solid #E5E7EB; border-radius:12px;"
                 "}"
             )
             self._frm_detail_popup_eta_card.setStyleSheet(
                 "QFrame#frmDetailSidebarCard {"
-                "background:#ffffff; border:1px solid #d9dde3; border-radius:12px;"
+                "background:#ffffff; border:1px solid #E5E7EB; border-radius:12px;"
                 "}"
             )
         except Exception:
             pass
 
         self.lbl_detail_popup_decision = self._make_detail_popup_value_label()
+        self.lbl_detail_popup_decision_state_title = QLabel("상태")
         self.lbl_detail_popup_decision_big = QLabel("STAY")
         self.lbl_detail_popup_decision_sub = QLabel("-")
         self.lbl_detail_popup_score = QLabel("AI 점수 -")
@@ -2648,8 +2653,11 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
+        self.lbl_detail_popup_decision_state_title.setStyleSheet(
+            "font-size:11px; font-weight:800; color:#6B7280;"
+        )
         self.lbl_detail_popup_decision_big.setStyleSheet(
-            "font-size:30px; font-weight:900; color:#b45309;"
+            "font-size:32px; font-weight:900; color:#b45309;"
         )
         self.lbl_detail_popup_decision_sub.setStyleSheet(
             "font-size:13px; font-weight:700; color:#6b7280;"
@@ -2675,7 +2683,8 @@ class AITSLargeChartDialog(QDialog):
             "font-size:18px; font-weight:900; color:#111827;"
         )
         self.lbl_asset_scenario_source.setStyleSheet(
-            "font-size:10px; font-weight:800; color:#64748b;"
+            "font-size:10px; font-weight:800; color:#3B82F6; "
+            "background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:2px 6px;"
         )
         try:
             self.lbl_asset_scenario_source.setText("기준: AI 기본값")
@@ -2705,7 +2714,8 @@ class AITSLargeChartDialog(QDialog):
             "font-size:12px; font-weight:800; color:#6b7280;"
         )
         self.lbl_asset_eta_source.setStyleSheet(
-            "font-size:10px; font-weight:800; color:#64748b;"
+            "font-size:10px; font-weight:800; color:#3B82F6; "
+            "background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:2px 6px;"
         )
         self.lbl_detail_popup_eta_main.setStyleSheet(
             "font-size:20px; font-weight:900; color:#111827;"
@@ -2737,6 +2747,7 @@ class AITSLargeChartDialog(QDialog):
         )
 
         status_lay = self._frm_detail_ai_status_card.layout()
+        status_lay.addWidget(self.lbl_detail_popup_decision_state_title)
         status_lay.addWidget(self.lbl_detail_popup_decision_big)
         status_lay.addWidget(self.lbl_detail_popup_decision_sub)
         status_lay.addWidget(self.lbl_detail_popup_score)
@@ -3539,6 +3550,138 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_goal.setText(f"현재 목표\n{current_goal}")
             self.lbl_ai_intent_observation.setText(
                 "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:4])
+            )
+            self.lbl_ai_intent_conditions.setText(f"행동 조건\n{action_conditions}")
+            self.lbl_ai_intent_transition.setText(f"전환 후보\n{transition}")
+            self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
+        except Exception:
+            pass
+
+    def _format_ai_intent_goal(self, decision_text="", state_text="", briefing_state=""):
+        try:
+            raw = f"{decision_text} {state_text} {briefing_state}".upper()
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch" or "RISK" in raw or "SELL" in raw:
+                return "하락 압력이 줄어드는지 확인"
+            if state == "strength_check" or "BUY" in raw:
+                return "매수세가 이어질 수 있는지 확인"
+            if "ROTATE" in raw or "로테이션" in str(state_text):
+                return "더 나은 후보로 갈아탈 필요가 있는지 확인"
+            if state == "observe" or "STAY" in raw or "WATCH" in raw or "HOLD" in raw:
+                return "시장 흐름이 상승 방향으로 바뀌는지 확인"
+            return "추세 전환 신호가 실제로 이어지는지 확인"
+        except Exception:
+            return "추세 전환 신호가 실제로 이어지는지 확인"
+
+    def _format_ai_intent_observation(self, reason_lines=None, briefing_state=""):
+        try:
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch":
+                points = [
+                    "손실 압력이 더 커지는지 확인",
+                    "주요 지지 구간을 지키는지 확인",
+                    "시장 참여가 줄어드는지 확인",
+                ]
+            elif state == "strength_check":
+                points = [
+                    "매수세가 다시 살아나는지 확인",
+                    "단기 상승 흐름으로 전환되는지 확인",
+                    "과열 없이 회복이 이어지는지 확인",
+                ]
+            elif state == "rotation_watch":
+                points = [
+                    "기존 후보의 힘이 약해지는지 확인",
+                    "새 후보의 상대 강도가 높아지는지 확인",
+                    "현금 여력이 충분한지 확인",
+                ]
+            else:
+                points = [
+                    "매수세가 다시 살아나는지 확인",
+                    "과매도 이후 회복 흐름이 이어지는지 확인",
+                    "단기 상승 흐름으로 전환되는지 확인",
+                ]
+            clean_reason_points = []
+            for item in reason_lines or []:
+                point = self._strip_detail_popup_narrative_item(item)
+                if not point:
+                    continue
+                if "거래대금 부족" in point:
+                    point = "시장 참여가 아직 충분하지 않음"
+                elif "거래대금" in point or "거래량" in point:
+                    point = "매수세가 다시 살아나는지 확인"
+                elif "RSI" in point:
+                    point = "과매도 이후 회복 흐름이 이어지는지 확인"
+                elif "추세" in point:
+                    point = "단기 상승 흐름으로 전환되는지 확인"
+                if point not in clean_reason_points:
+                    clean_reason_points.append(point)
+                if len(clean_reason_points) >= 2:
+                    break
+            return (clean_reason_points + points)[:3]
+        except Exception:
+            return [
+                "매수세가 다시 살아나는지 확인",
+                "과매도 이후 회복 흐름이 이어지는지 확인",
+                "단기 상승 흐름으로 전환되는지 확인",
+            ]
+
+    def _format_ai_intent_conditions(self, briefing_state="", decision_text=""):
+        try:
+            raw = f"{briefing_state} {decision_text}".upper()
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch" or "RISK" in raw or "SELL" in raw:
+                return "위험 신호가 커지면 보수적 대응을 다시 검토합니다."
+            if state == "strength_check" or "BUY" in raw:
+                return "회복 흐름이 이어지면 초기 진입을 검토합니다."
+            if "ROTATE" in raw or state == "rotation_watch":
+                return "새 후보의 힘이 더 강해지면 로테이션을 검토합니다."
+            if state == "observe" or "STAY" in raw or "WATCH" in raw:
+                return "조건이 약하면 계속 관찰을 우선합니다."
+            return "조건이 개선되면 다음 운용 후보로 다시 검토합니다."
+        except Exception:
+            return "조건이 개선되면 다음 운용 후보로 다시 검토합니다."
+
+    def _format_ai_intent_transition(self, briefing_state="", decision_text=""):
+        try:
+            raw = f"{briefing_state} {decision_text}".upper()
+            state = str(briefing_state or "").strip()
+            if state == "risk_watch" or "RISK" in raw or "SELL" in raw:
+                return "보수적 대응 검토"
+            if state == "strength_check" or "BUY" in raw:
+                return "초기 진입 검토"
+            if "ROTATE" in raw or state == "rotation_watch":
+                return "로테이션 검토"
+            if state == "observe" or "STAY" in raw or "WATCH" in raw:
+                return "계속 관찰"
+            return "다음 후보 검토"
+        except Exception:
+            return "다음 후보 검토"
+
+    def _sync_ai_intent_labels(self, snapshot=None):
+        try:
+            intent = snapshot or self._build_ai_intent_snapshot()
+            self.lbl_ai_intent_placeholder.setVisible(False)
+            self.lbl_ai_briefing_keypoints.setVisible(False)
+            self.lbl_ai_intent_section_title.setVisible(False)
+            current_goal = str(intent.get("current_goal") or "시장 흐름이 상승 방향으로 바뀌는지 확인")
+            raw_points = intent.get("observation_points") or []
+            if isinstance(raw_points, str):
+                points = [
+                    line.strip().lstrip("•").strip()
+                    for line in raw_points.splitlines()
+                    if line.strip()
+                ]
+            else:
+                points = [str(p).strip() for p in raw_points if str(p).strip()]
+            if len(points) < 2:
+                points = self._format_ai_intent_observation([], str(intent.get("intent_state") or ""))
+            action_conditions = str(
+                intent.get("action_conditions") or "조건이 개선되면 다음 운용 후보로 다시 검토합니다."
+            )
+            transition = str(intent.get("candidate_transition") or "다음 후보 검토")
+            self.lbl_ai_intent_goal.setText(f"현재 목표\n{current_goal}")
+            self.lbl_ai_intent_observation.setText(
+                "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:3])
             )
             self.lbl_ai_intent_conditions.setText(f"행동 조건\n{action_conditions}")
             self.lbl_ai_intent_transition.setText(f"전환 후보\n{transition}")
