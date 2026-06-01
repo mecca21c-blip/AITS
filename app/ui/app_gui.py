@@ -3169,15 +3169,21 @@ class AITSLargeChartDialog(QDialog):
         try:
             scenario_type = str(scenario_type or "sideways_wait").strip()
             prefix = str(base_text or "").strip()
-            if scenario_type in ("bullish_breakout", "accumulation_ready", "weak_rebound"):
-                body = "거래량 증가 시 긍정적 흐름이 이어질 수 있습니다."
-                title = "상승 시나리오"
-            elif scenario_type in ("bearish_drift", "sharp_drop_risk"):
-                body = "시장 참여 감소 시 관망 가능성이 높아질 수 있습니다."
-                title = "하락 시나리오"
+            if scenario_type in ("bullish_reversal_watch", "bullish_breakout", "accumulation_ready", "weak_rebound"):
+                body = "상승 흐름으로 전환되는지 확인 중입니다."
+                title = "상승 전환 관찰형"
+            elif scenario_type == "defensive_watch" or scenario_type in ("bearish_drift",):
+                body = "위험 완화와 저점 안정화를 우선 관찰합니다."
+                title = "방어 관찰형"
+            elif scenario_type == "target_zone_approach":
+                body = "목표 구간 진입 가능성을 확인 중입니다."
+                title = "목표 구간 접근형"
+            elif scenario_type == "volatility_alert" or scenario_type in ("sharp_drop_risk",):
+                body = "변동성 확대 구간으로 추가 확인이 필요합니다."
+                title = "변동성 경계형"
             else:
-                body = "방향성 확인 전까지 현재 구간이 유지될 수 있습니다."
-                title = "횡보 시나리오"
+                body = "방향성 확정 신호를 기다리고 있습니다."
+                title = "횡보 확인형"
             return f"{title}: {body}"
         except Exception:
             return "횡보 시나리오: 방향성 확인 전까지 현재 구간이 유지될 수 있습니다."
@@ -4420,6 +4426,11 @@ class AITSLargeChartDialog(QDialog):
             "weak_rebound": "추세 전환 대기형",
             "bearish_drift": "변동성 확대형",
             "sharp_drop_risk": "변동성 확대형",
+            "bullish_reversal_watch": "상승 전환 관찰형",
+            "defensive_watch": "방어 관찰형",
+            "sideways_confirm": "횡보 확인형",
+            "target_zone_approach": "목표 구간 접근형",
+            "volatility_alert": "변동성 경계형",
         }
         return labels.get(str(scenario_type or "").strip(), "횡보 관찰형")
 
@@ -4433,26 +4444,129 @@ class AITSLargeChartDialog(QDialog):
                 "weak_rebound",
                 "bearish_drift",
                 "sharp_drop_risk",
+                "bullish_reversal_watch",
+                "defensive_watch",
+                "sideways_confirm",
+                "target_zone_approach",
+                "volatility_alert",
             ):
                 scenario_type = "sideways_wait"
             confidence = max(0.0, min(1.0, float(confidence or 0.55)))
+            snapshot = self._build_detail_popup_scenario_snapshot(scenario_type, confidence)
+            self._detail_popup_scenario_snapshot = snapshot
             self._detail_popup_scenario_type = scenario_type
             self._detail_popup_scenario_confidence = confidence
             self.lbl_detail_popup_scenario_title.setText(
-                self._translate_detail_popup_scenario_label(scenario_type)
+                str(snapshot.get("scenario_title") or self._translate_detail_popup_scenario_label(scenario_type))
             )
             self.lbl_detail_popup_scenario_type.setText("AI 운용 시나리오")
             self.lbl_detail_popup_scenario_context.setText(
-                self._format_reasoning_narrative_scenario(
-                    scenario_type,
-                    self.lbl_detail_popup_scenario_context.text(),
-                )
+                str(snapshot.get("scenario_summary") or "")
             )
             self.lbl_detail_popup_scenario_confidence.setText(
                 f"신뢰도 {int(round(confidence * 100.0))}%"
             )
         except Exception:
             pass
+
+    def _build_detail_popup_scenario_snapshot(self, scenario_type: str, confidence: float = 0.55):
+        try:
+            key = str(scenario_type or "sideways_confirm").strip()
+            summaries = {
+                "bullish_reversal_watch": (
+                    "상승 전환 관찰형",
+                    "상승 흐름으로 전환되는지\n확인 중입니다.",
+                    "upside_watch",
+                    "RSI/MA/volume recovery",
+                ),
+                "defensive_watch": (
+                    "방어 관찰형",
+                    "위험 완화와\n저점 안정화를 우선 관찰합니다.",
+                    "defensive",
+                    "weak RSI/volume/MA",
+                ),
+                "sideways_confirm": (
+                    "횡보 확인형",
+                    "방향성 확정 신호를\n기다리고 있습니다.",
+                    "neutral",
+                    "range confirmation",
+                ),
+                "target_zone_approach": (
+                    "목표 구간 접근형",
+                    "목표 구간 진입 가능성을\n확인 중입니다.",
+                    "target_watch",
+                    "target gap near",
+                ),
+                "volatility_alert": (
+                    "변동성 경계형",
+                    "변동성 확대 구간으로\n추가 확인이 필요합니다.",
+                    "volatility",
+                    "expanded volatility",
+                ),
+                "bullish_breakout": (
+                    "상승 전환 관찰형",
+                    "상승 흐름으로 전환되는지\n확인 중입니다.",
+                    "upside_watch",
+                    "legacy bullish breakout",
+                ),
+                "accumulation_ready": (
+                    "상승 전환 관찰형",
+                    "상승 흐름으로 전환되는지\n확인 중입니다.",
+                    "upside_watch",
+                    "legacy accumulation",
+                ),
+                "weak_rebound": (
+                    "상승 전환 관찰형",
+                    "회복 흐름이 이어지는지\n확인 중입니다.",
+                    "upside_watch",
+                    "legacy weak rebound",
+                ),
+                "bearish_drift": (
+                    "방어 관찰형",
+                    "위험 완화와\n저점 안정화를 우선 관찰합니다.",
+                    "defensive",
+                    "legacy bearish drift",
+                ),
+                "sharp_drop_risk": (
+                    "변동성 경계형",
+                    "변동성 확대 구간으로\n추가 확인이 필요합니다.",
+                    "volatility",
+                    "legacy sharp drop risk",
+                ),
+                "sideways_wait": (
+                    "횡보 확인형",
+                    "방향성 확정 신호를\n기다리고 있습니다.",
+                    "neutral",
+                    "legacy sideways",
+                ),
+            }
+            title, summary, risk_bias, trigger = summaries.get(key, summaries["sideways_confirm"])
+            conf = max(0.0, min(1.0, float(confidence or 0.55)))
+            return {
+                "schema": "aits_ai_scenario.v2",
+                "scenario_key": key,
+                "scenario_title": title,
+                "scenario_summary": summary,
+                "scenario_confidence": conf,
+                "scenario_risk_bias": risk_bias,
+                "scenario_trigger": trigger,
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_ai_scenario.v2",
+                "scenario_key": "sideways_confirm",
+                "scenario_title": "횡보 확인형",
+                "scenario_summary": "방향성 확정 신호를\n기다리고 있습니다.",
+                "scenario_confidence": 0.55,
+                "scenario_risk_bias": "neutral",
+                "scenario_trigger": "fallback",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
 
     def set_action_badge_variant(self, variant: str):
         try:
@@ -21105,6 +21219,43 @@ class MainWindow(QMainWindow):
             except Exception:
                 trend = 0.0
 
+            chart_ctx = {}
+            try:
+                chart_ctx = self._build_detail_chart_intent_context_from_mpf(
+                    mpf_df,
+                    current_price=current_price,
+                    target_price=target_price,
+                )
+            except Exception:
+                chart_ctx = {}
+            try:
+                target_gap = chart_ctx.get("target_gap_pct")
+                volatility_pct = float(chart_ctx.get("volatility_pct") or 0.0)
+                recent_change_pct = float(chart_ctx.get("recent_change_pct") or 0.0)
+                chart_uptrend = (
+                    bool(chart_ctx.get("rsi_rising"))
+                    and bool(chart_ctx.get("ma20_recovered"))
+                    and bool(chart_ctx.get("volume_rising"))
+                )
+                chart_downtrend = (
+                    bool(chart_ctx.get("rsi_low"))
+                    and bool(chart_ctx.get("volume_weak"))
+                    and bool(chart_ctx.get("ma_bearish"))
+                )
+                if volatility_pct >= 2.8 or abs(recent_change_pct) >= 5.0:
+                    return "volatility_alert", confidence
+                if target_gap is not None and 0.0 <= float(target_gap) <= 2.5:
+                    return "target_zone_approach", confidence
+                if chart_uptrend:
+                    return "bullish_reversal_watch", confidence
+                if chart_downtrend:
+                    return "defensive_watch", confidence
+                if bool(chart_ctx.get("ma_bearish")) or bool(chart_ctx.get("volume_weak")):
+                    return "defensive_watch", confidence
+                return "sideways_confirm", confidence
+            except Exception:
+                pass
+
             stay_like = variant in ("watch", "hold", "neutral") or any(
                 k in text for k in ("stay", "watch", "hold", "관망", "대기", "확인", "모니터링", "거래량 부족", "데이터 부족")
             )
@@ -21141,6 +21292,11 @@ class MainWindow(QMainWindow):
             "weak_rebound": "약반등 확인형",
             "bearish_drift": "하락 지속형",
             "sharp_drop_risk": "급락 경계형",
+            "bullish_reversal_watch": "상승 전환 관찰형",
+            "defensive_watch": "방어 관찰형",
+            "sideways_confirm": "횡보 확인형",
+            "target_zone_approach": "목표 구간 접근형",
+            "volatility_alert": "변동성 경계형",
         }
         return labels.get(str(scenario_type or "").strip(), "횡보 관찰형")
 
@@ -21481,6 +21637,23 @@ class MainWindow(QMainWindow):
             ma_bearish = current < ma20_last and ma20_last < ma60_last
             if len(close_s) >= 80:
                 ma_bearish = ma_bearish or (current < ma20_last < ma60_last < ma120_last)
+            recent_change_pct = 0.0
+            volatility_pct = 0.0
+            try:
+                recent_s = close_s.tail(12)
+                if len(recent_s) >= 2 and float(recent_s.iloc[0]) != 0:
+                    recent_change_pct = (
+                        (float(recent_s.iloc[-1]) - float(recent_s.iloc[0]))
+                        / float(recent_s.iloc[0])
+                    ) * 100.0
+            except Exception:
+                recent_change_pct = 0.0
+            try:
+                returns_s = close_s.pct_change().dropna().tail(20)
+                if not returns_s.empty:
+                    volatility_pct = float(returns_s.std() or 0.0) * 100.0
+            except Exception:
+                volatility_pct = 0.0
 
             return {
                 "schema": "aits_detail_chart_intent_context.v1",
@@ -21500,6 +21673,8 @@ class MainWindow(QMainWindow):
                 "volume_ratio": volume_ratio,
                 "volume_rising": volume_ratio is not None and volume_ratio >= 1.12,
                 "volume_weak": volume_ratio is not None and volume_ratio <= 0.82,
+                "recent_change_pct": recent_change_pct,
+                "volatility_pct": volatility_pct,
             }
         except Exception:
             return {}
@@ -21805,6 +21980,11 @@ class MainWindow(QMainWindow):
                         "accumulation_ready": "작은 박스권 이후 완만한 우상향 대기 시나리오",
                         "bearish_drift": "약한 반등 후 완만한 하락 점검 시나리오",
                         "sharp_drop_risk": "후반 하락 가속 가능성 경계 시나리오",
+                        "bullish_reversal_watch": "상승 흐름으로 전환되는지 확인 중입니다.",
+                        "defensive_watch": "위험 완화와 저점 안정화를 우선 관찰합니다.",
+                        "sideways_confirm": "방향성 확정 신호를 기다리고 있습니다.",
+                        "target_zone_approach": "목표 구간 진입 가능성을 확인 중입니다.",
+                        "volatility_alert": "변동성 확대 구간으로 추가 확인이 필요합니다.",
                     }
                     if hasattr(dlg, "lbl_detail_popup_scenario_context"):
                         base_desc = scenario_descriptions.get(
