@@ -3765,7 +3765,16 @@ class AITSLargeChartDialog(QDialog):
                     pass
             text = " ".join(parts)
             upper = text.upper()
-            scenario_type = str(getattr(self, "_detail_popup_scenario_type", "") or "").strip()
+            chart_ctx = {}
+            try:
+                chart_ctx = dict(getattr(self, "_detail_popup_chart_intent_context", {}) or {})
+            except Exception:
+                chart_ctx = {}
+            scenario_type = str(
+                getattr(self, "_detail_popup_scenario_type", "")
+                or chart_ctx.get("scenario_type")
+                or ""
+            ).strip()
             current_price = _first_number(
                 _label_text("lbl_detail_popup_current_price")
                 or _label_text("lbl_detail_popup_chart_price")
@@ -3774,13 +3783,21 @@ class AITSLargeChartDialog(QDialog):
                 _label_text("lbl_detail_popup_target_price")
                 or _label_text("lbl_detail_popup_chart_target")
             )
+            if current_price is None:
+                current_price = chart_ctx.get("current_price")
+            if target_price is None:
+                target_price = chart_ctx.get("target_price")
             target_gap_pct = None
             if current_price and target_price:
                 try:
                     target_gap_pct = ((float(target_price) - float(current_price)) / float(current_price)) * 100.0
                 except Exception:
                     target_gap_pct = None
+            if target_gap_pct is None:
+                target_gap_pct = chart_ctx.get("target_gap_pct")
             rsi = _rsi_value(text)
+            if rsi is None:
+                rsi = chart_ctx.get("rsi")
             volume_weak = any(
                 token in text
                 for token in (
@@ -3791,7 +3808,7 @@ class AITSLargeChartDialog(QDialog):
                     "volume weak",
                     "low volume",
                 )
-            )
+            ) or bool(chart_ctx.get("volume_weak"))
             volume_rising = any(
                 token in text
                 for token in (
@@ -3801,31 +3818,43 @@ class AITSLargeChartDialog(QDialog):
                     "volume up",
                     "volume rising",
                 )
-            )
+            ) or bool(chart_ctx.get("volume_rising"))
             rsi_oversold = (
                 any(token in text for token in ("RSI 과매도", "과매도", "oversold"))
                 or (rsi is not None and rsi <= 35.0)
+                or bool(chart_ctx.get("rsi_low"))
             )
             rsi_recovery = (
                 any(token in text for token in ("RSI 회복", "회복 흐름", "rebound"))
                 or (rsi is not None and 35.0 < rsi < 55.0)
+                or bool(chart_ctx.get("rsi_rising"))
             )
             trend_weak = (
                 any(token in text for token in ("추세 약세", "시장 약세", "하락", "weak", "risk"))
                 or scenario_type in ("bearish_drift", "sharp_drop_risk")
+                or bool(chart_ctx.get("ma_bearish"))
             )
             sideways = scenario_type in ("sideways_wait", "")
             target_near = target_gap_pct is not None and 0.0 <= target_gap_pct <= 2.5
             target_far = target_gap_pct is not None and target_gap_pct >= 5.0
-            strength = any(token in upper for token in ("BUY", "STRENGTH", "상승", "강세"))
+            strength = any(token in upper for token in ("BUY", "STRENGTH", "상승", "강세")) or bool(
+                chart_ctx.get("ma_bullish")
+            )
             defensive = any(token in upper for token in ("SELL", "RISK", "손실", "방어"))
             return {
                 "raw_text": text,
+                "chart_context": chart_ctx,
                 "scenario_type": scenario_type,
                 "current_price": current_price,
                 "target_price": target_price,
                 "target_gap_pct": target_gap_pct,
                 "rsi": rsi,
+                "rsi_delta": chart_ctx.get("rsi_delta"),
+                "rsi_rising": bool(chart_ctx.get("rsi_rising")),
+                "ma20_recovered": bool(chart_ctx.get("ma20_recovered")),
+                "ma_bullish": bool(chart_ctx.get("ma_bullish")),
+                "ma_bearish": bool(chart_ctx.get("ma_bearish")),
+                "volume_ratio": chart_ctx.get("volume_ratio"),
                 "volume_weak": volume_weak,
                 "volume_rising": volume_rising,
                 "rsi_oversold": rsi_oversold,
@@ -3841,11 +3870,18 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return {
                 "raw_text": "",
+                "chart_context": {},
                 "scenario_type": "",
                 "current_price": None,
                 "target_price": None,
                 "target_gap_pct": None,
                 "rsi": None,
+                "rsi_delta": None,
+                "rsi_rising": False,
+                "ma20_recovered": False,
+                "ma_bullish": False,
+                "ma_bearish": False,
+                "volume_ratio": None,
                 "volume_weak": False,
                 "volume_rising": False,
                 "rsi_oversold": False,
@@ -3878,7 +3914,21 @@ class AITSLargeChartDialog(QDialog):
             blockers = []
             trigger_parts = []
 
-            if ctx.get("target_near"):
+            chart_uptrend = bool(ctx.get("rsi_rising")) and bool(ctx.get("ma20_recovered")) and bool(ctx.get("volume_rising"))
+            chart_downtrend = (
+                bool(ctx.get("rsi_oversold"))
+                and bool(ctx.get("volume_weak"))
+                and bool(ctx.get("ma_bearish"))
+            )
+
+            if chart_uptrend:
+                current_goal = "상승 흐름 유지 여부 확인"
+                trigger_parts.append("RSI 회복과 단기 추세 회복")
+            elif chart_downtrend:
+                current_goal = "하락 압력 완화 확인"
+                blockers.append("RSI와 거래량, 이동평균 흐름이 약함")
+                trigger_parts.append("저점 방어와 거래량 회복")
+            elif ctx.get("target_near"):
                 current_goal = "목표 구간 진입 가능성 확인"
                 trigger_parts.append("목표 구간 접근")
             elif ctx.get("rsi_recovery") and (ctx.get("volume_rising") or ctx.get("strength")):
@@ -3910,8 +3960,12 @@ class AITSLargeChartDialog(QDialog):
                 trigger_parts.append("방향성 확인")
 
             observation_points = []
+            if chart_uptrend:
+                observation_points.extend(["매수세 유입 지속", "단기 추세 유지", "거래량 증가 유지"])
+            elif chart_downtrend:
+                observation_points.extend(["저점 방어 여부", "매도 압력 감소", "거래량 회복 여부"])
             if ctx.get("target_near"):
-                observation_points.extend(["목표 구간 접근 여부", "매도 압력 완화 여부"])
+                observation_points.extend(["목표 구간 접근 여부", "차익실현 압력"])
             if ctx.get("target_far"):
                 observation_points.append("지지선 유지 여부")
             if ctx.get("volume_weak"):
@@ -3939,6 +3993,10 @@ class AITSLargeChartDialog(QDialog):
             observation_points = list(dict.fromkeys(observation_points))[:4]
 
             transition_candidates = []
+            if chart_uptrend:
+                transition_candidates.extend(["초기 진입 검토", "목표 구간 재평가"])
+            elif chart_downtrend:
+                transition_candidates.extend(["계속 관찰", "비중 축소 검토"])
             if ctx.get("target_near"):
                 transition_candidates.extend(["목표 구간 재평가", "익절 검토"])
             if ctx.get("strength") or (ctx.get("rsi_recovery") and ctx.get("volume_rising")):
@@ -3955,7 +4013,11 @@ class AITSLargeChartDialog(QDialog):
                 transition_candidates.append("계속 관찰")
             transition_candidates = list(dict.fromkeys(transition_candidates))[:3]
 
-            if ctx.get("target_near"):
+            if chart_uptrend:
+                action_conditions = "매수세와 단기 추세가 유지되면 진입 후보로 재평가합니다."
+            elif chart_downtrend:
+                action_conditions = "위험이 완화되지 않으면 관찰 유지 또는 비중 축소 후보로 검토합니다."
+            elif ctx.get("target_near"):
                 action_conditions = "목표 구간 접근이 이어지면 목표 구간 재평가 후보로 검토합니다."
             elif ctx.get("defensive") or ctx.get("trend_weak"):
                 action_conditions = "위험 확대 시 비중 축소 후보로 검토합니다."
@@ -3983,6 +4045,15 @@ class AITSLargeChartDialog(QDialog):
                 "intent_reason": intent_reason,
                 "intent_trigger": intent_trigger,
                 "intent_blockers": blockers,
+                "intent_chart_state": {
+                    "rsi": ctx.get("rsi"),
+                    "rsi_delta": ctx.get("rsi_delta"),
+                    "target_gap_pct": ctx.get("target_gap_pct"),
+                    "volume_ratio": ctx.get("volume_ratio"),
+                    "ma20_recovered": bool(ctx.get("ma20_recovered")),
+                    "ma_bullish": bool(ctx.get("ma_bullish")),
+                    "ma_bearish": bool(ctx.get("ma_bearish")),
+                },
                 "intent_type": str(ctx.get("state") or "checking"),
                 "intent_summary": f"{current_goal} · {candidate_transition}",
                 "preview_only": True,
@@ -4006,8 +4077,9 @@ class AITSLargeChartDialog(QDialog):
                 "intent_reason": "preview context fallback",
                 "intent_trigger": "방향성 확인",
                 "intent_blockers": [],
+                "intent_chart_state": {},
                 "intent_type": "checking",
-                "intent_summary": "시장 참여 회복 확인 · 계속 관찰",
+                "intent_summary": "방향성 확정 신호 확인 · 계속 관찰",
                 "preview_only": True,
                 "runtime_applied": False,
                 "order_applied": False,
@@ -4059,6 +4131,37 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_detail_popup_entry_price_title.setVisible(not entry_duplicate)
             self.lbl_detail_popup_entry_price.setVisible(not entry_duplicate)
             self.lbl_detail_popup_scenario_context.setText(scenario_context)
+        except Exception:
+            pass
+
+    def set_detail_popup_chart_intent_context(self, context: dict | None):
+        try:
+            self._detail_popup_chart_intent_context = dict(context or {})
+            try:
+                reason_text = ""
+                if hasattr(self, "lbl_detail_popup_reason_text"):
+                    reason_text = str(self.lbl_detail_popup_reason_text.text() or "")
+                reason_lines = [
+                    line.strip()
+                    for line in str(reason_text or "").splitlines()
+                    if line.strip()
+                ][:4]
+                briefing_state = ""
+                if hasattr(self, "lbl_ai_briefing_summary"):
+                    briefing_state = str(self.lbl_ai_briefing_summary.text() or "")
+                intent = self._build_ai_intent_snapshot(
+                    decision_text=str(getattr(self, "lbl_detail_popup_decision_big", None).text() or "")
+                    if getattr(self, "lbl_detail_popup_decision_big", None) is not None
+                    else "",
+                    state_text=str(getattr(self, "lbl_detail_popup_decision_sub", None).text() or "")
+                    if getattr(self, "lbl_detail_popup_decision_sub", None) is not None
+                    else "",
+                    reason_lines=reason_lines,
+                    briefing_state=briefing_state,
+                )
+                self._sync_ai_intent_labels(intent)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -21228,6 +21331,89 @@ class MainWindow(QMainWindow):
                 "seconds": 12 * 3600,
             }
 
+    def _build_detail_chart_intent_context_from_mpf(
+        self,
+        mpf_df,
+        current_price=None,
+        target_price=None,
+    ):
+        try:
+            if pd is None or mpf_df is None or getattr(mpf_df, "empty", True):
+                return {}
+
+            close_s = pd.to_numeric(mpf_df["Close"], errors="coerce")
+            volume_s = pd.to_numeric(mpf_df["Volume"], errors="coerce") if "Volume" in mpf_df else None
+            close_s = close_s.dropna()
+            if close_s.empty:
+                return {}
+
+            last_close = float(close_s.iloc[-1])
+            current = float(current_price) if current_price is not None else last_close
+            target = float(target_price) if target_price is not None else None
+            target_gap_pct = None
+            try:
+                if current and target:
+                    target_gap_pct = ((target - current) / current) * 100.0
+            except Exception:
+                target_gap_pct = None
+
+            ma20 = close_s.rolling(window=20, min_periods=1).mean()
+            ma60 = close_s.rolling(window=60, min_periods=1).mean()
+            ma120 = close_s.rolling(window=120, min_periods=1).mean()
+            ma20_last = float(ma20.iloc[-1])
+            ma60_last = float(ma60.iloc[-1])
+            ma120_last = float(ma120.iloc[-1])
+            ma20_prev = float(ma20.iloc[-2]) if len(ma20) >= 2 else ma20_last
+
+            delta = close_s.diff()
+            gain = delta.clip(lower=0.0)
+            loss = -delta.clip(upper=0.0)
+            avg_gain = gain.rolling(window=14, min_periods=14).mean()
+            avg_loss = loss.rolling(window=14, min_periods=14).mean()
+            rs = avg_gain / avg_loss.replace(0, pd.NA)
+            rsi_s = 100 - (100 / (1 + rs))
+            rsi_s = rsi_s.bfill().fillna(50.0)
+            rsi_last = float(rsi_s.iloc[-1])
+            rsi_prev = float(rsi_s.iloc[-4]) if len(rsi_s) >= 4 else float(rsi_s.iloc[0])
+            rsi_delta = rsi_last - rsi_prev
+
+            volume_ratio = None
+            if volume_s is not None:
+                volume_s = volume_s.dropna()
+                if not volume_s.empty:
+                    recent = float(volume_s.tail(5).mean())
+                    base = float(volume_s.tail(20).mean()) if len(volume_s) >= 6 else recent
+                    if base > 0:
+                        volume_ratio = recent / base
+
+            ma20_recovered = current >= ma20_last and ma20_last >= ma20_prev
+            ma_bullish = current >= ma20_last >= ma60_last
+            ma_bearish = current < ma20_last and ma20_last < ma60_last
+            if len(close_s) >= 80:
+                ma_bearish = ma_bearish or (current < ma20_last < ma60_last < ma120_last)
+
+            return {
+                "schema": "aits_detail_chart_intent_context.v1",
+                "current_price": current,
+                "target_price": target,
+                "target_gap_pct": target_gap_pct,
+                "rsi": rsi_last,
+                "rsi_delta": rsi_delta,
+                "rsi_rising": rsi_delta >= 2.0,
+                "rsi_low": rsi_last <= 40.0,
+                "ma20": ma20_last,
+                "ma60": ma60_last,
+                "ma120": ma120_last,
+                "ma20_recovered": ma20_recovered,
+                "ma_bullish": ma_bullish,
+                "ma_bearish": ma_bearish,
+                "volume_ratio": volume_ratio,
+                "volume_rising": volume_ratio is not None and volume_ratio >= 1.12,
+                "volume_weak": volume_ratio is not None and volume_ratio <= 0.82,
+            }
+        except Exception:
+            return {}
+
     def _render_aits_large_chart_dialog(self, symbol_text: str, dlg):
         try:
             if dlg is None:
@@ -21554,6 +21740,19 @@ class MainWindow(QMainWindow):
                     )
                     if hasattr(dlg, "set_detail_popup_eta_context"):
                         dlg.set_detail_popup_eta_context(eta_context)
+                except Exception:
+                    pass
+                try:
+                    chart_intent_context = self._build_detail_chart_intent_context_from_mpf(
+                        mpf_df,
+                        current_price=current_price,
+                        target_price=target_price,
+                    )
+                    if isinstance(chart_intent_context, dict):
+                        chart_intent_context["scenario_type"] = scenario_type
+                        chart_intent_context["scenario_confidence"] = scenario_confidence
+                    if hasattr(dlg, "set_detail_popup_chart_intent_context"):
+                        dlg.set_detail_popup_chart_intent_context(chart_intent_context)
                 except Exception:
                     pass
                 try:
