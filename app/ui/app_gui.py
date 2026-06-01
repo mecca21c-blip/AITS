@@ -4131,34 +4131,6 @@ class AITSLargeChartDialog(QDialog):
                 "basic_preview_available": True,
                 "ai_output_contract": self._build_ai_output_contract(),
             }
-            for raw in raw_values:
-                if raw in ("openai", "gpt", "chatgpt"):
-                    return {
-                        "ai_output_available": True,
-                        "ai_output_source": "openai",
-                        "ai_output_provider": "openai",
-                        "basic_preview_available": False,
-                    }
-                if raw in ("gemini", "google", "google_gemini"):
-                    return {
-                        "ai_output_available": True,
-                        "ai_output_source": "gemini",
-                        "ai_output_provider": "gemini",
-                        "basic_preview_available": False,
-                    }
-                if raw in ("local_ai", "ollama", "local_provider", "ollama_provider"):
-                    return {
-                        "ai_output_available": True,
-                        "ai_output_source": "local_ai",
-                        "ai_output_provider": raw,
-                        "basic_preview_available": False,
-                    }
-            return {
-                "ai_output_available": False,
-                "ai_output_source": "basic_preview",
-                "ai_output_provider": "none",
-                "basic_preview_available": True,
-            }
         except Exception:
             return {
                 "ai_output_available": False,
@@ -4231,6 +4203,8 @@ class AITSLargeChartDialog(QDialog):
                 "available": False,
                 "source": str(source or "none"),
                 "provider": provider,
+                "runtime": None,
+                "model": None,
                 "intent": {
                     "title": None,
                     "focus": [],
@@ -4318,10 +4292,14 @@ class AITSLargeChartDialog(QDialog):
                 "gemini": "gemini",
                 "google_gemini": "gemini",
                 "local_ai": "local_ai",
-                "ollama": "ollama",
             }
             source = source_aliases.get(raw_source, raw_source or "none")
-            if source not in ("openai", "gemini", "local_ai", "ollama"):
+            runtime = payload.get("runtime") or payload.get("ai_runtime")
+            model = payload.get("model") or payload.get("ai_model")
+            if raw_source in ("ollama", "ollama_provider", "local_provider"):
+                source = "local_ai"
+                runtime = runtime or "ollama"
+            if source not in ("openai", "gemini", "local_ai"):
                 return _empty_contract(source, raw_source or None)
 
             def _dict_value(*keys):
@@ -4364,7 +4342,9 @@ class AITSLargeChartDialog(QDialog):
                 "schema": "aits_ai_output_contract.v1",
                 "available": True,
                 "source": source,
-                "provider": str(payload.get("provider") or source),
+                "provider": source,
+                "runtime": str(runtime or "").strip() or None,
+                "model": str(model or "").strip() or None,
                 "intent": {
                     "title": intent_in.get("title") or payload.get("intent_title"),
                     "focus": _list_value(intent_in.get("focus") or intent_in.get("observation_points")),
@@ -4396,6 +4376,29 @@ class AITSLargeChartDialog(QDialog):
             }
         except Exception:
             return _empty_contract()
+
+    def _format_ai_output_provider_label(self, contract=None):
+        try:
+            contract = dict(contract or {})
+            provider = str(contract.get("provider") or contract.get("source") or "").strip().lower()
+            runtime = str(contract.get("runtime") or "").strip()
+            model = str(contract.get("model") or "").strip()
+            if provider == "openai":
+                return "OpenAI"
+            if provider == "gemini":
+                return "Gemini"
+            if provider == "local_ai":
+                detail = ""
+                if runtime and model:
+                    detail = f" / {runtime.capitalize()}/{model}"
+                elif runtime:
+                    detail = f" / {runtime.capitalize()}"
+                elif model:
+                    detail = f" / {model}"
+                return f"Local AI{detail}"
+            return "AI Engine"
+        except Exception:
+            return "AI Engine"
 
     def _build_ai_intent_snapshot(
         self,
@@ -5030,7 +5033,9 @@ class AITSLargeChartDialog(QDialog):
                 self._format_reasoning_narrative_eta(seconds, str(ctx.get("sub") or ""))
             )
             try:
-                self.lbl_asset_eta_source.setText("기준: AI 기본값")
+                self.lbl_asset_eta_source.setText(
+                    f"기준: {self._format_ai_output_provider_label(contract)}"
+                )
             except Exception:
                 pass
             self._start_detail_popup_eta_timer()
@@ -5225,7 +5230,9 @@ class AITSLargeChartDialog(QDialog):
                 f"신뢰도 {int(round(float(snapshot.get('scenario_confidence') or confidence) * 100.0))}%"
             )
             try:
-                self.lbl_asset_scenario_source.setText("기준: AI 기본값")
+                self.lbl_asset_scenario_source.setText(
+                    f"기준: {self._format_ai_output_provider_label(contract)}"
+                )
             except Exception:
                 pass
         except Exception:

@@ -437,9 +437,21 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 
 - UI must read AI Engine results through a shared contract, not ad-hoc Basic Preview text.
 - Contract schema: aits_ai_output_contract.v1.
-- Allowed sources are openai, gemini, local_ai, and ollama.
+- Allowed providers are openai, gemini, and local_ai. Ollama is a local_ai runtime, not a provider.
 - Disallowed sources such as basic, local, rule, chart, and fallback must produce available=false.
 - Contract slots are intent, scenario, why, eta, and safety.
 - Basic Preview is not an AI Output Contract and must remain calculation-based reference only.
 - If no AI Output Contract is available, the UI must keep AI judgement, scenario, why, and eta in a waiting state.
 - This Sprint defines the slots only; it does not add GPT, Gemini, Ollama, Runtime, Router, Order, Execution, or RiskGuard calls.
+
+---
+
+## AI Output Provider Normalization
+
+- Official AI providers are openai, gemini, and local_ai.
+- Ollama is not a provider; it is a runtime inside local_ai.
+- qwen, mistral, gemma, and similar names are local_ai models.
+- AI Output Contract normalizes raw source=ollama to provider=local_ai and runtime=ollama.
+- Basic Engine is not an AI provider.
+- Basic Preview is not AI Output and must not be promoted into provider output.
+- UI may display Local AI or Local AI / Ollama/model, but the contract provider remains local_ai.
