@@ -4081,6 +4081,16 @@ class AITSLargeChartDialog(QDialog):
 
     def _resolve_ai_output_source(self):
         try:
+            contract = self._build_ai_output_contract()
+            if bool(contract.get("available")):
+                source = str(contract.get("source") or "none")
+                return {
+                    "ai_output_available": True,
+                    "ai_output_source": source,
+                    "ai_output_provider": str(contract.get("provider") or source),
+                    "basic_preview_available": False,
+                    "ai_output_contract": contract,
+                }
             raw_values = []
             for attr in (
                 "_detail_popup_ai_output_source",
@@ -4112,6 +4122,15 @@ class AITSLargeChartDialog(QDialog):
                         raw_values.append(str(getattr(parent_obj, attr, "") or "").strip().lower())
                     except Exception:
                         pass
+            # Provider names alone are not AI output. UI must wait for the
+            # normalized AI Output Contract slot before showing AI judgement.
+            return {
+                "ai_output_available": False,
+                "ai_output_source": "basic_preview",
+                "ai_output_provider": "none",
+                "basic_preview_available": True,
+                "ai_output_contract": self._build_ai_output_contract(),
+            }
             for raw in raw_values:
                 if raw in ("openai", "gpt", "chatgpt"):
                     return {
@@ -4205,6 +4224,179 @@ class AITSLargeChartDialog(QDialog):
                 "order_applied": False,
             }
 
+    def _build_ai_output_contract(self, raw_ai_output=None):
+        def _empty_contract(source="none", provider=None):
+            return {
+                "schema": "aits_ai_output_contract.v1",
+                "available": False,
+                "source": str(source or "none"),
+                "provider": provider,
+                "intent": {
+                    "title": None,
+                    "focus": [],
+                    "condition": None,
+                    "transition": [],
+                },
+                "scenario": {
+                    "name": None,
+                    "summary": None,
+                    "confidence": None,
+                },
+                "why": {
+                    "wait_reason": None,
+                    "blockers": [],
+                    "required_confirmation": [],
+                },
+                "eta": {
+                    "label": None,
+                    "hours": None,
+                    "source": None,
+                },
+                "safety": {
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                },
+            }
+
+        try:
+            payload = raw_ai_output
+            if payload is None:
+                for attr in (
+                    "_detail_popup_ai_output_contract",
+                    "_detail_popup_ai_output",
+                    "_last_ai_output_contract",
+                    "_last_ai_output",
+                ):
+                    try:
+                        candidate = getattr(self, attr, None)
+                        if candidate:
+                            payload = candidate
+                            break
+                    except Exception:
+                        pass
+            if payload is None:
+                try:
+                    parent_obj = self.parent()
+                except Exception:
+                    parent_obj = None
+                if parent_obj is not None:
+                    for attr in (
+                        "_last_ai_output_contract",
+                        "_last_ai_output",
+                        "_last_ai_response",
+                    ):
+                        try:
+                            candidate = getattr(parent_obj, attr, None)
+                            if candidate:
+                                payload = candidate
+                                break
+                        except Exception:
+                            pass
+            if isinstance(payload, str):
+                text = str(payload or "").strip()
+                if not text:
+                    return _empty_contract()
+                try:
+                    payload = json.loads(text)
+                except Exception:
+                    return _empty_contract("none", None)
+            if not isinstance(payload, dict):
+                return _empty_contract()
+
+            raw_source = str(
+                payload.get("source")
+                or payload.get("provider")
+                or payload.get("engine")
+                or payload.get("ai_output_source")
+                or ""
+            ).strip().lower()
+            source_aliases = {
+                "gpt": "openai",
+                "chatgpt": "openai",
+                "openai": "openai",
+                "gemini": "gemini",
+                "google_gemini": "gemini",
+                "local_ai": "local_ai",
+                "ollama": "ollama",
+            }
+            source = source_aliases.get(raw_source, raw_source or "none")
+            if source not in ("openai", "gemini", "local_ai", "ollama"):
+                return _empty_contract(source, raw_source or None)
+
+            def _dict_value(*keys):
+                for key in keys:
+                    value = payload.get(key)
+                    if isinstance(value, dict):
+                        return value
+                return {}
+
+            def _list_value(value):
+                if value is None:
+                    return []
+                if isinstance(value, (list, tuple)):
+                    return [str(item).strip() for item in value if str(item).strip()]
+                text_value = str(value or "").strip()
+                if not text_value:
+                    return []
+                return [
+                    line.strip().lstrip("•").strip()
+                    for line in text_value.splitlines()
+                    if line.strip()
+                ]
+
+            intent_in = _dict_value("intent", "ai_intent")
+            scenario_in = _dict_value("scenario", "ai_scenario")
+            why_in = _dict_value("why", "reasoning", "why_not_action")
+            eta_in = _dict_value("eta", "ai_eta")
+            safety_in = _dict_value("safety")
+            confidence = scenario_in.get("confidence", payload.get("confidence"))
+            try:
+                confidence = float(confidence) if confidence is not None else None
+            except Exception:
+                confidence = None
+            hours = eta_in.get("hours")
+            try:
+                hours = float(hours) if hours is not None else None
+            except Exception:
+                hours = None
+            return {
+                "schema": "aits_ai_output_contract.v1",
+                "available": True,
+                "source": source,
+                "provider": str(payload.get("provider") or source),
+                "intent": {
+                    "title": intent_in.get("title") or payload.get("intent_title"),
+                    "focus": _list_value(intent_in.get("focus") or intent_in.get("observation_points")),
+                    "condition": intent_in.get("condition") or intent_in.get("action_conditions"),
+                    "transition": _list_value(intent_in.get("transition") or intent_in.get("transition_candidates")),
+                },
+                "scenario": {
+                    "name": scenario_in.get("name") or scenario_in.get("title") or payload.get("scenario_name"),
+                    "summary": scenario_in.get("summary") or payload.get("scenario_summary"),
+                    "confidence": confidence,
+                },
+                "why": {
+                    "wait_reason": why_in.get("wait_reason") or why_in.get("reason") or payload.get("wait_reason"),
+                    "blockers": _list_value(why_in.get("blockers") or payload.get("blockers")),
+                    "required_confirmation": _list_value(
+                        why_in.get("required_confirmation") or payload.get("required_confirmation")
+                    ),
+                },
+                "eta": {
+                    "label": eta_in.get("label") or payload.get("eta_label"),
+                    "hours": hours,
+                    "source": eta_in.get("source") or source,
+                },
+                "safety": {
+                    "preview_only": bool(safety_in.get("preview_only", True)),
+                    "runtime_applied": bool(safety_in.get("runtime_applied", False)),
+                    "order_applied": bool(safety_in.get("order_applied", False)),
+                },
+            }
+        except Exception:
+            return _empty_contract()
+
     def _build_ai_intent_snapshot(
         self,
         decision_text="",
@@ -4223,6 +4415,90 @@ class AITSLargeChartDialog(QDialog):
             scenario_type = str(ctx.get("scenario_type") or "")
             asset_intent = self._build_asset_intent_snapshot(ctx)
             source_info = self._resolve_ai_output_source()
+            contract = source_info.get("ai_output_contract") or {}
+            if bool(contract.get("available")):
+                intent_slot = contract.get("intent") if isinstance(contract.get("intent"), dict) else {}
+                scenario_slot = contract.get("scenario") if isinstance(contract.get("scenario"), dict) else {}
+                why_slot = contract.get("why") if isinstance(contract.get("why"), dict) else {}
+                focus = intent_slot.get("focus") or []
+                if isinstance(focus, str):
+                    focus = [
+                        line.strip().lstrip("•").strip()
+                        for line in focus.splitlines()
+                        if line.strip()
+                    ]
+                else:
+                    focus = [str(item).strip() for item in focus if str(item).strip()]
+                transition = intent_slot.get("transition") or []
+                if isinstance(transition, str):
+                    transition = [
+                        line.strip().lstrip("•").strip()
+                        for line in transition.splitlines()
+                        if line.strip()
+                    ]
+                else:
+                    transition = [str(item).strip() for item in transition if str(item).strip()]
+                blockers_slot = why_slot.get("blockers") or []
+                if isinstance(blockers_slot, str):
+                    blockers_slot = [
+                        line.strip().lstrip("•").strip()
+                        for line in blockers_slot.splitlines()
+                        if line.strip()
+                    ]
+                else:
+                    blockers_slot = [str(item).strip() for item in blockers_slot if str(item).strip()]
+                required_slot = why_slot.get("required_confirmation") or []
+                if isinstance(required_slot, str):
+                    required_slot = [
+                        line.strip().lstrip("•").strip()
+                        for line in required_slot.splitlines()
+                        if line.strip()
+                    ]
+                else:
+                    required_slot = [str(item).strip() for item in required_slot if str(item).strip()]
+                current_goal = str(intent_slot.get("title") or scenario_slot.get("name") or "AI 판단 대기").strip()
+                action_conditions = str(intent_slot.get("condition") or "AI Engine 출력 조건을 확인 중입니다.").strip()
+                wait_reason = str(why_slot.get("wait_reason") or "AI Engine 판단 이유를 확인 중입니다.").strip()
+                basic_preview = self._build_basic_observation_preview(ctx, asset_intent, focus)
+                return {
+                    "schema": "aits_ai_intent.v4",
+                    "intent_state": "ai_output_contract",
+                    "intent_title": "AI Intent",
+                    "current_goal": current_goal,
+                    "observation_points": focus[:4],
+                    "action_conditions": action_conditions,
+                    "candidate_transition": transition[0] if transition else "AI 후보 확인",
+                    "intent_transition_candidates": transition[:3],
+                    "intent_reason": " · ".join(blockers_slot[:2]),
+                    "intent_trigger": str(scenario_slot.get("name") or contract.get("source") or "ai_output"),
+                    "intent_blockers": blockers_slot,
+                    "wait_reason_title": "AI 판단 이유",
+                    "wait_reason_detail": wait_reason,
+                    "why_not_buy": wait_reason,
+                    "why_not_sell": wait_reason,
+                    "blocker_signals": blockers_slot,
+                    "required_confirmation": " · ".join(required_slot[:2]),
+                    "asset_intent": asset_intent,
+                    "basic_preview": basic_preview,
+                    "ai_output_contract": contract,
+                    "ai_output_available": True,
+                    "ai_output_source": str(contract.get("source") or "none"),
+                    "ai_output_provider": str(contract.get("provider") or "none"),
+                    "basic_preview_available": False,
+                    "intent_chart_state": {
+                        "rsi": ctx.get("rsi"),
+                        "rsi_delta": ctx.get("rsi_delta"),
+                        "target_gap_pct": ctx.get("target_gap_pct"),
+                        "volume_ratio": ctx.get("volume_ratio"),
+                        "nearest_support": asset_intent.get("nearest_support"),
+                        "nearest_resistance": asset_intent.get("nearest_resistance"),
+                    },
+                    "intent_type": "ai_output_contract",
+                    "intent_summary": f"{current_goal} · {transition[0] if transition else 'AI 후보 확인'}",
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                }
             blockers = []
             trigger_parts = []
 
@@ -4732,14 +5008,31 @@ class AITSLargeChartDialog(QDialog):
             self._detail_popup_eta_remaining_seconds = seconds
             self._detail_popup_eta_state_type = str(ctx.get("state_type") or "review_wait")
             self._detail_popup_eta_prefix = "유지 예상"
+            contract = self._build_ai_output_contract()
+            eta_slot = contract.get("eta") if isinstance(contract.get("eta"), dict) else {}
+            if not bool(contract.get("available")):
+                self.lbl_detail_popup_eta_main.setText("유지 예상 · AI 대기")
+                self.lbl_detail_popup_eta_sub.setText("AI Engine 연결 후 유지 예상 설명이 표시됩니다.")
+                self.lbl_detail_popup_eta_meta.setText("Basic Preview는 계산 기반 참고 정보입니다.")
+                try:
+                    self.lbl_asset_eta_source.setText("기준: AI 대기")
+                except Exception:
+                    pass
+                self._start_detail_popup_eta_timer()
+                return
+            eta_label = str(eta_slot.get("label") or "").strip()
             self.lbl_detail_popup_eta_main.setText(
-                f"{self._detail_popup_eta_prefix} · {self._format_detail_popup_eta(seconds)}"
+                eta_label or f"{self._detail_popup_eta_prefix} · {self._format_detail_popup_eta(seconds)}"
             )
             self.lbl_detail_popup_eta_sub.setText(str(ctx.get("sub") or "시장 상황 반영 후 재평가"))
             self.lbl_detail_popup_eta_meta.setText(str(ctx.get("meta") or "리스크 — / 목표 —"))
             self.lbl_detail_popup_eta_sub.setText(
                 self._format_reasoning_narrative_eta(seconds, str(ctx.get("sub") or ""))
             )
+            try:
+                self.lbl_asset_eta_source.setText("기준: AI 기본값")
+            except Exception:
+                pass
             self._start_detail_popup_eta_timer()
         except Exception:
             pass
@@ -4894,11 +5187,27 @@ class AITSLargeChartDialog(QDialog):
                 except Exception:
                     pass
                 return
+            contract = source_info.get("ai_output_contract") or {}
+            scenario_slot = contract.get("scenario") if isinstance(contract.get("scenario"), dict) else {}
+            if scenario_slot:
+                scenario_name = str(scenario_slot.get("name") or "").strip()
+                scenario_summary = str(scenario_slot.get("summary") or "").strip()
+                scenario_confidence = scenario_slot.get("confidence")
+                try:
+                    scenario_confidence = float(scenario_confidence) if scenario_confidence is not None else confidence
+                except Exception:
+                    scenario_confidence = confidence
+                if scenario_name:
+                    snapshot["scenario_title"] = scenario_name
+                if scenario_summary:
+                    snapshot["scenario_summary"] = scenario_summary
+                snapshot["scenario_confidence"] = max(0.0, min(1.0, float(scenario_confidence or confidence)))
             snapshot.update(
                 {
                     "ai_output_available": True,
                     "ai_output_source": str(source_info.get("ai_output_source") or "unknown_ai"),
                     "ai_output_provider": str(source_info.get("ai_output_provider") or "unknown"),
+                    "ai_output_contract": contract,
                     "basic_preview_available": False,
                 }
             )
@@ -4913,7 +5222,7 @@ class AITSLargeChartDialog(QDialog):
                 str(snapshot.get("scenario_summary") or "")
             )
             self.lbl_detail_popup_scenario_confidence.setText(
-                f"신뢰도 {int(round(confidence * 100.0))}%"
+                f"신뢰도 {int(round(float(snapshot.get('scenario_confidence') or confidence) * 100.0))}%"
             )
             try:
                 self.lbl_asset_scenario_source.setText("기준: AI 기본값")

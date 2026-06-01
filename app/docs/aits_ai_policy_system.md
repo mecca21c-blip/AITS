@@ -429,3 +429,17 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Local AI is an independent AI Engine that can operate without an external API; it is not the Basic Engine.
 - Until the Local AI Provider path is ready, Basic calculations must not be presented as Local AI judgement.
 - This policy does not affect Runtime, Router, Order, Execution, or RiskGuard paths.
+
+
+---
+
+## AI Output Slot Contract
+
+- UI must read AI Engine results through a shared contract, not ad-hoc Basic Preview text.
+- Contract schema: aits_ai_output_contract.v1.
+- Allowed sources are openai, gemini, local_ai, and ollama.
+- Disallowed sources such as basic, local, rule, chart, and fallback must produce available=false.
+- Contract slots are intent, scenario, why, eta, and safety.
+- Basic Preview is not an AI Output Contract and must remain calculation-based reference only.
+- If no AI Output Contract is available, the UI must keep AI judgement, scenario, why, and eta in a waiting state.
+- This Sprint defines the slots only; it does not add GPT, Gemini, Ollama, Runtime, Router, Order, Execution, or RiskGuard calls.
