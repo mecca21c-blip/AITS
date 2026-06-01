@@ -3913,6 +3913,142 @@ class AITSLargeChartDialog(QDialog):
                 "state": "checking",
             }
 
+    def _format_asset_intent_price_label(self, value):
+        try:
+            price = float(value)
+            if price <= 0:
+                return ""
+            if price >= 1_000_000:
+                amount = price / 1_000_000.0
+                if amount >= 10:
+                    return f"{amount:.0f}M"
+                return f"{amount:.2f}M"
+            if price >= 10_000:
+                return f"{int(round(price)):,}원"
+            if price >= 1_000:
+                return f"{int(round(price))}원"
+            if price >= 100:
+                return f"{int(round(price))}원"
+            return f"{price:.2f}".rstrip("0").rstrip(".") + "원"
+        except Exception:
+            return ""
+
+    def _build_asset_intent_snapshot(self, ctx=None):
+        try:
+            ctx = dict(ctx or {})
+            chart_ctx = dict(ctx.get("chart_context") or {})
+            symbol = str(getattr(self, "_symbol", "") or chart_ctx.get("symbol") or "").strip().upper()
+            asset_name = symbol.replace("KRW-", "") if symbol else ""
+            current_price = ctx.get("current_price")
+            target_price = ctx.get("target_price")
+            try:
+                current_price = float(current_price) if current_price is not None else None
+            except Exception:
+                current_price = None
+            try:
+                target_price = float(target_price) if target_price is not None else None
+            except Exception:
+                target_price = None
+
+            price_candidates = []
+            for key in ("ma20", "ma60", "ma120"):
+                try:
+                    value = float(chart_ctx.get(key))
+                    if value > 0:
+                        price_candidates.append(value)
+                except Exception:
+                    pass
+
+            nearest_support = None
+            nearest_resistance = None
+            if current_price:
+                below = [p for p in price_candidates if p <= current_price]
+                above = [p for p in price_candidates if p >= current_price]
+                if below:
+                    nearest_support = max(below)
+                if above:
+                    nearest_resistance = min(above)
+                if nearest_support is None:
+                    nearest_support = current_price * 0.985
+                if nearest_resistance is None:
+                    nearest_resistance = target_price if target_price and target_price > current_price else current_price * 1.025
+
+            distance_to_target_pct = ctx.get("target_gap_pct")
+            try:
+                distance_to_target_pct = float(distance_to_target_pct) if distance_to_target_pct is not None else None
+            except Exception:
+                distance_to_target_pct = None
+
+            scenario_title = ""
+            try:
+                scenario_title = str(getattr(self, "lbl_detail_popup_scenario_type", None).text() or "").strip()
+            except Exception:
+                scenario_title = ""
+            if not scenario_title:
+                scenario_title = str(ctx.get("scenario_type") or "").strip()
+
+            decision_state = ""
+            try:
+                decision_state = str(getattr(self, "lbl_detail_popup_decision_value", None).text() or "").strip()
+            except Exception:
+                decision_state = ""
+            if not decision_state:
+                try:
+                    decision_state = str(getattr(self, "lbl_detail_popup_decision", None).text() or "").strip()
+                except Exception:
+                    decision_state = ""
+
+            if bool(ctx.get("target_near")):
+                chart_bias = "target_zone"
+            elif bool(ctx.get("ma_bearish")) or bool(ctx.get("trend_weak")) or bool(ctx.get("defensive")):
+                chart_bias = "defensive"
+            elif bool(ctx.get("ma_bullish")) or bool(ctx.get("strength")):
+                chart_bias = "recovery"
+            elif bool(ctx.get("sideways")):
+                chart_bias = "sideways"
+            else:
+                chart_bias = "checking"
+
+            return {
+                "schema": "aits_asset_intent.v1",
+                "asset_name": asset_name,
+                "current_price": current_price,
+                "target_price": target_price,
+                "nearest_support": nearest_support,
+                "nearest_resistance": nearest_resistance,
+                "distance_to_target_pct": distance_to_target_pct,
+                "scenario_title": scenario_title,
+                "decision_state": decision_state,
+                "chart_bias": chart_bias,
+                "support_label": self._format_asset_intent_price_label(nearest_support),
+                "resistance_label": self._format_asset_intent_price_label(nearest_resistance),
+                "target_label": self._format_asset_intent_price_label(target_price),
+                "current_label": self._format_asset_intent_price_label(current_price),
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+        except Exception:
+            return {
+                "schema": "aits_asset_intent.v1",
+                "asset_name": "",
+                "current_price": None,
+                "target_price": None,
+                "nearest_support": None,
+                "nearest_resistance": None,
+                "distance_to_target_pct": None,
+                "scenario_title": "",
+                "decision_state": "",
+                "chart_bias": "checking",
+                "support_label": "",
+                "resistance_label": "",
+                "target_label": "",
+                "current_label": "",
+                "preview_only": True,
+                "runtime_applied": False,
+                "order_applied": False,
+            }
+
     def _build_ai_intent_snapshot(
         self,
         decision_text="",
@@ -3929,6 +4065,7 @@ class AITSLargeChartDialog(QDialog):
             )
             raw_text = str(ctx.get("raw_text") or "")
             scenario_type = str(ctx.get("scenario_type") or "")
+            asset_intent = self._build_asset_intent_snapshot(ctx)
             blockers = []
             trigger_parts = []
 
@@ -4114,6 +4251,57 @@ class AITSLargeChartDialog(QDialog):
             else:
                 action_conditions = self._format_ai_intent_conditions(briefing_state, decision_text)
 
+            asset_name = str(asset_intent.get("asset_name") or "").strip()
+            support_label = str(asset_intent.get("support_label") or "").strip()
+            resistance_label = str(asset_intent.get("resistance_label") or "").strip()
+            target_label = str(asset_intent.get("target_label") or "").strip()
+            chart_bias = str(asset_intent.get("chart_bias") or "").strip()
+            asset_prefix = f"{asset_name} " if asset_name else ""
+            if support_label:
+                support_point = f"{support_label} 지지선 유지 여부"
+                if support_point not in observation_points:
+                    observation_points.insert(0, support_point)
+            if resistance_label:
+                resistance_point = f"{resistance_label} 저항선 돌파 여부"
+                if resistance_point not in observation_points:
+                    observation_points.insert(1 if observation_points else 0, resistance_point)
+            if target_label and target_label != resistance_label:
+                target_point = f"목표가 {target_label} 접근 여부"
+                if target_point not in observation_points:
+                    observation_points.insert(2 if len(observation_points) >= 2 else len(observation_points), target_point)
+
+            if support_label and chart_bias in ("defensive", "sideways", "checking"):
+                current_goal = f"{asset_prefix}{support_label} 방어 확인".strip()
+                wait_reason_detail = f"{support_label} 지지 확인 전까지 성급한 판단 전환은 보류합니다."
+                required_confirmation = f"{support_label} 방어와 거래량 회복 여부를 함께 확인합니다."
+                if "초기 진입 검토" not in transition_candidates:
+                    transition_candidates.append("초기 진입 검토")
+                if "계속 관찰" not in transition_candidates:
+                    transition_candidates.append("계속 관찰")
+            elif support_label and chart_bias == "recovery":
+                current_goal = f"{asset_prefix}{support_label} 지지 후 회복 확인".strip()
+                wait_reason_detail = f"{support_label} 위에서 매수세가 유지되는지 확인이 필요합니다."
+                required_confirmation = f"{support_label} 지지와 단기 상승 흐름 지속 여부를 확인합니다."
+                if "초기 진입 검토" not in transition_candidates:
+                    transition_candidates.insert(0, "초기 진입 검토")
+            elif resistance_label and chart_bias == "target_zone":
+                current_goal = f"{asset_prefix}{resistance_label} 목표 구간 확인".strip()
+                wait_reason_detail = f"{resistance_label} 근처에서는 돌파 지속과 차익실현 압력을 함께 확인합니다."
+                required_confirmation = f"{resistance_label} 돌파 지속 또는 목표 구간 재평가 신호를 확인합니다."
+                if "목표 구간 재평가" not in transition_candidates:
+                    transition_candidates.insert(0, "목표 구간 재평가")
+
+            observation_points = list(dict.fromkeys(observation_points))[:4]
+            transition_candidates = list(dict.fromkeys(transition_candidates))[:3]
+            if support_label and chart_bias == "defensive":
+                action_conditions = f"{support_label} 방어가 실패하면 비중 축소 후보로 검토합니다."
+            elif support_label and chart_bias in ("sideways", "checking"):
+                action_conditions = f"{support_label} 지지가 유지되고 거래량이 회복되면 진입 후보로 재평가합니다."
+            elif support_label and chart_bias == "recovery":
+                action_conditions = f"{support_label} 지지 위에서 회복 흐름이 유지되면 진입 후보로 재평가합니다."
+            elif resistance_label and chart_bias == "target_zone":
+                action_conditions = f"{resistance_label} 접근이 이어지면 목표 구간 재평가 후보로 검토합니다."
+
             intent_reason = " · ".join(blockers or observation_points[:2])
             intent_trigger = " · ".join(trigger_parts[:2]) or "방향성 확인"
             candidate_transition = transition_candidates[0] if transition_candidates else "계속 관찰"
@@ -4135,6 +4323,7 @@ class AITSLargeChartDialog(QDialog):
                 "why_not_sell": why_not_sell,
                 "blocker_signals": blocker_signals,
                 "required_confirmation": required_confirmation,
+                "asset_intent": asset_intent,
                 "intent_chart_state": {
                     "rsi": ctx.get("rsi"),
                     "rsi_delta": ctx.get("rsi_delta"),
@@ -4143,6 +4332,9 @@ class AITSLargeChartDialog(QDialog):
                     "ma20_recovered": bool(ctx.get("ma20_recovered")),
                     "ma_bullish": bool(ctx.get("ma_bullish")),
                     "ma_bearish": bool(ctx.get("ma_bearish")),
+                    "nearest_support": asset_intent.get("nearest_support"),
+                    "nearest_resistance": asset_intent.get("nearest_resistance"),
+                    "chart_bias": chart_bias,
                 },
                 "intent_type": str(ctx.get("state") or "checking"),
                 "intent_summary": f"{current_goal} · {candidate_transition}",
