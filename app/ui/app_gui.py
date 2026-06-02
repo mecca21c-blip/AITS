@@ -12650,12 +12650,62 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _get_active_save_context(self) -> dict:
+        """Return a stable save context for the currently visible main tab."""
+        idx = -1
+        title = ""
+        key = "unknown"
+        try:
+            tabs = getattr(self, "tabs", None)
+            if tabs is not None:
+                idx = int(tabs.currentIndex())
+                title = (tabs.tabText(idx) or "").strip() if idx >= 0 else ""
+        except Exception:
+            idx = -1
+            title = ""
+
+        if "종목관리" in title or "AITS" in title:
+            key = "aits_manage"
+        elif "매매기록" in title:
+            key = "trade_history"
+        elif "투자현황" in title:
+            key = "portfolio"
+        elif "정책" in title or "전략" in title:
+            key = "ai_policy_center"
+        elif "공통설정" in title:
+            key = "common_settings"
+
+        return {
+            "index": idx,
+            "title": title,
+            "key": key,
+        }
+
+    def _dispatch_save_current_tab(self):
+        """Skeleton dispatcher for the bottom save button.
+
+        S2-B keeps the existing settings save behavior as the fallback while
+        documenting the future tab-specific save boundaries.
+        """
+        ctx = self._get_active_save_context()
+        active_tab = str(ctx.get("key") or "unknown")
+        handler = "save_settings" if active_tab == "common_settings" else "save_settings_fallback"
+        try:
+            self._log.info(
+                "[AITS][TabSaveDispatcher] active_tab=%s | handler=%s | status=dispatch",
+                active_tab,
+                handler,
+            )
+        except Exception:
+            pass
+        return self._on_save_settings()
+
     def _on_nav_save_clicked(self):
         try:
             self._log.info("[AITS][GUI] global_save_clicked | scope=settings_and_ui_state")
         except Exception:
             pass
-        return self._on_save_settings()
+        return self._dispatch_save_current_tab()
 
     def _on_nav_logout_clicked(self):
         try:

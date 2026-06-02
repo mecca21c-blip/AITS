@@ -539,3 +539,28 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - `ui_state` stores window, tab, splitter, detail chart layout, and policy snapshot UI state.
 - API keys must not be overwritten by general prefs saves.
 - A tab-specific save dispatcher is reserved for a later Sprint.
+
+---
+
+## Tab Save Dispatcher
+
+- The bottom save button is not a global file export action.
+- It will evolve into a dispatcher that saves changes for the currently active tab.
+- The current Sprint keeps the existing settings save path as a safe fallback while defining tab boundaries.
+- `prefs.json`, `secrets.json`, `ui_state`, and policy snapshots remain separate responsibilities.
+- API keys are managed only through `secrets.json`; tab saves must not overwrite key bodies.
+
+### Tab Save Responsibility Draft
+
+- AITS managed assets: managed-pool UI state, splitter/column/selection state, last selected symbol, filter/sort state.
+- Trade history: date filter, search/filter state, column widths, sort state.
+- Portfolio: view mode, column widths, sort state, chart/summary display options.
+- AI Policy Center: global policy snapshot, asset policy snapshots, preset, autonomy, risk, wait preference, preview-only policy state.
+- Common settings: `strategy.ai_provider`, model selection, polling settings, login/runtime settings, and API key presence flags only.
+
+### Dispatcher Principle
+
+- Active-tab saves should be preferred over broad settings writes.
+- Common settings continues to use `_on_save_settings()`.
+- Tabs without a dedicated handler currently use the existing settings-save fallback and emit a compact dispatcher log.
+- Dedicated tab save helpers will be implemented incrementally in later Sprints.
