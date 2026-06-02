@@ -12424,15 +12424,15 @@ class MainWindow(QMainWindow):
         _nav_act_ly.setContentsMargins(0, 0, 0, 0)
         _nav_act_ly.setSpacing(8)
 
-        self.btn_nav_save = QPushButton("파일 저장")
+        self.btn_nav_save = QPushButton("저장")
         self.btn_nav_logout = QPushButton("로그아웃")
         try:
-            self.btn_nav_save.setToolTip("현재 공통설정/엔진/API 설정을 저장합니다.")
+            self.btn_nav_save.setToolTip("현재 설정과 화면 상태를 저장합니다.")
         except Exception:
             pass
         try:
             self._setup_bottom_nav_action_button_innards(
-                self.btn_nav_save, "파일 저장", use_save_icon=True
+                self.btn_nav_save, "저장", use_save_icon=True
             )
             self._setup_bottom_nav_action_button_innards(
                 self.btn_nav_logout, "로그아웃", use_save_icon=False
@@ -12652,7 +12652,7 @@ class MainWindow(QMainWindow):
 
     def _on_nav_save_clicked(self):
         try:
-            self._log.info("[AITS][GUI] nav_save_clicked")
+            self._log.info("[AITS][GUI] global_save_clicked | scope=settings_and_ui_state")
         except Exception:
             pass
         return self._on_save_settings()

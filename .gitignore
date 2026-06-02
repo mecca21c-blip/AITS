@@ -3,6 +3,8 @@
 *.env
 !.env.example
 data/prefs.json
+data/secrets.json
+data/secret.bin
 data/logs/
 data/*.log
 *.log

@@ -528,3 +528,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Key deletion requires an explicit delete flow; ordinary UI state, layout, policy, and file saves must not remove secrets.
 - `load_settings()` merges the secrets store back into runtime settings for provider clients while keeping persistence separated.
 - Logs may report provider, key_present, and key_len only; key contents, prefixes, suffixes, and payload bodies are forbidden.
+
+---
+
+## Save Responsibility Map
+
+- The bottom save button is a settings save button, not a file export/save button.
+- `prefs.json` stores provider selection, UI state, policies, and general settings.
+- `secrets.json` stores OpenAI, Gemini, and Upbit key bodies only.
+- `ui_state` stores window, tab, splitter, detail chart layout, and policy snapshot UI state.
+- API keys must not be overwritten by general prefs saves.
+- A tab-specific save dispatcher is reserved for a later Sprint.
