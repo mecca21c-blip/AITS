@@ -564,3 +564,16 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Common settings continues to use `_on_save_settings()`.
 - Tabs without a dedicated handler currently use the existing settings-save fallback and emit a compact dispatcher log.
 - Dedicated tab save helpers will be implemented incrementally in later Sprints.
+
+---
+
+## Session Restore Layer
+
+- AITS restores the last user workspace state after restart.
+- `ui_state.session_restore` is a screen-state snapshot, not a provider/key SSOT.
+- Session restore stores the active tab, last selected managed symbol, last detail chart symbol, provider/model display context, window geometry summary, splitter sizes, and detail chart layout state.
+- Provider and model values remain governed by the existing strategy SSOT fields.
+- API key bodies are never stored in `session_restore`; `secrets.json` remains the only API key store.
+- The bottom save dispatcher can refresh `session_restore` before running the existing settings save fallback.
+- Startup, app close, and delayed tab changes refresh `session_restore` without touching API key storage.
+- Window geometry restoration continues to use the existing window restore path while `session_restore` records a compact geometry summary.

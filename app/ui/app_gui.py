@@ -8185,6 +8185,10 @@ class MainWindow(QMainWindow):
         self._basic_runtime_status_cache_ts = 0.0
         self._basic_runtime_status_cache_ttl_sec = 10.0
         self._runtime_panel_promoted = False
+        self._session_restore_restoring = False
+        self._session_restore_applied = False
+        self._session_restore_last_context = {}
+        self._session_restore_save_timer = None
         # ✅ WIN: 로그인 후 창 위치/크기 복원 및 화면 밖 방지 (1회만 복원)
         self._geometry_restored = False
         
@@ -12476,6 +12480,19 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
+            self.tabs.currentChanged.connect(self._on_session_restore_tab_changed)
+        except Exception:
+            pass
+        try:
+            self._session_restore_save_timer = QTimer(self)
+            self._session_restore_save_timer.setSingleShot(True)
+            self._session_restore_save_timer.setInterval(1200)
+            self._session_restore_save_timer.timeout.connect(
+                lambda: self._save_session_restore_snapshot(reason="tab_change")
+            )
+        except Exception:
+            self._session_restore_save_timer = None
+        try:
             self.btn_nav_save.clicked.disconnect()
         except Exception:
             pass
@@ -12503,6 +12520,10 @@ class MainWindow(QMainWindow):
             self._set_bottom_nav_active(int(self.tabs.currentIndex()))
         except Exception:
             self._set_bottom_nav_active(0)
+        try:
+            QTimer.singleShot(0, self._restore_session_restore_snapshot)
+        except Exception:
+            pass
         self._shell_root_ly.addWidget(self._aits_bottom_nav_frame, 0)
 
         # ---- 하단 상태바 (숨김 처리 - 전역 상태바로 단일화)
@@ -12681,6 +12702,234 @@ class MainWindow(QMainWindow):
             "key": key,
         }
 
+    def _get_current_active_tab_context(self) -> dict:
+        return self._get_active_save_context()
+
+    def _get_ui_state_dict(self) -> dict:
+        try:
+            st = getattr(self, "_settings", None)
+            ui_state = getattr(st, "ui_state", None) if st is not None else {}
+            if hasattr(ui_state, "model_dump"):
+                return dict(ui_state.model_dump())
+            if isinstance(ui_state, dict):
+                return dict(ui_state)
+        except Exception:
+            pass
+        return {}
+
+    def _build_session_restore_snapshot(self) -> dict:
+        from datetime import datetime
+
+        tab_ctx = self._get_current_active_tab_context()
+        ui_state = self._get_ui_state_dict()
+        strategy = getattr(getattr(self, "_settings", None), "strategy", None)
+
+        def _model_combo_value(obj_name: str, fallback: str = "") -> str:
+            try:
+                obj = getattr(self, obj_name, None)
+                if obj is not None and hasattr(self, "_current_model_id"):
+                    return str(self._current_model_id(obj, fallback) or fallback or "").strip()
+            except Exception:
+                pass
+            return fallback
+
+        provider = ""
+        openai_model = ""
+        gemini_model = ""
+        try:
+            provider = str(getattr(strategy, "ai_provider", "") or "").strip()
+            openai_model = str(getattr(strategy, "ai_openai_model", "") or "").strip()
+            gemini_model = str(getattr(strategy, "ai_gemini_model", "") or "").strip()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_get_save_ai_provider"):
+                provider = str(self._get_save_ai_provider(getattr(self, "_settings", None)) or provider).strip()
+        except Exception:
+            pass
+        openai_model = _model_combo_value("ed_openai_model", openai_model or "gpt-5.5-instant")
+        gemini_model = _model_combo_value("cmb_gemini_model", gemini_model or "gemini-2.5-flash")
+
+        window_geometry = {}
+        try:
+            g = self.geometry()
+            window_geometry = {
+                "x": int(g.x()),
+                "y": int(g.y()),
+                "width": int(g.width()),
+                "height": int(g.height()),
+                "maximized": bool(self.isMaximized()),
+            }
+        except Exception:
+            window_geometry = {}
+
+        main_splitter_sizes = []
+        try:
+            sp = getattr(self, "_aits_manage_panel_split", None)
+            if sp is not None:
+                main_splitter_sizes = [int(x) for x in sp.sizes()]
+        except Exception:
+            main_splitter_sizes = []
+
+        last_symbol = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+        if not last_symbol:
+            try:
+                row = self._get_ai_managed_current_row()
+                rows = getattr(self, "ai_managed_rows", None) or []
+                if 0 <= int(row) < len(rows):
+                    last_symbol = str((rows[int(row)] or {}).get("symbol") or "").strip()
+            except Exception:
+                last_symbol = ""
+
+        return {
+            "schema": "aits_session_restore.v1",
+            "active_tab_index": int(tab_ctx.get("index", -1)),
+            "active_tab_name": str(tab_ctx.get("title") or ""),
+            "active_tab_key": str(tab_ctx.get("key") or "unknown"),
+            "last_selected_symbol": last_symbol,
+            "last_detail_chart_symbol": str(
+                getattr(self, "_aits_large_chart_symbol", "")
+                or getattr(self, "_last_detail_chart_symbol", "")
+                or ""
+            ).strip(),
+            "last_ai_provider": provider,
+            "last_openai_model": openai_model,
+            "last_gemini_model": gemini_model,
+            "window_geometry": window_geometry,
+            "main_splitter_sizes": main_splitter_sizes,
+            "manage_splitter_sizes": list(
+                getattr(self, "_aits_manage_splitter_sizes_cache", None) or main_splitter_sizes or []
+            ),
+            "detail_chart_layout_state": dict(ui_state.get("detail_chart_layout_state") or {}),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+
+    def _save_session_restore_snapshot(self, reason: str = "manual", persist: bool = True) -> bool:
+        try:
+            snapshot = self._build_session_restore_snapshot()
+            self._session_restore_last_context = dict(snapshot)
+            ui_state = self._get_ui_state_dict()
+            ui_state["session_restore"] = dict(snapshot)
+            try:
+                st = getattr(self, "_settings", None)
+                if st is not None and hasattr(st, "model_copy"):
+                    self._settings = st.model_copy(update={"ui_state": ui_state})
+                elif st is not None:
+                    st.ui_state = ui_state
+            except Exception:
+                pass
+            ok = True
+            if persist:
+                ok = bool(
+                    self._apply_settings_patch(
+                        {"ui_state": {"session_restore": snapshot}},
+                        reason=f"session_restore_{reason}",
+                    )
+                )
+            try:
+                self._log.info(
+                    "[AITS][SessionRestore] save | tab=%s | symbol=%s | provider=%s | persist=%s | ok=%s",
+                    snapshot.get("active_tab_name", ""),
+                    snapshot.get("last_selected_symbol", ""),
+                    snapshot.get("last_ai_provider", ""),
+                    persist,
+                    ok,
+                )
+            except Exception:
+                pass
+            return ok
+        except Exception:
+            try:
+                self._log.info("[AITS][SessionRestore] save | ok=False")
+            except Exception:
+                pass
+            return False
+
+    def _restore_session_selected_symbol(self, symbol: str) -> bool:
+        sym = str(symbol or "").strip()
+        if not sym:
+            return False
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            table = getattr(self, "tbl_ai_managed", None)
+            if table is None:
+                return False
+            for idx, row in enumerate(rows):
+                if str((row or {}).get("symbol") or "").strip() == sym:
+                    self._set_selected_ai_pool_symbol(sym)
+                    table.selectRow(int(idx))
+                    self._refresh_ai_detail_panel()
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _restore_session_restore_snapshot(self) -> bool:
+        if bool(getattr(self, "_session_restore_applied", False)):
+            return True
+        self._session_restore_restoring = True
+        ok = False
+        try:
+            ui_state = self._get_ui_state_dict()
+            state = ui_state.get("session_restore") or {}
+            if not isinstance(state, dict):
+                return False
+            if state.get("schema") != "aits_session_restore.v1":
+                return False
+
+            tab_idx = state.get("active_tab_index", -1)
+            try:
+                tab_idx = int(tab_idx)
+            except Exception:
+                tab_idx = -1
+            tabs = getattr(self, "tabs", None)
+            if tabs is not None and 0 <= tab_idx < int(tabs.count()):
+                tabs.setCurrentIndex(tab_idx)
+                try:
+                    self._set_bottom_nav_active(tab_idx)
+                except Exception:
+                    pass
+                ok = True
+
+            symbol = str(state.get("last_selected_symbol") or "").strip()
+            if symbol:
+                restored_symbol = self._restore_session_selected_symbol(symbol)
+                if not restored_symbol:
+                    try:
+                        QTimer.singleShot(
+                            1200,
+                            lambda s=symbol: self._restore_session_selected_symbol(s),
+                        )
+                    except Exception:
+                        pass
+
+            self._session_restore_applied = True
+            try:
+                self._log.info(
+                    "[AITS][SessionRestore] restore | tab=%s | provider=%s | ok=%s",
+                    state.get("active_tab_name", ""),
+                    state.get("last_ai_provider", ""),
+                    ok,
+                )
+            except Exception:
+                pass
+            return ok
+        except Exception:
+            return False
+        finally:
+            self._session_restore_restoring = False
+
+    def _on_session_restore_tab_changed(self, _idx: int) -> None:
+        try:
+            self._session_restore_last_context = self._get_current_active_tab_context()
+            if bool(getattr(self, "_session_restore_restoring", False)):
+                return
+            timer = getattr(self, "_session_restore_save_timer", None)
+            if timer is not None:
+                timer.start()
+        except Exception:
+            pass
+
     def _dispatch_save_current_tab(self):
         """Skeleton dispatcher for the bottom save button.
 
@@ -12690,6 +12939,10 @@ class MainWindow(QMainWindow):
         ctx = self._get_active_save_context()
         active_tab = str(ctx.get("key") or "unknown")
         handler = "save_settings" if active_tab == "common_settings" else "save_settings_fallback"
+        try:
+            self._save_session_restore_snapshot(reason="nav_save", persist=False)
+        except Exception:
+            pass
         try:
             self._log.info(
                 "[AITS][TabSaveDispatcher] active_tab=%s | handler=%s | status=dispatch",
@@ -21463,6 +21716,10 @@ class MainWindow(QMainWindow):
                 pass
 
             self._aits_large_chart_symbol = symbol_text
+            try:
+                self._last_detail_chart_symbol = str(symbol_text or "").strip()
+            except Exception:
+                pass
 
             display_name = self._format_aits_coin_display_name(symbol_text)
             if not display_name:
@@ -33421,10 +33678,14 @@ class MainWindow(QMainWindow):
             # ✅ BOOT-GUARD: Mark boot as done after first successful load
             self._boot_done = True
             self._log.info("[BOOT-GUARD] boot completed, _boot_done=True")
-            try:
-                QTimer.singleShot(0, self._restore_aits_manage_splitter_sizes)
-            except Exception:
-                pass
+        try:
+            QTimer.singleShot(0, self._restore_aits_manage_splitter_sizes)
+        except Exception:
+            pass
+        try:
+            QTimer.singleShot(0, self._restore_session_restore_snapshot)
+        except Exception:
+            pass
 
     def _restore_api_keys_after_ui_ready(self) -> None:
         try:
@@ -33500,7 +33761,16 @@ class MainWindow(QMainWindow):
                 and isinstance(_us, dict)
                 and set(_us.keys()) == {"aits_overview_expanded"}
             )
-            _ui_autosave_exempt = _splitter_only_ui or _overview_only_ui
+            _session_restore_only_ui = (
+                set(_p.keys()) == {"ui_state"}
+                and isinstance(_us, dict)
+                and set(_us.keys()) == {"session_restore"}
+            )
+            _ui_autosave_exempt = (
+                _splitter_only_ui
+                or _overview_only_ui
+                or _session_restore_only_ui
+            )
             
             # 부팅 후 10초간 모든 저장 차단 (splitter / overview UI 자동 저장은 예외)
             if (
@@ -34165,6 +34435,17 @@ class MainWindow(QMainWindow):
                 _sp_sizes = getattr(self, "_aits_manage_splitter_sizes_cache", None)
                 if isinstance(_sp_sizes, (list, tuple)) and len(_sp_sizes) >= 3:
                     us_merged["aits_manage_splitter_sizes"] = [int(x) for x in _sp_sizes[:3]]
+                patch["ui_state"] = us_merged
+            except Exception:
+                pass
+
+            try:
+                session_snapshot = self._build_session_restore_snapshot()
+                if isinstance(patch.get("ui_state"), dict):
+                    us_merged = dict(patch["ui_state"])
+                else:
+                    us_merged = {}
+                us_merged["session_restore"] = dict(session_snapshot)
                 patch["ui_state"] = us_merged
             except Exception:
                 pass
@@ -37169,6 +37450,10 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_market_history_timer") and self._market_history_timer.isActive():
                 self._market_history_timer.stop()
             self._polling_started = False
+        except Exception:
+            pass
+        try:
+            self._save_session_restore_snapshot(reason="close")
         except Exception:
             pass
         try:
