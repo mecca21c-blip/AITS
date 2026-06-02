@@ -98,7 +98,7 @@ def init_aits(app_context: Dict[str, Any]) -> AITSOrchestrator:
     aits_config = {}
 
     try:
-        from app.utils.prefs import load_settings
+        from app.utils.prefs import _get_prefs_path, load_settings
 
         aits_settings = load_settings()
         if aits_settings is not None and hasattr(aits_settings, "model_dump"):
@@ -109,10 +109,47 @@ def init_aits(app_context: Dict[str, Any]) -> AITSOrchestrator:
             aits_config = {}
 
         print("[AITS][run] settings_loaded_for_orchestrator | ok=1")
+        try:
+            strategy = getattr(aits_settings, "strategy", None)
+            provider = str(getattr(strategy, "ai_provider", "") or "")
+            openai_key = str(getattr(strategy, "ai_openai_api_key", "") or "")
+            prefs_path = _get_prefs_path()
+            logger.info(
+                "[AITS][RuntimePathDiagnostic] run_mode=%s | cwd=%s | root_dir=%s | data_dir=%s | prefs_path=%s | prefs_exists=%s | provider=%s | openai_key_present=%s | openai_key_len=%s",
+                run_mode,
+                os.getcwd(),
+                app_context.get("root_dir", ""),
+                app_context.get("data_dir", ""),
+                prefs_path,
+                os.path.exists(prefs_path),
+                provider,
+                bool(openai_key.strip()),
+                len(openai_key.strip()),
+            )
+        except Exception as diag_exc:
+            logger.info(
+                "[AITS][RuntimePathDiagnostic] status=failed | error_type=%s",
+                type(diag_exc).__name__,
+            )
     except Exception as exc:
         aits_settings = None
         aits_config = {}
         print(f"[AITS][run] settings_loaded_for_orchestrator | ok=0 | reason={type(exc).__name__}")
+        try:
+            logger.info(
+                "[AITS][RuntimePathDiagnostic] run_mode=%s | cwd=%s | root_dir=%s | data_dir=%s | prefs_path=%s | prefs_exists=%s | provider=%s | openai_key_present=%s | openai_key_len=%s",
+                run_mode,
+                os.getcwd(),
+                app_context.get("root_dir", ""),
+                app_context.get("data_dir", ""),
+                "",
+                False,
+                "",
+                False,
+                0,
+            )
+        except Exception:
+            pass
 
     orchestrator = AITSOrchestrator(
         config=aits_config,

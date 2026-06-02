@@ -499,3 +499,11 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Empty fields or masked UI strings must not overwrite existing saved keys.
 - Key deletion requires an explicit delete flow; ordinary settings, UI-state, close, and layout saves must retain existing AI keys.
 - Logs may report key_present/key_len only and must never include key contents.
+---
+
+## Runtime Path Diagnostic
+
+- Settings persistence issues must first confirm the actual runtime path, data directory, and prefs file used by the running app.
+- Startup diagnostics may log run_mode, cwd, root_dir, data_dir, prefs_path, prefs_exists, provider, openai_key_present, and openai_key_len.
+- API key contents, prefixes, suffixes, payloads, and account data must never be logged.
+- Provider/key diagnostics are read-only and must not change GPT Preview, Runtime, Router, Order, Execution, confidence, or ETA behavior.
