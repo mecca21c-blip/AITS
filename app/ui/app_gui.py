@@ -3073,6 +3073,22 @@ class AITSLargeChartDialog(QDialog):
                 reason_lines=reason_lines,
                 scenario_type=getattr(self, "_detail_popup_scenario_type", "sideways_wait"),
             )
+            try:
+                self._detail_popup_ai_output_contract = None
+                gpt_input = self._build_gpt_input_contract(self._symbol)
+                gpt_output = self._build_gpt_preview_output(gpt_input)
+                if isinstance(gpt_output, dict) and bool(gpt_output.get("available")):
+                    scenario_slot = gpt_output.get("scenario") if isinstance(gpt_output.get("scenario"), dict) else {}
+                    scenario_name = str(scenario_slot.get("name") or "").strip()
+                    scenario_summary = str(scenario_slot.get("summary") or "").strip()
+                    if scenario_name:
+                        self.lbl_detail_popup_scenario_title.setText(scenario_name)
+                    if scenario_summary:
+                        self.lbl_detail_popup_scenario_context.setText(scenario_summary)
+                    self.lbl_detail_popup_scenario_type.setText("GPT Preview")
+                    self.lbl_asset_scenario_source.setText("기준: GPT Preview")
+            except Exception:
+                pass
             self._sync_ai_briefing_center(briefing)
             intent = self._build_ai_intent_snapshot(
                 decision_text=decision_text,
@@ -4651,9 +4667,222 @@ class AITSLargeChartDialog(QDialog):
                 },
             }
 
+    def _build_gpt_preview_output(self, input_contract=None):
+        """Call OpenAI for preview-only Intent/Scenario/Why slots."""
+        def _empty_contract(status="waiting", error_type=None):
+            return {
+                "schema": "aits_ai_output_contract.v1",
+                "available": False,
+                "source": "none",
+                "provider": None,
+                "runtime": None,
+                "model": None,
+                "preview_status": status,
+                "error_type": error_type,
+                "intent": {"title": None, "focus": [], "condition": None, "transition": []},
+                "scenario": {"name": None, "summary": None, "confidence": None},
+                "why": {"wait_reason": None, "blockers": [], "required_confirmation": []},
+                "eta": {"label": None, "hours": None, "source": None},
+                "safety": {
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                },
+            }
+
+        def _safe_list(value, limit=4):
+            if value is None:
+                return []
+            if isinstance(value, (list, tuple)):
+                items = value
+            else:
+                items = str(value or "").splitlines()
+            out = []
+            for item in items:
+                text = str(item or "").strip().lstrip("-• ").strip()
+                if text and text not in out:
+                    out.append(text[:160])
+                if len(out) >= limit:
+                    break
+            return out
+
+        def _extract_response_text(response):
+            try:
+                text = getattr(response, "output_text", None)
+                if text:
+                    return str(text)
+            except Exception:
+                pass
+            try:
+                output = getattr(response, "output", None) or []
+                parts = []
+                for item in output:
+                    content = getattr(item, "content", None) or []
+                    for chunk in content:
+                        chunk_text = getattr(chunk, "text", None)
+                        if chunk_text:
+                            parts.append(str(chunk_text))
+                if parts:
+                    return "\n".join(parts)
+            except Exception:
+                pass
+            try:
+                choices = getattr(response, "choices", None) or []
+                if choices:
+                    message = getattr(choices[0], "message", None)
+                    content = getattr(message, "content", None)
+                    if content:
+                        return str(content)
+            except Exception:
+                pass
+            return str(response or "")
+
+        try:
+            parent_obj = None
+            try:
+                parent_obj = self.parent()
+            except Exception:
+                parent_obj = None
+            settings = getattr(parent_obj, "_settings", None) if parent_obj is not None else None
+            if settings is None:
+                try:
+                    settings = load_settings()
+                except Exception:
+                    settings = None
+            strategy = getattr(settings, "strategy", None) if settings is not None else None
+            provider = ""
+            api_key = ""
+            model = ""
+            try:
+                if isinstance(strategy, dict):
+                    provider = str(strategy.get("ai_provider") or "").strip().lower()
+                    api_key = str(strategy.get("ai_openai_api_key") or "").strip()
+                    model = str(strategy.get("ai_openai_model") or "").strip()
+                elif strategy is not None:
+                    provider = str(getattr(strategy, "ai_provider", "") or "").strip().lower()
+                    api_key = str(getattr(strategy, "ai_openai_api_key", "") or "").strip()
+                    model = str(getattr(strategy, "ai_openai_model", "") or "").strip()
+            except Exception:
+                pass
+            if provider in ("gpt", "chatgpt"):
+                provider = "openai"
+            if provider != "openai":
+                return _empty_contract("provider_not_openai")
+            if not api_key or api_key.startswith("•"):
+                return _empty_contract("api_key_missing")
+            if not model:
+                model = "gpt-4o-mini"
+
+            contract = input_contract if isinstance(input_contract, dict) else self._build_gpt_input_contract()
+            compact_contract = {
+                key: contract.get(key)
+                for key in (
+                    "schema",
+                    "task",
+                    "symbol",
+                    "asset",
+                    "basic_facts",
+                    "technical_state",
+                    "risk_state",
+                    "portfolio_state",
+                    "policy_state",
+                    "recent_context",
+                    "requested_output",
+                    "safety_constraints",
+                )
+            }
+            system_prompt = (
+                "You are AITS GPT Preview. Return only compact JSON. "
+                "Generate preview-only intent, scenario, and why slots. "
+                "Do not recommend buy/sell orders. Do not output action application, order execution, API keys, or private data."
+            )
+            user_prompt = (
+                "Build preview output for this contract. "
+                "Return JSON with keys: intent, scenario, why. "
+                "intent={title, focus, condition, transition}; "
+                "scenario={name, summary}; "
+                "why={wait_reason, blockers, required_confirmation}. "
+                "Use concise Korean operator-friendly wording.\n"
+                + json.dumps(compact_contract, ensure_ascii=False)
+            )
+            from openai import OpenAI
+
+            client = OpenAI(api_key=api_key, timeout=8.0)
+            response = client.responses.create(
+                model=model,
+                input=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            raw_text = _extract_response_text(response).strip()
+            parsed = {}
+            try:
+                parsed = json.loads(raw_text)
+            except Exception:
+                start = raw_text.find("{")
+                end = raw_text.rfind("}")
+                if start >= 0 and end > start:
+                    parsed = json.loads(raw_text[start : end + 1])
+            if not isinstance(parsed, dict):
+                raise ValueError("gpt_preview_invalid_json")
+            intent_in = parsed.get("intent") if isinstance(parsed.get("intent"), dict) else {}
+            scenario_in = parsed.get("scenario") if isinstance(parsed.get("scenario"), dict) else {}
+            why_in = parsed.get("why") if isinstance(parsed.get("why"), dict) else {}
+            output_contract = {
+                "schema": "aits_ai_output_contract.v1",
+                "available": True,
+                "source": "openai",
+                "provider": "openai",
+                "runtime": "gpt_preview",
+                "model": model,
+                "preview_status": "success",
+                "preview_label": "GPT Preview",
+                "intent": {
+                    "title": str(intent_in.get("title") or "GPT Preview").strip()[:120],
+                    "focus": _safe_list(intent_in.get("focus"), limit=4),
+                    "condition": str(intent_in.get("condition") or "").strip()[:240],
+                    "transition": _safe_list(intent_in.get("transition"), limit=3),
+                },
+                "scenario": {
+                    "name": str(scenario_in.get("name") or "GPT Preview").strip()[:120],
+                    "summary": str(scenario_in.get("summary") or "").strip()[:260],
+                    "confidence": None,
+                },
+                "why": {
+                    "wait_reason": str(why_in.get("wait_reason") or "").strip()[:260],
+                    "blockers": _safe_list(why_in.get("blockers"), limit=4),
+                    "required_confirmation": _safe_list(why_in.get("required_confirmation"), limit=4),
+                },
+                "eta": {"label": None, "hours": None, "source": None},
+                "safety": {
+                    "preview_only": True,
+                    "runtime_applied": False,
+                    "order_applied": False,
+                },
+            }
+            self._detail_popup_ai_output_contract = output_contract
+            try:
+                logging.getLogger("aits").info("[AITS][GPTPreview] provider=openai | status=success")
+            except Exception:
+                pass
+            return output_contract
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][GPTPreview] provider=openai | status=failed | error_type=%s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return _empty_contract("failed", type(exc).__name__)
+
     def _format_ai_output_provider_label(self, contract=None):
         try:
             contract = dict(contract or {})
+            preview_label = str(contract.get("preview_label") or "").strip()
+            if preview_label:
+                return preview_label
             provider = str(contract.get("provider") or contract.get("source") or "").strip().lower()
             runtime = str(contract.get("runtime") or "").strip()
             model = str(contract.get("model") or "").strip()

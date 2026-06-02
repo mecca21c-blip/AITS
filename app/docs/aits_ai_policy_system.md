@@ -467,3 +467,15 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Basic Engine remains a Fact Provider, not the Decision Engine.
 - GPT output is expected to map back into the AI Output Contract slots.
 - This Sprint defines the input contract helper only; it does not add GPT, Gemini, Ollama, Runtime, Router, Order, Execution, or RiskGuard calls.
+
+---
+
+## GPT Preview Call
+
+- GPT Preview connects GPT Input Contract to AI Output Contract for UI preview only.
+- The call is attempted only when strategy.ai_provider is openai/gpt and an OpenAI API key is available.
+- GPT Preview may fill Intent, Scenario, and Why slots only.
+- GPT Preview must not generate order execution, action apply, Runtime changes, Router changes, ETA calculation changes, or confidence calculation changes.
+- UI displays GPT Preview as the output source badge when a preview response is available.
+- Logs must stay compact and must not include payload bodies, API keys, raw responses, account data, or private information.
+- On timeout, missing key, provider mismatch, or invalid response, the UI keeps the AI waiting state.
