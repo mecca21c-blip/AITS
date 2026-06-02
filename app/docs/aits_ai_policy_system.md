@@ -490,3 +490,12 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - The OpenAI key is stored only in the official prefs/settings strategy.ai_openai_api_key field.
 - UI widgets may display masked/password key state, but logs must only report key presence, never key contents.
 - GPT Preview remains preview-only and still does not affect Runtime, Router, Order, Execution, confidence, or ETA.
+
+---
+
+## OpenAI Key Preservation Guard
+
+- OpenAI and Gemini API keys are preserved by the central prefs save path unless a real replacement key is supplied.
+- Empty fields or masked UI strings must not overwrite existing saved keys.
+- Key deletion requires an explicit delete flow; ordinary settings, UI-state, close, and layout saves must retain existing AI keys.
+- Logs may report key_present/key_len only and must never include key contents.

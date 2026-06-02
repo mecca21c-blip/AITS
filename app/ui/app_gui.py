@@ -33173,12 +33173,19 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 ai_provider = st_dict.get("ai_provider", "local")
+                ai_provider_ui = str(ai_provider or "local").strip().lower()
+                if ai_provider_ui in ("openai", "chatgpt"):
+                    ai_provider_ui = "gpt"
+                elif ai_provider_ui in ("basic", "basic_ai", "basic ai", "local"):
+                    ai_provider_ui = "local"
+                elif ai_provider_ui not in ("gpt", "gemini", "local"):
+                    ai_provider_ui = "local"
                 ai_local_url = (st_dict.get("ai_local_url") or "http://127.0.0.1:11434").strip()
                 ai_local_model = (st_dict.get("ai_local_model") or "qwen2.5").strip() or "qwen2.5"
                 self._log.info("[AI-SSOT] prefs_loaded ai_provider=%s local_url_len=%s",
                     ai_provider, len(ai_local_url))
                 if hasattr(self, "cb_ai_provider"):
-                    self.cb_ai_provider.setCurrentText(ai_provider)
+                    self.cb_ai_provider.setCurrentText(ai_provider_ui)
                 if hasattr(self, "inp_local_url"):
                     self.inp_local_url.setText(ai_local_url)
                 if hasattr(self, "cmb_local_model") and ai_local_model in ("llama3.1", "qwen2.5", "mistral"):
@@ -33312,7 +33319,9 @@ class MainWindow(QMainWindow):
                     )
                 # 박스 선택·배경색·우측상단 배지 동기화 (setVisible 제거, 항상 두 박스 표시)
                 if hasattr(self, "_set_ai_provider_ui_active"):
-                    self._set_ai_provider_ui_active(ai_provider)
+                    self._set_ai_provider_ui_active(ai_provider_ui)
+                if hasattr(self, "_sync_engine_choice_panel"):
+                    self._sync_engine_choice_panel(ai_provider_ui)
             except Exception:
                 pass
 

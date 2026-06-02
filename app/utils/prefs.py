@@ -15,6 +15,44 @@ _save_inflight = False
 # P0-C: UI 상태 저장 throttle (5초)
 _last_ui_state_save_time = 0.0
 
+def _looks_like_masked_secret(value: object) -> bool:
+    try:
+        text = str(value or "").strip()
+        if not text:
+            return False
+        mask_chars = set("*•●○·∙⋅▪■□█")
+        return all(ch in mask_chars for ch in text) and len(text) >= 4
+    except Exception:
+        return False
+
+def _preserve_ai_secret_fields(payload: dict) -> dict:
+    """Keep existing AI secrets unless a real replacement value is supplied."""
+    try:
+        if not isinstance(payload, dict):
+            return payload
+        strategy = payload.get("strategy") or {}
+        if not isinstance(strategy, dict):
+            return payload
+        existing = _read_prefs_json() or {}
+        existing_strategy = existing.get("strategy") or {}
+        if not isinstance(existing_strategy, dict):
+            existing_strategy = {}
+        for key in ("ai_openai_api_key", "ai_gemini_api_key"):
+            incoming = str(strategy.get(key) or "").strip()
+            previous = str(existing_strategy.get(key) or "").strip()
+            if previous and ((not incoming) or _looks_like_masked_secret(incoming)):
+                strategy[key] = previous
+                try:
+                    _log_info(
+                        f"[AITS][OpenAIKeyPersist] stage=save_settings_preserve | key={key} | key_present=True | key_len={len(previous)}"
+                    )
+                except Exception:
+                    pass
+        payload["strategy"] = strategy
+    except Exception:
+        pass
+    return payload
+
 def _get_prefs_path() -> str:
     """현재 사용 중인 prefs 파일 경로 반환 (진단용)"""
     _ensure_inited()
@@ -540,6 +578,7 @@ def save_settings(settings):
         stg["indicators"] = [str(i).strip() for i in indicators if i and str(i).strip()]
         
         payload["strategy"] = stg
+        payload = _preserve_ai_secret_fields(payload)
 
         _resolved = _PREFS_FILE or "unknown"
         _log_path_check(_resolved, _resolved)
