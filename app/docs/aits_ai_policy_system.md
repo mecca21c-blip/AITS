@@ -507,3 +507,12 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Startup diagnostics may log run_mode, cwd, root_dir, data_dir, prefs_path, prefs_exists, provider, openai_key_present, and openai_key_len.
 - API key contents, prefixes, suffixes, payloads, and account data must never be logged.
 - Provider/key diagnostics are read-only and must not change GPT Preview, Runtime, Router, Order, Execution, confidence, or ETA behavior.
+---
+
+## GPT Preview Responses Request Format
+
+- GPT Preview uses the OpenAI Responses API with `instructions` plus a compact string `input`.
+- The preview prompt requests plain JSON and the UI parses that JSON into `aits_ai_output_contract.v1`.
+- GPT Preview does not use order/action/runtime fields and does not apply the response outside the UI preview layer.
+- Unsupported or legacy OpenAI preview model values fall back to `gpt-4o-mini` for Preview only.
+- Logs may include endpoint, model, error_type, and a short error summary, but must never include API keys, payload bodies, raw responses, account data, or private information.

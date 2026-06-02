@@ -4720,6 +4720,8 @@ class AITSLargeChartDialog(QDialog):
                     content = getattr(item, "content", None) or []
                     for chunk in content:
                         chunk_text = getattr(chunk, "text", None)
+                        if not chunk_text and isinstance(chunk, dict):
+                            chunk_text = chunk.get("text") or chunk.get("content")
                         if chunk_text:
                             parts.append(str(chunk_text))
                 if parts:
@@ -4737,6 +4739,24 @@ class AITSLargeChartDialog(QDialog):
                 pass
             return str(response or "")
 
+        def _safe_preview_model(value):
+            model_text = str(value or "").strip()
+            if not model_text:
+                return "gpt-4o-mini"
+            lowered = model_text.lower()
+            if "gpt-5.5" in lowered or "instant" in lowered:
+                return "gpt-4o-mini"
+            if lowered.startswith(("gpt-4o", "gpt-4.1", "gpt-5")):
+                return model_text
+            return "gpt-4o-mini"
+
+        def _safe_error_message(exc, max_len=180):
+            text = str(exc or "").replace("\r", " ").replace("\n", " ").strip()
+            if len(text) > max_len:
+                text = text[: max_len - 3].rstrip() + "..."
+            return text
+
+        model = ""
         try:
             parent_obj = None
             try:
@@ -4770,8 +4790,7 @@ class AITSLargeChartDialog(QDialog):
                 return _empty_contract("provider_not_openai")
             if not api_key or api_key.startswith("•"):
                 return _empty_contract("api_key_missing")
-            if not model:
-                model = "gpt-4o-mini"
+            model = _safe_preview_model(model)
 
             contract = input_contract if isinstance(input_contract, dict) else self._build_gpt_input_contract()
             compact_contract = {
@@ -4810,10 +4829,10 @@ class AITSLargeChartDialog(QDialog):
             client = OpenAI(api_key=api_key, timeout=8.0)
             response = client.responses.create(
                 model=model,
-                input=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
+                instructions=system_prompt,
+                input=user_prompt,
+                max_output_tokens=700,
+                store=False,
             )
             raw_text = _extract_response_text(response).strip()
             parsed = {}
@@ -4863,15 +4882,20 @@ class AITSLargeChartDialog(QDialog):
             }
             self._detail_popup_ai_output_contract = output_contract
             try:
-                logging.getLogger("aits").info("[AITS][GPTPreview] status=success")
+                logging.getLogger("aits").info(
+                    "[AITS][GPTPreview] status=success | provider=openai | model=%s | endpoint=responses | contract=aits_ai_output_contract.v1",
+                    model,
+                )
             except Exception:
                 pass
             return output_contract
         except Exception as exc:
             try:
                 logging.getLogger("aits").warning(
-                    "[AITS][GPTPreview] status=failed | error_type=%s",
+                    "[AITS][GPTPreview] status=failed | error_type=%s | model=%s | endpoint=responses | error_message=%s",
                     type(exc).__name__,
+                    str(model or "unknown"),
+                    _safe_error_message(exc),
                 )
             except Exception:
                 pass
