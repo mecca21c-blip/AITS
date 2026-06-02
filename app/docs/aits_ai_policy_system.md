@@ -455,3 +455,15 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Basic Engine is not an AI provider.
 - Basic Preview is not AI Output and must not be promoted into provider output.
 - UI may display Local AI or Local AI / Ollama/model, but the contract provider remains local_ai.
+
+---
+
+## GPT Input Contract
+
+- GPT uses compact Fact, Candidate, Risk, Portfolio, policy, and recent-context data prepared by Basic/UI preview layers.
+- GPT Input Contract defines what the AI engine may inspect before generating Intent, Scenario, Why, ETA, and Confidence output.
+- Contract schema: aits_gpt_input_contract.v1.
+- The contract passes summary context only; it must not include full OHLCV arrays, raw logs, full portfolio dumps, API keys, account secrets, or order permissions.
+- Basic Engine remains a Fact Provider, not the Decision Engine.
+- GPT output is expected to map back into the AI Output Contract slots.
+- This Sprint defines the input contract helper only; it does not add GPT, Gemini, Ollama, Runtime, Router, Order, Execution, or RiskGuard calls.

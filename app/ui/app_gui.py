@@ -4377,6 +4377,280 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return _empty_contract()
 
+    def _build_gpt_input_contract(self, symbol=None):
+        """Build compact, read-only context for future GPT/OpenAI preview calls."""
+        def _safe_text(value, max_len=160):
+            text = str(value or "").strip()
+            if len(text) > max_len:
+                return text[: max_len - 1].rstrip() + "..."
+            return text
+
+        def _safe_float(value):
+            try:
+                if value is None or value == "":
+                    return None
+                return float(value)
+            except Exception:
+                return None
+
+        def _safe_int(value):
+            try:
+                if value is None or value == "":
+                    return None
+                return int(float(value))
+            except Exception:
+                return None
+
+        def _label_text(attr, max_len=160):
+            try:
+                widget = getattr(self, attr, None)
+                if widget is not None and hasattr(widget, "text"):
+                    return _safe_text(widget.text(), max_len=max_len)
+            except Exception:
+                pass
+            return ""
+
+        try:
+            symbol = str(symbol or getattr(self, "_symbol", "") or "").strip()
+            if not symbol:
+                symbol = _label_text("lbl_detail_popup_header_symbol", 80)
+            if not symbol or symbol == "—":
+                symbol = ""
+
+            decision_text = _label_text("lbl_detail_popup_decision_big", 80)
+            state_text = _label_text("lbl_detail_popup_decision_sub", 160)
+            briefing_state = _label_text("lbl_ai_briefing_summary", 240)
+            reason_text = _label_text("lbl_detail_popup_reason", 300)
+            reason_lines = [
+                line.strip().lstrip("-• ").strip()
+                for line in reason_text.splitlines()
+                if line.strip()
+            ][:4]
+
+            ctx = self._build_ai_intent_runtime_context(
+                decision_text=decision_text,
+                state_text=state_text,
+                reason_lines=reason_lines,
+                briefing_state=briefing_state,
+            )
+            asset_intent = self._build_asset_intent_snapshot(ctx)
+            basic_preview = self._build_basic_observation_preview(ctx, asset_intent)
+            asset_policy = self._build_asset_policy_snapshot(symbol)
+
+            global_policy = {}
+            try:
+                parent_obj = self.parent()
+                if parent_obj is not None and hasattr(parent_obj, "_build_ai_policy_snapshot"):
+                    candidate = parent_obj._build_ai_policy_snapshot()
+                    if isinstance(candidate, dict):
+                        global_policy = dict(candidate)
+            except Exception:
+                global_policy = {}
+
+            effective_policy = {}
+            try:
+                parent_obj = self.parent()
+                if parent_obj is not None and hasattr(parent_obj, "_build_effective_policy_preview_snapshot"):
+                    candidate = parent_obj._build_effective_policy_preview_snapshot(symbol)
+                    if isinstance(candidate, dict):
+                        effective_policy = dict(candidate)
+            except Exception:
+                effective_policy = {}
+
+            scenario_name = _label_text("lbl_detail_popup_scenario_type", 120)
+            scenario_summary = _label_text("lbl_detail_popup_scenario_context", 240)
+            last_intent = {}
+            try:
+                last_intent = self._build_ai_intent_snapshot(
+                    decision_text=decision_text,
+                    state_text=state_text,
+                    reason_lines=reason_lines,
+                    briefing_state=briefing_state,
+                )
+                if not isinstance(last_intent, dict):
+                    last_intent = {}
+            except Exception:
+                last_intent = {}
+
+            basic_facts = {
+                "score": _safe_float(_label_text("lbl_detail_popup_score", 80)),
+                "action_state": decision_text or None,
+                "decision_state": state_text or None,
+                "market_regime": _safe_text(ctx.get("state"), 80),
+                "volume_status": "rising" if ctx.get("volume_rising") else "weak" if ctx.get("volume_weak") else "unknown",
+                "liquidity_status": "weak" if ctx.get("volume_weak") else "unknown",
+                "trend_status": (
+                    "bullish"
+                    if ctx.get("ma_bullish") or ctx.get("strength")
+                    else "bearish"
+                    if ctx.get("ma_bearish") or ctx.get("trend_weak")
+                    else "sideways"
+                    if ctx.get("sideways")
+                    else "unknown"
+                ),
+                "volatility_status": _safe_text(ctx.get("scenario_type"), 80) or "unknown",
+                "basic_preview": basic_preview,
+            }
+
+            chart_ctx = dict(ctx.get("chart_context") or {})
+            technical_state = {
+                "rsi": _safe_float(ctx.get("rsi")),
+                "rsi_direction": (
+                    "rising"
+                    if ctx.get("rsi_rising") or ctx.get("rsi_recovery")
+                    else "oversold"
+                    if ctx.get("rsi_oversold")
+                    else "unknown"
+                ),
+                "ma20": _safe_float(chart_ctx.get("ma20")),
+                "ma60": _safe_float(chart_ctx.get("ma60")),
+                "ma120": _safe_float(chart_ctx.get("ma120")),
+                "ma20_relation": "recovered" if ctx.get("ma20_recovered") else "below_or_unknown",
+                "ma_trend": (
+                    "bullish"
+                    if ctx.get("ma_bullish")
+                    else "bearish"
+                    if ctx.get("ma_bearish")
+                    else "unknown"
+                ),
+                "current_price_vs_ma20": _safe_float(chart_ctx.get("price_vs_ma20_pct")),
+                "volume_ratio": _safe_float(ctx.get("volume_ratio")),
+                "recent_high": _safe_float(chart_ctx.get("recent_high")),
+                "recent_low": _safe_float(chart_ctx.get("recent_low")),
+                "nearest_support": _safe_float(asset_intent.get("nearest_support")),
+                "nearest_resistance": _safe_float(asset_intent.get("nearest_resistance")),
+            }
+
+            risk_state = {
+                "downside_risk_hint": "elevated" if ctx.get("trend_weak") or ctx.get("defensive") else "unknown",
+                "stop_loss_risk_hint": _safe_text(chart_ctx.get("stop_loss_risk_hint"), 120) or None,
+                "overheat_hint": "target_near" if ctx.get("target_near") else "unknown",
+                "drawdown_hint": _safe_text(chart_ctx.get("drawdown_hint"), 120) or None,
+                "volatility_hint": _safe_text(ctx.get("scenario_type"), 120) or None,
+            }
+
+            portfolio_state = {
+                "currently_held": bool(chart_ctx.get("currently_held")) if "currently_held" in chart_ctx else None,
+                "position_size_ratio": _safe_float(chart_ctx.get("position_size_ratio")),
+                "unrealized_pnl_pct": _safe_float(chart_ctx.get("unrealized_pnl_pct")),
+                "available_cash_ratio": _safe_float(chart_ctx.get("available_cash_ratio")),
+                "concentration_risk_hint": _safe_text(chart_ctx.get("concentration_risk_hint"), 120) or None,
+            }
+
+            policy_state = {
+                "global_policy_preset": global_policy.get("preset_name") or global_policy.get("policy_style"),
+                "asset_policy_override_active": bool(
+                    asset_policy.get("policy_style")
+                    and str(asset_policy.get("policy_style")) not in ("전역 정책 따름", "?꾩뿭 ?뺤콉 ?곕쫫")
+                ),
+                "asset_policy_preset": asset_policy.get("preset_name"),
+                "effective_policy": effective_policy.get("effective_policy_style") or asset_policy.get("policy_style"),
+                "autonomy_level": _safe_int(asset_policy.get("autonomy_level")),
+                "max_asset_weight": _safe_int(asset_policy.get("max_weight_pct")),
+                "risk_level": _safe_int(global_policy.get("risk_level")),
+                "wait_preference": _safe_int(global_policy.get("wait_preference")),
+                "preview_only": True,
+                "applied_to_runtime": False,
+                "applied_to_order": False,
+            }
+
+            recent_context = {
+                "last_ai_action": None,
+                "last_intent": _safe_text(last_intent.get("current_goal"), 120),
+                "last_scenario": _safe_text(scenario_name, 120),
+                "recent_review_summary": None,
+            }
+
+            contract = {
+                "schema": "aits_gpt_input_contract.v1",
+                "task": "generate_ai_output_preview",
+                "symbol": symbol,
+                "asset": {
+                    "name": str(asset_intent.get("asset_name") or symbol.replace("KRW-", "") or "").strip(),
+                    "market": symbol,
+                    "current_price": _safe_float(asset_intent.get("current_price")),
+                    "target_price": _safe_float(asset_intent.get("target_price")),
+                    "distance_to_target_pct": _safe_float(asset_intent.get("distance_to_target_pct")),
+                    "nearest_support": _safe_float(asset_intent.get("nearest_support")),
+                    "nearest_resistance": _safe_float(asset_intent.get("nearest_resistance")),
+                },
+                "basic_facts": basic_facts,
+                "technical_state": technical_state,
+                "risk_state": risk_state,
+                "portfolio_state": portfolio_state,
+                "policy_state": policy_state,
+                "recent_context": recent_context,
+                "requested_output": {
+                    "intent": {
+                        "title": "string",
+                        "focus": ["string"],
+                        "condition": "string",
+                        "transition": ["string"],
+                    },
+                    "scenario": {
+                        "name": "string",
+                        "summary": "string",
+                        "confidence": "0-100",
+                    },
+                    "why": {
+                        "wait_reason": "string",
+                        "blockers": ["string"],
+                        "required_confirmation": ["string"],
+                    },
+                    "eta": {
+                        "label": "string",
+                        "hours": "number or null",
+                    },
+                },
+                "safety_constraints": {
+                    "preview_only": True,
+                    "no_order_execution": True,
+                    "no_direct_trade_instruction": True,
+                    "no_action_apply": True,
+                    "do_not_output_api_keys": True,
+                    "do_not_request_private_keys": True,
+                    "explain_reasoning_concisely": True,
+                    "avoid_overconfident_language": True,
+                },
+            }
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][GPTInputContract] symbol=%s | fields=asset,basic,technical,risk,policy | preview_only=True",
+                    symbol or "unknown",
+                )
+            except Exception:
+                pass
+            return contract
+        except Exception:
+            return {
+                "schema": "aits_gpt_input_contract.v1",
+                "task": "generate_ai_output_preview",
+                "symbol": str(symbol or "").strip(),
+                "asset": {},
+                "basic_facts": {},
+                "technical_state": {},
+                "risk_state": {},
+                "portfolio_state": {},
+                "policy_state": {},
+                "recent_context": {},
+                "requested_output": {
+                    "intent": {"title": "string", "focus": ["string"], "condition": "string", "transition": ["string"]},
+                    "scenario": {"name": "string", "summary": "string", "confidence": "0-100"},
+                    "why": {"wait_reason": "string", "blockers": ["string"], "required_confirmation": ["string"]},
+                    "eta": {"label": "string", "hours": "number or null"},
+                },
+                "safety_constraints": {
+                    "preview_only": True,
+                    "no_order_execution": True,
+                    "no_direct_trade_instruction": True,
+                    "no_action_apply": True,
+                    "do_not_output_api_keys": True,
+                    "do_not_request_private_keys": True,
+                    "explain_reasoning_concisely": True,
+                    "avoid_overconfident_language": True,
+                },
+            }
+
     def _format_ai_output_provider_label(self, contract=None):
         try:
             contract = dict(contract or {})
