@@ -473,6 +473,7 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 ## GPT Preview Call
 
 - GPT Preview connects GPT Input Contract to AI Output Contract for UI preview only.
+- GPT Preview prompt role is AI Asset Management Analyst.
 - The call is attempted only when strategy.ai_provider is openai/gpt and an OpenAI API key is available.
 - GPT Preview may fill Intent, Scenario, and Why slots only.
 - GPT Preview must not generate order execution, action apply, Runtime changes, Router changes, ETA calculation changes, or confidence calculation changes.

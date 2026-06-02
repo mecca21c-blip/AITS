@@ -4792,7 +4792,7 @@ class AITSLargeChartDialog(QDialog):
                 )
             }
             system_prompt = (
-                "You are AITS GPT Preview. Return only compact JSON. "
+                "You are an AI Asset Management Analyst for AITS. Return only compact JSON. "
                 "Generate preview-only intent, scenario, and why slots. "
                 "Do not recommend buy/sell orders. Do not output action application, order execution, API keys, or private data."
             )
@@ -4863,14 +4863,14 @@ class AITSLargeChartDialog(QDialog):
             }
             self._detail_popup_ai_output_contract = output_contract
             try:
-                logging.getLogger("aits").info("[AITS][GPTPreview] provider=openai | status=success")
+                logging.getLogger("aits").info("[AITS][GPTPreview] status=success")
             except Exception:
                 pass
             return output_contract
         except Exception as exc:
             try:
                 logging.getLogger("aits").warning(
-                    "[AITS][GPTPreview] provider=openai | status=failed | error_type=%s",
+                    "[AITS][GPTPreview] status=failed | error_type=%s",
                     type(exc).__name__,
                 )
             except Exception:
