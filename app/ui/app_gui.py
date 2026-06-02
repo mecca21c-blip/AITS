@@ -13846,6 +13846,13 @@ class MainWindow(QMainWindow):
         elif provider not in ("gpt", "gemini", "local"):
             provider = "local"
         self._ai_provider_box_active = provider
+        try:
+            self._selected_ai_provider = "basic" if provider == "local" else provider
+            self._selected_ai_model = self._get_selected_ai_model(
+                self._selected_ai_provider
+            )
+        except Exception:
+            pass
         if hasattr(self, "cb_ai_provider"):
             self.cb_ai_provider.setCurrentText(provider)
         self._log.info("[AI-BOX] selected=%s", provider)
@@ -33666,6 +33673,21 @@ class MainWindow(QMainWindow):
         return "basic"
 
     def _get_save_ai_provider(self, settings_obj=None) -> str:
+        for attr in ("_ai_provider_box_active",):
+            try:
+                val = str(getattr(self, attr, "") or "").strip()
+                if val:
+                    return self._normalize_saved_ai_provider(val)
+            except Exception:
+                pass
+        try:
+            combo = getattr(self, "cb_ai_provider", None)
+            if combo is not None and hasattr(combo, "currentText"):
+                val = str(combo.currentText() or "").strip()
+                if val:
+                    return self._normalize_saved_ai_provider(val)
+        except Exception:
+            pass
         for attr in ("_selected_ai_provider", "_applied_ai_provider"):
             try:
                 val = str(getattr(self, attr, "") or "").strip()
@@ -33687,6 +33709,60 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return "basic"
+
+    def _persist_openai_provider_selection_after_test(self, api_key: str, model: str) -> bool:
+        """Persist OpenAI as the strategy provider after a successful key test."""
+        try:
+            api_key = str(api_key or "").strip()
+            model = str(model or "").strip() or "gpt-5.5-instant"
+            if not api_key:
+                return False
+            existing = self._read_common_ai_raw_strategy_for_ui()
+            fields = {
+                "ai_provider": "openai",
+                "ai_openai_api_key": api_key,
+                "ai_gemini_api_key": existing.get("ai_gemini_api_key", ""),
+                "ai_openai_model": model,
+                "ai_gemini_model": existing.get("ai_gemini_model", "gemini-2.5-flash"),
+            }
+            ok, save_path, load_path = self._persist_common_ai_settings_direct(fields)
+            if not ok:
+                return False
+            try:
+                self._settings = self._get_settings_cached(force=True)
+            except Exception:
+                try:
+                    from app.utils.prefs import load_settings
+
+                    self._settings = load_settings()
+                except Exception:
+                    pass
+            try:
+                self._selected_ai_provider = "gpt"
+                self._applied_ai_provider = "gpt"
+                self._ai_provider_box_active = "gpt"
+                if hasattr(self, "cb_ai_provider"):
+                    self.cb_ai_provider.blockSignals(True)
+                    self.cb_ai_provider.setCurrentText("gpt")
+                    self.cb_ai_provider.blockSignals(False)
+                self._render_ai_engine_state()
+            except Exception:
+                pass
+            self._log.info(
+                "[AITS][OpenAIKeySave] provider=openai | openai_key_present=%s | path_same=%s",
+                bool(api_key),
+                save_path == load_path,
+            )
+            return True
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][OpenAIKeySave] status=failed | error_type=%s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
 
     def _on_save_settings(self) -> None:
         # ✅ P0-B: Log save button text before and after
@@ -35063,6 +35139,7 @@ class MainWindow(QMainWindow):
             self._set_ai_key_status_label("openai", "연결 정상")
             self._set_ai_engine_card_test_status("openai", "연결 정상", "정상")
             self._apply_selected_ai_engine("gpt", openai_model)
+            self._persist_openai_provider_selection_after_test(api_key, openai_model)
             set_header("🟢 READY")
             out("[2/2] OpenAI 연결 정상")
             self._log.info("[GPT-TEST] ok method=models.list")

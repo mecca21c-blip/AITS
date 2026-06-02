@@ -480,3 +480,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - UI displays GPT Preview as the output source badge when a preview response is available.
 - Logs must stay compact and must not include payload bodies, API keys, raw responses, account data, or private information.
 - On timeout, missing key, provider mismatch, or invalid response, the UI keeps the AI waiting state.
+
+---
+
+## OpenAI Provider Persistence
+
+- The provider SSOT is strategy.ai_provider.
+- Selecting or successfully testing OpenAI must persist strategy.ai_provider=openai.
+- The OpenAI key is stored only in the official prefs/settings strategy.ai_openai_api_key field.
+- UI widgets may display masked/password key state, but logs must only report key presence, never key contents.
+- GPT Preview remains preview-only and still does not affect Runtime, Router, Order, Execution, confidence, or ETA.
