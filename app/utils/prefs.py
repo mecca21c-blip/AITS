@@ -6,6 +6,7 @@ from app.utils.settings_schema import AppSettings, UIConfig, PollConfig, Strateg
 
 _SECRET_FILE = None
 _PREFS_FILE = None
+_SECRETS_FILE = None
 _DEFAULTS_FILE = None
 
 # 중복 저장 방지 전역 변수
@@ -77,8 +78,8 @@ def _ensure_inited() -> None:
     - 이를 방지하기 위해, 미초기화 시 현재 작업 디렉토리 기준 root/data로 자동 초기화한다.
       (KMTS는 보통 프로젝트 루트에서 실행하므로 이 경로가 안정적이다)
     """
-    global _SECRET_FILE, _PREFS_FILE, _DEFAULTS_FILE
-    if _SECRET_FILE and _PREFS_FILE and _DEFAULTS_FILE:
+    global _SECRET_FILE, _PREFS_FILE, _SECRETS_FILE, _DEFAULTS_FILE
+    if _SECRET_FILE and _PREFS_FILE and _SECRETS_FILE and _DEFAULTS_FILE:
         return
 
     try:
@@ -88,6 +89,7 @@ def _ensure_inited() -> None:
 
         _SECRET_FILE = os.path.join(data_dir, "secret.bin")
         _PREFS_FILE = os.path.join(data_dir, "prefs.json")
+        _SECRETS_FILE = os.path.join(data_dir, "secrets.json")
         _DEFAULTS_FILE = os.path.join(root_dir, "configs", "app.yaml")
 
         if not os.path.exists(_SECRET_FILE):
@@ -99,10 +101,11 @@ def _ensure_inited() -> None:
         pass
 
 def init_prefs(root_dir: str, data_dir: str) -> None:
-    global _SECRET_FILE, _PREFS_FILE, _DEFAULTS_FILE
+    global _SECRET_FILE, _PREFS_FILE, _SECRETS_FILE, _DEFAULTS_FILE
     os.makedirs(data_dir, exist_ok=True)
     _SECRET_FILE = os.path.join(data_dir, "secret.bin")      # 로컬 전용 암호 키
     _PREFS_FILE  = os.path.join(data_dir, "prefs.json")      # 설정 저장소(키는 암호화)
+    _SECRETS_FILE = os.path.join(data_dir, "secrets.json")
     _DEFAULTS_FILE = os.path.join(root_dir, "configs", "app.yaml")
     _log_path_check(_PREFS_FILE, _PREFS_FILE)
     if not os.path.exists(_SECRET_FILE):
@@ -147,6 +150,137 @@ _SENSITIVE_PATHS = [
     ("upbit", "secret_key"),
 ]
 
+_SECRET_VALUE_PATHS = [
+    ("upbit", "access_key"),
+    ("upbit", "secret_key"),
+    ("strategy", "ai_openai_api_key"),
+    ("strategy", "ai_gemini_api_key"),
+]
+
+
+def _get_secrets_path() -> str:
+    _ensure_inited()
+    return _SECRETS_FILE or "unknown"
+
+
+def _is_real_secret_value(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and not _looks_like_masked_secret(text)
+
+
+def _read_secrets_json() -> dict:
+    _ensure_inited()
+    try:
+        if not _SECRETS_FILE or not os.path.exists(_SECRETS_FILE):
+            return {"schema": "aits_secrets.v1", "upbit": {}, "strategy": {}}
+        with open(_SECRETS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+        if not isinstance(data, dict):
+            data = {}
+        data.setdefault("schema", "aits_secrets.v1")
+        data.setdefault("upbit", {})
+        data.setdefault("strategy", {})
+        for sect, key in _SECRET_VALUE_PATHS:
+            try:
+                section = data.get(sect) or {}
+                if isinstance(section, dict) and key in section:
+                    section[key] = _safe_decrypt(section[key])
+            except Exception:
+                pass
+        return data
+    except Exception as e:
+        _log_error(f"_read_secrets_json failed: {e}")
+        return {"schema": "aits_secrets.v1", "upbit": {}, "strategy": {}}
+
+
+def _write_secrets_json(secrets_payload: dict) -> bool:
+    _ensure_inited()
+    try:
+        if not _SECRETS_FILE:
+            raise RuntimeError("_SECRETS_FILE is None")
+        data = {"schema": "aits_secrets.v1", "upbit": {}, "strategy": {}}
+        source = secrets_payload if isinstance(secrets_payload, dict) else {}
+        for sect, key in _SECRET_VALUE_PATHS:
+            try:
+                value = str((source.get(sect) or {}).get(key) or "").strip()
+                if value:
+                    data.setdefault(sect, {})[key] = _safe_encrypt(value)
+            except Exception:
+                pass
+        os.makedirs(os.path.dirname(_SECRETS_FILE), exist_ok=True)
+        with open(_SECRETS_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        _log_error(f"_write_secrets_json failed: {e}")
+        return False
+
+
+def _scrub_secret_fields_for_prefs(payload: dict, secrets_payload: dict | None = None) -> dict:
+    if not isinstance(payload, dict):
+        return payload
+    secrets_payload = secrets_payload if isinstance(secrets_payload, dict) else _read_secrets_json()
+    for sect, key in _SECRET_VALUE_PATHS:
+        try:
+            section = payload.setdefault(sect, {})
+            if not isinstance(section, dict):
+                continue
+            present = bool(str((secrets_payload.get(sect) or {}).get(key) or "").strip())
+            section[key] = ""
+            section[f"{key}_present"] = present
+        except Exception:
+            pass
+    return payload
+
+
+def _sync_secrets_from_payload(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        secrets_payload = _read_secrets_json()
+        for sect, key in _SECRET_VALUE_PATHS:
+            try:
+                section = payload.get(sect) or {}
+                if not isinstance(section, dict):
+                    continue
+                value = section.get(key)
+                if _is_real_secret_value(value):
+                    secrets_payload.setdefault(sect, {})[key] = str(value).strip()
+            except Exception:
+                pass
+        _write_secrets_json(secrets_payload)
+        return _scrub_secret_fields_for_prefs(payload, secrets_payload)
+    except Exception:
+        return payload
+
+
+def _merge_file_secrets(data: dict) -> dict:
+    if not isinstance(data, dict):
+        return data
+    try:
+        secrets_payload = _read_secrets_json()
+        migrated = False
+        for sect, key in _SECRET_VALUE_PATHS:
+            try:
+                section = data.setdefault(sect, {})
+                if not isinstance(section, dict):
+                    continue
+                stored = str((secrets_payload.get(sect) or {}).get(key) or "").strip()
+                legacy = str(section.get(key) or "").strip()
+                if (not stored) and _is_real_secret_value(legacy):
+                    secrets_payload.setdefault(sect, {})[key] = legacy
+                    stored = legacy
+                    migrated = True
+                section[key] = stored
+                section[f"{key}_present"] = bool(stored)
+            except Exception:
+                pass
+        if migrated:
+            _write_secrets_json(secrets_payload)
+    except Exception:
+        pass
+    return data
+
 
 def _merge_env_secrets(data: dict) -> dict:
     """prefs 로드 후 UPBIT / OpenAI 키를 환경 변수로 보강(저장소에 키 없이 동작)."""
@@ -165,6 +299,9 @@ def _merge_env_secrets(data: dict) -> dict:
         env_oai = (os.getenv("OPENAI_API_KEY") or "").strip()
         if env_oai:
             st["ai_openai_api_key"] = env_oai
+        env_gemini = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+        if env_gemini:
+            st["ai_gemini_api_key"] = env_gemini
         data["strategy"] = st
     except Exception:
         pass
@@ -217,7 +354,7 @@ def _read_prefs_json() -> dict:
             # 파일 없으면 기본값 반환
             defaults = _load_defaults().model_dump()
             _log_path_check(path, path)
-            return _merge_env_secrets(defaults)
+            return _merge_env_secrets(_merge_file_secrets(defaults))
         with open(_PREFS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f) or {}
         # 민감키 복호화
@@ -227,12 +364,13 @@ def _read_prefs_json() -> dict:
                     data[sect][key] = _safe_decrypt(data[sect][key])
             except Exception:
                 pass
+        data = _merge_file_secrets(data)
         _log_path_check(path, path)
         return _merge_env_secrets(data)
     except Exception as e:
         _log_path_check(path, path)
         _log_error(f"_read_prefs_json 실패: {e}")
-        return _merge_env_secrets(_load_defaults().model_dump())
+        return _merge_env_secrets(_merge_file_secrets(_load_defaults().model_dump()))
 
 # [ANCHOR: UTILS_HELPERS_START]
 def get_active_strategy_id(prefs) -> str:
@@ -285,10 +423,13 @@ def _write_prefs_json(payload: dict) -> bool:
         if not _PREFS_FILE:
             raise RuntimeError("_PREFS_FILE is None (init_prefs 누락/경로 초기화 실패)")
 
+        data = json.loads(json.dumps(payload))  # deepcopy
+        data = _sync_secrets_from_payload(data)
+
         # 중복 저장 방지 가드
         import time
         current_time = time.monotonic()
-        payload_str = json.dumps(payload, sort_keys=True, separators=(',', ':'))
+        payload_str = json.dumps(data, sort_keys=True, separators=(',', ':'))
         
         # 전역 저장 상태 확인
         global _last_save_time, _last_save_payload, _save_inflight
@@ -308,7 +449,6 @@ def _write_prefs_json(payload: dict) -> bool:
         _last_save_time = current_time
         _last_save_payload = payload_str
 
-        data = json.loads(json.dumps(payload))  # deepcopy
         # 민감키 암호화
         for sect, key in _SENSITIVE_PATHS:
             try:
@@ -619,7 +759,7 @@ def save_settings(settings):
         return False
 
 # strategy 내 GPT 키/모델: 공란으로 덮어쓸 수 있는 필드이지만, 기존 값이 있으면 빈 값으로 덮어쓰지 않음(LOCAL 저장 시 보존)
-_USER_CLEARABLE_STRATEGY_KEYS = frozenset({"ai_openai_api_key", "ai_openai_model"})
+_USER_CLEARABLE_STRATEGY_KEYS = frozenset({"ai_openai_api_key", "ai_gemini_api_key", "ai_openai_model"})
 
 
 def _deep_merge_dict(dst: dict, src: dict) -> dict:

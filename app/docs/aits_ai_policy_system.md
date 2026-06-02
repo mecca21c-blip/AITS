@@ -516,3 +516,15 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - GPT Preview does not use order/action/runtime fields and does not apply the response outside the UI preview layer.
 - Unsupported or legacy OpenAI preview model values fall back to `gpt-4o-mini` for Preview only.
 - Logs may include endpoint, model, error_type, and a short error summary, but must never include API keys, payload bodies, raw responses, account data, or private information.
+---
+
+## API Key / Provider Persistence Separation
+
+- Provider selection remains in `strategy.ai_provider` as the SSOT.
+- OpenAI, Gemini, and Upbit key bodies are stored outside general prefs in `data/secrets.json`.
+- `prefs.json` stores only non-secret settings and key presence flags, never API key bodies.
+- `save_settings()` extracts real key values into the secrets store before writing prefs.
+- Empty fields or masked UI strings must not clear existing secrets.
+- Key deletion requires an explicit delete flow; ordinary UI state, layout, policy, and file saves must not remove secrets.
+- `load_settings()` merges the secrets store back into runtime settings for provider clients while keeping persistence separated.
+- Logs may report provider, key_present, and key_len only; key contents, prefixes, suffixes, and payload bodies are forbidden.
