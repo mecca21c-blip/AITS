@@ -662,7 +662,7 @@ def _build_strategy_info_line_ssot(settings) -> str:
         return "strategy=—"
 # ===========================================================================================
 
-def save_settings(settings):
+def save_settings(settings, *, force_ui_state: bool = True, save_source: str = "direct"):
     _ensure_inited()
     """
     strategy를 dict로 직렬화해 저장(호환성 유지) + 저장 직후 요약 이벤트 발행
@@ -692,11 +692,13 @@ def save_settings(settings):
         ui_state = payload.get("ui_state") or {}
         has_ui_state = bool(ui_state)
         
-        if has_ui_state and _last_ui_state_save_time > 0:
+        if has_ui_state and (not force_ui_state) and _last_ui_state_save_time > 0:
             elapsed = current_time - _last_ui_state_save_time
             if elapsed < 10.0:
-                # UI 상태 저장은 throttle로 스킵 (로그 없음, 저장만 스킵)
-                return True  # 저장 스킵
+                _log_info(
+                    f"[AITS][UIStateSave] source={save_source} | force=False | throttled=True | status=skipped"
+                )
+                return False
         
         if has_ui_state:
             _last_ui_state_save_time = current_time
@@ -725,6 +727,10 @@ def save_settings(settings):
         ok = _write_prefs_json(payload)
         if not ok:
             raise RuntimeError("prefs.json 저장 실패")
+        if has_ui_state:
+            _log_info(
+                f"[AITS][UIStateSave] source={save_source} | force={bool(force_ui_state)} | status=ok"
+            )
 
         # ---- 저장 직후 UI 요약 갱신(버스 이벤트) ----
         try:
@@ -795,7 +801,7 @@ def _deep_merge_dict(dst: dict, src: dict) -> dict:
                 dst[k] = v
     return dst
 
-def save_settings_patch(patch: dict, base_settings=None):
+def save_settings_patch(patch: dict, base_settings=None, *, force: bool = True, save_source: str = "patch"):
     """
     ✅ 단일 저장소 고정(merge/patch):
     - 전체 덮어쓰기(save_settings) 대신, 필요한 섹션만 patch로 병합 후 저장한다.
@@ -856,7 +862,7 @@ def save_settings_patch(patch: dict, base_settings=None):
         s_new = AppSettings(**merged)
 
         # 저장(기존 이벤트/암호화/직렬화 로직 재사용)
-        ok = save_settings(s_new)
+        ok = save_settings(s_new, force_ui_state=bool(force), save_source=save_source)
         if not ok:
             return None
         return s_new

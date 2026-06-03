@@ -577,3 +577,15 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - The bottom save dispatcher can refresh `session_restore` before running the existing settings save fallback.
 - Startup, app close, and delayed tab changes refresh `session_restore` without touching API key storage.
 - Window geometry restoration continues to use the existing window restore path while `session_restore` records a compact geometry summary.
+
+---
+
+## UI State Save Reliability
+
+- Explicit save actions and app close saves must not be throttled.
+- Automatic UI state saves may use debounce/throttle only when the caller explicitly opts in.
+- `save_settings_patch` uses a patch-first signature: `save_settings_patch({"ui_state": ...}, base_settings=settings)`.
+- Tab UI state saves are patch-only and must not rewrite unrelated settings payloads.
+- `ui_state.session_restore` is saved through the same patch path and must be written to disk when the bottom save button or close path runs.
+- API key bodies remain separated from UI state persistence and are managed only by the secrets store.
+- Provider SSOT remains `strategy.ai_provider`; `session_restore.last_ai_provider` is display context only.

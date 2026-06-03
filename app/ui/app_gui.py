@@ -33793,7 +33793,12 @@ class MainWindow(QMainWindow):
                 base = load_settings()
             else:
                 base = self._settings or load_settings()
-            s_new = save_settings_patch(patch or {}, base_settings=base)
+            s_new = save_settings_patch(
+                patch or {},
+                base_settings=base,
+                force=True,
+                save_source=str(reason or "app_gui_patch"),
+            )
 
             # ✅ 핵심: 저장 실패(None)면 False 반환 → 체크/저장이 "반영 안됨"을 즉시 드러냄
             if s_new is None:

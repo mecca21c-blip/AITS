@@ -373,7 +373,11 @@ class TradesTab(QWidget):
                     main_window._get_settings_cached(force=True)
                 
                 from app.utils.prefs import save_settings_patch
-                save_settings_patch(s, {"ui_state": {"tradelog_col_widths": widths}})
+                save_settings_patch(
+                    {"ui_state": {"tradelog_col_widths": widths}},
+                    base_settings=s,
+                    save_source="trades_column_widths",
+                )
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"[TRADELOG] save column widths error: {e}")

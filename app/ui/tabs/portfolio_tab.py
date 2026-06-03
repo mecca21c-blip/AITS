@@ -580,7 +580,11 @@ class PortfolioTab(QWidget):
                     main_window._get_settings_cached(force=True)
                 
                 from app.utils.prefs import save_settings_patch
-                save_settings_patch(s, {"ui_state": {"holdings_col_widths": widths}})
+                save_settings_patch(
+                    {"ui_state": {"holdings_col_widths": widths}},
+                    base_settings=s,
+                    save_source="portfolio_column_widths",
+                )
         except Exception as e:
             log.error(f"[HOLDINGS] save column widths error: {e}")
 
@@ -642,7 +646,11 @@ class PortfolioTab(QWidget):
             if main_window:
                 main_window._get_settings_cached(force=True)
             from app.utils.prefs import save_settings_patch
-            save_settings_patch(s, {"ui_state": ui})
+            save_settings_patch(
+                {"ui_state": ui},
+                base_settings=s,
+                save_source="portfolio_sort_state",
+            )
         except Exception as e:
             log.error(f"[PORTFOLIO] save sort state error: {e}")
 
