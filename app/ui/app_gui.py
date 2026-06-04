@@ -33249,7 +33249,19 @@ class MainWindow(QMainWindow):
         _choice_panel_lay.addWidget(self.lbl_ai_analysis_dryrun_status)
         _choice_panel_lay.addWidget(self.btn_save)
         _common_left.insertWidget(1, self.aits_engine_choice_panel)
-        _sync_engine_choice_panel(getattr(self, "_ai_provider_box_active", "local"))
+        try:
+            _initial_strategy = getattr(getattr(self, "_settings", None), "strategy", None)
+            _initial_provider = (
+                getattr(_initial_strategy, "ai_provider", "")
+                if _initial_strategy is not None and not isinstance(_initial_strategy, dict)
+                else (_initial_strategy or {}).get("ai_provider", "")
+            )
+            self._sync_ai_provider_ui_from_settings(
+                _initial_provider or getattr(self, "_ai_provider_box_active", "local"),
+                getattr(self, "_settings", None),
+            )
+        except Exception:
+            _sync_engine_choice_panel(getattr(self, "_ai_provider_box_active", "local"))
 
         self.aits_common_upbit_status_label = QLabel("업비트 연결 상태: 대기 중")
         self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
@@ -33647,11 +33659,22 @@ class MainWindow(QMainWindow):
                         self.cmb_gemini_model, gemini_model, "gemini-2.5-flash"
                     )
                 # 박스 선택·배경색·우측상단 배지 동기화 (setVisible 제거, 항상 두 박스 표시)
-                if hasattr(self, "_set_ai_provider_ui_active"):
+                if hasattr(self, "_sync_ai_provider_ui_from_settings"):
+                    self._sync_ai_provider_ui_from_settings(ai_provider, s)
+                elif hasattr(self, "_set_ai_provider_ui_active"):
                     self._set_ai_provider_ui_active(ai_provider_ui)
-                if hasattr(self, "_sync_engine_choice_panel"):
-                    self._sync_engine_choice_panel(ai_provider_ui)
+                    if hasattr(self, "_sync_engine_choice_panel"):
+                        self._sync_engine_choice_panel(ai_provider_ui)
                 self._log_ai_provider_restore_state("ui_restore_done", ai_provider)
+                try:
+                    QTimer.singleShot(
+                        0,
+                        lambda _p=ai_provider: self._sync_ai_provider_ui_from_settings(
+                            _p, getattr(self, "_settings", None)
+                        ),
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -33711,6 +33734,13 @@ class MainWindow(QMainWindow):
             if gemini_has_key and hasattr(self, "ed_gemini_key"):
                 self._set_ai_secret_input_masked("gemini", True)
                 self._set_ai_key_status_label("gemini", "API Key 저장됨 · 연결 테스트 필요")
+
+            try:
+                provider = getattr(st, "ai_provider", "") if st is not None else ""
+                self._settings = settings
+                self._sync_ai_provider_ui_from_settings(provider, settings)
+            except Exception:
+                pass
 
             self._log.info(
                 "[AITS][GUI] api_key_restore_after_ui_ready | openai_key=%s | gemini_key=%s",
@@ -34082,6 +34112,108 @@ class MainWindow(QMainWindow):
                 edit.setText("")
         except Exception:
             pass
+
+    def _normalize_provider_for_ui(self, provider: str = "") -> str:
+        saved = self._normalize_saved_ai_provider(provider)
+        if saved == "openai":
+            return "gpt"
+        if saved == "gemini":
+            return "gemini"
+        return "local"
+
+    def _restore_ai_key_masking_from_settings(self, settings=None) -> tuple[bool, bool]:
+        try:
+            settings = settings or getattr(self, "_settings", None)
+            st = getattr(settings, "strategy", None) if settings is not None else None
+
+            def _strategy_value(key: str) -> str:
+                try:
+                    if isinstance(st, dict):
+                        value = st.get(key, "")
+                    else:
+                        value = getattr(st, key, "") if st is not None else ""
+                    if hasattr(value, "get_secret_value"):
+                        value = value.get_secret_value() or ""
+                    return str(value or "").strip()
+                except Exception:
+                    return ""
+
+            openai_present = bool(_strategy_value("ai_openai_api_key")) or bool(
+                self._get_stored_ai_secret("openai")
+            )
+            gemini_present = bool(_strategy_value("ai_gemini_api_key")) or bool(
+                self._get_stored_ai_secret("gemini")
+            )
+            self._set_ai_secret_input_masked("openai", openai_present)
+            self._set_ai_secret_input_masked("gemini", gemini_present)
+            if openai_present:
+                self._set_ai_key_status_label(
+                    "openai", "API Key 저장됨 · 연결 테스트 필요"
+                )
+            if gemini_present:
+                self._set_ai_key_status_label(
+                    "gemini", "API Key 저장됨 · 연결 테스트 필요"
+                )
+            return openai_present, gemini_present
+        except Exception:
+            return False, False
+
+    def _sync_ai_provider_ui_from_settings(self, provider: str = "", settings=None) -> bool:
+        try:
+            settings = settings or getattr(self, "_settings", None)
+            st = getattr(settings, "strategy", None) if settings is not None else None
+            if not provider and st is not None:
+                provider = st.get("ai_provider", "") if isinstance(st, dict) else getattr(st, "ai_provider", "")
+            provider_saved = self._normalize_saved_ai_provider(provider)
+            provider_ui = self._normalize_provider_for_ui(provider_saved)
+
+            if hasattr(self, "cb_ai_provider"):
+                self.cb_ai_provider.blockSignals(True)
+                self.cb_ai_provider.setCurrentText(provider_ui)
+                self.cb_ai_provider.blockSignals(False)
+            if hasattr(self, "cmb_ai_engine"):
+                engine_text = {
+                    "gpt": "OpenAI",
+                    "gemini": "Gemini",
+                    "local": "Basic AI",
+                }.get(provider_ui, "Basic AI")
+                self.cmb_ai_engine.blockSignals(True)
+                self.cmb_ai_engine.setCurrentText(engine_text)
+                self.cmb_ai_engine.blockSignals(False)
+
+            self._ai_provider_box_active = provider_ui
+            self._selected_ai_provider = "basic" if provider_ui == "local" else provider_ui
+            try:
+                if hasattr(self, "_sync_engine_choice_panel"):
+                    self._sync_engine_choice_panel(provider_ui)
+                elif hasattr(self, "_set_ai_provider_ui_active"):
+                    self._set_ai_provider_ui_active(provider_ui)
+            except Exception:
+                try:
+                    self._set_ai_provider_ui_active(provider_ui)
+                except Exception:
+                    pass
+            openai_masked, gemini_masked = self._restore_ai_key_masking_from_settings(settings)
+            try:
+                self._log.info(
+                    "[AITS][AIProviderUIRestore] provider=%s | ui=%s | openai_masked=%s | gemini_masked=%s | ok=True",
+                    provider_saved,
+                    provider_ui,
+                    openai_masked,
+                    gemini_masked,
+                )
+            except Exception:
+                pass
+            return True
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][AIProviderUIRestore] status=failed | error_type=%s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
 
     def _log_ai_provider_restore_state(self, stage: str, provider: str = "") -> None:
         try:

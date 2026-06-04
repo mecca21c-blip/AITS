@@ -611,3 +611,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - An empty API key body in `prefs.json` is normal when the matching `*_present` flag or loaded secret confirms the key exists.
 - Save failure popups should appear only for actual prefs/secrets write or verification failures.
 - API key bodies, prefixes, suffixes, and request payloads must never be logged.
+
+---
+
+## AI Provider UI Restore
+
+- Provider SSOT is `strategy.ai_provider`.
+- Engine cards, provider combo boxes, and legacy AI engine selectors are restored from `strategy.ai_provider`.
+- `session_restore` may record provider display context, but it must not override the strategy provider SSOT.
+- When OpenAI/Gemini secrets exist, key inputs are restored to a masked saved state.
+- Masked key text is never treated as the actual key body and empty input is not interpreted as deletion.
+- Connection tests may use the current real UI value, otherwise they fall back to the saved secret.
