@@ -19364,8 +19364,8 @@ class MainWindow(QMainWindow):
         if eng == "Gemini":
             print("[AITS] Gemini connection test")
             try:
-                if hasattr(self, "ed_ai_api_key") and hasattr(self, "ed_openai_key"):
-                    self.ed_openai_key.setText(self.ed_ai_api_key.text())
+                if hasattr(self, "ed_ai_api_key") and hasattr(self, "ed_gemini_key"):
+                    self.ed_gemini_key.setText(self.ed_ai_api_key.text())
                 self._on_test_gemini()
             except Exception:
                 pass
@@ -33387,6 +33387,10 @@ class MainWindow(QMainWindow):
         try:
             self._settings = load_settings()
             s = self._settings
+            try:
+                self._log_ai_provider_restore_state("load_settings")
+            except Exception:
+                pass
 
             # C. 재실행 검증: 부팅 시 prefs 로드 직후 길이만 로그 (원문 금지)
             if self._load_form_count == 1:
@@ -33500,7 +33504,10 @@ class MainWindow(QMainWindow):
                             "ai_gemini_model",
                         ):
                             if _k in raw_st_dict:
-                                st_dict[_k] = raw_st_dict.get(_k, "")
+                                _raw_val = raw_st_dict.get(_k, "")
+                                if _k in ("ai_openai_api_key", "ai_gemini_api_key") and not str(_raw_val or "").strip():
+                                    continue
+                                st_dict[_k] = _raw_val
                 except Exception:
                     pass
                 ai_provider = st_dict.get("ai_provider", "local")
@@ -33591,28 +33598,19 @@ class MainWindow(QMainWindow):
                         openai_key_loaded = openai_key_loaded.get_secret_value() or ""
                     openai_key_loaded = str(openai_key_loaded).strip()
                     openai_key_has_value = bool(openai_key_loaded)
-                    if openai_key_has_value:
-                        self.ed_openai_key.setPlaceholderText("OpenAI API Key")
-                        self.ed_openai_key.setText(openai_key_loaded)
-                    else:
-                        self.ed_openai_key.setPlaceholderText("OpenAI API Key")
-                        self.ed_openai_key.setText("")
+                    self._set_ai_secret_input_masked("openai", openai_key_has_value)
                 try:
                     if hasattr(self, "ed_gemini_key"):
                         gemini_key_loaded = (st_dict.get("ai_gemini_api_key") or "")
                         if hasattr(gemini_key_loaded, "get_secret_value"):
                             gemini_key_loaded = gemini_key_loaded.get_secret_value() or ""
                         gemini_key_loaded = str(gemini_key_loaded or "").strip()
-                        self.ed_gemini_key.setText(str(gemini_key_loaded or ""))
+                        self._set_ai_secret_input_masked("gemini", bool(gemini_key_loaded))
                 except Exception:
                     pass
                 try:
-                    openai_key_restored = bool(
-                        (self.ed_openai_key.text() or "").strip()
-                    ) if hasattr(self, "ed_openai_key") else False
-                    gemini_key_restored = bool(
-                        (self.ed_gemini_key.text() or "").strip()
-                    ) if hasattr(self, "ed_gemini_key") else False
+                    openai_key_restored = bool(str(st_dict.get("ai_openai_api_key") or "").strip())
+                    gemini_key_restored = bool(str(st_dict.get("ai_gemini_api_key") or "").strip())
                     self._log.info(
                         "[AITS][GUI] startup_key_loaded | openai_key=%s | gemini_key=%s",
                         openai_key_restored,
@@ -33653,6 +33651,7 @@ class MainWindow(QMainWindow):
                     self._set_ai_provider_ui_active(ai_provider_ui)
                 if hasattr(self, "_sync_engine_choice_panel"):
                     self._sync_engine_choice_panel(ai_provider_ui)
+                self._log_ai_provider_restore_state("ui_restore_done", ai_provider)
             except Exception:
                 pass
 
@@ -33707,10 +33706,10 @@ class MainWindow(QMainWindow):
             gemini_has_key = bool(gemini_key)
 
             if openai_has_key and hasattr(self, "ed_openai_key"):
-                self.ed_openai_key.setText(openai_key)
+                self._set_ai_secret_input_masked("openai", True)
                 self._set_ai_key_status_label("openai", "API Key 저장됨 · 연결 테스트 필요")
             if gemini_has_key and hasattr(self, "ed_gemini_key"):
-                self.ed_gemini_key.setText(gemini_key)
+                self._set_ai_secret_input_masked("gemini", True)
                 self._set_ai_key_status_label("gemini", "API Key 저장됨 · 연결 테스트 필요")
 
             self._log.info(
@@ -33924,6 +33923,7 @@ class MainWindow(QMainWindow):
         st = data.get("strategy") or {}
         if not isinstance(st, dict):
             st = {}
+        secret_present = {}
         for key in (
             "ai_provider",
             "ai_openai_api_key",
@@ -33932,7 +33932,14 @@ class MainWindow(QMainWindow):
             "ai_gemini_model",
         ):
             if key in fields:
-                st[key] = fields.get(key, "")
+                if key in ("ai_openai_api_key", "ai_gemini_api_key"):
+                    if bool(str(fields.get(key, "") or "").strip()):
+                        secret_present[f"{key}_present"] = True
+                    st[key] = ""
+                else:
+                    st[key] = fields.get(key, "")
+        for key, present in secret_present.items():
+            st[key] = bool(present)
         data["strategy"] = st
         tmp_path = path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -33979,6 +33986,10 @@ class MainWindow(QMainWindow):
             return False, save_path, load_path
         save_path = self._overlay_common_ai_fields_to_prefs_file(fields)
         try:
+            self._settings = load_settings()
+        except Exception:
+            pass
+        try:
             self._log.info(
                 "[AITS][Prefs] path_check | save_path=%s | load_path=%s | same=%s",
                 save_path,
@@ -34009,6 +34020,86 @@ class MainWindow(QMainWindow):
             return bool(ok), openai_loaded, gemini_loaded
         except Exception:
             return False, False, False
+
+    def _is_masked_ai_secret_text(self, value: str = "") -> bool:
+        try:
+            text = str(value or "").strip()
+            if not text:
+                return False
+            mask_chars = set("*•●")
+            return len(text) >= 4 and all(ch in mask_chars for ch in text)
+        except Exception:
+            return False
+
+    def _get_stored_ai_secret(self, provider: str) -> str:
+        try:
+            provider = self._normalize_saved_ai_provider(provider)
+            st = getattr(getattr(self, "_settings", None), "strategy", None)
+            key_name = "ai_openai_api_key" if provider == "openai" else "ai_gemini_api_key"
+            value = ""
+            if st is not None:
+                value = getattr(st, key_name, "") if not isinstance(st, dict) else st.get(key_name, "")
+            if not str(value or "").strip():
+                from app.utils.prefs import load_settings
+
+                loaded = load_settings()
+                st = getattr(loaded, "strategy", None)
+                value = getattr(st, key_name, "") if st is not None else ""
+                try:
+                    self._settings = loaded
+                except Exception:
+                    pass
+            if hasattr(value, "get_secret_value"):
+                value = value.get_secret_value() or ""
+            return str(value or "").strip()
+        except Exception:
+            return ""
+
+    def _get_effective_ai_secret_from_ui(self, provider: str) -> str:
+        try:
+            provider = self._normalize_saved_ai_provider(provider)
+            edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
+            ui_value = ""
+            if edit is not None and hasattr(edit, "text"):
+                ui_value = str(edit.text() or "").strip()
+            if ui_value and not self._is_masked_ai_secret_text(ui_value):
+                return ui_value
+            return self._get_stored_ai_secret(provider)
+        except Exception:
+            return ""
+
+    def _set_ai_secret_input_masked(self, provider: str, key_present: bool) -> None:
+        try:
+            provider = self._normalize_saved_ai_provider(provider)
+            edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
+            if edit is None:
+                return
+            if key_present:
+                edit.setPlaceholderText("API Key saved")
+                edit.setText("********")
+            else:
+                edit.setPlaceholderText("OpenAI API Key" if provider == "openai" else "Gemini API Key")
+                edit.setText("")
+        except Exception:
+            pass
+
+    def _log_ai_provider_restore_state(self, stage: str, provider: str = "") -> None:
+        try:
+            st = getattr(getattr(self, "_settings", None), "strategy", None)
+            current_provider = provider
+            if not current_provider and st is not None:
+                current_provider = getattr(st, "ai_provider", "") if not isinstance(st, dict) else st.get("ai_provider", "")
+            openai_key = self._get_stored_ai_secret("openai")
+            gemini_key = self._get_stored_ai_secret("gemini")
+            self._log.info(
+                "[AITS][AIProviderRestore] stage=%s | provider=%s | openai_key_present=%s | gemini_key_present=%s",
+                str(stage or ""),
+                str(current_provider or ""),
+                bool(openai_key),
+                bool(gemini_key),
+            )
+        except Exception:
+            pass
 
     def _safe_current_text(self, widget, default: str = "") -> str:
         try:
@@ -34079,7 +34170,7 @@ class MainWindow(QMainWindow):
             fields = {
                 "ai_provider": "openai",
                 "ai_openai_api_key": api_key,
-                "ai_gemini_api_key": existing.get("ai_gemini_api_key", ""),
+                "ai_gemini_api_key": self._get_stored_ai_secret("gemini"),
                 "ai_openai_model": model,
                 "ai_gemini_model": existing.get("ai_gemini_model", "gemini-2.5-flash"),
             }
@@ -34122,6 +34213,60 @@ class MainWindow(QMainWindow):
                 pass
             return False
 
+    def _persist_gemini_provider_selection_after_test(self, api_key: str, model: str) -> bool:
+        """Persist Gemini as the strategy provider after a successful key test."""
+        try:
+            api_key = str(api_key or "").strip()
+            model = str(model or "").strip() or "gemini-2.5-flash"
+            if not api_key:
+                return False
+            existing = self._read_common_ai_raw_strategy_for_ui()
+            fields = {
+                "ai_provider": "gemini",
+                "ai_openai_api_key": self._get_stored_ai_secret("openai"),
+                "ai_gemini_api_key": api_key,
+                "ai_openai_model": existing.get("ai_openai_model", "gpt-5.5-instant"),
+                "ai_gemini_model": model,
+            }
+            ok, save_path, load_path = self._persist_common_ai_settings_direct(fields)
+            if not ok:
+                return False
+            try:
+                self._settings = self._get_settings_cached(force=True)
+            except Exception:
+                try:
+                    from app.utils.prefs import load_settings
+
+                    self._settings = load_settings()
+                except Exception:
+                    pass
+            try:
+                self._selected_ai_provider = "gemini"
+                self._applied_ai_provider = "gemini"
+                self._ai_provider_box_active = "gemini"
+                if hasattr(self, "cb_ai_provider"):
+                    self.cb_ai_provider.blockSignals(True)
+                    self.cb_ai_provider.setCurrentText("gemini")
+                    self.cb_ai_provider.blockSignals(False)
+                self._render_ai_engine_state()
+            except Exception:
+                pass
+            self._log.info(
+                "[AITS][GeminiKeySave] provider=gemini | gemini_key_present=%s | path_same=%s",
+                bool(api_key),
+                save_path == load_path,
+            )
+            return True
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][GeminiKeySave] status=failed | error_type=%s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
+
     def _on_save_settings(self) -> None:
         # ✅ P0-B: Log save button text before and after
         button_text_before = getattr(self, 'btn_save', None).text() if hasattr(self, 'btn_save') else "unknown"
@@ -34133,7 +34278,7 @@ class MainWindow(QMainWindow):
         
         # ✅ P0-1: Log save attempt
         provider = self._get_save_ai_provider()
-        has_openai_key = bool(self.ed_openai_key.text().strip()) if hasattr(self, "ed_openai_key") else False
+        has_openai_key = bool(self._get_effective_ai_secret_from_ui("openai"))
         self._log.info(f"[SAVE-UI] button_text_before=\"{button_text_before}\" button_text_after=\"{button_text_before}\"")
         self._log.info("[AI-KEY] save_attempt provider=%s has_key=%s", provider, has_openai_key)
         
@@ -34187,6 +34332,7 @@ class MainWindow(QMainWindow):
             if openai_key_effective.startswith("•"):
                 _s0st = getattr(s0, "strategy", None)
                 openai_key_effective = (getattr(_s0st, "ai_openai_api_key", "") or "") if _s0st else ""
+            openai_key_effective = self._get_effective_ai_secret_from_ui("openai")
             provider_str = self._get_save_ai_provider(s0)
             self._log.info(
                 "[SAVE] ui_snapshot ai_provider=%s openai_has_key=%s",
@@ -34317,10 +34463,10 @@ class MainWindow(QMainWindow):
             patch["strategy"] = dict(base_strategy)
             patch["strategy"]["ai_provider"] = ui_ai_provider
             if hasattr(self, "ed_openai_key"):
-                openai_key_input = self.ed_openai_key.text().strip()
+                openai_key_input = self._get_effective_ai_secret_from_ui("openai")
                 patch["strategy"]["ai_openai_api_key"] = openai_key_input
             if hasattr(self, "ed_gemini_key"):
-                gemini_key_input = self.ed_gemini_key.text().strip()
+                gemini_key_input = self._get_effective_ai_secret_from_ui("gemini")
                 patch["strategy"]["ai_gemini_api_key"] = gemini_key_input
             if hasattr(self, "ed_openai_model"):
                 patch["strategy"]["ai_openai_model"] = self._current_model_id(
@@ -34345,6 +34491,7 @@ class MainWindow(QMainWindow):
                     if openai_key.startswith("•"):
                         _s0st = getattr(s0, "strategy", None)
                         openai_key = (getattr(_s0st, "ai_openai_api_key", "") or "") if _s0st else ""
+                    openai_key = self._get_effective_ai_secret_from_ui("openai")
                     patch["strategy"]["ai_openai_api_key"] = openai_key
                 # ✅ 모델 저장: 드롭다운 itemData의 내부 모델명 저장
                 model_to_save = ""
@@ -34360,7 +34507,7 @@ class MainWindow(QMainWindow):
                 patch["strategy"].pop("ai_local_model", None)
             elif ui_ai_provider == "gemini":
                 if hasattr(self, "ed_gemini_key"):
-                    patch["strategy"]["ai_gemini_api_key"] = self.ed_gemini_key.text().strip()
+                    patch["strategy"]["ai_gemini_api_key"] = self._get_effective_ai_secret_from_ui("gemini")
                 if hasattr(self, "cmb_gemini_model"):
                     patch["strategy"]["ai_gemini_model"] = self._current_model_id(
                         self.cmb_gemini_model, "gemini-2.5-flash"
@@ -35459,15 +35606,8 @@ class MainWindow(QMainWindow):
         self._log.info("[GPT-TEST] start")
 
         # (1) 준비 단계
-        api_key = ""
-        try:
-            st = getattr(self._settings, "strategy", None) if getattr(self, "_settings", None) else None
-            if st is not None:
-                api_key = (getattr(st, "ai_openai_api_key", "") or "").strip()
-            if not api_key and hasattr(self, "ed_openai_key"):
-                api_key = (self.ed_openai_key.text() or "").strip()
-        except Exception:
-            pass
+        api_key = self._get_effective_ai_secret_from_ui("openai")
+        self._log_ai_provider_restore_state("before_openai_test", "openai")
 
         if not api_key:
             out("[1/3] API Key 로드 FAIL (키 없음)")
@@ -35764,7 +35904,8 @@ class MainWindow(QMainWindow):
         self._set_ai_key_status_label("gemini", "연결 확인 중...")
         self._set_ai_engine_card_test_status("gemini", "연결 확인 중", "확인 중")
         QApplication.processEvents()
-        api_key = (self.ed_gemini_key.text() or "").strip() if hasattr(self, "ed_gemini_key") else ""
+        api_key = self._get_effective_ai_secret_from_ui("gemini")
+        self._log_ai_provider_restore_state("before_gemini_test", "gemini")
         if not api_key:
             self._force_ai_key_status_visible("gemini", "Gemini: API Key 미입력", "#dc2626")
             self._set_ai_key_status_label("gemini", "연결 실패 · API Key 미입력")
@@ -35875,6 +36016,7 @@ class MainWindow(QMainWindow):
                 "gemini", "연결 정상", "정상", success_model
             )
             self._apply_selected_ai_engine("gemini", success_model)
+            self._persist_gemini_provider_selection_after_test(api_key, success_model)
             QApplication.processEvents()
             QMessageBox.information(
                 self, "Gemini 연결 테스트", f"Gemini: 연결 정상 · {success_model}"

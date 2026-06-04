@@ -589,3 +589,15 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - `ui_state.session_restore` is saved through the same patch path and must be written to disk when the bottom save button or close path runs.
 - API key bodies remain separated from UI state persistence and are managed only by the secrets store.
 - Provider SSOT remains `strategy.ai_provider`; `session_restore.last_ai_provider` is display context only.
+
+---
+
+## AI Provider and Secret Restore
+
+- The last selected AI engine is restored from `strategy.ai_provider`.
+- OpenAI and Gemini API keys are restored from the secrets store, not from `prefs.json` key bodies.
+- Key input fields show only a masked saved state; the key body is not displayed.
+- An empty or masked key input is not treated as key deletion.
+- Connection tests use the current UI key only when it is a real value; otherwise they fall back to the stored secret.
+- `session_restore.last_ai_provider` is display context only and must not override `strategy.ai_provider`.
+- `prefs.json` may keep provider/model/key-present metadata, while `secrets.json` owns key bodies.

@@ -765,7 +765,9 @@ def save_settings(settings, *, force_ui_state: bool = True, save_source: str = "
         return False
 
 # strategy 내 GPT 키/모델: 공란으로 덮어쓸 수 있는 필드이지만, 기존 값이 있으면 빈 값으로 덮어쓰지 않음(LOCAL 저장 시 보존)
-_USER_CLEARABLE_STRATEGY_KEYS = frozenset({"ai_openai_api_key", "ai_gemini_api_key", "ai_openai_model"})
+_USER_CLEARABLE_STRATEGY_KEYS = frozenset(
+    {"ai_openai_api_key", "ai_gemini_api_key", "ai_openai_model", "ai_gemini_model"}
+)
 
 
 def _deep_merge_dict(dst: dict, src: dict) -> dict:
@@ -831,27 +833,38 @@ def save_settings_patch(patch: dict, base_settings=None, *, force: bool = True, 
             else:
                 base_from_memory = {}
             need_key = not (st.get("ai_openai_api_key") or "").strip()
+            need_gemini_key = not (st.get("ai_gemini_api_key") or "").strip()
             need_model = not (st.get("ai_openai_model") or "").strip()
-            if need_key or need_model:
+            need_gemini_model = not (st.get("ai_gemini_model") or "").strip()
+            if need_key or need_gemini_key or need_model or need_gemini_model:
                 st = dict(st)
                 # 1) 디스크 base_st에서 채우고, 없으면 2) 메모리 base_payload에서 채움
                 if need_key:
                     val = (base_st.get("ai_openai_api_key") or "").strip() or (base_from_memory.get("ai_openai_api_key") or "").strip()
                     if val:
                         st["ai_openai_api_key"] = val
+                if need_gemini_key:
+                    val = (base_st.get("ai_gemini_api_key") or "").strip() or (base_from_memory.get("ai_gemini_api_key") or "").strip()
+                    if val:
+                        st["ai_gemini_api_key"] = val
                 if need_model:
                     val = (base_st.get("ai_openai_model") or "").strip() or (base_from_memory.get("ai_openai_model") or "gpt-4o-mini").strip() or "gpt-4o-mini"
                     if val:
                         st["ai_openai_model"] = val
+                if need_gemini_model:
+                    val = (base_st.get("ai_gemini_model") or "").strip() or (base_from_memory.get("ai_gemini_model") or "gemini-2.5-flash").strip() or "gemini-2.5-flash"
+                    if val:
+                        st["ai_gemini_model"] = val
                 patch_copy["strategy"] = st
             # 병합 base: 디스크에 strategy가 있으면 디스크 기준(키 보존), 없으면 기존 base_payload 유지
             if base_st and isinstance(base_payload.get("strategy"), dict):
                 base_payload = dict(base_payload)
                 base_payload["strategy"] = dict(base_st)
                 # 디스크 base에 키가 없었으면 메모리에서 채워 넣어서 덮어쓰기 방지
-                for key in ("ai_openai_api_key", "ai_openai_model"):
+                for key in ("ai_openai_api_key", "ai_gemini_api_key", "ai_openai_model", "ai_gemini_model"):
                     if not (base_payload["strategy"].get(key) or "").strip() and (base_from_memory.get(key) or "").strip():
-                        base_payload["strategy"][key] = (base_from_memory.get(key) or "").strip() or ("gpt-4o-mini" if key == "ai_openai_model" else "")
+                        default_model = "gpt-4o-mini" if key == "ai_openai_model" else ("gemini-2.5-flash" if key == "ai_gemini_model" else "")
+                        base_payload["strategy"][key] = (base_from_memory.get(key) or "").strip() or default_model
 
         merged = _deep_merge_dict(dict(base_payload), patch_copy)
         
