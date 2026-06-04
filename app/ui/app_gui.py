@@ -12595,6 +12595,12 @@ class MainWindow(QMainWindow):
 
         # ✅ P0-A: Start boot sequence after UI is built
         QTimer.singleShot(100, self._boot_sequence_step1)
+        QTimer.singleShot(
+            4500,
+            lambda: self._schedule_ai_startup_connection_check(
+                getattr(self, "_settings", None)
+            ),
+        )
 
     def _make_bottom_nav_divider(self) -> QLabel:
         lbl = QLabel("|")
@@ -33673,6 +33679,12 @@ class MainWindow(QMainWindow):
                             _p, getattr(self, "_settings", None)
                         ),
                     )
+                    QTimer.singleShot(
+                        2600,
+                        lambda: self._schedule_ai_startup_connection_check(
+                            getattr(self, "_settings", None)
+                        ),
+                    )
                 except Exception:
                     pass
             except Exception:
@@ -33739,6 +33751,7 @@ class MainWindow(QMainWindow):
                 provider = getattr(st, "ai_provider", "") if st is not None else ""
                 self._settings = settings
                 self._sync_ai_provider_ui_from_settings(provider, settings)
+                self._schedule_ai_startup_connection_check(settings)
             except Exception:
                 pass
 
@@ -34105,8 +34118,8 @@ class MainWindow(QMainWindow):
             if edit is None:
                 return
             if key_present:
-                edit.setPlaceholderText("API Key saved")
-                edit.setText("********")
+                edit.setText("")
+                edit.setPlaceholderText("API Key 저장됨")
             else:
                 edit.setPlaceholderText("OpenAI API Key" if provider == "openai" else "Gemini API Key")
                 edit.setText("")
@@ -34214,6 +34227,115 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             return False
+
+    def _schedule_ai_startup_connection_check(self, settings=None) -> None:
+        try:
+            settings = settings or getattr(self, "_settings", None)
+            st = getattr(settings, "strategy", None) if settings is not None else None
+            provider = ""
+            if isinstance(st, dict):
+                provider = str(st.get("ai_provider") or "").strip()
+            elif st is not None:
+                provider = str(getattr(st, "ai_provider", "") or "").strip()
+            provider = self._normalize_saved_ai_provider(provider)
+            if provider not in ("openai", "gemini"):
+                return
+            key_present = bool(self._get_stored_ai_secret(provider))
+            if not key_present:
+                return
+            if bool(getattr(self, "_ai_startup_connection_check_scheduled", False)):
+                return
+            self._ai_startup_connection_check_scheduled = True
+            QTimer.singleShot(
+                1800,
+                lambda p=provider: self._run_ai_startup_connection_check_async(p),
+            )
+        except Exception:
+            pass
+
+    def _run_ai_startup_connection_check_async(self, provider: str) -> None:
+        try:
+            provider = self._normalize_saved_ai_provider(provider)
+            if provider not in ("openai", "gemini"):
+                return
+            key = self._get_stored_ai_secret(provider)
+            if not key:
+                return
+            self._set_ai_key_status_label(provider, "시작 점검 중")
+            self._set_ai_engine_card_test_status(
+                provider,
+                "시작 점검 중",
+                "확인 중",
+                self._get_selected_ai_model("gpt" if provider == "openai" else provider),
+            )
+
+            import threading
+
+            def _worker():
+                status = "failed"
+                error_type = ""
+                model_name = ""
+                try:
+                    if provider == "openai":
+                        from openai import OpenAI
+
+                        model_name = self._get_selected_ai_model("gpt")
+                        OpenAI(api_key=key, timeout=4.0).models.list()
+                    else:
+                        model_name = self._get_selected_ai_model("gemini")
+                        import google.generativeai as genai
+
+                        genai.configure(api_key=key)
+                        genai.GenerativeModel(model_name or "gemini-2.5-flash").generate_content(
+                            "ping",
+                            request_options={"timeout": 4},
+                        )
+                    status = "success"
+                except Exception as exc:
+                    error_type = type(exc).__name__ or "Error"
+                try:
+                    self._log.info(
+                        "[AITS][AIStartupConnectionCheck] provider=%s | status=%s%s",
+                        provider,
+                        status,
+                        (f" | error_type={error_type}" if error_type else ""),
+                    )
+                except Exception:
+                    pass
+
+                def _apply_status():
+                    try:
+                        if status == "success":
+                            self._set_ai_key_status_label(provider, "연결 확인됨")
+                            self._set_ai_engine_card_test_status(
+                                provider,
+                                "연결 확인됨",
+                                "정상",
+                                model_name,
+                            )
+                        else:
+                            self._set_ai_key_status_label(provider, "연결 확인 필요")
+                            self._set_ai_engine_card_test_status(
+                                provider,
+                                "연결 확인 필요",
+                                "확인 필요",
+                                model_name,
+                            )
+                    except Exception:
+                        pass
+
+                try:
+                    QTimer.singleShot(0, _apply_status)
+                except Exception:
+                    pass
+
+            threading.Thread(
+                target=_worker,
+                name=f"aits-{provider}-startup-check",
+                daemon=True,
+            ).start()
+        except Exception:
+            pass
 
     def _log_ai_provider_restore_state(self, stage: str, provider: str = "") -> None:
         try:

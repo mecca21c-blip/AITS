@@ -622,3 +622,14 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - When OpenAI/Gemini secrets exist, key inputs are restored to a masked saved state.
 - Masked key text is never treated as the actual key body and empty input is not interpreted as deletion.
 - Connection tests may use the current real UI value, otherwise they fall back to the saved secret.
+
+---
+
+## AI Startup Connection Check
+
+- The last selected engine is restored from `strategy.ai_provider`.
+- If a saved OpenAI or Gemini key exists, AITS may run a lightweight startup connection check after the UI is ready.
+- Startup connection checks are not GPT/Gemini Preview calls and must not affect Runtime, Router, Order, action, confidence, or ETA.
+- Failure never blocks app startup; the UI should show that connection confirmation is needed.
+- Saved key inputs use placeholder/status text such as `API Key saved`; fixed-length star text is avoided to prevent key-length confusion.
+- API key bodies, prefixes, suffixes, and request payloads must never be logged.
