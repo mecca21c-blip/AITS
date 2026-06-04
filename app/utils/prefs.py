@@ -248,10 +248,11 @@ def _sync_secrets_from_payload(payload: dict) -> dict:
                     secrets_payload.setdefault(sect, {})[key] = str(value).strip()
             except Exception:
                 pass
-        _write_secrets_json(secrets_payload)
+        if not _write_secrets_json(secrets_payload):
+            raise RuntimeError("secrets.json 저장 실패")
         return _scrub_secret_fields_for_prefs(payload, secrets_payload)
     except Exception:
-        return payload
+        raise
 
 
 def _merge_file_secrets(data: dict) -> dict:

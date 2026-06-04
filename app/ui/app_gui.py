@@ -34618,14 +34618,34 @@ class MainWindow(QMainWindow):
                 raw_st = self._read_common_ai_raw_strategy_for_ui()
                 _requested_openai_has_key = bool(str(common_ai_fields.get("ai_openai_api_key", "") or "").strip())
                 _requested_gemini_has_key = bool(str(common_ai_fields.get("ai_gemini_api_key", "") or "").strip())
-                _verify_openai_has_key = bool(str(raw_st.get("ai_openai_api_key", "") or "").strip())
-                _verify_gemini_has_key = bool(str(raw_st.get("ai_gemini_api_key", "") or "").strip())
+                try:
+                    _verified_settings = load_settings()
+                except Exception:
+                    _verified_settings = None
+                _verified_strategy = getattr(_verified_settings, "strategy", None) if _verified_settings else None
+                _verify_openai_has_key = (
+                    bool(raw_st.get("ai_openai_api_key_present"))
+                    or bool(str(raw_st.get("ai_openai_api_key", "") or "").strip())
+                    or bool(str(getattr(_verified_strategy, "ai_openai_api_key", "") or "").strip())
+                )
+                _verify_gemini_has_key = (
+                    bool(raw_st.get("ai_gemini_api_key_present"))
+                    or bool(str(raw_st.get("ai_gemini_api_key", "") or "").strip())
+                    or bool(str(getattr(_verified_strategy, "ai_gemini_api_key", "") or "").strip())
+                )
                 _raw_verify_ok = (
                     bool(raw_st.get("ai_provider", ""))
                     and bool(raw_st.get("ai_openai_model", ""))
                     and bool(raw_st.get("ai_gemini_model", ""))
                     and ((not _requested_openai_has_key) or _verify_openai_has_key)
                     and ((not _requested_gemini_has_key) or _verify_gemini_has_key)
+                )
+                self._log.info(
+                    "[AITS][CommonSettingsVerify] provider=%s | openai_present=%s | gemini_present=%s | source=secrets_split | status=%s",
+                    raw_st.get("ai_provider", ""),
+                    _verify_openai_has_key,
+                    _verify_gemini_has_key,
+                    "ok" if _raw_verify_ok else "failed",
                 )
                 if not _raw_verify_ok:
                     raise RuntimeError("common_settings_raw_verify_failed")

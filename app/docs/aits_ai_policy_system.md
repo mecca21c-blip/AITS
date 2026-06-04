@@ -601,3 +601,13 @@ AI 정책 센터의 전역 정책은 앱 재실행 후 유지한다.
 - Connection tests use the current UI key only when it is a real value; otherwise they fall back to the stored secret.
 - `session_restore.last_ai_provider` is display context only and must not override `strategy.ai_provider`.
 - `prefs.json` may keep provider/model/key-present metadata, while `secrets.json` owns key bodies.
+
+---
+
+## Common Settings Save Verification
+
+- After the secrets split, `prefs.json` does not store OpenAI/Gemini/Upbit API key bodies.
+- Common settings save verification must use key-present metadata and secrets-loaded settings, not raw key bodies in `prefs.json`.
+- An empty API key body in `prefs.json` is normal when the matching `*_present` flag or loaded secret confirms the key exists.
+- Save failure popups should appear only for actual prefs/secrets write or verification failures.
+- API key bodies, prefixes, suffixes, and request payloads must never be logged.
