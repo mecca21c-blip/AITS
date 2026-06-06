@@ -7,7 +7,10 @@ Router/UI/Execution/Order/Risk Guard, or approve models for live trading.
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -15,6 +18,7 @@ from typing import Optional
 REGISTRY_INDEX_SCHEMA = "aits_local_ai_registry_index.v1"
 ACTIVE_MODEL_SCHEMA = "aits_active_local_ai_model.v1"
 PERSISTENCE_RESULT_SCHEMA = "aits_model_artifact_persistence_result.v1"
+REAL_ARTIFACT_PERSISTENCE_RESULT_SCHEMA = "aits_model_real_artifact_persistence_result.v1"
 
 
 def utc_now_iso() -> str:
@@ -37,9 +41,114 @@ def ensure_registry_root(root_path: Optional[Path] = None) -> Path:
 
 
 def get_model_dir(model_id: str, root_path: Optional[Path] = None) -> Path:
-    safe_model_id = _validate_model_id(model_id)
+    safe_model_id = validate_safe_model_id(model_id)
     root = ensure_registry_root(root_path)
     return root / "models" / safe_model_id
+
+
+def validate_safe_model_id(model_id: str) -> str:
+    """Validate a model id before using it as a registry path component."""
+
+    return _validate_model_id(model_id)
+
+
+def sha256_file(path: Path) -> str | None:
+    """Return the SHA-256 checksum of a file, or None when unavailable."""
+
+    source = Path(path)
+    if not source.exists() or not source.is_file():
+        return None
+    digest = hashlib.sha256()
+    with source.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def copy_model_file_to_registry(
+    *,
+    source_model_path: Path,
+    model_id: str,
+    root_path: Optional[Path] = None,
+    filename: str = "model.txt",
+) -> dict:
+    """Copy a prototype model text file into the registry model directory."""
+
+    safe_model_id = validate_safe_model_id(model_id)
+    source = Path(source_model_path)
+    if not source.exists() or not source.is_file():
+        raise ValueError(f"source model file not found: {source}")
+    safe_filename = str(filename or "model.txt").strip()
+    if not safe_filename or "/" in safe_filename or "\\" in safe_filename or ".." in safe_filename:
+        raise ValueError("filename must be a simple file name")
+    model_dir = get_model_dir(safe_model_id, root_path)
+    target = model_dir / safe_filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    checksum = sha256_file(target)
+    size = target.stat().st_size if target.exists() else None
+    return {
+        "source_model_path": str(source),
+        "registry_model_path": str(target),
+        "model_file_created": bool(target.exists()),
+        "model_file_size_bytes": size,
+        "checksum": checksum,
+        "filename": safe_filename,
+    }
+
+
+def enrich_artifact_manifest_with_registry_model(
+    artifact_manifest: dict,
+    model_file_info: dict,
+) -> dict:
+    """Return artifact manifest updated with registry model file metadata."""
+
+    manifest = copy.deepcopy(artifact_manifest or {})
+    registry_model_path = model_file_info.get("registry_model_path")
+    checksum = model_file_info.get("checksum")
+    size = model_file_info.get("model_file_size_bytes")
+    manifest.setdefault("schema", "aits_model_artifact_manifest.v1")
+    manifest["artifact_path"] = registry_model_path
+    manifest["checksum"] = checksum
+    manifest["model_file_created"] = bool(model_file_info.get("model_file_created"))
+    manifest["text_model_created"] = True
+    manifest["model_file_size_bytes"] = size
+    manifest["source_model_path"] = model_file_info.get("source_model_path")
+    manifest["registry_model_path"] = registry_model_path
+    manifest["binary_created"] = False
+    notes = list(manifest.get("notes") or [])
+    for note in ("registry_model_file_copied", "prototype_artifact_not_live_approved"):
+        if note not in notes:
+            notes.append(note)
+    manifest["notes"] = notes
+    return manifest
+
+
+def validate_artifact_metadata_consistency(
+    *,
+    artifact_manifest: dict,
+    evaluation_report: dict,
+    model_registry_entry: dict,
+) -> dict:
+    """Validate registry artifact metadata consistency."""
+
+    report_artifact = evaluation_report.get("artifact") if isinstance(evaluation_report, dict) else {}
+    report_artifact = report_artifact if isinstance(report_artifact, dict) else {}
+    checks = {
+        "artifact_checksum_matches_report": artifact_manifest.get("checksum")
+        == report_artifact.get("checksum"),
+        "artifact_path_matches_registry_entry": artifact_manifest.get("artifact_path")
+        == model_registry_entry.get("artifact_path"),
+        "evaluation_report_id_matches_registry_entry": evaluation_report.get("evaluation_report_id")
+        == model_registry_entry.get("evaluation_report_id"),
+        "registry_entry_not_approved": model_registry_entry.get("status") != "approved",
+    }
+    issues = [key for key, ok in checks.items() if not ok]
+    return {
+        "consistent": not issues,
+        "checks": checks,
+        "issues": issues,
+    }
 
 
 def write_json_file(path: Path, payload: dict) -> Path:
@@ -164,6 +273,90 @@ def save_model_artifacts_preview(
         "files": {key: str(path) for key, path in files.items()},
         "registry_index_updated": True,
         "active_model_updated": False,
+        "created_at": utc_now_iso(),
+    }
+
+
+def save_model_artifacts_with_model_file_preview(
+    *,
+    model_registry_entry: dict,
+    artifact_manifest: dict,
+    evaluation_report: dict,
+    trainer_run_summary: dict,
+    source_model_path: Path,
+    root_path: Optional[Path] = None,
+) -> dict:
+    """Save model metadata and copy the real prototype text model file."""
+
+    model_id = validate_safe_model_id(str(model_registry_entry.get("model_id") or ""))
+    model_file_info = copy_model_file_to_registry(
+        source_model_path=source_model_path,
+        model_id=model_id,
+        root_path=root_path,
+        filename="model.txt",
+    )
+    enriched_manifest = enrich_artifact_manifest_with_registry_model(
+        artifact_manifest,
+        model_file_info,
+    )
+    enriched_entry = copy.deepcopy(model_registry_entry or {})
+    enriched_entry["artifact_path"] = enriched_manifest.get("artifact_path")
+    enriched_entry["checksum"] = enriched_manifest.get("checksum")
+    enriched_entry.setdefault("status", "draft")
+    if enriched_entry.get("status") == "approved":
+        enriched_entry["status"] = "draft"
+    notes = list(enriched_entry.get("notes") or [])
+    for note in ("not_approved_for_live", "real_prototype_artifact_registered"):
+        if note not in notes:
+            notes.append(note)
+    enriched_entry["notes"] = notes
+
+    enriched_report = copy.deepcopy(evaluation_report or {})
+    report_artifact = enriched_report.get("artifact")
+    if not isinstance(report_artifact, dict):
+        report_artifact = {}
+    report_artifact["artifact_path"] = enriched_manifest.get("artifact_path")
+    report_artifact["checksum"] = enriched_manifest.get("checksum")
+    report_artifact["model_file_size_bytes"] = model_file_info.get("model_file_size_bytes")
+    enriched_report["artifact"] = report_artifact
+    if enriched_report.get("approval_status") == "approved":
+        enriched_report["approval_status"] = "shadow_only"
+
+    enriched_summary = copy.deepcopy(trainer_run_summary or {})
+    if isinstance(enriched_summary.get("artifact"), dict):
+        enriched_summary["artifact"]["artifact_manifest"] = enriched_manifest
+        enriched_summary["artifact"]["model_path"] = enriched_manifest.get("artifact_path")
+    enriched_summary["evaluation_report"] = enriched_report
+    enriched_summary["model_registry_entry"] = enriched_entry
+
+    consistency = validate_artifact_metadata_consistency(
+        artifact_manifest=enriched_manifest,
+        evaluation_report=enriched_report,
+        model_registry_entry=enriched_entry,
+    )
+
+    base_result = save_model_artifacts_preview(
+        model_registry_entry=enriched_entry,
+        artifact_manifest=enriched_manifest,
+        evaluation_report=enriched_report,
+        trainer_run_summary=enriched_summary,
+        root_path=root_path,
+    )
+    files = dict(base_result.get("files") or {})
+    files["model_file"] = model_file_info.get("registry_model_path")
+    return {
+        "schema": REAL_ARTIFACT_PERSISTENCE_RESULT_SCHEMA,
+        "model_id": model_id,
+        "model_dir": base_result.get("model_dir"),
+        "model_file": {
+            "registry_model_path": model_file_info.get("registry_model_path"),
+            "checksum": model_file_info.get("checksum"),
+            "model_file_size_bytes": model_file_info.get("model_file_size_bytes"),
+        },
+        "files": files,
+        "registry_index_updated": True,
+        "active_model_updated": False,
+        "metadata_consistency": consistency,
         "created_at": utc_now_iso(),
     }
 
@@ -299,8 +492,11 @@ def _sanitize_payload(value):
 __all__ = [
     "ACTIVE_MODEL_SCHEMA",
     "PERSISTENCE_RESULT_SCHEMA",
+    "REAL_ARTIFACT_PERSISTENCE_RESULT_SCHEMA",
     "REGISTRY_INDEX_SCHEMA",
     "build_registry_index_entry",
+    "copy_model_file_to_registry",
+    "enrich_artifact_manifest_with_registry_model",
     "ensure_registry_root",
     "export_registry_snapshot",
     "get_active_model_preview",
@@ -311,9 +507,13 @@ __all__ = [
     "load_registry_index",
     "read_json_file",
     "save_model_artifacts_preview",
+    "save_model_artifacts_with_model_file_preview",
     "save_registry_index",
     "set_active_model_preview",
+    "sha256_file",
     "upsert_registry_index_entry",
     "utc_now_iso",
+    "validate_artifact_metadata_consistency",
+    "validate_safe_model_id",
     "write_json_file",
 ]

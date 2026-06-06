@@ -19,7 +19,10 @@ import lightgbm as lgb
 import numpy as np
 
 from app.learning.lightgbm_dataset_builder import is_future_or_outcome_key
-from app.learning.model_registry_store import save_model_artifacts_preview
+from app.learning.model_registry_store import (
+    save_model_artifacts_preview,
+    save_model_artifacts_with_model_file_preview,
+)
 
 REAL_TRAINER_RESULT_SCHEMA = "aits_lightgbm_real_trainer_result.v1"
 ARTIFACT_MANIFEST_SCHEMA = "aits_model_artifact_manifest.v1"
@@ -686,6 +689,37 @@ def train_and_persist_lightgbm_classifier_prototype(
     return {"result": result, "registry_persistence": persistence}
 
 
+def train_and_persist_lightgbm_classifier_real_artifact_prototype(
+    rows: list[dict],
+    *,
+    output_dir: Path,
+    registry_root: Path | None = None,
+    target_name: str = "classifier_target",
+    num_boost_round: int = 10,
+) -> dict:
+    """Train prototype model and copy the text model into registry storage."""
+
+    result = train_lightgbm_classifier_prototype(
+        rows,
+        output_dir=output_dir,
+        target_name=target_name,
+        num_boost_round=num_boost_round,
+    )
+    if result.get("training", {}).get("status") != "success":
+        return {"result": result, "registry_persistence": None}
+
+    model_path = result.get("artifact", {}).get("model_path")
+    persistence = save_model_artifacts_with_model_file_preview(
+        model_registry_entry=result["model_registry_entry"],
+        artifact_manifest=result["artifact"]["artifact_manifest"],
+        evaluation_report=result["evaluation_report"],
+        trainer_run_summary=result,
+        source_model_path=Path(model_path),
+        root_path=registry_root,
+    )
+    return {"result": result, "registry_persistence": persistence}
+
+
 def _base_result(
     *,
     run_id: str,
@@ -917,6 +951,7 @@ __all__ = [
     "make_id",
     "predict_with_loaded_model",
     "train_and_persist_lightgbm_classifier_prototype",
+    "train_and_persist_lightgbm_classifier_real_artifact_prototype",
     "train_lightgbm_classifier_prototype",
     "transform_features_for_inference",
     "transform_features_with_category_maps",
