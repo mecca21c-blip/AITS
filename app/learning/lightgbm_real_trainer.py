@@ -206,6 +206,140 @@ def encode_labels(labels: list) -> tuple[list[int], dict]:
     }
 
 
+def count_distribution(values: list) -> dict:
+    """Count values with None/empty values grouped as unknown."""
+
+    counts: dict[str, int] = {}
+    for value in values or []:
+        key = str(value).strip() if value is not None else "unknown"
+        if not key:
+            key = "unknown"
+        counts[key] = counts.get(key, 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def calculate_training_accuracy(y_true: list[int], y_pred: list[int]) -> float | None:
+    """Return simple in-sample accuracy for prototype smoke evaluation."""
+
+    if not y_true or not y_pred or len(y_true) != len(y_pred):
+        return None
+    correct = sum(1 for actual, predicted in zip(y_true, y_pred) if actual == predicted)
+    return round(correct / len(y_true), 6)
+
+
+def get_file_size_bytes(path: Path) -> int | None:
+    """Return file size in bytes, or None when unavailable."""
+
+    try:
+        target = Path(path)
+        if not target.exists() or not target.is_file():
+            return None
+        return target.stat().st_size
+    except OSError:
+        return None
+
+
+def build_filled_evaluation_report(
+    *,
+    model_id: str,
+    dataset_id: str,
+    y_true: list[int],
+    y_pred: list[int],
+    label_map: dict,
+    rows: list[dict],
+    feature_columns: list[str],
+    model_path: Path,
+    checksum: str | None,
+) -> dict:
+    """Build a filled prototype evaluation report with quality metadata."""
+
+    sample_count = len(y_true or [])
+    prediction_count = len(y_pred or [])
+    classes_value = label_map.get("classes") if isinstance(label_map, dict) else []
+    classes = list(classes_value) if isinstance(classes_value, list) else []
+    int_to_label = label_map.get("int_to_label") if isinstance(label_map, dict) else {}
+    int_to_label = int_to_label if isinstance(int_to_label, dict) else {}
+    class_labels = [
+        str(int_to_label.get(index, index)) for index in y_true or []
+    ]
+    prediction_labels = [
+        str(int_to_label.get(index, index)) for index in y_pred or []
+    ]
+    model_file_size = get_file_size_bytes(model_path)
+    model_file_created = model_file_size is not None and model_file_size > 0
+    training_accuracy = calculate_training_accuracy(y_true or [], y_pred or [])
+    feature_count = len(feature_columns or [])
+    class_count = len(classes)
+    prediction_generated = prediction_count > 0
+    quality_status, quality_notes, review_required = _prototype_quality(
+        sample_count=sample_count,
+        prediction_generated=prediction_generated,
+        model_file_created=model_file_created,
+        class_count=class_count,
+        feature_count=feature_count,
+        training_accuracy=training_accuracy,
+    )
+
+    return {
+        "schema": EVALUATION_REPORT_SCHEMA,
+        "evaluation_report_id": make_id("eval-report"),
+        "model_id": model_id,
+        "dataset_id": dataset_id,
+        "created_at": utc_now_iso(),
+        "metrics": {
+            "training_accuracy": training_accuracy,
+            "sample_count": sample_count,
+            "training_row_count": len(rows or []),
+            "feature_count": feature_count,
+            "class_count": class_count,
+            "prediction_generated": prediction_generated,
+            "prediction_count": prediction_count,
+            "model_file_created": model_file_created,
+            "model_file_size_bytes": model_file_size,
+            "checksum_available": bool(checksum),
+            "accuracy": None,
+            "precision": None,
+            "recall": None,
+            "f1": None,
+            "pnl_proxy": None,
+            "drawdown_proxy": None,
+            "false_buy_rate": None,
+            "false_sell_rate": None,
+            "missed_opportunity_rate": None,
+        },
+        "distributions": {
+            "class_distribution": count_distribution(class_labels),
+            "prediction_distribution": count_distribution(prediction_labels),
+            "provider_distribution": count_distribution(
+                [row.get("provider") for row in rows or [] if isinstance(row, dict)]
+            ),
+            "engine_role_distribution": count_distribution(
+                [row.get("engine_role") for row in rows or [] if isinstance(row, dict)]
+            ),
+        },
+        "quality": {
+            "prototype_quality_status": quality_status,
+            "quality_notes": quality_notes,
+            "review_required": review_required,
+        },
+        "artifact": {
+            "artifact_path": str(model_path) if model_path else None,
+            "checksum": checksum,
+            "model_file_size_bytes": model_file_size,
+        },
+        "benchmark_model_id": None,
+        "evaluation_period": None,
+        "decision_summary": "prototype_train_only_not_live",
+        "approval_status": "shadow_only",
+        "reviewer": "system",
+        "notes": [
+            "prototype_smoke_metric_only",
+            "validation_set_metrics_not_computed",
+            "not_approved_for_live",
+        ],
+    }
+
+
 def train_lightgbm_classifier_prototype(
     rows: list[dict],
     *,
@@ -286,7 +420,6 @@ def train_lightgbm_classifier_prototype(
             label_map["int_to_label"].get(index, str(index))
             for index in predicted_indices
         ]
-        training_accuracy = _accuracy(predictions, [str(label) for label in raw_labels])
 
         booster.save_model(str(model_path))
         checksum = _sha256_file(model_path)
@@ -309,13 +442,16 @@ def train_lightgbm_classifier_prototype(
             feature_columns=feature_columns,
             label_map=label_map,
         )
-        evaluation_report = build_real_trainer_evaluation_report(
+        evaluation_report = build_filled_evaluation_report(
             model_id=model_id,
             dataset_id=dataset_id,
-            training_accuracy=training_accuracy,
-            sample_count=len(training_rows),
-            class_count=len(label_map["classes"]),
-            prediction_generated=True,
+            y_true=y_vector,
+            y_pred=predicted_indices,
+            label_map=label_map,
+            rows=training_rows,
+            feature_columns=feature_columns,
+            model_path=model_path,
+            checksum=checksum,
         )
         registry_entry = build_real_trainer_model_registry_entry(
             model_id=model_id,
@@ -685,6 +821,47 @@ def _accuracy(predictions: list[str], labels: list[str]) -> float:
     return round(correct / len(labels), 6)
 
 
+def _prototype_quality(
+    *,
+    sample_count: int,
+    prediction_generated: bool,
+    model_file_created: bool,
+    class_count: int,
+    feature_count: int,
+    training_accuracy: float | None,
+) -> tuple[str, list[str], bool]:
+    notes: list[str] = []
+    failed = False
+    if not prediction_generated:
+        notes.append("prediction_missing")
+        failed = True
+    if not model_file_created:
+        notes.append("model_file_missing")
+        failed = True
+    if class_count < 2:
+        notes.append("class_count_below_two")
+        failed = True
+    if sample_count <= 0:
+        notes.append("sample_count_zero")
+        failed = True
+    if failed:
+        return "failed", notes, True
+
+    warning = False
+    if sample_count < 20:
+        notes.append("small_smoke_dataset")
+        warning = True
+    if training_accuracy == 1.0 and sample_count < 20:
+        notes.append("perfect_training_accuracy_on_small_dataset")
+        warning = True
+    if feature_count <= 0:
+        notes.append("feature_count_zero")
+        warning = True
+    if warning:
+        return "warning", notes, True
+    return "ok", ["prototype_quality_checks_passed"], False
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with Path(path).open("rb") as fh:
@@ -725,12 +902,16 @@ __all__ = [
     "build_real_trainer_artifact_manifest",
     "build_real_trainer_evaluation_report",
     "build_real_trainer_model_registry_entry",
+    "build_filled_evaluation_report",
+    "calculate_training_accuracy",
+    "count_distribution",
     "encode_feature_value",
     "encode_labels",
     "export_real_trainer_result_json",
     "filter_training_rows",
     "fit_category_maps",
     "flatten_feature_groups",
+    "get_file_size_bytes",
     "get_lightgbm_version",
     "load_lightgbm_model",
     "make_id",

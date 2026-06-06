@@ -225,8 +225,44 @@ Prototype metrics:
 
 - `training_accuracy`
 - `sample_count`
+- `training_row_count`
+- `feature_count`
 - `class_count`
 - `prediction_generated`
+- `prediction_count`
+- `model_file_created`
+- `model_file_size_bytes`
+- `checksum_available`
+
+AI-ARCH-17 fills additional distributions:
+
+- `class_distribution`
+- `prediction_distribution`
+- `provider_distribution`
+- `engine_role_distribution`
+
+AI-ARCH-17 also records prototype quality:
+
+- `prototype_quality_status=ok/warning/failed`
+- `quality_notes`
+- `review_required`
+
+`warning` is not a failed training result. It means the prototype smoke dataset is too small, too perfect in-sample, or otherwise needs review before any broader training claim.
+
+Validation-set metrics remain null until a controlled evaluation dataset exists:
+
+- `accuracy`
+- `precision`
+- `recall`
+- `f1`
+
+The current `training_accuracy` is an in-sample smoke metric only. It is useful for verifying the train/predict path, but it is not model quality proof.
+
+Artifact fields are mirrored into the report:
+
+- `artifact_path`
+- `checksum`
+- `model_file_size_bytes`
 
 Approval remains:
 
@@ -308,6 +344,24 @@ Future/outcome leakage keys are excluded from features.
 Model output is not a trading signal.
 
 `model_auto_approved=false` is mandatory.
+
+---
+
+## 13-A. AI-ARCH-17 Evaluation Report Fill
+
+AI-ARCH-17 expands `build_filled_evaluation_report()` for prototype result quality tracking.
+
+The filled report is passed into registry persistence, and `model_registry_entry.evaluation_report_id` must match the report id.
+
+Quality status rules:
+
+- `failed`: missing prediction, missing model file, fewer than two classes, or zero samples
+- `warning`: small smoke dataset, perfect in-sample accuracy on a tiny dataset, or zero features
+- `ok`: predictions exist, model file exists, class count is valid, and features exist
+
+The smoke dataset is intentionally small, so `warning` is expected and acceptable.
+
+The report remains a preview/shadow quality record, not a trading signal.
 
 ---
 
