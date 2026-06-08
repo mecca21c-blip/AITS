@@ -8,23 +8,11 @@ runtime data such as secrets, journals, logs, prefs, and model registry data.
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import (
-    collect_data_files,
-    collect_dynamic_libs,
-    collect_submodules,
-    copy_metadata,
-)
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, copy_metadata
 
 
 block_cipher = None
 project_root = Path(SPECPATH).resolve()
-
-
-def _safe_collect_submodules(package_name):
-    try:
-        return collect_submodules(package_name)
-    except Exception:
-        return []
 
 
 def _safe_collect_data_files(package_name):
@@ -48,15 +36,24 @@ def _safe_copy_metadata(package_name):
         return []
 
 
-hiddenimports = []
-hiddenimports += _safe_collect_submodules("app")
-hiddenimports += _safe_collect_submodules("lightgbm")
-hiddenimports += _safe_collect_submodules("scipy")
-hiddenimports += _safe_collect_submodules("numpy")
-
-# PySide6 is expected by the UI runtime, but the first packaged verification
-# should confirm the installed package/plugin shape before optimizing this list.
-hiddenimports += _safe_collect_submodules("PySide6")
+hiddenimports = [
+    "app",
+    "app.core.aits_state",
+    "app.services.aits_orchestrator",
+    "app.ui.app_gui",
+    "app.ui.auth_dialogs",
+    "app.ui.tabs.config_tabs",
+    "app.ui.tabs.portfolio_tab",
+    "app.ui.tabs.trades_tab",
+    "app.ui.tabs.watchlist_tab",
+    "app.utils.prefs",
+    "lightgbm",
+    "numpy",
+    "scipy",
+    "PySide6.QtCore",
+    "PySide6.QtGui",
+    "PySide6.QtWidgets",
+]
 
 datas = []
 datas += _safe_collect_data_files("matplotlib")
