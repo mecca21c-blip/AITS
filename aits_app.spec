@@ -60,6 +60,10 @@ datas += _safe_collect_data_files("matplotlib")
 datas += _safe_collect_data_files("mplfinance")
 datas += _safe_copy_metadata("lightgbm")
 datas += _safe_copy_metadata("scipy")
+datas += [
+    (str(project_root / "assets" / "ui" / "header_toggle_on.png"), "assets/ui"),
+    (str(project_root / "assets" / "ui" / "header_toggle_off.png"), "assets/ui"),
+]
 
 binaries = []
 binaries += _safe_collect_dynamic_libs("lightgbm")
