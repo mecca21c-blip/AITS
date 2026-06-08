@@ -18,13 +18,21 @@ from app.core.aits_state import AITSRuntimeState
 from app.services.aits_orchestrator import AITSOrchestrator
 
 
+def _get_packaged_writable_data_dir() -> str:
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if not local_app_data:
+        local_app_data = os.path.join(os.path.expanduser("~"), "AppData", "Local")
+    return os.path.join(local_app_data, "AITS", "data")
+
+
 def resolve_paths() -> Dict[str, str]:
     frozen = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
     if frozen:
         root_dir = os.path.dirname(os.path.abspath(sys.executable))
+        data_dir = _get_packaged_writable_data_dir()
     else:
         root_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(root_dir, "data")
+        data_dir = os.path.join(root_dir, "data")
     log_dir = os.path.join(data_dir, "logs")
     return {
         "root_dir": root_dir,
