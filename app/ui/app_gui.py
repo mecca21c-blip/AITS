@@ -1607,8 +1607,8 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_ai_intent_goal = QLabel("현재 목표\n방향성 확인")
         self.lbl_ai_intent_observation = QLabel("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
         self.lbl_ai_intent_wait_reason = QLabel("대기 이유\n추가 확인 전까지 관찰을 유지합니다.")
-        self.lbl_ai_intent_conditions = QLabel("행동 조건\n추가 신호 확인 전까지 관찰 유지")
-        self.lbl_ai_intent_transition = QLabel("전환 후보\n운용 후보 재검토")
+        self.lbl_ai_intent_conditions = QLabel("관찰 조건\n추가 신호 확인 전까지 관찰 유지")
+        self.lbl_ai_intent_transition = QLabel("모니터링 항목\n운용 후보 재검토")
         try:
             self.lbl_ai_intent_goal.setObjectName("aitsIntentGoalLabel")
             self.lbl_ai_intent_observation.setObjectName("aitsIntentWatchLabel")
@@ -1694,8 +1694,8 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_goal.setText("현재 목표\n방향성 확인")
             self.lbl_ai_intent_observation.setText("관찰 포인트\n거래량 변화 · 시장 강도 · 방향성")
             self.lbl_ai_intent_wait_reason.setText("대기 이유\n추가 확인 전까지 관찰을 유지합니다.")
-            self.lbl_ai_intent_conditions.setText("행동 조건\n추가 신호 확인 전까지 관찰 유지")
-            self.lbl_ai_intent_transition.setText("전환 후보\n운용 후보 재검토")
+            self.lbl_ai_intent_conditions.setText("관찰 조건\n추가 신호 확인 전까지 관찰 유지")
+            self.lbl_ai_intent_transition.setText("모니터링 항목\n운용 후보 재검토")
             self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
         except Exception:
             pass
@@ -2606,12 +2606,12 @@ class AITSLargeChartDialog(QDialog):
         sidebar_lay.setContentsMargins(0, 0, 0, 0)
         sidebar_lay.setSpacing(10)
 
-        self._frm_detail_ai_status_card = self._make_detail_sidebar_card("AI 판단")
-        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("판단 근거")
-        self._frm_detail_ai_next_card = self._make_detail_sidebar_card("운용 계획")
-        self._frm_detail_ai_metrics_card = self._make_detail_sidebar_card("핵심 수치")
-        self._frm_detail_popup_scenario_card = self._make_detail_sidebar_card("AI 시나리오")
-        self._frm_detail_popup_eta_card = self._make_detail_sidebar_card("유지 예상 / ETA")
+        self._frm_detail_ai_status_card = self._make_detail_sidebar_card("상태 판단")
+        self._frm_detail_ai_reason_card = self._make_detail_sidebar_card("근거 요약")
+        self._frm_detail_ai_next_card = self._make_detail_sidebar_card("다음 관찰 항목")
+        self._frm_detail_ai_metrics_card = self._make_detail_sidebar_card("계산 수치")
+        self._frm_detail_popup_scenario_card = self._make_detail_sidebar_card("관찰 시나리오")
+        self._frm_detail_popup_eta_card = self._make_detail_sidebar_card("예상 시간")
         try:
             self._frm_detail_popup_scenario_card.setStyleSheet(
                 "QFrame#frmDetailSidebarCard {"
@@ -2630,7 +2630,7 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_decision_state_title = QLabel("상태")
         self.lbl_detail_popup_decision_big = QLabel("STAY")
         self.lbl_detail_popup_decision_sub = QLabel("-")
-        self.lbl_detail_popup_score = QLabel("AI 점수 -")
+        self.lbl_detail_popup_score = QLabel("계산 점수 -")
         self.lbl_detail_popup_reason_text = QLabel("-")
         self.lbl_detail_popup_next_text = QLabel("-")
         self.lbl_detail_popup_entry_price = self._make_detail_popup_value_label()
@@ -2640,16 +2640,16 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_risk_price = self._make_detail_popup_value_label()
         self.lbl_detail_popup_state = self.lbl_detail_popup_decision_sub
         self.lbl_detail_popup_scenario_title = QLabel("횡보 관찰형")
-        self.lbl_asset_scenario_source = QLabel("기준: AI 기본값")
+        self.lbl_asset_scenario_source = QLabel("기준: 계산 기반 참고")
         self.lbl_detail_popup_scenario_type = QLabel("sideways_wait")
-        self.lbl_detail_popup_scenario_confidence = QLabel("신뢰도 55%")
-        self.lbl_detail_popup_scenario_context = QLabel("진입 전 관찰 시나리오")
+        self.lbl_detail_popup_scenario_confidence = QLabel("AI 확신도 없음")
+        self.lbl_detail_popup_scenario_context = QLabel("계산 기반 관찰 시나리오")
         self.lbl_detail_popup_eta_title = QLabel("유지 예상")
-        self.lbl_asset_eta_source = QLabel("기준: AI 기본값")
+        self.lbl_asset_eta_source = QLabel("기준: AI 예상 없음")
         self.lbl_detail_popup_eta_main = QLabel("유지 예상 · -")
         self.lbl_detail_popup_eta_sub = QLabel("방향성 확인 전 진입 대기")
         self.lbl_detail_popup_eta_meta = QLabel("리스크 — / 목표 —")
-        self.lbl_detail_popup_eta_hint = QLabel("시장 변화 시 ETA는 자동 조정될 수 있습니다.")
+        self.lbl_detail_popup_eta_hint = QLabel("AI Output Contract가 없으면 예상 시간은 표시하지 않습니다.")
         self._detail_popup_eta_remaining_seconds = 0
         self._detail_popup_eta_state_type = "review_wait"
         self._detail_popup_eta_timer = QTimer(self)
@@ -2693,8 +2693,8 @@ class AITSLargeChartDialog(QDialog):
             "background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:2px 6px;"
         )
         try:
-            self.lbl_asset_scenario_source.setText("기준: AI 기본값")
-            self.lbl_asset_eta_source.setText("기준: AI 기본값")
+            self.lbl_asset_scenario_source.setText("기준: 계산 기반 참고")
+            self.lbl_asset_eta_source.setText("기준: AI 예상 없음")
         except Exception:
             pass
         self.lbl_detail_popup_scenario_type.setStyleSheet(
@@ -3029,7 +3029,10 @@ class AITSLargeChartDialog(QDialog):
 
             self.lbl_detail_popup_decision_big.setText(decision_token)
             self.lbl_detail_popup_decision_sub.setText(state_text or "—")
-            self.lbl_detail_popup_score.setText(f"AI 점수 {score_text or '—'}")
+            if self._main_ai_output_contract_available():
+                self.lbl_detail_popup_score.setText(f"AI 점수 {score_text or '—'}")
+            else:
+                self.lbl_detail_popup_score.setText(f"계산 점수 {score_text or '—'}")
             self.lbl_detail_popup_header_decision_badge.setText(decision_token)
             self.lbl_detail_popup_header_change_badge.setText(change_rate or "—")
             self.lbl_detail_popup_chart_price.setText(
@@ -3579,8 +3582,8 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_observation.setText(
                 "관찰 포인트\n" + "\n".join(f"• {point}" for point in points[:4])
             )
-            self.lbl_ai_intent_conditions.setText(f"행동 조건\n{action_conditions}")
-            self.lbl_ai_intent_transition.setText(f"전환 후보\n{transition}")
+            self.lbl_ai_intent_conditions.setText(f"관찰 조건\n{action_conditions}")
+            self.lbl_ai_intent_transition.setText(f"모니터링 항목\n{transition}")
             self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
         except Exception:
             pass
@@ -3692,6 +3695,8 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_briefing_keypoints.setVisible(False)
             self.lbl_ai_intent_section_title.setVisible(False)
             if not bool(intent.get("ai_output_available")):
+                self._apply_main_basic_preview_contract_copy(intent)
+                return
                 basic_preview = intent.get("basic_preview") or {}
                 basic_points = basic_preview.get("observation_points") or []
                 if isinstance(basic_points, str):
@@ -3757,8 +3762,8 @@ class AITSLargeChartDialog(QDialog):
                 or "추가 확인 전까지 관찰을 유지합니다."
             ).strip()
             self.lbl_ai_intent_wait_reason.setText(f"대기 이유\n{wait_reason}")
-            self.lbl_ai_intent_conditions.setText(f"행동 조건\n{action_conditions}")
-            self.lbl_ai_intent_transition.setText(f"전환 후보\n{transition}")
+            self.lbl_ai_intent_conditions.setText(f"관찰 조건\n{action_conditions}")
+            self.lbl_ai_intent_transition.setText(f"모니터링 항목\n{transition}")
             self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
         except Exception:
             pass
@@ -4927,6 +4932,53 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return "AI Engine"
 
+    def _main_ai_output_contract_available(self) -> bool:
+        try:
+            contract = self._build_ai_output_contract()
+            return bool(isinstance(contract, dict) and contract.get("available"))
+        except Exception:
+            return False
+
+    def _apply_main_basic_preview_contract_copy(self, intent=None) -> None:
+        try:
+            intent = dict(intent or {})
+            basic_preview = intent.get("basic_preview") or {}
+            basic_points = basic_preview.get("observation_points") or []
+            if isinstance(basic_points, str):
+                basic_points = [
+                    line.strip().lstrip("-•").strip()
+                    for line in basic_points.splitlines()
+                    if line.strip()
+                ]
+            else:
+                basic_points = [str(p).strip() for p in basic_points if str(p).strip()]
+            if not basic_points:
+                basic_points = [
+                    "거래대금 변화 확인",
+                    "추세 전환 여부 확인",
+                    "AI 응답 수신 후 재평가",
+                ]
+            self.lbl_ai_intent_goal.setText("계산 기반 상태\nAI 판단 없음 · 관망 참고")
+            self.lbl_ai_intent_observation.setText(
+                "Basic Preview\n"
+                + "\n".join(f"- {point}" for point in basic_points[:3])
+                + "\n주문 신호 아님"
+            )
+            self.lbl_ai_intent_wait_reason.setText(
+                "AI 판단 대기\nAI Output Contract가 아직 없습니다."
+            )
+            self.lbl_ai_intent_conditions.setText(
+                "다음 관찰 항목\n거래대금 변화 · 추세 전환 · AI 응답 수신 여부"
+            )
+            self.lbl_ai_intent_transition.setText(
+                "상태 전환 기준\nAI 응답 수신 후 Router/RiskGuard 검증 전까지 참고 정보로 유지"
+            )
+            self.lbl_ai_review_learning_placeholder.setText(
+                "Basic Engine 계산 기반 참고 · 실거래 실행 없음"
+            )
+        except Exception:
+            pass
+
     def _build_ai_intent_snapshot(
         self,
         decision_text="",
@@ -5541,11 +5593,11 @@ class AITSLargeChartDialog(QDialog):
             contract = self._build_ai_output_contract()
             eta_slot = contract.get("eta") if isinstance(contract.get("eta"), dict) else {}
             if not bool(contract.get("available")):
-                self.lbl_detail_popup_eta_main.setText("유지 예상 · AI 대기")
-                self.lbl_detail_popup_eta_sub.setText("AI Engine 연결 후 유지 예상 설명이 표시됩니다.")
+                self.lbl_detail_popup_eta_main.setText("AI 예상 시간 없음")
+                self.lbl_detail_popup_eta_sub.setText("AI Output Contract 수신 전에는 ETA를 표시하지 않습니다.")
                 self.lbl_detail_popup_eta_meta.setText("Basic Preview는 계산 기반 참고 정보입니다.")
                 try:
-                    self.lbl_asset_eta_source.setText("기준: AI 대기")
+                    self.lbl_asset_eta_source.setText("기준: AI 예상 없음")
                 except Exception:
                     pass
                 self._start_detail_popup_eta_timer()
@@ -5707,15 +5759,15 @@ class AITSLargeChartDialog(QDialog):
                 self._detail_popup_scenario_snapshot = snapshot
                 self._detail_popup_scenario_type = scenario_type
                 self._detail_popup_scenario_confidence = confidence
-                self.lbl_detail_popup_scenario_title.setText("AI 시나리오 대기")
-                self.lbl_detail_popup_scenario_type.setText("기준: AI 대기")
+                self.lbl_detail_popup_scenario_title.setText("관찰 시나리오 대기")
+                self.lbl_detail_popup_scenario_type.setText("기준: 계산 기반 참고")
                 self.lbl_detail_popup_scenario_context.setText(
-                    "AI Engine 연결 후 시나리오가 표시됩니다.\n"
-                    "Basic Preview는 계산 기반 참고 정보입니다."
+                    "AI Output Contract가 아직 없습니다.\n"
+                    "현재 표시는 Basic Engine 계산 기반 참고이며 주문 신호가 아닙니다."
                 )
                 self.lbl_detail_popup_scenario_confidence.setText("Basic Preview · AI 판단 아님")
                 try:
-                    self.lbl_asset_scenario_source.setText("기준: AI 대기")
+                    self.lbl_asset_scenario_source.setText("기준: 계산 기반 참고")
                 except Exception:
                     pass
                 return
@@ -6035,6 +6087,16 @@ class MainWindow(QMainWindow):
 
     def _compact_ai_status_text(self, text: str) -> str:
         try:
+            if not self._main_ai_output_contract_available():
+                raw = " ".join(str(text or "").split())
+                if raw:
+                    raw = raw.replace("[AI 판단]", "").replace("[판단 근거]", "").replace("[다음 행동]", "")
+                    raw = raw.replace("AI 판단:", "").strip(" :|-")
+                suffix = f" · {raw[:70]}" if raw else ""
+                return "계산 기반 상태: AI 판단 없음 · 주문 신호 아님" + suffix
+        except Exception:
+            pass
+        try:
             raw = str(text or "").strip()
             if not raw:
                 return "AI 판단: 정보 없음"
@@ -6118,7 +6180,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 state = ""
 
+            has_ai_contract = self._main_ai_output_contract_available()
             lines.append(f"선택 엔진: {engine}")
+            if not has_ai_contract:
+                lines.append("AI 판단 없음: Basic Engine 계산 기반 참고이며 주문 신호가 아닙니다.")
             if state:
                 lines.append(f"엔진 상태: {state}")
 
@@ -6128,8 +6193,8 @@ class MainWindow(QMainWindow):
 
             QMessageBox.information(
                 self,
-                "AI 브리핑",
-                "\n".join(lines) if lines else "표시할 브리핑 정보가 없습니다."
+                "AI 브리핑" if has_ai_contract else "상태 요약",
+                "\n".join(lines) if lines else "표시할 상태 요약 정보가 없습니다."
             )
         except Exception:
             pass
@@ -10601,7 +10666,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.tbl_ai_managed.setHorizontalHeaderLabels(
-            ["순위", "종목", "AI 점수", "상태", "비중/목표"]
+            ["순위", "종목", "계산 점수", "상태", "비중/목표"]
         )
         try:
             _hdr_al = (
@@ -11453,7 +11518,7 @@ class MainWindow(QMainWindow):
         _nx_ly = QVBoxLayout(self._frm_ai_next_card)
         _nx_ly.setContentsMargins(14, 12, 14, 12)
         _nx_ly.setSpacing(8)
-        _lbl_nx_t = QLabel("다음행동")
+        _lbl_nx_t = QLabel("다음 관찰")
         _lbl_nx_t.setStyleSheet(
             "font-size: 12px; font-weight: 900; color: #78350f; padding-bottom: 6px; "
             "border-bottom: 2px solid #fcd34d;"
@@ -11520,7 +11585,7 @@ class MainWindow(QMainWindow):
             self.lbl_ai_detail_score.setStyleSheet("color: #4c5b68; font-size: 12px;")
         except Exception:
             pass
-        _fa.addRow("AI 점수", self.lbl_ai_detail_score)
+        _fa.addRow("계산 점수", self.lbl_ai_detail_score)
         _detail_inner.addWidget(_fa_wrap)
         try:
             _fa_wrap.setVisible(False)
@@ -11552,7 +11617,7 @@ class MainWindow(QMainWindow):
             pass
         self.txt_ai_detail_reason = QPlainTextEdit()
         self.txt_ai_detail_reason.setReadOnly(True)
-        self.txt_ai_detail_reason.setPlaceholderText("AI 판단 요약")
+        self.txt_ai_detail_reason.setPlaceholderText("AI Output Contract 또는 계산 기반 참고 요약")
         try:
             self.txt_ai_detail_reason.setMaximumHeight(72)
             self.txt_ai_detail_reason.setMinimumHeight(54)
@@ -11778,7 +11843,7 @@ class MainWindow(QMainWindow):
         self.cmb_market_sort.addItem("거래량순", "volume")
         self.cmb_market_sort.addItem("전체", "all")
         self.cmb_market_sort.addItem("급등", "surge")
-        self.cmb_market_sort.addItem("AI 점수순", "score")
+        self.cmb_market_sort.addItem("계산 점수순", "score")
         self.cmb_market_sort.addItem("변동률순", "change")
         self.cmb_market_sort.addItem("메이저", "major")
         self.cmb_market_sort.addItem("결제/송금", "payment")
@@ -11929,7 +11994,7 @@ class MainWindow(QMainWindow):
             self.tbl_market_all.setObjectName("tblMarketExplorer")
         except Exception:
             pass
-        self.tbl_market_all.setHorizontalHeaderLabels(["종목", "테마", "24h", "AI 점수", "+"])
+        self.tbl_market_all.setHorizontalHeaderLabels(["종목", "테마", "24h", "계산 점수", "+"])
         self.tbl_market_all.verticalHeader().setVisible(False)
         self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_market_all.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -14092,6 +14157,8 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+            if not self._main_ai_output_contract_available():
+                msg = "상태 요약: AI 판단 없음 · 계산 기반 참고 · 주문 신호 아님"
             lb.setText(msg)
         except Exception:
             pass
@@ -20137,22 +20204,26 @@ class MainWindow(QMainWindow):
 
     def _center_dashboard_decision_html(self, key: str) -> str:
         try:
+            has_ai_contract = self._main_ai_output_contract_available()
             u = str(key or "").upper()
             color = "#b45309"
-            text = "STAY (관망)"
-            if any(k in u for k in ("BUY", "STRONG", "진입", "매수")) and "SELL" not in u:
-                color = "#15803d"
-                text = "BUY (매수)"
-            elif any(k in u for k in ("SELL", "EXIT", "RISK", "매도", "청산", "손절")):
-                color = "#b91c1c"
-                text = "SELL (매도)"
+            heading = "AI 판단: " if has_ai_contract else "계산 기반 상태: "
+            text = "STAY (관망)" if has_ai_contract else "관망 참고 · 주문 신호 아님"
+            if has_ai_contract:
+                if any(k in u for k in ("BUY", "STRONG", "진입", "매수")) and "SELL" not in u:
+                    color = "#15803d"
+                    text = "BUY 검토"
+                elif any(k in u for k in ("SELL", "EXIT", "RISK", "매도", "청산", "손절")):
+                    color = "#b91c1c"
+                    text = "SELL 검토"
             safe = self._center_dashboard_escape_html(text)
+            safe_heading = self._center_dashboard_escape_html(heading)
             return (
-                "<span style='font-size:20px;font-weight:900;color:#111827;'>AI 판단: </span>"
+                f"<span style='font-size:20px;font-weight:900;color:#111827;'>{safe_heading}</span>"
                 f"<span style='font-size:20px;font-weight:900;color:{color};'>{safe}</span>"
             )
         except Exception:
-            return "<span style='font-size:20px;font-weight:900;color:#111827;'>AI 판단: </span><span style='font-size:20px;font-weight:900;color:#b45309;'>STAY (관망)</span>"
+            return "<span style='font-size:20px;font-weight:900;color:#111827;'>계산 기반 상태: </span><span style='font-size:20px;font-weight:900;color:#b45309;'>관망 참고 · 주문 신호 아님</span>"
 
     def _sync_center_dashboard_reason_from_plaintext(self) -> None:
         try:
@@ -25385,7 +25456,7 @@ class MainWindow(QMainWindow):
             pass
 
         try:
-            table.setHorizontalHeaderLabels(["순위", "종목", "AI 점수", "상태", "비중/목표"])
+            table.setHorizontalHeaderLabels(["순위", "종목", "계산 점수", "상태", "비중/목표"])
         except Exception:
             pass
         try:
@@ -29844,7 +29915,7 @@ class MainWindow(QMainWindow):
         t.setRowCount(0)
         try:
             t.setColumnCount(5)
-            t.setHorizontalHeaderLabels(["종목", "테마", "24h", "AI 점수", "+"])
+            t.setHorizontalHeaderLabels(["종목", "테마", "24h", "계산 점수", "+"])
             t.setColumnWidth(0, 140)
             t.setColumnWidth(1, 90)
             t.setColumnWidth(2, 84)
@@ -30030,7 +30101,7 @@ class MainWindow(QMainWindow):
                 "volume": "거래량순",
                 "all": "전체",
                 "surge": "상승률순",
-                "score": "AI 점수순",
+                "score": "계산 점수순",
                 "change": "변동률순",
                 "major": "테마:메이저",
                 "payment": "테마:결제/송금",
