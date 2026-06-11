@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-This is the current rules document that Codex/Agent must read before working on AITS.
+The repository-root `AGENTS.md` is the automatic Codex operating entry point. This document provides the detailed safety and architecture rules referenced by that entry point.
 
 It does not replace the official detailed documents under `app/docs`. It is the current working rules summary for safe Goal execution.
 
@@ -19,8 +19,11 @@ Current phase:
 - Local AI learning pipeline buildout
 - Preview / Shadow / Architecture validation
 - LightGBM prototype validation
+- Main UI semantic-contract stabilization
+- Reflection schema design
 
 AITS is not currently in a live automated trading expansion phase.
+Packaging work is currently HOLD while development-mode functionality and UI readiness are improved.
 
 ## 3. Roles
 
@@ -140,9 +143,13 @@ Prefer official detailed documents under `app/docs`.
 
 `data/local_ai_registry` is the model registry preview persistence area.
 
-LightGBM is installed in the current development venv, but `requirements.txt` pinning remains a separate Goal.
+LightGBM `4.6.0` is installed and pinned in `requirements.txt`.
 
-PyInstaller/package verification has not been performed.
+PyInstaller and packaged dependency/main-app smoke verification were performed, but the packaged application is not a final distribution build. Packaging work is currently HOLD.
+
+AI-REFLECT-01 defined Reflection Events as review and learning candidates, not order signals.
+
+UI-MAIN-01 separated explicit AI Output Contract copy from Basic/fallback calculation copy.
 
 ## 10. Communication / Reporting Format
 
@@ -161,6 +168,10 @@ Do not put screenshot requests inside Codex patch instructions.
 
 User-facing manual work should be requested by ChatGPT outside code blocks.
 
+Use `git add` with explicit allowed file paths only. Never use `git add .` in this repository.
+
+Validation must be proportional to the Goal. Documentation-only Goals may use file existence, keyword, line-count, and scoped-diff checks without startup or build execution.
+
 ## 11. Currently Prohibited Layers
 
 Do not modify the following unless a Goal explicitly allows it:
@@ -177,7 +188,7 @@ Exceptions require explicit Goal authorization.
 
 ## 12. Current Candidate Next Work
 
-- AI-ARCH-17 Trainer Evaluation Report Fill
-- AI-ARCH-18 Model Registry Real Artifact Integration
-- AI-ARCH-15-B requirements pin decision
-- AI-ARCH-19 Packaged Build Dependency Verification
+- Development-mode UI readiness and safety-copy stabilization
+- AI-REFLECT-02 Reflection Event Preview Builder
+- Reflection UI and Journal integration only through separate controlled Goals
+- Resume packaging only through an explicit packaging Goal after HOLD is lifted

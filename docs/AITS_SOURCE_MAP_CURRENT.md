@@ -2,11 +2,13 @@
 
 ## 1. Purpose
 
-This is the current source map for Codex/Agent to quickly understand AITS after AI-ARCH-16.
+This is the current source map for Codex/Agent to quickly understand AITS as of 2026-06-11.
 
 It acts as an index and current summary for the official detailed documents under `app/docs`.
 
 This file supersedes older source-map assumptions for agent work.
+
+`docs/AITS_SOURCE_MAP_v2.md` is a detailed archival architecture map and is not the automatic current source map. `app/docs/aits_source_map_current.md` is an older app-internal reference document.
 
 ## 2. Official Architecture Summary
 
@@ -85,6 +87,8 @@ Current official AI-ARCH and related design documents:
 - `app/docs/aits_lightgbm_controlled_dependency_plan_v1.md`
 - `app/docs/aits_lightgbm_controlled_install_verify_result_v1.md`
 - `app/docs/aits_lightgbm_real_trainer_prototype_v1.md`
+- `app/docs/aits_ai_reflection_event_schema_v1.md`
+- `app/docs/aits_main_ai_output_contract_copy_fix_v1.md`
 
 ## 5. Local AI Learning Pipeline File Map
 
@@ -146,6 +150,10 @@ Current official AI-ARCH and related design documents:
 
 ## 6. Data Path Map
 
+Development runtime data root: `C:\AITS\data`
+
+Packaged runtime data root: `%LOCALAPPDATA%\AITS\data`
+
 `data/aits_journal.sqlite3`
 
 - Unified Trading Journal SQLite database
@@ -193,14 +201,22 @@ Safety notes:
 - AI-ARCH-14-B: Controlled LightGBM Dependency Plan
 - AI-ARCH-15: Controlled LightGBM Install / Verify
 - AI-ARCH-16: LightGBM Real Trainer Prototype
+- AI-ARCH-17: Trainer Evaluation Report Fill
+- AI-ARCH-18: Model Registry Real Artifact Integration
+- AI-ARCH-15-C: LightGBM Requirements Pin Commit
+- AI-ARCH-19 series: Packaged dependency, probe, main-app build, smoke, and runtime-path verification
+- AI-REFLECT-01: AI Reflection Event Schema
+- UI-MAIN-01: Main AI Output Contract and Copy Fix
 
 ## 8. Current Dependency State
 
 - LightGBM `4.6.0` is installed in the current development venv.
 - scipy `1.17.1` is installed as a dependency.
-- `requirements.txt` pin has not yet been committed.
-- PyInstaller/package verification has not yet been performed.
-- Real Trainer Prototype smoke passed.
+- `requirements.txt` pins `lightgbm==4.6.0`; scipy remains transitive.
+- PyInstaller `6.20.0` was installed in the development venv without a requirements pin.
+- Independent packaged LightGBM/scipy/trainer probe verification passed.
+- Main-app onedir build and startup smoke were demonstrated, and packaged writable data was moved to `%LOCALAPPDATA%\AITS\data`.
+- The packaged application is not a final distribution build. Packaging is currently HOLD.
 
 ## 9. Current Disconnected State
 
@@ -208,14 +224,15 @@ Safety notes:
 - Dataset Builder does not run automatic training.
 - Real Trainer is not an automatic training scheduler.
 - Model Registry `active_model` is a preview pointer.
-- UI connection: none
+- Reflection Event runtime/UI/Journal connection: none
+- Local AI learning pipeline UI connection: none
 - Execution connection: none
 - Order connection: none
 - RiskGuard bypass: none
 
 ## 10. Recommended Next Work
 
-- AI-ARCH-17 Trainer Evaluation Report Fill
-- AI-ARCH-18 Model Registry Real Artifact Integration
-- AI-ARCH-15-B requirements pin decision
-- AI-ARCH-19 Packaged Build Dependency Verification
+- Continue development-mode UI readiness and behavior verification.
+- AI-REFLECT-02: Reflection Event Preview Builder.
+- Add Reflection UI/Journal integration only through separate controlled Goals.
+- Keep packaging HOLD until application functionality is ready for another packaging Goal.
