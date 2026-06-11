@@ -7585,7 +7585,7 @@ class MainWindow(QMainWindow):
                 if card is not None:
                     card.setStyleSheet("")
                 if p_title is not None:
-                    p_title.setText("AITS 모니터링 ON")
+                    p_title.setText("AITS ON")
                     p_title.setStyleSheet("")
                     try:
                         p_title.setProperty("runBlink", False)
@@ -7595,7 +7595,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                 if p_sub is not None:
-                    p_sub.setText("Preview/Shadow · 주문 없음")
+                    p_sub.setText("Shadow · 주문 없음")
                     p_sub.setStyleSheet("")
                     try:
                         p_sub.setProperty("headerState", "on")
@@ -7635,7 +7635,7 @@ class MainWindow(QMainWindow):
                 if card is not None:
                     card.setStyleSheet("")
                 if p_title is not None:
-                    p_title.setText("AITS 모니터링 OFF")
+                    p_title.setText("AITS OFF")
                     p_title.setStyleSheet("")
                     try:
                         p_title.setProperty("runBlink", False)
@@ -7645,7 +7645,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                 if p_sub is not None:
-                    p_sub.setText("Preview/Shadow · 주문 없음")
+                    p_sub.setText("Shadow · 주문 없음")
                     p_sub.setStyleSheet("")
                     try:
                         p_sub.setProperty("headerState", "off")
@@ -9334,7 +9334,7 @@ class MainWindow(QMainWindow):
             self.lbl_status.setMaximumHeight(0)
         except Exception:
             pass
-        self.lbl_power_title = QLabel("AITS 모니터링 OFF", self.stop_box)
+        self.lbl_power_title = QLabel("AITS OFF", self.stop_box)
         self.lbl_power_title.setObjectName("powerTitle")
         self.lbl_power_title.setProperty("headerToggleMain", True)
         self.lbl_power_title.setProperty("headerState", "off")
@@ -9345,7 +9345,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.lbl_power_title.setStyleSheet("")
-        self.lbl_power_sub = QLabel("Preview/Shadow · 주문 없음", self.stop_box)
+        self.lbl_power_sub = QLabel("Shadow · 주문 없음", self.stop_box)
         self.lbl_power_sub.setObjectName("powerSub")
         self.lbl_power_sub.setProperty("headerToggleSub", True)
         self.lbl_power_sub.setProperty("headerState", "off")
@@ -32181,7 +32181,7 @@ class MainWindow(QMainWindow):
             title_row.setSpacing(8)
             title_label = QLabel(title)
             title_label.setStyleSheet("font-size: 14px; font-weight: 800; color: #172033;")
-            badge = QLabel("ACTIVE")
+            badge = QLabel("선택 중")
             badge.setVisible(False)
             badge.setStyleSheet(
                 "color: #ffffff; padding: 3px 8px; border-radius: 8px; "
@@ -32442,7 +32442,7 @@ class MainWindow(QMainWindow):
                 "color: #111827; font-size: 15px; font-weight: 700; "
                 "border: none; background: transparent;"
             )
-            badge = QLabel("ACTIVE")
+            badge = QLabel("선택 중")
             badge.setVisible(False)
             badge.setStyleSheet(
                 "color: #ffffff; padding: 3px 8px; border-radius: 8px; "
@@ -32708,7 +32708,7 @@ class MainWindow(QMainWindow):
             desc_label.setWordWrap(False)
 
             badge.setParent(card)
-            badge.setText("ACTIVE")
+            badge.setText("선택 중")
             badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
             badge.setMinimumSize(64, 22)
             badge.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
@@ -33205,7 +33205,7 @@ class MainWindow(QMainWindow):
             "gemini", "Gemini API", "유료 클라우드 고급 판단 엔진"
         )
         self.btn_engine_local = _make_engine_choice_button(
-            "local", "BASIC(Local)", "반복 판단 및 저비용 추론을 수행합니다."
+            "local", "BASIC(Local)", "계산 기준값·후보 점수 제공 · AI 판단 없음"
         )
 
         self.engine_choice_group = QButtonGroup(self)
@@ -33277,7 +33277,7 @@ class MainWindow(QMainWindow):
         self._build_runtime_panel_container()
         runtime_preview = self._build_runtime_preview_container()
         _local_desc = QLabel(
-            "BASIC(Local)은 Ollama 기반 로컬 런타임으로 반복 판단 및 저비용 추론을 수행합니다."
+            "BASIC(Local)은 계산 기반 기준값과 후보 점수를 제공합니다. AI 판단은 수행하지 않습니다."
         )
         _local_desc.setWordWrap(True)
         self.btn_engine_local_detail = QPushButton("Local 세부설정")
@@ -33331,12 +33331,12 @@ class MainWindow(QMainWindow):
                 button_texts = {
                     "openai": "OpenAI API\n유료 클라우드 고급 판단 엔진",
                     "gemini": "Gemini API\n유료 클라우드 고급 판단 엔진",
-                    "local": "BASIC(Local)\n반복 판단 및 저비용 추론을 수행합니다.",
+                    "local": "BASIC(Local)\n계산 기준값·후보 점수 제공 · AI 판단 없음",
                 }
                 for _key, _button in selected.items():
                     _button.blockSignals(True)
                     _button.setChecked(_key == key)
-                    _button.setText(button_texts[_key] + ("\nACTIVE" if _key == key else ""))
+                    _button.setText(button_texts[_key] + ("\n선택 중" if _key == key else ""))
                     _button.setStyleSheet(_engine_choice_button_style(_key, _key == key))
                     _button.blockSignals(False)
                     boxes[_key].setVisible(_key == key)
