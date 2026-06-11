@@ -7578,11 +7578,14 @@ class MainWindow(QMainWindow):
                 return
             btn.setText("ON" if running else "OFF")
             if running:
-                btn.setToolTip("AITS 자동매매 중 — 누르면 정지")
+                btn.setToolTip(
+                    "Preview/Shadow 모니터링 ON · 주문 실행 상태가 아닙니다. "
+                    "실거래는 별도 승인 전 비활성입니다."
+                )
                 if card is not None:
                     card.setStyleSheet("")
                 if p_title is not None:
-                    p_title.setText("AITS ON")
+                    p_title.setText("AITS 모니터링 ON")
                     p_title.setStyleSheet("")
                     try:
                         p_title.setProperty("runBlink", False)
@@ -7592,7 +7595,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                 if p_sub is not None:
-                    p_sub.setText("실행 중")
+                    p_sub.setText("Preview/Shadow · 주문 없음")
                     p_sub.setStyleSheet("")
                     try:
                         p_sub.setProperty("headerState", "on")
@@ -7623,14 +7626,16 @@ class MainWindow(QMainWindow):
                     sw_ly.setStretch(1, 6)
                     sw_ly.setStretch(3, 1)
                 if lb_status is not None:
-                    lb_status.setText("AITS ON")
+                    lb_status.setText("모니터링 ON · 주문 없음")
                 btn.setStyleSheet("")
             else:
-                btn.setToolTip("자동매매 시작")
+                btn.setToolTip(
+                    "Preview/Shadow 모니터링을 켭니다. ON은 실거래 실행이나 주문 허용을 의미하지 않습니다."
+                )
                 if card is not None:
                     card.setStyleSheet("")
                 if p_title is not None:
-                    p_title.setText("AITS OFF")
+                    p_title.setText("AITS 모니터링 OFF")
                     p_title.setStyleSheet("")
                     try:
                         p_title.setProperty("runBlink", False)
@@ -7640,7 +7645,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                 if p_sub is not None:
-                    p_sub.setText("대기 중")
+                    p_sub.setText("Preview/Shadow · 주문 없음")
                     p_sub.setStyleSheet("")
                     try:
                         p_sub.setProperty("headerState", "off")
@@ -7671,7 +7676,7 @@ class MainWindow(QMainWindow):
                     sw_ly.setStretch(1, 1)
                     sw_ly.setStretch(3, 6)
                 if lb_status is not None:
-                    lb_status.setText("AITS OFF")
+                    lb_status.setText("모니터링 OFF · 주문 없음")
                 btn.setStyleSheet("")
         except Exception:
             pass
@@ -9329,7 +9334,7 @@ class MainWindow(QMainWindow):
             self.lbl_status.setMaximumHeight(0)
         except Exception:
             pass
-        self.lbl_power_title = QLabel("AITS OFF", self.stop_box)
+        self.lbl_power_title = QLabel("AITS 모니터링 OFF", self.stop_box)
         self.lbl_power_title.setObjectName("powerTitle")
         self.lbl_power_title.setProperty("headerToggleMain", True)
         self.lbl_power_title.setProperty("headerState", "off")
@@ -9340,7 +9345,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.lbl_power_title.setStyleSheet("")
-        self.lbl_power_sub = QLabel("대기 중", self.stop_box)
+        self.lbl_power_sub = QLabel("Preview/Shadow · 주문 없음", self.stop_box)
         self.lbl_power_sub.setObjectName("powerSub")
         self.lbl_power_sub.setProperty("headerToggleSub", True)
         self.lbl_power_sub.setProperty("headerState", "off")
@@ -9400,7 +9405,9 @@ class MainWindow(QMainWindow):
         self._power_switch_layout.addWidget(self.lbl_power_off, 0)
         self._power_switch_layout.addWidget(self._power_sp_left, 0)
         self.btn_run_toggle = QPushButton("OFF")
-        self.btn_run_toggle.setToolTip("자동매매 시작")
+        self.btn_run_toggle.setToolTip(
+            "Preview/Shadow 모니터링을 켭니다. ON은 실거래 실행이나 주문 허용을 의미하지 않습니다."
+        )
         self.btn_run_toggle.setObjectName("StopButton")
         self.btn_run_toggle.setCheckable(True)
         try:
@@ -10322,7 +10329,9 @@ class MainWindow(QMainWindow):
 
         # 전량매도
         self.btn_sellall = QPushButton("전량매도")
-        self.btn_sellall.setToolTip("보유 코인을 모두 시장가로 매도합니다")
+        self.btn_sellall.setToolTip(
+            "고위험 비상 기능 · 현재 숨김. 노출 전 별도 승인과 이중 확인이 필요합니다."
+        )
         self.btn_sellall.clicked.connect(self.on_sell_all)  # P0-D2: 버튼 연결 확인
         # 통합 새로고침
         self.btn_refresh = QPushButton("상태 새로고침")

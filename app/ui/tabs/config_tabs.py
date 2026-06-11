@@ -1488,8 +1488,12 @@ class StrategyTab(QWidget):
         logic_layout.addWidget(self.cmb_logic)
         
         # AI 판단 우선을 논리와 같은 줄로 이동
-        self.chk_ai_judge = QCheckBox("AI Output Contract 참고 우선")
-        self.chk_ai_judge.setToolTip("AI 응답이 있을 때 평가 참고 우선순위만 조정합니다. 주문 실행 신호가 아닙니다.")
+        self.chk_ai_judge = QCheckBox("AI Output Contract 참고 우선 (Legacy · 비활성)")
+        self.chk_ai_judge.setToolTip(
+            "Legacy 고급 옵션입니다. AI Output Contract와 Router/RiskGuard 검증 없이는 주문에 적용할 수 없습니다."
+        )
+        self.chk_ai_judge.setChecked(False)
+        self.chk_ai_judge.setEnabled(False)
         logic_layout.addWidget(self.chk_ai_judge)
         logic_layout.addStretch()
         
@@ -1548,7 +1552,7 @@ class StrategyTab(QWidget):
         ai_layout.setSpacing(0)
         
         # 표준 섹션 헤더 추가
-        header = self._create_standard_section_header("AI 자동 추천")
+        header = self._create_standard_section_header("AI 전략 추천 (Legacy · 준비 중)")
         ai_layout.addWidget(header)
         # 내용 영역
         content_widget = QWidget()
@@ -1561,13 +1565,16 @@ class StrategyTab(QWidget):
         ai_top.setSpacing(6)
         ai_top.addStretch()
         
-        self.btn_ai_refresh = QPushButton("새로고침")
+        self.btn_ai_refresh = QPushButton("추천 미리보기")
         self.btn_ai_refresh.setStyleSheet("QPushButton { padding: 8px 16px; font-weight: bold; }")
+        self.btn_ai_refresh.setToolTip("Legacy 추천 표면입니다. AI 추천은 주문 신호가 아니며 현재 활성 UI에서 사용하지 않습니다.")
+        self.btn_ai_refresh.setEnabled(False)
         ai_top.addWidget(self.btn_ai_refresh)
         
-        self.btn_ai_apply = QPushButton("적용하기")
+        self.btn_ai_apply = QPushButton("적용 비활성")
         self.btn_ai_apply.setStyleSheet("QPushButton { padding: 8px 16px; font-weight: bold; background: #28a745; color: white; }")
-        self.btn_ai_apply.setEnabled(False)  # Disabled until recommendation is generated
+        self.btn_ai_apply.setToolTip("별도 승인 전 적용할 수 없습니다. 추천은 주문 실행을 의미하지 않습니다.")
+        self.btn_ai_apply.setEnabled(False)
         ai_top.addWidget(self.btn_ai_apply)
         
         content_layout.addLayout(ai_top)
@@ -1577,11 +1584,12 @@ class StrategyTab(QWidget):
         self.txt_ai_reason.setMinimumHeight(120)
         self.txt_ai_reason.setMaximumHeight(150)
         self.txt_ai_reason.setReadOnly(True)
-        self.txt_ai_reason.setPlaceholderText("AI가 시장 상황을 분석하여 전략 설정을 추천합니다...")
+        self.txt_ai_reason.setPlaceholderText("Legacy 추천 UI · 현재 비활성 · 주문 신호 아님")
         content_layout.addWidget(self.txt_ai_reason)
         
         ai_layout.addWidget(content_widget)
         
+        ai_group.setVisible(False)
         left_layout.addWidget(ai_group)
         left_layout.addStretch()
         
