@@ -36031,11 +36031,13 @@ class MainWindow(QMainWindow):
             client.models.list()
             self._gpt_test_ok = True
             self._gpt_status_stage = "ready"
-            self._force_ai_key_status_visible("openai", "OpenAI: 연결 정상", "#15803d")
-            self._set_ai_key_status_label("openai", "연결 정상")
-            self._set_ai_engine_card_test_status("openai", "연결 정상", "정상")
-            self._apply_selected_ai_engine("gpt", openai_model)
-            self._persist_openai_provider_selection_after_test(api_key, openai_model)
+            self._force_ai_key_status_visible(
+                "openai", "OpenAI: API 연결 확인 성공 · 저장 필요", "#15803d"
+            )
+            self._set_ai_key_status_label("openai", "API 연결 확인 성공 · 저장 필요")
+            self._set_ai_engine_card_test_status(
+                "openai", "API 연결 확인 성공", "저장 필요"
+            )
             set_header("🟢 READY")
             out("[2/2] OpenAI 연결 정상")
             self._log.info("[GPT-TEST] ok method=models.list")
@@ -36045,7 +36047,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "GPT API 연결 확인",
-                f"OpenAI API 응답 확인 완료 · {openai_model}\n운용 시작이나 주문 연결을 의미하지 않습니다.",
+                f"OpenAI API 연결 확인 성공 · {openai_model}\n"
+                "저장/적용하려면 하단 저장 버튼을 누르세요.\n"
+                "이 테스트는 주문 연결이나 운용 시작을 의미하지 않습니다.",
             )
             return
         except Exception as e:
@@ -36390,10 +36394,10 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                     self.lbl_aits_ai_engine_status.setText(
-                        "AITS AI 상태: Gemini 연결 정상"
+                        "Gemini API 연결 확인 성공 · 저장 필요"
                     )
                     self._apply_aits_ai_engine_status_line_style(
-                        "AITS AI 상태: Gemini 연결 정상"
+                        "Gemini API 연결 확인 성공 · 저장 필요"
                     )
             except Exception:
                 pass
@@ -36402,19 +36406,23 @@ class MainWindow(QMainWindow):
                 self.lbl_gemini_test_status.setText("🟢 CONNECTED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
             self._force_ai_key_status_visible(
-                "gemini", f"Gemini: 연결 정상 · {success_model}", "#15803d"
+                "gemini",
+                f"Gemini: API 연결 확인 성공 · {success_model} · 저장 필요",
+                "#15803d",
             )
-            self._set_ai_key_status_label("gemini", f"연결 정상 · {success_model}")
+            self._set_ai_key_status_label(
+                "gemini", f"API 연결 확인 성공 · {success_model} · 저장 필요"
+            )
             self._set_ai_engine_card_test_status(
-                "gemini", "연결 정상", "정상", success_model
+                "gemini", "API 연결 확인 성공", "저장 필요", success_model
             )
-            self._apply_selected_ai_engine("gemini", success_model)
-            self._persist_gemini_provider_selection_after_test(api_key, success_model)
             QApplication.processEvents()
             QMessageBox.information(
                 self,
                 "Gemini API 연결 확인",
-                f"Gemini API 응답 확인 완료 · {success_model}\n운용 시작이나 주문 연결을 의미하지 않습니다.",
+                f"Gemini API 연결 확인 성공 · {success_model}\n"
+                "저장/적용하려면 하단 저장 버튼을 누르세요.\n"
+                "이 테스트는 주문 연결이나 운용 시작을 의미하지 않습니다.",
             )
         except Exception as e:
             error_type = type(e).__name__ or "Error"
