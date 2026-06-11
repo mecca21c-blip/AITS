@@ -47,14 +47,35 @@ Basic/fallback 상태는 AI Engine의 판단이 아니라 계산 기반 참고 �
 - `거래대금 변화 · 추세 전환 · AI 응답 수신 여부`
 - `AI Output Contract가 없으면 예상 시간은 표시하지 않습니다.`
 
-## 5. 변경 파일
+## 5. 다음 행동/ETA/confidence 표현 정책
+
+- `다음행동`, `행동 조건`, `전환 후보`는 각각 `다음 관찰 항목`, `관찰 조건`, `모니터링 항목`으로 낮춘다.
+- AI Output Contract가 없으면 ETA 숫자를 표시하지 않고 `AI 예상 시간 없음`으로 표시한다.
+- AI Output Contract가 없으면 confidence 숫자를 표시하지 않고 `AI 확신도 없음`으로 표시한다.
+- AI Output Contract가 있으면 `AI 확신도`, `AI 관찰 시나리오`, `예상 관찰 구간` 표현을 사용할 수 있다.
+- AI Output Contract가 있어도 `Router/RiskGuard 검증 전 · 주문 실행 신호 아님`을 함께 표시한다.
+- fallback 상태는 `Router/Execution 미적용 · 실거래 실행 없음`을 명확히 한다.
+
+## 6. Reflection Event와의 향후 연결 원칙
+
+이번 Goal에서는 Reflection Event를 생성하거나 저장하거나 UI에 연결하지 않는다.
+
+향후 AI-REFLECT 계층과 연결할 때는 다음 원칙을 따른다.
+
+- Reflection Event는 `AI 복기 후보`로 표시한다.
+- `AI가 틀렸다`는 결과론적 단정 표현을 사용하지 않는다.
+- 복기 후보는 주문 신호 및 현재 행동 추천과 분리한다.
+- Basic Preview에서 발생한 결과를 AI 판단 오류처럼 표시하지 않는다.
+- Reflection UI도 이 문서의 AI Output Contract 있음/없음 표시 계약을 따른다.
+
+## 7. 변경 파일
 
 - `app/ui/app_gui.py`
 - `app/docs/aits_main_ai_output_contract_copy_fix_v1.md`
 
 `app/ui/tabs/config_tabs.py`는 분석 대상이었지만 이번 Goal에서는 수정하지 않았다.
 
-## 6. 변경 문구 예시
+## 8. 변경 문구 예시
 
 메인 Intent fallback:
 
@@ -71,7 +92,7 @@ Basic/fallback 상태는 AI Engine의 판단이 아니라 계산 기반 참고 �
 - Before: AI 판단, 판단 근거, AI 점수, AI 시나리오, 유지 예상 / ETA, 기준: AI 기본값
 - After: 상태 판단, 근거 요약, 계산 점수, 관찰 시나리오, 예상 시간, 기준: 계산 기반 참고
 
-## 7. Router/Execution 미변경 확인
+## 9. Router/Execution 미변경 확인
 
 이번 변경은 UI label/copy와 display helper에 한정된다.
 
@@ -84,7 +105,7 @@ Basic/fallback 상태는 AI Engine의 판단이 아니라 계산 기반 참고 �
 - `app/services/order_service.py`
 - Risk Guard 계층
 
-## 8. Safety
+## 10. Safety
 
 - 실거래 동작 변경 없음.
 - 주문 action 결정 로직 변경 없음.
@@ -95,7 +116,7 @@ Basic/fallback 상태는 AI Engine의 판단이 아니라 계산 기반 참고 �
 - PyInstaller/package build 실행 없음.
 - requirements 변경 없음.
 
-## 9. 검증 결과
+## 11. 검증 결과
 
 검증 항목:
 
@@ -108,12 +129,13 @@ Basic/fallback 상태는 AI Engine의 판단이 아니라 계산 기반 참고 �
 
 - `app/ui/app_gui.py` py_compile 통과.
 - `run.py --headless` startup smoke 통과.
-- smoke 로그에서 `OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=1)` 확인.
+- 개발 GUI를 20초간 실행했으며 프로세스가 유지되고 즉시 종료/traceback이 없음을 확인한 뒤 테스트 목적으로 종료했다.
+- 재검증 smoke에서 `actions=0`, `OrderAdapterResult(mode=disabled, submitted=0, blocked=0, failed=0, skipped=0)`를 확인했다.
 - requirements diff 없음.
 - Router/Execution/Order 관련 금지 계층 diff 없음.
 - PyInstaller build 및 packaged exe 실행 없음.
 
-## 10. 남은 이슈
+## 12. 남은 이슈
 
 - `config_tabs.py`에는 아직 전략/TP-SL/AI 판단 모드 문구가 남아 있다. 이는 `UI-SAFETY-01`에서 별도 정리하는 것이 안전하다.
 - 메인 화면의 일부 내부 프롬프트/로그/legacy helper에는 `AI 판단` 문자열이 남아 있다. 사용자가 보는 표면과 내부 contract/prompt를 분리해서 후속 정리해야 한다.

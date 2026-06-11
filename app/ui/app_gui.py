@@ -1696,7 +1696,9 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_wait_reason.setText("대기 이유\n추가 확인 전까지 관찰을 유지합니다.")
             self.lbl_ai_intent_conditions.setText("관찰 조건\n추가 신호 확인 전까지 관찰 유지")
             self.lbl_ai_intent_transition.setText("모니터링 항목\n운용 후보 재검토")
-            self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
+            self.lbl_ai_review_learning_placeholder.setText(
+                "Router/RiskGuard 검증 전 · 주문 실행 신호 아님"
+            )
         except Exception:
             pass
         lay.addWidget(self.lbl_ai_briefing_title)
@@ -2644,7 +2646,7 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_scenario_type = QLabel("sideways_wait")
         self.lbl_detail_popup_scenario_confidence = QLabel("AI 확신도 없음")
         self.lbl_detail_popup_scenario_context = QLabel("계산 기반 관찰 시나리오")
-        self.lbl_detail_popup_eta_title = QLabel("유지 예상")
+        self.lbl_detail_popup_eta_title = QLabel("예상 관찰 구간")
         self.lbl_asset_eta_source = QLabel("기준: AI 예상 없음")
         self.lbl_detail_popup_eta_main = QLabel("유지 예상 · -")
         self.lbl_detail_popup_eta_sub = QLabel("방향성 확인 전 진입 대기")
@@ -3584,7 +3586,9 @@ class AITSLargeChartDialog(QDialog):
             )
             self.lbl_ai_intent_conditions.setText(f"관찰 조건\n{action_conditions}")
             self.lbl_ai_intent_transition.setText(f"모니터링 항목\n{transition}")
-            self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
+            self.lbl_ai_review_learning_placeholder.setText(
+                "Router/RiskGuard 검증 전 · 주문 실행 신호 아님"
+            )
         except Exception:
             pass
 
@@ -3764,7 +3768,9 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_ai_intent_wait_reason.setText(f"대기 이유\n{wait_reason}")
             self.lbl_ai_intent_conditions.setText(f"관찰 조건\n{action_conditions}")
             self.lbl_ai_intent_transition.setText(f"모니터링 항목\n{transition}")
-            self.lbl_ai_review_learning_placeholder.setText("복기/학습: 준비 중")
+            self.lbl_ai_review_learning_placeholder.setText(
+                "Router/RiskGuard 검증 전 · 주문 실행 신호 아님"
+            )
         except Exception:
             pass
 
@@ -4971,7 +4977,7 @@ class AITSLargeChartDialog(QDialog):
                 "다음 관찰 항목\n거래대금 변화 · 추세 전환 · AI 응답 수신 여부"
             )
             self.lbl_ai_intent_transition.setText(
-                "상태 전환 기준\nAI 응답 수신 후 Router/RiskGuard 검증 전까지 참고 정보로 유지"
+                "상태 전환 기준\nRouter/Execution 미적용 · 실거래 실행 없음"
             )
             self.lbl_ai_review_learning_placeholder.setText(
                 "Basic Engine 계산 기반 참고 · 실거래 실행 없음"
@@ -5801,12 +5807,12 @@ class AITSLargeChartDialog(QDialog):
             self.lbl_detail_popup_scenario_title.setText(
                 str(snapshot.get("scenario_title") or self._translate_detail_popup_scenario_label(scenario_type))
             )
-            self.lbl_detail_popup_scenario_type.setText("AI 운용 시나리오")
+            self.lbl_detail_popup_scenario_type.setText("AI 관찰 시나리오")
             self.lbl_detail_popup_scenario_context.setText(
                 str(snapshot.get("scenario_summary") or "")
             )
             self.lbl_detail_popup_scenario_confidence.setText(
-                f"신뢰도 {int(round(float(snapshot.get('scenario_confidence') or confidence) * 100.0))}%"
+                f"AI 확신도 {int(round(float(snapshot.get('scenario_confidence') or confidence) * 100.0))}%"
             )
             try:
                 self.lbl_asset_scenario_source.setText(
@@ -6013,6 +6019,31 @@ class MainWindow(QMainWindow):
     # - app_gui.py: 탭 생성/상태/서비스/라우팅만
     # - 각 탭 파일: UI 위젯 생성/보유/시그널/렌더링 100%
 
+    def _main_ai_output_contract_available(self) -> bool:
+        """Return True only for an explicit, available AI Output Contract."""
+        try:
+            for attr in ("_last_ai_output_contract", "_last_ai_output"):
+                contract = getattr(self, attr, None)
+                if not isinstance(contract, dict):
+                    continue
+                if (
+                    contract.get("schema") == "aits_ai_output_contract.v1"
+                    and contract.get("available") is True
+                ):
+                    return True
+
+            dialog = getattr(self, "_aits_large_chart_dialog", None)
+            if dialog is not None and hasattr(dialog, "_build_ai_output_contract"):
+                contract = dialog._build_ai_output_contract()
+                return bool(
+                    isinstance(contract, dict)
+                    and contract.get("schema") == "aits_ai_output_contract.v1"
+                    and contract.get("available") is True
+                )
+        except Exception:
+            pass
+        return False
+
     def _ensure_run_widgets(self):
         """상단 상태 라벨/타이머 지연 생성."""
         if not hasattr(self, "_run_timer"):
@@ -6184,6 +6215,8 @@ class MainWindow(QMainWindow):
             lines.append(f"선택 엔진: {engine}")
             if not has_ai_contract:
                 lines.append("AI 판단 없음: Basic Engine 계산 기반 참고이며 주문 신호가 아닙니다.")
+            else:
+                lines.append("Router/RiskGuard 검증 전이며 주문 실행 신호가 아닙니다.")
             if state:
                 lines.append(f"엔진 상태: {state}")
 
@@ -19104,9 +19137,9 @@ class MainWindow(QMainWindow):
             else:
                 scenario_confidence = None
             try:
-                scenario_confidence_text = f"신뢰도 {int(round(float(scenario_confidence) * 100))}%"
+                scenario_confidence_text = f"AI 확신도 {int(round(float(scenario_confidence) * 100))}%"
             except Exception:
-                scenario_confidence_text = "신뢰도 -"
+                scenario_confidence_text = "AI 확신도 없음"
 
             price_plan = payload.get("price_plan") if isinstance(payload.get("price_plan"), dict) else {}
             prediction = payload.get("prediction") if isinstance(payload.get("prediction"), dict) else {}
@@ -19177,7 +19210,7 @@ class MainWindow(QMainWindow):
 
             scenario_updated = False
             scenario_updated |= _set_label("lbl_detail_popup_scenario_title", scenario_text)
-            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", "AI 운용 시나리오")
+            scenario_updated |= _set_label("lbl_detail_popup_scenario_type", "AI 관찰 시나리오")
             scenario_updated |= _set_label("lbl_detail_popup_scenario_confidence", scenario_confidence_text)
             scenario_updated |= _set_label("lbl_detail_popup_scenario_context", briefing)
 
@@ -19287,12 +19320,12 @@ class MainWindow(QMainWindow):
             try:
                 scenario_confidence = scenario.get("confidence")
                 scenario_confidence_text = (
-                    f"신뢰도 {int(round(float(scenario_confidence) * 100))}%"
+                    f"AI 확신도 {int(round(float(scenario_confidence) * 100))}%"
                     if scenario_confidence is not None
-                    else "신뢰도 -"
+                    else "AI 확신도 없음"
                 )
             except Exception:
-                scenario_confidence_text = "신뢰도 -"
+                scenario_confidence_text = "AI 확신도 없음"
 
             eta = sr.get("eta") if isinstance(sr.get("eta"), dict) else {}
             watch_minutes = sr.get("watch_minutes") or 0
@@ -19339,7 +19372,7 @@ class MainWindow(QMainWindow):
                 f"{next_action_ko}\n추가 데이터 확인 중",
             )
             _set_label(getattr(dlg, "lbl_detail_popup_scenario_title", None), scenario_text)
-            _set_label(getattr(dlg, "lbl_detail_popup_scenario_type", None), "AI 운용 시나리오")
+            _set_label(getattr(dlg, "lbl_detail_popup_scenario_type", None), "AI 관찰 시나리오")
             _set_label(
                 getattr(dlg, "lbl_detail_popup_scenario_confidence", None),
                 scenario_confidence_text,
@@ -20207,7 +20240,7 @@ class MainWindow(QMainWindow):
             has_ai_contract = self._main_ai_output_contract_available()
             u = str(key or "").upper()
             color = "#b45309"
-            heading = "AI 판단: " if has_ai_contract else "계산 기반 상태: "
+            heading = "AI 운용 판단: " if has_ai_contract else "계산 기반 상태: "
             text = "STAY (관망)" if has_ai_contract else "관망 참고 · 주문 신호 아님"
             if has_ai_contract:
                 if any(k in u for k in ("BUY", "STRONG", "진입", "매수")) and "SELL" not in u:
