@@ -18809,7 +18809,9 @@ class MainWindow(QMainWindow):
 
         try:
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
-                self.lbl_ai_analysis_dryrun_status.setText("AI 분석 테스트 중...")
+                self.lbl_ai_analysis_dryrun_status.setText(
+                    "Shadow 분석 테스트 중 · 주문 없음 · API 호출 가능"
+                )
             QApplication.processEvents()
 
             from app.services.ai_context_builder import build_sample_context_pack
@@ -18865,7 +18867,7 @@ class MainWindow(QMainWindow):
                     state_status_text = ""
 
                 status_text = (
-                    f"AI 분석 테스트 완료 · {normalized_provider} · "
+                    f"Shadow 분석 테스트 완료 · 주문 없음 · {normalized_provider} · "
                     f"{next_action_ko}"
                 )
                 if scenario_label:
@@ -18874,7 +18876,7 @@ class MainWindow(QMainWindow):
                     status_text += f" · ETA {eta_text}"
             else:
                 error_type = str(result.get("error_type") or "parse_failed")
-                status_text = f"AI 분석 테스트 실패 · {error_type}"
+                status_text = f"Shadow 분석 테스트 실패 · 주문 없음 · {error_type}"
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(state_status_text or status_text)
             if parsed_valid:
@@ -18926,7 +18928,7 @@ class MainWindow(QMainWindow):
             error_type = type(exc).__name__
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(
-                    f"AI 분석 테스트 실패 · {error_type}"
+                    f"Shadow 분석 테스트 실패 · 주문 없음 · {error_type}"
                 )
             try:
                 self._log.warning(
@@ -19105,7 +19107,7 @@ class MainWindow(QMainWindow):
             briefing_raw = str(
                 payload.get("briefing")
                 or result.get("briefing")
-                or f"AI 분석 테스트 완료 · {provider or result.get('provider') or '-'} · {suggestion}/{next_action}"
+                or f"Shadow 분석 테스트 완료 · 주문 없음 · {provider or result.get('provider') or '-'} · {suggestion}/{next_action}"
             )
             briefing_sentences = [
                 part.strip()
@@ -26731,7 +26733,7 @@ class MainWindow(QMainWindow):
                     dryrun_selected_key = _normalize_ai_provider_for_status(dryrun_selected)
                     dryrun_normalized_key = _normalize_ai_provider_for_status(dryrun_normalized)
                     if dryrun_selected_key == dryrun_normalized_key:
-                        dryrun_status = "AITS AI 상태: AI 분석 테스트 정상"
+                        dryrun_status = "AITS AI 상태: Shadow 분석 테스트 정상 · 주문 없음"
                         try:
                             self._log.info(
                                 "[AITS][GUI] ai_engine_status_resolved | provider=%s | parsed_valid=True | status=ok",
@@ -31335,7 +31337,9 @@ class MainWindow(QMainWindow):
             self.btn_save.setToolTip("현재 공통설정/엔진/API 설정을 저장합니다.")
         except Exception:
             pass
-        self.btn_test = getattr(self, "btn_test", QPushButton("업비트 연결 테스트"))
+        self.btn_test = getattr(self, "btn_test", QPushButton("Upbit 조회 연결 확인"))
+        self.btn_test.setText("Upbit 조회 연결 확인")
+        self.btn_test.setToolTip("계좌 조회 API 응답만 확인합니다. 주문은 실행하지 않습니다.")
 
         # 시세 조회 주기 / 상위20 갱신(분) — Upbit 연결 카드 내부로 배치
         self.sp_ticker.setRange(1000, 5000)
@@ -31367,7 +31371,7 @@ class MainWindow(QMainWindow):
         _ub_out = QVBoxLayout(self._p17_upbit_card)
         _ub_out.setContentsMargins(8, 8, 8, 8)
         _ub_out.setSpacing(6)
-        _ub_title = QLabel("Upbit 연결")
+        _ub_title = QLabel("Upbit 조회 연결")
         _ub_title.setStyleSheet(
             "font-size: 13px; font-weight: 700; color: #2f3b48; padding: 0 0 4px 0;"
         )
@@ -31386,9 +31390,9 @@ class MainWindow(QMainWindow):
         info_layout = QVBoxLayout()
 
         info_text = QLabel(
-            "【업비트】 로그인 → 프로필 → API Keys에서 Access/Secret 발급 · 권한: 조회+주문 필수 · Secret 노출 금지.\n"
-            "【GPT】 OpenAI 대시보드에서 API Key 발급 · 모델은 gpt-4o-mini(권장)/gpt-4o 등 선택.\n"
-            "【Local】 Basic AI 설치 후 모델을 준비하세요 · URL은 기본 http://127.0.0.1:11434."
+            "【업비트】 이 화면의 연결 확인은 계좌 조회만 수행하며 주문은 실행하지 않습니다 · Secret 노출 금지.\n"
+            "【GPT/Gemini】 API 응답 가능 여부를 확인합니다 · 운용 시작이나 주문 연결을 의미하지 않습니다.\n"
+            "【Basic】 AI 판단이 아닌 로컬 계산 엔진입니다 · URL은 기본 http://127.0.0.1:11434."
         )
         info_text.setWordWrap(True)
         info_text.setStyleSheet("QLabel { padding: 8px; background-color: #f5f5f5; border-radius: 4px; font-size: 11px; }")
@@ -31403,7 +31407,7 @@ class MainWindow(QMainWindow):
         self.ed_ai_api_key = QLineEdit()
         self.ed_ai_api_key.setEchoMode(QLineEdit.Password)
         self.ed_ai_api_key.setReadOnly(False)
-        self.btn_test_connection = QPushButton("연결 테스트")
+        self.btn_test_connection = QPushButton("API 연결 확인")
         ai_engine_form = QFormLayout()
         ai_engine_form.addRow("AI Engine", self.cmb_ai_engine)
         ai_engine_form.addRow("AI Model", self.cmb_ai_model)
@@ -31561,10 +31565,10 @@ class MainWindow(QMainWindow):
         self.btn_install_mistral = QPushButton("mistral 설치 필요")
         self.btn_install_mistral.setObjectName("btn_install_mistral")
         self.btn_install_mistral.setStyleSheet("background-color: #FFE5CC; color: #8B4513;")  # 연한 주황 (미설치)
-        self.btn_test_gpt = QPushButton("GPT 연결 테스트")
+        self.btn_test_gpt = QPushButton("GPT API 연결 확인")
         self.btn_test_gpt.setObjectName("btn_test_gpt")
         self.btn_test_gpt.clicked.connect(self._on_test_gpt)
-        self.btn_test_gemini = QPushButton("Gemini 연결 테스트")
+        self.btn_test_gemini = QPushButton("Gemini API 연결 확인")
         self.btn_test_gemini.setObjectName("btn_test_gemini")
         self.btn_test_gemini.clicked.connect(self._on_test_gemini)
         # ✅ OpenAI 사용량 페이지 바로 열기 (API 호출 없음, 브라우저 연결만)
@@ -32197,7 +32201,7 @@ class MainWindow(QMainWindow):
         ) = _engine_select_card(
             "local",
             "BASIC",
-            "로컬 자동매매 엔진",
+            "Basic 계산 엔진 · AI 판단 아님",
         )
         (
             self.aits_engine_gpt_card,
@@ -32218,11 +32222,11 @@ class MainWindow(QMainWindow):
             "Google Gemini 기반 AI 분석",
         )
         self.btn_engine_basic_test = QPushButton("Basic 활성화 확인")
-        self.btn_engine_gpt_test = QPushButton("GPT 연결 테스트")
-        self.btn_engine_gemini_test = QPushButton("Gemini 연결 테스트")
+        self.btn_engine_gpt_test = QPushButton("GPT API 연결 확인")
+        self.btn_engine_gemini_test = QPushButton("Gemini API 연결 확인")
         self.btn_engine_basic_test.setText("Basic 활성화 확인")
-        self.btn_engine_gpt_test.setText("GPT 연결 테스트")
-        self.btn_engine_gemini_test.setText("Gemini 연결 테스트")
+        self.btn_engine_gpt_test.setText("GPT API 연결 확인")
+        self.btn_engine_gemini_test.setText("Gemini API 연결 확인")
         self.aits_engine_button_group = QButtonGroup(self)
         self.aits_engine_button_group.addButton(self.rb_engine_basic)
         self.aits_engine_button_group.addButton(self.rb_engine_gpt)
@@ -32445,7 +32449,7 @@ class MainWindow(QMainWindow):
                 title_label.setObjectName("aitsEngineTitleBasic")
                 desc_label.setObjectName("aitsEngineDescBasic")
                 title_label.setText("BASIC")
-                desc_label.setText("로컬 자동매매 엔진")
+                desc_label.setText("Basic 계산 엔진 · AI 판단 아님")
             elif object_name == "card_engine_gpt_new":
                 title_label.setObjectName("aitsEngineTitleGpt")
                 desc_label.setObjectName("aitsEngineDescGpt")
@@ -32518,7 +32522,7 @@ class MainWindow(QMainWindow):
                     "aitsEngineTitleBasic",
                     "aitsEngineDescBasic",
                     "BASIC",
-                    "로컬 자동매매 엔진",
+                    "Basic 계산 엔진 · AI 판단 아님",
                 ),
                 (
                     self.card_engine_gpt_new,
@@ -32563,7 +32567,7 @@ class MainWindow(QMainWindow):
                         _hide_blank_engine_card_widget(child)
 
             final_texts = (
-                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "BASIC", "로컬 자동매매 엔진"),
+                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "BASIC", "Basic 계산 엔진 · AI 판단 아님"),
                 (self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new, "GPT", "OpenAI 기반 고급 AI 분석"),
                 (self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new, "GEMINI", "Google Gemini 기반 AI 분석"),
             )
@@ -32732,7 +32736,7 @@ class MainWindow(QMainWindow):
                 "aitsEngineTitleBasic",
                 "aitsEngineDescBasic",
                 "BASIC",
-                "로컬 자동매매 엔진",
+                "Basic 계산 엔진 · AI 판단 아님",
             )
             self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new = _rebuild_visible_engine_card(
                 self.card_engine_gpt_new,
@@ -32781,11 +32785,11 @@ class MainWindow(QMainWindow):
         self.btn_basic_detail_settings.setMinimumHeight(34)
         self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
         self.btn_engine_basic_test_new = QPushButton("Basic 활성화 확인")
-        self.btn_engine_gpt_test_new = QPushButton("GPT 연결 테스트")
-        self.btn_engine_gemini_test_new = QPushButton("Gemini 연결 테스트")
+        self.btn_engine_gpt_test_new = QPushButton("GPT API 연결 확인")
+        self.btn_engine_gemini_test_new = QPushButton("Gemini API 연결 확인")
         self.btn_engine_basic_test_new.setText("Basic 활성화 확인")
-        self.btn_engine_gpt_test_new.setText("연결 테스트")
-        self.btn_engine_gemini_test_new.setText("연결 테스트")
+        self.btn_engine_gpt_test_new.setText("API 연결 확인")
+        self.btn_engine_gemini_test_new.setText("API 연결 확인")
         for _new_btn in (
             self.btn_basic_detail_settings,
             self.btn_engine_basic_test_new,
@@ -33228,7 +33232,7 @@ class MainWindow(QMainWindow):
         _openai_form.setVerticalSpacing(6)
         _openai_form.addRow("API Key", self.ed_openai_key)
         _openai_form.addRow("모델", self.ed_openai_model)
-        self.btn_engine_openai_test = QPushButton("OpenAI 연결 테스트")
+        self.btn_engine_openai_test = QPushButton("OpenAI API 연결 확인")
         self.btn_engine_openai_test.setMinimumHeight(32)
         self.btn_engine_openai_test.clicked.connect(self._on_test_gpt)
         _openai_settings_lay.addLayout(_openai_form)
@@ -33251,7 +33255,7 @@ class MainWindow(QMainWindow):
         _gemini_form.setVerticalSpacing(6)
         _gemini_form.addRow("API Key", self.ed_gemini_key)
         _gemini_form.addRow("모델", self.cmb_gemini_model)
-        self.btn_engine_gemini_test = QPushButton("Gemini 연결 테스트")
+        self.btn_engine_gemini_test = QPushButton("Gemini API 연결 확인")
         self.btn_engine_gemini_test.setMinimumHeight(32)
         self.btn_engine_gemini_test.clicked.connect(self._on_test_gemini)
         _gemini_settings_lay.addLayout(_gemini_form)
@@ -33282,12 +33286,17 @@ class MainWindow(QMainWindow):
         _local_settings_lay.addLayout(_local_btn_row)
         _common_right.addWidget(runtime_preview)
 
-        self.btn_ai_analysis_dryrun_test = QPushButton("AI 분석 테스트")
+        self.btn_ai_analysis_dryrun_test = QPushButton("Shadow 분석 테스트")
+        self.btn_ai_analysis_dryrun_test.setToolTip(
+            "주문 없이 분석 경로만 확인합니다. 선택한 provider에 따라 API 호출이 발생할 수 있습니다."
+        )
         self.btn_ai_analysis_dryrun_test.setMinimumHeight(32)
         self.btn_ai_analysis_dryrun_test.clicked.connect(
             self._on_ai_analysis_dryrun_test
         )
-        self.lbl_ai_analysis_dryrun_status = QLabel("AI 분석 테스트: 대기")
+        self.lbl_ai_analysis_dryrun_status = QLabel(
+            "Shadow 분석 테스트: 대기 · 주문 없음 · API 호출 가능"
+        )
         self.lbl_ai_analysis_dryrun_status.setWordWrap(True)
         self.lbl_ai_analysis_dryrun_status.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
@@ -33745,13 +33754,13 @@ class MainWindow(QMainWindow):
                         (self.ed_openai_key.text() or "").strip()
                     ):
                         self._set_ai_key_status_label(
-                            "openai", "API Key 저장됨 · 연결 테스트 필요"
+                            "openai", "API Key 저장됨 · API 연결 확인 필요"
                         )
                     if hasattr(self, "ed_gemini_key") and bool(
                         (self.ed_gemini_key.text() or "").strip()
                     ):
                         self._set_ai_key_status_label(
-                            "gemini", "API Key 저장됨 · 연결 테스트 필요"
+                            "gemini", "API Key 저장됨 · API 연결 확인 필요"
                         )
                 except Exception:
                     pass
@@ -33846,10 +33855,10 @@ class MainWindow(QMainWindow):
 
             if openai_has_key and hasattr(self, "ed_openai_key"):
                 self._set_ai_secret_input_masked("openai", True)
-                self._set_ai_key_status_label("openai", "API Key 저장됨 · 연결 테스트 필요")
+                self._set_ai_key_status_label("openai", "API Key 저장됨 · API 연결 확인 필요")
             if gemini_has_key and hasattr(self, "ed_gemini_key"):
                 self._set_ai_secret_input_masked("gemini", True)
-                self._set_ai_key_status_label("gemini", "API Key 저장됨 · 연결 테스트 필요")
+                self._set_ai_key_status_label("gemini", "API Key 저장됨 · API 연결 확인 필요")
 
             try:
                 provider = getattr(st, "ai_provider", "") if st is not None else ""
@@ -34265,11 +34274,11 @@ class MainWindow(QMainWindow):
             self._set_ai_secret_input_masked("gemini", gemini_present)
             if openai_present:
                 self._set_ai_key_status_label(
-                    "openai", "API Key 저장됨 · 연결 테스트 필요"
+                    "openai", "API Key 저장됨 · API 연결 확인 필요"
                 )
             if gemini_present:
                 self._set_ai_key_status_label(
-                    "gemini", "API Key 저장됨 · 연결 테스트 필요"
+                    "gemini", "API Key 저장됨 · API 연결 확인 필요"
                 )
             return openai_present, gemini_present
         except Exception:
@@ -35016,8 +35025,8 @@ class MainWindow(QMainWindow):
 
             # ✅ P0-C: Verify prefs values after save (use self._settings which was updated by _apply_settings_patch)
             try:
-                self._set_ai_key_status_label("openai", "API Key 저장됨 · 연결 테스트 필요")
-                self._set_ai_key_status_label("gemini", "API Key 저장됨 · 연결 테스트 필요")
+                self._set_ai_key_status_label("openai", "API Key 저장됨 · API 연결 확인 필요")
+                self._set_ai_key_status_label("gemini", "API Key 저장됨 · API 연결 확인 필요")
             except Exception:
                 pass
 
@@ -36000,12 +36009,12 @@ class MainWindow(QMainWindow):
                 self._update_ai_status()
             self._set_ai_engine_card_test_status("openai", "연결 실패", "확인 필요")
             QApplication.processEvents()
-            QMessageBox.warning(self, "GPT 연결 테스트", "OpenAI API Key가 비어 있습니다.")
+            QMessageBox.warning(self, "GPT API 연결 확인", "OpenAI API Key가 비어 있습니다.")
             return
 
         self._gpt_status_stage = "waiting"
-        self._force_ai_key_status_visible("openai", "OpenAI: API Key 확인됨 · 실제 연결 테스트 전", "#15803d")
-        self._set_ai_key_status_label("openai", "연결 테스트 준비 완료 · 실제 API 테스트 전")
+        self._force_ai_key_status_visible("openai", "OpenAI: API Key 확인됨 · API 응답 확인 전", "#15803d")
+        self._set_ai_key_status_label("openai", "API 연결 확인 준비 완료 · 운용 시작/주문 연결 아님")
         self._set_ai_engine_card_test_status("openai", "연결 확인 중", "확인 중")
         set_header("🟡 테스트 필요")
         QApplication.processEvents()
@@ -36033,7 +36042,11 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_update_ai_status"):
                 self._update_ai_status()
             QApplication.processEvents()
-            QMessageBox.information(self, "GPT 연결 테스트", f"OpenAI: 연결 정상 · {openai_model}")
+            QMessageBox.information(
+                self,
+                "GPT API 연결 확인",
+                f"OpenAI API 응답 확인 완료 · {openai_model}\n운용 시작이나 주문 연결을 의미하지 않습니다.",
+            )
             return
         except Exception as e:
             error_type = type(e).__name__ or "Error"
@@ -36061,7 +36074,7 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             QMessageBox.warning(
                 self,
-                "GPT 연결 테스트",
+                "GPT API 연결 확인",
                 f"OpenAI: 연결 실패 · {error_type}",
             )
             return
@@ -36239,7 +36252,9 @@ class MainWindow(QMainWindow):
                 if getattr(self, "_gpt_test_ok", False):
                     self._last_response_provider = "gpt"
                     QMessageBox.information(
-                        self, "GPT 연결 테스트", "OpenAI 연결 확인 완료"
+                        self,
+                        "GPT API 연결 확인",
+                        "OpenAI API 응답 확인 완료\n운용 시작이나 주문 연결을 의미하지 않습니다.",
                     )
             except Exception:
                 pass
@@ -36303,12 +36318,12 @@ class MainWindow(QMainWindow):
                 pass
             self._set_ai_engine_card_test_status("gemini", "연결 실패", "확인 필요")
             QApplication.processEvents()
-            QMessageBox.warning(self, "Gemini 연결 테스트", "API Key를 입력하세요.")
+            QMessageBox.warning(self, "Gemini API 연결 확인", "API Key를 입력하세요.")
             return
 
         self._gpt_status_stage = "waiting"
-        self._force_ai_key_status_visible("gemini", "Gemini: API Key 확인됨 · 실제 연결 테스트 전", "#15803d")
-        self._set_ai_key_status_label("gemini", "연결 테스트 준비 완료 · 실제 API 테스트 전")
+        self._force_ai_key_status_visible("gemini", "Gemini: API Key 확인됨 · API 응답 확인 전", "#15803d")
+        self._set_ai_key_status_label("gemini", "API 연결 확인 준비 완료 · 운용 시작/주문 연결 아님")
         self._set_ai_engine_card_test_status("gemini", "연결 확인 중", "확인 중")
         QApplication.processEvents()
         if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
@@ -36397,7 +36412,9 @@ class MainWindow(QMainWindow):
             self._persist_gemini_provider_selection_after_test(api_key, success_model)
             QApplication.processEvents()
             QMessageBox.information(
-                self, "Gemini 연결 테스트", f"Gemini: 연결 정상 · {success_model}"
+                self,
+                "Gemini API 연결 확인",
+                f"Gemini API 응답 확인 완료 · {success_model}\n운용 시작이나 주문 연결을 의미하지 않습니다.",
             )
         except Exception as e:
             error_type = type(e).__name__ or "Error"
@@ -36439,7 +36456,7 @@ class MainWindow(QMainWindow):
                 QApplication.processEvents()
                 QMessageBox.warning(
                     self,
-                    "Gemini 연결 테스트",
+                    "Gemini API 연결 확인",
                     "Gemini: 연결 실패 · google-generativeai 미설치",
                 )
                 return
@@ -36461,13 +36478,13 @@ class MainWindow(QMainWindow):
             QApplication.processEvents()
             QMessageBox.warning(
                 self,
-                "Gemini 연결 테스트",
+                "Gemini API 연결 확인",
                 "Gemini: 연결 실패 · 모델 확인 필요",
             )
 
     def _on_test_upbit(self):
         """
-        업비트 연결 테스트 핸들러:
+        Upbit 계좌 조회 연결 확인 핸들러:
         - 현재 settings에서 키 읽기 (ak_len/sk_len 로그)
         - 키 없으면 UI에 "키 없음" 메시지
         - /v1/accounts 엔드포인트로 API 키 유효성 검증
@@ -36483,7 +36500,7 @@ class MainWindow(QMainWindow):
             settings = self._settings
             if not settings:
                 log.warning("[UPBIT-CHECK] fail reason=settings_not_loaded")
-                QMessageBox.warning(self, "연결 테스트", "설정이 로드되지 않았습니다. 앱을 재시작하세요.")
+                QMessageBox.warning(self, "Upbit 조회 연결 확인", "설정이 로드되지 않았습니다. 앱을 재시작하세요.")
                 return
                 
             # 연결 테스트는 저장 전 UI 입력값을 쓸 수 있도록 UI 우선 (두 필드 모두 유효할 때만)
@@ -36517,13 +36534,13 @@ class MainWindow(QMainWindow):
             log.info(f"[UPBIT-CHECK] start ak_len={ak_len} sk_len={sk_len} source={source}")
 
             if not ak or not sk:
-                QMessageBox.warning(self, "연결 테스트", "업비트 API 키가 없습니다. 먼저 키를 입력하고 저장하세요.")
+                QMessageBox.warning(self, "Upbit 조회 연결 확인", "업비트 API 키가 없습니다. 먼저 키를 입력하고 저장하세요.")
                 log.warning("[UPBIT-CHECK] fail reason=keys_missing")
                 return
 
             headers = _make_upbit_headers(ak, sk, source="test_button")
             if not headers:
-                QMessageBox.critical(self, "연결 테스트", "JWT 토큰 생성에 실패했습니다. 키 형식을 확인하세요.")
+                QMessageBox.critical(self, "Upbit 조회 연결 확인", "JWT 토큰 생성에 실패했습니다. 키 형식을 확인하세요.")
                 log.error("[UPBIT-CHECK] fail reason=jwt_creation_failed")
                 return
 
@@ -36536,17 +36553,21 @@ class MainWindow(QMainWindow):
             if status == 200:
                 data = resp.json()
                 cnt = len(data) if isinstance(data, list) else 0
-                QMessageBox.information(self, "연결 테스트", f"업비트 API 연결 성공\n계좌 수: {cnt}")
+                QMessageBox.information(
+                    self,
+                    "Upbit 조회 연결 확인",
+                    f"계좌 조회 API 응답 확인 완료\n계좌 수: {cnt}\n주문은 실행하지 않았습니다.",
+                )
                 log.info(f"[UPBIT-CHECK] ok status_code={status} accounts={cnt}")
             else:
-                QMessageBox.warning(self, "연결 테스트", f"업비트 API 연결 실패\n상태 코드: {status}")
+                QMessageBox.warning(self, "Upbit 조회 연결 확인", f"계좌 조회 API 응답 실패\n상태 코드: {status}\n주문은 실행하지 않았습니다.")
                 log.warning(f"[UPBIT-CHECK] fail status_code={status}")
 
         except requests.exceptions.RequestException as e:
-            QMessageBox.critical(self, "연결 테스트", f"네트워크 오류: {str(e)[:50]}")
+            QMessageBox.critical(self, "Upbit 조회 연결 확인", f"네트워크 오류: {str(e)[:50]}\n주문은 실행하지 않았습니다.")
             log.error(f"[UPBIT-CHECK] fail error=network exception={str(e)[:100]}")
         except Exception as e:
-            QMessageBox.critical(self, "연결 테스트", f"알 수 없는 오류: {str(e)[:50]}")
+            QMessageBox.critical(self, "Upbit 조회 연결 확인", f"알 수 없는 오류: {str(e)[:50]}\n주문은 실행하지 않았습니다.")
             log.error(f"[UPBIT-CHECK] fail error=unknown exception={str(e)[:100]}")
 
     def _on_open_logs(self):
