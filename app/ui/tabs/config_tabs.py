@@ -24,7 +24,7 @@ HELP_TEXTS = {
 1. AI 추천 시스템으로 최적 전략을 받습니다
 2. 매매 적극성 슬라이더로 오늘의 성향을 조정합니다
 3. 전략 요약창에서 모든 설정이 올바르게 반영되었는지 확인합니다
-4. 설정이 만족스러우면 '전략 저장' 버튼으로 저장합니다
+4. 설정이 만족스러우면 '설정 저장' 버튼으로 저장합니다. 저장 자체는 주문 실행이 아닙니다
 
 【주의사항/팁】
 • 전략 요약은 실시간으로 업데이트되므로 설정 변경 즉시 확인 가능합니다
@@ -89,7 +89,7 @@ AI 추천 시스템은 현재 시장 상황을 분석하여 최적의 전략을 
 1. 슬라이더를 움직여 오늘의 매매 성향을 결정합니다 (1=보수적, 10=공격적)
 2. 연동된 리스크 관리 항목들이 자동으로 조정되는 것을 확인합니다
 3. 전략 요약에서 전체적인 설정 균형을 확인합니다
-4. 만족스러운 설정이면 '전략 저장'으로 저장합니다
+4. 만족스러운 설정이면 '설정 저장'으로 저장합니다. 다음 평가부터 반영됩니다
 
 【주의사항/팁】
 • 슬라이더 조정 시 포지션 비중, 손익비, 쿨다운, 일손실제한이 함께 변경됩니다
@@ -274,7 +274,7 @@ AI 추천 시스템은 현재 시장 상황을 분석하여 최적의 전략을 
   - +10%: 일반적인 목표
   - +20%: 큰 수익 추구
 
-이 설정들은 실제 매매 시 자동으로 적용됩니다.
+설정 저장 후 다음 평가부터 반영됩니다. 저장 자체는 주문 실행을 의미하지 않습니다.
 """
 }
 
@@ -382,14 +382,15 @@ class StrategyTab(QWidget):
         self.lbl_dirty_state = QLabel("✅ 저장됨")
         self.lbl_dirty_state.setStyleSheet("QLabel { color: #666; font-size: 11px; padding: 4px; }")
         btn_row.addWidget(self.lbl_dirty_state)
-        self.btn_save_apply = QPushButton("전략 저장")
-        self._save_btn_base_text = "전략 저장"
+        self.btn_save_apply = QPushButton("설정 저장")
+        self._save_btn_base_text = "설정 저장"
+        self.btn_save_apply.setToolTip("저장 후 다음 평가부터 반영됩니다. 저장 자체는 주문 실행을 의미하지 않습니다.")
         self.btn_save_apply.setStyleSheet("QPushButton { font-weight: bold; padding: 10px 20px; background: #007bff; color: white; }")
         self.btn_save_apply.setMinimumWidth(120)
         self.btn_save_apply.clicked.connect(self._on_save_apply)
         btn_row.addWidget(self.btn_save_apply)
-        self.btn_sell_test = QPushButton("매도 테스트")
-        self.btn_sell_test.setToolTip("실제 주문 없이 현재 보유 종목의 매도 조건만 평가합니다.")
+        self.btn_sell_test = QPushButton("매도 조건 점검")
+        self.btn_sell_test.setToolTip("현재 설정 기준으로 매도 조건만 점검합니다. 실제 주문은 없습니다.")
         self.btn_sell_test.setMaximumWidth(100)
         self.btn_sell_test.clicked.connect(self._on_sell_test_clicked)
         btn_row.addWidget(self.btn_sell_test)
@@ -773,7 +774,7 @@ class StrategyTab(QWidget):
         self.lbl_run_status.setWordWrap(True)
         self.lbl_run_status.setStyleSheet("QLabel { font-size: 13px; padding: 8px; background: #f8f9fa; border-radius: 4px; }")
         lay.addWidget(self.lbl_run_status)
-        self.lbl_beginner_hint = QLabel("AI가 매수/매도 판단을 수행합니다. 사용자는 성향·주문금액·허용/차단 종목만 선택하세요.")
+        self.lbl_beginner_hint = QLabel("전략 엔진이 후보 평가 조건을 계산합니다. 설정 저장 자체는 주문 실행을 의미하지 않습니다.")
         self.lbl_beginner_hint.setStyleSheet("QLabel { color: #555; font-size: 11px; padding: 4px 6px; margin: 0px; }")
         self.lbl_beginner_hint.setWordWrap(True)
         self.lbl_beginner_hint.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
@@ -781,8 +782,8 @@ class StrategyTab(QWidget):
         return g
     
     def _build_aggressiveness_section(self):
-        """섹션 1: AI 매매 성향 (3단계, 표준 설명)."""
-        g = QGroupBox("AI 매매 성향")
+        """섹션 1: 전략 계산 성향 (3단계, 표준 설명)."""
+        g = QGroupBox("전략 계산 성향")
         g.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #0078d4; }")
         g.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         lay = QVBoxLayout(g)
@@ -796,17 +797,17 @@ class StrategyTab(QWidget):
         # ✅ 라디오 버튼 → 버튼형 토글(로직 호환: isChecked/setChecked 유지)
         self.radio_aggr_conservative = QPushButton("보수적")
         self.radio_aggr_conservative.setCheckable(True)
-        self.radio_aggr_conservative.setToolTip("신호가 강할 때만 진입, 손실 회피 우선")
+        self.radio_aggr_conservative.setToolTip("강한 조건만 후보로 평가하는 보수적 계산 기준")
         self.radio_aggr_conservative.setObjectName("aggrConservative")
 
         self.radio_aggr_neutral = QPushButton("중립")
         self.radio_aggr_neutral.setCheckable(True)
-        self.radio_aggr_neutral.setToolTip("균형 잡힌 진입과 회전")
+        self.radio_aggr_neutral.setToolTip("후보 평가 빈도와 위험도를 균형 있게 계산하는 기준")
         self.radio_aggr_neutral.setObjectName("aggrNeutral")
 
         self.radio_aggr_aggressive = QPushButton("공격적")
         self.radio_aggr_aggressive.setCheckable(True)
-        self.radio_aggr_aggressive.setToolTip("빠른 진입과 적극적 회전")
+        self.radio_aggr_aggressive.setToolTip("더 민감하게 후보를 평가하는 계산 기준 · 주문 실행 지시 아님")
         self.radio_aggr_aggressive.setObjectName("aggrAggressive")
 
         # 버튼 높이/확장 정책(가독성 + 균일 폭)
@@ -848,9 +849,12 @@ class StrategyTab(QWidget):
         lay.addLayout(row)
 
         # 🔷 로테이션: 기회비용 창출 매도-only (주기 | 교체수 | 다음/마지막 로테이션, 왼쪽 플로우)
-        self.chk_rotation_enabled = QCheckBox("로테이션 사용")
+        self.chk_rotation_enabled = QCheckBox("로테이션 조건 계산 (Preview/Shadow)")
         self.chk_rotation_enabled.setChecked(False)
-        self.chk_rotation_enabled.setToolTip("정체된 종목을 정리해 현금(기회비용)을 만듭니다. 점수 낮은 순·정체 오래된 순으로 전량 매도만 수행.")
+        self.chk_rotation_enabled.setToolTip(
+            "후보 교체 조건을 계산하는 설정입니다. 실제 매도·교체 실행은 별도 승인과 검증이 필요하며, "
+            "전량매도 가능 정책은 Preview/Shadow 단계에서 먼저 확인해야 합니다."
+        )
         lay.addWidget(self.chk_rotation_enabled)
         row_rot = QHBoxLayout()
         row_rot.addWidget(QLabel("주기:"))
@@ -876,8 +880,8 @@ class StrategyTab(QWidget):
         lay.addWidget(self.lbl_rotation_last)
 
         desc = QLabel(
-            "AI가 시장 상황에 따라 진입 빈도와 회전 속도를 자동 조절합니다.\n"
-            "보수적: 신호가 강할 때만 진입 | 중립: 균형 | 공격적: 빠른 진입·회전"
+            "선택한 성향은 후보 평가 민감도와 전략 계산 기준에 반영됩니다.\n"
+            "주문 실행 지시가 아니며, 저장 후 다음 평가부터 사용됩니다."
         )
         desc.setStyleSheet("QLabel { color: #666; font-size: 11px; }")
         desc.setWordWrap(True)
@@ -923,10 +927,14 @@ class StrategyTab(QWidget):
         self.spn_max_invest_cap.setToolTip("총 보유 평가금액(노출)이 이 금액을 넘으면 추가 매수를 차단합니다. (0=제한 없음)")
         row_layout.addWidget(self.spn_max_invest_cap)
         lay.addRow("", row_order)
-        self.chk_allow_downscale = QCheckBox("잔고 부족 시 주문금액 자동 축소 허용")
+        self.chk_allow_downscale = QCheckBox("잔고/한도 기준 주문금액 축소 계산")
         self.chk_allow_downscale.setChecked(False)
+        self.chk_allow_downscale.setToolTip(
+            "위험도와 잔고/한도에 따라 주문 기준 금액을 낮추는 계산 옵션입니다. "
+            "실제 주문 수량에 영향을 줄 수 있으므로 Live 사용 전 별도 검증이 필요합니다."
+        )
         lay.addRow("", self.chk_allow_downscale)
-        self.lbl_downscale_desc = QLabel("설정한 금액 그대로만 주문 시도합니다. 잔고/한도 부족 시 주문하지 않습니다.")
+        self.lbl_downscale_desc = QLabel("축소 계산 OFF · 설정 금액을 유지하며, Preview/Shadow에서 조건을 확인합니다.")
         self.lbl_downscale_desc.setStyleSheet("QLabel { color: #666; font-size: 11px; }")
         self.lbl_downscale_desc.setWordWrap(True)
         lay.addRow("", self.lbl_downscale_desc)
@@ -938,7 +946,10 @@ class StrategyTab(QWidget):
         self.spn_stop_loss_pct.setSingleStep(0.1)
         self.spn_stop_loss_pct.setSuffix("%")
         self.spn_stop_loss_pct.setValue(0.0)
-        self.spn_stop_loss_pct.setToolTip("0% = AI 판단 / 0보다 크면 사용자 값 우선 적용")
+        self.spn_stop_loss_pct.setToolTip(
+            "0%는 고정 손절 기준 미사용입니다. AI Output Contract가 있을 때만 판단 참고가 가능하며, "
+            "응답이 없으면 fallback/기본 정책을 따릅니다. 주문 실행 신호가 아닙니다."
+        )
 
         self.spn_take_profit_pct = QDoubleSpinBox()
         self.spn_take_profit_pct.setRange(0.0, 100.0)
@@ -946,7 +957,10 @@ class StrategyTab(QWidget):
         self.spn_take_profit_pct.setSingleStep(0.1)
         self.spn_take_profit_pct.setSuffix("%")
         self.spn_take_profit_pct.setValue(0.0)
-        self.spn_take_profit_pct.setToolTip("0% = AI 판단 / 0보다 크면 사용자 값 우선 적용")
+        self.spn_take_profit_pct.setToolTip(
+            "0%는 고정 익절 기준 미사용입니다. AI Output Contract가 있을 때만 판단 참고가 가능하며, "
+            "응답이 없으면 fallback/기본 정책을 따릅니다. 주문 실행 신호가 아닙니다."
+        )
 
         # 손절/익절 한 줄 2열: 각각 라벨 + 입력 + 상태, 중간에 | 구분
         self.lbl_stop_mode = QLabel("")
@@ -985,9 +999,9 @@ class StrategyTab(QWidget):
 
         def _on_downscale_toggled():
             if self.chk_allow_downscale.isChecked():
-                self.lbl_downscale_desc.setText("잔고/한도 범위 내에서 금액을 자동 축소하여 주문합니다. (최소 5,000원)")
+                self.lbl_downscale_desc.setText("축소 계산 ON · 주문 기준 금액에 영향을 줄 수 있어 Live 전 별도 검증이 필요합니다.")
             else:
-                self.lbl_downscale_desc.setText("설정한 금액 그대로만 주문 시도합니다. 잔고/한도 부족 시 주문하지 않습니다.")
+                self.lbl_downscale_desc.setText("축소 계산 OFF · 설정 금액을 유지하며, Preview/Shadow에서 조건을 확인합니다.")
         self.chk_allow_downscale.toggled.connect(_on_downscale_toggled)
         return g
 
@@ -1097,10 +1111,10 @@ class StrategyTab(QWidget):
                 f"5. 이유: {reason}\n\n"
                 "※ 실제 주문 없음. TP/SL/트레일 조건만 평가된 상태입니다."
             )
-            QMessageBox.information(self, "매도 테스트(드라이런)", msg)
+            QMessageBox.information(self, "매도 조건 점검 · 주문 없음", msg)
         except Exception as e:
             self._log.debug("sell test: %s", e)
-            QMessageBox.information(self, "매도 테스트", "상태를 불러오지 못했습니다.")
+            QMessageBox.information(self, "매도 조건 점검", "조건 점검 상태를 불러오지 못했습니다. 실제 주문은 없습니다.")
 
     def _open_watchlist_manage(self, kind: str):
         """종목 제어 '관리' 클릭 시 리스트 관리 다이얼로그(추가/삭제) 열기."""
@@ -1196,9 +1210,9 @@ class StrategyTab(QWidget):
                 self.chk_allow_downscale.setChecked(bool(getattr(stg, "allow_downscale_order_amount", False)))
                 if hasattr(self, "lbl_downscale_desc"):
                     if getattr(stg, "allow_downscale_order_amount", False):
-                        self.lbl_downscale_desc.setText("잔고/한도 범위 내에서 금액을 자동 축소하여 주문합니다. (최소 5,000원)")
+                        self.lbl_downscale_desc.setText("축소 계산 ON · 주문 기준 금액에 영향을 줄 수 있어 Live 전 별도 검증이 필요합니다.")
                     else:
-                        self.lbl_downscale_desc.setText("설정한 금액 그대로만 주문 시도합니다. 잔고/한도 부족 시 주문하지 않습니다.")
+                        self.lbl_downscale_desc.setText("축소 계산 OFF · 설정 금액을 유지하며, Preview/Shadow에서 조건을 확인합니다.")
             if hasattr(self, "spn_order_amount"):
                 self.spn_order_amount.setValue(int(getattr(stg, "order_amount_krw", 10000) or 10000))
             if hasattr(self, "spn_max_invest_cap"):
@@ -1271,7 +1285,7 @@ class StrategyTab(QWidget):
         mode_layout.setSpacing(0)
         
         # 표준 섹션: AI 매매 성향
-        header = self._create_standard_section_header("AI 매매 성향")
+        header = self._create_standard_section_header("전략 계산 성향")
         mode_layout.addWidget(header)
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
@@ -1279,11 +1293,11 @@ class StrategyTab(QWidget):
         content_layout.setSpacing(6)
         radio_row = QHBoxLayout()
         self.radio_avoid = QRadioButton("보수적")
-        self.radio_avoid.setToolTip("신호가 강할 때만 진입, 회전 느림")
+        self.radio_avoid.setToolTip("강한 조건만 후보로 평가하는 보수적 계산 기준")
         self.radio_trend = QRadioButton("중립")
-        self.radio_trend.setToolTip("균형 잡힌 진입/회전")
+        self.radio_trend.setToolTip("후보 평가 빈도와 위험도를 균형 있게 계산하는 기준")
         self.radio_ai = QRadioButton("공격적")
-        self.radio_ai.setToolTip("진입 빠름, 회전 적극적")
+        self.radio_ai.setToolTip("더 민감하게 후보를 평가하는 계산 기준 · 주문 실행 지시 아님")
         self.radio_ai.setChecked(True)
         radio_row.addWidget(self.radio_avoid)
         radio_row.addWidget(self.radio_trend)
@@ -1356,11 +1370,11 @@ class StrategyTab(QWidget):
         row_order_layout.addWidget(self.spn_max_invest_cap)
         row_order_layout.addStretch(1)
         left_risk_layout.addRow("", row_order)
-        self.chk_allow_downscale = QCheckBox("잔고 부족 시 주문금액 자동 축소 허용")
+        self.chk_allow_downscale = QCheckBox("잔고/한도 기준 주문금액 축소 계산")
         self.chk_allow_downscale.setChecked(False)
         self.chk_allow_downscale.setToolTip(
-            "OFF: 설정한 금액 그대로만 주문 시도. 잔고/한도 부족 시 주문하지 않습니다.\n"
-            "ON: 잔고 범위 내에서 금액을 자동 조정해 주문합니다."
+            "OFF: 설정한 주문 기준 금액을 유지합니다.\n"
+            "ON: 주문 기준 금액에 영향을 줄 수 있으므로 Live 전 별도 검증이 필요합니다."
         )
         left_risk_layout.addRow("", self.chk_allow_downscale)
         content_layout.addWidget(left_risk_widget)
@@ -1379,7 +1393,10 @@ class StrategyTab(QWidget):
         self.cmb_exit_mode = QComboBox()
         self.cmb_exit_mode.addItems(["ai", "user", "trail"])
         self.cmb_exit_mode.setCurrentText("ai")
-        self.cmb_exit_mode.setToolTip("ai: AI 주도 청산 | user: 수동 | trail: 트레일링")
+        self.cmb_exit_mode.setToolTip(
+            "ai: AI Output Contract가 있을 때 판단 참고 | user: 사용자 고정 기준 | trail: 추적 기준. "
+            "선택 자체는 주문 실행 신호가 아닙니다."
+        )
         adv_layout.addRow("청산 모드(exit_mode)", self.cmb_exit_mode)
         self.spn_stop_loss = QDoubleSpinBox()
         self.spn_stop_loss.setRange(0.0, 20.0)  # 0.0 허용 (AI 판단)
@@ -1471,7 +1488,8 @@ class StrategyTab(QWidget):
         logic_layout.addWidget(self.cmb_logic)
         
         # AI 판단 우선을 논리와 같은 줄로 이동
-        self.chk_ai_judge = QCheckBox("AI 판단 우선")
+        self.chk_ai_judge = QCheckBox("AI Output Contract 참고 우선")
+        self.chk_ai_judge.setToolTip("AI 응답이 있을 때 평가 참고 우선순위만 조정합니다. 주문 실행 신호가 아닙니다.")
         logic_layout.addWidget(self.chk_ai_judge)
         logic_layout.addStretch()
         
@@ -1798,8 +1816,9 @@ class StrategyTab(QWidget):
         
         # Strategy Save Button
         bottom_layout.addWidget(self.lbl_dirty_state)
-        self.btn_save_apply = QPushButton("전략 저장")
-        self._save_btn_base_text = "전략 저장"  # ✅ P2-5: 원래 텍스트 저장
+        self.btn_save_apply = QPushButton("설정 저장")
+        self._save_btn_base_text = "설정 저장"  # ✅ P2-5: 원래 텍스트 저장
+        self.btn_save_apply.setToolTip("저장 후 다음 평가부터 반영됩니다. 저장 자체는 주문 실행을 의미하지 않습니다.")
         self.btn_save_apply.setStyleSheet("QPushButton { font-weight: bold; padding: 10px 20px; background: #007bff; color: white; }")
         self.btn_save_apply.setMinimumWidth(120)
         bottom_layout.addWidget(self.btn_save_apply)
@@ -1849,7 +1868,7 @@ class StrategyTab(QWidget):
         if hasattr(self, "spn_stop_loss_pct") and hasattr(self, "lbl_stop_mode"):
             sl = float(self.spn_stop_loss_pct.value() or 0.0)
             if sl <= 0.0:
-                self.lbl_stop_mode.setText("→ AI 판단 모드")
+                self.lbl_stop_mode.setText("→ 고정 기준 미사용")
                 self.lbl_stop_mode.setStyleSheet("color: #0078d4; font-size: 10px;")
             else:
                 self.lbl_stop_mode.setText("→ 사용자 지정값 적용")
@@ -1858,7 +1877,7 @@ class StrategyTab(QWidget):
         if hasattr(self, "spn_take_profit_pct") and hasattr(self, "lbl_tp_mode"):
             tp = float(self.spn_take_profit_pct.value() or 0.0)
             if tp <= 0.0:
-                self.lbl_tp_mode.setText("→ AI 판단 모드")
+                self.lbl_tp_mode.setText("→ 고정 기준 미사용")
                 self.lbl_tp_mode.setStyleSheet("color: #0078d4; font-size: 10px;")
             else:
                 self.lbl_tp_mode.setText("→ 사용자 지정값 적용")
@@ -1868,7 +1887,7 @@ class StrategyTab(QWidget):
         if hasattr(self, "spn_stop_loss") and hasattr(self, "lbl_stop_loss_status"):
             sl_val = self.spn_stop_loss.value()
             if sl_val <= 0.0:
-                self.lbl_stop_loss_status.setText("AI 판단 중")
+                self.lbl_stop_loss_status.setText("고정 기준 미사용")
                 self.lbl_stop_loss_status.setStyleSheet("color: #0078d4; font-size: 10px;")
             else:
                 self.lbl_stop_loss_status.setText("사용자 고정값 사용")
@@ -1877,7 +1896,7 @@ class StrategyTab(QWidget):
         if hasattr(self, "spn_take_profit") and hasattr(self, "lbl_take_profit_status"):
             tp_val = self.spn_take_profit.value()
             if tp_val <= 0.0:
-                self.lbl_take_profit_status.setText("AI 판단 중")
+                self.lbl_take_profit_status.setText("고정 기준 미사용")
                 self.lbl_take_profit_status.setStyleSheet("color: #0078d4; font-size: 10px;")
             else:
                 self.lbl_take_profit_status.setText("사용자 고정값 사용")
