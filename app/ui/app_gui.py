@@ -18,6 +18,8 @@ from pathlib import Path
 import concurrent.futures
 from PySide6 import QtGui
 
+MASKED_API_KEY_TEXT = "●●●●●●●●"
+
 # =========================
 # KMTS Light Unified QSS (P0)
 # - 로직/데이터/시그널/레이아웃 변경 없음
@@ -18403,13 +18405,13 @@ class MainWindow(QMainWindow):
             if not status:
                 ui_value = str((edit.text() or "") if edit is not None else "").strip()
                 if ui_value and not self._is_masked_ai_secret_text(ui_value):
-                    status = "API Key 입력됨 · 테스트 필요"
+                    status = "새 API Key 입력됨 · 저장 필요"
+                elif self._is_masked_ai_secret_text(ui_value) or self._get_stored_ai_secret(provider):
+                    status = "API Key 저장됨"
                 elif self._get_pending_verified_ai_secret(provider):
                     status = "API Key 확인됨 · 저장 필요"
-                elif self._get_stored_ai_secret(provider):
-                    status = "API Key 저장됨 · API 연결 확인 필요"
                 elif self._get_environment_ai_secret(provider):
-                    status = "환경변수 Key 사용 가능 · 저장된 Key 아님"
+                    status = "환경변수 Key 감지 · 저장된 Key 아님"
                 else:
                     status = "API Key 필요"
             if label is not None:
@@ -19486,7 +19488,15 @@ class MainWindow(QMainWindow):
             print("[AITS] OpenAI connection test")
             try:
                 if hasattr(self, "ed_ai_api_key") and hasattr(self, "ed_openai_key"):
-                    self.ed_openai_key.setText(self.ed_ai_api_key.text())
+                    legacy_key = str(self.ed_ai_api_key.text() or "").strip()
+                    current_key = str(self.ed_openai_key.text() or "").strip()
+                    if (
+                        legacy_key
+                        and not self._is_masked_ai_secret_text(legacy_key)
+                        and not current_key
+                        and not self._get_stored_ai_secret("openai")
+                    ):
+                        self.ed_openai_key.setText(legacy_key)
                 if hasattr(self, "ed_openai_model") and model:
                     idx = self.ed_openai_model.findData(model)
                     if idx >= 0:
@@ -19503,7 +19513,15 @@ class MainWindow(QMainWindow):
             print("[AITS] Gemini connection test")
             try:
                 if hasattr(self, "ed_ai_api_key") and hasattr(self, "ed_gemini_key"):
-                    self.ed_gemini_key.setText(self.ed_ai_api_key.text())
+                    legacy_key = str(self.ed_ai_api_key.text() or "").strip()
+                    current_key = str(self.ed_gemini_key.text() or "").strip()
+                    if (
+                        legacy_key
+                        and not self._is_masked_ai_secret_text(legacy_key)
+                        and not current_key
+                        and not self._get_stored_ai_secret("gemini")
+                    ):
+                        self.ed_gemini_key.setText(legacy_key)
                 self._on_test_gemini()
             except Exception:
                 pass
@@ -32909,6 +32927,7 @@ class MainWindow(QMainWindow):
             self.cmb_gemini_model.currentIndexChanged.connect(
                 lambda _idx: self._refresh_ai_engine_card_model_from_combo("gemini")
             )
+            self._restore_ai_key_masking_from_settings(getattr(self, "_settings", None))
         except Exception:
             pass
 
@@ -33792,11 +33811,11 @@ class MainWindow(QMainWindow):
                 try:
                     if hasattr(self, "ed_openai_key") and openai_key_has_value:
                         self._set_ai_key_status_label(
-                            "openai", "API Key 저장됨 · API 연결 확인 필요"
+                            "openai", "API Key 저장됨"
                         )
                     if hasattr(self, "ed_gemini_key") and gemini_key_has_value:
                         self._set_ai_key_status_label(
-                            "gemini", "API Key 저장됨 · API 연결 확인 필요"
+                            "gemini", "API Key 저장됨"
                         )
                 except Exception:
                     pass
@@ -33882,10 +33901,10 @@ class MainWindow(QMainWindow):
 
             if openai_has_key and hasattr(self, "ed_openai_key"):
                 self._set_ai_secret_input_masked("openai", True)
-                self._set_ai_key_status_label("openai", "API Key 저장됨 · API 연결 확인 필요")
+                self._set_ai_key_status_label("openai", "API Key 저장됨")
             if gemini_has_key and hasattr(self, "ed_gemini_key"):
                 self._set_ai_secret_input_masked("gemini", True)
-                self._set_ai_key_status_label("gemini", "API Key 저장됨 · API 연결 확인 필요")
+                self._set_ai_key_status_label("gemini", "API Key 저장됨")
             if not openai_has_key:
                 self._set_ai_key_status_label("openai")
             if not gemini_has_key:
@@ -34307,12 +34326,22 @@ class MainWindow(QMainWindow):
             edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
             if edit is None:
                 return
-            if key_present:
-                edit.setText("")
-                edit.setPlaceholderText("API Key 저장됨")
-            else:
-                edit.setPlaceholderText("OpenAI API Key" if provider == "openai" else "Gemini API Key")
-                edit.setText("")
+            previous_blocked = edit.blockSignals(True)
+            try:
+                edit.setEchoMode(QLineEdit.Password)
+                if key_present:
+                    edit.setPlaceholderText("")
+                    edit.setText(MASKED_API_KEY_TEXT)
+                else:
+                    edit.setText("")
+                    edit.setPlaceholderText(
+                        "OpenAI API Key" if provider == "openai" else "Gemini API Key"
+                    )
+            finally:
+                edit.blockSignals(previous_blocked)
+            self._set_ai_key_status_label(
+                provider, "API Key 저장됨" if key_present else "API Key 필요"
+            )
         except Exception:
             pass
 
@@ -34332,11 +34361,11 @@ class MainWindow(QMainWindow):
             self._set_ai_secret_input_masked("gemini", gemini_present)
             if openai_present:
                 self._set_ai_key_status_label(
-                    "openai", "API Key 저장됨 · API 연결 확인 필요"
+                    "openai", "API Key 저장됨"
                 )
             if gemini_present:
                 self._set_ai_key_status_label(
-                    "gemini", "API Key 저장됨 · API 연결 확인 필요"
+                    "gemini", "API Key 저장됨"
                 )
             if not openai_present:
                 self._set_ai_key_status_label("openai")
@@ -35101,12 +35130,12 @@ class MainWindow(QMainWindow):
                 self._set_ai_secret_input_masked("gemini", _verify_gemini_has_key)
                 self._set_ai_key_status_label(
                     "openai",
-                    "API Key 저장됨 · API 연결 확인 필요"
+                    "API Key 저장됨"
                     if _verify_openai_has_key else "API Key 미입력",
                 )
                 self._set_ai_key_status_label(
                     "gemini",
-                    "API Key 저장됨 · API 연결 확인 필요"
+                    "API Key 저장됨"
                     if _verify_gemini_has_key else "API Key 미입력",
                 )
                 self._sync_ai_provider_ui_from_settings(ui_ai_provider, self._settings)
