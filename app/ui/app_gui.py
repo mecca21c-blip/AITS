@@ -8204,6 +8204,12 @@ class MainWindow(QMainWindow):
         self._applied_ai_model = ""
         self._ai_connection_status = "미확인"
         self._ai_engine_last_checked_text = "미확인"
+        # API tests never persist credentials. A newly verified credential is
+        # retained in memory only until the common settings save succeeds.
+        self._pending_verified_openai_key = ""
+        self._pending_verified_openai_model = ""
+        self._pending_verified_gemini_key = ""
+        self._pending_verified_gemini_model = ""
         # AITS 관리 종목군 / 전체 시장 탐색(ag-Grid 스타일 원칙 → Qt 테이블 골격)
         # 상단 row 예: symbol, name, price, change_rate, source(AI|USER), ai_status, target_price, stop_loss, pnl, locked
         # 하단 row 예: symbol, name, price, change_rate, volume_24h
@@ -34240,9 +34246,35 @@ class MainWindow(QMainWindow):
                 ui_value = str(edit.text() or "").strip()
             if ui_value and not self._is_masked_ai_secret_text(ui_value):
                 return ui_value
+            pending_name = (
+                "_pending_verified_openai_key"
+                if provider == "openai"
+                else "_pending_verified_gemini_key"
+            )
+            pending_value = str(getattr(self, pending_name, "") or "").strip()
+            if pending_value:
+                return pending_value
             return self._get_stored_ai_secret(provider)
         except Exception:
             return ""
+
+    def _get_effective_ai_model_for_save(self, provider: str, current_model: str) -> str:
+        provider = self._normalize_saved_ai_provider(provider)
+        pending_key_name = (
+            "_pending_verified_openai_key"
+            if provider == "openai"
+            else "_pending_verified_gemini_key"
+        )
+        pending_model_name = (
+            "_pending_verified_openai_model"
+            if provider == "openai"
+            else "_pending_verified_gemini_model"
+        )
+        if str(getattr(self, pending_key_name, "") or "").strip():
+            pending_model = str(getattr(self, pending_model_name, "") or "").strip()
+            if pending_model:
+                return pending_model
+        return str(current_model or "").strip()
 
     def _set_ai_secret_input_masked(self, provider: str, key_present: bool) -> None:
         try:
@@ -34856,12 +34888,14 @@ class MainWindow(QMainWindow):
                 gemini_key_input = self._get_effective_ai_secret_from_ui("gemini")
                 patch["strategy"]["ai_gemini_api_key"] = gemini_key_input
             if hasattr(self, "ed_openai_model"):
-                patch["strategy"]["ai_openai_model"] = self._current_model_id(
-                    self.ed_openai_model, "gpt-5.5-instant"
+                patch["strategy"]["ai_openai_model"] = self._get_effective_ai_model_for_save(
+                    "openai",
+                    self._current_model_id(self.ed_openai_model, "gpt-5.5-instant"),
                 )
             if hasattr(self, "cmb_gemini_model"):
-                patch["strategy"]["ai_gemini_model"] = self._current_model_id(
-                    self.cmb_gemini_model, "gemini-2.5-flash"
+                patch["strategy"]["ai_gemini_model"] = self._get_effective_ai_model_for_save(
+                    "gemini",
+                    self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash"),
                 )
             common_ai_fields = {
                 "ai_provider": patch["strategy"].get("ai_provider", ui_ai_provider),
@@ -34883,7 +34917,10 @@ class MainWindow(QMainWindow):
                 # ✅ 모델 저장: 드롭다운 itemData의 내부 모델명 저장
                 model_to_save = ""
                 if hasattr(self, "ed_openai_model"):
-                    model_to_save = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+                    model_to_save = self._get_effective_ai_model_for_save(
+                        "openai",
+                        self._current_model_id(self.ed_openai_model, "gpt-5.5-instant"),
+                    )
                 
                 if model_to_save:
                     patch["strategy"]["ai_openai_model"] = model_to_save
@@ -34896,8 +34933,9 @@ class MainWindow(QMainWindow):
                 if hasattr(self, "ed_gemini_key"):
                     patch["strategy"]["ai_gemini_api_key"] = self._get_effective_ai_secret_from_ui("gemini")
                 if hasattr(self, "cmb_gemini_model"):
-                    patch["strategy"]["ai_gemini_model"] = self._current_model_id(
-                        self.cmb_gemini_model, "gemini-2.5-flash"
+                    patch["strategy"]["ai_gemini_model"] = self._get_effective_ai_model_for_save(
+                        "gemini",
+                        self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash"),
                     )
                 common_ai_fields["ai_gemini_api_key"] = patch["strategy"].get("ai_gemini_api_key", "")
                 common_ai_fields["ai_gemini_model"] = patch["strategy"].get("ai_gemini_model", "gemini-2.5-flash")
@@ -35036,6 +35074,10 @@ class MainWindow(QMainWindow):
                 )
                 if not _raw_verify_ok:
                     raise RuntimeError("common_settings_raw_verify_failed")
+                self._pending_verified_openai_key = ""
+                self._pending_verified_openai_model = ""
+                self._pending_verified_gemini_key = ""
+                self._pending_verified_gemini_model = ""
             except Exception as _persist_err:
                 self._log.error(
                     "[AITS][GUI] common_settings_persist_failed | error_type=%s",
@@ -36030,6 +36072,9 @@ class MainWindow(QMainWindow):
         openai_edit = getattr(self, "ed_openai_key", None)
         openai_ui_key = str(openai_edit.text() or "").strip() if openai_edit is not None else ""
         using_stored_key = not openai_ui_key or self._is_masked_ai_secret_text(openai_ui_key)
+        if not using_stored_key:
+            self._pending_verified_openai_key = ""
+            self._pending_verified_openai_model = ""
         api_key = self._get_effective_ai_secret_from_ui("openai")
         self._log_ai_provider_restore_state("before_openai_test", "openai")
 
@@ -36068,6 +36113,9 @@ class MainWindow(QMainWindow):
             client.models.list()
             self._gpt_test_ok = True
             self._gpt_status_stage = "ready"
+            if not using_stored_key:
+                self._pending_verified_openai_key = api_key
+                self._pending_verified_openai_model = openai_model
             success_state = "저장된 Key 사용" if using_stored_key else "저장 필요"
             self._force_ai_key_status_visible(
                 "openai", f"OpenAI: API 연결 확인 성공 · {success_state}", "#15803d"
@@ -36342,6 +36390,9 @@ class MainWindow(QMainWindow):
         gemini_edit = getattr(self, "ed_gemini_key", None)
         gemini_ui_key = str(gemini_edit.text() or "").strip() if gemini_edit is not None else ""
         using_stored_key = not gemini_ui_key or self._is_masked_ai_secret_text(gemini_ui_key)
+        if not using_stored_key:
+            self._pending_verified_gemini_key = ""
+            self._pending_verified_gemini_model = ""
         api_key = self._get_effective_ai_secret_from_ui("gemini")
         self._log_ai_provider_restore_state("before_gemini_test", "gemini")
         if not api_key:
@@ -36422,6 +36473,9 @@ class MainWindow(QMainWindow):
                 if last_error is not None:
                     raise last_error
                 raise RuntimeError("model_check_failed")
+            if not using_stored_key:
+                self._pending_verified_gemini_key = api_key
+                self._pending_verified_gemini_model = success_model
 
             try:
                 self._gpt_status_stage = "ready"
