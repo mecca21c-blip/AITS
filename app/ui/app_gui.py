@@ -18513,7 +18513,7 @@ class MainWindow(QMainWindow):
 
     def _status_badge_color(self, status: str) -> str:
         s = str(status or "").strip()
-        if s == "정상":
+        if s in ("정상", "확인됨"):
             return "#16a34a"
         if s == "실패":
             return "#dc2626"
@@ -18734,10 +18734,12 @@ class MainWindow(QMainWindow):
             else:
                 self._selected_ai_model = self._get_selected_ai_model(p)
             text = f"{connection} {state}".strip()
-            if "정상" in text:
-                self._ai_connection_status = "정상"
+            if "성공" in text or "확인됨" in text or "정상" in text:
+                self._ai_connection_status = "확인됨"
+                self._ai_engine_last_checked_text = "방금 전"
             elif "실패" in text or "없음" in text or "필요" in text and "설치" in text:
                 self._ai_connection_status = "실패"
+                self._ai_engine_last_checked_text = "방금 전"
             elif "확인 중" in text or "확인중" in text or "연결 확인" in text:
                 self._ai_connection_status = "확인중"
             elif "필요" in text:
@@ -35034,8 +35036,19 @@ class MainWindow(QMainWindow):
 
             # ✅ P0-C: Verify prefs values after save (use self._settings which was updated by _apply_settings_patch)
             try:
-                self._set_ai_key_status_label("openai", "API Key 저장됨 · API 연결 확인 필요")
-                self._set_ai_key_status_label("gemini", "API Key 저장됨 · API 연결 확인 필요")
+                self._set_ai_key_status_label(
+                    "openai",
+                    "API Key 저장됨 · API 연결 확인 필요"
+                    if _requested_openai_has_key else "API Key 미입력",
+                )
+                self._set_ai_key_status_label(
+                    "gemini",
+                    "API Key 저장됨 · API 연결 확인 필요"
+                    if _requested_gemini_has_key else "API Key 미입력",
+                )
+                self._ai_connection_status = "테스트 필요"
+                self._ai_engine_last_checked_text = "미확인"
+                self._render_ai_engine_state()
             except Exception:
                 pass
 
@@ -36002,6 +36015,9 @@ class MainWindow(QMainWindow):
         self._log.info("[GPT-TEST] start")
 
         # (1) 준비 단계
+        openai_edit = getattr(self, "ed_openai_key", None)
+        openai_ui_key = str(openai_edit.text() or "").strip() if openai_edit is not None else ""
+        using_stored_key = not openai_ui_key or self._is_masked_ai_secret_text(openai_ui_key)
         api_key = self._get_effective_ai_secret_from_ui("openai")
         self._log_ai_provider_restore_state("before_openai_test", "openai")
 
@@ -36040,18 +36056,18 @@ class MainWindow(QMainWindow):
             client.models.list()
             self._gpt_test_ok = True
             self._gpt_status_stage = "ready"
+            success_state = "저장된 Key 사용" if using_stored_key else "저장 필요"
             self._force_ai_key_status_visible(
-                "openai", "OpenAI: API 연결 확인 성공 · 저장 필요", "#15803d"
+                "openai", f"OpenAI: API 연결 확인 성공 · {success_state}", "#15803d"
             )
-            self._set_ai_key_status_label("openai", "API 연결 확인 성공 · 저장 필요")
+            self._set_ai_key_status_label("openai", f"API 연결 확인 성공 · {success_state}")
             self._set_ai_engine_card_test_status(
-                "openai", "API 연결 확인 성공", "저장 필요"
+                "openai", "API 연결 확인 성공", success_state
             )
             set_header("🟢 READY")
             out("[2/2] OpenAI 연결 정상")
             self._log.info("[GPT-TEST] ok method=models.list")
-            if hasattr(self, "_update_ai_status"):
-                self._update_ai_status()
+            self._set_ai_test_status("확인됨")
             QApplication.processEvents()
             QMessageBox.information(
                 self,
@@ -36076,6 +36092,7 @@ class MainWindow(QMainWindow):
                 "연결 실패",
                 "확인 필요",
             )
+            self._set_ai_test_status("실패")
             set_header("🔴 FAIL")
             out(f"[2/2] OpenAI 연결 실패 - {error_type}")
             self._log.warning(
@@ -36310,21 +36327,23 @@ class MainWindow(QMainWindow):
         self._set_ai_key_status_label("gemini", "연결 확인 중...")
         self._set_ai_engine_card_test_status("gemini", "연결 확인 중", "확인 중")
         QApplication.processEvents()
+        gemini_edit = getattr(self, "ed_gemini_key", None)
+        gemini_ui_key = str(gemini_edit.text() or "").strip() if gemini_edit is not None else ""
+        using_stored_key = not gemini_ui_key or self._is_masked_ai_secret_text(gemini_ui_key)
         api_key = self._get_effective_ai_secret_from_ui("gemini")
         self._log_ai_provider_restore_state("before_gemini_test", "gemini")
         if not api_key:
             self._force_ai_key_status_visible("gemini", "Gemini: API Key 미입력", "#dc2626")
             self._set_ai_key_status_label("gemini", "연결 실패 · API Key 미입력")
             self._set_ai_engine_card_test_status("gemini", "연결 실패", "확인 필요")
+            self._set_ai_test_status("실패")
             try:
                 if self._get_aits_engine_ssot() == "gemini":
                     self._gpt_status_stage = "waiting"
                     if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
-                        self.lbl_aits_ai_engine_status.setText(
-                            "AITS AI 상태: Gemini 응답 대기 중"
-                        )
+                        self.lbl_aits_ai_engine_status.setText("Gemini API Key 미입력 · 확인 필요")
                         self._apply_aits_ai_engine_status_line_style(
-                            "AITS AI 상태: Gemini 응답 대기 중"
+                            "Gemini API Key 미입력 · 확인 필요"
                         )
                     self._update_top_badge()
             except Exception:
@@ -36414,17 +36433,19 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🟢 CONNECTED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
+            success_state = "저장된 Key 사용" if using_stored_key else "저장 필요"
             self._force_ai_key_status_visible(
                 "gemini",
-                f"Gemini: API 연결 확인 성공 · {success_model} · 저장 필요",
+                f"Gemini: API 연결 확인 성공 · {success_model} · {success_state}",
                 "#15803d",
             )
             self._set_ai_key_status_label(
-                "gemini", f"API 연결 확인 성공 · {success_model} · 저장 필요"
+                "gemini", f"API 연결 확인 성공 · {success_model} · {success_state}"
             )
             self._set_ai_engine_card_test_status(
-                "gemini", "API 연결 확인 성공", "저장 필요", success_model
+                "gemini", "API 연결 확인 성공", success_state, success_model
             )
+            self._set_ai_test_status("확인됨")
             QApplication.processEvents()
             QMessageBox.information(
                 self,
@@ -36439,11 +36460,9 @@ class MainWindow(QMainWindow):
                 if self._get_aits_engine_ssot() == "gemini":
                     self._gpt_status_stage = "waiting"
                     if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
-                        self.lbl_aits_ai_engine_status.setText(
-                            "AITS AI 상태: Gemini 응답 대기 중"
-                        )
+                        self.lbl_aits_ai_engine_status.setText("Gemini API 연결 확인 실패 · 확인 필요")
                         self._apply_aits_ai_engine_status_line_style(
-                            "AITS AI 상태: Gemini 응답 대기 중"
+                            "Gemini API 연결 확인 실패 · 확인 필요"
                         )
                     self._update_top_badge()
             except Exception:
@@ -36466,6 +36485,7 @@ class MainWindow(QMainWindow):
                     "Gemini 모듈 없음",
                     "설치 필요",
                 )
+                self._set_ai_test_status("실패")
                 self._log.warning(
                     "[AITS][GUI] ai_test_failed | provider=gemini | "
                     "error_type=ModuleNotFoundError | reason=missing_google_generativeai"
@@ -36488,6 +36508,7 @@ class MainWindow(QMainWindow):
                 "연결 실패",
                 "확인 필요",
             )
+            self._set_ai_test_status("실패")
             self._log.warning(
                 "[AITS][GUI] ai_test_failed | provider=gemini | error_type=%s",
                 error_type,
