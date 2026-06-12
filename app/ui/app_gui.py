@@ -14311,13 +14311,17 @@ class MainWindow(QMainWindow):
         if hasattr(self, "ed_openai_key"):
             self.ed_openai_key.setEnabled(True)
             self.ed_openai_key.setReadOnly(False)
-            self.ed_openai_key.setPlaceholderText("OpenAI API Key")
+            self.ed_openai_key.setPlaceholderText(
+                "API Key 저장됨" if self._get_stored_ai_secret("openai") else "OpenAI API Key"
+            )
         if hasattr(self, "ed_openai_model"):
             self._configure_ai_model_combo(self.ed_openai_model)
         if hasattr(self, "ed_gemini_key"):
             self.ed_gemini_key.setEnabled(True)
             self.ed_gemini_key.setReadOnly(False)
-            self.ed_gemini_key.setPlaceholderText("Gemini API Key")
+            self.ed_gemini_key.setPlaceholderText(
+                "API Key 저장됨" if self._get_stored_ai_secret("gemini") else "Gemini API Key"
+            )
         if hasattr(self, "cmb_gemini_model"):
             self._configure_ai_model_combo(self.cmb_gemini_model)
         if hasattr(self, "btn_test_gpt"):
@@ -18397,8 +18401,17 @@ class MainWindow(QMainWindow):
             return
         try:
             if not status:
-                has_key = bool((edit.text() or "").strip()) if edit is not None else False
-                status = "API Key 입력됨 · 테스트 필요" if has_key else "API Key 미입력"
+                ui_value = str((edit.text() or "") if edit is not None else "").strip()
+                if ui_value and not self._is_masked_ai_secret_text(ui_value):
+                    status = "API Key 입력됨 · 테스트 필요"
+                elif self._get_pending_verified_ai_secret(provider):
+                    status = "API Key 확인됨 · 저장 필요"
+                elif self._get_stored_ai_secret(provider):
+                    status = "API Key 저장됨 · API 연결 확인 필요"
+                elif self._get_environment_ai_secret(provider):
+                    status = "환경변수 Key 사용 가능 · 저장된 Key 아님"
+                else:
+                    status = "API Key 필요"
             if label is not None:
                 label.setText(f"{prefix}: {status}")
         except Exception:
@@ -33864,17 +33877,8 @@ class MainWindow(QMainWindow):
             settings = load_settings()
             st = getattr(settings, "strategy", None)
 
-            openai_key = getattr(st, "ai_openai_api_key", "") if st is not None else ""
-            gemini_key = getattr(st, "ai_gemini_api_key", "") if st is not None else ""
-            if hasattr(openai_key, "get_secret_value"):
-                openai_key = openai_key.get_secret_value() or ""
-            if hasattr(gemini_key, "get_secret_value"):
-                gemini_key = gemini_key.get_secret_value() or ""
-
-            openai_key = str(openai_key or "").strip()
-            gemini_key = str(gemini_key or "").strip()
-            openai_has_key = bool(openai_key)
-            gemini_has_key = bool(gemini_key)
+            openai_has_key = bool(self._get_stored_ai_secret("openai"))
+            gemini_has_key = bool(self._get_stored_ai_secret("gemini"))
 
             if openai_has_key and hasattr(self, "ed_openai_key"):
                 self._set_ai_secret_input_masked("openai", True)
@@ -33882,6 +33886,10 @@ class MainWindow(QMainWindow):
             if gemini_has_key and hasattr(self, "ed_gemini_key"):
                 self._set_ai_secret_input_masked("gemini", True)
                 self._set_ai_key_status_label("gemini", "API Key 저장됨 · API 연결 확인 필요")
+            if not openai_has_key:
+                self._set_ai_key_status_label("openai")
+            if not gemini_has_key:
+                self._set_ai_key_status_label("gemini")
 
             try:
                 provider = getattr(st, "ai_provider", "") if st is not None else ""
@@ -34214,28 +34222,50 @@ class MainWindow(QMainWindow):
             return False
 
     def _get_stored_ai_secret(self, provider: str) -> str:
+        """Return only the persisted secrets.json value, never an env fallback."""
         try:
             provider = self._normalize_saved_ai_provider(provider)
-            st = getattr(getattr(self, "_settings", None), "strategy", None)
             key_name = "ai_openai_api_key" if provider == "openai" else "ai_gemini_api_key"
-            value = ""
-            if st is not None:
-                value = getattr(st, key_name, "") if not isinstance(st, dict) else st.get(key_name, "")
-            if not str(value or "").strip():
-                from app.utils.prefs import load_settings
+            from app.utils.prefs import _read_secrets_json
 
-                loaded = load_settings()
-                st = getattr(loaded, "strategy", None)
-                value = getattr(st, key_name, "") if st is not None else ""
-                try:
-                    self._settings = loaded
-                except Exception:
-                    pass
-            if hasattr(value, "get_secret_value"):
-                value = value.get_secret_value() or ""
+            secrets_data = _read_secrets_json() or {}
+            strategy = secrets_data.get("strategy") or {}
+            value = strategy.get(key_name, "") if isinstance(strategy, dict) else ""
             return str(value or "").strip()
         except Exception:
             return ""
+
+    def _get_pending_verified_ai_secret(self, provider: str) -> str:
+        provider = self._normalize_saved_ai_provider(provider)
+        attr = (
+            "_pending_verified_openai_key"
+            if provider == "openai"
+            else "_pending_verified_gemini_key"
+        )
+        return str(getattr(self, attr, "") or "").strip()
+
+    def _get_environment_ai_secret(self, provider: str) -> str:
+        provider = self._normalize_saved_ai_provider(provider)
+        if provider == "openai":
+            return str(os.getenv("OPENAI_API_KEY") or "").strip()
+        return str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+
+    def _resolve_ai_test_secret(self, provider: str) -> tuple[str, str]:
+        provider = self._normalize_saved_ai_provider(provider)
+        edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
+        ui_value = str(edit.text() or "").strip() if edit is not None else ""
+        if ui_value and not self._is_masked_ai_secret_text(ui_value):
+            return ui_value, "ui_input"
+        pending = self._get_pending_verified_ai_secret(provider)
+        if pending:
+            return pending, "pending_verified"
+        stored = self._get_stored_ai_secret(provider)
+        if stored:
+            return stored, "stored_secret"
+        environment = self._get_environment_ai_secret(provider)
+        if environment:
+            return environment, "environment"
+        return "", "missing"
 
     def _get_effective_ai_secret_from_ui(self, provider: str) -> str:
         try:
@@ -34246,12 +34276,7 @@ class MainWindow(QMainWindow):
                 ui_value = str(edit.text() or "").strip()
             if ui_value and not self._is_masked_ai_secret_text(ui_value):
                 return ui_value
-            pending_name = (
-                "_pending_verified_openai_key"
-                if provider == "openai"
-                else "_pending_verified_gemini_key"
-            )
-            pending_value = str(getattr(self, pending_name, "") or "").strip()
+            pending_value = self._get_pending_verified_ai_secret(provider)
             if pending_value:
                 return pending_value
             return self._get_stored_ai_secret(provider)
@@ -34301,27 +34326,8 @@ class MainWindow(QMainWindow):
 
     def _restore_ai_key_masking_from_settings(self, settings=None) -> tuple[bool, bool]:
         try:
-            settings = settings or getattr(self, "_settings", None)
-            st = getattr(settings, "strategy", None) if settings is not None else None
-
-            def _strategy_value(key: str) -> str:
-                try:
-                    if isinstance(st, dict):
-                        value = st.get(key, "")
-                    else:
-                        value = getattr(st, key, "") if st is not None else ""
-                    if hasattr(value, "get_secret_value"):
-                        value = value.get_secret_value() or ""
-                    return str(value or "").strip()
-                except Exception:
-                    return ""
-
-            openai_present = bool(_strategy_value("ai_openai_api_key")) or bool(
-                self._get_stored_ai_secret("openai")
-            )
-            gemini_present = bool(_strategy_value("ai_gemini_api_key")) or bool(
-                self._get_stored_ai_secret("gemini")
-            )
+            openai_present = bool(self._get_stored_ai_secret("openai"))
+            gemini_present = bool(self._get_stored_ai_secret("gemini"))
             self._set_ai_secret_input_masked("openai", openai_present)
             self._set_ai_secret_input_masked("gemini", gemini_present)
             if openai_present:
@@ -34332,6 +34338,10 @@ class MainWindow(QMainWindow):
                 self._set_ai_key_status_label(
                     "gemini", "API Key 저장됨 · API 연결 확인 필요"
                 )
+            if not openai_present:
+                self._set_ai_key_status_label("openai")
+            if not gemini_present:
+                self._set_ai_key_status_label("gemini")
             return openai_present, gemini_present
         except Exception:
             return False, False
@@ -36069,13 +36079,11 @@ class MainWindow(QMainWindow):
         self._log.info("[GPT-TEST] start")
 
         # (1) 준비 단계
-        openai_edit = getattr(self, "ed_openai_key", None)
-        openai_ui_key = str(openai_edit.text() or "").strip() if openai_edit is not None else ""
-        using_stored_key = not openai_ui_key or self._is_masked_ai_secret_text(openai_ui_key)
-        if not using_stored_key:
+        api_key, key_source = self._resolve_ai_test_secret("openai")
+        self._log.info("[GPT-TEST] key_source=%s", key_source)
+        if key_source == "ui_input":
             self._pending_verified_openai_key = ""
             self._pending_verified_openai_model = ""
-        api_key = self._get_effective_ai_secret_from_ui("openai")
         self._log_ai_provider_restore_state("before_openai_test", "openai")
 
         if not api_key:
@@ -36113,10 +36121,15 @@ class MainWindow(QMainWindow):
             client.models.list()
             self._gpt_test_ok = True
             self._gpt_status_stage = "ready"
-            if not using_stored_key:
+            if key_source == "ui_input":
                 self._pending_verified_openai_key = api_key
                 self._pending_verified_openai_model = openai_model
-            success_state = "저장된 Key 사용" if using_stored_key else "저장 필요"
+            success_state = {
+                "ui_input": "입력 Key 확인됨 · 저장 필요",
+                "pending_verified": "확인된 Key 사용 · 저장 필요",
+                "stored_secret": "저장된 Key 사용",
+                "environment": "환경변수 Key 사용 · 저장된 Key 아님",
+            }.get(key_source, "Key 확인됨")
             self._force_ai_key_status_visible(
                 "openai", f"OpenAI: API 연결 확인 성공 · {success_state}", "#15803d"
             )
@@ -36132,7 +36145,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "GPT API 연결 확인",
-                f"OpenAI API 연결 확인 성공 · {openai_model}\n"
+                f"OpenAI API 연결 확인 성공 · {openai_model}\n{success_state}\n"
                 "저장/적용하려면 하단 저장 버튼을 누르세요.\n"
                 "이 테스트는 주문 연결이나 운용 시작을 의미하지 않습니다.",
             )
@@ -36387,13 +36400,11 @@ class MainWindow(QMainWindow):
         self._set_ai_key_status_label("gemini", "연결 확인 중...")
         self._set_ai_engine_card_test_status("gemini", "연결 확인 중", "확인 중")
         QApplication.processEvents()
-        gemini_edit = getattr(self, "ed_gemini_key", None)
-        gemini_ui_key = str(gemini_edit.text() or "").strip() if gemini_edit is not None else ""
-        using_stored_key = not gemini_ui_key or self._is_masked_ai_secret_text(gemini_ui_key)
-        if not using_stored_key:
+        api_key, key_source = self._resolve_ai_test_secret("gemini")
+        self._log.info("[GEMINI-TEST] key_source=%s", key_source)
+        if key_source == "ui_input":
             self._pending_verified_gemini_key = ""
             self._pending_verified_gemini_model = ""
-        api_key = self._get_effective_ai_secret_from_ui("gemini")
         self._log_ai_provider_restore_state("before_gemini_test", "gemini")
         if not api_key:
             self._force_ai_key_status_visible("gemini", "Gemini: API Key 미입력", "#dc2626")
@@ -36473,7 +36484,7 @@ class MainWindow(QMainWindow):
                 if last_error is not None:
                     raise last_error
                 raise RuntimeError("model_check_failed")
-            if not using_stored_key:
+            if key_source == "ui_input":
                 self._pending_verified_gemini_key = api_key
                 self._pending_verified_gemini_model = success_model
 
@@ -36499,7 +36510,12 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
                 self.lbl_gemini_test_status.setText("🟢 CONNECTED")
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
-            success_state = "저장된 Key 사용" if using_stored_key else "저장 필요"
+            success_state = {
+                "ui_input": "입력 Key 확인됨 · 저장 필요",
+                "pending_verified": "확인된 Key 사용 · 저장 필요",
+                "stored_secret": "저장된 Key 사용",
+                "environment": "환경변수 Key 사용 · 저장된 Key 아님",
+            }.get(key_source, "Key 확인됨")
             self._force_ai_key_status_visible(
                 "gemini",
                 f"Gemini: API 연결 확인 성공 · {success_model} · {success_state}",
@@ -36516,7 +36532,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Gemini API 연결 확인",
-                f"Gemini API 연결 확인 성공 · {success_model}\n"
+                f"Gemini API 연결 확인 성공 · {success_model}\n{success_state}\n"
                 "저장/적용하려면 하단 저장 버튼을 누르세요.\n"
                 "이 테스트는 주문 연결이나 운용 시작을 의미하지 않습니다.",
             )
