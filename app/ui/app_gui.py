@@ -8206,6 +8206,9 @@ class MainWindow(QMainWindow):
         self._applied_ai_model = ""
         self._ai_connection_status = "미확인"
         self._ai_engine_last_checked_text = "미확인"
+        self._last_ai_connection_provider = ""
+        self._last_ai_connection_status = ""
+        self._last_ai_connection_source = ""
         # API tests never persist credentials. A newly verified credential is
         # retained in memory only until the common settings save succeeds.
         self._pending_verified_openai_key = ""
@@ -18566,8 +18569,13 @@ class MainWindow(QMainWindow):
             )
             self._selected_ai_provider = selected_provider
             self._selected_ai_model = self._get_selected_ai_model(selected_provider)
-            self._ai_connection_status = "테스트 필요"
-            self._ai_engine_last_checked_text = "미확인"
+            if selected_provider == getattr(self, "_last_ai_connection_provider", ""):
+                self._ai_connection_status = (
+                    getattr(self, "_last_ai_connection_status", "") or "테스트 필요"
+                )
+            else:
+                self._ai_connection_status = "테스트 필요"
+                self._ai_engine_last_checked_text = "미확인"
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -18575,6 +18583,25 @@ class MainWindow(QMainWindow):
     def _set_ai_test_status(self, status: str):
         try:
             self._ai_connection_status = (status or "미확인").strip() or "미확인"
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
+    def _record_ai_connection_result(self, provider: str, key_source: str) -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            status = {
+                "ui_input": "확인됨 · 저장 필요",
+                "pending_verified": "확인됨 · 저장 필요",
+                "stored_secret": "저장된 Key 확인됨",
+                "environment": "환경변수 Key 사용",
+            }.get((key_source or "").strip(), "API 확인됨")
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = status
+            self._last_ai_connection_source = (key_source or "").strip()
+            self._selected_ai_provider = normalized_provider
+            self._ai_connection_status = status
+            self._ai_engine_last_checked_text = "방금 전"
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -36170,6 +36197,7 @@ class MainWindow(QMainWindow):
             out("[2/2] OpenAI 연결 정상")
             self._log.info("[GPT-TEST] ok method=models.list")
             self._set_ai_test_status("확인됨")
+            self._record_ai_connection_result("openai", key_source)
             QApplication.processEvents()
             QMessageBox.information(
                 self,
@@ -36557,6 +36585,7 @@ class MainWindow(QMainWindow):
                 "gemini", "API 연결 확인 성공", success_state, success_model
             )
             self._set_ai_test_status("확인됨")
+            self._record_ai_connection_result("gemini", key_source)
             QApplication.processEvents()
             QMessageBox.information(
                 self,
