@@ -7530,6 +7530,12 @@ class MainWindow(QMainWindow):
                 logb.setMaximumHeight(30)
         except Exception:
             pass
+        try:
+            # The shell rebuild replaces the visible Header chips. Rebind their
+            # text immediately from the current provider Preview state.
+            self._render_ai_engine_state()
+        except Exception:
+            pass
 
     def eventFilter(self, obj, event):
         try:
@@ -18589,10 +18595,12 @@ class MainWindow(QMainWindow):
             color_box = getattr(chip, "_chip", None)
             if text_label is not None:
                 text_label.setText(text)
+                text_label.update()
             if color_box is not None:
                 color_box.setStyleSheet(
                     "background-color: %s; border: none; border-radius: 3px;" % color
                 )
+            chip.update()
         except Exception:
             pass
 
@@ -18821,6 +18829,7 @@ class MainWindow(QMainWindow):
                     pass
             if model_lb is not None:
                 model_lb.setText(f"모델: {card_model_text}")
+                model_lb.setVisible(True)
                 try:
                     model_lb.setStyleSheet(
                         "color:#334155;font-size:11px;font-weight:700;"
@@ -18834,6 +18843,7 @@ class MainWindow(QMainWindow):
                     if applied_provider and applied_is_preview
                     else f"적용: {applied_provider_text}"
                 )
+                applied_lb.setVisible(True)
                 try:
                     applied_lb.setStyleSheet(
                         f"color:{self._provider_badge_color(card_color_provider)};"
@@ -18844,6 +18854,7 @@ class MainWindow(QMainWindow):
                     pass
             if status_lb is not None:
                 status_lb.setText(f"상태: {status}")
+                status_lb.setVisible(True)
             if last_lb is not None:
                 last_lb.setText(last_checked_text)
                 try:
@@ -18874,6 +18885,7 @@ class MainWindow(QMainWindow):
                     "font-family:'Noto Sans KR','Malgun Gothic',sans-serif;"
                     "}"
                 )
+                frame.update()
             self._update_ai_engine_icon(card_color_provider)
         except Exception:
             pass
