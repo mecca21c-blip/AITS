@@ -26889,6 +26889,11 @@ class MainWindow(QMainWindow):
             )
 
             sel_p = self._get_aits_engine_ssot()
+            preview_p = ""
+            if self._has_active_external_ai_preview():
+                preview_p = str(
+                    getattr(self, "_applied_ai_provider", "") or ""
+                ).strip().lower()
             act_p = self._get_aits_last_response_provider()
             mismatch_status = None
             dryrun_status = None
@@ -26945,13 +26950,21 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 return
-            sel_norm = _normalize_ai_provider_for_status(sel_p)
+            sel_norm = _normalize_ai_provider_for_status(preview_p or sel_p)
             act_norm = _normalize_ai_provider_for_status(act_p)
             if sel_norm in ("openai", "gemini"):
-                if act_norm and act_norm != sel_norm:
-                    mismatch_status = "AITS AI 상태: 선택 엔진과 응답 엔진 불일치"
-                elif not act_norm:
-                    mismatch_status = "AITS AI 상태: 응답 대기 중"
+                provider_label = "OpenAI" if sel_norm == "openai" else "Gemini"
+                connection_status = str(
+                    getattr(self, "_ai_connection_status", "") or ""
+                ).strip()
+                if "연결 확인 중" in connection_status or connection_status == "확인중":
+                    mismatch_status = f"AITS AI 상태: {provider_label} 연결 확인 중"
+                elif act_norm in ("openai", "gemini") and act_norm != sel_norm:
+                    mismatch_status = "AITS AI 상태: 응답 provider 확인 필요"
+                elif act_norm in ("", "ollama"):
+                    mismatch_status = (
+                        f"AITS AI 상태: {provider_label} Preview 준비 · AI 응답 대기"
+                    )
             if mismatch_status:
                 status_text = mismatch_status
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
@@ -28457,7 +28470,6 @@ class MainWindow(QMainWindow):
 
         for attr_name in (
             "_last_response_provider",
-            "_active_ai_engine",
             "_last_ai_provider",
             "_last_aits_provider",
         ):
