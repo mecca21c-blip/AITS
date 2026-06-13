@@ -18277,6 +18277,20 @@ class MainWindow(QMainWindow):
         except Exception:
             return
 
+    def _has_active_external_ai_preview(self) -> bool:
+        try:
+            provider = self._normalize_ai_provider_code(
+                getattr(self, "_applied_ai_provider", "")
+            )
+            model = (getattr(self, "_applied_ai_model", "") or "").strip()
+            return bool(
+                getattr(self, "_applied_ai_is_preview", False)
+                and provider in ("gpt", "gemini")
+                and model
+            )
+        except Exception:
+            return False
+
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
         t0 = self._aits_perf_log("_sync_basic_runtime_status_card.enter")
@@ -18307,6 +18321,7 @@ class MainWindow(QMainWindow):
             degraded_text = "YES" if status.get("degraded") else "NO"
             cooldown_text = "ON" if status.get("cooldown") else "OFF"
             selected_model = self._get_basic_runtime_selected_model_for_ui()
+            external_preview_active = self._has_active_external_ai_preview()
             status["selected_model"] = selected_model
             texts = self._format_runtime_ui_snapshot_text(status)
             compact = (
@@ -18338,16 +18353,21 @@ class MainWindow(QMainWindow):
             self._aits_perf_log("_sync_basic_runtime_status_card.set_main_label.end", t_part)
             t_part = self._aits_perf_log("_sync_basic_runtime_status_card.set_engine_label.start")
             status_line = getattr(self, "lbl_aits_ai_engine_status", None)
-            if status_line is not None and hasattr(status_line, "setText"):
+            if (
+                not external_preview_active
+                and status_line is not None
+                and hasattr(status_line, "setText")
+            ):
                 status_line.setText(texts["engine"])
                 try:
                     self._apply_aits_ai_engine_status_line_style(status_line.text())
                 except Exception:
                     pass
             try:
-                self._ai_connection_status = "정상" if status.get("runtime_ready") else "확인 필요"
-                self._selected_ai_provider = "basic"
-                self._selected_ai_model = selected_model
+                if not external_preview_active:
+                    self._ai_connection_status = "정상" if status.get("runtime_ready") else "확인 필요"
+                    self._selected_ai_provider = "basic"
+                    self._selected_ai_model = selected_model
                 self._render_ai_engine_state()
             except Exception:
                 pass
@@ -18356,7 +18376,11 @@ class MainWindow(QMainWindow):
             try:
                 chip = getattr(self, "_chip_connection_status", None)
                 chip_text = getattr(chip, "_text", None)
-                if chip_text is not None and hasattr(chip_text, "setText"):
+                if (
+                    not external_preview_active
+                    and chip_text is not None
+                    and hasattr(chip_text, "setText")
+                ):
                     chip_text.setText(texts["chip"])
             except Exception:
                 pass
@@ -18717,6 +18741,14 @@ class MainWindow(QMainWindow):
             ) if getattr(self, "_applied_ai_provider", "") else ""
             applied_model = (getattr(self, "_applied_ai_model", "") or "").strip()
             applied_is_preview = bool(getattr(self, "_applied_ai_is_preview", False))
+            external_preview_active = bool(
+                applied_is_preview
+                and applied_provider in ("gpt", "gemini")
+                and applied_model
+            )
+            if external_preview_active:
+                selected_provider = applied_provider
+                selected_model = applied_model
             status = (getattr(self, "_ai_connection_status", "") or "미확인").strip() or "미확인"
             selected_text = self._ai_provider_label(selected_provider)
             applied_provider_text = (
