@@ -60,6 +60,16 @@ AI must not place orders directly. Keep Router, Risk Guard, and Execution bounda
 - Basic/fallback output must remain calculation-based reference information and not an order signal.
 - Reflection Events are review candidates, not confirmed AI failures or order signals.
 
+## Provider Engine State
+
+- Before Provider/API/Engine UI work, read `app/docs/aits_provider_engine_state_contract_v1.md`.
+- Keep selected, saved, Preview, connection, actual runtime, Router, and Basic provider states distinct.
+- Do not add another Header or AI ENGINE card writer; prefer `_render_ai_engine_state` as the final renderer.
+- Ensure `_sync_basic_runtime_status_card` cannot overwrite an OpenAI/Gemini Preview state.
+- Provider selection changes session Preview; it does not save settings.
+- Connection checks manually revalidate API access; they do not persist or apply settings.
+- The Save button owns persistence. Preview application is not live-trading or order application.
+
 ## Validation
 
 Scale validation to the Goal:

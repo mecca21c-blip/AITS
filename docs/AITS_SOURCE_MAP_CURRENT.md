@@ -89,6 +89,32 @@ Current official AI-ARCH and related design documents:
 - `app/docs/aits_lightgbm_real_trainer_prototype_v1.md`
 - `app/docs/aits_ai_reflection_event_schema_v1.md`
 - `app/docs/aits_main_ai_output_contract_copy_fix_v1.md`
+- `app/docs/aits_provider_engine_state_contract_v1.md`
+
+### Provider Engine State Ownership
+
+The Provider Engine State Contract is the required reference for Provider/API/Engine UI changes.
+
+State layers are distinct: Selected Provider, Saved Provider, Preview Provider, Connection Provider,
+Actual Runtime Provider, Router Provider, and Basic Runtime Snapshot.
+
+Active common-settings UI: `aits_engine_choice_panel`.
+
+Active provider path:
+
+```text
+btn_engine_openai/gemini/local
+-> _sync_engine_choice_panel
+-> _set_ai_provider_ui_active
+-> _activate_ai_provider_preview
+-> _apply_saved_ai_preview
+-> _run_ai_startup_connection_check_async
+```
+
+Final Header and AI ENGINE card renderer: `_render_ai_engine_state`.
+
+Known risk: Basic runtime snapshots, legacy helpers, or multiple writers can overwrite the current
+OpenAI/Gemini Preview display. `_sync_basic_runtime_status_card` must preserve an active Preview.
 
 ## 5. Local AI Learning Pipeline File Map
 
