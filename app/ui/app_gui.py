@@ -8204,6 +8204,7 @@ class MainWindow(QMainWindow):
         self._selected_ai_model = "qwen2.5"
         self._applied_ai_provider = ""
         self._applied_ai_model = ""
+        self._applied_ai_is_preview = False
         self._ai_connection_status = "미확인"
         self._ai_engine_last_checked_text = "미확인"
         self._last_ai_connection_provider = ""
@@ -18618,6 +18619,7 @@ class MainWindow(QMainWindow):
                 self._selected_ai_model = self._get_selected_ai_model(selected_provider)
             self._applied_ai_provider = selected_provider
             self._applied_ai_model = self._selected_ai_model
+            self._applied_ai_is_preview = False
             self._ai_connection_status = "정상"
             self._ai_engine_last_checked_text = "방금 전"
             self._active_ai_engine = selected_provider
@@ -18627,6 +18629,28 @@ class MainWindow(QMainWindow):
                 self._last_response_provider = "gpt"
             elif selected_provider == "gemini":
                 self._last_response_provider = "gemini"
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
+    def _apply_saved_ai_preview(self, provider: str, model: str) -> None:
+        try:
+            selected_provider = self._normalize_ai_provider_code(provider)
+            selected_model = (model or "").strip()
+            if not selected_model:
+                selected_model = self._get_selected_ai_model(selected_provider)
+            self._selected_ai_provider = selected_provider
+            self._selected_ai_model = selected_model
+            self._applied_ai_provider = selected_provider
+            self._applied_ai_model = selected_model
+            self._applied_ai_is_preview = True
+            if selected_provider == getattr(self, "_last_ai_connection_provider", ""):
+                self._ai_connection_status = (
+                    getattr(self, "_last_ai_connection_status", "") or "테스트 필요"
+                )
+            else:
+                self._ai_connection_status = "테스트 필요"
+                self._ai_engine_last_checked_text = "미확인"
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -18644,11 +18668,14 @@ class MainWindow(QMainWindow):
                 getattr(self, "_applied_ai_provider", "")
             ) if getattr(self, "_applied_ai_provider", "") else ""
             applied_model = (getattr(self, "_applied_ai_model", "") or "").strip()
+            applied_is_preview = bool(getattr(self, "_applied_ai_is_preview", False))
             status = (getattr(self, "_ai_connection_status", "") or "미확인").strip() or "미확인"
             selected_text = self._ai_provider_label(selected_provider)
             applied_provider_text = (
                 self._ai_provider_label(applied_provider) if applied_provider else "미적용"
             )
+            if applied_provider and applied_is_preview:
+                applied_provider_text = f"{applied_provider_text} Preview"
             applied_text = (
                 f"{applied_provider_text} · {applied_model}"
                 if applied_provider and applied_model
@@ -18722,7 +18749,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             if applied_lb is not None:
-                applied_lb.setText(f"적용: {applied_provider_text}")
+                applied_lb.setText(
+                    "적용: Preview"
+                    if applied_provider and applied_is_preview
+                    else f"적용: {applied_provider_text}"
+                )
                 try:
                     applied_lb.setStyleSheet(
                         f"color:{self._provider_badge_color(card_color_provider)};"
@@ -35166,9 +35197,29 @@ class MainWindow(QMainWindow):
                     if _verify_gemini_has_key else "API Key 미입력",
                 )
                 self._sync_ai_provider_ui_from_settings(ui_ai_provider, self._settings)
-                self._ai_connection_status = "테스트 필요"
-                self._ai_engine_last_checked_text = "미확인"
-                self._render_ai_engine_state()
+                saved_preview_model = (
+                    common_ai_fields.get("ai_openai_model", "gpt-5.5-instant")
+                    if ui_ai_provider == "openai"
+                    else common_ai_fields.get("ai_gemini_model", "gemini-2.5-flash")
+                    if ui_ai_provider == "gemini"
+                    else patch.get("strategy", {}).get("ai_local_model", "qwen2.5")
+                )
+                saved_preview_provider = self._normalize_ai_provider_code(ui_ai_provider)
+                saved_provider_has_key = (
+                    _verify_openai_has_key
+                    if saved_preview_provider == "gpt"
+                    else _verify_gemini_has_key
+                    if saved_preview_provider == "gemini"
+                    else False
+                )
+                if (
+                    saved_provider_has_key
+                    and saved_preview_provider
+                    == getattr(self, "_last_ai_connection_provider", "")
+                ):
+                    self._last_ai_connection_status = "저장된 Key 확인됨"
+                    self._last_ai_connection_source = "stored_secret"
+                self._apply_saved_ai_preview(ui_ai_provider, saved_preview_model)
             except Exception:
                 pass
 
