@@ -12714,12 +12714,6 @@ class MainWindow(QMainWindow):
 
         # ✅ P0-A: Start boot sequence after UI is built
         QTimer.singleShot(100, self._boot_sequence_step1)
-        QTimer.singleShot(
-            4500,
-            lambda: self._schedule_ai_startup_connection_check(
-                getattr(self, "_settings", None)
-            ),
-        )
 
     def _make_bottom_nav_divider(self) -> QLabel:
         lbl = QLabel("|")
@@ -33905,12 +33899,6 @@ class MainWindow(QMainWindow):
                             _p, getattr(self, "_settings", None)
                         ),
                     )
-                    QTimer.singleShot(
-                        2600,
-                        lambda: self._schedule_ai_startup_connection_check(
-                            getattr(self, "_settings", None)
-                        ),
-                    )
                 except Exception:
                     pass
             except Exception:
@@ -33969,10 +33957,41 @@ class MainWindow(QMainWindow):
                 self._set_ai_key_status_label("gemini")
 
             try:
-                provider = getattr(st, "ai_provider", "") if st is not None else ""
+                provider = (
+                    st.get("ai_provider", "")
+                    if isinstance(st, dict)
+                    else getattr(st, "ai_provider", "")
+                    if st is not None
+                    else ""
+                )
                 self._settings = settings
                 self._sync_ai_provider_ui_from_settings(provider, settings)
-                self._schedule_ai_startup_connection_check(settings)
+                preview_provider = self._normalize_saved_ai_provider(provider)
+                preview_has_key = (
+                    openai_has_key
+                    if preview_provider == "openai"
+                    else gemini_has_key
+                    if preview_provider == "gemini"
+                    else False
+                )
+                if preview_has_key:
+                    if isinstance(st, dict):
+                        preview_model = (
+                            st.get("ai_openai_model", "gpt-5.5-instant")
+                            if preview_provider == "openai"
+                            else st.get("ai_gemini_model", "gemini-2.5-flash")
+                        )
+                    else:
+                        preview_model = (
+                            getattr(st, "ai_openai_model", "gpt-5.5-instant")
+                            if preview_provider == "openai"
+                            else getattr(st, "ai_gemini_model", "gemini-2.5-flash")
+                        )
+                    normalized_provider = self._normalize_ai_provider_code(preview_provider)
+                    self._last_ai_connection_provider = normalized_provider
+                    self._last_ai_connection_status = "저장됨 · 연결 확인 필요"
+                    self._last_ai_connection_source = "stored_unverified"
+                    self._apply_saved_ai_preview(preview_provider, preview_model)
             except Exception:
                 pass
 
