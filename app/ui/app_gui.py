@@ -18,7 +18,7 @@ from pathlib import Path
 import concurrent.futures
 from PySide6 import QtGui
 
-MASKED_API_KEY_TEXT = "●●●●●●●●"
+MASKED_API_KEY_TEXT = "●●●●●●●●●●●●●●●●●●●●"
 
 # =========================
 # KMTS Light Unified QSS (P0)
@@ -6017,6 +6017,8 @@ class AITSLargeChartDialog(QDialog):
 
 # --------- Main window ---------
 class MainWindow(QMainWindow):
+    _ai_preview_connection_finished = Signal(str, str, str, str, str, int)
+
     # ✅ Diet 목표(진행 중)
     # - app_gui.py: 탭 생성/상태/서비스/라우팅만
     # - 각 탭 파일: UI 위젯 생성/보유/시그널/렌더링 100%
@@ -8210,6 +8212,10 @@ class MainWindow(QMainWindow):
         self._last_ai_connection_provider = ""
         self._last_ai_connection_status = ""
         self._last_ai_connection_source = ""
+        self._ai_preview_connection_token = 0
+        self._ai_preview_connection_finished.connect(
+            self._apply_ai_preview_connection_result
+        )
         # API tests never persist credentials. A newly verified credential is
         # retained in memory only until the common settings save succeeds.
         self._pending_verified_openai_key = ""
@@ -14282,7 +14288,9 @@ class MainWindow(QMainWindow):
             pass
         self._aits_perf_log("_update_ai_status.end", _aits_t0)
 
-    def _set_ai_provider_ui_active(self, provider: str):
+    def _set_ai_provider_ui_active(
+        self, provider: str, start_connection: bool = False
+    ):
         """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화."""
         provider = (provider or "local").strip().lower()
         if provider in ("openai", "chatgpt", "gpt"):
@@ -14374,6 +14382,13 @@ class MainWindow(QMainWindow):
             self._mark_ai_selection_changed(provider)
         except Exception as e:
             self._log.warning("[UI-AI-STATUS] ERROR: %s", str(e)[:80])
+        try:
+            if start_connection and bool(getattr(self, "_boot_done", False)) and not bool(
+                getattr(self, "_boot_restoring", False)
+            ):
+                self._activate_ai_provider_preview(provider, start_connection=True)
+        except Exception as e:
+            self._log.warning("[UI-AI-PREVIEW] activate failed: %s", type(e).__name__)
         if local_en:
             try:
                 self._sync_basic_runtime_status_card()
@@ -18649,6 +18664,45 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _activate_ai_provider_preview(
+        self, provider: str, start_connection: bool = True
+    ) -> None:
+        normalized_provider = self._normalize_ai_provider_code(provider)
+        selected_model = self._get_selected_ai_model(normalized_provider)
+        self._apply_saved_ai_preview(normalized_provider, selected_model)
+        if normalized_provider == "basic":
+            self._last_ai_connection_provider = "basic"
+            self._last_ai_connection_status = "Basic 계산 엔진 · AI 판단 없음"
+            self._last_ai_connection_source = "basic"
+            self._ai_connection_status = self._last_ai_connection_status
+            self._render_ai_engine_state()
+            return
+
+        secret_provider = "openai" if normalized_provider == "gpt" else "gemini"
+        api_key, key_source = self._resolve_ai_test_secret(secret_provider)
+        if not api_key:
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = "API Key 필요"
+            self._last_ai_connection_source = "missing"
+            self._ai_connection_status = "API Key 필요"
+            self._render_ai_engine_state()
+            return
+        if not start_connection:
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = "저장됨 · 연결 확인 필요"
+            self._last_ai_connection_source = key_source
+            self._ai_connection_status = self._last_ai_connection_status
+            self._render_ai_engine_state()
+            return
+        if (
+            normalized_provider == getattr(self, "_last_ai_connection_provider", "")
+            and getattr(self, "_last_ai_connection_status", "") == "연결 확인 중"
+        ):
+            return
+        self._run_ai_startup_connection_check_async(
+            secret_provider, api_key=api_key, key_source=key_source
+        )
+
     def _render_ai_engine_state(self):
         try:
             selected_provider = self._normalize_ai_provider_code(
@@ -18852,7 +18906,7 @@ class MainWindow(QMainWindow):
                 self.ed_ai_api_key.setEnabled(True)
                 self.ed_ai_api_key.setPlaceholderText("OpenAI API Key")
             try:
-                self._set_ai_provider_ui_active("gpt")
+                self._set_ai_provider_ui_active("gpt", start_connection=True)
             except Exception:
                 pass
         elif eng == "Gemini":
@@ -18862,7 +18916,7 @@ class MainWindow(QMainWindow):
                 self.ed_ai_api_key.setEnabled(True)
                 self.ed_ai_api_key.setPlaceholderText("Gemini API Key")
             try:
-                self._set_ai_provider_ui_active("gemini")
+                self._set_ai_provider_ui_active("gemini", start_connection=True)
             except Exception:
                 pass
         else:
@@ -18871,7 +18925,7 @@ class MainWindow(QMainWindow):
                 self.ed_ai_api_key.setEnabled(False)
                 self.ed_ai_api_key.setPlaceholderText("API Key 불필요")
             try:
-                self._set_ai_provider_ui_active("local")
+                self._set_ai_provider_ui_active("local", start_connection=True)
             except Exception:
                 pass
 
@@ -32032,9 +32086,15 @@ class MainWindow(QMainWindow):
         self._load_basic_ai_settings_to_ui()
         self._wire_basic_ai_status_line_hooks()
 
-        self.gpt_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gpt"))
-        self.gemini_box.clicked.connect(lambda: self._set_ai_provider_ui_active("gemini"))
-        self.local_box.clicked.connect(lambda: self._set_ai_provider_ui_active("local"))
+        self.gpt_box.clicked.connect(
+            lambda: self._set_ai_provider_ui_active("gpt", start_connection=True)
+        )
+        self.gemini_box.clicked.connect(
+            lambda: self._set_ai_provider_ui_active("gemini", start_connection=True)
+        )
+        self.local_box.clicked.connect(
+            lambda: self._set_ai_provider_ui_active("local", start_connection=True)
+        )
         self.btn_test_local_ai.clicked.connect(self._on_test_local_ai)
         try:
             self.ed_openai_key.textChanged.connect(
@@ -32345,7 +32405,8 @@ class MainWindow(QMainWindow):
             ("gemini", self.aits_engine_gemini_card, self.rb_engine_gemini),
         ):
             _radio.toggled.connect(
-                lambda checked, p=_provider: checked and self._set_ai_provider_ui_active(p)
+                lambda checked, p=_provider: checked
+                and self._set_ai_provider_ui_active(p, start_connection=True)
             )
             _card.mousePressEvent = (
                 lambda event, r=_radio: (r.setChecked(True), event.accept())
@@ -33130,7 +33191,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        def _set_common_engine(engine_key: str):
+        def _set_common_engine(engine_key: str, start_connection=True):
             key = _normalize_common_engine(engine_key)
             provider_value = _provider_from_common_engine(key)
             if hasattr(self, "cb_ai_provider"):
@@ -33138,7 +33199,9 @@ class MainWindow(QMainWindow):
                 self.cb_ai_provider.setCurrentText(provider_value)
                 self.cb_ai_provider.blockSignals(False)
             try:
-                self._set_ai_provider_ui_active(provider_value)
+                self._set_ai_provider_ui_active(
+                    provider_value, start_connection=start_connection
+                )
             except Exception:
                 pass
             _sync_common_engine_ui(provider_value)
@@ -33175,9 +33238,13 @@ class MainWindow(QMainWindow):
                 _append_common_engine_log("[AITS] Basic engine ready. No API key required."),
             )
         )
-        self.btn_engine_gpt_test_new.clicked.connect(lambda: _set_common_engine("gpt"))
+        self.btn_engine_gpt_test_new.clicked.connect(
+            lambda: _set_common_engine("gpt", start_connection=False)
+        )
         self.btn_engine_gpt_test_new.clicked.connect(self._on_test_gpt)
-        self.btn_engine_gemini_test_new.clicked.connect(lambda: _set_common_engine("gemini"))
+        self.btn_engine_gemini_test_new.clicked.connect(
+            lambda: _set_common_engine("gemini", start_connection=False)
+        )
         self.btn_engine_gemini_test_new.clicked.connect(self._on_test_gemini)
         self.cb_ai_provider.currentTextChanged.connect(_sync_common_engine_ui)
         _sync_common_engine_ui(getattr(self, "_ai_provider_box_active", "local"))
@@ -33411,7 +33478,7 @@ class MainWindow(QMainWindow):
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
 
-        def _sync_engine_choice_panel(engine_key):
+        def _sync_engine_choice_panel(engine_key, start_connection=True):
             if getattr(self, "_engine_choice_syncing", False):
                 return
             self._engine_choice_syncing = True
@@ -33441,7 +33508,9 @@ class MainWindow(QMainWindow):
                     _button.blockSignals(False)
                     boxes[_key].setVisible(_key == key)
                 try:
-                    self._set_ai_provider_ui_active(provider_value)
+                    self._set_ai_provider_ui_active(
+                        provider_value, start_connection=start_connection
+                    )
                 except Exception:
                     pass
             finally:
@@ -33451,12 +33520,6 @@ class MainWindow(QMainWindow):
         self.btn_engine_openai.clicked.connect(lambda: _sync_engine_choice_panel("openai"))
         self.btn_engine_gemini.clicked.connect(lambda: _sync_engine_choice_panel("gemini"))
         self.btn_engine_local.clicked.connect(lambda: _sync_engine_choice_panel("local"))
-        self.btn_engine_openai_test.clicked.connect(
-            lambda: _sync_engine_choice_panel("openai")
-        )
-        self.btn_engine_gemini_test.clicked.connect(
-            lambda: _sync_engine_choice_panel("gemini")
-        )
         self.btn_engine_local_detail.clicked.connect(_go_basic_detail_settings)
         self.btn_engine_local_ready.clicked.connect(
             lambda: (
@@ -33489,7 +33552,10 @@ class MainWindow(QMainWindow):
                 getattr(self, "_settings", None),
             )
         except Exception:
-            _sync_engine_choice_panel(getattr(self, "_ai_provider_box_active", "local"))
+            _sync_engine_choice_panel(
+                getattr(self, "_ai_provider_box_active", "local"),
+                start_connection=False,
+            )
 
         self.aits_common_upbit_status_label = QLabel("업비트 연결 상태: 대기 중")
         self.aits_common_upbit_status_label.setStyleSheet("font-size: 11px; color: #64748b;")
@@ -33890,7 +33956,9 @@ class MainWindow(QMainWindow):
                 elif hasattr(self, "_set_ai_provider_ui_active"):
                     self._set_ai_provider_ui_active(ai_provider_ui)
                     if hasattr(self, "_sync_engine_choice_panel"):
-                        self._sync_engine_choice_panel(ai_provider_ui)
+                        self._sync_engine_choice_panel(
+                            ai_provider_ui, start_connection=False
+                        )
                 self._log_ai_provider_restore_state("ui_restore_done", ai_provider)
                 try:
                     QTimer.singleShot(
@@ -33975,23 +34043,9 @@ class MainWindow(QMainWindow):
                     else False
                 )
                 if preview_has_key:
-                    if isinstance(st, dict):
-                        preview_model = (
-                            st.get("ai_openai_model", "gpt-5.5-instant")
-                            if preview_provider == "openai"
-                            else st.get("ai_gemini_model", "gemini-2.5-flash")
-                        )
-                    else:
-                        preview_model = (
-                            getattr(st, "ai_openai_model", "gpt-5.5-instant")
-                            if preview_provider == "openai"
-                            else getattr(st, "ai_gemini_model", "gemini-2.5-flash")
-                        )
-                    normalized_provider = self._normalize_ai_provider_code(preview_provider)
-                    self._last_ai_connection_provider = normalized_provider
-                    self._last_ai_connection_status = "저장됨 · 연결 확인 필요"
-                    self._last_ai_connection_source = "stored_unverified"
-                    self._apply_saved_ai_preview(preview_provider, preview_model)
+                    self._activate_ai_provider_preview(
+                        preview_provider, start_connection=True
+                    )
             except Exception:
                 pass
 
@@ -34479,7 +34533,9 @@ class MainWindow(QMainWindow):
             self._selected_ai_provider = "basic" if provider_ui == "local" else provider_ui
             try:
                 if hasattr(self, "_sync_engine_choice_panel"):
-                    self._sync_engine_choice_panel(provider_ui)
+                    self._sync_engine_choice_panel(
+                        provider_ui, start_connection=False
+                    )
                 elif hasattr(self, "_set_ai_provider_ui_active"):
                     self._set_ai_provider_ui_active(provider_ui)
             except Exception:
@@ -34534,18 +34590,29 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _run_ai_startup_connection_check_async(self, provider: str) -> None:
+    def _run_ai_startup_connection_check_async(
+        self, provider: str, api_key: str = "", key_source: str = "stored_secret"
+    ) -> None:
         try:
             provider = self._normalize_saved_ai_provider(provider)
             if provider not in ("openai", "gemini"):
                 return
-            key = self._get_stored_ai_secret(provider)
+            key = (api_key or "").strip() or self._get_stored_ai_secret(provider)
             if not key:
                 return
+            self._ai_preview_connection_token = int(
+                getattr(self, "_ai_preview_connection_token", 0)
+            ) + 1
+            connection_token = self._ai_preview_connection_token
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = "연결 확인 중"
+            self._last_ai_connection_source = key_source
+            self._ai_connection_status = "연결 확인 중"
             self._set_ai_key_status_label(provider, "시작 점검 중")
             self._set_ai_engine_card_test_status(
                 provider,
-                "시작 점검 중",
+                "Preview 연결 확인 중",
                 "확인 중",
                 self._get_selected_ai_model("gpt" if provider == "openai" else provider),
             )
@@ -34584,29 +34651,15 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
 
-                def _apply_status():
-                    try:
-                        if status == "success":
-                            self._set_ai_key_status_label(provider, "연결 확인됨")
-                            self._set_ai_engine_card_test_status(
-                                provider,
-                                "연결 확인됨",
-                                "정상",
-                                model_name,
-                            )
-                        else:
-                            self._set_ai_key_status_label(provider, "연결 확인 필요")
-                            self._set_ai_engine_card_test_status(
-                                provider,
-                                "연결 확인 필요",
-                                "확인 필요",
-                                model_name,
-                            )
-                    except Exception:
-                        pass
-
                 try:
-                    QTimer.singleShot(0, _apply_status)
+                    self._ai_preview_connection_finished.emit(
+                        provider,
+                        status,
+                        error_type,
+                        model_name,
+                        key_source,
+                        connection_token,
+                    )
                 except Exception:
                     pass
 
@@ -34615,6 +34668,34 @@ class MainWindow(QMainWindow):
                 name=f"aits-{provider}-startup-check",
                 daemon=True,
             ).start()
+        except Exception:
+            pass
+
+    def _apply_ai_preview_connection_result(
+        self,
+        provider: str,
+        status: str,
+        error_type: str,
+        model_name: str,
+        key_source: str,
+        connection_token: int,
+    ) -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            if connection_token != getattr(self, "_ai_preview_connection_token", 0):
+                return
+            if normalized_provider != getattr(self, "_selected_ai_provider", ""):
+                return
+            if status == "success":
+                self._set_ai_key_status_label(provider, "연결 확인됨")
+                self._record_ai_connection_result(provider, key_source)
+                return
+            self._set_ai_key_status_label(provider, "연결 확인 필요")
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = "연결 실패 · 재확인 필요"
+            self._last_ai_connection_source = key_source
+            self._ai_connection_status = self._last_ai_connection_status
+            self._render_ai_engine_state()
         except Exception:
             pass
 
