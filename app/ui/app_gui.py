@@ -14388,16 +14388,18 @@ class MainWindow(QMainWindow):
                 f"#aits_local_basic_engine_box {{ background-color: {local_bg}; border: 1px solid {local_border}; border-radius: 8px; padding: 8px; margin-top: 18px; padding-top: 6px; border-top: 1px solid #e2e8f0; }}"
             )
 
-        # 우측상단 배지 + 큰 박스: 선택 엔진 SSOT 기준으로 갱신
+        # Provider selection always establishes the current session Preview.
+        # Boot guards control only whether an API connection check may start.
         try:
-            self._mark_ai_selection_changed(provider)
-        except Exception as e:
-            self._log.warning("[UI-AI-STATUS] ERROR: %s", str(e)[:80])
-        try:
-            if start_connection and bool(getattr(self, "_boot_done", False)) and not bool(
-                getattr(self, "_boot_restoring", False)
-            ):
-                self._activate_ai_provider_preview(provider, start_connection=True)
+            connection_allowed = bool(
+                start_connection
+                and getattr(self, "_boot_done", False)
+                and not getattr(self, "_boot_restoring", False)
+            )
+            self._activate_ai_provider_preview(
+                provider,
+                start_connection=connection_allowed,
+            )
         except Exception as e:
             self._log.warning("[UI-AI-PREVIEW] activate failed: %s", type(e).__name__)
         if local_en:
