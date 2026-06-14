@@ -8197,6 +8197,10 @@ class MainWindow(QMainWindow):
         # 로거 초기화
         import logging
         self._log = logging.getLogger(__name__)
+        self._log.info(
+            "[AITS][RuntimeProof] app_gui_file=%s marker=AITS-RUNTIME-PROOF-01",
+            os.path.abspath(__file__),
+        )
         
         # ✅ BOOT-GUARD: Log UI initialization
         self._ui_init_count += 1
@@ -33584,6 +33588,10 @@ class MainWindow(QMainWindow):
         self.aits_engine_choice_panel.setStyleSheet(
             "QFrame#aits_engine_choice_panel { background: transparent; border: 0px; }"
         )
+        self._log.info(
+            "[AITS][EnginePanelProof] marker=AITS-RUNTIME-PROOF-01 "
+            "panel=aits_engine_choice_panel"
+        )
         _choice_panel_lay = QVBoxLayout(self.aits_engine_choice_panel)
         _choice_panel_lay.setContentsMargins(0, 0, 0, 0)
         _choice_panel_lay.setSpacing(8)
@@ -33755,6 +33763,18 @@ class MainWindow(QMainWindow):
                 self._engine_choice_syncing = False
 
         def _on_provider_engine_panel_click(provider_value: str) -> None:
+            proof_provider = (
+                "openai"
+                if provider_value in ("gpt", "openai")
+                else "basic"
+                if provider_value in ("basic", "local")
+                else provider_value
+            )
+            self._log.info(
+                "[AITS][EnginePanelClick] provider=%s "
+                "marker=AITS-RUNTIME-PROOF-01",
+                proof_provider,
+            )
             self._provider_user_selected = True
             self._trace_provider_state(
                 "provider_panel_click",
