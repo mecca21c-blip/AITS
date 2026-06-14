@@ -14393,7 +14393,6 @@ class MainWindow(QMainWindow):
         try:
             connection_allowed = bool(
                 start_connection
-                and getattr(self, "_boot_done", False)
                 and not getattr(self, "_boot_restoring", False)
             )
             self._activate_ai_provider_preview(
@@ -18636,6 +18635,7 @@ class MainWindow(QMainWindow):
                 "external_preview_active",
                 "key_source",
                 "guard_result",
+                "dispatch_provider",
             }
             extra_parts = []
             for key in sorted(allowed_extra):
@@ -34801,6 +34801,7 @@ class MainWindow(QMainWindow):
             self._trace_provider_state(
                 "auto_connection_start",
                 normalized_provider=normalized_provider,
+                dispatch_provider=provider,
                 key_source=key_source,
                 token=connection_token,
             )
@@ -34880,6 +34881,7 @@ class MainWindow(QMainWindow):
             self._trace_provider_state(
                 "auto_connection_finished",
                 normalized_provider=normalized_provider,
+                dispatch_provider=provider,
                 key_source=key_source,
                 token=connection_token,
                 result_status=status,
