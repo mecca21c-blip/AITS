@@ -14318,6 +14318,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, "cb_ai_provider"):
             self.cb_ai_provider.setCurrentText(provider)
         self._log.info("[AI-BOX] selected=%s", provider)
+        self._trace_provider_state(
+            "set_provider_active",
+            requested_provider=provider,
+            start_connection=start_connection,
+        )
 
         # 박스별 enable/disable
         gpt_only = provider == "gpt"
@@ -18300,6 +18305,10 @@ class MainWindow(QMainWindow):
     def _sync_basic_runtime_status_card(self):
         """Sync BASIC(Local) runtime display labels only; never calls generate/chat."""
         t0 = self._aits_perf_log("_sync_basic_runtime_status_card.enter")
+        self._trace_provider_state(
+            "basic_runtime_sync",
+            guard_result=self._has_active_external_ai_preview(),
+        )
         if getattr(self, "_sync_basic_runtime_status_card_busy", False):
             self._aits_perf_log("_sync_basic_runtime_status_card.skip_busy", t0)
             return
@@ -18575,6 +18584,85 @@ class MainWindow(QMainWindow):
             "gemini": "#7C3AED",
         }.get(p, "#64748B")
 
+    def _trace_provider_state(self, event: str, **extra) -> None:
+        try:
+            trace_flag = str(os.environ.get("AITS_PROVIDER_TRACE", "1") or "1").strip().lower()
+            if trace_flag in ("0", "false", "off", "no"):
+                return
+
+            saved_provider = ""
+            try:
+                strategy = getattr(getattr(self, "_settings", None), "strategy", None)
+                if isinstance(strategy, dict):
+                    saved_provider = str(strategy.get("ai_provider") or "").strip()
+                elif strategy is not None:
+                    saved_provider = str(getattr(strategy, "ai_provider", "") or "").strip()
+            except Exception:
+                saved_provider = ""
+
+            combo_provider = ""
+            try:
+                combo = getattr(self, "cb_ai_provider", None)
+                if combo is not None and hasattr(combo, "currentText"):
+                    combo_provider = str(combo.currentText() or "").strip()
+            except Exception:
+                combo_provider = ""
+
+            try:
+                response_provider = str(self._get_aits_last_response_provider() or "").strip()
+            except Exception:
+                response_provider = ""
+            try:
+                engine_ssot = str(self._get_aits_engine_ssot() or "").strip()
+            except Exception:
+                engine_ssot = ""
+            card_applied = ""
+            try:
+                card_label = getattr(self, "_lbl_engine_card_applied", None)
+                if card_label is not None and hasattr(card_label, "text"):
+                    card_applied = str(card_label.text() or "").strip()[:80]
+            except Exception:
+                card_applied = ""
+
+            allowed_extra = {
+                "requested_provider",
+                "normalized_provider",
+                "start_connection",
+                "token",
+                "result_status",
+                "status_text",
+                "external_preview_active",
+                "key_source",
+                "guard_result",
+            }
+            extra_parts = []
+            for key in sorted(allowed_extra):
+                if key not in extra:
+                    continue
+                value = str(extra.get(key, "") or "").replace("\n", " ")[:80]
+                extra_parts.append(f"{key}={value}")
+
+            fields = [
+                f"event={str(event or '')[:60]}",
+                f"selected_provider={str(getattr(self, '_selected_ai_provider', '') or '')}",
+                f"saved_provider={saved_provider}",
+                f"applied_provider={str(getattr(self, '_applied_ai_provider', '') or '')}",
+                f"applied_is_preview={bool(getattr(self, '_applied_ai_is_preview', False))}",
+                f"applied_model={str(getattr(self, '_applied_ai_model', '') or '')[:80]}",
+                f"connection_provider={str(getattr(self, '_last_ai_connection_provider', '') or '')}",
+                f"connection_status={str(getattr(self, '_last_ai_connection_status', '') or '')[:80]}",
+                f"connection_source={str(getattr(self, '_last_ai_connection_source', '') or '')[:40]}",
+                f"last_response_provider={response_provider}",
+                f"engine_ssot_provider={engine_ssot}",
+                f"ui_active_provider={str(getattr(self, '_ai_provider_box_active', '') or '')}",
+                f"combo_provider={combo_provider}",
+                f"card_applied={card_applied}",
+            ]
+            fields.extend(extra_parts)
+            print("[AITS][ProviderStateTrace] " + " | ".join(fields))
+        except Exception:
+            pass
+
     def _status_badge_color(self, status: str) -> str:
         s = str(status or "").strip()
         if s in ("정상", "확인됨"):
@@ -18644,6 +18732,12 @@ class MainWindow(QMainWindow):
             self._selected_ai_provider = normalized_provider
             self._ai_connection_status = status
             self._ai_engine_last_checked_text = "방금 전"
+            self._trace_provider_state(
+                "record_connection_result",
+                normalized_provider=normalized_provider,
+                key_source=key_source,
+                result_status=status,
+            )
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -18692,6 +18786,10 @@ class MainWindow(QMainWindow):
             else:
                 self._ai_connection_status = "테스트 필요"
                 self._ai_engine_last_checked_text = "미확인"
+            self._trace_provider_state(
+                "apply_saved_preview",
+                normalized_provider=selected_provider,
+            )
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -18700,6 +18798,12 @@ class MainWindow(QMainWindow):
         self, provider: str, start_connection: bool = True
     ) -> None:
         normalized_provider = self._normalize_ai_provider_code(provider)
+        self._trace_provider_state(
+            "activate_preview",
+            requested_provider=provider,
+            normalized_provider=normalized_provider,
+            start_connection=start_connection,
+        )
         selected_model = self._get_selected_ai_model(normalized_provider)
         self._apply_saved_ai_preview(normalized_provider, selected_model)
         if normalized_provider == "basic":
@@ -18757,6 +18861,11 @@ class MainWindow(QMainWindow):
             if external_preview_active:
                 selected_provider = applied_provider
                 selected_model = applied_model
+            self._trace_provider_state(
+                "render_engine_state",
+                normalized_provider=selected_provider,
+                external_preview_active=external_preview_active,
+            )
             status = (getattr(self, "_ai_connection_status", "") or "미확인").strip() or "미확인"
             selected_text = self._ai_provider_label(selected_provider)
             applied_provider_text = (
@@ -26955,6 +27064,10 @@ class MainWindow(QMainWindow):
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                     self.lbl_aits_ai_engine_status.setText(status_text)
                     self._apply_aits_ai_engine_status_line_style(status_text)
+                self._trace_provider_state(
+                    "ai_score_status_before_log",
+                    status_text=status_text,
+                )
                 print(f"[AITS] ai engine status={status_text}")
                 try:
                     self._update_aits_ops_summary()
@@ -26982,6 +27095,10 @@ class MainWindow(QMainWindow):
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                     self.lbl_aits_ai_engine_status.setText(status_text)
                     self._apply_aits_ai_engine_status_line_style(status_text)
+                self._trace_provider_state(
+                    "ai_score_status_before_log",
+                    status_text=status_text,
+                )
                 print(f"[AITS] ai engine status={status_text}")
                 try:
                     self._update_aits_ops_summary()
@@ -27025,6 +27142,10 @@ class MainWindow(QMainWindow):
             if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                 self.lbl_aits_ai_engine_status.setText(status_text)
                 self._apply_aits_ai_engine_status_line_style(status_text)
+            self._trace_provider_state(
+                "ai_score_status_before_log",
+                status_text=status_text,
+            )
             print(f"[AITS] ai engine status={status_text}")
             try:
                 cand_syms = []
@@ -33540,6 +33661,11 @@ class MainWindow(QMainWindow):
             self._engine_choice_syncing = True
             key = _normalize_engine_choice(engine_key)
             provider_value = _provider_from_engine_choice(key)
+            self._trace_provider_state(
+                "provider_click_sync_start",
+                requested_provider=provider_value,
+                start_connection=start_connection,
+            )
             try:
                 selected = {
                     "openai": self.btn_engine_openai,
@@ -33570,6 +33696,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             finally:
+                self._trace_provider_state(
+                    "provider_click_sync_end",
+                    requested_provider=provider_value,
+                    start_connection=start_connection,
+                )
                 self._engine_choice_syncing = False
 
         self._sync_engine_choice_panel = _sync_engine_choice_panel
@@ -34665,6 +34796,12 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_status = "연결 확인 중"
             self._last_ai_connection_source = key_source
             self._ai_connection_status = "연결 확인 중"
+            self._trace_provider_state(
+                "auto_connection_start",
+                normalized_provider=normalized_provider,
+                key_source=key_source,
+                token=connection_token,
+            )
             self._set_ai_key_status_label(provider, "시작 점검 중")
             self._set_ai_engine_card_test_status(
                 provider,
@@ -34738,9 +34875,28 @@ class MainWindow(QMainWindow):
     ) -> None:
         try:
             normalized_provider = self._normalize_ai_provider_code(provider)
+            self._trace_provider_state(
+                "auto_connection_finished",
+                normalized_provider=normalized_provider,
+                key_source=key_source,
+                token=connection_token,
+                result_status=status,
+            )
             if connection_token != getattr(self, "_ai_preview_connection_token", 0):
+                self._trace_provider_state(
+                    "auto_connection_finished_ignored",
+                    normalized_provider=normalized_provider,
+                    token=connection_token,
+                    guard_result="stale_token",
+                )
                 return
             if normalized_provider != getattr(self, "_selected_ai_provider", ""):
+                self._trace_provider_state(
+                    "auto_connection_finished_ignored",
+                    normalized_provider=normalized_provider,
+                    token=connection_token,
+                    guard_result="provider_changed",
+                )
                 return
             if status == "success":
                 self._set_ai_key_status_label(provider, "연결 확인됨")
