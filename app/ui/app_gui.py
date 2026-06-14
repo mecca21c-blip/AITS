@@ -13913,6 +13913,9 @@ class MainWindow(QMainWindow):
     # 현재 단계는 "무슨 엔진을 선택했는지" 정확히 보여주는 것이 목적이다.
 
     def _update_engine_status_box(self):
+        """Delegate legacy engine-box refreshes to the provider renderer."""
+        self._render_ai_engine_state()
+        return
         """새로고침 오른쪽 큰 박스: 선택 엔진 종류(SSOT)만 표시. 모델명은 표기하지 않음."""
         try:
             if not getattr(self, "_engine_ui_unified_done", False):
@@ -13958,6 +13961,9 @@ class MainWindow(QMainWindow):
             self._log.debug("[ENGINE-UI] box err=%s", str(e)[:80])
 
     def _update_aits_ops_summary(self):
+        """Delegate legacy summary refreshes to the provider renderer."""
+        self._render_ai_engine_state()
+        return
         """E-1: 선택/실제/연결/모드 한 줄 운영 신뢰 바 + 우측 엔진 카드 동기화."""
         try:
             w = getattr(self, "lbl_aits_ops_summary", None)
@@ -18753,18 +18759,16 @@ class MainWindow(QMainWindow):
 
     def _mark_ai_selection_changed(self, provider: str = ""):
         try:
+            requested_provider = self._normalize_ai_provider_code(provider)
             selected_provider = self._normalize_ai_provider_code(
-                provider or getattr(self, "_ai_provider_box_active", "basic")
+                getattr(self, "_selected_ai_provider", "basic")
             )
-            self._selected_ai_provider = selected_provider
-            self._selected_ai_model = self._get_selected_ai_model(selected_provider)
-            if selected_provider == getattr(self, "_last_ai_connection_provider", ""):
-                self._ai_connection_status = (
-                    getattr(self, "_last_ai_connection_status", "") or "테스트 필요"
-                )
-            else:
-                self._ai_connection_status = "테스트 필요"
-                self._ai_engine_last_checked_text = "미확인"
+            if requested_provider != selected_provider:
+                return
+            selected_model = self._get_selected_ai_model(selected_provider)
+            self._selected_ai_model = selected_model
+            if bool(getattr(self, "_applied_ai_is_preview", False)):
+                self._applied_ai_model = selected_model
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -18779,6 +18783,16 @@ class MainWindow(QMainWindow):
     def _record_ai_connection_result(self, provider: str, key_source: str) -> None:
         try:
             normalized_provider = self._normalize_ai_provider_code(provider)
+            selected_provider = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+            if normalized_provider != selected_provider:
+                self._trace_provider_state(
+                    "record_connection_result_ignored",
+                    normalized_provider=normalized_provider,
+                    guard_result="provider_changed",
+                )
+                return
             status = {
                 "ui_input": "확인됨 · 저장 필요",
                 "pending_verified": "확인됨 · 저장 필요",
@@ -18788,7 +18802,6 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = status
             self._last_ai_connection_source = (key_source or "").strip()
-            self._selected_ai_provider = normalized_provider
             self._ai_connection_status = status
             self._ai_engine_last_checked_text = "방금 전"
             self._trace_provider_state(
@@ -18797,32 +18810,6 @@ class MainWindow(QMainWindow):
                 key_source=key_source,
                 result_status=status,
             )
-            self._render_ai_engine_state()
-        except Exception:
-            pass
-
-    def _apply_selected_ai_engine(self, provider: str = "", model: str = ""):
-        try:
-            selected_provider = self._normalize_ai_provider_code(
-                provider or getattr(self, "_selected_ai_provider", "basic")
-            )
-            self._selected_ai_provider = selected_provider
-            if model:
-                self._selected_ai_model = model
-            else:
-                self._selected_ai_model = self._get_selected_ai_model(selected_provider)
-            self._applied_ai_provider = selected_provider
-            self._applied_ai_model = self._selected_ai_model
-            self._applied_ai_is_preview = False
-            self._ai_connection_status = "정상"
-            self._ai_engine_last_checked_text = "방금 전"
-            self._active_ai_engine = selected_provider
-            if selected_provider == "basic":
-                self._last_response_provider = "basic"
-            elif selected_provider == "gpt":
-                self._last_response_provider = "gpt"
-            elif selected_provider == "gemini":
-                self._last_response_provider = "gemini"
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -19066,12 +19053,11 @@ class MainWindow(QMainWindow):
     ):
         try:
             p = self._normalize_ai_provider_code(provider)
-            if p in ("gpt", "gemini", "basic"):
-                self._selected_ai_provider = p
-            if model_name:
-                self._selected_ai_model = model_name
-            else:
-                self._selected_ai_model = self._get_selected_ai_model(p)
+            selected_provider = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+            if p != selected_provider:
+                return
             text = f"{connection} {state}".strip()
             if "성공" in text or "확인됨" in text or "정상" in text:
                 self._ai_connection_status = "확인됨"
@@ -31827,9 +31813,7 @@ class MainWindow(QMainWindow):
         self.ai_engine_legacy_widget.setLayout(ai_engine_form)
         self.ai_engine_legacy_widget.setVisible(False)
         v.addRow(self.ai_engine_legacy_widget)
-        self.cmb_ai_engine.currentTextChanged.connect(self._on_ai_engine_changed)
         self.btn_test_connection.clicked.connect(self._on_test_connection_clicked)
-        self._on_ai_engine_changed(self.cmb_ai_engine.currentText())
         
         # GPT 박스 / LOCAL 박스 분리 (선택한 박스만 활성화·저장, 콤보는 내부 동기화용만 사용)
         self._ai_provider_box_active = "local"
@@ -32334,15 +32318,6 @@ class MainWindow(QMainWindow):
         self._load_basic_ai_settings_to_ui()
         self._wire_basic_ai_status_line_hooks()
 
-        self.gpt_box.clicked.connect(
-            lambda: self._set_ai_provider_ui_active("gpt", start_connection=True)
-        )
-        self.gemini_box.clicked.connect(
-            lambda: self._set_ai_provider_ui_active("gemini", start_connection=True)
-        )
-        self.local_box.clicked.connect(
-            lambda: self._set_ai_provider_ui_active("local", start_connection=True)
-        )
         self.btn_test_local_ai.clicked.connect(self._on_test_local_ai)
         try:
             self.ed_openai_key.textChanged.connect(
@@ -32376,8 +32351,6 @@ class MainWindow(QMainWindow):
         self.btn_install_qwen.clicked.connect(lambda: self._on_install_ollama_model("qwen2.5"))
         self.btn_install_llama.clicked.connect(lambda: self._on_install_ollama_model("llama3.1"))
         self.btn_install_mistral.clicked.connect(lambda: self._on_install_ollama_model("mistral"))
-
-        self.cb_ai_provider.currentTextChanged.connect(self._set_ai_provider_ui_active)
 
         try:
             for _tb in (
@@ -33439,21 +33412,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-        def _set_common_engine(engine_key: str, start_connection=True):
-            key = _normalize_common_engine(engine_key)
-            provider_value = _provider_from_common_engine(key)
-            if hasattr(self, "cb_ai_provider"):
-                self.cb_ai_provider.blockSignals(True)
-                self.cb_ai_provider.setCurrentText(provider_value)
-                self.cb_ai_provider.blockSignals(False)
-            try:
-                self._set_ai_provider_ui_active(
-                    provider_value, start_connection=start_connection
-                )
-            except Exception:
-                pass
-            _sync_common_engine_ui(provider_value)
-
         self.engine_select_group = self.engine_select_group_new
         self.engine_select_group.setExclusive(True)
         try:
@@ -33462,18 +33420,6 @@ class MainWindow(QMainWindow):
             self.rb_engine_gemini_new.toggled.disconnect()
         except Exception:
             pass
-        self.rb_engine_basic_new.toggled.connect(lambda checked: checked and _set_common_engine("basic"))
-        self.rb_engine_gpt_new.toggled.connect(lambda checked: checked and _set_common_engine("gpt"))
-        self.rb_engine_gemini_new.toggled.connect(lambda checked: checked and _set_common_engine("gemini"))
-        self.card_engine_basic_new.mousePressEvent = (
-            lambda event: (_set_common_engine("basic"), event.accept())
-        )
-        self.card_engine_gpt_new.mousePressEvent = (
-            lambda event: (_set_common_engine("gpt"), event.accept())
-        )
-        self.card_engine_gemini_new.mousePressEvent = (
-            lambda event: (_set_common_engine("gemini"), event.accept())
-        )
         try:
             self.btn_engine_basic_test_new.clicked.disconnect()
             self.btn_engine_gpt_test_new.clicked.disconnect()
@@ -33481,20 +33427,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.btn_engine_basic_test_new.clicked.connect(
-            lambda: (
-                _set_common_engine("basic"),
-                _append_common_engine_log("[AITS] Basic engine ready. No API key required."),
+            lambda: _append_common_engine_log(
+                "[AITS] Basic engine ready. No API key required."
             )
         )
-        self.btn_engine_gpt_test_new.clicked.connect(
-            lambda: _set_common_engine("gpt", start_connection=False)
-        )
         self.btn_engine_gpt_test_new.clicked.connect(self._on_test_gpt)
-        self.btn_engine_gemini_test_new.clicked.connect(
-            lambda: _set_common_engine("gemini", start_connection=False)
-        )
         self.btn_engine_gemini_test_new.clicked.connect(self._on_test_gemini)
-        self.cb_ai_provider.currentTextChanged.connect(_sync_common_engine_ui)
         _sync_common_engine_ui(getattr(self, "_ai_provider_box_active", "local"))
 
         def _hide_old_engine_choice_widget(widget):
@@ -33531,6 +33469,43 @@ class MainWindow(QMainWindow):
         ):
             _hide_old_engine_choice_widget(_old_engine_widget)
         _hide_old_engine_choice_widget(getattr(self, "btn_save", None))
+        for _legacy_radio in (
+            getattr(self, "rb_engine_basic", None),
+            getattr(self, "rb_engine_gpt", None),
+            getattr(self, "rb_engine_gemini", None),
+            getattr(self, "rb_engine_basic_new", None),
+            getattr(self, "rb_engine_gpt_new", None),
+            getattr(self, "rb_engine_gemini_new", None),
+        ):
+            try:
+                _legacy_radio.toggled.disconnect()
+            except Exception:
+                pass
+        for _legacy_box in (
+            getattr(self, "gpt_box", None),
+            getattr(self, "gemini_box", None),
+            getattr(self, "local_box", None),
+        ):
+            try:
+                _legacy_box.clicked.disconnect()
+            except Exception:
+                pass
+        for _legacy_card in (
+            getattr(self, "aits_engine_basic_card", None),
+            getattr(self, "aits_engine_gpt_card", None),
+            getattr(self, "aits_engine_gemini_card", None),
+            getattr(self, "card_engine_basic_new", None),
+            getattr(self, "card_engine_gpt_new", None),
+            getattr(self, "card_engine_gemini_new", None),
+        ):
+            try:
+                _legacy_card.mousePressEvent = lambda event: event.ignore()
+            except Exception:
+                pass
+        try:
+            self.cmb_ai_engine.currentTextChanged.disconnect()
+        except Exception:
+            pass
 
         def _normalize_engine_choice(value):
             key = str(value or "").strip().lower()
@@ -34823,6 +34798,12 @@ class MainWindow(QMainWindow):
             st = getattr(settings, "strategy", None) if settings is not None else None
             if not provider and st is not None:
                 provider = st.get("ai_provider", "") if isinstance(st, dict) else getattr(st, "ai_provider", "")
+            if (
+                reason == "settings_restore"
+                and bool(getattr(self, "_provider_user_selected", False))
+            ):
+                provider = getattr(self, "_selected_ai_provider", provider)
+                reason = "settings_restore_user_selection"
             provider_saved = self._normalize_saved_ai_provider(provider)
             provider_ui = self._normalize_provider_for_ui(provider_saved)
 
@@ -34876,31 +34857,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             return False
-
-    def _schedule_ai_startup_connection_check(self, settings=None) -> None:
-        try:
-            settings = settings or getattr(self, "_settings", None)
-            st = getattr(settings, "strategy", None) if settings is not None else None
-            provider = ""
-            if isinstance(st, dict):
-                provider = str(st.get("ai_provider") or "").strip()
-            elif st is not None:
-                provider = str(getattr(st, "ai_provider", "") or "").strip()
-            provider = self._normalize_saved_ai_provider(provider)
-            if provider not in ("openai", "gemini"):
-                return
-            key_present = bool(self._get_stored_ai_secret(provider))
-            if not key_present:
-                return
-            if bool(getattr(self, "_ai_startup_connection_check_scheduled", False)):
-                return
-            self._ai_startup_connection_check_scheduled = True
-            QTimer.singleShot(
-                1800,
-                lambda p=provider: self._run_ai_startup_connection_check_async(p),
-            )
-        except Exception:
-            pass
 
     def _run_ai_startup_connection_check_async(
         self, provider: str, api_key: str = "", key_source: str = "stored_secret"
@@ -35113,114 +35069,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return "basic"
-
-    def _persist_openai_provider_selection_after_test(self, api_key: str, model: str) -> bool:
-        """Persist OpenAI as the strategy provider after a successful key test."""
-        try:
-            api_key = str(api_key or "").strip()
-            model = str(model or "").strip() or "gpt-5.5-instant"
-            if not api_key:
-                return False
-            existing = self._read_common_ai_raw_strategy_for_ui()
-            fields = {
-                "ai_provider": "openai",
-                "ai_openai_api_key": api_key,
-                "ai_gemini_api_key": self._get_stored_ai_secret("gemini"),
-                "ai_openai_model": model,
-                "ai_gemini_model": existing.get("ai_gemini_model", "gemini-2.5-flash"),
-            }
-            ok, save_path, load_path = self._persist_common_ai_settings_direct(fields)
-            if not ok:
-                return False
-            try:
-                self._settings = self._get_settings_cached(force=True)
-            except Exception:
-                try:
-                    from app.utils.prefs import load_settings
-
-                    self._settings = load_settings()
-                except Exception:
-                    pass
-            try:
-                self._selected_ai_provider = "gpt"
-                self._applied_ai_provider = "gpt"
-                self._ai_provider_box_active = "gpt"
-                if hasattr(self, "cb_ai_provider"):
-                    self.cb_ai_provider.blockSignals(True)
-                    self.cb_ai_provider.setCurrentText("gpt")
-                    self.cb_ai_provider.blockSignals(False)
-                self._render_ai_engine_state()
-            except Exception:
-                pass
-            self._log.info(
-                "[AITS][OpenAIKeySave] provider=openai | openai_key_present=%s | path_same=%s",
-                bool(api_key),
-                save_path == load_path,
-            )
-            return True
-        except Exception as exc:
-            try:
-                self._log.warning(
-                    "[AITS][OpenAIKeySave] status=failed | error_type=%s",
-                    type(exc).__name__,
-                )
-            except Exception:
-                pass
-            return False
-
-    def _persist_gemini_provider_selection_after_test(self, api_key: str, model: str) -> bool:
-        """Persist Gemini as the strategy provider after a successful key test."""
-        try:
-            api_key = str(api_key or "").strip()
-            model = str(model or "").strip() or "gemini-2.5-flash"
-            if not api_key:
-                return False
-            existing = self._read_common_ai_raw_strategy_for_ui()
-            fields = {
-                "ai_provider": "gemini",
-                "ai_openai_api_key": self._get_stored_ai_secret("openai"),
-                "ai_gemini_api_key": api_key,
-                "ai_openai_model": existing.get("ai_openai_model", "gpt-5.5-instant"),
-                "ai_gemini_model": model,
-            }
-            ok, save_path, load_path = self._persist_common_ai_settings_direct(fields)
-            if not ok:
-                return False
-            try:
-                self._settings = self._get_settings_cached(force=True)
-            except Exception:
-                try:
-                    from app.utils.prefs import load_settings
-
-                    self._settings = load_settings()
-                except Exception:
-                    pass
-            try:
-                self._selected_ai_provider = "gemini"
-                self._applied_ai_provider = "gemini"
-                self._ai_provider_box_active = "gemini"
-                if hasattr(self, "cb_ai_provider"):
-                    self.cb_ai_provider.blockSignals(True)
-                    self.cb_ai_provider.setCurrentText("gemini")
-                    self.cb_ai_provider.blockSignals(False)
-                self._render_ai_engine_state()
-            except Exception:
-                pass
-            self._log.info(
-                "[AITS][GeminiKeySave] provider=gemini | gemini_key_present=%s | path_same=%s",
-                bool(api_key),
-                save_path == load_path,
-            )
-            return True
-        except Exception as exc:
-            try:
-                self._log.warning(
-                    "[AITS][GeminiKeySave] status=failed | error_type=%s",
-                    type(exc).__name__,
-                )
-            except Exception:
-                pass
-            return False
 
     def _on_save_settings(self) -> None:
         # ✅ P0-B: Log save button text before and after
