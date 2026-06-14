@@ -8197,10 +8197,12 @@ class MainWindow(QMainWindow):
         # 로거 초기화
         import logging
         self._log = logging.getLogger(__name__)
-        self._log.info(
-            "[AITS][RuntimeProof] app_gui_file=%s marker=AITS-RUNTIME-PROOF-01",
-            os.path.abspath(__file__),
+        runtime_proof = (
+            f"[AITS][RuntimeProof] app_gui_file={os.path.abspath(__file__)} "
+            "marker=AITS-RUNTIME-PROOF-01"
         )
+        print(runtime_proof, flush=True)
+        self._log.info(runtime_proof)
         
         # ✅ BOOT-GUARD: Log UI initialization
         self._ui_init_count += 1
@@ -14391,12 +14393,6 @@ class MainWindow(QMainWindow):
             provider = "local"
         elif provider not in ("gpt", "gemini", "local"):
             provider = "local"
-        if hasattr(self, "cb_ai_provider"):
-            previous_blocked = self.cb_ai_provider.blockSignals(True)
-            try:
-                self.cb_ai_provider.setCurrentText(provider)
-            finally:
-                self.cb_ai_provider.blockSignals(previous_blocked)
         self._log.info("[AI-BOX] selected=%s", provider)
         self._trace_provider_state(
             "set_provider_active",
@@ -18668,13 +18664,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 saved_provider = ""
 
-            combo_provider = ""
-            try:
-                combo = getattr(self, "cb_ai_provider", None)
-                if combo is not None and hasattr(combo, "currentText"):
-                    combo_provider = str(combo.currentText() or "").strip()
-            except Exception:
-                combo_provider = ""
+            combo_provider = str(
+                getattr(self, "_ai_provider_box_active", "") or ""
+            ).strip()
 
             try:
                 response_provider = str(self._get_aits_last_response_provider() or "").strip()
@@ -19134,15 +19126,7 @@ class MainWindow(QMainWindow):
     def _on_ai_analysis_dryrun_test(self):
         provider = "local"
         try:
-            provider = (
-                getattr(self, "_ai_provider_box_active", "")
-                or (
-                    self.cb_ai_provider.currentText()
-                    if hasattr(self, "cb_ai_provider")
-                    else ""
-                )
-                or "local"
-            )
+            provider = getattr(self, "_ai_provider_box_active", "") or "local"
             provider = str(provider or "local").strip().lower()
         except Exception:
             provider = "local"
@@ -28592,16 +28576,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 raw = ""
 
-        # 2) 보정: cb_ai_provider (하위 호환)
-        if not raw:
-            try:
-                obj = getattr(self, "cb_ai_provider", None)
-                if obj is not None and hasattr(obj, "currentText"):
-                    raw = str(obj.currentText() or "").strip().lower()
-            except Exception:
-                raw = ""
-
-        # 3) 정규화
+        # 2) 정규화
         if raw in ("local", "basic", "basic ai", "basic_ai"):
             return "basic"
         if raw in ("gemini", "google", "google gemini"):
@@ -29469,10 +29444,8 @@ class MainWindow(QMainWindow):
                 pass
 
         try:
-            prov = (
-                getattr(self, "cb_ai_provider", None)
-                and self.cb_ai_provider.currentText()
-                or ""
+            prov = str(
+                getattr(self, "_ai_provider_box_active", "") or ""
             ).strip().lower()
 
             engine_mode = "gpt"
@@ -31819,12 +31792,12 @@ class MainWindow(QMainWindow):
         v.addRow(self.ai_engine_legacy_widget)
         self.btn_test_connection.clicked.connect(self._on_test_connection_clicked)
         
-        # GPT 박스 / LOCAL 박스 분리 (선택한 박스만 활성화·저장, 콤보는 내부 동기화용만 사용)
+        # Legacy-only combo retained for the hidden form; it is not a provider owner.
         self._ai_provider_box_active = "local"
         self.cb_ai_provider = QComboBox()
         self.cb_ai_provider.addItems(["gpt", "gemini", "local"])
-        self.cb_ai_provider.setCurrentText("local")
         self.cb_ai_provider.setMaximumWidth(220)
+        self.cb_ai_provider.setEnabled(False)
 
         self.ed_openai_key = QLineEdit()
         self.ed_openai_key.setEchoMode(QLineEdit.Password)
@@ -33588,10 +33561,12 @@ class MainWindow(QMainWindow):
         self.aits_engine_choice_panel.setStyleSheet(
             "QFrame#aits_engine_choice_panel { background: transparent; border: 0px; }"
         )
-        self._log.info(
+        engine_panel_proof = (
             "[AITS][EnginePanelProof] marker=AITS-RUNTIME-PROOF-01 "
             "panel=aits_engine_choice_panel"
         )
+        print(engine_panel_proof, flush=True)
+        self._log.info(engine_panel_proof)
         _choice_panel_lay = QVBoxLayout(self.aits_engine_choice_panel)
         _choice_panel_lay.setContentsMargins(0, 0, 0, 0)
         _choice_panel_lay.setSpacing(8)
@@ -33770,11 +33745,12 @@ class MainWindow(QMainWindow):
                 if provider_value in ("basic", "local")
                 else provider_value
             )
-            self._log.info(
-                "[AITS][EnginePanelClick] provider=%s "
-                "marker=AITS-RUNTIME-PROOF-01",
-                proof_provider,
+            click_proof = (
+                f"[AITS][EnginePanelClick] provider={proof_provider} "
+                "marker=AITS-RUNTIME-PROOF-01"
             )
+            print(click_proof, flush=True)
+            self._log.info(click_proof)
             self._provider_user_selected = True
             self._trace_provider_state(
                 "provider_panel_click",
@@ -33821,19 +33797,6 @@ class MainWindow(QMainWindow):
                 _append_engine_choice_log("[AITS] BASIC(Local) runtime status checked."),
             )
         )
-        try:
-            self.cb_ai_provider.currentTextChanged.disconnect()
-        except Exception:
-            pass
-        self.cb_ai_provider.currentTextChanged.connect(
-            lambda provider: _sync_engine_choice_panel(
-                provider,
-                start_connection=True,
-                select_session=True,
-                reason="provider_combo_change",
-            )
-        )
-
         _choice_panel_lay.addWidget(self.btn_engine_openai)
         _choice_panel_lay.addWidget(self.box_engine_openai_settings)
         _choice_panel_lay.addWidget(self.btn_engine_gemini)
@@ -34132,8 +34095,6 @@ class MainWindow(QMainWindow):
                 ai_local_model = (st_dict.get("ai_local_model") or "qwen2.5").strip() or "qwen2.5"
                 self._log.info("[AI-SSOT] prefs_loaded ai_provider=%s local_url_len=%s",
                     ai_provider, len(ai_local_url))
-                if hasattr(self, "cb_ai_provider"):
-                    self.cb_ai_provider.setCurrentText(ai_provider_ui)
                 if hasattr(self, "inp_local_url"):
                     self.inp_local_url.setText(ai_local_url)
                 if hasattr(self, "cmb_local_model") and ai_local_model in ("llama3.1", "qwen2.5", "mistral"):
@@ -34827,10 +34788,6 @@ class MainWindow(QMainWindow):
             provider_saved = self._normalize_saved_ai_provider(provider)
             provider_ui = self._normalize_provider_for_ui(provider_saved)
 
-            if hasattr(self, "cb_ai_provider"):
-                self.cb_ai_provider.blockSignals(True)
-                self.cb_ai_provider.setCurrentText(provider_ui)
-                self.cb_ai_provider.blockSignals(False)
             if hasattr(self, "cmb_ai_engine"):
                 engine_text = {
                     "gpt": "OpenAI",
@@ -35060,14 +35017,6 @@ class MainWindow(QMainWindow):
                     return self._normalize_saved_ai_provider(val)
             except Exception:
                 pass
-        try:
-            combo = getattr(self, "cb_ai_provider", None)
-            if combo is not None and hasattr(combo, "currentText"):
-                val = str(combo.currentText() or "").strip()
-                if val:
-                    return self._normalize_saved_ai_provider(val)
-        except Exception:
-            pass
         for attr in ("_selected_ai_provider", "_applied_ai_provider"):
             try:
                 val = str(getattr(self, attr, "") or "").strip()
@@ -35854,7 +35803,9 @@ class MainWindow(QMainWindow):
 
     def _on_test_local_ai(self):
         """provider=local일 때 로컬 AI(Ollama) 연결 테스트. tags → generate 순서."""
-        provider = self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local"
+        provider = str(
+            getattr(self, "_ai_provider_box_active", "local") or "local"
+        ).strip().lower()
         if provider != "local":
             QMessageBox.information(self, "로컬 AI 테스트", "AI Provider가 local일 때만 테스트할 수 있습니다.")
             return
@@ -36437,7 +36388,9 @@ class MainWindow(QMainWindow):
     def _on_gpt_poll_tick(self):
         """2초마다: GPT 모드일 때만 ai_reco.poll_gpt_future() 호출 → 완료 시 캐시/state/publish로 READY 전환."""
         try:
-            p = (getattr(self, "cb_ai_provider", None) and self.cb_ai_provider.currentText() or "").strip().lower()
+            p = str(
+                getattr(self, "_ai_provider_box_active", "") or ""
+            ).strip().lower()
             if p != "gpt":
                 return
             from app.services import ai_reco
@@ -37640,8 +37593,7 @@ class MainWindow(QMainWindow):
 
                 selected_provider = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
                 if selected_provider not in ("gpt", "gemini", "local"):
-                    selected_provider = (self.cb_ai_provider.currentText() if hasattr(self, "cb_ai_provider") else "local")
-                    selected_provider = (selected_provider or "local").strip().lower()
+                    selected_provider = "local"
                 selected_active = "local" if selected_provider == "local" else selected_provider
                 current_active = (getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
                 if current_active == "basic":
