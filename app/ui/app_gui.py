@@ -33780,6 +33780,7 @@ class MainWindow(QMainWindow):
                 self._engine_choice_syncing = False
 
         def _on_provider_engine_panel_click(provider_value: str) -> None:
+            self._provider_user_selected = True
             self._trace_provider_state(
                 "provider_panel_click",
                 requested_provider=provider_value,
@@ -34268,15 +34269,6 @@ class MainWindow(QMainWindow):
                             ai_provider_ui, start_connection=False
                         )
                 self._log_ai_provider_restore_state("ui_restore_done", ai_provider)
-                try:
-                    QTimer.singleShot(
-                        0,
-                        lambda _p=ai_provider: self._sync_ai_provider_ui_from_settings(
-                            _p, getattr(self, "_settings", None)
-                        ),
-                    )
-                except Exception:
-                    pass
             except Exception:
                 pass
 
@@ -34341,19 +34333,24 @@ class MainWindow(QMainWindow):
                     else ""
                 )
                 self._settings = settings
-                self._sync_ai_provider_ui_from_settings(provider, settings)
-                preview_provider = self._normalize_saved_ai_provider(provider)
-                preview_has_key = (
-                    openai_has_key
-                    if preview_provider == "openai"
-                    else gemini_has_key
-                    if preview_provider == "gemini"
-                    else False
-                )
-                if preview_has_key:
-                    self._activate_ai_provider_preview(
-                        preview_provider, start_connection=True
+                restore_provider = provider
+                restore_reason = "startup_restore"
+                if bool(getattr(self, "_provider_user_selected", False)):
+                    restore_provider = getattr(
+                        self, "_selected_ai_provider", provider
                     )
+                    restore_reason = "startup_restore_user_selection"
+                self._trace_provider_state(
+                    "startup_restore",
+                    requested_provider=restore_provider,
+                    start_connection=True,
+                )
+                self._sync_ai_provider_ui_from_settings(
+                    restore_provider,
+                    settings,
+                    start_connection=True,
+                    reason=restore_reason,
+                )
             except Exception:
                 pass
 
@@ -34814,7 +34811,13 @@ class MainWindow(QMainWindow):
         except Exception:
             return False, False
 
-    def _sync_ai_provider_ui_from_settings(self, provider: str = "", settings=None) -> bool:
+    def _sync_ai_provider_ui_from_settings(
+        self,
+        provider: str = "",
+        settings=None,
+        start_connection: bool = False,
+        reason: str = "settings_restore",
+    ) -> bool:
         try:
             settings = settings or getattr(self, "_settings", None)
             st = getattr(settings, "strategy", None) if settings is not None else None
@@ -34840,16 +34843,19 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, "_sync_engine_choice_panel"):
                     self._sync_engine_choice_panel(
-                        provider_ui, start_connection=False
+                        provider_ui,
+                        start_connection=start_connection,
+                        select_session=False,
+                        reason="settings_visual_restore",
                     )
-                elif hasattr(self, "_set_ai_provider_ui_active"):
-                    self._set_ai_provider_ui_active(provider_ui)
             except Exception:
-                try:
-                    self._set_ai_provider_ui_active(provider_ui)
-                except Exception:
-                    pass
+                pass
             openai_masked, gemini_masked = self._restore_ai_key_masking_from_settings(settings)
+            self._select_ai_provider_for_session(
+                provider_saved,
+                reason=reason,
+                start_connection=start_connection,
+            )
             try:
                 self._log.info(
                     "[AITS][AIProviderUIRestore] provider=%s | ui=%s | openai_masked=%s | gemini_masked=%s | ok=True",
@@ -35629,30 +35635,7 @@ class MainWindow(QMainWindow):
                     "API Key 저장됨"
                     if _verify_gemini_has_key else "API Key 미입력",
                 )
-                self._sync_ai_provider_ui_from_settings(ui_ai_provider, self._settings)
-                saved_preview_model = (
-                    common_ai_fields.get("ai_openai_model", "gpt-5.5-instant")
-                    if ui_ai_provider == "openai"
-                    else common_ai_fields.get("ai_gemini_model", "gemini-2.5-flash")
-                    if ui_ai_provider == "gemini"
-                    else patch.get("strategy", {}).get("ai_local_model", "qwen2.5")
-                )
-                saved_preview_provider = self._normalize_ai_provider_code(ui_ai_provider)
-                saved_provider_has_key = (
-                    _verify_openai_has_key
-                    if saved_preview_provider == "gpt"
-                    else _verify_gemini_has_key
-                    if saved_preview_provider == "gemini"
-                    else False
-                )
-                if (
-                    saved_provider_has_key
-                    and saved_preview_provider
-                    == getattr(self, "_last_ai_connection_provider", "")
-                ):
-                    self._last_ai_connection_status = "저장된 Key 확인됨"
-                    self._last_ai_connection_source = "stored_secret"
-                self._apply_saved_ai_preview(ui_ai_provider, saved_preview_model)
+                self._render_ai_engine_state()
             except Exception:
                 pass
 
