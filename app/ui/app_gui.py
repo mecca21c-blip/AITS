@@ -14294,9 +14294,83 @@ class MainWindow(QMainWindow):
             pass
         self._aits_perf_log("_update_ai_status.end", _aits_t0)
 
+    def _select_ai_provider_for_session(
+        self,
+        provider: str,
+        reason: str = "ui_selection",
+        start_connection: bool = True,
+    ) -> None:
+        if getattr(self, "_provider_session_selecting", False):
+            return
+        self._provider_session_selecting = True
+        try:
+            canonical_provider = self._normalize_ai_provider_code(provider)
+            ui_provider = "local" if canonical_provider == "basic" else canonical_provider
+            previous_provider = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+            previous_applied = self._normalize_ai_provider_code(
+                getattr(self, "_applied_ai_provider", "basic")
+            )
+            previous_connection = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_connection_provider", "basic")
+            )
+            provider_changed = any(
+                current != canonical_provider
+                for current in (
+                    previous_provider,
+                    previous_applied,
+                    previous_connection,
+                )
+            )
+            if provider_changed:
+                self._ai_preview_connection_token = int(
+                    getattr(self, "_ai_preview_connection_token", 0)
+                ) + 1
+                self._last_ai_connection_provider = canonical_provider
+                self._last_ai_connection_status = ""
+                self._last_ai_connection_source = ""
+                self._ai_connection_status = "테스트 필요"
+
+            self._selected_ai_provider = canonical_provider
+            self._ai_provider_box_active = ui_provider
+            self._selected_ai_model = self._get_selected_ai_model(canonical_provider)
+            self._set_ai_provider_ui_active(
+                ui_provider,
+                start_connection=False,
+                _session_delegated=True,
+            )
+            connection_allowed = bool(
+                start_connection and not getattr(self, "_boot_restoring", False)
+            )
+            self._activate_ai_provider_preview(
+                canonical_provider,
+                start_connection=connection_allowed,
+            )
+            self._trace_provider_state(
+                "provider_session_selected",
+                requested_provider=provider,
+                normalized_provider=canonical_provider,
+                start_connection=connection_allowed,
+                guard_result=reason,
+            )
+        finally:
+            self._provider_session_selecting = False
+
     def _set_ai_provider_ui_active(
-        self, provider: str, start_connection: bool = False
+        self,
+        provider: str,
+        start_connection: bool = False,
+        _session_delegated: bool = False,
     ):
+        """Update provider controls after session state has been selected."""
+        if not _session_delegated:
+            self._select_ai_provider_for_session(
+                provider,
+                reason="set_provider_ui_active",
+                start_connection=start_connection,
+            )
+            return
         """공통설정: 선택한 박스만 활성화·스타일 적용·우측상단 배지 색상 동기화."""
         provider = (provider or "local").strip().lower()
         if provider in ("openai", "chatgpt", "gpt"):
@@ -14307,16 +14381,12 @@ class MainWindow(QMainWindow):
             provider = "local"
         elif provider not in ("gpt", "gemini", "local"):
             provider = "local"
-        self._ai_provider_box_active = provider
-        try:
-            self._selected_ai_provider = "basic" if provider == "local" else provider
-            self._selected_ai_model = self._get_selected_ai_model(
-                self._selected_ai_provider
-            )
-        except Exception:
-            pass
         if hasattr(self, "cb_ai_provider"):
-            self.cb_ai_provider.setCurrentText(provider)
+            previous_blocked = self.cb_ai_provider.blockSignals(True)
+            try:
+                self.cb_ai_provider.setCurrentText(provider)
+            finally:
+                self.cb_ai_provider.blockSignals(previous_blocked)
         self._log.info("[AI-BOX] selected=%s", provider)
         self._trace_provider_state(
             "set_provider_active",
@@ -14388,19 +14458,6 @@ class MainWindow(QMainWindow):
                 f"#aits_local_basic_engine_box {{ background-color: {local_bg}; border: 1px solid {local_border}; border-radius: 8px; padding: 8px; margin-top: 18px; padding-top: 6px; border-top: 1px solid #e2e8f0; }}"
             )
 
-        # Provider selection always establishes the current session Preview.
-        # Boot guards control only whether an API connection check may start.
-        try:
-            connection_allowed = bool(
-                start_connection
-                and not getattr(self, "_boot_restoring", False)
-            )
-            self._activate_ai_provider_preview(
-                provider,
-                start_connection=connection_allowed,
-            )
-        except Exception as e:
-            self._log.warning("[UI-AI-PREVIEW] activate failed: %s", type(e).__name__)
         if local_en:
             try:
                 self._sync_basic_runtime_status_card()
@@ -28522,16 +28579,28 @@ class MainWindow(QMainWindow):
         """
         raw = ""
 
-        # 1) 최우선: 저장된 strategy.ai_provider
+        # The active session Preview owns UI engine state before persistence.
         try:
-            st = getattr(getattr(self, "_settings", None), "strategy", None)
-            if st is not None:
-                if hasattr(st, "ai_provider"):
-                    raw = str(getattr(st, "ai_provider") or "").strip().lower()
-                elif isinstance(st, dict):
-                    raw = str(st.get("ai_provider") or "").strip().lower()
+            if bool(getattr(self, "_applied_ai_is_preview", False)):
+                preview_provider = str(
+                    getattr(self, "_applied_ai_provider", "") or ""
+                ).strip().lower()
+                if preview_provider:
+                    raw = preview_provider
         except Exception:
             raw = ""
+
+        # 1) 최우선: 저장된 strategy.ai_provider
+        if not raw:
+            try:
+                st = getattr(getattr(self, "_settings", None), "strategy", None)
+                if st is not None:
+                    if hasattr(st, "ai_provider"):
+                        raw = str(getattr(st, "ai_provider") or "").strip().lower()
+                    elif isinstance(st, dict):
+                        raw = str(st.get("ai_provider") or "").strip().lower()
+            except Exception:
+                raw = ""
 
         # 2) 보정: cb_ai_provider (하위 호환)
         if not raw:
@@ -34718,8 +34787,6 @@ class MainWindow(QMainWindow):
                 self.cmb_ai_engine.setCurrentText(engine_text)
                 self.cmb_ai_engine.blockSignals(False)
 
-            self._ai_provider_box_active = provider_ui
-            self._selected_ai_provider = "basic" if provider_ui == "local" else provider_ui
             try:
                 if hasattr(self, "_sync_engine_choice_panel"):
                     self._sync_engine_choice_panel(
