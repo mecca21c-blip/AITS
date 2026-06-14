@@ -33726,7 +33726,12 @@ class MainWindow(QMainWindow):
             "font-size: 12px; font-weight: 700; color: #64748b;"
         )
 
-        def _sync_engine_choice_panel(engine_key, start_connection=True):
+        def _sync_engine_choice_panel(
+            engine_key,
+            start_connection=True,
+            select_session=True,
+            reason="choice_panel_sync",
+        ):
             if getattr(self, "_engine_choice_syncing", False):
                 return
             self._engine_choice_syncing = True
@@ -33760,12 +33765,12 @@ class MainWindow(QMainWindow):
                     _button.setStyleSheet(_engine_choice_button_style(_key, _key == key))
                     _button.blockSignals(False)
                     boxes[_key].setVisible(_key == key)
-                try:
-                    self._set_ai_provider_ui_active(
-                        provider_value, start_connection=start_connection
+                if select_session:
+                    self._select_ai_provider_for_session(
+                        provider_value,
+                        reason=reason,
+                        start_connection=start_connection,
                     )
-                except Exception:
-                    pass
             finally:
                 self._trace_provider_state(
                     "provider_click_sync_end",
@@ -33774,10 +33779,44 @@ class MainWindow(QMainWindow):
                 )
                 self._engine_choice_syncing = False
 
+        def _on_provider_engine_panel_click(provider_value: str) -> None:
+            self._trace_provider_state(
+                "provider_panel_click",
+                requested_provider=provider_value,
+                start_connection=provider_value not in ("basic", "local"),
+            )
+            _sync_engine_choice_panel(
+                provider_value,
+                start_connection=False,
+                select_session=False,
+                reason="engine_panel_visual_sync",
+            )
+            self._select_ai_provider_for_session(
+                provider_value,
+                reason="engine_panel_click",
+                start_connection=provider_value not in ("basic", "local"),
+            )
+
         self._sync_engine_choice_panel = _sync_engine_choice_panel
-        self.btn_engine_openai.clicked.connect(lambda: _sync_engine_choice_panel("openai"))
-        self.btn_engine_gemini.clicked.connect(lambda: _sync_engine_choice_panel("gemini"))
-        self.btn_engine_local.clicked.connect(lambda: _sync_engine_choice_panel("local"))
+        self._on_provider_engine_panel_click = _on_provider_engine_panel_click
+        for _provider_button in (
+            self.btn_engine_openai,
+            self.btn_engine_gemini,
+            self.btn_engine_local,
+        ):
+            try:
+                _provider_button.clicked.disconnect()
+            except Exception:
+                pass
+        self.btn_engine_openai.clicked.connect(
+            lambda checked=False: _on_provider_engine_panel_click("openai")
+        )
+        self.btn_engine_gemini.clicked.connect(
+            lambda checked=False: _on_provider_engine_panel_click("gemini")
+        )
+        self.btn_engine_local.clicked.connect(
+            lambda checked=False: _on_provider_engine_panel_click("basic")
+        )
         self.btn_engine_local_detail.clicked.connect(_go_basic_detail_settings)
         self.btn_engine_local_ready.clicked.connect(
             lambda: (
@@ -33786,7 +33825,18 @@ class MainWindow(QMainWindow):
                 _append_engine_choice_log("[AITS] BASIC(Local) runtime status checked."),
             )
         )
-        self.cb_ai_provider.currentTextChanged.connect(_sync_engine_choice_panel)
+        try:
+            self.cb_ai_provider.currentTextChanged.disconnect()
+        except Exception:
+            pass
+        self.cb_ai_provider.currentTextChanged.connect(
+            lambda provider: _sync_engine_choice_panel(
+                provider,
+                start_connection=True,
+                select_session=True,
+                reason="provider_combo_change",
+            )
+        )
 
         _choice_panel_lay.addWidget(self.btn_engine_openai)
         _choice_panel_lay.addWidget(self.box_engine_openai_settings)
