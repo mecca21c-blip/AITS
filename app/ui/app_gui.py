@@ -14347,6 +14347,8 @@ class MainWindow(QMainWindow):
             self._selected_ai_provider = canonical_provider
             self._ai_provider_box_active = ui_provider
             self._selected_ai_model = self._get_selected_ai_model(canonical_provider)
+            if canonical_provider == "basic":
+                self._local_engine_check_reason = reason
             self._set_ai_provider_ui_active(
                 ui_provider,
                 start_connection=False,
@@ -16641,13 +16643,20 @@ class MainWindow(QMainWindow):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
             snapshot = {}
-        ready = bool(snapshot.get("runtime_ready")) and bool(snapshot.get("model_ready"))
-        state_text = "내부 엔진 준비됨" if ready else "LOCAL 활성"
+        state_text = self._get_local_engine_readiness_status(snapshot)
         return {
             "main": f"LOCAL 엔진: {state_text} · API 없음 · Shadow/Preview",
             "engine": f"AI Engine: LOCAL · {state_text} · 주문 없음",
             "chip": state_text,
         }
+
+    def _get_local_engine_readiness_status(self, snapshot=None):
+        if getattr(self, "_local_engine_check_in_progress", False):
+            return "LOCAL 점검중"
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        ready = bool(snapshot.get("runtime_ready")) and bool(snapshot.get("model_ready"))
+        return "내부 엔진 준비됨" if ready else "LOCAL 점검 필요"
 
     def _build_runtime_panel_container(self):
         """Build the reusable Runtime Panel container without moving its UI location."""
@@ -16661,7 +16670,7 @@ class MainWindow(QMainWindow):
         self.lbl_runtime_panel_header.setObjectName("aitsRuntimePanelHeader")
 
         self.lbl_runtime_live_indicator = QLabel(
-            "LOCAL 엔진: 내부 엔진 준비됨 · API 없음 · Shadow/Preview"
+            "LOCAL 엔진: LOCAL 점검중 · API 없음 · Shadow/Preview"
         )
         self.lbl_runtime_live_indicator.setObjectName("aitsRuntimeLiveIndicator")
         self.lbl_runtime_live_indicator.setToolTip(
@@ -18457,9 +18466,7 @@ class MainWindow(QMainWindow):
                     pass
             try:
                 if not external_preview_active:
-                    self._ai_connection_status = (
-                        "내부 엔진 준비됨" if status.get("runtime_ready") else "LOCAL 활성"
-                    )
+                    self._ai_connection_status = texts["chip"]
                     self._selected_ai_provider = "basic"
                     self._selected_ai_model = selected_model
                 self._render_ai_engine_state()
@@ -18880,11 +18887,12 @@ class MainWindow(QMainWindow):
         selected_model = self._get_selected_ai_model(normalized_provider)
         self._apply_saved_ai_preview(normalized_provider, selected_model)
         if normalized_provider == "basic":
-            self._last_ai_connection_provider = "basic"
-            self._last_ai_connection_status = "내부 엔진 준비됨"
-            self._last_ai_connection_source = "basic"
-            self._ai_connection_status = self._last_ai_connection_status
-            self._render_ai_engine_state()
+            self._start_local_engine_self_check(
+                reason=str(
+                    getattr(self, "_local_engine_check_reason", "provider_select")
+                    or "provider_select"
+                )
+            )
             return
 
         secret_provider = "openai" if normalized_provider == "gpt" else "gemini"
@@ -18911,6 +18919,69 @@ class MainWindow(QMainWindow):
         self._run_ai_startup_connection_check_async(
             secret_provider, api_key=api_key, key_source=key_source
         )
+
+    def _start_local_engine_self_check(self, reason: str = "provider_select") -> None:
+        token = int(getattr(self, "_local_engine_check_token", 0)) + 1
+        self._local_engine_check_token = token
+        self._local_engine_check_in_progress = True
+        self._last_ai_connection_provider = "basic"
+        self._last_ai_connection_status = "LOCAL 점검중"
+        self._last_ai_connection_source = "local_self_check"
+        self._ai_connection_status = "LOCAL 점검중"
+        self._ai_engine_last_checked_text = "점검중"
+        self._set_local_engine_status_labels("LOCAL 점검중")
+        print(f"[AITS][LocalEngineProof] event=start reason={reason}")
+        try:
+            self._log.info("[AITS][LocalEngineProof] event=start reason=%s", reason)
+        except Exception:
+            pass
+        self._render_ai_engine_state()
+        QTimer.singleShot(
+            50,
+            lambda t=token, r=reason: self._finish_local_engine_self_check(t, r),
+        )
+
+    def _set_local_engine_status_labels(self, status: str) -> None:
+        text = f"LOCAL 엔진: {status} · API 없음 · Shadow/Preview"
+        for attr_name in ("lbl_basic_runtime_status", "lbl_runtime_live_indicator"):
+            label = getattr(self, attr_name, None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(text)
+
+    def _finish_local_engine_self_check(self, token: int, reason: str) -> None:
+        if token != int(getattr(self, "_local_engine_check_token", 0)):
+            return
+        if self._normalize_ai_provider_code(
+            getattr(self, "_selected_ai_provider", "basic")
+        ) != "basic":
+            return
+        snapshot = {}
+        try:
+            self._basic_runtime_status_cache_ts = 0.0
+            snapshot = self._build_runtime_ui_snapshot_bundle()
+            ok = bool(snapshot.get("runtime_ready")) and bool(snapshot.get("model_ready"))
+        except Exception:
+            ok = False
+        self._local_engine_check_in_progress = False
+        status = "내부 엔진 준비됨" if ok else "LOCAL 점검 필요"
+        self._last_ai_connection_provider = "basic"
+        self._last_ai_connection_status = status
+        self._last_ai_connection_source = "local_self_check"
+        self._ai_connection_status = status
+        self._ai_engine_last_checked_text = "방금 전"
+        result = "runtime_ready" if ok else "runtime_check_failed"
+        print(f"[AITS][LocalEngineProof] event=finish ok={ok} result={result}")
+        try:
+            self._log.info(
+                "[AITS][LocalEngineProof] event=finish ok=%s result=%s reason=%s",
+                ok,
+                result,
+                reason,
+            )
+        except Exception:
+            pass
+        self._set_local_engine_status_labels(status)
+        self._render_ai_engine_state()
 
     def _render_ai_engine_state(self):
         try:
@@ -18947,7 +19018,12 @@ class MainWindow(QMainWindow):
                 getattr(self, "_ai_connection_status", "") or "연결확인 필요"
             ).strip() or "연결확인 필요"
             if local_display_active:
-                status = "내부 엔진 준비됨"
+                local_statuses = (
+                    "LOCAL 점검중",
+                    "내부 엔진 준비됨",
+                    "LOCAL 점검 필요",
+                )
+                status = status if status in local_statuses else "LOCAL 점검 필요"
             selected_text = self._ai_provider_label(selected_provider)
             applied_provider_text = (
                 self._ai_provider_label(applied_provider) if applied_provider else "미적용"
@@ -33694,7 +33770,7 @@ class MainWindow(QMainWindow):
         _gemini_settings_lay.addWidget(self.btn_engine_gemini_test)
         _gemini_settings_lay.addWidget(self.lbl_gemini_key_status)
 
-        _local_status = QLabel("LOCAL 엔진: 내부 엔진 준비됨 · API 없음 · Shadow/Preview")
+        _local_status = QLabel("LOCAL 엔진: LOCAL 점검중 · API 없음 · Shadow/Preview")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
         self._build_runtime_panel_container()
@@ -35889,73 +35965,8 @@ class MainWindow(QMainWindow):
 
     def _on_basic_runtime_ready_check(self):
         """BASIC(Local) runtime status check without inference, file writes, or orders."""
-        try:
-            from app.services.ollama_runtime_config import OllamaRuntimeConfigBuilder
-            from app.services.ollama_runtime_status import OllamaRuntimeStatusProbe
-
-            base_url = "http://127.0.0.1:11434"
-            model = "qwen2.5:7b-instruct-q4"
-            try:
-                if hasattr(self, "inp_local_url") and self.inp_local_url is not None:
-                    base_url = (self.inp_local_url.text() or base_url).strip() or base_url
-            except Exception:
-                pass
-            try:
-                if hasattr(self, "cmb_local_model") and self.cmb_local_model is not None:
-                    model = (self.cmb_local_model.currentText() or model).strip() or model
-            except Exception:
-                pass
-            config = OllamaRuntimeConfigBuilder().build_default_config(
-                model=model,
-                base_url=base_url,
-            )
-            status = OllamaRuntimeStatusProbe().check_status(config)
-            self._selected_ai_provider = "basic"
-            self._selected_ai_model = status.model
-            self._applied_ai_provider = "basic"
-            self._applied_ai_model = status.model
-            self._active_ai_engine = "basic"
-            self._last_response_provider = "basic"
-            self._ai_connection_status = (
-                "내부 엔진 준비됨" if status.runtime_ready else "LOCAL 활성"
-            )
-            self._ai_engine_last_checked_text = "방금 전"
-            try:
-                if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
-                    self.lbl_aits_ai_engine_status.setText(
-                        "AITS AI 상태: LOCAL 활성 · API 없음 · 주문 없음"
-                    )
-                    self._apply_aits_ai_engine_status_line_style(
-                        self.lbl_aits_ai_engine_status.text()
-                    )
-            except Exception:
-                pass
-            try:
-                self._set_ai_engine_card_test_status(
-                    "basic",
-                    "LOCAL",
-                    self._ai_connection_status,
-                    "내부 엔진",
-                )
-            except Exception:
-                self._render_ai_engine_state()
-            try:
-                self._log.info(
-                    "[BASIC-RUNTIME] status=%s model=%s executable=%s submitted=0",
-                    status.status,
-                    status.model,
-                    status.executable_found,
-                )
-            except Exception:
-                pass
-            return status
-        except Exception as exc:
-            try:
-                self._set_ai_engine_card_test_status("basic", "LOCAL", "LOCAL 활성")
-                self._log.warning("[BASIC-RUNTIME] status_check_failed err=%s", str(exc)[:80])
-            except Exception:
-                pass
-            return None
+        self._start_local_engine_self_check(reason="manual_status_check")
+        return None
 
     def _on_test_local_ai(self):
         """provider=local일 때 로컬 AI(Ollama) 연결 테스트. tags → generate 순서."""
