@@ -33859,6 +33859,7 @@ class MainWindow(QMainWindow):
                 _initial_provider or getattr(self, "_ai_provider_box_active", "local"),
                 getattr(self, "_settings", None),
             )
+            QTimer.singleShot(0, self._restore_api_keys_after_ui_ready)
         except Exception:
             _sync_engine_choice_panel(
                 getattr(self, "_ai_provider_box_active", "local"),
@@ -34330,13 +34331,45 @@ class MainWindow(QMainWindow):
                     else ""
                 )
                 self._settings = settings
-                restore_provider = provider
-                restore_reason = "startup_restore"
                 if bool(getattr(self, "_provider_user_selected", False)):
-                    restore_provider = getattr(
-                        self, "_selected_ai_provider", provider
+                    selected_provider = self._normalize_ai_provider_code(
+                        getattr(self, "_selected_ai_provider", provider)
                     )
-                    restore_reason = "startup_restore_user_selection"
+                    proof = (
+                        "[AITS][ProviderConnectionProof] "
+                        "event=startup_restore_skip reason=user_selection_exists "
+                        f"provider={selected_provider}"
+                    )
+                    print(proof, flush=True)
+                    self._log.info(proof)
+                    logging.getLogger("aits").info(proof)
+                    return
+
+                restore_provider = self._normalize_ai_provider_code(provider)
+                secret_provider = (
+                    "openai" if restore_provider == "gpt" else restore_provider
+                )
+                has_saved_key = bool(
+                    secret_provider in ("openai", "gemini")
+                    and self._get_stored_ai_secret(secret_provider)
+                )
+                if not has_saved_key:
+                    self._ai_connection_status = "연결확인 필요"
+                    self._render_ai_engine_state()
+                    return
+
+                connection_provider = self._normalize_ai_provider_code(
+                    getattr(self, "_last_ai_connection_provider", "")
+                )
+                connection_status = str(
+                    getattr(self, "_ai_connection_status", "") or ""
+                ).strip()
+                if (
+                    connection_provider == restore_provider
+                    and connection_status in ("연결중", "정상연결")
+                ):
+                    return
+
                 self._trace_provider_state(
                     "startup_restore",
                     requested_provider=restore_provider,
@@ -34346,7 +34379,7 @@ class MainWindow(QMainWindow):
                     restore_provider,
                     settings,
                     start_connection=True,
-                    reason=restore_reason,
+                    reason="startup_restore",
                 )
             except Exception:
                 pass
