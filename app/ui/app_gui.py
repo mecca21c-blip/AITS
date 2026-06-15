@@ -13942,11 +13942,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             if provider == "gpt":
-                provider_label = "OpenAI"
+                provider_label = "GPT"
             elif provider == "gemini":
-                provider_label = "Gemini"
+                provider_label = "GEMINI"
             else:
-                provider_label = "Basic AI"
+                provider_label = "LOCAL"
 
             stage = (getattr(self, "_gpt_status_stage", "") or "").strip().lower()
             box_txt = "AI Engine | %s" % provider_label
@@ -16641,19 +16641,12 @@ class MainWindow(QMainWindow):
         """Format a display-only runtime snapshot into compact UI strings."""
         if not isinstance(snapshot, dict):
             snapshot = {}
-        selected_model = str(snapshot.get("selected_model") or "").strip() or "mistral:latest"
         ready = bool(snapshot.get("runtime_ready")) and bool(snapshot.get("model_ready"))
-        ready_text = "OK" if ready else "CHECK"
-        chip_text = "Local Runtime Ready" if ready else "Local Runtime Check Needed"
+        state_text = "내부 엔진 준비됨" if ready else "LOCAL 활성"
         return {
-            "main": (
-                "BASIC(Local): Ollama Runtime | "
-                f"model={selected_model} | "
-                f"ready={ready_text} | "
-                "inference=display-only | shadow/research"
-            ),
-            "engine": "AI Engine: BASIC(Local) / Ollama / display-only",
-            "chip": chip_text,
+            "main": f"LOCAL 엔진: {state_text} · API 없음 · Shadow/Preview",
+            "engine": f"AI Engine: LOCAL · {state_text} · 주문 없음",
+            "chip": state_text,
         }
 
     def _build_runtime_panel_container(self):
@@ -16668,7 +16661,7 @@ class MainWindow(QMainWindow):
         self.lbl_runtime_panel_header.setObjectName("aitsRuntimePanelHeader")
 
         self.lbl_runtime_live_indicator = QLabel(
-            "AI Runtime: READY | BASIC(Local) | Ollama | mistral:latest | display-only"
+            "LOCAL 엔진: 내부 엔진 준비됨 · API 없음 · Shadow/Preview"
         )
         self.lbl_runtime_live_indicator.setObjectName("aitsRuntimeLiveIndicator")
         self.lbl_runtime_live_indicator.setToolTip(
@@ -16679,6 +16672,11 @@ class MainWindow(QMainWindow):
         )
         self.lbl_runtime_live_indicator.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #1f2937;"
+        )
+        self.lbl_runtime_live_indicator.setToolTip(
+            "LOCAL 내부 엔진의 Shadow/Preview 준비 상태입니다.\n"
+            "외부 API 없이 작동하며 주문을 직접 실행하지 않습니다.\n"
+            "판단 결과는 Router/RiskGuard 검증을 거칩니다."
         )
 
         self.lbl_runtime_input_summary = QLabel(
@@ -16695,7 +16693,7 @@ class MainWindow(QMainWindow):
         )
 
         self.lbl_runtime_safety_summary = QLabel(
-            "AI Safety: display-only | order=blocked | action=blocked | submitted=0"
+            "안전 상태: 주문 없음 · Router/RiskGuard 검증 유지"
         )
         self.lbl_runtime_safety_summary.setObjectName("aitsRuntimeSafetySummary")
         self.lbl_runtime_safety_summary.setToolTip(
@@ -16705,6 +16703,10 @@ class MainWindow(QMainWindow):
         )
         self.lbl_runtime_safety_summary.setStyleSheet(
             "font-size: 12px; font-weight: 700; color: #64748b;"
+        )
+        self.lbl_runtime_safety_summary.setToolTip(
+            "LOCAL 안전 상태입니다.\n"
+            "주문 직접 실행은 없으며 Router/RiskGuard 검증 경계를 유지합니다."
         )
 
         self.lbl_runtime_decision_gate_summary = QLabel(
@@ -16878,10 +16880,10 @@ class MainWindow(QMainWindow):
         result = {
             "state": "CHECK",
             "display_state": "확인 필요",
-            "provider": "BASIC(Local)",
-            "runtime": "Ollama",
-            "selected_model": "mistral:latest",
-            "mode": "display-only",
+            "provider": "LOCAL",
+            "runtime": "내부 엔진",
+            "selected_model": "",
+            "mode": "Shadow/Preview",
         }
         try:
             snapshot = self._build_runtime_ui_snapshot_bundle()
@@ -16907,7 +16909,7 @@ class MainWindow(QMainWindow):
                 {
                     "state": state,
                     "display_state": display_state,
-                    "selected_model": selected_model,
+                    "selected_model": "",
                 }
             )
         except Exception:
@@ -16918,14 +16920,9 @@ class MainWindow(QMainWindow):
         """Format the compact technical runtime status line for the top mirror."""
         try:
             parts = self._build_runtime_live_indicator_parts()
-            return (
-                f"{parts.get('state') or 'CHECK'} | "
-                f"{parts.get('provider') or 'BASIC(Local)'} | "
-                f"{parts.get('runtime') or 'Ollama'} | "
-                f"{parts.get('selected_model') or 'mistral:latest'}"
-            )
+            return f"{parts.get('state') or 'CHECK'} | LOCAL | API 없음 | Shadow/Preview"
         except Exception:
-            return "CHECK | BASIC(Local) | Ollama | mistral:latest"
+            return "CHECK | LOCAL | API 없음 | Shadow/Preview"
 
     def _format_runtime_live_indicator_tooltip_text(self):
         """Format compressed runtime preview tooltip for operator UI."""
@@ -17322,7 +17319,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_preset_badge)
 
         self.lbl_ai_policy_local_runtime_notice = QLabel(
-            "GPT · Gemini · Local AI = 동등 독립 운용 엔진. 모델 설정은 공통설정 > BASIC(Local)에서 관리합니다."
+            "LOCAL · GPT · GEMINI는 독립된 Preview 엔진입니다. LOCAL 설정은 데이터·복기 반영 정책을 관리합니다."
         )
         self.lbl_ai_policy_local_runtime_notice.setWordWrap(True)
         self.lbl_ai_policy_local_runtime_notice.setStyleSheet(
@@ -17980,9 +17977,9 @@ class MainWindow(QMainWindow):
             missing_text = "/".join(missing) if missing else "없음"
 
             state_text = str(parts.get("display_state") or "확인 필요")
-            provider = str(parts.get("provider") or "BASIC(Local)")
-            runtime = str(parts.get("runtime") or "Ollama")
-            selected_model = str(parts.get("selected_model") or "mistral:latest")
+            provider = "LOCAL"
+            runtime = "내부 엔진"
+            selected_model = "API 없음"
             reasoning_text = "준비" if bool(reasoning.get("reasoning_ready")) else "대기"
             shadow_text = str(shadow.get("candidate_text") or "판단 대기")
             router_text = self._format_router_preview_humanized_text(router).replace(
@@ -18427,21 +18424,14 @@ class MainWindow(QMainWindow):
             status["selected_model"] = selected_model
             texts = self._format_runtime_ui_snapshot_text(status)
             compact = (
-                "BASIC(Local): Ollama Runtime | "
-                f"model={selected_model} | "
-                f"ready={ready_text if status.get('runtime_ready') and status.get('model_ready') else model_text} | "
-                "inference=display-only | shadow/research"
+                "LOCAL 엔진: 내부 엔진 상태 · API 없음 · Shadow/Preview"
             )
             detail = (
-                "BASIC(Local) Runtime\n"
-                "- Runtime: Ollama\n"
-                f"- Runtime Ready: {ready_text}\n"
-                f"- Model Ready: {model_text}\n"
-                "- Inference Ready: 표시 전용\n"
-                f"- Selected Model: {selected_model}\n"
-                "- Mode: Research / Shadow Only\n"
-                f"- Cooldown: {cooldown_text}\n"
-                f"- Degraded: {degraded_text}"
+                "LOCAL 엔진\n"
+                "- API: 없음\n"
+                "- Mode: Shadow / Preview\n"
+                "- 주문 직접 실행: 없음\n"
+                "- 검증: Router / RiskGuard"
             )
             self._aits_perf_log("_sync_basic_runtime_status_card.format_text.end", t_part)
             t_part = self._aits_perf_log("_sync_basic_runtime_status_card.set_main_label.start")
@@ -18467,7 +18457,9 @@ class MainWindow(QMainWindow):
                     pass
             try:
                 if not external_preview_active:
-                    self._ai_connection_status = "정상" if status.get("runtime_ready") else "확인 필요"
+                    self._ai_connection_status = (
+                        "내부 엔진 준비됨" if status.get("runtime_ready") else "LOCAL 활성"
+                    )
                     self._selected_ai_provider = "basic"
                     self._selected_ai_model = selected_model
                 self._render_ai_engine_state()
@@ -18639,11 +18631,11 @@ class MainWindow(QMainWindow):
     def _ai_provider_label(self, provider: str) -> str:
         p = self._normalize_ai_provider_code(provider)
         if p == "gpt":
-            return "OpenAI"
+            return "GPT"
         if p == "gemini":
-            return "Gemini"
+            return "GEMINI"
         if p == "basic":
-            return "Basic"
+            return "LOCAL"
         return str(provider or "미적용")
 
     def _get_selected_ai_model(self, provider: str = "") -> str:
@@ -18889,7 +18881,7 @@ class MainWindow(QMainWindow):
         self._apply_saved_ai_preview(normalized_provider, selected_model)
         if normalized_provider == "basic":
             self._last_ai_connection_provider = "basic"
-            self._last_ai_connection_status = "Basic 계산 엔진 · AI 판단 없음"
+            self._last_ai_connection_status = "내부 엔진 준비됨"
             self._last_ai_connection_source = "basic"
             self._ai_connection_status = self._last_ai_connection_status
             self._render_ai_engine_state()
@@ -18939,6 +18931,10 @@ class MainWindow(QMainWindow):
                 and applied_provider in ("gpt", "gemini")
                 and applied_model
             )
+            local_preview_active = bool(
+                applied_is_preview and applied_provider == "basic"
+            )
+            local_display_active = selected_provider == "basic" or local_preview_active
             if external_preview_active:
                 selected_provider = applied_provider
                 selected_model = applied_model
@@ -18950,18 +18946,24 @@ class MainWindow(QMainWindow):
             status = (
                 getattr(self, "_ai_connection_status", "") or "연결확인 필요"
             ).strip() or "연결확인 필요"
+            if local_display_active:
+                status = "내부 엔진 준비됨"
             selected_text = self._ai_provider_label(selected_provider)
             applied_provider_text = (
                 self._ai_provider_label(applied_provider) if applied_provider else "미적용"
             )
             if applied_provider and applied_is_preview:
                 applied_provider_text = f"{applied_provider_text} Preview"
-            applied_text = (
-                f"{applied_provider_text} · {applied_model}"
-                if applied_provider and applied_model
-                else applied_provider_text
-            )
-            card_model_text = applied_model if applied_provider and applied_model else "-"
+            if local_display_active:
+                applied_text = "LOCAL"
+                card_model_text = "내부 엔진"
+            else:
+                applied_text = (
+                    f"{applied_provider_text} · {applied_model}"
+                    if applied_provider and applied_model
+                    else applied_provider_text
+                )
+                card_model_text = applied_model if applied_provider and applied_model else "-"
             card_color_provider = applied_provider or selected_provider or "basic"
             last_checked_text = (
                 getattr(self, "_ai_engine_last_checked_text", "") or "미확인"
@@ -19032,7 +19034,7 @@ class MainWindow(QMainWindow):
             if applied_lb is not None:
                 applied_lb.setText(
                     "적용: Preview"
-                    if applied_provider and applied_is_preview
+                    if local_display_active or (applied_provider and applied_is_preview)
                     else f"적용: {applied_provider_text}"
                 )
                 applied_lb.setVisible(True)
@@ -19171,11 +19173,13 @@ class MainWindow(QMainWindow):
             provider = str(provider or "local").strip().lower()
         except Exception:
             provider = "local"
+        local_selected = provider in ("local", "basic")
+        api_copy = "API 없음" if local_selected else "API 호출 가능"
 
         try:
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(
-                    "Shadow 분석 테스트 중 · 주문 없음 · API 호출 가능"
+                    f"Shadow 분석 테스트 중 · 주문 없음 · {api_copy}"
                 )
             QApplication.processEvents()
 
@@ -19232,7 +19236,7 @@ class MainWindow(QMainWindow):
                     state_status_text = ""
 
                 status_text = (
-                    f"Shadow 분석 테스트 완료 · 주문 없음 · {normalized_provider} · "
+                    f"Shadow 분석 테스트 완료 · 주문 없음 · {api_copy} · "
                     f"{next_action_ko}"
                 )
                 if scenario_label:
@@ -19241,9 +19245,11 @@ class MainWindow(QMainWindow):
                     status_text += f" · ETA {eta_text}"
             else:
                 error_type = str(result.get("error_type") or "parse_failed")
-                status_text = f"Shadow 분석 테스트 실패 · 주문 없음 · {error_type}"
+                status_text = (
+                    f"Shadow 분석 테스트 실패 · 주문 없음 · {api_copy} · {error_type}"
+                )
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
-                self.lbl_ai_analysis_dryrun_status.setText(state_status_text or status_text)
+                self.lbl_ai_analysis_dryrun_status.setText(status_text)
             if parsed_valid:
                 self._update_ai_analysis_dryrun_panel(result, normalized_provider)
                 if state_status_text:
@@ -19293,7 +19299,7 @@ class MainWindow(QMainWindow):
             error_type = type(exc).__name__
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(
-                    f"Shadow 분석 테스트 실패 · 주문 없음 · {error_type}"
+                    f"Shadow 분석 테스트 실패 · 주문 없음 · {api_copy} · {error_type}"
                 )
             try:
                 self._log.warning(
@@ -19447,6 +19453,9 @@ class MainWindow(QMainWindow):
     def _update_ai_analysis_dryrun_panel(self, result: dict, provider: str = ""):
         try:
             result = dict(result or {})
+            provider_label = self._ai_provider_label(
+                provider or result.get("provider") or "basic"
+            )
             sr = result.get("shadow_record") or {}
             payload = sr or result.get("parsed_response") or result
             try:
@@ -19472,7 +19481,7 @@ class MainWindow(QMainWindow):
             briefing_raw = str(
                 payload.get("briefing")
                 or result.get("briefing")
-                or f"Shadow 분석 테스트 완료 · 주문 없음 · {provider or result.get('provider') or '-'} · {suggestion}/{next_action}"
+                or f"Shadow 분석 테스트 완료 · 주문 없음 · {provider_label} · {suggestion}/{next_action}"
             )
             briefing_sentences = [
                 part.strip()
@@ -32607,8 +32616,8 @@ class MainWindow(QMainWindow):
             self.lbl_engine_badge_basic,
         ) = _engine_select_card(
             "local",
-            "BASIC",
-            "Basic 계산 엔진 · AI 판단 아님",
+            "LOCAL",
+            "API 없이 작동하는 AITS 기본 엔진",
         )
         (
             self.aits_engine_gpt_card,
@@ -32628,10 +32637,10 @@ class MainWindow(QMainWindow):
             "GEMINI",
             "Google Gemini 기반 AI 분석",
         )
-        self.btn_engine_basic_test = QPushButton("Basic 활성화 확인")
+        self.btn_engine_basic_test = QPushButton("LOCAL 상태 확인")
         self.btn_engine_gpt_test = QPushButton("GPT API 연결 확인")
         self.btn_engine_gemini_test = QPushButton("Gemini API 연결 확인")
-        self.btn_engine_basic_test.setText("Basic 활성화 확인")
+        self.btn_engine_basic_test.setText("LOCAL 상태 확인")
         self.btn_engine_gpt_test.setText("GPT API 연결 확인")
         self.btn_engine_gemini_test.setText("Gemini API 연결 확인")
         self.aits_engine_button_group = QButtonGroup(self)
@@ -32856,18 +32865,18 @@ class MainWindow(QMainWindow):
             if object_name == "card_engine_basic_new":
                 title_label.setObjectName("aitsEngineTitleBasic")
                 desc_label.setObjectName("aitsEngineDescBasic")
-                title_label.setText("BASIC")
-                desc_label.setText("Basic 계산 엔진 · AI 판단 아님")
+                title_label.setText("LOCAL")
+                desc_label.setText("API 없이 작동하는 AITS 기본 엔진")
             elif object_name == "card_engine_gpt_new":
                 title_label.setObjectName("aitsEngineTitleGpt")
                 desc_label.setObjectName("aitsEngineDescGpt")
                 title_label.setText("GPT")
-                desc_label.setText("OpenAI 기반 고급 AI 분석")
+                desc_label.setText("OpenAI API 기반 고급 판단 엔진")
             elif object_name == "card_engine_gemini_new":
                 title_label.setObjectName("aitsEngineTitleGemini")
                 desc_label.setObjectName("aitsEngineDescGemini")
                 title_label.setText("GEMINI")
-                desc_label.setText("Google Gemini 기반 AI 분석")
+                desc_label.setText("Gemini API 기반 고급 판단 엔진")
             title_row.addWidget(title_label)
             title_row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
             title_row.addStretch(1)
@@ -32929,8 +32938,8 @@ class MainWindow(QMainWindow):
                     self.lbl_engine_desc_basic_new,
                     "aitsEngineTitleBasic",
                     "aitsEngineDescBasic",
-                    "BASIC",
-                    "Basic 계산 엔진 · AI 판단 아님",
+                    "LOCAL",
+                    "API 없이 작동하는 AITS 기본 엔진",
                 ),
                 (
                     self.card_engine_gpt_new,
@@ -32939,7 +32948,7 @@ class MainWindow(QMainWindow):
                     "aitsEngineTitleGpt",
                     "aitsEngineDescGpt",
                     "GPT",
-                    "OpenAI 기반 고급 AI 분석",
+                    "OpenAI API 기반 고급 판단 엔진",
                 ),
                 (
                     self.card_engine_gemini_new,
@@ -32948,7 +32957,7 @@ class MainWindow(QMainWindow):
                     "aitsEngineTitleGemini",
                     "aitsEngineDescGemini",
                     "GEMINI",
-                    "Google Gemini 기반 AI 분석",
+                    "Gemini API 기반 고급 판단 엔진",
                 ),
             )
             final_labels = set()
@@ -32975,9 +32984,9 @@ class MainWindow(QMainWindow):
                         _hide_blank_engine_card_widget(child)
 
             final_texts = (
-                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "BASIC", "Basic 계산 엔진 · AI 판단 아님"),
-                (self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new, "GPT", "OpenAI 기반 고급 AI 분석"),
-                (self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new, "GEMINI", "Google Gemini 기반 AI 분석"),
+                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "LOCAL", "API 없이 작동하는 AITS 기본 엔진"),
+                (self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new, "GPT", "OpenAI API 기반 고급 판단 엔진"),
+                (self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new, "GEMINI", "Gemini API 기반 고급 판단 엔진"),
             )
             for title_label, desc_label, title, desc in final_texts:
                 title_label.setText(title)
@@ -33143,8 +33152,8 @@ class MainWindow(QMainWindow):
                 self.lbl_engine_badge_basic_new,
                 "aitsEngineTitleBasic",
                 "aitsEngineDescBasic",
-                "BASIC",
-                "Basic 계산 엔진 · AI 판단 아님",
+                "LOCAL",
+                "API 없이 작동하는 AITS 기본 엔진",
             )
             self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new = _rebuild_visible_engine_card(
                 self.card_engine_gpt_new,
@@ -33153,7 +33162,7 @@ class MainWindow(QMainWindow):
                 "aitsEngineTitleGpt",
                 "aitsEngineDescGpt",
                 "GPT",
-                "OpenAI 기반 고급 AI 분석",
+                "OpenAI API 기반 고급 판단 엔진",
             )
             self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new = _rebuild_visible_engine_card(
                 self.card_engine_gemini_new,
@@ -33162,7 +33171,7 @@ class MainWindow(QMainWindow):
                 "aitsEngineTitleGemini",
                 "aitsEngineDescGemini",
                 "GEMINI",
-                "Google Gemini 기반 AI 분석",
+                "Gemini API 기반 고급 판단 엔진",
             )
 
         self.engine_select_group_new = QButtonGroup(self)
@@ -33188,14 +33197,14 @@ class MainWindow(QMainWindow):
         _engine_setting_title.setText("선택 엔진 연결 설정")
         _engine_setting_lay.addWidget(_engine_setting_title)
 
-        self.btn_basic_detail_settings = QPushButton("Basic 세부설정")
-        self.btn_basic_detail_settings.setText("Basic 세부설정")
+        self.btn_basic_detail_settings = QPushButton("LOCAL 설정")
+        self.btn_basic_detail_settings.setText("LOCAL 설정")
         self.btn_basic_detail_settings.setMinimumHeight(34)
         self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
-        self.btn_engine_basic_test_new = QPushButton("Basic 활성화 확인")
+        self.btn_engine_basic_test_new = QPushButton("LOCAL 상태 확인")
         self.btn_engine_gpt_test_new = QPushButton("GPT API 연결 확인")
         self.btn_engine_gemini_test_new = QPushButton("Gemini API 연결 확인")
-        self.btn_engine_basic_test_new.setText("Basic 활성화 확인")
+        self.btn_engine_basic_test_new.setText("LOCAL 상태 확인")
         self.btn_engine_gpt_test_new.setText("API 연결 확인")
         self.btn_engine_gemini_test_new.setText("API 연결 확인")
         for _new_btn in (
@@ -33613,13 +33622,13 @@ class MainWindow(QMainWindow):
         _choice_panel_lay.setSpacing(8)
 
         self.btn_engine_openai = _make_engine_choice_button(
-            "openai", "OpenAI API", "유료 클라우드 고급 판단 엔진"
+            "openai", "GPT", "OpenAI API 기반 고급 판단 엔진"
         )
         self.btn_engine_gemini = _make_engine_choice_button(
-            "gemini", "Gemini API", "유료 클라우드 고급 판단 엔진"
+            "gemini", "GEMINI", "Gemini API 기반 고급 판단 엔진"
         )
         self.btn_engine_local = _make_engine_choice_button(
-            "local", "BASIC(Local)", "계산 기준값·후보 점수 제공 · AI 판단 없음"
+            "local", "LOCAL", "API 없이 작동하는 AITS 기본 엔진"
         )
 
         self.engine_choice_group = QButtonGroup(self)
@@ -33685,17 +33694,18 @@ class MainWindow(QMainWindow):
         _gemini_settings_lay.addWidget(self.btn_engine_gemini_test)
         _gemini_settings_lay.addWidget(self.lbl_gemini_key_status)
 
-        _local_status = QLabel("API Key 없이 사용 가능 · shadow-only")
+        _local_status = QLabel("LOCAL 엔진: 내부 엔진 준비됨 · API 없음 · Shadow/Preview")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
         self._build_runtime_panel_container()
         runtime_preview = self._build_runtime_preview_container()
         _local_desc = QLabel(
-            "BASIC(Local)은 계산 기반 기준값과 후보 점수를 제공합니다. AI 판단은 수행하지 않습니다."
+            "LOCAL은 AITS 내부 데이터, 점수 계산, 복기 기록, 학습 후보를 기반으로 작동합니다. "
+            "주문은 직접 실행하지 않으며, 판단 결과는 Router/RiskGuard를 거칩니다."
         )
         _local_desc.setWordWrap(True)
-        self.btn_engine_local_detail = QPushButton("Local 세부설정")
-        self.btn_engine_local_ready = QPushButton("Runtime 상태 확인")
+        self.btn_engine_local_detail = QPushButton("LOCAL 설정")
+        self.btn_engine_local_ready = QPushButton("LOCAL 상태 확인")
         for _local_btn in (self.btn_engine_local_detail, self.btn_engine_local_ready):
             _local_btn.setMinimumHeight(32)
             _local_btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -33718,7 +33728,7 @@ class MainWindow(QMainWindow):
             self._on_ai_analysis_dryrun_test
         )
         self.lbl_ai_analysis_dryrun_status = QLabel(
-            "Shadow 분석 테스트: 대기 · 주문 없음 · API 호출 가능"
+            "Shadow 분석 테스트 · 대기 · 주문 없음 · API 없음"
         )
         self.lbl_ai_analysis_dryrun_status.setWordWrap(True)
         self.lbl_ai_analysis_dryrun_status.setStyleSheet(
@@ -33753,9 +33763,9 @@ class MainWindow(QMainWindow):
                     "local": self.box_engine_local_settings,
                 }
                 button_texts = {
-                    "openai": "OpenAI API\n유료 클라우드 고급 판단 엔진",
-                    "gemini": "Gemini API\n유료 클라우드 고급 판단 엔진",
-                    "local": "BASIC(Local)\n계산 기준값·후보 점수 제공 · AI 판단 없음",
+                    "openai": "GPT\nOpenAI API 기반 고급 판단 엔진",
+                    "gemini": "GEMINI\nGemini API 기반 고급 판단 엔진",
+                    "local": "LOCAL\nAPI 없이 작동하는 AITS 기본 엔진",
                 }
                 for _key, _button in selected.items():
                     _button.blockSignals(True)
@@ -33764,6 +33774,11 @@ class MainWindow(QMainWindow):
                     _button.setStyleSheet(_engine_choice_button_style(_key, _key == key))
                     _button.blockSignals(False)
                     boxes[_key].setVisible(_key == key)
+                if hasattr(self, "lbl_ai_analysis_dryrun_status"):
+                    api_copy = "API 없음" if key == "local" else "API 호출 가능"
+                    self.lbl_ai_analysis_dryrun_status.setText(
+                        f"Shadow 분석 테스트 · 대기 · 주문 없음 · {api_copy}"
+                    )
                 if select_session:
                     self._select_ai_provider_for_session(
                         provider_value,
@@ -35901,12 +35916,14 @@ class MainWindow(QMainWindow):
             self._applied_ai_model = status.model
             self._active_ai_engine = "basic"
             self._last_response_provider = "basic"
-            self._ai_connection_status = "정상" if status.runtime_ready else "확인 필요"
+            self._ai_connection_status = (
+                "내부 엔진 준비됨" if status.runtime_ready else "LOCAL 활성"
+            )
             self._ai_engine_last_checked_text = "방금 전"
             try:
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
                     self.lbl_aits_ai_engine_status.setText(
-                        f"AITS AI 상태: BASIC(Local) {status.status} · submitted=0"
+                        "AITS AI 상태: LOCAL 활성 · API 없음 · 주문 없음"
                     )
                     self._apply_aits_ai_engine_status_line_style(
                         self.lbl_aits_ai_engine_status.text()
@@ -35916,9 +35933,9 @@ class MainWindow(QMainWindow):
             try:
                 self._set_ai_engine_card_test_status(
                     "basic",
-                    "BASIC(Local)",
+                    "LOCAL",
                     self._ai_connection_status,
-                    status.model,
+                    "내부 엔진",
                 )
             except Exception:
                 self._render_ai_engine_state()
@@ -35934,7 +35951,7 @@ class MainWindow(QMainWindow):
             return status
         except Exception as exc:
             try:
-                self._set_ai_engine_card_test_status("basic", "BASIC(Local)", "확인 필요")
+                self._set_ai_engine_card_test_status("basic", "LOCAL", "LOCAL 활성")
                 self._log.warning("[BASIC-RUNTIME] status_check_failed err=%s", str(exc)[:80])
             except Exception:
                 pass
