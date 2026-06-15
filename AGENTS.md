@@ -62,13 +62,17 @@ AI must not place orders directly. Keep Router, Risk Guard, and Execution bounda
 
 ## Provider Engine State
 
-- Before Provider/API/Engine UI work, read `app/docs/aits_provider_engine_state_contract_v1.md`.
+- Before Provider/API/Runtime/UI work, read both `app/docs/aits_provider_engine_state_contract_v1.md` and `app/docs/aits_provider_engine_root_cause_recovery_v1.md`.
 - Keep selected, saved, Preview, connection, actual runtime, Router, and Basic provider states distinct.
 - Do not add another Header or AI ENGINE card writer; prefer `_render_ai_engine_state` as the final renderer.
 - Ensure `_sync_basic_runtime_status_card` cannot overwrite an OpenAI/Gemini Preview state.
-- Provider selection changes session Preview; it does not save settings.
-- Connection checks manually revalidate API access; they do not persist or apply settings.
-- The Save button owns persistence. Preview application is not live-trading or order application.
+- Diagnose the active path, duplicate signals, legacy paths, last writer, and SSOT conflicts before adding a helper.
+- When a middle step repeatedly fails, fix its ownership; do not stack symptom helpers. Prefer deletion, disabling, or delegation to one entrypoint.
+- Provider selection applies session Preview and starts automatic connection verification; it does not save settings.
+- Connection checks manually revalidate API access; the Save button owns persistence.
+- Show `정상연결` only after a real API response succeeds. Provider status copy is limited to `연결중`, `정상연결`, `연결실패`, and `연결확인 필요`.
+- Do not show routine key-source or key-presence copy in the provider status surface; report key errors without exposing the key body.
+- Preview application is not live-trading or order application.
 
 ## Validation
 

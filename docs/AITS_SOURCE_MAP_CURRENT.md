@@ -90,6 +90,7 @@ Current official AI-ARCH and related design documents:
 - `app/docs/aits_ai_reflection_event_schema_v1.md`
 - `app/docs/aits_main_ai_output_contract_copy_fix_v1.md`
 - `app/docs/aits_provider_engine_state_contract_v1.md`
+- `app/docs/aits_provider_engine_root_cause_recovery_v1.md`
 
 ### Provider Engine State Ownership
 
@@ -104,17 +105,54 @@ Active provider path:
 
 ```text
 btn_engine_openai/gemini/local
--> _sync_engine_choice_panel
--> _set_ai_provider_ui_active
--> _activate_ai_provider_preview
--> _apply_saved_ai_preview
+-> _select_ai_provider_for_session
+-> session Preview state + _render_ai_engine_state
 -> _run_ai_startup_connection_check_async
+-> ProviderConnectionProof
 ```
+
+Compatibility helpers may delegate into this path, but they are not independent state owners.
 
 Final Header and AI ENGINE card renderer: `_render_ai_engine_state`.
 
 Known risk: Basic runtime snapshots, legacy helpers, or multiple writers can overwrite the current
 OpenAI/Gemini Preview display. `_sync_basic_runtime_status_card` must preserve an active Preview.
+
+### Provider Engine Final Ownership Map
+
+- Active UI: `aits_engine_choice_panel`.
+- Session selection entrypoint: `_select_ai_provider_for_session`.
+- Final Header/AI ENGINE renderer: `_render_ai_engine_state`.
+- Connection proof: `ProviderConnectionProof`.
+- Runtime/panel proof: `RuntimeProof`, `EnginePanelProof`.
+- Key body owner: `secrets.json`.
+- Key presence flags: `prefs strategy.*_key_present`.
+- Legacy `cb_ai_provider`: disabled/non-owner; deleted or hidden legacy widgets must not mutate provider state.
+- Basic Runtime Snapshot: diagnostics only and cannot overwrite Provider Preview.
+
+Removed or disabled legacy paths include duplicate provider combo/card/radio signals, persist-after-test behavior, obsolete apply/common-engine helpers, duplicate startup schedulers, and direct competing Header writers. Remaining compatibility paths must delegate to the single entrypoint and renderer.
+
+Startup flow:
+
+```text
+saved provider/key/model
+-> _select_ai_provider_for_session(reason=startup_restore, start_connection=True)
+-> 연결중
+-> actual provider API proof
+-> 정상연결 / 연결실패
+```
+
+User selection flow:
+
+```text
+aits_engine_choice_panel click
+-> _select_ai_provider_for_session(reason=provider_panel_click, start_connection=True)
+-> Preview provider/model render
+-> actual provider API proof
+-> 정상연결 / 연결실패
+```
+
+The Save button persists settings only. Manual connection buttons revalidate only. Neither flow invokes Router, Execution, Order, or Risk Guard.
 
 ## 5. Local AI Learning Pipeline File Map
 

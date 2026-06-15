@@ -151,7 +151,45 @@ AI-REFLECT-01 defined Reflection Events as review and learning candidates, not o
 
 UI-MAIN-01 separated explicit AI Output Contract copy from Basic/fallback calculation copy.
 
-## 10. Communication / Reporting Format
+## 10. Provider Engine Root-Cause Rule
+
+Provider/API/Runtime/UI regressions must be handled by tracing ownership, not by stacking symptom helpers. Before editing, identify the active signal path, duplicate signals, hidden legacy paths, the final UI writer, and conflicting sources of truth. When a repeated A -> B -> C failure is located at B, repair A/B ownership instead of adding B1/B2/B3 helpers.
+
+Keep these seven layers distinct:
+
+- Selected Provider
+- Saved Provider
+- Preview Provider
+- Connection Provider
+- Actual Runtime Provider
+- Router Provider
+- Basic Runtime Snapshot
+
+Final action contract:
+
+- Provider selection applies the current session Preview and starts automatic API verification when a usable key exists.
+- The connection-check button manually revalidates the selected provider and does not save or apply settings.
+- The Save button persists provider, model, key, and settings only.
+- Startup restores the saved provider/model/key, applies Preview, and resumes automatic verification.
+- `정상연결` is allowed only after a real provider API response succeeds.
+- `연결중`, `정상연결`, `연결실패`, and `연결확인 필요` are the only normal provider status labels.
+- Routine key-source and key-presence copy stays out of the provider status surface. Key errors belong in safe popup/error detail.
+- Preview application never means live-trading or order application.
+
+Legacy and writer rules:
+
+- Remove, disable, or delegate duplicate combo/radio/card signals to the single provider entrypoint.
+- Deleted or hidden Qt widgets are not active owners; verify object lifetime before accessing legacy attributes.
+- Do not add another Header or AI ENGINE writer. `_render_ai_engine_state` is the final renderer.
+- Basic runtime snapshots must not overwrite an OpenAI/Gemini Preview.
+- Do not mark a provider connected merely because a key, stored secret, or model exists.
+- Do not call `save_settings` from provider selection or restore paths.
+- Do not add persistence/apply side effects to connection-test handlers.
+- Do not call Router, Execution, Order, or Risk Guard from provider selection or restore paths.
+
+Detailed recovery record: `app/docs/aits_provider_engine_root_cause_recovery_v1.md`.
+
+## 11. Communication / Reporting Format
 
 Completion reports should focus on:
 
@@ -172,7 +210,7 @@ Use `git add` with explicit allowed file paths only. Never use `git add .` in th
 
 Validation must be proportional to the Goal. Documentation-only Goals may use file existence, keyword, line-count, and scoped-diff checks without startup or build execution.
 
-## 11. Currently Prohibited Layers
+## 12. Currently Prohibited Layers
 
 Do not modify the following unless a Goal explicitly allows it:
 
@@ -186,7 +224,7 @@ Do not modify the following unless a Goal explicitly allows it:
 
 Exceptions require explicit Goal authorization.
 
-## 12. Current Candidate Next Work
+## 13. Current Candidate Next Work
 
 - Development-mode UI readiness and safety-copy stabilization
 - AI-REFLECT-02 Reflection Event Preview Builder
