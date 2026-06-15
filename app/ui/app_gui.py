@@ -6017,7 +6017,7 @@ class AITSLargeChartDialog(QDialog):
 
 # --------- Main window ---------
 class MainWindow(QMainWindow):
-    _ai_preview_connection_finished = Signal(str, str, str, str, str, int)
+    _ai_preview_connection_finished = Signal(str, str, str, str, str, int, str)
 
     # ✅ Diet 목표(진행 중)
     # - app_gui.py: 탭 생성/상태/서비스/라우팅만
@@ -14359,6 +14359,11 @@ class MainWindow(QMainWindow):
                 canonical_provider,
                 start_connection=connection_allowed,
             )
+            if start_connection and not connection_allowed:
+                QTimer.singleShot(
+                    0,
+                    lambda p=canonical_provider: self._resume_provider_connection_after_boot(p),
+                )
             self._trace_provider_state(
                 "provider_session_selected",
                 requested_provider=provider,
@@ -14368,6 +14373,24 @@ class MainWindow(QMainWindow):
             )
         finally:
             self._provider_session_selecting = False
+
+    def _resume_provider_connection_after_boot(self, provider: str) -> None:
+        if getattr(self, "_boot_restoring", False):
+            QTimer.singleShot(
+                100,
+                lambda p=provider: self._resume_provider_connection_after_boot(p),
+            )
+            return
+        normalized_provider = self._normalize_ai_provider_code(provider)
+        selected_provider = self._normalize_ai_provider_code(
+            getattr(self, "_selected_ai_provider", "basic")
+        )
+        if normalized_provider != selected_provider:
+            return
+        self._activate_ai_provider_preview(
+            normalized_provider,
+            start_connection=normalized_provider in ("gpt", "gemini"),
+        )
 
     def _set_ai_provider_ui_active(
         self,
@@ -18785,8 +18808,20 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _record_ai_connection_result(self, provider: str, key_source: str) -> None:
+    def _record_ai_connection_result(
+        self,
+        provider: str,
+        key_source: str,
+        connection_token: int | None = None,
+    ) -> None:
         try:
+            if connection_token != getattr(self, "_ai_preview_connection_token", 0):
+                self._trace_provider_state(
+                    "record_connection_result_ignored",
+                    guard_result="unverified_token",
+                    token=connection_token,
+                )
+                return
             normalized_provider = self._normalize_ai_provider_code(provider)
             selected_provider = self._normalize_ai_provider_code(
                 getattr(self, "_selected_ai_provider", "basic")
@@ -34842,7 +34877,11 @@ class MainWindow(QMainWindow):
             return False
 
     def _run_ai_startup_connection_check_async(
-        self, provider: str, api_key: str = "", key_source: str = "stored_secret"
+        self,
+        provider: str,
+        api_key: str = "",
+        key_source: str = "stored_secret",
+        mode: str = "auto",
     ) -> None:
         try:
             provider = self._normalize_saved_ai_provider(provider)
@@ -34856,6 +34895,10 @@ class MainWindow(QMainWindow):
             ) + 1
             connection_token = self._ai_preview_connection_token
             normalized_provider = self._normalize_ai_provider_code(provider)
+            connection_mode = (mode or "auto").strip().lower()
+            model_name = self._get_selected_ai_model(
+                "gpt" if provider == "openai" else provider
+            )
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = "연결중"
             self._last_ai_connection_source = key_source
@@ -34872,33 +34915,71 @@ class MainWindow(QMainWindow):
                 provider,
                 "연결중",
                 "연결중",
-                self._get_selected_ai_model("gpt" if provider == "openai" else provider),
+                model_name,
             )
+            proof_start = (
+                "[AITS][ProviderConnectionProof] event=start "
+                f"provider={provider} mode={connection_mode} token={connection_token} "
+                f"model={model_name} source={key_source}"
+            )
+            print(proof_start, flush=True)
+            self._log.info(proof_start)
+            logging.getLogger("aits").info(proof_start)
 
             import threading
 
             def _worker():
+                started_at = time.perf_counter()
                 status = "failed"
                 error_type = ""
-                model_name = ""
+                verified_model = model_name
                 try:
                     if provider == "openai":
                         from openai import OpenAI
 
-                        model_name = self._get_selected_ai_model("gpt")
                         OpenAI(api_key=key, timeout=4.0).models.list()
                     else:
-                        model_name = self._get_selected_ai_model("gemini")
                         import google.generativeai as genai
 
                         genai.configure(api_key=key)
-                        genai.GenerativeModel(model_name or "gemini-2.5-flash").generate_content(
+                        response = genai.GenerativeModel(
+                            verified_model or "gemini-2.5-flash"
+                        ).generate_content(
                             "ping",
                             request_options={"timeout": 4},
                         )
+                        if response is None:
+                            raise RuntimeError("empty_response")
                     status = "success"
                 except Exception as exc:
                     error_type = type(exc).__name__ or "Error"
+                elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+                error_name = error_type.lower()
+                if status == "success":
+                    proof_result = "api_response_verified"
+                elif "timeout" in error_name:
+                    proof_result = "timeout"
+                elif any(
+                    marker in error_name
+                    for marker in ("auth", "permission", "forbidden", "unauthorized")
+                ):
+                    proof_result = "auth_failed"
+                elif any(
+                    marker in error_name
+                    for marker in ("connection", "network", "request", "dns")
+                ):
+                    proof_result = "network_error"
+                else:
+                    proof_result = "api_request_failed"
+                proof_finish = (
+                    "[AITS][ProviderConnectionProof] event=finish "
+                    f"provider={provider} mode={connection_mode} token={connection_token} "
+                    f"ok={status == 'success'} elapsed_ms={elapsed_ms} result={proof_result}"
+                    + (f" error_type={error_type}" if error_type else "")
+                )
+                print(proof_finish, flush=True)
+                self._log.info(proof_finish)
+                logging.getLogger("aits").info(proof_finish)
                 try:
                     self._log.info(
                         "[AITS][AIStartupConnectionCheck] provider=%s | status=%s%s",
@@ -34914,9 +34995,10 @@ class MainWindow(QMainWindow):
                         provider,
                         status,
                         error_type,
-                        model_name,
+                        verified_model,
                         key_source,
                         connection_token,
+                        connection_mode,
                     )
                 except Exception:
                     pass
@@ -34937,6 +35019,7 @@ class MainWindow(QMainWindow):
         model_name: str,
         key_source: str,
         connection_token: int,
+        connection_mode: str,
     ) -> None:
         try:
             normalized_provider = self._normalize_ai_provider_code(provider)
@@ -34947,6 +35030,7 @@ class MainWindow(QMainWindow):
                 key_source=key_source,
                 token=connection_token,
                 result_status=status,
+                connection_mode=connection_mode,
             )
             if connection_token != getattr(self, "_ai_preview_connection_token", 0):
                 self._trace_provider_state(
@@ -34966,7 +35050,17 @@ class MainWindow(QMainWindow):
                 return
             if status == "success":
                 self._set_ai_key_status_label(provider, "정상연결")
-                self._record_ai_connection_result(provider, key_source)
+                self._record_ai_connection_result(
+                    provider,
+                    key_source,
+                    connection_token=connection_token,
+                )
+                if connection_mode == "manual":
+                    QMessageBox.information(
+                        self,
+                        f"{self._ai_provider_label(normalized_provider)} API 연결 확인",
+                        f"{self._ai_provider_label(normalized_provider)} API 정상연결 · {model_name}",
+                    )
                 return
             self._set_ai_key_status_label(provider, "연결실패")
             self._last_ai_connection_provider = normalized_provider
@@ -34974,6 +35068,12 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_source = key_source
             self._ai_connection_status = self._last_ai_connection_status
             self._render_ai_engine_state()
+            if connection_mode == "manual":
+                QMessageBox.warning(
+                    self,
+                    f"{self._ai_provider_label(normalized_provider)} API 연결 확인",
+                    "연결에 실패했습니다. API Key가 올바르지 않거나 권한 문제가 있을 수 있습니다.",
+                )
         except Exception:
             pass
 
@@ -36404,8 +36504,40 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _run_manual_ai_connection_check(self, provider: str) -> None:
+        provider = self._normalize_saved_ai_provider(provider)
+        api_key, key_source = self._resolve_ai_test_secret(provider)
+        if not api_key:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = "연결실패"
+            self._last_ai_connection_source = "missing"
+            self._ai_connection_status = "연결실패"
+            self._render_ai_engine_state()
+            QMessageBox.warning(
+                self,
+                f"{self._ai_provider_label(normalized_provider)} API 연결 확인",
+                "연결에 실패했습니다. API Key가 올바르지 않거나 권한 문제가 있습니다.",
+            )
+            return
+        if provider == "openai" and key_source == "ui_input":
+            self._pending_verified_openai_key = api_key
+            self._pending_verified_openai_model = self._get_selected_ai_model("gpt")
+        elif provider == "gemini" and key_source == "ui_input":
+            self._pending_verified_gemini_key = api_key
+            self._pending_verified_gemini_model = self._get_selected_ai_model("gemini")
+        self._run_ai_startup_connection_check_async(
+            provider,
+            api_key=api_key,
+            key_source=key_source,
+            mode="manual",
+        )
+
     def _on_test_gpt(self):
         """공통설정: GPT 연결 테스트. 3단계(준비/네트워크/토큰) 결과를 UI 텍스트로 표시. 키 원문 노출 금지. 최종 요약은 헤더 1줄에 갱신."""
+        self._run_manual_ai_connection_check("openai")
+        return
+
         def out(msg: str):
             if hasattr(self, "gpt_test_result") and self.gpt_test_result is not None:
                 self.gpt_test_result.appendPlainText(msg)
@@ -36745,6 +36877,9 @@ class MainWindow(QMainWindow):
 
     def _on_test_gemini(self):
         """Gemini 박스: REST generateContent 최소 호출로 응답 검증 후 UI·상태 동기화."""
+        self._run_manual_ai_connection_check("gemini")
+        return
+
         self._force_ai_key_status_visible("gemini", "Gemini: 연결중")
         self._set_ai_key_status_label("gemini", "연결중")
         self._set_ai_engine_card_test_status("gemini", "연결중", "연결중")
