@@ -1877,12 +1877,12 @@ class AITSLargeChartDialog(QDialog):
                 "balanced": "균형 운용형",
                 "aggressive": "단기 공격형",
                 "swing": "관망 스윙형",
-                "autonomous": "AI 자율 극대형",
+                "autonomous": "공격적 Preview",
                 "custom": "사용자 커스텀",
             }
             preset_text = preset_map.get(preset_key, "전역 preset")
-            autonomy_profile = "사용자 중심" if autonomy < 34 else "AI 중심" if autonomy >= 67 else "AI 자율도 50" if autonomy == 50 else f"AI 자율도 {autonomy}"
-            self.lbl_asset_policy_autonomy.setText(f"AI 자율도: {autonomy}")
+            autonomy_profile = "사용자 중심" if autonomy < 34 else "검토 민감도 높음" if autonomy >= 67 else "참고 강도 50" if autonomy == 50 else f"참고 강도 {autonomy}"
+            self.lbl_asset_policy_autonomy.setText(f"AI 판단 참고 강도: {autonomy}")
             self.lbl_asset_policy_summary.setText(
                 f"{style_text}\n{autonomy_profile}\n최대비중 {max_weight_text}"
             )
@@ -2251,7 +2251,7 @@ class AITSLargeChartDialog(QDialog):
             pass
 
         self.lbl_asset_policy_summary = QLabel(
-            "전역 정책 따름\nAI 자율도 50\n최대비중 전역"
+            "전역 정책 따름\nAI 판단 참고 강도 50\n최대비중 전역"
         )
         try:
             self.lbl_asset_policy_summary.setTextFormat(Qt.TextFormat.PlainText)
@@ -2280,7 +2280,7 @@ class AITSLargeChartDialog(QDialog):
         self.cmb_asset_policy_preset.addItem("균형 운용형", "balanced")
         self.cmb_asset_policy_preset.addItem("단기 공격형", "aggressive")
         self.cmb_asset_policy_preset.addItem("관망 스윙형", "swing")
-        self.cmb_asset_policy_preset.addItem("AI 자율 극대형", "autonomous")
+        self.cmb_asset_policy_preset.addItem("공격적 Preview", "autonomous")
         self.cmb_asset_policy_preset.addItem("사용자 커스텀", "custom")
         preset_row.addWidget(self.cmb_asset_policy_preset, 1)
         controls_layout.addLayout(preset_row)
@@ -2294,7 +2294,7 @@ class AITSLargeChartDialog(QDialog):
         style_row.addWidget(self.cmb_asset_policy_style, 1)
         controls_layout.addLayout(style_row)
 
-        self.lbl_asset_policy_autonomy = QLabel("AI 자율도: 50")
+        self.lbl_asset_policy_autonomy = QLabel("AI 판단 참고 강도: 50")
         self.slider_asset_policy_autonomy = QSlider(Qt.Orientation.Horizontal)
         try:
             self.slider_asset_policy_autonomy.setRange(0, 100)
@@ -12526,7 +12526,7 @@ class MainWindow(QMainWindow):
         self.btn_nav_strategy = _AitsBottomNavTile(
             "✣",
             "AI 정책 센터",
-            "철학 · 리스크 · 자율도",
+            "철학 · 리스크 · Preview",
             self._bottom_nav_left_wrap,
         )
         self.btn_nav_settings = _AitsBottomNavTile(
@@ -17220,7 +17220,7 @@ class MainWindow(QMainWindow):
         title = QLabel("AI 운용 프로필 센터")
         title.setStyleSheet("font-size: 16px; font-weight: 900; color: #111827;")
         desc = QLabel(
-            "투자 철학을 운용 프로필로 관리하고, AI Runtime은 이 방향을 preview로 해석합니다."
+            "AI 정책 센터는 운용 성향과 조건 계산 기준을 정리하는 Preview 영역입니다. 저장만으로 주문은 실행되지 않습니다."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 11px; color: #64748b;")
@@ -17228,7 +17228,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addWidget(desc)
 
         self.lbl_ai_policy_guidance = QLabel(
-            "AITS는 사용자의 운용 철학을 기반으로 AI가 Runtime 판단을 준비합니다."
+            "현재는 Shadow/Preview 기준입니다. Router/RiskGuard/Execution의 별도 안전 조건을 우회하지 않습니다."
         )
         self.lbl_ai_policy_guidance.setWordWrap(True)
         self.lbl_ai_policy_guidance.setStyleSheet(
@@ -17247,9 +17247,9 @@ class MainWindow(QMainWindow):
         preset_layout = QVBoxLayout(self.ai_policy_preset_container)
         preset_layout.setContentsMargins(8, 8, 8, 8)
         preset_layout.setSpacing(6)
-        preset_title = QLabel("AI 운용 프로필")
+        preset_title = QLabel("운용 프로필 Preview")
         preset_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #111827;")
-        preset_subtitle = QLabel("AI의 기본 운용 성향을 빠르게 선택합니다.")
+        preset_subtitle = QLabel("후보 평가와 조건 계산의 참고 성향을 선택합니다. 주문 없음.")
         preset_subtitle.setStyleSheet("font-size: 10px; color: #64748b;")
         preset_layout.addWidget(preset_title)
         preset_layout.addWidget(preset_subtitle)
@@ -17262,7 +17262,7 @@ class MainWindow(QMainWindow):
             ("btn_policy_preset_balanced", "균형 운용형", "balanced"),
             ("btn_policy_preset_aggressive", "단기 공격형", "aggressive"),
             ("btn_policy_preset_swing", "관망 스윙형", "swing"),
-            ("btn_policy_preset_autonomous", "AI 자율 극대형", "autonomous"),
+            ("btn_policy_preset_autonomous", "공격적 Preview", "autonomous"),
         )
         for attr_name, text, preset_name in preset_buttons:
             button = QPushButton(text)
@@ -17272,7 +17272,7 @@ class MainWindow(QMainWindow):
             preset_button_row.addWidget(button)
         preset_layout.addLayout(preset_button_row)
 
-        self.lbl_ai_policy_preset_desc = QLabel("균형형 AI 운용 프로필입니다.")
+        self.lbl_ai_policy_preset_desc = QLabel("균형형 Preview 운용 프로필입니다. 주문 없음.")
         self.lbl_ai_policy_preset_desc.setWordWrap(True)
         self.lbl_ai_policy_preset_desc.setStyleSheet("font-size: 10px; color: #475569;")
         preset_layout.addWidget(self.lbl_ai_policy_preset_desc)
@@ -17295,8 +17295,8 @@ class MainWindow(QMainWindow):
             50,
         )
         self.policy_autonomy_card = self._build_ai_policy_slider_card(
-            "AI 자율도",
-            "사용자 중심 ───●──── AI 중심",
+            "AI 판단 참고 강도",
+            "사용자 확인 중심 ───●──── 참고 강도 높음",
             "slider_policy_autonomy",
             50,
         )
@@ -17307,7 +17307,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addLayout(grid)
 
         self.lbl_ai_policy_summary = QLabel(
-            "현재 AI 운용 프로필\n균형형 · 리스크 중간 · 관망 우선 · AI 자율도 중간"
+            "현재 운용 프로필 Preview\n균형형 · 리스크 중간 · 관망 우선 · 참고 강도 중간 · 주문 없음"
         )
         self.lbl_ai_policy_summary.setWordWrap(True)
         self.lbl_ai_policy_summary.setObjectName("aitsPolicyBadge")
@@ -17336,7 +17336,7 @@ class MainWindow(QMainWindow):
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_local_runtime_notice)
 
-        self.btn_toggle_advanced_policy = QPushButton("고급 정책 펼치기")
+        self.btn_toggle_advanced_policy = QPushButton("정책 설명 펼치기")
         self.btn_toggle_advanced_policy.clicked.connect(self._toggle_advanced_policy_container)
         self.ai_policy_hero_layout.addWidget(self.btn_toggle_advanced_policy)
 
@@ -17346,7 +17346,7 @@ class MainWindow(QMainWindow):
         advanced_layout.setContentsMargins(8, 6, 8, 6)
         advanced_layout.setSpacing(4)
         advanced_label = QLabel(
-            "기존 RSI/MACD 및 세부 룰 설정은 하위 고급 정책 영역으로 유지됩니다."
+            "정책 설명 영역입니다. 설정 저장만으로 주문은 실행되지 않습니다."
         )
         advanced_label.setWordWrap(True)
         advanced_label.setStyleSheet("font-size: 11px; color: #6b7280;")
@@ -17383,7 +17383,7 @@ class MainWindow(QMainWindow):
             legacy_layout.setContentsMargins(6, 6, 6, 6)
             legacy_layout.setSpacing(4)
 
-            self.lbl_legacy_policy_header = QLabel("고급 정책 및 레거시 설정")
+            self.lbl_legacy_policy_header = QLabel("Legacy 고급 전략 설정 · Preview/조건 계산 · 주문 없음")
             self.lbl_legacy_policy_header.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_header.setStyleSheet(
                 "font-size: 11px; font-weight: 700; color: #475569;"
@@ -17391,14 +17391,14 @@ class MainWindow(QMainWindow):
             legacy_layout.addWidget(self.lbl_legacy_policy_header)
 
             self.lbl_legacy_policy_desc = QLabel(
-                "고급 사용자 및 레거시 전략 호환 옵션입니다."
+                "고급 설정은 내부 전략 계산값을 조정합니다. 저장만으로 주문은 실행되지 않으며 Live 전 별도 검증이 필요합니다."
             )
             self.lbl_legacy_policy_desc.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_desc.setWordWrap(True)
             self.lbl_legacy_policy_desc.setStyleSheet("font-size: 10px; color: #94a3b8;")
             legacy_layout.addWidget(self.lbl_legacy_policy_desc)
 
-            self.btn_toggle_legacy_policy = QPushButton("고급 정책 펼치기")
+            self.btn_toggle_legacy_policy = QPushButton("레거시 전략 설정 열기")
             self.btn_toggle_legacy_policy.setStyleSheet(
                 "font-size: 11px; color: #64748b; background: #f8fafc;"
                 "border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 8px;"
@@ -17451,7 +17451,7 @@ class MainWindow(QMainWindow):
             visible = not bool(content.isVisible())
             content.setVisible(visible)
             if button is not None:
-                button.setText("고급 정책 접기" if visible else "고급 정책 펼치기")
+                button.setText("레거시 전략 설정 닫기" if visible else "레거시 전략 설정 열기")
         except Exception:
             pass
 
@@ -17459,7 +17459,7 @@ class MainWindow(QMainWindow):
         card = self._build_ai_policy_card("운용 스타일")
         layout = card.layout()
         self.cmb_ai_policy_style = QComboBox()
-        self.cmb_ai_policy_style.addItems(["안정형", "균형형", "공격형", "AI 자율형"])
+        self.cmb_ai_policy_style.addItems(["안정형", "균형형", "공격형", "Preview 참고 강화형"])
         self.cmb_ai_policy_style.setCurrentText("균형형")
         self.cmb_ai_policy_style.currentTextChanged.connect(self._on_ai_policy_changed)
         layout.addWidget(self.cmb_ai_policy_style)
@@ -17467,7 +17467,7 @@ class MainWindow(QMainWindow):
             "안정형: 관망 우선 / 리스크 최소화\n"
             "균형형: 기회와 안정성 균형\n"
             "공격형: 빠른 진입 / 높은 변동 허용\n"
-            "AI 자율형: AI 판단 비중 확대"
+            "Preview 참고 강화형: 후보 평가 참고 강도 확대 · 주문 없음"
         )
         help_label.setWordWrap(True)
         help_label.setStyleSheet("font-size: 10px; color: #6b7280;")
@@ -17515,7 +17515,7 @@ class MainWindow(QMainWindow):
             visible = not bool(container.isVisible())
             container.setVisible(visible)
             if button is not None:
-                button.setText("고급 정책 접기" if visible else "고급 정책 펼치기")
+                button.setText("정책 설명 접기" if visible else "정책 설명 펼치기")
         except Exception:
             pass
 
@@ -17542,7 +17542,7 @@ class MainWindow(QMainWindow):
             },
             "balanced": {
                 "label": "균형 운용형",
-                "desc": "균형형 AI 운용 프로필입니다.",
+                "desc": "균형형 Preview 운용 프로필입니다. 주문 없음.",
                 "style": "균형형",
                 "risk": 50,
                 "wait": 50,
@@ -17565,8 +17565,8 @@ class MainWindow(QMainWindow):
                 "autonomy": 60,
             },
             "autonomous": {
-                "label": "AI 자율 극대형",
-                "desc": "빠른 판단 · 높은 자율성 · 공격적 기회 탐색",
+                "label": "공격적 Preview",
+                "desc": "후보 평가 민감도 높음 · Live 전 별도 검증 필요 · 주문 없음",
                 "style": "공격형",
                 "risk": 70,
                 "wait": 25,
@@ -17574,7 +17574,7 @@ class MainWindow(QMainWindow):
             },
             "custom": {
                 "label": "사용자 커스텀",
-                "desc": "사용자가 직접 조정한 AI 운용 프로필입니다.",
+                "desc": "사용자가 직접 조정한 Preview 운용 프로필입니다.",
                 "style": "균형형",
                 "risk": 50,
                 "wait": 50,
@@ -17591,7 +17591,7 @@ class MainWindow(QMainWindow):
                 badge.setText(f"Preset: {meta.get('label', '균형 운용형')}")
             desc = getattr(self, "lbl_ai_policy_preset_desc", None)
             if desc is not None and hasattr(desc, "setText"):
-                desc.setText(str(meta.get("desc") or "균형형 AI 운용 프로필입니다."))
+                desc.setText(str(meta.get("desc") or "균형형 Preview 운용 프로필입니다. 주문 없음."))
         except Exception:
             pass
 
@@ -17932,14 +17932,14 @@ class MainWindow(QMainWindow):
             autonomy_text = self._policy_level_text(
                 snapshot.get("autonomy_level"),
                 low="사용자 중심",
-                mid="AI 자율도 중간",
-                high="AI 중심",
+                mid="참고 강도 중간",
+                high="참고 강도 높음",
             )
             label = getattr(self, "lbl_ai_policy_summary", None)
             if label is not None and hasattr(label, "setText"):
                 label.setText(
-                    "현재 AI 운용 프로필\n"
-                    f"{snapshot.get('policy_style')} · {risk_text} · {wait_text} · {autonomy_text}"
+                    "현재 운용 프로필 Preview\n"
+                    f"{snapshot.get('policy_style')} · {risk_text} · {wait_text} · {autonomy_text} · 주문 없음"
                 )
         except Exception:
             pass
@@ -18018,7 +18018,7 @@ class MainWindow(QMainWindow):
                 "[3] Preview\n"
                 f"- Reasoning {reasoning_text} · Shadow {shadow_text} · Router {router_text}\n"
                 f"- 정책: {preset_label} · {effective_policy} (종목 {asset_policy})\n"
-                f"- 자율도 {autonomy} · 최대비중 {weight_text} · submitted={submitted}\n"
+                f"- 참고 강도 {autonomy} · 최대비중 {weight_text} · submitted={submitted}\n"
                 "AITS는 운용 철학 기반 AI Runtime 시스템입니다."
             )
         except Exception:

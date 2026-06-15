@@ -21,15 +21,15 @@ HELP_TEXTS = {
 현재 설정된 모든 매매 전략 파라미터를 실시간으로 요약하여 보여주는 대시보드입니다.
 
 【오늘 어떻게 사용하나요?】
-1. AI 추천 시스템으로 최적 전략을 받습니다
-2. 매매 적극성 슬라이더로 오늘의 성향을 조정합니다
+1. 추천 Preview로 전략 후보를 검토합니다
+2. 전략 성향 슬라이더로 오늘의 후보 평가 기준을 조정합니다
 3. 전략 요약창에서 모든 설정이 올바르게 반영되었는지 확인합니다
 4. 설정이 만족스러우면 '설정 저장' 버튼으로 저장합니다. 저장 자체는 주문 실행이 아닙니다
 
 【주의사항/팁】
 • 전략 요약은 실시간으로 업데이트되므로 설정 변경 즉시 확인 가능합니다
 • 손익비와 리스크 관리 수치가 적절한지 반드시 확인하세요
-• AI 추천과 내 설정이 다를 경우, 전략 요약을 통해 차이점을 파악할 수 있습니다
+• 추천 Preview와 내 설정이 다를 경우, 전략 요약을 통해 차이점을 파악할 수 있습니다
 • 복잡한 설정도 한눈에 파악하여 실수를 방지할 수 있습니다
 """,
     "기술적 지표": """
@@ -40,14 +40,14 @@ RSI, 볼린저밴드, MACD 등 다양한 기술적 지표를 조합하여 매매
 
 【오늘 어떻게 사용하나요?】
 1. 사용할 지표를 체크하여 조합합니다 (AND/OR 논리 선택)
-2. AI 판단 우선 옵션으로 AI 분석을 가중시킬 수 있습니다
+2. Legacy AI Output Contract 참고 옵션은 기본 비활성입니다
 3. 논리 목록에서 지표별 조건을 세부적으로 설정합니다
 4. 전략 요약에서 지표 조합이 올바르게 반영되었는지 확인합니다
 
 【주의사항/팁】
 • 지표가 너무 많으면 신호가 희소해지고, 너무 적으면 잦은 매매가 발생할 수 있습니다
 • 과최적화를 피하기 위해 주요 지표 2-3개 조합을 권장합니다
-• AI 판단 우선 시에는 AI 분석이 지표 신호보다 우선 적용됩니다
+• AI Output Contract와 Router/RiskGuard 검증 없이는 AI 참고값이 주문에 적용되지 않습니다
 • 시장 상황에 따라 지표 효과가 달라질 수 있으니 주기적인 재검토가 필요합니다
 
 【지표별 설명】
@@ -61,23 +61,23 @@ RSI, 볼린저밴드, MACD 등 다양한 기술적 지표를 조합하여 매매
 【논리 옵션】
 • 현재는 AND/OR 논리만 지원됩니다. AND는 모든 조건 충족 시, OR는 하나의 조건만 충족해도 신호가 발생합니다
 """,
-    "AI 추천 시스템": """
-AI 추천 시스템은 현재 시장 상황을 분석하여 최적의 전략을 추천하는 기능입니다.
+    "추천 Preview": """
+추천 Preview는 현재 시장 상황을 참고해 전략 후보를 검토하는 기능입니다.
 
 【무엇인가요?】
-실시간 시장 데이터를 분석하여 현재 상황에 가장 적합한 매매 전략을 자동으로 제안하는 시스템입니다.
+시장 데이터를 참고해 현재 상황에서 검토할 만한 전략 후보를 보여주는 Preview 표면입니다.
 
 【오늘 어떻게 사용하나요?】
-1. 'AI 추천 새로고침' 버튼을 클릭하여 최신 시장 분석을 받습니다
-2. AI가 제안한 전략 내용과 근거를 확인합니다
-3. 'AI 추천 적용하기' 버튼으로 제안된 설정을 한 번에 적용합니다
-4. 전략 요약에서 AI 추천이 올바르게 반영되었는지 확인합니다
+1. '추천 미리보기' 버튼으로 후보 검토안을 확인합니다
+2. 추천 내용과 근거를 확인합니다
+3. 자동 적용은 비활성입니다. 필요한 값은 사용자가 검토 후 저장합니다
+4. 전략 요약에서 설정이 올바르게 반영되었는지 확인합니다
 
 【주의사항/팁】
-• AI 추천은 현재 시장 상황을 기반으로 하므로 실시간 업데이트가 중요합니다
+• 추천 Preview는 주문 신호가 아니며 자동 적용되지 않습니다
 • 추천된 전략은 참고용이며, 투자자의 성향에 맞게 조정할 수 있습니다
-• 시장 변동이 크거나 특수한 상황에서는 AI 추천을 여러 번 확인하세요
-• AI 추천과 내 판단이 다를 경우, 전략 요약을 통해 비교 분석 후 결정하세요
+• 시장 변동이 크거나 특수한 상황에서는 Preview를 여러 번 확인하세요
+• 추천 Preview와 내 판단이 다를 경우, 전략 요약을 통해 비교 분석 후 결정하세요
 """,
     "매매 적극성": """
 매매 적극성은 오늘의 매매 성향을 한 번에 조정하는 핵심 컨트롤입니다.
@@ -172,12 +172,12 @@ AI 추천 시스템은 현재 시장 상황을 분석하여 최적의 전략을 
   - 설정된 조건에 따라 자동으로 매매
   - 공포와 탐욕에서 벗어난 의사결정
 
-• 손절 강제: 손실 확정 지연 방지
-  - 설정된 손실률 도달 시 자동 매도
+• 손절 기준: 손실 확정 지연 방지
+  - 설정된 손실률 도달 시 매도 조건으로 검토
   - '더 오르면...' 하는 생각을 차단
 
-• 익절 자동: 탐욕으로 인한 수익 날림 방지
-  - 목표 수익률 도달 시 자동 매도
+• 익절 기준: 탐욕으로 인한 수익 날림 방지
+  - 목표 수익률 도달 시 매도 조건으로 검토
   - '더 오르면...' 하는 욕심 제어
 
 • 과매수/과매도 알림: 극단적 시장 상황 경고
@@ -849,11 +849,11 @@ class StrategyTab(QWidget):
         lay.addLayout(row)
 
         # 🔷 로테이션: 기회비용 창출 매도-only (주기 | 교체수 | 다음/마지막 로테이션, 왼쪽 플로우)
-        self.chk_rotation_enabled = QCheckBox("로테이션 조건 계산 (Preview/Shadow)")
+        self.chk_rotation_enabled = QCheckBox("로테이션 조건 계산 · Preview/Shadow · 주문 없음")
         self.chk_rotation_enabled.setChecked(False)
         self.chk_rotation_enabled.setToolTip(
-            "후보 교체 조건을 계산하는 설정입니다. 실제 매도·교체 실행은 별도 승인과 검증이 필요하며, "
-            "전량매도 가능 정책은 Preview/Shadow 단계에서 먼저 확인해야 합니다."
+            "후보 교체 조건을 계산하는 설정입니다. 실제 매도·교체 실행이 아니며, "
+            "Live 전 별도 승인과 검증이 필요합니다."
         )
         lay.addWidget(self.chk_rotation_enabled)
         row_rot = QHBoxLayout()
@@ -891,7 +891,7 @@ class StrategyTab(QWidget):
 
     def _build_order_section(self):
         """섹션 2: 주문 설정 (표준 라벨·설명)."""
-        g = QGroupBox("주문 설정")  # ✅ 다른 박스들과 동일하게 GroupBox 타이틀 사용
+        g = QGroupBox("주문 기준 설정 · 저장만으로 주문 없음")  # ✅ 다른 박스들과 동일하게 GroupBox 타이틀 사용
         g.setStyleSheet("QGroupBox { font-weight: bold; border: 1px solid #0078d4; }")
         g.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
         main_layout = QVBoxLayout(g)
@@ -927,11 +927,11 @@ class StrategyTab(QWidget):
         self.spn_max_invest_cap.setToolTip("총 보유 평가금액(노출)이 이 금액을 넘으면 추가 매수를 차단합니다. (0=제한 없음)")
         row_layout.addWidget(self.spn_max_invest_cap)
         lay.addRow("", row_order)
-        self.chk_allow_downscale = QCheckBox("잔고/한도 기준 주문금액 축소 계산")
+        self.chk_allow_downscale = QCheckBox("잔고/한도 기준 주문금액 조건 보정")
         self.chk_allow_downscale.setChecked(False)
         self.chk_allow_downscale.setToolTip(
-            "위험도와 잔고/한도에 따라 주문 기준 금액을 낮추는 계산 옵션입니다. "
-            "실제 주문 수량에 영향을 줄 수 있으므로 Live 사용 전 별도 검증이 필요합니다."
+            "위험도와 잔고/한도에 따라 주문 기준 금액을 보정하는 계산 옵션입니다. "
+            "저장만으로 주문은 실행되지 않으며 Live 전 별도 검증이 필요합니다."
         )
         lay.addRow("", self.chk_allow_downscale)
         self.lbl_downscale_desc = QLabel("축소 계산 OFF · 설정 금액을 유지하며, Preview/Shadow에서 조건을 확인합니다.")
@@ -939,7 +939,7 @@ class StrategyTab(QWidget):
         self.lbl_downscale_desc.setWordWrap(True)
         lay.addRow("", self.lbl_downscale_desc)
 
-        # ✅ 익절/손절(%) — 0이면 AI 판단(고정값 금지), >0이면 사용자 안전장치(최우선)
+        # ✅ 익절/손절(%) — 0이면 고정 TP/SL 미사용, >0이면 사용자 안전장치(최우선)
         self.spn_stop_loss_pct = QDoubleSpinBox()
         self.spn_stop_loss_pct.setRange(0.0, 50.0)
         self.spn_stop_loss_pct.setDecimals(2)
@@ -947,8 +947,8 @@ class StrategyTab(QWidget):
         self.spn_stop_loss_pct.setSuffix("%")
         self.spn_stop_loss_pct.setValue(0.0)
         self.spn_stop_loss_pct.setToolTip(
-            "0%는 고정 손절 기준 미사용입니다. AI Output Contract가 있을 때만 판단 참고가 가능하며, "
-            "응답이 없으면 fallback/기본 정책을 따릅니다. 주문 실행 신호가 아닙니다."
+            "0%는 고정 손절 기준 미사용입니다. AI Output Contract 후보 판단과 분리되며, "
+            "응답이 없으면 fallback/기본 정책을 따릅니다. 주문 신호가 아닙니다."
         )
 
         self.spn_take_profit_pct = QDoubleSpinBox()
@@ -958,8 +958,8 @@ class StrategyTab(QWidget):
         self.spn_take_profit_pct.setSuffix("%")
         self.spn_take_profit_pct.setValue(0.0)
         self.spn_take_profit_pct.setToolTip(
-            "0%는 고정 익절 기준 미사용입니다. AI Output Contract가 있을 때만 판단 참고가 가능하며, "
-            "응답이 없으면 fallback/기본 정책을 따릅니다. 주문 실행 신호가 아닙니다."
+            "0%는 고정 익절 기준 미사용입니다. AI Output Contract 후보 판단과 분리되며, "
+            "응답이 없으면 fallback/기본 정책을 따릅니다. 주문 신호가 아닙니다."
         )
 
         # 손절/익절 한 줄 2열: 각각 라벨 + 입력 + 상태, 중간에 | 구분
@@ -999,9 +999,9 @@ class StrategyTab(QWidget):
 
         def _on_downscale_toggled():
             if self.chk_allow_downscale.isChecked():
-                self.lbl_downscale_desc.setText("축소 계산 ON · 주문 기준 금액에 영향을 줄 수 있어 Live 전 별도 검증이 필요합니다.")
+                self.lbl_downscale_desc.setText("조건 보정 ON · 주문 기준 금액에 영향을 줄 수 있어 Live 전 별도 검증이 필요합니다. 저장만으로 주문 없음.")
             else:
-                self.lbl_downscale_desc.setText("축소 계산 OFF · 설정 금액을 유지하며, Preview/Shadow에서 조건을 확인합니다.")
+                self.lbl_downscale_desc.setText("조건 보정 OFF · 설정 금액을 유지하며, Preview/Shadow에서 조건을 확인합니다. 주문 없음.")
         self.chk_allow_downscale.toggled.connect(_on_downscale_toggled)
         return g
 
@@ -1079,7 +1079,7 @@ class StrategyTab(QWidget):
         return g
 
     def _on_sell_test_clicked(self):
-        """매도 테스트(드라이런): 실제 주문 없이 현재 보유/매도 조건만 5줄로 표시."""
+        """매도 조건 점검(드라이런): 실제 주문 없이 현재 보유/매도 조건만 5줄로 표시."""
         try:
             # P0-[2]: Holdings SSOT 사용
             from app.services.holdings_service import fetch_live_holdings
@@ -1370,18 +1370,18 @@ class StrategyTab(QWidget):
         row_order_layout.addWidget(self.spn_max_invest_cap)
         row_order_layout.addStretch(1)
         left_risk_layout.addRow("", row_order)
-        self.chk_allow_downscale = QCheckBox("잔고/한도 기준 주문금액 축소 계산")
+        self.chk_allow_downscale = QCheckBox("잔고/한도 기준 주문금액 조건 보정")
         self.chk_allow_downscale.setChecked(False)
         self.chk_allow_downscale.setToolTip(
             "OFF: 설정한 주문 기준 금액을 유지합니다.\n"
-            "ON: 주문 기준 금액에 영향을 줄 수 있으므로 Live 전 별도 검증이 필요합니다."
+            "ON: 주문 기준 금액에 영향을 줄 수 있으므로 Live 전 별도 검증이 필요합니다. 저장만으로 주문 없음."
         )
         left_risk_layout.addRow("", self.chk_allow_downscale)
         content_layout.addWidget(left_risk_widget)
         
         # 고급 모드 펼치기(▶): exit_mode + 손절/익절
         self._advanced_visible = False
-        self.btn_advanced_toggle = QPushButton("고급 모드 펼치기(▶)")
+        self.btn_advanced_toggle = QPushButton("고급 조건 펼치기 · Preview")
         self.btn_advanced_toggle.setCheckable(True)
         self.btn_advanced_toggle.setChecked(False)
         self.btn_advanced_toggle.toggled.connect(self._on_advanced_toggle_clicked)
@@ -1394,12 +1394,12 @@ class StrategyTab(QWidget):
         self.cmb_exit_mode.addItems(["ai", "user", "trail"])
         self.cmb_exit_mode.setCurrentText("ai")
         self.cmb_exit_mode.setToolTip(
-            "ai: AI Output Contract가 있을 때 판단 참고 | user: 사용자 고정 기준 | trail: 추적 기준. "
-            "선택 자체는 주문 실행 신호가 아닙니다."
+            "ai: AI Output Contract 후보 판단 참고 | user: 사용자 고정 기준 | trail: 추적 기준. "
+            "선택 자체는 주문 실행 신호가 아니며 저장만으로 주문은 없습니다."
         )
         adv_layout.addRow("청산 모드(exit_mode)", self.cmb_exit_mode)
         self.spn_stop_loss = QDoubleSpinBox()
-        self.spn_stop_loss.setRange(0.0, 20.0)  # 0.0 허용 (AI 판단)
+        self.spn_stop_loss.setRange(0.0, 20.0)  # 0.0 허용 (고정 기준 미사용)
         self.spn_stop_loss.setSuffix("%")
         self.spn_stop_loss.setValue(0.0)
         self.lbl_stop_loss_status = QLabel("")  # 초기값은 _update_tp_sl_status()에서 설정
@@ -1412,7 +1412,7 @@ class StrategyTab(QWidget):
         self.spn_stop_loss.valueChanged.connect(self._update_tp_sl_status)
         
         self.spn_take_profit = QDoubleSpinBox()
-        self.spn_take_profit.setRange(0.0, 20.0)  # 0.0 허용 (AI 판단)
+        self.spn_take_profit.setRange(0.0, 20.0)  # 0.0 허용 (고정 기준 미사용)
         self.spn_take_profit.setSuffix("%")
         self.spn_take_profit.setValue(0.0)
         self.lbl_take_profit_status = QLabel("")  # 초기값은 _update_tp_sl_status()에서 설정
@@ -1487,10 +1487,10 @@ class StrategyTab(QWidget):
         logic_layout.addWidget(QLabel("논리:"))
         logic_layout.addWidget(self.cmb_logic)
         
-        # AI 판단 우선을 논리와 같은 줄로 이동
-        self.chk_ai_judge = QCheckBox("AI Output Contract 참고 우선 (Legacy · 비활성)")
+        # Legacy AI Output Contract 참고 옵션을 논리와 같은 줄로 이동
+        self.chk_ai_judge = QCheckBox("AI Output Contract 참고 우선 · Legacy · 비활성")
         self.chk_ai_judge.setToolTip(
-            "Legacy 고급 옵션입니다. AI Output Contract와 Router/RiskGuard 검증 없이는 주문에 적용할 수 없습니다."
+            "Legacy 고급 옵션입니다. AI Output Contract와 Router/RiskGuard 검증 없이는 주문에 반영할 수 없습니다."
         )
         self.chk_ai_judge.setChecked(False)
         self.chk_ai_judge.setEnabled(False)
@@ -1552,7 +1552,7 @@ class StrategyTab(QWidget):
         ai_layout.setSpacing(0)
         
         # 표준 섹션 헤더 추가
-        header = self._create_standard_section_header("AI 전략 추천 (Legacy · 준비 중)")
+        header = self._create_standard_section_header("Legacy 추천 Preview · 적용 비활성")
         ai_layout.addWidget(header)
         # 내용 영역
         content_widget = QWidget()
@@ -1567,13 +1567,13 @@ class StrategyTab(QWidget):
         
         self.btn_ai_refresh = QPushButton("추천 미리보기")
         self.btn_ai_refresh.setStyleSheet("QPushButton { padding: 8px 16px; font-weight: bold; }")
-        self.btn_ai_refresh.setToolTip("Legacy 추천 표면입니다. AI 추천은 주문 신호가 아니며 현재 활성 UI에서 사용하지 않습니다.")
+        self.btn_ai_refresh.setToolTip("Legacy 추천 Preview 표면입니다. 추천은 주문 신호가 아니며 현재 활성 UI에서 사용하지 않습니다.")
         self.btn_ai_refresh.setEnabled(False)
         ai_top.addWidget(self.btn_ai_refresh)
         
-        self.btn_ai_apply = QPushButton("적용 비활성")
+        self.btn_ai_apply = QPushButton("자동 적용 없음")
         self.btn_ai_apply.setStyleSheet("QPushButton { padding: 8px 16px; font-weight: bold; background: #28a745; color: white; }")
-        self.btn_ai_apply.setToolTip("별도 승인 전 적용할 수 없습니다. 추천은 주문 실행을 의미하지 않습니다.")
+        self.btn_ai_apply.setToolTip("별도 승인 전 적용할 수 없습니다. 추천은 저장이나 주문 실행을 의미하지 않습니다.")
         self.btn_ai_apply.setEnabled(False)
         ai_top.addWidget(self.btn_ai_apply)
         
@@ -1584,7 +1584,7 @@ class StrategyTab(QWidget):
         self.txt_ai_reason.setMinimumHeight(120)
         self.txt_ai_reason.setMaximumHeight(150)
         self.txt_ai_reason.setReadOnly(True)
-        self.txt_ai_reason.setPlaceholderText("Legacy 추천 UI · 현재 비활성 · 주문 신호 아님")
+        self.txt_ai_reason.setPlaceholderText("Legacy 추천 Preview · 현재 비활성 · 자동 적용 없음 · 주문 신호 아님")
         content_layout.addWidget(self.txt_ai_reason)
         
         ai_layout.addWidget(content_widget)
@@ -2574,18 +2574,18 @@ class StrategyTab(QWidget):
                 "reason": reason,
             }
             
-            self._info("AI 시장 분석이 완료되었습니다. 추천을 확인 후 적용하세요.")
+            self._info("추천 Preview가 준비되었습니다. 검토 후 필요한 값만 저장하세요. 주문은 실행되지 않습니다.")
             self._log.info("[AI-RECO] generate complete recommendation_stored=true")
             
         except Exception as e:
-            self._info(f"AI 추천 준비 중 오류: {e}")
+            self._info(f"추천 Preview 준비 중 오류: {e}")
             self._log.exception(f"[AI-RECO-UI] error: {e}")
     
     def _apply_ai_recommendation(self):
         """Apply the generated AI recommendation to actual strategy"""
         try:
             if not hasattr(self, '_pending_ai_recommendation'):
-                self._info("적용할 AI 추천이 없습니다. 먼저 새로고침을 눌러주세요.")
+                self._info("검토할 추천 Preview가 없습니다. 먼저 미리보기를 확인하세요.")
                 self._log.warning("[AI-RECO] apply fail reason=no_pending_recommendation")
                 return
                 
@@ -2810,9 +2810,9 @@ class StrategyTab(QWidget):
             self.btn_ai_apply.setEnabled(False)
             delattr(self, '_pending_ai_recommendation')
             
-            # ✅ AI 추천 적용 후 즉시 캐시 갱신 트리거
+            # ✅ 추천 Preview 반영 후 캐시 갱신 트리거
             try:
-                # AI 추천 적용 이벤트 발행으로 runner 캐시 강제 갱신
+                # 추천 Preview 반영 이벤트 발행으로 runner 캐시 강제 갱신
                 import app.core.bus as eventbus
                 eventbus.publish("ai.reco.refresh", {})
                 self._log.warning("[AI-RECO][PUB] topic=ai.reco.refresh source=config_tabs:_apply_ai_recommendation")
@@ -2821,14 +2821,14 @@ class StrategyTab(QWidget):
             except Exception as e:
                 self._log.warning(f"[AI-RECO] cache refresh trigger failed: {e}")
             
-            self._info("AI 추천이 성공적으로 적용되었습니다.")
+            self._info("추천 Preview 값이 화면에 반영되었습니다. 저장 전까지 주문은 실행되지 않습니다.")
             
             # ✅ P2-5: Dirty 상태 설정
             self._is_dirty = True
             self._update_dirty_indicator()
             
         except Exception as e:
-            self._info(f"AI 추천 적용 중 오류: {e}")
+            self._info(f"추천 Preview 반영 중 오류: {e}")
             self._log.exception(f"[AI-RECO-APPLY] error: {e}")
         finally:
             # AI 적용 플래그 해제
@@ -2933,7 +2933,7 @@ class StrategyTab(QWidget):
                 settings.strategy.allow_downscale_order_amount = self.chk_allow_downscale.isChecked()
             if hasattr(self, "cmb_exit_mode"):
                 settings.strategy.exit_mode = str(self.cmb_exit_mode.currentText() or "ai")
-            # ✅ 0이면 AI 판단, >0이면 사용자 값 최우선 (고정값/폴백 금지)
+            # ✅ 0이면 고정 기준 미사용, >0이면 사용자 값 최우선 (고정값/폴백 금지)
             if hasattr(self, "spn_stop_loss_pct"):
                 settings.strategy.stop_loss_pct = float(self.spn_stop_loss_pct.value())
             elif hasattr(self, "spn_stop_loss"):
