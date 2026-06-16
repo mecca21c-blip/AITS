@@ -12352,14 +12352,17 @@ class MainWindow(QMainWindow):
             pass
 
         # Portfolio (투자현황) ← 이게 핵심
-        from app.ui.tabs.portfolio_tab import PortfolioTab
-        self.portfolio_tab = PortfolioTab(self)
+        from app.ui.tabs.investment_center_tab import InvestmentCenterTab
+        self.portfolio_tab_legacy = None
+        self.portfolio_tab = InvestmentCenterTab(parent_window=self, parent=self.tabs)
         self.tabs.addTab(self._wrap_tab_scroll(self.portfolio_tab), "투자현황")
         
         # ✅ P0-UI-GLOBAL-STATUS: PortfolioTab에 parent_window 참조 전달
-        self.portfolio_tab._parent_window = self
         try:
-            self._apply_portfolio_tab_phase1_5()
+            self._log.info(
+                "[AITS][InvestmentCenterProof] event=bind_nav_to_new_tab nav=portfolio index=%s",
+                self.tabs.count() - 1,
+            )
         except Exception:
             pass
 
@@ -13083,6 +13086,22 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 QMessageBox.information(self, "저장 대상 없음", "매매기록 탭은 저장할 설정이 없습니다 · 주문 없음")
+            except Exception:
+                pass
+            return True
+        if active_widget is getattr(self, "portfolio_tab", None) or active_widget.__class__.__name__ == "InvestmentCenterTab":
+            try:
+                self._log.info(
+                    "[AITS][TabSaveDispatcher] active_tab=investment_center | handler=no_save_needed | status=dispatch"
+                )
+            except Exception:
+                pass
+            try:
+                self.set_status_msg("투자현황 탭은 저장할 설정이 없습니다 · 주문 없음", "#334155")
+            except Exception:
+                pass
+            try:
+                QMessageBox.information(self, "저장 대상 없음", "투자현황 탭은 저장할 설정이 없습니다 · 주문 없음")
             except Exception:
                 pass
             return True
