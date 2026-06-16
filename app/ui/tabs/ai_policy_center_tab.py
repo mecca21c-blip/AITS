@@ -292,11 +292,6 @@ class AIPolicyCenterTab(QWidget):
         layout.setSpacing(10)
         layout.addWidget(self._section_title("2. 운용 자금 한도"))
 
-        grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(9)
-
         self.sp_total_budget = self._money_spin()
         self.sp_max_entry = self._money_spin()
         self.sp_reserve_cash = self._money_spin()
@@ -305,16 +300,20 @@ class AIPolicyCenterTab(QWidget):
         self.sp_max_positions.setValue(3)
         self.sp_daily_loss = self._money_spin()
 
-        rows = (
-            ("총 운용 한도", "AITS가 운용 대상으로 삼을 수 있는 최대 금액입니다.", self.sp_total_budget, 0, 0),
-            ("1회 진입 한도", "한 번의 신규 진입 또는 한 종목 기준 최대 진입 금액입니다.", self.sp_max_entry, 0, 1),
-            ("예비 현금", "항상 남겨둘 최소 KRW입니다.", self.sp_reserve_cash, 1, 0),
-            ("동시 보유 종목 수", "동시에 보유 가능한 최대 종목 수입니다.", self.sp_max_positions, 1, 1),
-            ("일일 손실 제한", "한도 도달 시 신규 진입 중지 후보입니다. 즉시 강제 매도를 의미하지 않습니다.", self.sp_daily_loss, 2, 0),
-        )
-        for title, desc, widget, r, c in rows:
-            grid.addWidget(self._field_block(title, desc, widget), r, c)
-        layout.addLayout(grid)
+        first_row = QHBoxLayout()
+        first_row.setContentsMargins(0, 0, 0, 0)
+        first_row.setSpacing(10)
+        first_row.addWidget(self._field_block("총 운용 한도", "AITS가 운용 대상으로 삼을 수 있는 최대 금액입니다.", self.sp_total_budget), 1)
+        first_row.addWidget(self._field_block("1회 진입 한도", "한 번의 신규 진입 또는 한 종목 기준 최대 진입 금액입니다.", self.sp_max_entry), 1)
+        layout.addLayout(first_row)
+
+        second_row = QHBoxLayout()
+        second_row.setContentsMargins(0, 0, 0, 0)
+        second_row.setSpacing(10)
+        second_row.addWidget(self._field_block("예비 현금", "항상 남겨둘 최소 KRW입니다.", self.sp_reserve_cash), 1)
+        second_row.addWidget(self._field_block("동시 보유 종목 수", "동시에 보유 가능한 최대 종목 수입니다.", self.sp_max_positions), 1)
+        second_row.addWidget(self._field_block("일일 손실 제한", "한도 도달 시 신규 진입 중지 후보입니다. 즉시 강제 매도를 의미하지 않습니다.", self.sp_daily_loss), 1)
+        layout.addLayout(second_row)
 
         for widget in (self.sp_total_budget, self.sp_max_entry, self.sp_reserve_cash, self.sp_max_positions, self.sp_daily_loss):
             widget.valueChanged.connect(self._on_policy_changed)
