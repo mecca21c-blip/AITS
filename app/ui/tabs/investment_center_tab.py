@@ -412,15 +412,15 @@ class InvestmentCenterTab(QWidget):
     def _build_risk_card(self) -> QFrame:
         card = self._card("riskCard")
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 14)
-        layout.setSpacing(8)
+        layout.setContentsMargins(14, 10, 14, 12)
+        layout.setSpacing(7)
         title = QLabel("위험 관리")
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(8)
+        grid.setHorizontalSpacing(7)
+        grid.setVerticalSpacing(6)
         specs = (
             ("positions", "총 포지션 수"),
             ("weight", "총 투자 비중"),
@@ -430,13 +430,16 @@ class InvestmentCenterTab(QWidget):
         for idx, (key, label) in enumerate(specs):
             box = QFrame()
             box.setProperty("smallMetric", True)
-            box_layout = QVBoxLayout(box)
-            box_layout.setContentsMargins(8, 7, 8, 7)
+            box_layout = QHBoxLayout(box)
+            box_layout.setContentsMargins(8, 6, 8, 6)
+            box_layout.setSpacing(6)
             name = QLabel(label)
             name.setProperty("muted", True)
             value = QLabel("-")
+            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             value.setStyleSheet("font-weight:900; color:#111827;")
             box_layout.addWidget(name)
+            box_layout.addStretch(1)
             box_layout.addWidget(value)
             self._risk_values[key] = value
             grid.addWidget(box, idx // 2, idx % 2)
@@ -445,10 +448,10 @@ class InvestmentCenterTab(QWidget):
 
     def _build_detail_card(self) -> QFrame:
         card = self._card("positionDetailCard")
-        card.setMinimumHeight(260)
+        card.setMinimumHeight(220)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 14)
-        layout.setSpacing(9)
+        layout.setContentsMargins(14, 10, 14, 12)
+        layout.setSpacing(7)
         title = QLabel("선택 포지션 상세")
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
@@ -457,7 +460,7 @@ class InvestmentCenterTab(QWidget):
         self.lbl_detail_placeholder.setWordWrap(True)
         self.lbl_detail_placeholder.setStyleSheet(
             "background:#f8fafc; border:1px dashed #d1d5db; border-radius:10px;"
-            "padding:12px; color:#6b7280; font-weight:800;"
+            "padding:9px; color:#6b7280; font-weight:800;"
         )
         layout.addWidget(self.lbl_detail_placeholder)
 
@@ -471,7 +474,7 @@ class InvestmentCenterTab(QWidget):
         self.lbl_detail_memo.setWordWrap(True)
         self.lbl_detail_memo.setStyleSheet(
             "background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;"
-            "padding:8px; color:#111827; font-weight:800;"
+            "padding:6px 8px; color:#111827; font-weight:800;"
         )
         layout.addWidget(memo_title)
         layout.addWidget(self.lbl_detail_memo)
@@ -484,25 +487,27 @@ class InvestmentCenterTab(QWidget):
         box = QFrame()
         box.setProperty("smallMetric", True)
         layout = QVBoxLayout(box)
-        layout.setContentsMargins(9, 8, 9, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(9, 7, 9, 7)
+        layout.setSpacing(5)
         title_label = QLabel(title)
         title_label.setStyleSheet("font-size:11px; font-weight:900; color:#374151;")
         layout.addWidget(title_label)
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(5)
+        grid.setVerticalSpacing(4)
         for idx, (key, label) in enumerate(fields):
-            cell = QVBoxLayout()
+            cell = QHBoxLayout()
             cell.setContentsMargins(0, 0, 0, 0)
-            cell.setSpacing(1)
+            cell.setSpacing(5)
             name = QLabel(label)
             name.setProperty("muted", True)
             value = QLabel("-")
             value.setWordWrap(True)
+            value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             value.setStyleSheet("font-weight:800; color:#111827;")
             cell.addWidget(name)
+            cell.addStretch(1)
             cell.addWidget(value)
             grid.addLayout(cell, idx // 2, idx % 2)
             self._detail_values[key] = value
