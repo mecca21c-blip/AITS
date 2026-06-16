@@ -17353,6 +17353,234 @@ class MainWindow(QMainWindow):
         advanced_layout.addWidget(advanced_label)
         self.advanced_policy_container.setVisible(False)
         self.ai_policy_hero_layout.addWidget(self.advanced_policy_container)
+        self._install_ai_policy_operating_layout()
+
+    def _install_ai_policy_operating_layout(self):
+        """Install the active AI Policy Center layout; UI snapshot only."""
+        try:
+            layout = getattr(self, "ai_policy_hero_layout", None)
+            if layout is None:
+                return
+
+            for index in (0, 1):
+                try:
+                    item = layout.itemAt(index)
+                    widget = item.widget() if item is not None else None
+                    if widget is not None:
+                        widget.setVisible(False)
+                except Exception:
+                    pass
+
+            for attr_name in (
+                "ai_policy_preset_container",
+                "policy_style_card",
+                "policy_risk_card",
+                "policy_wait_card",
+                "policy_autonomy_card",
+                "lbl_ai_policy_preset_badge",
+                "btn_toggle_advanced_policy",
+                "advanced_policy_container",
+            ):
+                widget = getattr(self, attr_name, None)
+                try:
+                    if widget is not None:
+                        widget.setVisible(False)
+                except Exception:
+                    pass
+
+            header = QLabel("AI 정책 센터")
+            header.setStyleSheet("font-size: 16px; font-weight: 900; color: #111827;")
+            layout.insertWidget(0, header)
+
+            desc = QLabel(
+                "AI 정책 센터는 운용 방식, 자금 한도, LOCAL 데이터 정책을 설정하는 Preview 영역입니다. "
+                "저장만으로 주문은 실행되지 않으며 Router/RiskGuard/Execution을 우회하지 않습니다."
+            )
+            desc.setWordWrap(True)
+            desc.setStyleSheet("font-size: 11px; color: #64748b;")
+            layout.insertWidget(1, desc)
+
+            guidance = getattr(self, "lbl_ai_policy_guidance", None)
+            if guidance is not None:
+                guidance.setText("현재 정책은 Shadow/Preview 기준입니다. 저장은 정책 보존이며 주문, 매수, 매도 실행이 아닙니다.")
+            flow = getattr(self, "lbl_ai_policy_flow", None)
+            if flow is not None:
+                flow.setText("AI 운용 방식 -> 운용 자금 한도 -> LOCAL 데이터 정책 -> Preview")
+
+            self.ai_policy_operating_container = QFrame()
+            self.ai_policy_operating_container.setObjectName("aitsPolicyOperatingContainer")
+            self.ai_policy_operating_container.setStyleSheet(
+                "QFrame#aitsPolicyOperatingContainer {"
+                "border: 1px solid #d8e1ec; border-radius: 8px;"
+                "background: #ffffff; padding: 10px;"
+                "}"
+            )
+            operating_layout = QVBoxLayout(self.ai_policy_operating_container)
+            operating_layout.setContentsMargins(10, 9, 10, 9)
+            operating_layout.setSpacing(8)
+
+            operating_layout.addWidget(self._build_ai_policy_operating_mode_card())
+            operating_layout.addWidget(self._build_ai_policy_risk_budget_card())
+            operating_layout.addWidget(self._build_ai_policy_involvement_card())
+            operating_layout.addWidget(self._build_ai_policy_local_data_card())
+
+            self.lbl_ai_policy_operating_summary = QLabel()
+            self.lbl_ai_policy_operating_summary.setWordWrap(True)
+            self.lbl_ai_policy_operating_summary.setObjectName("aitsPolicyBadge")
+            self.lbl_ai_policy_operating_summary.setStyleSheet(
+                "font-size: 12px; font-weight: 800; color: #1f2937;"
+                "background: #eef2ff; border: 1px solid #dbe4ff; border-radius: 7px;"
+                "padding: 7px 9px;"
+            )
+            operating_layout.addWidget(self.lbl_ai_policy_operating_summary)
+
+            layout.addWidget(self.ai_policy_operating_container)
+            self._set_ai_policy_operating_mode("balanced", save=False)
+            self._sync_ai_policy_summary()
+        except Exception:
+            pass
+
+    def _build_ai_policy_operating_mode_card(self):
+        card = self._build_ai_policy_card("AI 운용 방식")
+        layout = card.layout()
+        info = QLabel("어떤 방식도 직접 주문 권한을 의미하지 않습니다. 모든 판단은 Preview/Shadow 기준입니다.")
+        info.setWordWrap(True)
+        info.setStyleSheet("font-size: 10px; color: #64748b;")
+        layout.addWidget(info)
+
+        self.ai_policy_mode_group = QButtonGroup(self)
+        self.ai_policy_mode_group.setExclusive(True)
+        modes = (
+            ("ai_led", "AI 주도형", "AI가 시장 상황에 따라 관망·진입·청산 후보를 적극적으로 조절합니다. 운용 한도와 안전 조건은 유지됩니다."),
+            ("balanced", "균형형", "AI 판단을 기본으로 사용하되, 보수적인 안전 조건을 함께 적용합니다. 기본 권장 모드입니다."),
+            ("user_controlled", "사용자 통제형", "AI는 분석과 후보를 제시하고, 사용자의 확인과 통제를 더 우선합니다."),
+        )
+        for idx, (code, title, desc) in enumerate(modes):
+            radio = QRadioButton(title)
+            radio.setProperty("policyMode", code)
+            radio.setToolTip(desc)
+            if code == "balanced":
+                radio.setChecked(True)
+            self.ai_policy_mode_group.addButton(radio, idx)
+            layout.addWidget(radio)
+            detail = QLabel(desc)
+            detail.setWordWrap(True)
+            detail.setStyleSheet("font-size: 10px; color: #64748b; margin-left: 18px;")
+            layout.addWidget(detail)
+        self.ai_policy_mode_group.buttonClicked.connect(lambda *_: self._on_ai_policy_changed())
+        return card
+
+    def _build_ai_policy_risk_budget_card(self):
+        card = self._build_ai_policy_card("운용 자금 한도")
+        layout = card.layout()
+        info = QLabel("정책 저장/Preview 기준입니다. 이번 단계에서는 RiskGuard, Execution, Order 금액 계산에 연결하지 않습니다.")
+        info.setWordWrap(True)
+        info.setStyleSheet("font-size: 10px; color: #64748b;")
+        layout.addWidget(info)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(6)
+
+        self.sp_policy_total_budget_krw = self._build_policy_money_spin(
+            "AITS가 운용 대상으로 삼을 수 있는 최대 금액입니다."
+        )
+        self.sp_policy_max_entry_krw = self._build_policy_money_spin(
+            "한 번의 신규 진입 또는 한 종목 기준 최대 진입 금액입니다."
+        )
+        self.sp_policy_reserve_cash_krw = self._build_policy_money_spin("항상 남겨둘 최소 KRW입니다.")
+        self.sp_policy_max_positions = QSpinBox()
+        self.sp_policy_max_positions.setRange(1, 200)
+        self.sp_policy_max_positions.setValue(3)
+        self.sp_policy_max_positions.setToolTip("동시에 보유 가능한 최대 종목 수입니다.")
+        self.sp_policy_daily_loss_limit_krw = self._build_policy_money_spin(
+            "한도 도달 시 신규 진입 중지 후보로 사용됩니다. 즉시 강제 매도를 의미하지 않습니다."
+        )
+
+        form.addRow("총 운용 한도", self.sp_policy_total_budget_krw)
+        form.addRow("1회 진입 한도", self.sp_policy_max_entry_krw)
+        form.addRow("예비 현금", self.sp_policy_reserve_cash_krw)
+        form.addRow("동시 보유 종목 수", self.sp_policy_max_positions)
+        form.addRow("일일 손실 제한", self.sp_policy_daily_loss_limit_krw)
+        layout.addLayout(form)
+
+        for widget in (
+            self.sp_policy_total_budget_krw,
+            self.sp_policy_max_entry_krw,
+            self.sp_policy_reserve_cash_krw,
+            self.sp_policy_max_positions,
+            self.sp_policy_daily_loss_limit_krw,
+        ):
+            widget.valueChanged.connect(self._on_ai_policy_risk_budget_changed)
+        return card
+
+    def _build_ai_policy_involvement_card(self):
+        card = self._build_ai_policy_card("AI 관여 수준")
+        layout = card.layout()
+        self.cmb_ai_policy_involvement = QComboBox()
+        self.cmb_ai_policy_involvement.addItem("낮음", "low")
+        self.cmb_ai_policy_involvement.addItem("표준", "standard")
+        self.cmb_ai_policy_involvement.addItem("높음", "high")
+        self.cmb_ai_policy_involvement.setCurrentIndex(1)
+        self.cmb_ai_policy_involvement.currentIndexChanged.connect(self._on_ai_policy_changed)
+        layout.addWidget(self.cmb_ai_policy_involvement)
+        desc = QLabel("AI 관여 수준은 판단 후보와 조건 계산에 반영되는 참고 강도입니다. 직접 주문 권한을 의미하지 않습니다.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("font-size: 10px; color: #64748b;")
+        layout.addWidget(desc)
+        return card
+
+    def _build_ai_policy_local_data_card(self):
+        card = self._build_ai_policy_card("LOCAL 데이터 정책")
+        layout = card.layout()
+        desc = QLabel("LOCAL 데이터 정책은 모델 선택이 아니라 데이터 보관, 복기, 학습 반영 기준을 정합니다.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("font-size: 10px; color: #64748b;")
+        layout.addWidget(desc)
+
+        self.chk_policy_local_auto_manage = QCheckBox("권장 자동 관리")
+        self.chk_policy_local_auto_manage.setChecked(True)
+        self.chk_policy_local_auto_summary = QCheckBox("자동 요약")
+        self.chk_policy_local_auto_summary.setChecked(True)
+        self.chk_policy_local_block_unverified = QCheckBox("검증 전 학습 차단")
+        self.chk_policy_local_block_unverified.setChecked(True)
+
+        form = QFormLayout()
+        form.setContentsMargins(0, 0, 0, 0)
+        form.setSpacing(6)
+        self.sp_policy_raw_retention_days = QSpinBox()
+        self.sp_policy_raw_retention_days.setRange(1, 3650)
+        self.sp_policy_raw_retention_days.setValue(30)
+        self.sp_policy_reflection_retention_days = QSpinBox()
+        self.sp_policy_reflection_retention_days.setRange(1, 3650)
+        self.sp_policy_reflection_retention_days.setValue(365)
+        form.addRow("상세 데이터 보관 기간", self.sp_policy_raw_retention_days)
+        form.addRow("복기 데이터 보관 기간", self.sp_policy_reflection_retention_days)
+
+        layout.addWidget(self.chk_policy_local_auto_manage)
+        layout.addLayout(form)
+        layout.addWidget(self.chk_policy_local_auto_summary)
+        layout.addWidget(self.chk_policy_local_block_unverified)
+
+        for widget in (
+            self.chk_policy_local_auto_manage,
+            self.chk_policy_local_auto_summary,
+            self.chk_policy_local_block_unverified,
+        ):
+            widget.stateChanged.connect(self._on_ai_policy_changed)
+        self.sp_policy_raw_retention_days.valueChanged.connect(self._on_ai_policy_changed)
+        self.sp_policy_reflection_retention_days.valueChanged.connect(self._on_ai_policy_changed)
+        return card
+
+    def _build_policy_money_spin(self, tooltip):
+        spin = QSpinBox()
+        spin.setRange(0, 10_000_000_000)
+        spin.setSingleStep(10_000)
+        spin.setGroupSeparatorShown(True)
+        spin.setSpecialValueText("미설정")
+        spin.setSuffix(" 원")
+        spin.setToolTip(str(tooltip or ""))
+        return spin
 
     def _wrap_legacy_strategy_policy_area(self, root_layout):
         """Move existing StrategyTab UI under a collapsed legacy policy container."""
@@ -17519,6 +17747,129 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _current_ai_policy_operating_mode(self):
+        try:
+            group = getattr(self, "ai_policy_mode_group", None)
+            button = group.checkedButton() if group is not None else None
+            mode = str(button.property("policyMode") or "") if button is not None else ""
+            if mode in {"ai_led", "balanced", "user_controlled"}:
+                return mode
+        except Exception:
+            pass
+        return "balanced"
+
+    def _set_ai_policy_operating_mode(self, mode, *, save=True):
+        try:
+            mode = str(mode or "balanced")
+            if mode not in {"ai_led", "balanced", "user_controlled"}:
+                mode = "balanced"
+            group = getattr(self, "ai_policy_mode_group", None)
+            if group is not None:
+                for button in group.buttons():
+                    try:
+                        button.setChecked(str(button.property("policyMode") or "") == mode)
+                    except Exception:
+                        pass
+            if save:
+                self._on_ai_policy_changed()
+        except Exception:
+            pass
+
+    def _ai_policy_mode_label(self, mode=None):
+        labels = {
+            "ai_led": "AI 주도형",
+            "balanced": "균형형",
+            "user_controlled": "사용자 통제형",
+        }
+        return labels.get(str(mode or self._current_ai_policy_operating_mode()), "균형형")
+
+    def _current_ai_policy_involvement_level(self):
+        try:
+            combo = getattr(self, "cmb_ai_policy_involvement", None)
+            value = combo.currentData() if combo is not None else None
+            if str(value) in {"low", "standard", "high"}:
+                return str(value)
+        except Exception:
+            pass
+        return "standard"
+
+    def _set_ai_policy_involvement_level(self, level):
+        try:
+            combo = getattr(self, "cmb_ai_policy_involvement", None)
+            if combo is None:
+                return
+            level = str(level or "standard")
+            index = combo.findData(level)
+            if index < 0:
+                index = combo.findData("standard")
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        except Exception:
+            pass
+
+    def _ai_policy_involvement_label(self, level=None):
+        labels = {"low": "낮음", "standard": "표준", "high": "높음"}
+        return labels.get(str(level or self._current_ai_policy_involvement_level()), "표준")
+
+    def _on_ai_policy_risk_budget_changed(self, *args):
+        try:
+            total = int(getattr(self, "sp_policy_total_budget_krw", None).value())
+            entry_widget = getattr(self, "sp_policy_max_entry_krw", None)
+            if total > 0 and entry_widget is not None and int(entry_widget.value()) > total:
+                previous = bool(entry_widget.blockSignals(True))
+                try:
+                    entry_widget.setValue(total)
+                finally:
+                    entry_widget.blockSignals(previous)
+        except Exception:
+            pass
+        self._on_ai_policy_changed()
+
+    def _policy_spin_value(self, attr_name, default=0):
+        try:
+            widget = getattr(self, attr_name, None)
+            if widget is not None:
+                return int(widget.value())
+        except Exception:
+            pass
+        return int(default)
+
+    def _policy_check_value(self, attr_name, default=True):
+        try:
+            widget = getattr(self, attr_name, None)
+            if widget is not None:
+                return bool(widget.isChecked())
+        except Exception:
+            pass
+        return bool(default)
+
+    def _set_policy_spin_value(self, attr_name, value, default=0):
+        try:
+            widget = getattr(self, attr_name, None)
+            if widget is None:
+                return
+            widget.setValue(int(value if value is not None else default))
+        except Exception:
+            pass
+
+    def _set_policy_check_value(self, attr_name, value, default=True):
+        try:
+            widget = getattr(self, attr_name, None)
+            if widget is None:
+                return
+            widget.setChecked(bool(default if value is None else value))
+        except Exception:
+            pass
+
+    def _format_policy_krw(self, value):
+        try:
+            value = int(value or 0)
+        except Exception:
+            value = 0
+        if value <= 0:
+            return "미설정"
+        return f"{value:,}원"
+
     def _policy_level_text(self, value, *, low, mid, high):
         try:
             value = int(value)
@@ -17654,6 +18005,24 @@ class MainWindow(QMainWindow):
             wait = int(getattr(self, "slider_policy_wait", None).value()) if hasattr(self, "slider_policy_wait") else 50
             autonomy = int(getattr(self, "slider_policy_autonomy", None).value()) if hasattr(self, "slider_policy_autonomy") else 50
             preset_name = str(getattr(self, "_ai_policy_preset_name", "balanced") or "balanced")
+            operating_mode = self._current_ai_policy_operating_mode()
+            involvement_level = self._current_ai_policy_involvement_level()
+            risk_budget = {
+                "total_budget_krw": self._policy_spin_value("sp_policy_total_budget_krw", 0),
+                "max_entry_krw": self._policy_spin_value("sp_policy_max_entry_krw", 0),
+                "reserve_cash_krw": self._policy_spin_value("sp_policy_reserve_cash_krw", 0),
+                "max_positions": max(1, self._policy_spin_value("sp_policy_max_positions", 3)),
+                "daily_loss_limit_krw": self._policy_spin_value("sp_policy_daily_loss_limit_krw", 0),
+            }
+            if risk_budget["total_budget_krw"] > 0 and risk_budget["max_entry_krw"] > risk_budget["total_budget_krw"]:
+                risk_budget["max_entry_krw"] = risk_budget["total_budget_krw"]
+            local_data = {
+                "auto_manage": self._policy_check_value("chk_policy_local_auto_manage", True),
+                "raw_retention_days": self._policy_spin_value("sp_policy_raw_retention_days", 30),
+                "reflection_retention_days": self._policy_spin_value("sp_policy_reflection_retention_days", 365),
+                "auto_summary_enabled": self._policy_check_value("chk_policy_local_auto_summary", True),
+                "block_unverified_learning": self._policy_check_value("chk_policy_local_block_unverified", True),
+            }
             return {
                 "schema": "aits_ai_policy_snapshot.v1",
                 "policy_style": style,
@@ -17661,6 +18030,12 @@ class MainWindow(QMainWindow):
                 "risk_level": risk,
                 "wait_preference": wait,
                 "autonomy_level": autonomy,
+                "ai_policy": {
+                    "operating_mode": operating_mode,
+                    "ai_involvement_level": involvement_level,
+                    "risk_budget": risk_budget,
+                    "local_data": local_data,
+                },
                 "preview_only": True,
                 "applied_to_runtime": False,
                 "applied_to_order": False,
@@ -17673,6 +18048,24 @@ class MainWindow(QMainWindow):
                 "risk_level": 50,
                 "wait_preference": 50,
                 "autonomy_level": 50,
+                "ai_policy": {
+                    "operating_mode": "balanced",
+                    "ai_involvement_level": "standard",
+                    "risk_budget": {
+                        "total_budget_krw": 0,
+                        "max_entry_krw": 0,
+                        "reserve_cash_krw": 0,
+                        "max_positions": 3,
+                        "daily_loss_limit_krw": 0,
+                    },
+                    "local_data": {
+                        "auto_manage": True,
+                        "raw_retention_days": 30,
+                        "reflection_retention_days": 365,
+                        "auto_summary_enabled": True,
+                        "block_unverified_learning": True,
+                    },
+                },
                 "preview_only": True,
                 "applied_to_runtime": False,
                 "applied_to_order": False,
@@ -17864,11 +18257,32 @@ class MainWindow(QMainWindow):
             risk = int(snapshot.get("risk_level") or 50)
             wait = int(snapshot.get("wait_preference") or 50)
             autonomy = int(snapshot.get("autonomy_level") or 50)
+            ai_policy = snapshot.get("ai_policy", {})
+            if not isinstance(ai_policy, dict):
+                ai_policy = {}
+            risk_budget = ai_policy.get("risk_budget", {})
+            if not isinstance(risk_budget, dict):
+                risk_budget = {}
+            local_data = ai_policy.get("local_data", {})
+            if not isinstance(local_data, dict):
+                local_data = {}
             widgets = (
                 getattr(self, "cmb_ai_policy_style", None),
                 getattr(self, "slider_policy_risk", None),
                 getattr(self, "slider_policy_wait", None),
                 getattr(self, "slider_policy_autonomy", None),
+                getattr(self, "ai_policy_mode_group", None),
+                getattr(self, "cmb_ai_policy_involvement", None),
+                getattr(self, "sp_policy_total_budget_krw", None),
+                getattr(self, "sp_policy_max_entry_krw", None),
+                getattr(self, "sp_policy_reserve_cash_krw", None),
+                getattr(self, "sp_policy_max_positions", None),
+                getattr(self, "sp_policy_daily_loss_limit_krw", None),
+                getattr(self, "chk_policy_local_auto_manage", None),
+                getattr(self, "sp_policy_raw_retention_days", None),
+                getattr(self, "sp_policy_reflection_retention_days", None),
+                getattr(self, "chk_policy_local_auto_summary", None),
+                getattr(self, "chk_policy_local_block_unverified", None),
             )
             for widget in widgets:
                 try:
@@ -17887,6 +18301,18 @@ class MainWindow(QMainWindow):
                     self.slider_policy_wait.setValue(max(0, min(100, wait)))
                 if hasattr(self, "slider_policy_autonomy"):
                     self.slider_policy_autonomy.setValue(max(0, min(100, autonomy)))
+                self._set_ai_policy_operating_mode(str(ai_policy.get("operating_mode") or "balanced"), save=False)
+                self._set_ai_policy_involvement_level(str(ai_policy.get("ai_involvement_level") or "standard"))
+                self._set_policy_spin_value("sp_policy_total_budget_krw", risk_budget.get("total_budget_krw"), 0)
+                self._set_policy_spin_value("sp_policy_max_entry_krw", risk_budget.get("max_entry_krw"), 0)
+                self._set_policy_spin_value("sp_policy_reserve_cash_krw", risk_budget.get("reserve_cash_krw"), 0)
+                self._set_policy_spin_value("sp_policy_max_positions", risk_budget.get("max_positions"), 3)
+                self._set_policy_spin_value("sp_policy_daily_loss_limit_krw", risk_budget.get("daily_loss_limit_krw"), 0)
+                self._set_policy_check_value("chk_policy_local_auto_manage", local_data.get("auto_manage"), True)
+                self._set_policy_spin_value("sp_policy_raw_retention_days", local_data.get("raw_retention_days"), 30)
+                self._set_policy_spin_value("sp_policy_reflection_retention_days", local_data.get("reflection_retention_days"), 365)
+                self._set_policy_check_value("chk_policy_local_auto_summary", local_data.get("auto_summary_enabled"), True)
+                self._set_policy_check_value("chk_policy_local_block_unverified", local_data.get("block_unverified_learning"), True)
             finally:
                 for widget in widgets:
                     try:
@@ -17917,6 +18343,28 @@ class MainWindow(QMainWindow):
     def _sync_ai_policy_summary(self):
         try:
             snapshot = self._build_ai_policy_snapshot()
+            ai_policy = snapshot.get("ai_policy", {})
+            if isinstance(ai_policy, dict):
+                risk_budget = ai_policy.get("risk_budget", {})
+                if not isinstance(risk_budget, dict):
+                    risk_budget = {}
+                local_data = ai_policy.get("local_data", {})
+                if not isinstance(local_data, dict):
+                    local_data = {}
+                mode_label = self._ai_policy_mode_label(ai_policy.get("operating_mode"))
+                involvement_label = self._ai_policy_involvement_label(ai_policy.get("ai_involvement_level"))
+                total_text = self._format_policy_krw(risk_budget.get("total_budget_krw"))
+                entry_text = self._format_policy_krw(risk_budget.get("max_entry_krw"))
+                auto_manage = "ON" if bool(local_data.get("auto_manage", True)) else "OFF"
+                summary_text = (
+                    f"{mode_label} · 총 운용 한도 {total_text} · 1회 진입 {entry_text} · "
+                    f"AI 관여 {involvement_label} · LOCAL 자동 관리 {auto_manage} · Preview/주문 없음"
+                )
+                for attr_name in ("lbl_ai_policy_summary", "lbl_ai_policy_operating_summary"):
+                    label = getattr(self, attr_name, None)
+                    if label is not None and hasattr(label, "setText"):
+                        label.setText(summary_text)
+                return
             risk_text = self._policy_level_text(
                 snapshot.get("risk_level"),
                 low="리스크 낮음",
