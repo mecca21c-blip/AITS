@@ -17180,12 +17180,16 @@ class MainWindow(QMainWindow):
         """Add the read-only AI policy center UI above the existing StrategyTab."""
         try:
             if bool(getattr(self, "_ai_policy_center_installed", False)):
+                self._log_policy_layout_proof("build_skip", reason="already_installed")
                 return
+            self._log_policy_layout_proof("build_start", stage="install_ai_policy_center")
             tab = getattr(self, "tab_strategy", None)
             if tab is None or not hasattr(tab, "layout"):
+                self._log_policy_layout_proof("build_skip", reason="missing_strategy_tab")
                 return
             root_layout = tab.layout()
             if root_layout is None or not hasattr(root_layout, "insertWidget"):
+                self._log_policy_layout_proof("build_skip", reason="missing_root_layout")
                 return
             self._build_ai_policy_center_widgets()
             container = getattr(self, "ai_policy_hero_container", None)
@@ -17194,8 +17198,30 @@ class MainWindow(QMainWindow):
             root_layout.insertWidget(0, container)
             self._wrap_legacy_strategy_policy_area(root_layout)
             self._ai_policy_center_installed = True
+            self._log_policy_layout_proof(
+                "active_surface_ready",
+                two_column=True,
+                sidebar=bool(getattr(self, "ai_policy_summary_sidebar", None) is not None),
+                legacy_default_collapsed=not bool(
+                    getattr(getattr(self, "legacy_policy_content_container", None), "isVisible", lambda: True)()
+                ),
+            )
             self._restore_ai_policy_snapshot()
             self._sync_ai_policy_summary()
+        except Exception as exc:
+            self._log_policy_layout_proof("build_error", error=type(exc).__name__)
+
+    def _log_policy_layout_proof(self, event, **fields):
+        try:
+            parts = [f"event={event}"]
+            for key, value in fields.items():
+                parts.append(f"{key}={value}")
+            message = "[AITS][PolicyLayoutProof] " + " ".join(parts)
+            print(message, flush=True)
+            try:
+                self._log.info(message)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -17361,52 +17387,55 @@ class MainWindow(QMainWindow):
             layout = getattr(self, "ai_policy_hero_layout", None)
             if layout is None:
                 return
+            self._log_policy_layout_proof("install_operating_layout", parent="ai_policy_hero_layout")
 
-            for index in (0, 1):
-                try:
-                    item = layout.itemAt(index)
-                    widget = item.widget() if item is not None else None
-                    if widget is not None:
-                        widget.setVisible(False)
-                except Exception:
-                    pass
-
-            for attr_name in (
-                "ai_policy_preset_container",
-                "policy_style_card",
-                "policy_risk_card",
-                "policy_wait_card",
-                "policy_autonomy_card",
-                "lbl_ai_policy_summary",
-                "lbl_ai_policy_preset_badge",
-                "btn_toggle_advanced_policy",
-                "advanced_policy_container",
-            ):
-                widget = getattr(self, attr_name, None)
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget() if item is not None else None
+                child_layout = item.layout() if item is not None else None
                 try:
                     if widget is not None:
                         widget.setVisible(False)
+                        widget.setParent(None)
+                    elif child_layout is not None:
+                        child_layout.setParent(None)
                 except Exception:
                     pass
 
+            header_card = QFrame()
+            header_card.setObjectName("aitsPolicyHeaderCard")
+            header_card.setStyleSheet(
+                "QFrame#aitsPolicyHeaderCard {"
+                "border: 1px solid #d8e1ec; border-radius: 12px;"
+                "background: #ffffff; padding: 16px;"
+                "}"
+            )
+            header_layout = QHBoxLayout(header_card)
+            header_layout.setContentsMargins(18, 16, 18, 16)
+            header_layout.setSpacing(14)
+            header_text_col = QVBoxLayout()
+            header_text_col.setContentsMargins(0, 0, 0, 0)
+            header_text_col.setSpacing(5)
             header = QLabel("AI 정책 센터")
-            header.setStyleSheet("font-size: 16px; font-weight: 900; color: #111827;")
-            layout.insertWidget(0, header)
-
+            header.setStyleSheet("font-size: 18px; font-weight: 900; color: #111827;")
             desc = QLabel(
-                "AI 정책 센터는 운용 방식, 자금 한도, LOCAL 데이터 정책을 설정하는 Preview 영역입니다. "
-                "저장만으로 주문은 실행되지 않으며 Router/RiskGuard/Execution을 우회하지 않습니다."
+                "AI 정책을 설정하는 Preview 영역입니다. 저장만으로 주문은 실행되지 않으며 "
+                "실제 매매는 별도 실행 모드와 안전 조건을 따릅니다."
             )
             desc.setWordWrap(True)
             desc.setStyleSheet("font-size: 11px; color: #64748b;")
-            layout.insertWidget(1, desc)
-
-            guidance = getattr(self, "lbl_ai_policy_guidance", None)
-            if guidance is not None:
-                guidance.setText("현재 정책은 Shadow/Preview 기준입니다. 저장은 정책 보존이며 주문, 매수, 매도 실행이 아닙니다.")
-            flow = getattr(self, "lbl_ai_policy_flow", None)
-            if flow is not None:
-                flow.setText("AI 운용 방식 -> 운용 자금 한도 -> LOCAL 데이터 정책 -> Preview")
+            header_text_col.addWidget(header)
+            header_text_col.addWidget(desc)
+            header_layout.addLayout(header_text_col, 1)
+            header_notice = QLabel("Preview/정책 관리 전용\n저장 시에도 주문 없음")
+            header_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            header_notice.setStyleSheet(
+                "font-size: 11px; font-weight: 800; color: #166534;"
+                "background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 10px;"
+                "padding: 8px 10px;"
+            )
+            header_layout.addWidget(header_notice, 0)
+            layout.addWidget(header_card)
 
             self.ai_policy_operating_container = QFrame()
             self.ai_policy_operating_container.setObjectName("aitsPolicyOperatingContainer")
@@ -17648,6 +17677,7 @@ class MainWindow(QMainWindow):
                     moved_items.append(item)
             if not moved_items:
                 return
+            self._log_policy_layout_proof("legacy_attached", moved_items=len(moved_items))
 
             self.legacy_policy_container = QFrame()
             self.legacy_policy_container.setObjectName("aitsLegacyPolicyContainer")
@@ -17705,6 +17735,11 @@ class MainWindow(QMainWindow):
             self.legacy_policy_content_container.setVisible(False)
             self.legacy_policy_content_container.setMaximumHeight(420)
             legacy_layout.addWidget(self.legacy_policy_content_container)
+            self._log_policy_layout_proof(
+                "legacy_collapsed",
+                visible=bool(self.legacy_policy_content_container.isVisible()),
+                max_height=420,
+            )
 
             root_layout.addWidget(self.legacy_policy_container)
             self._legacy_policy_area_wrapped = True
