@@ -4,8 +4,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -24,6 +24,58 @@ from PySide6.QtWidgets import (
 
 
 log = logging.getLogger(__name__)
+
+
+class DonutChartWidget(QWidget):
+    """Small read-only donut chart used by the Investment Center."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._segments: list[tuple[float, QColor]] = []
+        self._center_title = "구성"
+        self._center_value = "없음"
+        self.setMinimumSize(128, 128)
+        self.setMaximumSize(150, 150)
+
+    def set_data(self, segments: list[tuple[float, str]], title: str, value: str) -> None:
+        colors = ("#3b82f6", "#16a34a", "#f59e0b", "#8b5cf6", "#06b6d4", "#64748b")
+        parsed: list[tuple[float, QColor]] = []
+        for idx, (weight, color) in enumerate(segments or []):
+            try:
+                amount = max(0.0, float(weight or 0.0))
+            except Exception:
+                amount = 0.0
+            if amount <= 0:
+                continue
+            parsed.append((amount, QColor(color or colors[idx % len(colors)])))
+        self._segments = parsed
+        self._center_title = str(title or "구성")
+        self._center_value = str(value or "없음")
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        side = min(self.width(), self.height()) - 14
+        rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
+        pen = QPen(QColor("#e5e7eb"), 14)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawArc(rect, 0, 360 * 16)
+
+        total = sum(amount for amount, _color in self._segments)
+        if total > 0:
+            start = 90 * 16
+            for amount, color in self._segments:
+                span = int(-360 * 16 * (amount / total))
+                pen = QPen(color, 14)
+                pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawArc(rect, start, span)
+                start += span
+        painter.setPen(QColor("#111827"))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"{self._center_title}\n{self._center_value}")
 
 
 class InvestmentCenterTab(QWidget):
@@ -323,32 +375,38 @@ class InvestmentCenterTab(QWidget):
 
     def _build_composition_card(self) -> QFrame:
         card = self._card("portfolioCard")
+        card.setMinimumHeight(220)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 14)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
         title = QLabel("포트폴리오 구성")
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
-        chart = QFrame()
-        chart.setMinimumHeight(110)
-        chart.setStyleSheet(
-            "background:#f8fafc; border:1px dashed #d1d5db; border-radius:55px;"
-            "max-width:120px;"
+
+        content = QHBoxLayout()
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(12)
+        self._composition_donut = DonutChartWidget()
+        self._composition_donut.setObjectName("portfolioDonut")
+        content.addWidget(self._composition_donut, 0, Qt.AlignmentFlag.AlignTop)
+
+        list_wrap = QVBoxLayout()
+        list_wrap.setContentsMargins(0, 0, 0, 0)
+        list_wrap.setSpacing(5)
+        self.lbl_composition_empty = QLabel("보유 포지션이 없어 구성 그래프를 표시할 수 없습니다.")
+        self.lbl_composition_empty.setWordWrap(True)
+        self.lbl_composition_empty.setStyleSheet(
+            "background:#f8fafc; border:1px dashed #d1d5db; border-radius:10px;"
+            "padding:10px; color:#6b7280; font-weight:700;"
         )
-        chart_layout = QVBoxLayout(chart)
-        chart_text = QLabel("구성\n요약")
-        chart_text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        chart_text.setProperty("muted", True)
-        chart_layout.addWidget(chart_text)
-        chart_row = QHBoxLayout()
-        chart_row.addStretch(1)
-        chart_row.addWidget(chart)
-        chart_row.addStretch(1)
-        layout.addLayout(chart_row)
+        list_wrap.addWidget(self.lbl_composition_empty)
         self._composition_layout = QVBoxLayout()
         self._composition_layout.setContentsMargins(0, 0, 0, 0)
         self._composition_layout.setSpacing(4)
-        layout.addLayout(self._composition_layout)
+        list_wrap.addLayout(self._composition_layout)
+        list_wrap.addStretch(1)
+        content.addLayout(list_wrap, 1)
+        layout.addLayout(content)
         return card
 
     def _build_risk_card(self) -> QFrame:
@@ -387,46 +445,69 @@ class InvestmentCenterTab(QWidget):
 
     def _build_detail_card(self) -> QFrame:
         card = self._card("positionDetailCard")
+        card.setMinimumHeight(260)
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 14)
-        layout.setSpacing(8)
+        layout.setSpacing(9)
         title = QLabel("선택 포지션 상세")
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
-        self.lbl_detail_placeholder = QLabel("포지션을 선택해주세요")
+        self.lbl_detail_placeholder = QLabel("포지션을 선택해주세요\n좌측 표에서 종목을 선택하면 상세 정보가 표시됩니다.")
         self.lbl_detail_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_detail_placeholder.setWordWrap(True)
         self.lbl_detail_placeholder.setStyleSheet(
             "background:#f8fafc; border:1px dashed #d1d5db; border-radius:10px;"
-            "padding:14px; color:#6b7280; font-weight:800;"
+            "padding:12px; color:#6b7280; font-weight:800;"
         )
         layout.addWidget(self.lbl_detail_placeholder)
-        for key, label in (
-            ("symbol", "종목"),
-            ("qty", "수량"),
-            ("avg", "평균단가"),
-            ("price", "현재가"),
-            ("return_rate", "수익률"),
-            ("ai_state", "AI 상태"),
-            ("tp", "TP"),
-            ("sl", "SL"),
-            ("memo", "실행 메모"),
-        ):
-            row = QVBoxLayout()
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(2)
+
+        layout.addWidget(self._detail_section("기본 정보", (("symbol", "종목"), ("qty", "수량"), ("avg", "평균단가"), ("price", "현재가"))))
+        layout.addWidget(self._detail_section("손익 정보", (("pnl", "평가손익"), ("return_rate", "수익률"), ("weight", "비중"))))
+        layout.addWidget(self._detail_section("AI 관리", (("ai_state", "AI 상태"), ("tp", "TP"), ("sl", "SL"))))
+
+        memo_title = QLabel("실행 메모")
+        memo_title.setProperty("muted", True)
+        self.lbl_detail_memo = QLabel("-")
+        self.lbl_detail_memo.setWordWrap(True)
+        self.lbl_detail_memo.setStyleSheet(
+            "background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px;"
+            "padding:8px; color:#111827; font-weight:800;"
+        )
+        layout.addWidget(memo_title)
+        layout.addWidget(self.lbl_detail_memo)
+        self._detail_values["memo"] = self.lbl_detail_memo
+        layout.addStretch(1)
+        self._set_detail(None)
+        return card
+
+    def _detail_section(self, title: str, fields: tuple[tuple[str, str], ...]) -> QFrame:
+        box = QFrame()
+        box.setProperty("smallMetric", True)
+        layout = QVBoxLayout(box)
+        layout.setContentsMargins(9, 8, 9, 8)
+        layout.setSpacing(6)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size:11px; font-weight:900; color:#374151;")
+        layout.addWidget(title_label)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(5)
+        for idx, (key, label) in enumerate(fields):
+            cell = QVBoxLayout()
+            cell.setContentsMargins(0, 0, 0, 0)
+            cell.setSpacing(1)
             name = QLabel(label)
             name.setProperty("muted", True)
             value = QLabel("-")
             value.setWordWrap(True)
             value.setStyleSheet("font-weight:800; color:#111827;")
-            row.addWidget(name)
-            row.addWidget(value)
-            layout.addLayout(row)
+            cell.addWidget(name)
+            cell.addWidget(value)
+            grid.addLayout(cell, idx // 2, idx % 2)
             self._detail_values[key] = value
-        layout.addStretch(1)
-        self._set_detail(None)
-        return card
+        layout.addLayout(grid)
+        return box
 
     def _build_footer_notice(self) -> QLabel:
         label = QLabel("본 화면은 보유 자산 모니터링 및 AI 관리 상태 확인용이며, 직접 주문은 불가능합니다.")
@@ -565,7 +646,9 @@ class InvestmentCenterTab(QWidget):
             "qty": row.get("qty") if row else "-",
             "avg": row.get("avg") if row else "-",
             "price": row.get("price") if row else "-",
+            "pnl": row.get("pnl") if row else "-",
             "return_rate": row.get("return_rate") if row else "-",
+            "weight": row.get("weight") if row else "-",
             "ai_state": row.get("ai_state") if row else "-",
             "tp": row.get("tp") if row else "-",
             "sl": row.get("sl") if row else "-",
@@ -575,6 +658,14 @@ class InvestmentCenterTab(QWidget):
             label = self._detail_values.get(key)
             if label is not None:
                 label.setText(str(value or "-"))
+                if key in {"pnl", "return_rate"}:
+                    num = self._parse_number(value)
+                    if num is not None and num > 0:
+                        label.setStyleSheet("font-weight:900; color:#16a34a;")
+                    elif num is not None and num < 0:
+                        label.setStyleSheet("font-weight:900; color:#dc2626;")
+                    else:
+                        label.setStyleSheet("font-weight:800; color:#111827;")
 
     def _update_composition(self, rows: list[dict[str, Any]]) -> None:
         layout = self._composition_layout
@@ -586,14 +677,34 @@ class InvestmentCenterTab(QWidget):
             if widget is not None:
                 widget.deleteLater()
         if not rows:
-            label = QLabel("구성 데이터 없음")
-            label.setProperty("muted", True)
-            layout.addWidget(label)
+            if hasattr(self, "_composition_donut"):
+                self._composition_donut.set_data([], "구성", "없음")
+            if hasattr(self, "lbl_composition_empty"):
+                self.lbl_composition_empty.setVisible(True)
             return
+        if hasattr(self, "lbl_composition_empty"):
+            self.lbl_composition_empty.setVisible(False)
+        segments = []
+        total_eval = 0.0
+        for idx, row in enumerate(rows[:6]):
+            weight = self._parse_number(row.get("weight"))
+            if weight is None:
+                continue
+            segments.append((weight, ""))
+            eval_value = self._parse_number(row.get("eval_krw"))
+            if eval_value is not None:
+                total_eval += eval_value
+        center_value = self._format_krw(total_eval) if total_eval > 0 else f"{len(rows)}개"
+        if hasattr(self, "_composition_donut"):
+            self._composition_donut.set_data(segments, "구성", center_value)
         for row in rows[:6]:
             text = f"{row.get('symbol', '-')} · {row.get('weight', '-')}"
             label = QLabel(text)
             label.setProperty("muted", True)
+            label.setStyleSheet(
+                "background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px;"
+                "padding:5px 7px; color:#374151; font-weight:700;"
+            )
             layout.addWidget(label)
 
     def _update_risk(self, rows: list[dict[str, Any]]) -> None:
@@ -616,6 +727,7 @@ class InvestmentCenterTab(QWidget):
         pnl = row.get("pnl") or row.get("pnl_krw") or "-"
         ret = row.get("return_rate") or row.get("pnl_pct") or "-"
         weight = row.get("weight") or "-"
+        eval_krw = row.get("eval_krw") or row.get("value_krw") or row.get("position_krw") or row.get("total_krw") or "-"
         ai_state = row.get("ai_state") or "관망"
         tp = row.get("tp") or row.get("tp_pct") or "-"
         sl = row.get("sl") or row.get("sl_pct") or "-"
@@ -628,6 +740,7 @@ class InvestmentCenterTab(QWidget):
             "pnl": self._format_signed_number(pnl),
             "return_rate": self._format_pct(ret),
             "weight": self._format_pct(weight),
+            "eval_krw": eval_krw,
             "ai_state": ai_state,
             "tp": tp,
             "sl": sl,
