@@ -50,6 +50,7 @@ class AIPolicyCenterTab(QWidget):
         self._mode_cards: dict[str, QFrame] = {}
         self._involvement_buttons: dict[str, QRadioButton] = {}
         self._involvement_cards: dict[str, QFrame] = {}
+        self._summary_values: dict[str, QLabel] = {}
         self._summary_label: QLabel | None = None
         self._saved_at_label: QLabel | None = None
         self._loading = False
@@ -92,8 +93,8 @@ class AIPolicyCenterTab(QWidget):
                 border-radius: 10px;
             }
             QFrame[modeCardSelected="true"] {
-                background: #f0f7ff;
-                border: 2px solid #2f80ed;
+                background: #eef6ff;
+                border: 2px solid #1f6feb;
                 border-radius: 10px;
             }
             QFrame[compactField="true"] {
@@ -102,9 +103,16 @@ class AIPolicyCenterTab(QWidget):
                 border-radius: 10px;
             }
             QFrame[summarySection="true"] {
-                background: #f8fafc;
-                border: 1px solid #e4eaf1;
+                background: #ffffff;
+                border: 1px solid #dce3ea;
                 border-radius: 10px;
+            }
+            QFrame[accentStrip="true"] {
+                background: #1f6feb;
+                border: none;
+                border-radius: 3px;
+                min-width: 4px;
+                max-width: 4px;
             }
             QLabel[sectionTitle="true"] {
                 color: #17202a;
@@ -134,11 +142,16 @@ class AIPolicyCenterTab(QWidget):
                 font-weight: 800;
             }
             QSpinBox {
-                min-height: 28px;
+                min-height: 26px;
+                max-width: 168px;
                 border: 1px solid #cfd8e3;
                 border-radius: 6px;
                 padding: 2px 8px;
                 background: #ffffff;
+            }
+            QRadioButton::indicator {
+                width: 0px;
+                height: 0px;
             }
             """
         )
@@ -235,14 +248,20 @@ class AIPolicyCenterTab(QWidget):
             mode_card = QFrame()
             mode_card.setProperty("modeCard", True)
             mode_card.setCursor(Qt.CursorShape.PointingHandCursor)
-            mode_layout = QVBoxLayout(mode_card)
-            mode_layout.setContentsMargins(12, 9, 12, 9)
+            outer = QHBoxLayout(mode_card)
+            outer.setContentsMargins(10, 9, 10, 9)
+            outer.setSpacing(9)
+            strip = QFrame()
+            strip.setProperty("accentStrip", True)
+            strip.setVisible(False)
+            mode_layout = QVBoxLayout()
+            mode_layout.setContentsMargins(0, 0, 0, 0)
             mode_layout.setSpacing(5)
             top = QHBoxLayout()
             top.setContentsMargins(0, 0, 0, 0)
             radio = QRadioButton(title)
             radio.setStyleSheet("font-weight: 900; color: #111827;")
-            mark = QLabel("선택")
+            mark = QLabel("선택됨")
             mark.setProperty("selectedMark", True)
             mark.setVisible(False)
             detail = QLabel(desc)
@@ -253,10 +272,13 @@ class AIPolicyCenterTab(QWidget):
             top.addWidget(mark)
             mode_layout.addLayout(top)
             mode_layout.addWidget(detail)
+            outer.addWidget(strip, 0)
+            outer.addLayout(mode_layout, 1)
             self.mode_group.addButton(radio)
             self._mode_buttons[value] = radio
             self._mode_cards[value] = mode_card
             mode_card._selected_mark = mark
+            mode_card._accent_strip = strip
             radio.toggled.connect(lambda checked, v=value: self._on_mode_changed(v, checked))
             mode_card.mousePressEvent = lambda event, v=value: self._select_operating_mode(v)
             row.addWidget(mode_card, 1)
@@ -378,11 +400,10 @@ class AIPolicyCenterTab(QWidget):
         title_row.addWidget(badge)
         layout.addLayout(title_row)
 
-        self._summary_label = QLabel("")
-        self._summary_label.setWordWrap(True)
-        self._summary_label.setTextFormat(Qt.TextFormat.RichText)
-        self._summary_label.setStyleSheet("color: #1f2937; font-size: 12px;")
-        layout.addWidget(self._summary_label)
+        layout.addWidget(self._summary_section("mode", "AI 운용 방식"))
+        layout.addWidget(self._summary_section("budget", "운용 자금 한도"))
+        layout.addWidget(self._summary_section("local", "LOCAL 데이터 정책"))
+        layout.addWidget(self._summary_section("safe", "Preview/주문 없음"))
 
         self._saved_at_label = QLabel("미저장")
         self._saved_at_label.setProperty("muted", True)
@@ -408,6 +429,7 @@ class AIPolicyCenterTab(QWidget):
     def _field_block(self, title: str, desc: str, widget: QWidget) -> QFrame:
         box = QFrame()
         box.setProperty("compactField", True)
+        box.setMinimumHeight(96)
         layout = QVBoxLayout(box)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
@@ -417,6 +439,7 @@ class AIPolicyCenterTab(QWidget):
         desc_label.setWordWrap(True)
         desc_label.setProperty("muted", True)
         layout.addWidget(title_label)
+        widget.setMaximumWidth(168)
         layout.addWidget(widget)
         layout.addWidget(desc_label)
         return box
@@ -424,6 +447,7 @@ class AIPolicyCenterTab(QWidget):
     def _toggle_block(self, checkbox: QCheckBox, title: str, desc: str) -> QFrame:
         box = QFrame()
         box.setProperty("compactField", True)
+        box.setMinimumHeight(78)
         layout = QVBoxLayout(box)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(3)
@@ -456,6 +480,22 @@ class AIPolicyCenterTab(QWidget):
         card.mousePressEvent = lambda event, v=value: self._select_involvement(v)
         return card
 
+    def _summary_section(self, key: str, title: str) -> QFrame:
+        section = QFrame()
+        section.setProperty("summarySection", True)
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+        title_label = QLabel(title)
+        title_label.setStyleSheet("font-size: 11px; font-weight: 900; color: #344054;")
+        value_label = QLabel("")
+        value_label.setWordWrap(True)
+        value_label.setStyleSheet("font-size: 12px; color: #111827; line-height: 145%;")
+        layout.addWidget(title_label)
+        layout.addWidget(value_label)
+        self._summary_values[key] = value_label
+        return section
+
     def _money_spin(self) -> QSpinBox:
         spin = QSpinBox()
         spin.setRange(0, 2_000_000_000)
@@ -484,6 +524,9 @@ class AIPolicyCenterTab(QWidget):
             mark = getattr(card, "_selected_mark", None)
             if mark is not None:
                 mark.setVisible(is_selected)
+            strip = getattr(card, "_accent_strip", None)
+            if strip is not None:
+                strip.setVisible(is_selected)
             card.style().unpolish(card)
             card.style().polish(card)
 
@@ -610,36 +653,32 @@ class AIPolicyCenterTab(QWidget):
             self._refresh_involvement_cards()
 
     def _update_summary(self) -> None:
-        if self._summary_label is None:
+        if not self._summary_values:
             return
         mode = self.MODE_LABELS.get(self._current_mode(), "균형형")
         involvement = self.INVOLVEMENT_LABELS.get(self._current_involvement(), "표준")
-        summary = (
-            "<div style='line-height:150%;'>"
-            "<div style='background:#f8fafc;border:1px solid #e4eaf1;border-radius:8px;padding:8px;margin-bottom:8px;'>"
-            "<b>AI 운용 방식</b><br>"
-            f"{mode} · 관여 수준 {involvement}"
-            "</div>"
-            "<div style='background:#f8fafc;border:1px solid #e4eaf1;border-radius:8px;padding:8px;margin-bottom:8px;'>"
-            "<b>운용 자금 한도</b><br>"
-            f"총 운용 한도: {self._fmt_krw(self.sp_total_budget.value())}<br>"
-            f"1회 진입 한도: {self._fmt_krw(self.sp_max_entry.value())}<br>"
-            f"예비 현금: {self._fmt_krw(self.sp_reserve_cash.value())}<br>"
-            f"동시 보유: {self.sp_max_positions.value()}개<br>"
-            f"일일 손실 제한: {self._fmt_krw(self.sp_daily_loss.value())}"
-            "</div>"
-            "<div style='background:#f8fafc;border:1px solid #e4eaf1;border-radius:8px;padding:8px;margin-bottom:8px;'>"
-            "<b>LOCAL 데이터 정책</b><br>"
-            f"권장 자동 관리: {self._yn(self.chk_auto_manage.isChecked())}<br>"
-            f"상세 데이터 보관: {self.sp_raw_days.value()}일<br>"
-            f"복기 데이터 보관: {self.sp_reflection_days.value()}일<br>"
-            f"자동 요약: {self._yn(self.chk_auto_summary.isChecked())}<br>"
-            f"검증 전 학습 차단: {self._yn(self.chk_block_learning.isChecked())}"
-            "</div>"
-            "<div style='color:#136f45;font-weight:800;'>Preview · 주문 없음</div>"
-            "</div>"
-        )
-        self._summary_label.setText(summary)
+        values = {
+            "mode": f"{mode}\n관여 수준 {involvement}",
+            "budget": (
+                f"총 운용 한도: {self._fmt_krw(self.sp_total_budget.value())}\n"
+                f"1회 진입: {self._fmt_krw(self.sp_max_entry.value())}\n"
+                f"예비 현금: {self._fmt_krw(self.sp_reserve_cash.value())}\n"
+                f"동시 보유: {self.sp_max_positions.value()}개\n"
+                f"일일 손실: {self._fmt_krw(self.sp_daily_loss.value())}"
+            ),
+            "local": (
+                f"자동 관리: {self._yn(self.chk_auto_manage.isChecked())}\n"
+                f"상세 보관: {self.sp_raw_days.value()}일\n"
+                f"복기 보관: {self.sp_reflection_days.value()}일\n"
+                f"자동 요약: {self._yn(self.chk_auto_summary.isChecked())}\n"
+                f"검증 전 차단: {self._yn(self.chk_block_learning.isChecked())}"
+            ),
+            "safe": "Preview 전용\n저장만으로 주문 없음",
+        }
+        for key, text in values.items():
+            label = self._summary_values.get(key)
+            if label is not None:
+                label.setText(text)
 
     def _fmt_krw(self, value: int) -> str:
         value = int(value or 0)
