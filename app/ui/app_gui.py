@@ -17377,6 +17377,7 @@ class MainWindow(QMainWindow):
                 "policy_risk_card",
                 "policy_wait_card",
                 "policy_autonomy_card",
+                "lbl_ai_policy_summary",
                 "lbl_ai_policy_preset_badge",
                 "btn_toggle_advanced_policy",
                 "advanced_policy_container",
@@ -17411,28 +17412,31 @@ class MainWindow(QMainWindow):
             self.ai_policy_operating_container.setObjectName("aitsPolicyOperatingContainer")
             self.ai_policy_operating_container.setStyleSheet(
                 "QFrame#aitsPolicyOperatingContainer {"
-                "border: 1px solid #d8e1ec; border-radius: 8px;"
-                "background: #ffffff; padding: 10px;"
+                "border: none;"
+                "background: transparent;"
                 "}"
             )
-            operating_layout = QVBoxLayout(self.ai_policy_operating_container)
-            operating_layout.setContentsMargins(10, 9, 10, 9)
-            operating_layout.setSpacing(8)
+            operating_layout = QHBoxLayout(self.ai_policy_operating_container)
+            operating_layout.setContentsMargins(0, 0, 0, 0)
+            operating_layout.setSpacing(16)
 
-            operating_layout.addWidget(self._build_ai_policy_operating_mode_card())
-            operating_layout.addWidget(self._build_ai_policy_risk_budget_card())
-            operating_layout.addWidget(self._build_ai_policy_involvement_card())
-            operating_layout.addWidget(self._build_ai_policy_local_data_card())
+            self.ai_policy_main_column = QFrame()
+            self.ai_policy_main_column.setObjectName("aitsPolicyMainColumn")
+            self.ai_policy_main_column.setStyleSheet("QFrame#aitsPolicyMainColumn { border: none; background: transparent; }")
+            main_layout = QVBoxLayout(self.ai_policy_main_column)
+            main_layout.setContentsMargins(0, 0, 0, 0)
+            main_layout.setSpacing(14)
+            main_layout.addWidget(self._build_ai_policy_operating_mode_card())
+            main_layout.addWidget(self._build_ai_policy_risk_budget_card())
+            main_layout.addWidget(self._build_ai_policy_involvement_card())
+            main_layout.addWidget(self._build_ai_policy_local_data_card())
 
-            self.lbl_ai_policy_operating_summary = QLabel()
-            self.lbl_ai_policy_operating_summary.setWordWrap(True)
-            self.lbl_ai_policy_operating_summary.setObjectName("aitsPolicyBadge")
-            self.lbl_ai_policy_operating_summary.setStyleSheet(
-                "font-size: 12px; font-weight: 800; color: #1f2937;"
-                "background: #eef2ff; border: 1px solid #dbe4ff; border-radius: 7px;"
-                "padding: 7px 9px;"
-            )
-            operating_layout.addWidget(self.lbl_ai_policy_operating_summary)
+            self.ai_policy_summary_sidebar = self._build_ai_policy_summary_sidebar_card()
+            self.ai_policy_summary_sidebar.setFixedWidth(310)
+            self.ai_policy_summary_sidebar.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+
+            operating_layout.addWidget(self.ai_policy_main_column, 3)
+            operating_layout.addWidget(self.ai_policy_summary_sidebar, 1)
 
             layout.addWidget(self.ai_policy_operating_container)
             self._set_ai_policy_operating_mode("balanced", save=False)
@@ -17478,10 +17482,6 @@ class MainWindow(QMainWindow):
         info.setStyleSheet("font-size: 10px; color: #64748b;")
         layout.addWidget(info)
 
-        form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(6)
-
         self.sp_policy_total_budget_krw = self._build_policy_money_spin(
             "AITS가 운용 대상으로 삼을 수 있는 최대 금액입니다."
         )
@@ -17497,12 +17497,25 @@ class MainWindow(QMainWindow):
             "한도 도달 시 신규 진입 중지 후보로 사용됩니다. 즉시 강제 매도를 의미하지 않습니다."
         )
 
-        form.addRow("총 운용 한도", self.sp_policy_total_budget_krw)
-        form.addRow("1회 진입 한도", self.sp_policy_max_entry_krw)
-        form.addRow("예비 현금", self.sp_policy_reserve_cash_krw)
-        form.addRow("동시 보유 종목 수", self.sp_policy_max_positions)
-        form.addRow("일일 손실 제한", self.sp_policy_daily_loss_limit_krw)
-        layout.addLayout(form)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
+        risk_fields = (
+            ("총 운용 한도", self.sp_policy_total_budget_krw),
+            ("1회 진입 한도", self.sp_policy_max_entry_krw),
+            ("예비 현금", self.sp_policy_reserve_cash_krw),
+            ("동시 보유 종목 수", self.sp_policy_max_positions),
+            ("일일 손실 제한", self.sp_policy_daily_loss_limit_krw),
+        )
+        for idx, (label_text, widget) in enumerate(risk_fields):
+            row = idx // 2
+            col = (idx % 2) * 2
+            label = QLabel(label_text)
+            label.setStyleSheet("font-size: 10px; font-weight: 800; color: #334155;")
+            grid.addWidget(label, row, col)
+            grid.addWidget(widget, row, col + 1)
+        layout.addLayout(grid)
 
         for widget in (
             self.sp_policy_total_budget_krw,
@@ -17572,6 +17585,44 @@ class MainWindow(QMainWindow):
         self.sp_policy_reflection_retention_days.valueChanged.connect(self._on_ai_policy_changed)
         return card
 
+    def _build_ai_policy_summary_sidebar_card(self):
+        card = self._build_ai_policy_card("정책 요약")
+        card.setObjectName("aitsPolicySummarySidebar")
+        card.setStyleSheet(
+            "QFrame#aitsPolicySummarySidebar {"
+            "border: 1px solid #d8e1ec; border-radius: 12px;"
+            "background: #ffffff; padding: 16px;"
+            "}"
+        )
+        layout = card.layout()
+        badge = QLabel("Preview")
+        badge.setStyleSheet(
+            "font-size: 11px; font-weight: 800; color: #166534;"
+            "background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 8px;"
+            "padding: 4px 8px;"
+        )
+        layout.addWidget(badge)
+
+        self.lbl_ai_policy_operating_summary = QLabel()
+        self.lbl_ai_policy_operating_summary.setWordWrap(True)
+        self.lbl_ai_policy_operating_summary.setObjectName("aitsPolicySummaryText")
+        self.lbl_ai_policy_operating_summary.setStyleSheet(
+            "font-size: 11px; font-weight: 700; color: #1f2937;"
+            "line-height: 150%;"
+        )
+        layout.addWidget(self.lbl_ai_policy_operating_summary)
+
+        notice = QLabel("저장은 정책 snapshot만 갱신합니다. 주문, 매수, 매도는 실행되지 않습니다.")
+        notice.setWordWrap(True)
+        notice.setStyleSheet(
+            "font-size: 10px; color: #64748b;"
+            "background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px;"
+            "padding: 7px;"
+        )
+        layout.addWidget(notice)
+        layout.addStretch(1)
+        return card
+
     def _build_policy_money_spin(self, tooltip):
         spin = QSpinBox()
         spin.setRange(0, 10_000_000_000)
@@ -17611,7 +17662,7 @@ class MainWindow(QMainWindow):
             legacy_layout.setContentsMargins(6, 6, 6, 6)
             legacy_layout.setSpacing(4)
 
-            self.lbl_legacy_policy_header = QLabel("Legacy 고급 전략 설정 · Preview/조건 계산 · 주문 없음")
+            self.lbl_legacy_policy_header = QLabel("레거시 전략 설정 · 고급 · Preview/조건 계산 · 주문 없음")
             self.lbl_legacy_policy_header.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_header.setStyleSheet(
                 "font-size: 11px; font-weight: 700; color: #475569;"
@@ -17619,14 +17670,14 @@ class MainWindow(QMainWindow):
             legacy_layout.addWidget(self.lbl_legacy_policy_header)
 
             self.lbl_legacy_policy_desc = QLabel(
-                "고급 설정은 내부 전략 계산값을 조정합니다. 저장만으로 주문은 실행되지 않으며 Live 전 별도 검증이 필요합니다."
+                "기존 전략 엔진 및 세부 조건을 설정합니다. Preview/조건 계산 전용이며 저장만으로 주문은 실행되지 않습니다."
             )
             self.lbl_legacy_policy_desc.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_desc.setWordWrap(True)
             self.lbl_legacy_policy_desc.setStyleSheet("font-size: 10px; color: #94a3b8;")
             legacy_layout.addWidget(self.lbl_legacy_policy_desc)
 
-            self.btn_toggle_legacy_policy = QPushButton("레거시 전략 설정 열기")
+            self.btn_toggle_legacy_policy = QPushButton("펼치기")
             self.btn_toggle_legacy_policy.setStyleSheet(
                 "font-size: 11px; color: #64748b; background: #f8fafc;"
                 "border: 1px solid #e5e7eb; border-radius: 6px; padding: 3px 8px;"
@@ -17652,6 +17703,7 @@ class MainWindow(QMainWindow):
                 else:
                     content_layout.addItem(item)
             self.legacy_policy_content_container.setVisible(False)
+            self.legacy_policy_content_container.setMaximumHeight(420)
             legacy_layout.addWidget(self.legacy_policy_content_container)
 
             root_layout.addWidget(self.legacy_policy_container)
@@ -17679,7 +17731,7 @@ class MainWindow(QMainWindow):
             visible = not bool(content.isVisible())
             content.setVisible(visible)
             if button is not None:
-                button.setText("레거시 전략 설정 닫기" if visible else "레거시 전략 설정 열기")
+                button.setText("접기" if visible else "펼치기")
         except Exception:
             pass
 
@@ -17722,15 +17774,15 @@ class MainWindow(QMainWindow):
         card.setObjectName("aitsPolicyCard")
         card.setStyleSheet(
             "QFrame#aitsPolicyCard {"
-            "border: 1px solid #d8e1ec; border-radius: 8px;"
-            "background: #ffffff; padding: 10px;"
+            "border: 1px solid #d8e1ec; border-radius: 12px;"
+            "background: #ffffff; padding: 16px;"
             "}"
         )
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 9, 10, 9)
-        layout.setSpacing(7)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(10)
         label = QLabel(title)
-        label.setStyleSheet("font-size: 12px; font-weight: 800; color: #111827;")
+        label.setStyleSheet("font-size: 13px; font-weight: 900; color: #111827;")
         layout.addWidget(label)
         return card
 
@@ -18355,10 +18407,30 @@ class MainWindow(QMainWindow):
                 involvement_label = self._ai_policy_involvement_label(ai_policy.get("ai_involvement_level"))
                 total_text = self._format_policy_krw(risk_budget.get("total_budget_krw"))
                 entry_text = self._format_policy_krw(risk_budget.get("max_entry_krw"))
-                auto_manage = "ON" if bool(local_data.get("auto_manage", True)) else "OFF"
+                reserve_text = self._format_policy_krw(risk_budget.get("reserve_cash_krw"))
+                daily_loss_text = self._format_policy_krw(risk_budget.get("daily_loss_limit_krw"))
+                max_positions = int(risk_budget.get("max_positions") or 3)
+                auto_manage = "사용" if bool(local_data.get("auto_manage", True)) else "미사용"
+                auto_summary = "사용" if bool(local_data.get("auto_summary_enabled", True)) else "미사용"
+                block_learning = "사용" if bool(local_data.get("block_unverified_learning", True)) else "미사용"
+                raw_days = int(local_data.get("raw_retention_days") or 30)
+                reflection_days = int(local_data.get("reflection_retention_days") or 365)
                 summary_text = (
-                    f"{mode_label} · 총 운용 한도 {total_text} · 1회 진입 {entry_text} · "
-                    f"AI 관여 {involvement_label} · LOCAL 자동 관리 {auto_manage} · Preview/주문 없음"
+                    f"AI 운용 방식: {mode_label}\n"
+                    f"AI 관여 수준: {involvement_label}\n\n"
+                    f"운용 자금 한도\n"
+                    f"- 총 운용 한도: {total_text}\n"
+                    f"- 1회 진입 한도: {entry_text}\n"
+                    f"- 예비 현금: {reserve_text}\n"
+                    f"- 동시 보유 종목 수: {max_positions}개\n"
+                    f"- 일일 손실 제한: {daily_loss_text}\n\n"
+                    f"LOCAL 데이터 정책\n"
+                    f"- 권장 자동 관리: {auto_manage}\n"
+                    f"- 상세 데이터 보관: {raw_days}일\n"
+                    f"- 복기 데이터 보관: {reflection_days}일\n"
+                    f"- 자동 요약: {auto_summary}\n"
+                    f"- 검증 전 학습 차단: {block_learning}\n\n"
+                    f"Preview/주문 없음"
                 )
                 for attr_name in ("lbl_ai_policy_summary", "lbl_ai_policy_operating_summary"):
                     label = getattr(self, attr_name, None)
