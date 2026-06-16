@@ -12337,15 +12337,17 @@ class MainWindow(QMainWindow):
         # self.tabs.addTab(self.tab_watch, "워치리스트")
 
         # Trades
-        # Trades (매매기록) — UI/로딩/내보내기 소유는 TradesTab이 100% 담당
-        from app.ui.tabs.trades_tab import TradesTab
-        self.tab_trades = TradesTab(self)
+        from app.ui.tabs.trade_log_center_tab import TradeLogCenterTab
+        self.tab_trades_legacy = None
+        self.tab_trades = TradeLogCenterTab(parent_window=self, parent=self.tabs)
         self.tabs.addTab(self._wrap_tab_scroll(self.tab_trades), "매매기록")
         
         # ✅ P0-UI-GLOBAL-STATUS: TradesTab에 parent_window 참조 전달
-        self.tab_trades._parent_window = self
         try:
-            self._apply_trades_tab_phase1_6()
+            self._log.info(
+                "[AITS][TradeLogCenterProof] event=bind_nav_to_new_tab nav=trades index=%s",
+                self.tabs.count() - 1,
+            )
         except Exception:
             pass
 
@@ -13068,6 +13070,22 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             return self._save_ai_policy_center_from_footer(active_widget)
+        if active_widget is getattr(self, "tab_trades", None) or active_widget.__class__.__name__ == "TradeLogCenterTab":
+            try:
+                self._log.info(
+                    "[AITS][TabSaveDispatcher] active_tab=trade_log_center | handler=no_save_needed | status=dispatch"
+                )
+            except Exception:
+                pass
+            try:
+                self.set_status_msg("매매기록 탭은 저장할 설정이 없습니다 · 주문 없음", "#334155")
+            except Exception:
+                pass
+            try:
+                QMessageBox.information(self, "저장 대상 없음", "매매기록 탭은 저장할 설정이 없습니다 · 주문 없음")
+            except Exception:
+                pass
+            return True
 
         handler = "save_settings" if active_tab == "common_settings" else "save_settings_fallback"
         try:
