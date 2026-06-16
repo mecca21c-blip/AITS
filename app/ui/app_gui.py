@@ -13052,18 +13052,24 @@ class MainWindow(QMainWindow):
             pass
 
     def _dispatch_save_current_tab(self):
-        """Skeleton dispatcher for the bottom save button.
-
-        S2-B keeps the existing settings save behavior as the fallback while
-        documenting the future tab-specific save boundaries.
-        """
+        """Dispatch the footer save button by the currently active main tab."""
         ctx = self._get_active_save_context()
         active_tab = str(ctx.get("key") or "unknown")
-        handler = "save_settings" if active_tab == "common_settings" else "save_settings_fallback"
         try:
             self._save_session_restore_snapshot(reason="nav_save", persist=False)
         except Exception:
             pass
+        active_widget = self._unwrap_current_tab_widget()
+        if active_widget is getattr(self, "tab_ai_policy_center", None) or isinstance(active_widget, AIPolicyCenterTab):
+            try:
+                self._log.info(
+                    "[AITS][TabSaveDispatcher] active_tab=ai_policy_center | handler=ai_policy_snapshot | status=dispatch"
+                )
+            except Exception:
+                pass
+            return self._save_ai_policy_center_from_footer(active_widget)
+
+        handler = "save_settings" if active_tab == "common_settings" else "save_settings_fallback"
         try:
             self._log.info(
                 "[AITS][TabSaveDispatcher] active_tab=%s | handler=%s | status=dispatch",
@@ -13073,6 +13079,58 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return self._on_save_settings()
+
+    def _unwrap_current_tab_widget(self):
+        try:
+            tabs = getattr(self, "tabs", None)
+            if tabs is None:
+                return None
+            widget = tabs.currentWidget()
+            if isinstance(widget, QScrollArea):
+                return widget.widget()
+            return widget
+        except Exception:
+            return None
+
+    def _save_ai_policy_center_from_footer(self, tab=None):
+        tab = tab or getattr(self, "tab_ai_policy_center", None)
+        try:
+            if tab is None or not hasattr(tab, "save_policy_snapshot"):
+                raise RuntimeError("missing_ai_policy_tab")
+            ok = bool(tab.save_policy_snapshot())
+            if ok:
+                try:
+                    self.set_status_msg("AI 정책 저장 완료 · 주문 없음", "#15803d")
+                except Exception:
+                    pass
+                try:
+                    QMessageBox.information(self, "저장", "AI 정책 저장 완료 · 주문 없음")
+                except Exception:
+                    pass
+                return True
+            try:
+                self.set_status_msg("AI 정책 저장 실패 · 저장 경로 확인 필요", "#dc2626")
+            except Exception:
+                pass
+            try:
+                QMessageBox.warning(self, "저장 실패", "AI 정책 저장 실패 · 저장 경로 확인 필요")
+            except Exception:
+                pass
+            return False
+        except Exception as exc:
+            try:
+                self._log.exception("[AITS][TabSaveDispatcher] ai_policy_save_failed: %s", exc)
+            except Exception:
+                pass
+            try:
+                self.set_status_msg("AI 정책 저장 실패 · 저장 경로 확인 필요", "#dc2626")
+            except Exception:
+                pass
+            try:
+                QMessageBox.warning(self, "저장 실패", "AI 정책 저장 실패 · 저장 경로 확인 필요")
+            except Exception:
+                pass
+            return False
 
     def _on_nav_save_clicked(self):
         try:

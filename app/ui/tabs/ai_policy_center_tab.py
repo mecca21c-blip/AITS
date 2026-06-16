@@ -600,16 +600,17 @@ class AIPolicyCenterTab(QWidget):
             },
         }
 
-    def _restore_snapshot(self) -> None:
+    def get_policy_snapshot(self) -> dict[str, Any]:
+        """Export the current UI-only policy snapshot without side effects."""
+        return dict(self._snapshot())
+
+    def export_policy_snapshot(self) -> dict[str, Any]:
+        return self.get_policy_snapshot()
+
+    def apply_policy_snapshot(self, snapshot: dict[str, Any] | None) -> None:
+        """Apply a saved UI policy snapshot to widgets and refresh the summary."""
         self._loading = True
         try:
-            settings = load_settings()
-            ui_state = getattr(settings, "ui_state", None)
-            if hasattr(ui_state, "model_dump"):
-                ui_state = ui_state.model_dump()
-            if not isinstance(ui_state, dict):
-                ui_state = {}
-            snapshot = ui_state.get("ai_policy_snapshot", {})
             if not isinstance(snapshot, dict):
                 snapshot = {}
             ai_policy = snapshot.get("ai_policy", {})
@@ -644,12 +645,31 @@ class AIPolicyCenterTab(QWidget):
             self.chk_auto_summary.setChecked(bool(local_data.get("auto_summary_enabled", True)))
             self.chk_block_learning.setChecked(bool(local_data.get("block_unverified_learning", True)))
         except Exception as exc:
-            self._emit_policy_tab_proof("restore_error", error=type(exc).__name__)
-            self._mode_buttons.get("balanced").setChecked(True)
+            self._emit_policy_tab_proof("apply_snapshot_error", error=type(exc).__name__)
         finally:
             self._loading = False
             self._refresh_mode_cards()
             self._refresh_involvement_cards()
+            self._update_summary()
+
+    def load_policy_snapshot(self, snapshot: dict[str, Any] | None) -> None:
+        self.apply_policy_snapshot(snapshot)
+
+    def _restore_snapshot(self) -> None:
+        try:
+            settings = load_settings()
+            ui_state = getattr(settings, "ui_state", None)
+            if hasattr(ui_state, "model_dump"):
+                ui_state = ui_state.model_dump()
+            if not isinstance(ui_state, dict):
+                ui_state = {}
+            snapshot = ui_state.get("ai_policy_snapshot", {})
+            if not isinstance(snapshot, dict):
+                snapshot = {}
+            self.apply_policy_snapshot(snapshot)
+        except Exception as exc:
+            self._emit_policy_tab_proof("restore_error", error=type(exc).__name__)
+            self._mode_buttons.get("balanced").setChecked(True)
 
     def _update_summary(self) -> None:
         if not self._summary_values:
@@ -696,6 +716,13 @@ class AIPolicyCenterTab(QWidget):
                 save_source="ai_policy_center_tab",
             )
             ok = saved is not None
+            if ok:
+                parent = getattr(self, "_parent_window", None)
+                if parent is not None:
+                    try:
+                        parent._settings = saved
+                    except Exception:
+                        pass
             if self._saved_at_label is not None:
                 self._saved_at_label.setText(f"마지막 저장: {saved_at}" if ok else "저장 실패")
             self._emit_policy_tab_proof("snapshot_saved", ok=ok)
