@@ -146,10 +146,19 @@ class TradeLogCenterTab(QWidget):
             }
             QTableWidget {
                 background: #ffffff;
-                border: 1px solid #dce3ea;
+                border: 1px solid #e2e8f0;
                 border-radius: 10px;
                 gridline-color: #edf2f7;
                 selection-background-color: #eaf2ff;
+            }
+            QHeaderView::section {
+                background: #f8fafc;
+                color: #475467;
+                border: none;
+                border-right: 1px solid #e2e8f0;
+                border-bottom: 1px solid #e2e8f0;
+                padding: 7px 8px;
+                font-weight: 800;
             }
             """
         )
@@ -307,16 +316,20 @@ class TradeLogCenterTab(QWidget):
             "background:#f8fafc; border:1px dashed #cfd8e3; border-radius:10px;"
             "padding:28px; color:#667085; font-weight:700;"
         )
-        layout.addWidget(self.empty_label)
+        self.empty_label.hide()
 
         self.tbl_records = QTableWidget(0, len(self.COLUMNS))
         self.tbl_records.setHorizontalHeaderLabels(list(self.COLUMNS))
         self.tbl_records.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.tbl_records.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.tbl_records.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.tbl_records.setAlternatingRowColors(True)
+        self.tbl_records.setShowGrid(False)
+        self.tbl_records.setMinimumHeight(360)
         self.tbl_records.verticalHeader().setVisible(False)
         header = self.tbl_records.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setMinimumHeight(36)
         header.setStretchLastSection(True)
         self.tbl_records.itemSelectionChanged.connect(self._on_row_selected)
         layout.addWidget(self.tbl_records, 1)
@@ -415,6 +428,29 @@ class TradeLogCenterTab(QWidget):
 
     def _populate_table(self, rows: list[dict[str, Any]]) -> None:
         table = self.tbl_records
+        try:
+            table.clearSpans()
+        except Exception:
+            pass
+        table.clearSelection()
+        if not rows:
+            table.setRowCount(1)
+            try:
+                table.setSpan(0, 0, 1, len(self.COLUMNS))
+            except Exception:
+                pass
+            item = QTableWidgetItem(
+                "아직 표시할 매매기록이 없습니다.\n"
+                "Preview/Shadow 실행 시 AI 판단 기록이 이곳에 표시됩니다.\n"
+                "실제 주문이 없으면 체결 기록은 0건일 수 있습니다."
+            )
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled)
+            item.setData(Qt.ItemDataRole.UserRole, None)
+            table.setItem(0, 0, item)
+            table.setRowHeight(0, 230)
+            self.empty_label.hide()
+            return
         table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             values = (
@@ -432,11 +468,8 @@ class TradeLogCenterTab(QWidget):
                 item = QTableWidgetItem("" if value is None else str(value))
                 item.setData(Qt.ItemDataRole.UserRole, r)
                 table.setItem(r, c, item)
-        has_rows = bool(rows)
-        self.empty_label.setVisible(not has_rows)
-        table.setVisible(has_rows)
-        if has_rows:
-            table.resizeColumnsToContents()
+        self.empty_label.hide()
+        table.resizeColumnsToContents()
 
     def _on_row_selected(self) -> None:
         selected = self.tbl_records.selectedItems()
@@ -444,6 +477,9 @@ class TradeLogCenterTab(QWidget):
             self._set_detail(None)
             return
         row_index = selected[0].data(Qt.ItemDataRole.UserRole)
+        if row_index is None:
+            self._set_detail(None)
+            return
         try:
             row = self._visible_rows[int(row_index)]
         except Exception:
