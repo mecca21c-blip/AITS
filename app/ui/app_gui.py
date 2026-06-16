@@ -1261,6 +1261,7 @@ _STOP_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_nam
 from app.db.trades_db import positions, load_pnl_by_strategy, get_last_strategy_info
 from app.services import ai_reco  # [NEW] AI 자동 추천 스케줄러/업데이트
 from app.ui.tabs.config_tabs import StrategyTab  # [FIX] 실제 모듈 경로로 수정
+from app.ui.tabs.ai_policy_center_tab import AIPolicyCenterTab
 
 log = logging.getLogger(__name__)
 
@@ -12360,39 +12361,22 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # 전략설정: 별도 StrategyTab 사용
+        # AI 정책 센터: 새 전용 탭을 사용하고 StrategyTab/KMTS 기본 노출은 분리한다.
         #
-        # (다이어트 메모) app_gui.py는 탭 생성/상태/서비스만 유지하고, UI 위젯 소유는 각 Tab이 100% 담당한다.
-        # StrategyTab owned UI path ACTIVE 상태에서는 app_gui의 레거시 전략 UI 빌더/위젯 코드는 삭제 대상이다.
+        # StrategyTab 객체는 하위 호환용으로만 유지하며 AI 정책 센터 기본 화면에는 attach하지 않는다.
 
-        # ---- 전략설정 탭 (StrategyTab) : 단 1회 생성 + 단 1회 addTab ----
+        # ---- AI 정책 센터 전용 탭 : 단 1회 생성 + 단 1회 addTab ----
         if getattr(self, "tab_strategy", None) is None:
             self.tab_strategy = StrategyTab(self, parent=self.tabs)
-        self._install_ai_policy_center()
-
-        # 이미 addTab 했는지 중복 방지 (탭이 QScrollArea로 래핑된 경우 widget()으로 비교)
-        already = False
-        for i in range(self.tabs.count()):
-            w = self.tabs.widget(i)
-            if w is self.tab_strategy or (isinstance(w, QScrollArea) and w.widget() is self.tab_strategy):
-                already = True
-                break
-
-        if not already:
-            self.tabs.addTab(self._wrap_tab_scroll(self.tab_strategy), "AI 정책 센터")
-            # ✅ P0-UI-GLOBAL-STATUS: StrategyTab에 parent_window 참조 전달
+        try:
             self.tab_strategy._parent_window = self
-        _strategy_tab_tooltip = (
-            "이 탭은 엔진 종류와 무관하게 적용되는 공통 운용 정책을 설정합니다."
-        )
-        for _ti in range(self.tabs.count()):
-            _tw = self.tabs.widget(_ti)
-            if _tw is self.tab_strategy or (
-                isinstance(_tw, QScrollArea) and _tw.widget() is self.tab_strategy
-            ):
-                self.tabs.setTabText(_ti, "AI 정책 센터")
-                self.tabs.setTabToolTip(_ti, _strategy_tab_tooltip)
-                break
+        except Exception:
+            pass
+        self.tab_ai_policy_center = AIPolicyCenterTab(parent_window=self, parent=self.tabs)
+        self.tabs.addTab(self._wrap_tab_scroll(self.tab_ai_policy_center), "AI 정책 센터")
+        self._log_policy_tab_proof("bind_nav_to_new_tab", nav="AI정책센터", index=self.tabs.count() - 1)
+        self._log_policy_tab_proof("detach_legacy_strategy_tab", default_visible=False)
+
 
         # Settings
         self.tab_settings = QWidget()
@@ -17217,6 +17201,20 @@ class MainWindow(QMainWindow):
             for key, value in fields.items():
                 parts.append(f"{key}={value}")
             message = "[AITS][PolicyLayoutProof] " + " ".join(parts)
+            print(message, flush=True)
+            try:
+                self._log.info(message)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _log_policy_tab_proof(self, event, **fields):
+        try:
+            parts = [f"event={event}"]
+            for key, value in fields.items():
+                parts.append(f"{key}={value}")
+            message = "[AITS][PolicyTabProof] " + " ".join(parts)
             print(message, flush=True)
             try:
                 self._log.info(message)
