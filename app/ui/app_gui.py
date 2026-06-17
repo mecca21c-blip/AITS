@@ -4838,6 +4838,22 @@ class AITSLargeChartDialog(QDialog):
                 "Use concise Korean operator-friendly wording.\n"
                 + json.dumps(compact_contract, ensure_ascii=False)
             )
+            try:
+                selected_engine = provider or "openai"
+                actual_engine = "unknown"
+                if parent_obj is not None and hasattr(parent_obj, "_get_aits_engine_ssot"):
+                    selected_engine = str(parent_obj._get_aits_engine_ssot() or selected_engine)
+                if parent_obj is not None and hasattr(parent_obj, "_get_aits_last_response_provider"):
+                    actual_engine = str(parent_obj._get_aits_last_response_provider() or "unknown")
+                logging.getLogger("aits").info(
+                    "[AITS][EnginePathProof] selected=%s saved=%s actual=%s source=strategy.ai_provider "
+                    "api_call_allowed=True api_call_attempted=True order_allowed=False submitted=0",
+                    selected_engine or "unknown",
+                    provider or "unknown",
+                    actual_engine or "unknown",
+                )
+            except Exception:
+                pass
             from openai import OpenAI
 
             client = OpenAI(api_key=api_key, timeout=8.0)
@@ -22898,6 +22914,106 @@ class MainWindow(QMainWindow):
             if not symbol_text:
                 symbol_text = coin_name
 
+            try:
+                detail_row = None
+                rows_for_proof = getattr(self, "ai_managed_rows", None) or []
+                if 0 <= row < len(rows_for_proof):
+                    candidate_row = rows_for_proof[row]
+                    if isinstance(candidate_row, dict):
+                        detail_row = candidate_row
+
+                def _has_value(value):
+                    return str(value or "").strip() not in ("", "-", "—", "??")
+
+                def _score_number(value):
+                    text = str(value or "").strip()
+                    filtered = "".join(ch for ch in text if ch in "0123456789.-")
+                    try:
+                        return float(filtered) if filtered else None
+                    except Exception:
+                        return None
+
+                display_score = _score_number(ai_score)
+                confidence = ""
+                if display_score is not None:
+                    confidence = max(0.0, min(1.0, display_score / 100.0))
+                managed_pool_row = bool(is_managed and isinstance(detail_row, dict))
+                source_type = ""
+                source_raw = ""
+                if isinstance(detail_row, dict):
+                    source_type = str(detail_row.get("source_type") or "").strip()
+                    source_raw = str(detail_row.get("source") or "").strip()
+                user_added = source_type == "user_added" or source_raw.upper() == "USER"
+                score_owner = "unknown"
+                if managed_pool_row:
+                    if "ai_score" in detail_row or "score" in detail_row:
+                        score_owner = "_calc_basic_ai_score"
+                    else:
+                        score_owner = "_get_ai_confidence"
+                elif _has_value(ai_score):
+                    score_owner = "table_score_column"
+                saved_engine = ""
+                try:
+                    strategy = getattr(getattr(self, "_settings", None), "strategy", None)
+                    if isinstance(strategy, dict):
+                        saved_engine = str(strategy.get("ai_provider") or "").strip()
+                    elif strategy is not None:
+                        saved_engine = str(getattr(strategy, "ai_provider", "") or "").strip()
+                except Exception:
+                    saved_engine = ""
+                selected_engine = ""
+                actual_engine = ""
+                try:
+                    selected_engine = str(self._get_aits_engine_ssot() or "")
+                except Exception:
+                    selected_engine = "unknown"
+                try:
+                    actual_engine = str(self._get_aits_last_response_provider() or "")
+                except Exception:
+                    actual_engine = "unknown"
+                engine_source = (
+                    "preview"
+                    if bool(getattr(self, "_applied_ai_is_preview", False))
+                    else "strategy.ai_provider"
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartProof] open symbol=%s row=%s owner=%s source=%s "
+                    "has_price=%s has_change_rate=%s has_target_price=%s has_ai_status=%s "
+                    "has_score=%s confidence=%s order_allowed=False submitted=0",
+                    str(symbol_text or ""),
+                    int(row),
+                    "tbl_ai_managed" if is_managed else "table_fallback",
+                    "ai_managed_rows" if managed_pool_row else "table_cell",
+                    bool(_has_value(current_price)),
+                    bool(_has_value(change_rate)),
+                    bool(_has_value(target_price)),
+                    bool(_has_value(ai_state)),
+                    bool(_has_value(ai_score)),
+                    f"{confidence:.3f}" if isinstance(confidence, float) else "unknown",
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][ScoreProof] symbol=%s owner=%s display_score=%s confidence=%s "
+                    "source=%s placeholder=%s user_added=%s managed_pool_row=%s",
+                    str(symbol_text or ""),
+                    score_owner,
+                    display_score if display_score is not None else "unknown",
+                    f"{confidence:.3f}" if isinstance(confidence, float) else "unknown",
+                    "row_session" if managed_pool_row else "unknown",
+                    bool(display_score is None),
+                    bool(user_added),
+                    bool(managed_pool_row),
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][EnginePathProof] selected=%s saved=%s actual=%s source=%s "
+                    "api_call_allowed=False api_call_attempted=False order_allowed=False submitted=0",
+                    selected_engine or "unknown",
+                    saved_engine or "unknown",
+                    actual_engine or "unknown",
+                    engine_source,
+                )
+            except Exception:
+                pass
+
             if self._aits_large_chart_dialog is None:
                 self._aits_large_chart_dialog = AITSLargeChartDialog(self)
 
@@ -24594,6 +24710,66 @@ class MainWindow(QMainWindow):
                 mpf_df = self._aits_build_mpf_dataframe(candles)
             except Exception:
                 mpf_df = None
+            try:
+                def _proof_label_text(attr):
+                    try:
+                        widget = getattr(dlg, attr, None)
+                        if widget is not None and hasattr(widget, "text"):
+                            return str(widget.text() or "").strip()
+                    except Exception:
+                        pass
+                    return ""
+
+                def _proof_has_text(value):
+                    return str(value or "").strip() not in ("", "-", "—", "??")
+
+                contract = getattr(dlg, "_detail_popup_ai_output_contract", None)
+                contract_available = bool(
+                    isinstance(contract, dict) and contract.get("available")
+                )
+                selected_source = (
+                    "preview"
+                    if bool(getattr(self, "_applied_ai_is_preview", False))
+                    else "cache"
+                )
+                actual_engine_source = "preview"
+                try:
+                    if not str(self._get_aits_last_response_provider() or "").strip():
+                        actual_engine_source = "unknown"
+                except Exception:
+                    actual_engine_source = "unknown"
+                score_text = _proof_label_text("lbl_detail_popup_score")
+                ai_reason_text = (
+                    _proof_label_text("lbl_detail_popup_reason_text")
+                    or _proof_label_text("lbl_detail_popup_reason")
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][DisplaySourceProof] symbol=%s price=%s candles=%s volume=%s "
+                    "indicators=%s score=%s ai_status=%s ai_reason=%s selected_engine=%s "
+                    "actual_engine=%s preview_state=%s",
+                    str(symbol_text or ""),
+                    "row_session" if current_price is not None else "placeholder",
+                    "real_market_data" if candles else "placeholder",
+                    "real_market_data" if candles else "placeholder",
+                    "local_calculation"
+                    if mpf_df is not None and not getattr(mpf_df, "empty", True)
+                    else "placeholder",
+                    "row_session" if _proof_has_text(score_text) else "placeholder",
+                    "row_session" if _proof_has_text(ai_state) else "placeholder",
+                    "preview"
+                    if contract_available
+                    else "row_session"
+                    if _proof_has_text(ai_reason_text)
+                    else "placeholder",
+                    selected_source,
+                    actual_engine_source,
+                    "preview"
+                    if contract_available
+                    or bool(getattr(self, "_applied_ai_is_preview", False))
+                    else "unknown",
+                )
+            except Exception:
+                pass
             try:
                 position_context = self._get_detail_popup_position_context(row_index, price_levels, mpf_df)
                 entry_price = position_context.get("entry_price")
