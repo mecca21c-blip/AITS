@@ -230,3 +230,140 @@ Confirmed intended boundary:
 - `ScoreProof` proves that the popup displays upstream row/session score and does not own the score formula.
 - `EnginePathProof` proves selected/saved/actual engine source and whether an existing OpenAI preview call was attempted.
 - The proof path logs `order_allowed=False` and `submitted=0`.
+
+## 11. Managed / Scanner Click Source Proof
+
+`MANAGED-SCORE-PROOF-02` adds click/selection proof logs for the AITS symbol-management screen without changing UI labels, score formulas, scanner fallback formulas, provider calls, or order paths.
+
+### ManagedScoreClickProof
+
+Log prefix:
+
+```text
+[AITS][ManagedScoreClickProof]
+```
+
+Logged when the left Managed Candidates table is clicked or selection changes.
+
+Key fields:
+
+- `surface=managed`
+- `event=click` or `event=selection`
+- `row_index`
+- `symbol`
+- `display_score`
+- `score_source`
+- `ai_score_raw`
+- `status`
+- `status_source`
+- `weight_text`
+- `weight_source`
+- `target_weight`
+- `target_source`
+- `row_origin`
+- `submitted=0`
+
+Source rules:
+
+- `local_calculation`: managed row has `ai_score`, which is refreshed by the Basic managed-score update path.
+- `row_session`: managed row has `score` or `confidence`.
+- `fallback`: display score exists only through fallback display logic.
+- `unknown`: source cannot be proven.
+
+### ScannerScoreClickProof
+
+Log prefix:
+
+```text
+[AITS][ScannerScoreClickProof]
+```
+
+Logged when the right AI Theme Scanner table is clicked or selection changes.
+
+Key fields:
+
+- `surface=scanner`
+- `event=click` or `event=selection`
+- `row_index`
+- `symbol`
+- `display_score`
+- `score_source`
+- `ai_score_raw`
+- `score_raw`
+- `change_pct`
+- `theme`
+- `theme_source`
+- `fallback_used`
+- `submitted=0`
+
+Source rules:
+
+- `row.ai_score`: scanner row has `ai_score`.
+- `row.score`: scanner row has `score`.
+- `scanner_display_fallback`: scanner row has no score fields, so the existing display fallback is used.
+- `unknown`: source cannot be proven.
+
+### ManagedPoolAddProof
+
+Log prefix:
+
+```text
+[AITS][ManagedPoolAddProof]
+```
+
+Logged before and after adding a scanner/explorer symbol to the managed pool.
+
+Before-add fields:
+
+- `event=before_add`
+- `symbol`
+- `scanner_display_score`
+- `scanner_score_source`
+- `scanner_ai_score_raw`
+- `scanner_score_raw`
+- `scanner_change_pct`
+- `scanner_theme`
+- `submitted=0`
+
+After-add fields:
+
+- `event=after_add`
+- `symbol`
+- `managed_display_score`
+- `managed_score_source`
+- `managed_ai_score_raw`
+- `managed_status`
+- `status_source`
+- `weight_text`
+- `target_weight`
+- `scanner_score`
+- `scanner_source`
+- `copied_scanner_score`
+- `recalculated_by_basic`
+- `submitted=0`
+
+The proof does not copy scanner scores into managed rows. It only reports whether the post-add managed score matches the scanner display score and whether the managed score source is Basic/local calculation.
+
+### CenterSelectionProof
+
+Log prefix:
+
+```text
+[AITS][CenterSelectionProof]
+```
+
+Logged when the center detail/analysis panel refreshes for the selected managed symbol.
+
+Key fields:
+
+- `surface=center`
+- `selected_symbol`
+- `selected_from`
+- `display_score`
+- `score_source`
+- `status`
+- `status_source`
+- `preview_state`
+- `api_call_allowed=False`
+- `api_call_attempted=False`
+- `submitted=0`

@@ -21901,6 +21901,10 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+            try:
+                self._proof_log_center_selection("managed" if row is not None else "unknown")
+            except Exception:
+                pass
             if not sym or row is None:
                 try:
                     jh = getattr(self, "lbl_ai_detail_judgment_header", None)
@@ -23573,6 +23577,11 @@ class MainWindow(QMainWindow):
             if t is None:
                 return
             cur = int(t.currentRow())
+            try:
+                if cur >= 0:
+                    self._proof_log_scanner_score_click(cur, "selection")
+            except Exception:
+                pass
             for r in range(t.rowCount()):
                 it = t.item(r, 0)
                 if it is None:
@@ -25890,6 +25899,10 @@ class MainWindow(QMainWindow):
                 return
             sym = (self.ai_managed_rows[r].get("symbol") or "").strip()
             self._set_selected_ai_pool_symbol(sym)
+            try:
+                self._proof_log_managed_score_click(int(r), "selection")
+            except Exception:
+                pass
             self._refresh_ai_detail_panel()
             if not getattr(self, "_ai_managed_table_refreshing", False):
                 try:
@@ -26361,6 +26374,209 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _proof_float_or_none(self, value):
+        try:
+            if value is None:
+                return None
+            text = str(value).strip().replace("%", "").replace(",", "")
+            if not text:
+                return None
+            return float(text)
+        except Exception:
+            return None
+
+    def _proof_bool_text(self, value) -> str:
+        return "True" if bool(value) else "False"
+
+    def _proof_managed_score_snapshot(self, row: dict | None) -> dict:
+        snapshot = {
+            "symbol": "",
+            "display_score": "unknown",
+            "score_source": "unknown",
+            "ai_score_raw": "",
+            "status": "unknown",
+            "status_source": "unknown",
+            "weight_text": "0%/0%",
+            "weight_source": "fallback",
+            "target_weight": "0%",
+            "target_source": "fallback",
+            "row_origin": "unknown",
+        }
+        try:
+            if not isinstance(row, dict):
+                return snapshot
+            symbol = str(row.get("symbol") or row.get("market") or "").strip()
+            snapshot["symbol"] = symbol
+            ai_score_raw = row.get("ai_score")
+            score_raw = row.get("score")
+            confidence_raw = row.get("confidence")
+            snapshot["ai_score_raw"] = "" if ai_score_raw is None else str(ai_score_raw)
+            try:
+                snapshot["display_score"] = str(self._get_ai_confidence(row))
+            except Exception:
+                snapshot["display_score"] = "unknown"
+            if ai_score_raw not in (None, ""):
+                snapshot["score_source"] = "local_calculation"
+            elif score_raw not in (None, "") or confidence_raw not in (None, ""):
+                snapshot["score_source"] = "row_session"
+            elif snapshot["display_score"] not in ("", "-", "—", "??", "unknown"):
+                snapshot["score_source"] = "fallback"
+            st_text = ""
+            try:
+                st_text, _kind = self._managed_status_build04(row)
+            except Exception:
+                st_text = str(row.get("ai_status") or row.get("status") or "").strip()
+            snapshot["status"] = st_text or "unknown"
+            if row.get("ai_status") not in (None, "") or row.get("status") not in (None, ""):
+                snapshot["status_source"] = "row_session"
+            weight_raw = None
+            for key in ("position_weight_pct", "weight_pct", "allocation_pct", "weight"):
+                if row.get(key) not in (None, ""):
+                    weight_raw = row.get(key)
+                    break
+            target_raw = None
+            for key in ("target_weight", "goal_weight", "target_pct"):
+                if row.get(key) not in (None, ""):
+                    target_raw = row.get(key)
+                    break
+            weight_text = self._format_managed_weight_goal_text(
+                self._format_ai_managed_position_weight_line(row),
+                self._get_managed_target_weight(row),
+            )
+            snapshot["weight_text"] = str(weight_text or "0%/0%")
+            snapshot["weight_source"] = "row_session" if weight_raw not in (None, "") else "fallback"
+            snapshot["target_weight"] = str(self._get_managed_target_weight(row) or "0%")
+            snapshot["target_source"] = "row_session" if target_raw not in (None, "") else "fallback"
+            snapshot["row_origin"] = str(
+                row.get("source_type")
+                or row.get("source")
+                or row.get("provider")
+                or "unknown"
+            ).strip()
+        except Exception:
+            pass
+        return snapshot
+
+    def _proof_log_managed_score_click(self, row_index: int, event: str = "selection") -> None:
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            if row_index < 0 or row_index >= len(rows):
+                return
+            snap = self._proof_managed_score_snapshot(rows[row_index])
+            self._safe_log_info(
+                "[AITS][ManagedScoreClickProof] "
+                f"surface=managed | event={event} | row_index={row_index} | "
+                f"symbol={snap.get('symbol','')} | display_score={snap.get('display_score','unknown')} | "
+                f"score_source={snap.get('score_source','unknown')} | ai_score_raw={snap.get('ai_score_raw','')} | "
+                f"status={snap.get('status','unknown')} | status_source={snap.get('status_source','unknown')} | "
+                f"weight_text={snap.get('weight_text','0%/0%')} | weight_source={snap.get('weight_source','fallback')} | "
+                f"target_weight={snap.get('target_weight','0%')} | target_source={snap.get('target_source','fallback')} | "
+                f"row_origin={snap.get('row_origin','unknown')} | submitted=0"
+            )
+        except Exception:
+            pass
+
+    def _proof_scanner_score_snapshot(self, row: dict | None, row_index: int = 0) -> dict:
+        snapshot = {
+            "symbol": "",
+            "display_score": "unknown",
+            "score_source": "unknown",
+            "ai_score_raw": "",
+            "score_raw": "",
+            "change_pct": "unknown",
+            "theme": "unknown",
+            "theme_source": "unknown",
+            "fallback_used": "unknown",
+        }
+        try:
+            if not isinstance(row, dict):
+                return snapshot
+            symbol = str(row.get("symbol") or row.get("market") or "").strip()
+            snapshot["symbol"] = symbol
+            ai_score_raw = row.get("ai_score")
+            score_raw = row.get("score")
+            snapshot["ai_score_raw"] = "" if ai_score_raw is None else str(ai_score_raw)
+            snapshot["score_raw"] = "" if score_raw is None else str(score_raw)
+            raw_change = None
+            for key in ("change_rate", "signed_change_rate", "change"):
+                if row.get(key) is not None:
+                    raw_change = row.get(key)
+                    break
+            try:
+                change_value = self._safe_market_float(
+                    row, "change_rate", "signed_change_rate", "change"
+                )
+            except Exception:
+                change_value = self._proof_float_or_none(raw_change) or 0.0
+            try:
+                change_pct = self._explorer_effective_change_pct(change_value)
+            except Exception:
+                change_pct = change_value
+            snapshot["change_pct"] = f"{float(change_pct):.4f}"
+            if ai_score_raw not in (None, ""):
+                display_score = max(0, min(100, int(round(float(ai_score_raw)))))
+                snapshot["score_source"] = "row.ai_score"
+                snapshot["fallback_used"] = "False"
+            elif score_raw not in (None, ""):
+                display_score = max(0, min(100, int(round(float(score_raw)))))
+                snapshot["score_source"] = "row.score"
+                snapshot["fallback_used"] = "False"
+            else:
+                fallback = 55 + min(10, max(0, int(abs(float(change_pct)) * 0.7))) - min(5, int(row_index) // 12)
+                display_score = max(50, min(65, int(fallback)))
+                snapshot["score_source"] = "scanner_display_fallback"
+                snapshot["fallback_used"] = "True"
+            snapshot["display_score"] = str(display_score)
+            try:
+                theme = str(self._theme_label_for_symbol(symbol) or "").strip()
+            except Exception:
+                theme = ""
+            snapshot["theme"] = theme or "unknown"
+            snapshot["theme_source"] = "local_calculation" if theme else "unknown"
+        except Exception:
+            pass
+        return snapshot
+
+    def _proof_log_scanner_score_click(self, row_index: int, event: str = "selection") -> None:
+        try:
+            rows = getattr(self, "_market_display_rows", None) or []
+            if row_index < 0 or row_index >= len(rows):
+                return
+            row = rows[row_index] if isinstance(rows[row_index], dict) else {}
+            snap = self._proof_scanner_score_snapshot(row, row_index)
+            self._safe_log_info(
+                "[AITS][ScannerScoreClickProof] "
+                f"surface=scanner | event={event} | row_index={row_index} | "
+                f"symbol={snap.get('symbol','')} | display_score={snap.get('display_score','unknown')} | "
+                f"score_source={snap.get('score_source','unknown')} | ai_score_raw={snap.get('ai_score_raw','')} | "
+                f"score_raw={snap.get('score_raw','')} | change_pct={snap.get('change_pct','unknown')} | "
+                f"theme={snap.get('theme','unknown')} | theme_source={snap.get('theme_source','unknown')} | "
+                f"fallback_used={snap.get('fallback_used','unknown')} | submitted=0"
+            )
+        except Exception:
+            pass
+
+    def _proof_log_center_selection(self, selected_from: str = "unknown") -> None:
+        try:
+            symbol = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            rows = getattr(self, "ai_managed_rows", None) or []
+            row = None
+            for item in rows:
+                if isinstance(item, dict) and str(item.get("symbol") or item.get("market") or "").strip() == symbol:
+                    row = item
+                    break
+            snap = self._proof_managed_score_snapshot(row)
+            preview_state = "preview" if bool(getattr(self, "_applied_ai_is_preview", False)) else "unknown"
+            self._safe_log_info(
+                "[AITS][CenterSelectionProof] "
+                f"surface=center | selected_symbol={symbol} | selected_from={selected_from} | "
+                f"display_score={snap.get('display_score','unknown')} | score_source={snap.get('score_source','unknown')} | "
+                f"status={snap.get('status','unknown')} | status_source={snap.get('status_source','unknown')} | "
+                f"preview_state={preview_state} | api_call_allowed=False | api_call_attempted=False | submitted=0"
+            )
         except Exception:
             pass
 
@@ -31962,6 +32178,33 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+        try:
+            scanner_row_idx = -1
+            for idx, candidate in enumerate(getattr(self, "_market_display_rows", None) or []):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_sym = self._normalize_aits_market_symbol(
+                    candidate.get("symbol") or candidate.get("market") or ""
+                )
+                if candidate_sym == sym:
+                    scanner_row_idx = int(idx)
+                    break
+            scanner_snap = self._proof_scanner_score_snapshot(
+                src_row if isinstance(src_row, dict) else None,
+                scanner_row_idx if scanner_row_idx >= 0 else 0,
+            )
+            self._safe_log_info(
+                "[AITS][ManagedPoolAddProof] "
+                f"event=before_add | symbol={sym} | "
+                f"scanner_display_score={scanner_snap.get('display_score','unknown')} | "
+                f"scanner_score_source={scanner_snap.get('score_source','unknown')} | "
+                f"scanner_ai_score_raw={scanner_snap.get('ai_score_raw','')} | "
+                f"scanner_score_raw={scanner_snap.get('score_raw','')} | "
+                f"scanner_change_pct={scanner_snap.get('change_pct','unknown')} | "
+                f"scanner_theme={scanner_snap.get('theme','unknown')} | submitted=0"
+            )
+        except Exception:
+            scanner_snap = {}
 
         price = float(src_row.get("price", 0.0)) if src_row else 0.0
         chg = float(src_row.get("change_rate", 0.0)) if src_row else 0.0
@@ -32027,6 +32270,42 @@ class MainWindow(QMainWindow):
             self._update_ai_pool_statuses()
         except Exception:
             pass
+        try:
+            managed_row = None
+            for candidate in self.ai_managed_rows or []:
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_sym = self._normalize_aits_market_symbol(
+                    candidate.get("symbol") or candidate.get("market") or ""
+                )
+                if candidate_sym == sym:
+                    managed_row = candidate
+                    break
+            managed_snap = self._proof_managed_score_snapshot(managed_row)
+            scanner_score = str((scanner_snap or {}).get("display_score", "unknown"))
+            managed_score = str(managed_snap.get("display_score", "unknown"))
+            copied = (
+                scanner_score not in ("", "unknown")
+                and managed_score not in ("", "unknown")
+                and scanner_score == managed_score
+            )
+            recalculated = managed_snap.get("score_source") == "local_calculation"
+            self._safe_log_info(
+                "[AITS][ManagedPoolAddProof] "
+                f"event=after_add | symbol={sym} | "
+                f"managed_display_score={managed_snap.get('display_score','unknown')} | "
+                f"managed_score_source={managed_snap.get('score_source','unknown')} | "
+                f"managed_ai_score_raw={managed_snap.get('ai_score_raw','')} | "
+                f"managed_status={managed_snap.get('status','unknown')} | "
+                f"status_source={managed_snap.get('status_source','unknown')} | "
+                f"weight_text={managed_snap.get('weight_text','0%/0%')} | "
+                f"target_weight={managed_snap.get('target_weight','0%')} | "
+                f"scanner_score={scanner_score} | scanner_source={(scanner_snap or {}).get('score_source','unknown')} | "
+                f"copied_scanner_score={self._proof_bool_text(copied)} | "
+                f"recalculated_by_basic={self._proof_bool_text(recalculated)} | submitted=0"
+            )
+        except Exception:
+            pass
         self._refresh_ai_managed_table()
 
     def _remove_symbol_from_ai_pool(self, symbol: str) -> None:
@@ -32048,6 +32327,10 @@ class MainWindow(QMainWindow):
     def _on_ai_managed_table_cell_clicked(self, row: int, col: int) -> None:
         if row < 0 or row >= len(self.ai_managed_rows):
             return
+        try:
+            self._proof_log_managed_score_click(int(row), "click")
+        except Exception:
+            pass
         sym = (self.ai_managed_rows[row].get("symbol") or "").strip()
         if col == self._AI_M_COL_ACTION:
             self._remove_symbol_from_ai_pool(sym)
@@ -32098,6 +32381,11 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_market_all_table_cell_clicked(self, row: int, col: int) -> None:
+        try:
+            if row >= 0:
+                self._proof_log_scanner_score_click(int(row), "click")
+        except Exception:
+            pass
         if col != self._MKT_COL_ADD:
             return
         disp = getattr(self, "_market_display_rows", None) or []
