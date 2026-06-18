@@ -414,3 +414,18 @@ Policy intent:
 - Freshness labels are display-only guidance for the user; they do not affect Router, Risk Guard, Order, or Execution decisions.
 - No detail-chart AI refresh button, background AI timer, or Provider/API call is added in this Goal.
 - `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` remain the expected safety state.
+
+## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.
+
+Policy intent:
+
+- Explicit AI analysis refresh may store a sanitized, per-symbol recent AI snapshot after the existing AI analysis publish path completes.
+- The detail chart reads only already-generated snapshots; opening the chart is still not an AI call trigger.
+- Snapshot lookup requires selected-symbol matching and falls back to Basic/local summary when no matching snapshot exists.
+- Stored snapshot metadata is limited to symbol, engine/provider, generated time, source, briefing, reason, and next-action display text.
+- API keys, prompts, account data, order payloads, and full raw provider responses are not stored in the snapshot cache.
+- Snapshot freshness remains display-only and does not affect Router, Risk Guard, Order, or Execution decisions.
+- No detail-chart AI refresh button, background AI timer, or Provider/API call is added in this Goal.
+- `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` remain the expected safety state.

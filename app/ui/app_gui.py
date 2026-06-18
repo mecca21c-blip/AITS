@@ -5931,11 +5931,215 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return "출처 확인 불가"
 
+    def _normalize_market_symbol_for_ai_snapshot(self, value):
+        try:
+            text = str(value or "").strip().upper()
+            if not text:
+                return ""
+            text = text.replace("/", "-").replace("_", "-")
+            if "-" in text:
+                left, right = text.split("-", 1)
+                if left and right:
+                    return f"{left}-{right}"
+            if text.isalnum() and not text.startswith("KRW"):
+                return f"KRW-{text}"
+            return text
+        except Exception:
+            return str(value or "").strip().upper()
+
+    def _resolve_current_ai_snapshot_symbol(self, fallback=""):
+        try:
+            for attr in (
+                "_ai_briefing_pending_snapshot_symbol",
+                "_aits_selected_managed_symbol",
+                "_selected_ai_pool_symbol",
+                "_aits_large_chart_symbol",
+                "_last_detail_chart_symbol",
+            ):
+                sym = self._normalize_market_symbol_for_ai_snapshot(getattr(self, attr, "") or "")
+                if sym:
+                    return sym
+            return self._normalize_market_symbol_for_ai_snapshot(fallback)
+        except Exception:
+            return self._normalize_market_symbol_for_ai_snapshot(fallback)
+
+    def _record_recent_ai_snapshot_for_symbol(self, symbol="", payload=None, parsed=None, source="unknown"):
+        try:
+            sym = self._resolve_current_ai_snapshot_symbol(symbol)
+            if not sym:
+                return {}
+            payload = payload if isinstance(payload, dict) else {}
+            parsed = parsed if isinstance(parsed, dict) else {}
+            provider = (
+                payload.get("ai_briefing_provider")
+                or payload.get("provider")
+                or payload.get("actual_engine")
+                or payload.get("selected_engine")
+                or ""
+            )
+            generated_at = (
+                payload.get("ai_briefing_generated_at")
+                or payload.get("generated_at")
+                or payload.get("created_at")
+                or payload.get("timestamp")
+                or ""
+            )
+            if not str(generated_at or "").strip():
+                try:
+                    generated_at = time.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    generated_at = ""
+            reason = parsed.get("reason") or payload.get("reason") or payload.get("reasons") or []
+            next_action = parsed.get("next_action") or payload.get("next_action") or payload.get("next_actions") or []
+            decision = (
+                parsed.get("decision")
+                or payload.get("decision_summary")
+                or payload.get("decision")
+                or ""
+            )
+            snapshot = {
+                "symbol": sym,
+                "engine": self._normalize_detail_chart_snapshot_engine(provider),
+                "provider": str(provider or "").strip(),
+                "generated_at": str(generated_at or "").strip(),
+                "source": str(source or payload.get("source") or "unknown").strip() or "unknown",
+                "briefing": str(decision or "").strip(),
+                "reason": reason,
+                "next_action": next_action,
+            }
+            cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._aits_recent_ai_snapshot_by_symbol = cache
+            cache[sym] = dict(snapshot)
+
+            try:
+                for row in getattr(self, "ai_managed_rows", []) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    row_sym = self._normalize_market_symbol_for_ai_snapshot(
+                        row.get("symbol") or row.get("market") or row.get("code") or ""
+                    )
+                    if row_sym != sym:
+                        continue
+                    row["ai_briefing_provider"] = snapshot.get("provider", "")
+                    row["ai_briefing_engine"] = snapshot.get("engine", "")
+                    row["ai_briefing_engine_label"] = snapshot.get("engine", "")
+                    row["ai_briefing_generated_at"] = snapshot.get("generated_at", "")
+                    row["ai_briefing"] = snapshot.get("briefing", "")
+                    row["ai_reason"] = snapshot.get("reason", [])
+                    row["ai_next_action"] = snapshot.get("next_action", [])
+                    break
+            except Exception:
+                pass
+
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s source=%s "
+                    "has_generated_at=%s submitted=0",
+                    sym,
+                    snapshot.get("engine") or "unknown",
+                    snapshot.get("source") or "unknown",
+                    bool(snapshot.get("generated_at")),
+                )
+            except Exception:
+                pass
+            try:
+                self._refresh_open_detail_chart_ai_snapshot(sym)
+            except Exception:
+                pass
+            return snapshot
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][AISnapshotStore] event=store_failed error_type=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return {}
+
+    def _refresh_open_detail_chart_ai_snapshot(self, symbol=""):
+        try:
+            dlg = getattr(self, "_aits_large_chart_dialog", None)
+            if dlg is None:
+                return
+            current = self._normalize_market_symbol_for_ai_snapshot(
+                getattr(self, "_aits_large_chart_symbol", "")
+                or getattr(self, "_last_detail_chart_symbol", "")
+            )
+            target = self._normalize_market_symbol_for_ai_snapshot(symbol)
+            if not current or (target and current != target):
+                return
+            row_index = int(getattr(dlg, "_aits_row_index", -1) or -1)
+            row_obj = None
+            try:
+                rows = getattr(self, "ai_managed_rows", None) or []
+                if 0 <= row_index < len(rows) and isinstance(rows[row_index], dict):
+                    row_obj = rows[row_index]
+            except Exception:
+                row_obj = None
+            contract = self._build_detail_chart_display_contract(
+                symbol_text=current,
+                row_index=row_index,
+                row_data=row_obj,
+                detail_output_contract=getattr(dlg, "_detail_popup_ai_output_contract", None),
+            )
+            self._publish_detail_chart_display_contract(contract, dlg)
+        except Exception:
+            pass
+
     def _build_detail_chart_ai_snapshot_meta(self, symbol_text="", row_data=None, detail_output_contract=None):
         try:
-            symbol = str(symbol_text or "").strip()
+            symbol = self._normalize_market_symbol_for_ai_snapshot(symbol_text)
             row_obj = row_data if isinstance(row_data, dict) else {}
             output_contract = detail_output_contract if isinstance(detail_output_contract, dict) else {}
+            cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
+            cache_snapshot = {}
+            if isinstance(cache, dict) and symbol:
+                cache_snapshot = dict(cache.get(symbol) or {})
+            if cache_snapshot:
+                generated_at = cache_snapshot.get("generated_at")
+                parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
+                age_seconds = None
+                if parsed_at is not None:
+                    try:
+                        from datetime import datetime
+                        age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
+                    except Exception:
+                        age_seconds = None
+                if age_seconds is None:
+                    freshness = "unknown"
+                    freshness_label = "생성 시각 확인 불가"
+                    age_label = "생성 시각 확인 불가"
+                elif age_seconds <= 15 * 60:
+                    freshness = "fresh"
+                    freshness_label = "최신 참고 가능"
+                    age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+                elif age_seconds <= 60 * 60:
+                    freshness = "usable"
+                    freshness_label = "참고 가능"
+                    age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+                else:
+                    freshness = "stale"
+                    freshness_label = "오래된 분석일 수 있음"
+                    age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+                return {
+                    "has_snapshot": True,
+                    "symbol": symbol,
+                    "payload_symbol": self._normalize_market_symbol_for_ai_snapshot(cache_snapshot.get("symbol") or symbol),
+                    "is_symbol_matched": True,
+                    "engine": cache_snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(cache_snapshot.get("provider")),
+                    "provider": str(cache_snapshot.get("provider") or "").strip(),
+                    "generated_at": str(generated_at or "").strip() or None,
+                    "age_seconds": age_seconds,
+                    "age_label": age_label,
+                    "freshness": freshness,
+                    "freshness_label": freshness_label,
+                    "source": str(cache_snapshot.get("source") or "unknown").strip() or "unknown",
+                    "source_label": self._format_detail_chart_snapshot_source_label(cache_snapshot.get("source")),
+                    "lookup_source": "per_symbol_cache",
+                }
             last_payload = {}
             try:
                 last_payload = dict(self._get_aits_final_explanation_payload() or {})
@@ -5947,13 +6151,13 @@ class AITSLargeChartDialog(QDialog):
             except Exception:
                 last_explanation = {}
 
-            row_symbol = str(
+            row_symbol = self._normalize_market_symbol_for_ai_snapshot(
                 row_obj.get("symbol")
                 or row_obj.get("market")
                 or row_obj.get("code")
                 or ""
-            ).strip()
-            payload_symbol = str(
+            )
+            payload_symbol = self._normalize_market_symbol_for_ai_snapshot(
                 last_payload.get("symbol")
                 or last_payload.get("market")
                 or last_payload.get("code")
@@ -5961,7 +6165,7 @@ class AITSLargeChartDialog(QDialog):
                 or output_contract.get("symbol")
                 or output_contract.get("market")
                 or ""
-            ).strip()
+            )
             row_meta_symbol_match = bool(symbol and row_symbol and row_symbol == symbol)
             payload_symbol_match = bool(symbol and payload_symbol and payload_symbol == symbol)
 
@@ -7383,9 +7587,12 @@ class MainWindow(QMainWindow):
                 meta["generated_at"] = ""
             self._last_ai_briefing_engine_meta = dict(meta)
             try:
-                sym = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+                sym = self._resolve_current_ai_snapshot_symbol()
                 for row in getattr(self, "ai_managed_rows", []) or []:
-                    if isinstance(row, dict) and str(row.get("symbol") or "").strip() == sym:
+                    row_sym = self._normalize_market_symbol_for_ai_snapshot(
+                        row.get("symbol") or row.get("market") or row.get("code") or ""
+                    ) if isinstance(row, dict) else ""
+                    if isinstance(row, dict) and row_sym == sym:
                         row["ai_briefing_provider"] = meta.get("provider", "")
                         row["ai_briefing_engine"] = meta.get("label", "")
                         row["ai_briefing_engine_label"] = meta.get("label", "")
@@ -7665,6 +7872,19 @@ class MainWindow(QMainWindow):
             self._aits_last_ai_explanation = parsed
             try:
                 self._remember_ai_briefing_engine_meta(final_payload)
+            except Exception:
+                pass
+            try:
+                pending_manual = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
+                source = str(getattr(self, "_ai_briefing_last_snapshot_source", "") or "").strip()
+                if not source:
+                    source = "manual_refresh" if pending_manual else "auto_condition"
+                self._record_recent_ai_snapshot_for_symbol(
+                    getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
+                    payload=final_payload,
+                    parsed=parsed,
+                    source=source,
+                )
             except Exception:
                 pass
 
@@ -26237,14 +26457,16 @@ class MainWindow(QMainWindow):
             snapshot = contract.get("ai_snapshot") if isinstance(contract.get("ai_snapshot"), dict) else {}
             logging.getLogger("aits").info(
                 "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s engine=%s "
-                "freshness=%s age_seconds=%s symbol_matched=%s api_call_attempted=False "
+                "source=%s freshness=%s age_seconds=%s symbol_matched=%s reason=%s api_call_attempted=False "
                 "order_allowed=False submitted=0",
                 str(contract.get("symbol") or ""),
                 bool(snapshot.get("has_snapshot")),
                 str(snapshot.get("engine") or ""),
+                str(snapshot.get("lookup_source") or snapshot.get("source") or "none"),
                 str(snapshot.get("freshness") or "missing"),
                 snapshot.get("age_seconds") if snapshot.get("age_seconds") is not None else "unknown",
                 bool(snapshot.get("is_symbol_matched")),
+                "ok" if bool(snapshot.get("has_snapshot")) else "no_symbol_snapshot",
             )
         except Exception:
             pass
@@ -40169,6 +40391,17 @@ class MainWindow(QMainWindow):
             try:
                 manual_generation = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
                 self._remember_ai_briefing_engine_meta(_pl, force=manual_generation)
+                try:
+                    source = "manual_refresh" if manual_generation else "auto_condition"
+                    self._ai_briefing_last_snapshot_source = source
+                    self._record_recent_ai_snapshot_for_symbol(
+                        getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
+                        payload=_pl,
+                        parsed=parsed,
+                        source=source,
+                    )
+                except Exception:
+                    pass
                 if manual_generation:
                     self._ai_briefing_pending_manual_request = False
             except Exception:
@@ -42195,6 +42428,7 @@ class MainWindow(QMainWindow):
             self._ai_analysis_refresh_last_ts = now_ts
             try:
                 self._ai_briefing_pending_manual_request = True
+                self._ai_briefing_pending_snapshot_symbol = self._resolve_current_ai_snapshot_symbol()
             except Exception:
                 pass
             provider = "basic"

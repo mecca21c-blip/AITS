@@ -375,3 +375,38 @@ Safety remains unchanged:
 - No detail-chart AI refresh button is added.
 - No background AI event or timer is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 20. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-WIRING-01` defines the runtime lookup path for the `ai_snapshot` contract field.
+
+Snapshot storage rules:
+
+- Completed AI analysis publish paths may record a sanitized snapshot in `_aits_recent_ai_snapshot_by_symbol`.
+- The cache key is a normalized market symbol such as `KRW-XRP`.
+- `XRP`, `xrp`, and `KRW-XRP` are normalized before matching.
+- Snapshot data is display-only and should contain only symbol, engine/provider, generated time, source, briefing, reason, and next action.
+- Prompt text, API keys, account data, order payloads, and full raw provider responses must not be stored in the snapshot cache.
+
+Lookup priority:
+
+1. Per-symbol cache: `_aits_recent_ai_snapshot_by_symbol[symbol]`.
+2. Selected managed row `ai_briefing_*` metadata.
+3. Last final AI payload only when its symbol matches the selected detail-chart symbol.
+4. Last AI explanation only when its symbol matches the selected detail-chart symbol.
+5. Missing snapshot -> `basic_summary` fallback.
+
+Display refresh rules:
+
+- If the detail chart is already open and a matching snapshot is stored, the existing display contract may be regenerated and applied once.
+- This refresh is UI-only; it must not schedule AI analysis or call Provider APIs.
+- Symbol mismatch is always treated as no snapshot.
+- Stale snapshots may still be displayed with a freshness warning; staleness does not create an order signal.
+
+Safety remains unchanged:
+
+- Detail chart open is not an AI call trigger.
+- No GPT/Gemini/OpenAI call is added.
+- No detail-chart AI refresh button is added.
+- No background AI event or timer is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
