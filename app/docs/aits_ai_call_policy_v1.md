@@ -317,3 +317,20 @@ Implemented policy intent:
 - Background event-based AI calls are not implemented in this Goal and remain a later policy implementation.
 - `submitted=0` is preserved.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 21. DETAIL-CHART-CONTRACT-01 Implementation Note
+
+`DETAIL-CHART-CONTRACT-01` defines the first display contract for detail-chart ETA, WHY, briefing, evidence, next-action, and trade-plan copy.
+
+Implemented policy intent:
+
+- Detail chart display fields are classified by `detail_chart_display_contract.v1`.
+- The contract separates Basic/local calculation summaries from last-known or explicitly generated AI analysis.
+- Detail chart open remains a display action and is not an AI call trigger.
+- ETA is not the next evaluation time; without AI output it is only a Basic/local observation window for the current scenario.
+- WHY is split into managed interest reason, current-state reason, and user-facing summary.
+- Next action and trade-plan copy remain observation guidance unless a separate Router/Execution contract exists.
+- Trade-plan text must not be presented as an order signal when `is_order_signal=false` and `is_execution_plan=false`.
+- The compact contract log reports schema, mode, source, ETA source, WHY source, and safety flags.
+- `api_call_allowed=False`, `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` are preserved.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.

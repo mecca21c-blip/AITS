@@ -23778,6 +23778,25 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+            try:
+                _contract_row = None
+                if 0 <= row < len(getattr(self, "ai_managed_rows", None) or []):
+                    _row_candidate = (getattr(self, "ai_managed_rows", None) or [])[row]
+                    if isinstance(_row_candidate, dict):
+                        _contract_row = _row_candidate
+                _contract = self._build_detail_chart_display_contract(
+                    symbol_text=symbol_text,
+                    row_index=row,
+                    row_data=_contract_row,
+                    ai_reason_text=ai_text,
+                    ai_plan_text=self._build_aits_popup_ai_plan_text(row),
+                    ai_action_text=ai_action_text,
+                    detail_output_contract=getattr(dlg, "_detail_popup_ai_output_contract", None),
+                )
+                self._publish_detail_chart_display_contract(_contract, dlg)
+            except Exception:
+                pass
+
             self._render_aits_large_chart_dialog(symbol_text, dlg)
 
             try:
@@ -25059,6 +25078,281 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _normalize_detail_chart_engine_for_contract(self, value=""):
+        try:
+            raw = str(value or "").strip().lower()
+            if raw in ("gpt", "openai", "chatgpt"):
+                return "GPT"
+            if raw in ("gemini", "google", "google_gemini"):
+                return "GEMINI"
+            if raw in ("local", "basic", "local_ai", "ollama", "ollama_provider"):
+                return "LOCAL" if raw != "basic" else "BASIC"
+            if raw:
+                return raw.upper()
+        except Exception:
+            pass
+        return "BASIC"
+
+    def _detail_chart_contract_lines(self, value, limit=4):
+        try:
+            if value is None:
+                return []
+            if isinstance(value, (list, tuple)):
+                raw_items = list(value)
+            else:
+                raw_items = str(value or "").replace("|", "\n").splitlines()
+            lines = []
+            for item in raw_items:
+                text = str(item or "").strip().lstrip("-*•· ").strip()
+                if not text:
+                    continue
+                try:
+                    if hasattr(self, "_translate_ai_reason_key_for_ui"):
+                        text = self._translate_ai_reason_key_for_ui(text)
+                except Exception:
+                    pass
+                if text and text not in lines:
+                    lines.append(text)
+                if len(lines) >= int(limit or 4):
+                    break
+            return lines
+        except Exception:
+            return []
+
+    def _build_detail_chart_display_contract(
+        self,
+        symbol_text="",
+        row_index=-1,
+        row_data=None,
+        ai_reason_text="",
+        ai_plan_text="",
+        ai_action_text="",
+        eta_context=None,
+        scenario_type="",
+        detail_output_contract=None,
+    ):
+        try:
+            row_obj = row_data if isinstance(row_data, dict) else {}
+            output_contract = detail_output_contract if isinstance(detail_output_contract, dict) else {}
+            output_available = bool(output_contract.get("available"))
+
+            last_payload = {}
+            try:
+                last_payload = dict(self._get_aits_final_explanation_payload() or {})
+            except Exception:
+                last_payload = {}
+            last_explanation = {}
+            try:
+                last_explanation = dict(getattr(self, "_aits_last_ai_explanation", {}) or {})
+            except Exception:
+                last_explanation = {}
+
+            last_decision = str(
+                last_payload.get("decision_summary")
+                or last_payload.get("decision")
+                or last_explanation.get("decision")
+                or ""
+            ).strip()
+            last_reasons = (
+                last_payload.get("reason")
+                or last_payload.get("reasons")
+                or last_explanation.get("reason")
+                or []
+            )
+            last_next = (
+                last_payload.get("next_action")
+                or last_payload.get("next_actions")
+                or last_explanation.get("next_action")
+                or []
+            )
+            if isinstance(last_reasons, str):
+                last_reasons = [last_reasons] if last_reasons.strip() else []
+            if isinstance(last_next, str):
+                last_next = [last_next] if last_next.strip() else []
+
+            explicit_ai_available = bool(output_available or last_decision or last_reasons or last_next)
+            if explicit_ai_available:
+                display_mode = "last_known_ai"
+                data_source = "last_known_ai"
+                ai_output_state = "available"
+                default_source = "last_known_ai"
+            else:
+                display_mode = "basic_summary"
+                data_source = "local_calculation"
+                ai_output_state = "missing"
+                default_source = "local_calculation"
+
+            reason_lines = self._detail_chart_contract_lines(
+                last_reasons if explicit_ai_available else ai_reason_text,
+                limit=4,
+            )
+            if not reason_lines:
+                reason_lines = self._detail_chart_contract_lines(ai_action_text, limit=3)
+            plan_lines = self._detail_chart_contract_lines(
+                last_next if explicit_ai_available else ai_plan_text,
+                limit=3,
+            )
+            if not plan_lines:
+                plan_lines = [
+                    "Observation conditions only; this is not an order signal.",
+                    "Use explicit AI analysis refresh for deeper interpretation.",
+                ]
+
+            status_text = str(
+                row_obj.get("ai_status")
+                or row_obj.get("status")
+                or row_obj.get("state")
+                or ""
+            ).strip()
+            score_state = str(row_obj.get("score_state") or "").strip()
+            reason_summary = str(row_obj.get("reason_summary") or "").strip()
+            if not reason_summary and reason_lines:
+                reason_summary = reason_lines[0]
+            if not reason_summary:
+                reason_summary = "Basic/local display summary is available, but no detailed reason was stored."
+
+            eta = eta_context if isinstance(eta_context, dict) else {}
+            eta_seconds = eta.get("seconds") if eta else None
+            eta_source = "last_known_ai" if explicit_ai_available and output_available else (
+                "local_calculation" if eta else "placeholder"
+            )
+            eta_label = "AI observation ETA" if eta_source == "last_known_ai" else (
+                "calculation observation window" if eta_source == "local_calculation" else "ETA unavailable"
+            )
+            eta_explanation = (
+                "AI analysis exists; this is the observation window attached to that generated analysis."
+                if eta_source == "last_known_ai"
+                else "This is not the next evaluation time. It is a local calculation reference window for the current scenario."
+                if eta_source == "local_calculation"
+                else "No AI Output Contract exists, so ETA is a placeholder."
+            )
+
+            engine_raw = (
+                last_payload.get("ai_briefing_provider")
+                or last_payload.get("provider")
+                or last_payload.get("actual_engine")
+                or last_explanation.get("provider")
+                or output_contract.get("provider")
+                or output_contract.get("source")
+                or ("basic" if not explicit_ai_available else "unknown")
+            )
+            generated_engine = self._normalize_detail_chart_engine_for_contract(engine_raw)
+            generated_at = (
+                last_payload.get("ai_briefing_generated_at")
+                or last_payload.get("generated_at")
+                or last_explanation.get("generated_at")
+                or None
+            )
+
+            symbol = str(
+                symbol_text
+                or row_obj.get("symbol")
+                or row_obj.get("market")
+                or row_obj.get("code")
+                or ""
+            ).strip()
+            interest_source = "row_session" if row_obj else "placeholder"
+            current_reason_source = default_source if reason_lines else "placeholder"
+
+            return {
+                "schema": "detail_chart_display_contract.v1",
+                "symbol": symbol,
+                "row_index": int(row_index) if str(row_index).lstrip("-").isdigit() else row_index,
+                "display_mode": display_mode,
+                "data_source": data_source,
+                "interest_reason": {
+                    "text": str(row_obj.get("source") or row_obj.get("source_type") or "managed row/session").strip(),
+                    "source": interest_source,
+                },
+                "current_state_reason": {
+                    "text": reason_summary,
+                    "source": current_reason_source,
+                    "status": status_text,
+                    "score_state": score_state,
+                },
+                "why_summary": {
+                    "text": last_decision or reason_summary,
+                    "source": default_source if (last_decision or reason_summary) else "placeholder",
+                },
+                "eta": {
+                    "label": eta_label,
+                    "source": eta_source,
+                    "seconds": eta_seconds,
+                    "explanation": eta_explanation,
+                    "is_ai_forecast": bool(eta_source == "last_known_ai"),
+                    "state_type": str(eta.get("state_type") or ""),
+                },
+                "observation_points": [
+                    {"text": text, "source": default_source}
+                    for text in reason_lines[:4]
+                ],
+                "next_action": {
+                    "text": plan_lines[0] if plan_lines else "Observation only.",
+                    "source": default_source if plan_lines else "placeholder",
+                    "is_order_signal": False,
+                },
+                "trade_plan_summary": {
+                    "text": " | ".join(plan_lines[:2]),
+                    "source": default_source if plan_lines else "placeholder",
+                    "is_execution_plan": False,
+                    "classification": "observation_scenario",
+                },
+                "ai_output_state": ai_output_state,
+                "generated_engine": generated_engine,
+                "generated_at": generated_at,
+                "scenario_type": str(scenario_type or ""),
+                "safety_flags": {
+                    "api_call_allowed": False,
+                    "api_call_attempted": False,
+                    "order_allowed": False,
+                    "submitted": 0,
+                },
+            }
+        except Exception as exc:
+            return {
+                "schema": "detail_chart_display_contract.v1",
+                "symbol": str(symbol_text or ""),
+                "display_mode": "placeholder",
+                "data_source": "placeholder",
+                "ai_output_state": "placeholder",
+                "generated_engine": "unknown",
+                "generated_at": None,
+                "error": str(exc)[:160],
+                "safety_flags": {
+                    "api_call_allowed": False,
+                    "api_call_attempted": False,
+                    "order_allowed": False,
+                    "submitted": 0,
+                },
+            }
+
+    def _publish_detail_chart_display_contract(self, contract, dlg=None):
+        try:
+            if not isinstance(contract, dict):
+                return
+            self._last_detail_chart_display_contract = dict(contract)
+            if dlg is not None:
+                try:
+                    dlg._detail_chart_display_contract = dict(contract)
+                except Exception:
+                    pass
+            eta_info = contract.get("eta") if isinstance(contract.get("eta"), dict) else {}
+            why_info = contract.get("why_summary") if isinstance(contract.get("why_summary"), dict) else {}
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartContract] schema=%s symbol=%s display_mode=%s "
+                "data_source=%s eta_source=%s why_source=%s ai_output_state=%s "
+                "api_call_allowed=False api_call_attempted=False order_allowed=False submitted=0",
+                str(contract.get("schema") or ""),
+                str(contract.get("symbol") or ""),
+                str(contract.get("display_mode") or ""),
+                str(contract.get("data_source") or ""),
+                str(eta_info.get("source") or ""),
+                str(why_info.get("source") or ""),
+                str(contract.get("ai_output_state") or ""),
+            )
+        except Exception:
+            pass
+
     def _get_detail_popup_eta_seconds(self, scenario_type: str, confidence: float, is_holding: bool):
         try:
             ranges = {
@@ -25657,6 +25951,24 @@ class MainWindow(QMainWindow):
                     )
                     if hasattr(dlg, "set_detail_popup_eta_context"):
                         dlg.set_detail_popup_eta_context(eta_context)
+                    try:
+                        _contract_row = None
+                        _rows = getattr(self, "ai_managed_rows", None) or []
+                        if 0 <= row_index < len(_rows) and isinstance(_rows[row_index], dict):
+                            _contract_row = _rows[row_index]
+                        _contract = self._build_detail_chart_display_contract(
+                            symbol_text=symbol_text,
+                            row_index=row_index,
+                            row_data=_contract_row,
+                            ai_reason_text=reason_for_scenario,
+                            ai_action_text=str((badge_info_for_scenario or {}).get("subtitle") or ""),
+                            eta_context=eta_context,
+                            scenario_type=scenario_type,
+                            detail_output_contract=getattr(dlg, "_detail_popup_ai_output_contract", None),
+                        )
+                        self._publish_detail_chart_display_contract(_contract, dlg)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 try:
