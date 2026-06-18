@@ -334,3 +334,19 @@ Implemented policy intent:
 - The compact contract log reports schema, mode, source, ETA source, WHY source, and safety flags.
 - `api_call_allowed=False`, `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` are preserved.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 22. DETAIL-CHART-ETA-WHY-01 Implementation Note
+
+`DETAIL-CHART-ETA-WHY-01` applies `detail_chart_display_contract.v1` to the detail-chart ETA, WHY, observation, next-action, and trade-plan wording.
+
+Implemented policy intent:
+
+- Detail chart wording now distinguishes Basic/local calculation summaries from last-known AI analysis.
+- Basic/local mode uses calculation and observation wording rather than AI judgement wording.
+- ETA is presented as an observation window, not the next evaluation time.
+- WHY is displayed as managed reason, current-state reason, and waiting/observation points.
+- Next-action and trade-plan copy remain observation guidance unless Router/Execution produces a separate execution contract.
+- No detail chart AI Preview button is added in this Goal.
+- Detail chart open remains a display action and is not an API-call trigger.
+- GPT/Gemini/OpenAI calls, Provider payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+- `submitted=0` is preserved.

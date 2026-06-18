@@ -197,3 +197,31 @@ Recommended follow-up Goals:
 - `DETAIL-CHART-BASIC-SUMMARY-01`: separate Basic/local detail summary cards from AI analysis cards.
 - `DETAIL-CHART-AI-PREVIEW-BUTTON-01`: add an explicit detail-chart AI Preview refresh button.
 - `DETAIL-CHART-PLACEHOLDER-CLEANUP-01`: remove confusing placeholders and AI-looking labels without source.
+
+## 14. DETAIL-CHART-ETA-WHY-01 Implementation Note
+
+`DETAIL-CHART-ETA-WHY-01` applies the display contract to detail-chart wording for ETA, WHY, observation points, next action, and trade-plan copy.
+
+Implemented display rules:
+
+- `basic_summary` mode must use calculation-based wording, not AI judgement wording.
+- Basic/local mode labels the intent area as `계산 기반 관찰 요약`.
+- Basic/local ETA is labeled `계산 기반 관찰 구간`.
+- Basic/local scenario copy is labeled `관찰 시나리오` and `계산 기반 참고`.
+- AI output modes may use `AI 관찰 시나리오`, `AI 관찰 ETA`, and `AI 다음 관찰 조건`.
+- ETA copy must state that it is not the next evaluation time.
+- WHY copy is split into:
+  - why the symbol is managed,
+  - why the current state is being shown,
+  - what the system is waiting for.
+- `next_action.is_order_signal=false` must be visible as observation-only copy.
+- `trade_plan_summary.is_execution_plan=false` must be visible as not an execution plan.
+- Raw internal reason keys must be translated or replaced with safe fallback text.
+
+Safety remains unchanged:
+
+- Detail chart open is not an AI call trigger.
+- No GPT/Gemini/OpenAI call is added.
+- No detail-chart AI Preview button is added in this Goal.
+- No Router, Risk Guard, Order, or Execution path is changed.
+- `submitted=0` remains the expected state.
