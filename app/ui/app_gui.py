@@ -12153,7 +12153,7 @@ class MainWindow(QMainWindow):
             self.tbl_market_all.setColumnWidth(1, 90)
             self.tbl_market_all.setColumnWidth(2, 84)
             self.tbl_market_all.setColumnWidth(3, 64)
-            self.tbl_market_all.setColumnWidth(4, 36)
+            self.tbl_market_all.setColumnWidth(4, 48)
         except Exception:
             pass
         self.tbl_market_all.cellClicked.connect(self._on_market_all_table_cell_clicked)
@@ -23782,6 +23782,8 @@ class MainWindow(QMainWindow):
             s = str(state_text or "").strip()
             sl = s.lower()
 
+            if s in ("ManualHold", "UserHold") or "manualhold" in sl or "매매보류" in s or "매매 보류" in s:
+                return "매매보류"
             if "drop" in sl:
                 return "관망"
             if "watch" in sl:
@@ -25887,6 +25889,7 @@ class MainWindow(QMainWindow):
             if r < 0 or r >= len(self.ai_managed_rows or []):
                 self._set_selected_ai_pool_symbol("")
                 self._refresh_ai_detail_panel()
+                self._sync_managed_pause_button_state(None)
                 if not getattr(self, "_ai_managed_table_refreshing", False):
                     try:
                         self._apply_ai_managed_row_visual_state()
@@ -25896,6 +25899,7 @@ class MainWindow(QMainWindow):
             sym = (self.ai_managed_rows[r].get("symbol") or "").strip()
             self._set_selected_ai_pool_symbol(sym)
             self._refresh_ai_detail_panel()
+            self._sync_managed_pause_button_state(self.ai_managed_rows[r])
             if not getattr(self, "_ai_managed_table_refreshing", False):
                 try:
                     self._apply_ai_managed_row_visual_state()
@@ -25948,6 +25952,65 @@ class MainWindow(QMainWindow):
             pass
 
         return -1
+
+    def _is_managed_manual_hold_row(self, row: dict) -> bool:
+        try:
+            if not isinstance(row, dict):
+                return False
+            if bool(row.get("user_trade_hold")) or bool(row.get("manual_hold")):
+                return True
+            if str(row.get("hold_source") or "").strip().lower() == "user":
+                return True
+            raw = str(row.get("ai_status") or row.get("status") or "").strip()
+            rl = raw.lower()
+            return raw in ("ManualHold", "UserHold") or "manualhold" in rl or "매매보류" in raw or "매매 보류" in raw
+        except Exception:
+            return False
+
+    def _set_managed_manual_hold(self, row: dict) -> None:
+        try:
+            if not isinstance(row, dict):
+                return
+            raw = str(row.get("ai_status") or row.get("status") or "").strip()
+            if not self._is_managed_manual_hold_row(row):
+                row["_ai_status_before_pause"] = raw or "분석 대기"
+            row["user_trade_hold"] = True
+            row["manual_hold"] = True
+            row["hold_source"] = "user"
+            row["hold_reason"] = "user_trade_hold"
+            row["ai_status"] = "ManualHold"
+            row["status"] = "ManualHold"
+        except Exception:
+            pass
+
+    def _release_managed_manual_hold(self, row: dict) -> None:
+        try:
+            if not isinstance(row, dict):
+                return
+            prev = str(row.get("_ai_status_before_pause") or "").strip()
+            if not prev or self._is_managed_manual_hold_row({"ai_status": prev, "status": prev}):
+                prev = "분석 대기"
+            for key in ("user_trade_hold", "manual_hold", "hold_source", "hold_reason", "_ai_status_before_pause"):
+                row.pop(key, None)
+            row["ai_status"] = prev
+            row["status"] = prev
+        except Exception:
+            pass
+
+    def _sync_managed_pause_button_state(self, row: dict | None = None) -> None:
+        try:
+            btn = getattr(self, "btn_managed_pause", None)
+            if btn is None:
+                return
+            is_hold = self._is_managed_manual_hold_row(row) if isinstance(row, dict) else False
+            btn.setText("보류 해제" if is_hold else "매매 보류")
+            btn.setToolTip(
+                "사용자 매매보류를 해제하고 자동 상태 계산으로 되돌립니다."
+                if is_hold
+                else "선택 종목을 사용자가 해제할 때까지 매매보류로 고정합니다."
+            )
+        except Exception:
+            pass
 
     def _get_ai_managed_row_for_center_detail(self) -> int:
         try:
@@ -26522,20 +26585,31 @@ class MainWindow(QMainWindow):
             row = rows[row_idx]
             if not isinstance(row, dict):
                 return
-            raw = str(row.get("ai_status") or row.get("status") or "").strip()
-            is_paused = ("보류" in raw) or ("pause" in raw.lower())
-            if is_paused:
-                prev = str(row.get("_ai_status_before_pause") or "").strip()
-                if not prev or ("보류" in prev) or ("pause" in prev.lower()):
-                    prev = "분석 대기"
-                row["ai_status"] = prev
-                row["status"] = prev
-                row.pop("_ai_status_before_pause", None)
+            symbol = str(row.get("symbol") or row.get("market") or "").strip()
+            if self._is_managed_manual_hold_row(row):
+                self._release_managed_manual_hold(row)
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][ManagedHoldLock] event=release_hold | symbol=%s | source=user | submitted=0",
+                        symbol or "unknown",
+                    )
+                except Exception:
+                    pass
+                try:
+                    self._update_ai_pool_statuses()
+                except Exception:
+                    pass
             else:
-                row["_ai_status_before_pause"] = raw or "분석 대기"
-                row["ai_status"] = "매매 보류"
-                row["status"] = "매매 보류"
+                self._set_managed_manual_hold(row)
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][ManagedHoldLock] event=set_hold | symbol=%s | source=user | submitted=0",
+                        symbol or "unknown",
+                    )
+                except Exception:
+                    pass
             self._refresh_ai_managed_table()
+            self._sync_managed_pause_button_state(row)
             try:
                 self.tbl_ai_managed.selectRow(row_idx)
             except Exception:
@@ -26671,6 +26745,8 @@ class MainWindow(QMainWindow):
         try:
             if not isinstance(row, dict):
                 return "관망", "watch"
+            if self._is_managed_manual_hold_row(row):
+                return "매매보류", "pause"
             raw = str(row.get("ai_status") or row.get("status") or "").strip()
             rl = raw.lower()
             if any(x in raw for x in ("매매보류", "보류")) or "pause" in rl:
@@ -27509,6 +27585,13 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self._log_aits_validation_summary("managed_refresh")
+            except Exception:
+                pass
+            try:
+                cur = self._get_ai_managed_current_row()
+                rows_for_button = getattr(self, "ai_managed_rows", None) or []
+                row_for_button = rows_for_button[cur] if 0 <= int(cur) < len(rows_for_button) else None
+                self._sync_managed_pause_button_state(row_for_button)
             except Exception:
                 pass
             self._ai_managed_table_refreshing = False
@@ -28405,6 +28488,8 @@ class MainWindow(QMainWindow):
         """
         if not isinstance(row, dict):
             return False
+        if self._is_managed_manual_hold_row(row):
+            return False
 
         symbol = str(row.get("symbol") or row.get("market") or "").strip()
         if not symbol:
@@ -28479,6 +28564,24 @@ class MainWindow(QMainWindow):
                 else:
                     row["target_price"] = 0.0
                     row["stop_loss"] = 0.0
+
+                if self._is_managed_manual_hold_row(row):
+                    if pool_analyze:
+                        try:
+                            res = self._calc_basic_ai_score(row)
+                            sc = int(res.get("score", 0))
+                            row["ai_score"] = sc
+                            rsn = res.get("reasons") or []
+                            row["ai_reason_summary"] = ", ".join(rsn[:3])
+                        except Exception:
+                            pass
+                    row["user_trade_hold"] = True
+                    row["manual_hold"] = True
+                    row["hold_source"] = "user"
+                    row["hold_reason"] = row.get("hold_reason") or "user_trade_hold"
+                    row["ai_status"] = "ManualHold"
+                    row["status"] = "ManualHold"
+                    continue
 
                 if not pool_analyze:
                     row["ai_status"] = "Watching"
@@ -31817,7 +31920,7 @@ class MainWindow(QMainWindow):
             t.setColumnWidth(1, 90)
             t.setColumnWidth(2, 84)
             t.setColumnWidth(3, 64)
-            t.setColumnWidth(4, 36)
+            t.setColumnWidth(4, 48)
             for _col in range(5):
                 t.setColumnHidden(_col, False)
             t.verticalHeader().setDefaultSectionSize(32)
@@ -32195,25 +32298,29 @@ class MainWindow(QMainWindow):
 
             try:
                 row_payload = dict(r) if isinstance(r, dict) else r
-                btn_add = QPushButton("+")
+                btn_add = QPushButton("＋")
                 btn_add.setToolTip("관리종목에 추가")
-                btn_add.setFixedSize(26, 26)
+                btn_add.setCursor(Qt.CursorShape.PointingHandCursor)
+                btn_add.setAccessibleName("관리종목에 추가")
+                btn_add.setFixedSize(34, 24)
                 btn_add.setStyleSheet(
                     "QPushButton {"
-                    "background: #ffffff;"
+                    "background: #f8fafc;"
                     "border: 1px solid #cbd5e1;"
-                    "border-radius: 7px;"
-                    "color: #0f172a;"
-                    "font-size: 15px;"
+                    "border-radius: 12px;"
+                    "color: #2563eb;"
+                    "font-size: 14px;"
                     "font-weight: 900;"
+                    "padding: 0px;"
                     "}"
                     "QPushButton:hover {"
-                    "background: #e0f2fe;"
-                    "border-color: #38bdf8;"
-                    "color: #0369a1;"
+                    "background: #eff6ff;"
+                    "border-color: #60a5fa;"
+                    "color: #1d4ed8;"
                     "}"
                     "QPushButton:pressed {"
-                    "background: #bae6fd;"
+                    "background: #dbeafe;"
+                    "border-color: #3b82f6;"
                     "}"
                     "QPushButton:disabled {"
                     "color: #94a3b8;"
@@ -32224,17 +32331,17 @@ class MainWindow(QMainWindow):
                 )
                 add_wrap = QWidget()
                 add_lay = QHBoxLayout(add_wrap)
-                add_lay.setContentsMargins(0, 0, 0, 0)
+                add_lay.setContentsMargins(2, 0, 2, 0)
                 add_lay.setSpacing(0)
                 add_lay.addStretch(1)
                 add_lay.addWidget(btn_add)
                 add_lay.addStretch(1)
                 t.setCellWidget(i, 4, add_wrap)
             except Exception:
-                c_add = QTableWidgetItem("+")
+                c_add = QTableWidgetItem("＋")
                 try:
                     c_add.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    c_add.setForeground(QColor("#111827"))
+                    c_add.setForeground(QColor("#2563eb"))
                 except Exception:
                     pass
                 t.setItem(i, 4, c_add)
