@@ -284,3 +284,18 @@ Implemented policy intent:
 - The explicit AI analysis refresh button remains the owner of manual AI judgement requests.
 - Detail chart open Preview guard remains unchanged.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 19. MANAGED-TAB-SELECTION-SYNC-01 Implementation Note
+
+`MANAGED-TAB-SELECTION-SYNC-01` makes the central analysis center follow the selected Managed Candidates row.
+
+Implemented policy intent:
+
+- Managed row selection stores one selected symbol/row/index state for the managed tab display.
+- Chart, Current Condition, briefing, evidence, and next-action cards refresh from the same selected managed row.
+- Selection changes are display synchronization only and are not AI call triggers.
+- The briefing engine badge uses generation-time metadata when available and falls back to Basic/local display state when absent.
+- Internal reason keys are translated for UI display instead of being shown as raw keys.
+- Status refresh, AI analysis refresh, and detail-chart open policies are unchanged.
+- `submitted=0` is preserved.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.

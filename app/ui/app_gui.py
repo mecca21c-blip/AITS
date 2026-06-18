@@ -6396,6 +6396,28 @@ class MainWindow(QMainWindow):
             if not key:
                 return ""
             normalized = key.lower().strip().replace("-", "_").replace(" ", "_")
+            ui_overrides = {
+                "change_ratio_normalized": "가격 변동률을 정규화해 반영했습니다.",
+                "momentum_weak": "모멘텀이 약해 신중한 관찰이 필요합니다.",
+                "momentum_neutral": "모멘텀은 중립 구간입니다.",
+                "momentum_mild": "모멘텀이 완만하게 개선되는 구간입니다.",
+                "momentum_positive": "단기 모멘텀이 개선되는 흐름입니다.",
+                "momentum_negative": "단기 모멘텀이 약해 추가 확인이 필요합니다.",
+                "trade_value_very_strong": "거래대금이 매우 강합니다.",
+                "trade_value_strong": "거래대금이 충분히 강합니다.",
+                "trade_value_low": "거래대금이 부족해 신중한 관찰이 필요합니다.",
+                "calculation_limited": "일부 데이터가 부족해 제한적으로 계산했습니다.",
+                "data_unavailable": "판단에 필요한 데이터가 아직 부족합니다.",
+                "technical_neutral": "기술 지표는 중립권입니다.",
+                "risk_overheated": "단기 과열 가능성이 있습니다.",
+                "downtrend": "단기 하락 흐름이 감지됩니다.",
+                "hold": "관망을 유지합니다.",
+                "wait": "추가 확인이 필요합니다.",
+                "buy_watch": "매수 후보로 관찰합니다.",
+                "sell_watch": "매도 또는 리스크 후보로 관찰합니다.",
+            }
+            if normalized in ui_overrides:
+                return ui_overrides[normalized]
             mapping = {
                 "change_ratio_normalized": "가격 변동률을 정규화해 반영했습니다.",
                 "momentum_neutral": "모멘텀은 중립 구간입니다.",
@@ -21016,6 +21038,52 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _set_selected_managed_row_state(self, row_index: int, row: dict | None) -> None:
+        try:
+            symbol = ""
+            if isinstance(row, dict):
+                symbol = str(row.get("symbol") or row.get("market") or "").strip()
+            self._aits_selected_managed_symbol = symbol
+            self._aits_selected_managed_row = row if isinstance(row, dict) else None
+            self._aits_selected_managed_row_index = int(row_index)
+        except Exception:
+            pass
+
+    def _sync_selected_managed_row_to_center(self, row_index: int, trigger: str = "selection") -> None:
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            idx = int(row_index)
+            if idx < 0 or idx >= len(rows):
+                self._set_selected_managed_row_state(-1, None)
+                self._set_selected_ai_pool_symbol("")
+                self._refresh_ai_detail_panel()
+                self._sync_managed_pause_button_state(None)
+                return
+            row = rows[idx]
+            if not isinstance(row, dict):
+                return
+            sym = str(row.get("symbol") or row.get("market") or "").strip()
+            self._set_selected_managed_row_state(idx, row)
+            self._set_selected_ai_pool_symbol(sym)
+            self._refresh_ai_detail_panel()
+            self._sync_managed_pause_button_state(row)
+            if not getattr(self, "_ai_managed_table_refreshing", False):
+                try:
+                    self._apply_ai_managed_row_visual_state()
+                except Exception:
+                    pass
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][ManagedSelectionSync] event=selection_changed | symbol=%s | row_index=%s | trigger=%s | center_updated=True | ai_call_allowed=False | api_call_attempted=False | submitted=0",
+                    sym,
+                    idx,
+                    str(trigger or "selection"),
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _clear_layout_items_detach(self, layout) -> None:
         try:
             if layout is None:
@@ -22178,6 +22246,86 @@ class MainWindow(QMainWindow):
         except Exception:
             return "- 이유 정보를 정리하지 못했습니다.", "- 다음 행동 정보를 정리하지 못했습니다."
 
+    def _refresh_main_analysis_center_for_managed_row(self, row=None, row_index: int | None = None) -> None:
+        try:
+            if not isinstance(row, dict):
+                return
+            symbol = str(row.get("symbol") or row.get("market") or "").strip()
+            if not symbol:
+                return
+            try:
+                idx = int(row_index) if row_index is not None else int(getattr(self, "_aits_selected_managed_row_index", -1))
+            except Exception:
+                idx = -1
+            self._set_selected_managed_row_state(idx, row)
+            try:
+                self._apply_ai_briefing_engine_badge(self._resolve_ai_briefing_engine_meta(row))
+            except Exception:
+                pass
+            display_name = self._format_aits_coin_display_name(symbol)
+            try:
+                status_raw = str(row.get("ai_status") or row.get("status") or "Watching").strip()
+                status_text = self._format_aits_user_state_text(status_raw)
+            except Exception:
+                status_raw = str(row.get("ai_status") or row.get("status") or "").strip()
+                status_text = status_raw or "관망"
+            try:
+                if self._is_managed_manual_hold_row(row):
+                    status_text = "매매보류"
+                    status_raw = "ManualHold"
+            except Exception:
+                pass
+            try:
+                score_info = self._get_aits_score_for_display(row, surface="managed")
+                score_value = score_info.get("score_value")
+                score_state = str(score_info.get("score_state") or "").strip()
+                reason_summary = str(score_info.get("reason") or score_info.get("reason_summary") or "").strip()
+            except Exception:
+                score_value = row.get("ai_score") or row.get("score") or ""
+                score_state = str(row.get("score_state") or "").strip()
+                reason_summary = str(row.get("ai_reason_summary") or "").strip()
+            try:
+                parts = []
+                if score_value not in (None, ""):
+                    parts.append(f"AITS 점수 {score_value}")
+                if score_state:
+                    parts.append(self._translate_ai_reason_key_for_ui(score_state))
+                if reason_summary:
+                    for item in [x.strip() for x in reason_summary.replace("|", ",").split(",") if x.strip()]:
+                        parts.append(self._translate_ai_reason_key_for_ui(item))
+                        if len(parts) >= 3:
+                            break
+                if not parts:
+                    parts = ["RSI 확인 중", "거래대금 확인 중", "변동성 확인 중"]
+                self._set_center_condition_line(" | ".join(parts[:3]))
+            except Exception:
+                pass
+            try:
+                summary = getattr(self, "lbl_ai_center_summary", None)
+                if summary is not None:
+                    score_text = f"{score_value}" if score_value not in (None, "") else "계산대기"
+                    summary.setText(f"{display_name or symbol} | {status_text} | AITS 점수 {score_text}")
+            except Exception:
+                pass
+            try:
+                briefing = getattr(self, "lbl_ai_briefing_card", None)
+                if briefing is not None:
+                    briefing.setText(self._build_center_briefing_lines(row))
+            except Exception:
+                pass
+            try:
+                why_text, next_text = self._build_center_why_next(row)
+                why = getattr(self, "lbl_ai_center_why", None)
+                if why is not None:
+                    why.setText(why_text)
+                nxt = getattr(self, "lbl_ai_center_next", None)
+                if nxt is not None:
+                    nxt.setText(next_text)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _append_aits_recent_log(self, sym: str, message: str) -> None:
         try:
             from datetime import datetime
@@ -22262,10 +22410,16 @@ class MainWindow(QMainWindow):
             sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
             print(f"[AITS] detail panel refreshed symbol={sym}")
             row = None
-            for r in self.ai_managed_rows or []:
+            row_index = -1
+            for i, r in enumerate(self.ai_managed_rows or []):
                 if (r.get("symbol") or "").strip() == sym:
                     row = r
+                    row_index = i
                     break
+            try:
+                self._set_selected_managed_row_state(row_index, row if isinstance(row, dict) else None)
+            except Exception:
+                pass
             try:
                 _st_log = ""
                 if isinstance(row, dict):
@@ -22372,6 +22526,12 @@ class MainWindow(QMainWindow):
                 self.btn_ai_detail_lock.setText("잠금 설정")
                 return
             self.lbl_ai_detail_hint.setVisible(False)
+            try:
+                self._apply_ai_briefing_engine_badge(
+                    self._resolve_ai_briefing_engine_meta(row if isinstance(row, dict) else {})
+                )
+            except Exception:
+                pass
             display_name = self._format_aits_coin_display_name(sym)
             _tail_sym = sym.split("-")[-1] if sym and "-" in sym else (sym or "")
             _kn_sym = ""
@@ -22420,10 +22580,26 @@ class MainWindow(QMainWindow):
             try:
                 _jsb = getattr(self, "lbl_ai_judgment_banner_sub", None)
                 if _jsb is not None:
+                    try:
+                        if _sub_parts:
+                            _banner_sub = " / ".join(
+                                self._translate_ai_reason_key_for_ui(p)
+                                for p in _sub_parts[:3]
+                            )
+                        else:
+                            _banner_sub = "RSI 확인 중 / 거래대금 확인 중 / 변동성 확인 중"
+                    except Exception:
+                        _banner_sub = "RSI 확인 중 / 거래대금 확인 중 / 변동성 확인 중"
                     self._set_center_condition_line(_banner_sub)
                 _aux = getattr(self, "lbl_ai_center_summary", None)
                 if _aux is not None:
                     _aux.setText("거래량 약세 / 과매수 해소 구간, 추세 지지선 유지 여부 모니터링")
+            except Exception:
+                pass
+            try:
+                _aux = getattr(self, "lbl_ai_center_summary", None)
+                if _aux is not None:
+                    _aux.setText(f"{display_name or sym} 기준 계산 상태를 표시합니다.")
             except Exception:
                 pass
             _style_tag = str(_judgment_tag or "UNKNOWN").strip()
@@ -22508,6 +22684,13 @@ class MainWindow(QMainWindow):
             else:
                 self.txt_ai_detail_reason.setPlainText("—")
             try:
+                _reason_source = row.get("reason") or row.get("ai_reason_summary") or row.get("summary") or ""
+                self.txt_ai_detail_reason.setPlainText(
+                    self._format_ai_reason_text_for_ui(_reason_source, limit=5)
+                )
+            except Exception:
+                pass
+            try:
                 self._apply_ai_reason_expanded_state()
             except Exception:
                 pass
@@ -22521,7 +22704,7 @@ class MainWindow(QMainWindow):
                 ).strip()
                 lw = getattr(self, "lbl_ai_center_why", None)
                 if lw is not None:
-                    lw.setText(_dryrun_evidence or _why_t)
+                    lw.setText(_why_t)
                 nx = getattr(self, "lbl_ai_center_next", None)
                 if nx is not None:
                     nx.setText(_next_t)
@@ -22567,6 +22750,15 @@ class MainWindow(QMainWindow):
         finally:
             try:
                 self._sync_center_dashboard_reason_from_plaintext()
+            except Exception:
+                pass
+            try:
+                _center_row = getattr(self, "_aits_selected_managed_row", None)
+                if isinstance(_center_row, dict):
+                    self._refresh_main_analysis_center_for_managed_row(
+                        _center_row,
+                        getattr(self, "_aits_selected_managed_row_index", -1),
+                    )
             except Exception:
                 pass
             try:
@@ -26256,24 +26448,14 @@ class MainWindow(QMainWindow):
                 return
             r = t.currentRow()
             if r < 0 or r >= len(self.ai_managed_rows or []):
-                self._set_selected_ai_pool_symbol("")
-                self._refresh_ai_detail_panel()
-                self._sync_managed_pause_button_state(None)
+                self._sync_selected_managed_row_to_center(-1, "selection_empty")
                 if not getattr(self, "_ai_managed_table_refreshing", False):
                     try:
                         self._apply_ai_managed_row_visual_state()
                     except Exception:
                         pass
                 return
-            sym = (self.ai_managed_rows[r].get("symbol") or "").strip()
-            self._set_selected_ai_pool_symbol(sym)
-            self._refresh_ai_detail_panel()
-            self._sync_managed_pause_button_state(self.ai_managed_rows[r])
-            if not getattr(self, "_ai_managed_table_refreshing", False):
-                try:
-                    self._apply_ai_managed_row_visual_state()
-                except Exception:
-                    pass
+            self._sync_selected_managed_row_to_center(r, "selection_changed")
         except Exception:
             pass
 
@@ -33401,6 +33583,8 @@ class MainWindow(QMainWindow):
         sym = (self.ai_managed_rows[row].get("symbol") or "").strip()
         if col == self._AI_M_COL_ACTION:
             self._remove_symbol_from_ai_pool(sym)
+            return
+        self._sync_selected_managed_row_to_center(row, "cell_clicked")
 
     def _on_ai_managed_cell_double_clicked(self, row, col):
         try:
