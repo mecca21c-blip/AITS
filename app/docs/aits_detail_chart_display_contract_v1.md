@@ -225,3 +225,24 @@ Safety remains unchanged:
 - No detail-chart AI Preview button is added in this Goal.
 - No Router, Risk Guard, Order, or Execution path is changed.
 - `submitted=0` remains the expected state.
+
+## 15. DETAIL-CHART-SOURCE-CONSISTENCY-01 Implementation Note
+
+`DETAIL-CHART-SOURCE-CONSISTENCY-01` separates AI analysis state from execution-contract state in the detail chart.
+
+Display rules:
+
+- If recent AI analysis exists, the UI says `최근 AI 분석 참고`.
+- If no recent AI analysis exists, the UI says `최근 AI 분석 없음` and `계산 기반 요약`.
+- Missing Router/Execution contract is shown as execution status, not as AI-analysis absence.
+- Execution status copy uses `주문 실행 계약 없음`, `Router/Execution 미적용`, or `실거래 주문과 연결되지 않음`.
+- `USER` and `user_added` are displayed as user-friendly source text such as `사용자가 관리종목으로 등록한 종목입니다`.
+- Internal strings such as `local_calculation`, `row_session`, `placeholder`, `detail_chart_open_guard`, `is_order_signal`, and `is_execution_plan` must not be shown directly on the user surface.
+- WHY remains a three-layer structure:
+  - why the symbol is managed,
+  - why the current state is shown,
+  - what the display is waiting for.
+- ETA copy must not use standalone `유지 예상` as if it were an AI trade plan.
+- `submitted=0`, `order_allowed=False`, and non-execution semantics remain unchanged.
+
+This Goal does not add AI Preview buttons, Provider/API calls, background AI calls, Router changes, or Execution changes.

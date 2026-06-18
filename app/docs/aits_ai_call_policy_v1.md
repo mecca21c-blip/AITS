@@ -350,3 +350,20 @@ Implemented policy intent:
 - Detail chart open remains a display action and is not an API-call trigger.
 - GPT/Gemini/OpenAI calls, Provider payloads, Router, Risk Guard, Order, and Execution paths are not changed.
 - `submitted=0` is preserved.
+
+## 23. DETAIL-CHART-SOURCE-CONSISTENCY-01 Implementation Note
+
+`DETAIL-CHART-SOURCE-CONSISTENCY-01` makes detail-chart AI-analysis state and execution-contract state explicit and separate.
+
+Implemented policy intent:
+
+- `최근 AI 분석 참고` means previously generated analysis exists and may be displayed.
+- `최근 AI 분석 없음` means the detail chart is showing Basic/local calculation summary only.
+- Missing Router/Execution contract is displayed separately as `주문 실행 계약 없음` or `Router/Execution 미적용`.
+- User-added source rows are displayed as user-friendly copy, not raw `USER`.
+- Internal display sources are not exposed directly on the user surface.
+- ETA remains an observation window, not the next evaluation time or an execution schedule.
+- Detail chart source consistency work is not an AI call trigger.
+- Detail chart open still does not call GPT, Gemini, OpenAI, or Provider APIs.
+- Router, Risk Guard, Order, and Execution paths are not changed.
+- `submitted=0` is preserved.
