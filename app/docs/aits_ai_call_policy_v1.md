@@ -383,3 +383,19 @@ Implemented policy intent:
 - AI analysis reference and execution contract remain separate concepts.
 - Router, Risk Guard, Order, and Execution paths are not changed.
 - `submitted=0` is preserved.
+
+## 25. DETAIL-CHART-KR-POLICY-01 Implementation Note
+
+`DETAIL-CHART-KR-POLICY-01` cleans up user-facing detail-chart wording and audits the per-symbol policy panel.
+
+Implemented policy intent:
+
+- Detail-chart user surfaces should not expose internal terms such as `submitted=0`, `Router/Execution`, `ETA`, `preset`, `Basic Preview`, `STAY`, or `AI scenario`.
+- User UI translates internal safety state into Korean copy such as `실제 주문 없음`, `주문 실행 경로 미연결`, `관찰 예상 시간`, `운용 방식`, `계산 기반 참고`, `관망`, and `관찰 시나리오`.
+- Logs and proof fields may keep internal names when useful for debugging.
+- The per-symbol policy panel is treated as display/storage/audit only in this Goal.
+- Per-symbol AI cadence override is documented as a future candidate and is not connected to timers or Provider/API calls.
+- Per-symbol maximum weight is documented as a future candidate and is not connected to Risk Guard, Order, or Execution.
+- Detail chart open remains a display action and does not call GPT, Gemini, OpenAI, or Provider APIs.
+- Router, Risk Guard, Order, and Execution paths are not changed.
+- `submitted=0` is preserved internally and shown to users as `실제 주문 없음`.

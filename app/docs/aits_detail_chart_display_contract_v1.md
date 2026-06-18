@@ -277,3 +277,34 @@ Safety remains unchanged:
 - No detail-chart AI Preview button is added in this Goal.
 - No Router, Risk Guard, Order, or Execution path is changed.
 - `submitted=0` remains the expected state.
+
+## 17. DETAIL-CHART-KR-POLICY-01 Implementation Note
+
+`DETAIL-CHART-KR-POLICY-01` applies Korean user-facing wording to detail-chart contract output.
+
+Display rules:
+
+- Contract fields may keep internal English keys for logs and code.
+- User-facing QLabel/QText/card copy must translate internal terms before display.
+- `submitted=0` is shown as `실제 주문 없음`.
+- `Router/Execution` is shown as `주문 실행 경로`.
+- `ETA` is shown as `관찰 예상 시간` or `관찰 구간`.
+- `preset` is shown as `운용 방식`.
+- `Basic Preview` is shown as `계산 기반 참고`.
+- `STAY` is shown as `관망`.
+- `AI scenario` is shown as `관찰 시나리오`.
+
+Per-symbol policy panel rules:
+
+- The detail-chart policy panel is not the global policy center.
+- It may show per-symbol observation preferences and future override candidates.
+- It must not connect AI refresh cadence, investment weight, Risk Guard, Order, or Execution in this Goal.
+- Items that overlap global policy should be labeled as `전역 정책 따름`, `표시 전용`, or future design candidates.
+
+Safety remains unchanged:
+
+- Detail chart open is not an AI call trigger.
+- No GPT/Gemini/OpenAI call is added.
+- No per-symbol AI refresh timer is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
+- `submitted=0` remains the internal safety state.
