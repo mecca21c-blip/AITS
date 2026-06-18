@@ -246,3 +246,34 @@ Display rules:
 - `submitted=0`, `order_allowed=False`, and non-execution semantics remain unchanged.
 
 This Goal does not add AI Preview buttons, Provider/API calls, background AI calls, Router changes, or Execution changes.
+
+## 16. DETAIL-CHART-MODE-UNIFICATION-01 Implementation Note
+
+`DETAIL-CHART-MODE-UNIFICATION-01` makes `display_mode` the single source of truth for the detail-chart user surface.
+
+Display rules:
+
+- The detail chart must not show `recent AI analysis missing` and `recent AI analysis reference` in the same screen.
+- AI status, AI operation center, ETA, WHY, observation scenario, next action, and execution notice all share the same mode labels.
+- `basic_summary` uses:
+  - `최근 AI 분석 없음 · 계산 기반 요약`
+  - `계산 기반 관찰 요약`
+  - `계산 기반 관찰 구간`
+  - `관찰 시나리오`
+- `last_known_ai` or `ai_analysis` uses:
+  - `최근 AI 분석 참고`
+  - `AI 관찰 시나리오`
+  - `AI 관찰 ETA`
+  - `AI 판단 참고 · 주문 실행 아님`
+- A last-known AI payload is shown as AI analysis only when it belongs to the selected symbol and has generation metadata plus actual analysis content.
+- If the selected-symbol match or generation metadata is unclear, the display falls back to `basic_summary`.
+- ETA/WHY/operation labels are corrected from the mode label bundle before display, rather than being recalculated by separate UI writers.
+- Mode guard logs may record safe corrections, but they must not dump full payloads.
+
+Safety remains unchanged:
+
+- Detail chart open is not an AI call trigger.
+- No GPT/Gemini/OpenAI call is added.
+- No detail-chart AI Preview button is added in this Goal.
+- No Router, Risk Guard, Order, or Execution path is changed.
+- `submitted=0` remains the expected state.

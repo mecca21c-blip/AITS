@@ -367,3 +367,19 @@ Implemented policy intent:
 - Detail chart open still does not call GPT, Gemini, OpenAI, or Provider APIs.
 - Router, Risk Guard, Order, and Execution paths are not changed.
 - `submitted=0` is preserved.
+
+## 24. DETAIL-CHART-MODE-UNIFICATION-01 Implementation Note
+
+`DETAIL-CHART-MODE-UNIFICATION-01` is a display consistency patch and is not an AI-call trigger.
+
+Implemented policy intent:
+
+- The detail chart uses one `display_mode` for AI status, AI operation center, ETA, WHY, observation scenario, and execution notice.
+- A screen must not mix `최근 AI 분석 없음` with `최근 AI 분석 참고`.
+- A screen must not mix `계산 기반 관찰 구간` with `AI 관찰 ETA`.
+- Last-known AI analysis is used only when the analysis can be tied to the selected symbol and has generation metadata plus analysis content.
+- Ambiguous or stale global AI payloads fall back to Basic/local `basic_summary` display.
+- Detail chart open remains a display action and does not call GPT, Gemini, OpenAI, or Provider APIs.
+- AI analysis reference and execution contract remain separate concepts.
+- Router, Risk Guard, Order, and Execution paths are not changed.
+- `submitted=0` is preserved.
