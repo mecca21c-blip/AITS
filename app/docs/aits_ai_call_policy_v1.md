@@ -232,3 +232,21 @@ Implemented policy intent:
 - Detail chart open behavior is intentionally unchanged in this Goal and remains a later guard Goal.
 - `submitted=0` is preserved.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 16. MANAGED-TAB-REFRESH-DISPATCHER-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-DISPATCHER-01` makes the top status refresh button dispatch by the currently selected main tab.
+
+Implemented policy intent:
+
+- Status refresh is a tab-scoped display/data refresh.
+- Status refresh does not schedule GPT/Gemini recommendation reinforcement.
+- The AITS managed tab refreshes Basic/local managed rows, scanner rows, and the current center display only.
+- The trade log tab refreshes the trade log display when a refresh method exists; otherwise it reports display-only status.
+- The investment tab refreshes the investment display through the existing tab refresh method; it does not add a new balance/API path.
+- The AI policy center refreshes policy/UI display state only.
+- Common settings refresh updates saved/displayed engine state only and does not run connection tests.
+- The explicit AI analysis refresh button remains the owner of manual AI judgement requests.
+- Detail chart open behavior is intentionally unchanged in this Goal and remains a later guard Goal.
+- `submitted=0` is preserved.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.

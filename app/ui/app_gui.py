@@ -40656,7 +40656,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def on_refresh(self):
+    def _legacy_global_on_refresh(self):
         """
         [새로고침] 버튼:
         - 각 탭이 UI/데이터 로딩을 100% 소유한다.
@@ -40777,6 +40777,195 @@ class MainWindow(QMainWindow):
             logging.getLogger(__name__).exception("[REFRESH] failed")
             self.set_status_msg("❌ 새로고침 실패(로그 확인)", "#b00020")
         
+    def _get_current_refresh_tab_key(self) -> str:
+        try:
+            active_widget = self._unwrap_current_tab_widget()
+            if active_widget is getattr(self, "tab_watch", None):
+                return "managed"
+            if active_widget is getattr(self, "tab_trades", None) or active_widget.__class__.__name__ == "TradeLogCenterTab":
+                return "trades"
+            if active_widget is getattr(self, "portfolio_tab", None) or active_widget.__class__.__name__ == "InvestmentCenterTab":
+                return "investment"
+            if active_widget is getattr(self, "tab_ai_policy_center", None) or active_widget.__class__.__name__ == "AIPolicyCenterTab":
+                return "ai_policy"
+            if active_widget is getattr(self, "tab_settings", None):
+                return "common_settings"
+        except Exception:
+            pass
+        try:
+            ctx = self._get_current_active_tab_context()
+            key = str(ctx.get("key") or "").strip()
+            if key == "aits_manage":
+                return "managed"
+            if key == "trade_history":
+                return "trades"
+            if key == "portfolio":
+                return "investment"
+            if key == "ai_policy_center":
+                return "ai_policy"
+            if key == "common_settings":
+                return "common_settings"
+        except Exception:
+            pass
+        return "unknown"
+
+    def _log_refresh_dispatcher(self, event: str, tab: str, result: str = "") -> None:
+        try:
+            self._log.info(
+                "[AITS][RefreshDispatcher] event=%s | tab=%s | result=%s | ai_call_allowed=False | api_call_attempted=False | submitted=0",
+                str(event or ""),
+                str(tab or "unknown"),
+                str(result or ""),
+            )
+        except Exception:
+            try:
+                log.info(
+                    "[AITS][RefreshDispatcher] event=%s | tab=%s | result=%s | ai_call_allowed=False | api_call_attempted=False | submitted=0",
+                    str(event or ""),
+                    str(tab or "unknown"),
+                    str(result or ""),
+                )
+            except Exception:
+                pass
+
+    def _call_refresh_method_if_present(self, target, *args) -> bool:
+        try:
+            if target is None or not hasattr(target, "refresh"):
+                return False
+            try:
+                target.refresh(*args)
+            except TypeError:
+                target.refresh()
+            return True
+        except Exception:
+            return False
+
+    def _refresh_managed_tab_status_only(self) -> str:
+        try:
+            try:
+                self._ensure_market_all_rows()
+            except Exception:
+                pass
+            try:
+                self._sync_ai_pool_market_fields()
+            except Exception:
+                pass
+            try:
+                self._update_ai_pool_statuses()
+            except Exception:
+                pass
+            try:
+                self._refresh_ai_managed_table()
+            except Exception:
+                pass
+            try:
+                self._refresh_market_all_table()
+            except Exception:
+                pass
+            try:
+                self._refresh_ai_detail_panel()
+            except Exception:
+                pass
+            return "managed_refreshed"
+        except Exception:
+            return "managed_refresh_failed"
+
+    def _refresh_trade_log_tab_status_only(self) -> str:
+        ok = self._call_refresh_method_if_present(getattr(self, "tab_trades", None))
+        return "trades_refreshed" if ok else "trades_display_only"
+
+    def _refresh_investment_tab_status_only(self) -> str:
+        ok = self._call_refresh_method_if_present(
+            getattr(self, "portfolio_tab", None),
+            "manual_status_refresh",
+        )
+        return "investment_refreshed" if ok else "investment_display_only"
+
+    def _refresh_ai_policy_tab_status_only(self) -> str:
+        try:
+            tab = getattr(self, "tab_ai_policy_center", None)
+            for method_name in ("refresh_policy_summary", "refresh", "render", "update"):
+                method = getattr(tab, method_name, None)
+                if callable(method):
+                    try:
+                        method()
+                    except TypeError:
+                        method()
+                    return "ai_policy_refreshed"
+        except Exception:
+            pass
+        return "ai_policy_display_only"
+
+    def _refresh_common_settings_tab_status_only(self) -> str:
+        try:
+            if hasattr(self, "_update_engine_ui_ssot"):
+                self._update_engine_ui_ssot()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_render_ai_engine_state"):
+                self._render_ai_engine_state()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_update_top_badge"):
+                self._update_top_badge()
+        except Exception:
+            pass
+        return "common_settings_refreshed"
+
+    def on_refresh(self):
+        """Top status refresh dispatcher. This path must not schedule paid AI calls."""
+        try:
+            tab = self._get_current_refresh_tab_key()
+            self._log_refresh_dispatcher("start", tab, "dispatch")
+            try:
+                self.set_global_status("상태 새로고침 중...", "busy", "refresh")
+            except Exception:
+                pass
+
+            if tab == "managed":
+                result = self._refresh_managed_tab_status_only()
+                msg = "AITS 점수와 종목 목록을 갱신했습니다."
+            elif tab == "trades":
+                result = self._refresh_trade_log_tab_status_only()
+                msg = "매매기록을 새로고침했습니다." if result == "trades_refreshed" else "매매기록은 현재 표시 전용입니다."
+            elif tab == "investment":
+                result = self._refresh_investment_tab_status_only()
+                msg = "투자현황을 새로고침했습니다." if result == "investment_refreshed" else "투자현황은 현재 표시 전용입니다."
+            elif tab == "ai_policy":
+                result = self._refresh_ai_policy_tab_status_only()
+                msg = "AI 정책 센터 표시를 갱신했습니다."
+            elif tab == "common_settings":
+                result = self._refresh_common_settings_tab_status_only()
+                msg = "공통설정 표시를 갱신했습니다."
+            else:
+                result = "unknown_noop"
+                msg = "현재 탭에서 새로고침할 항목이 없습니다."
+
+            try:
+                if hasattr(self, "_update_info_box"):
+                    self._update_info_box()
+            except Exception:
+                pass
+            try:
+                self.set_global_status("상태 새로고침 완료", "ok", "refresh")
+            except Exception:
+                pass
+            try:
+                self.set_status_msg(msg, "#2e7d32")
+            except Exception:
+                pass
+            self._log_refresh_dispatcher("done", tab, result)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("[REFRESH] failed")
+            try:
+                self.set_status_msg("상태 새로고침 실패(로그 확인)", "#b00020")
+            except Exception:
+                pass
+
     def closeEvent(self, event):
         """✅ P0-BOOT-ORDER: 종료 시 타이머 정리 + 창 geometry/state 저장"""
         try:
