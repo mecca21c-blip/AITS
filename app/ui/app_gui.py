@@ -20,6 +20,11 @@ from PySide6 import QtGui
 
 MASKED_API_KEY_TEXT = "●●●●●●●●●●●●●●●●●●●●"
 
+# Development-only login bypass. Set this to False after repeated runtime testing.
+# It can also be disabled for one run with AITS_DEV_LOGIN_BYPASS=0.
+AITS_DEV_LOGIN_BYPASS = True
+AITS_DEV_LOGIN_EMAIL = "dev@aits.local"
+
 # =========================
 # KMTS Light Unified QSS (P0)
 # - 로직/데이터/시그널/레이아웃 변경 없음
@@ -2635,7 +2640,7 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_decision_state_title = QLabel("상태")
         self.lbl_detail_popup_decision_big = QLabel("STAY")
         self.lbl_detail_popup_decision_sub = QLabel("-")
-        self.lbl_detail_popup_score = QLabel("계산 점수 -")
+        self.lbl_detail_popup_score = QLabel("AITS 점수 -")
         self.lbl_detail_popup_reason_text = QLabel("-")
         self.lbl_detail_popup_next_text = QLabel("-")
         self.lbl_detail_popup_entry_price = self._make_detail_popup_value_label()
@@ -3037,7 +3042,7 @@ class AITSLargeChartDialog(QDialog):
             if self._main_ai_output_contract_available():
                 self.lbl_detail_popup_score.setText(f"AI 점수 {score_text or '—'}")
             else:
-                self.lbl_detail_popup_score.setText(f"계산 점수 {score_text or '—'}")
+                self.lbl_detail_popup_score.setText(f"AITS 점수 {score_text or '—'}")
             self.lbl_detail_popup_header_decision_badge.setText(decision_token)
             self.lbl_detail_popup_header_change_badge.setText(change_rate or "—")
             self.lbl_detail_popup_chart_price.setText(
@@ -10755,7 +10760,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self.tbl_ai_managed.setHorizontalHeaderLabels(
-            ["순위", "종목", "계산 점수", "상태", "비중/목표"]
+            ["순위", "종목", "AITS 점수", "상태", "비중/목표"]
         )
         try:
             _hdr_al = (
@@ -11674,7 +11679,7 @@ class MainWindow(QMainWindow):
             self.lbl_ai_detail_score.setStyleSheet("color: #4c5b68; font-size: 12px;")
         except Exception:
             pass
-        _fa.addRow("계산 점수", self.lbl_ai_detail_score)
+        _fa.addRow("AITS 점수", self.lbl_ai_detail_score)
         _detail_inner.addWidget(_fa_wrap)
         try:
             _fa_wrap.setVisible(False)
@@ -11932,7 +11937,7 @@ class MainWindow(QMainWindow):
         self.cmb_market_sort.addItem("거래량순", "volume")
         self.cmb_market_sort.addItem("전체", "all")
         self.cmb_market_sort.addItem("급등", "surge")
-        self.cmb_market_sort.addItem("계산 점수순", "score")
+        self.cmb_market_sort.addItem("AITS 점수순", "score")
         self.cmb_market_sort.addItem("변동률순", "change")
         self.cmb_market_sort.addItem("메이저", "major")
         self.cmb_market_sort.addItem("결제/송금", "payment")
@@ -12083,7 +12088,7 @@ class MainWindow(QMainWindow):
             self.tbl_market_all.setObjectName("tblMarketExplorer")
         except Exception:
             pass
-        self.tbl_market_all.setHorizontalHeaderLabels(["종목", "테마", "24h", "계산 점수", "+"])
+        self.tbl_market_all.setHorizontalHeaderLabels(["종목", "테마", "24h", "AITS 점수", "+"])
         self.tbl_market_all.verticalHeader().setVisible(False)
         self.tbl_market_all.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tbl_market_all.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -21901,10 +21906,6 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
-            try:
-                self._proof_log_center_selection("managed" if row is not None else "unknown")
-            except Exception:
-                pass
             if not sym or row is None:
                 try:
                     jh = getattr(self, "lbl_ai_detail_judgment_header", None)
@@ -23577,11 +23578,6 @@ class MainWindow(QMainWindow):
             if t is None:
                 return
             cur = int(t.currentRow())
-            try:
-                if cur >= 0:
-                    self._proof_log_scanner_score_click(cur, "selection")
-            except Exception:
-                pass
             for r in range(t.rowCount()):
                 it = t.item(r, 0)
                 if it is None:
@@ -25899,10 +25895,6 @@ class MainWindow(QMainWindow):
                 return
             sym = (self.ai_managed_rows[r].get("symbol") or "").strip()
             self._set_selected_ai_pool_symbol(sym)
-            try:
-                self._proof_log_managed_score_click(int(r), "selection")
-            except Exception:
-                pass
             self._refresh_ai_detail_panel()
             if not getattr(self, "_ai_managed_table_refreshing", False):
                 try:
@@ -26460,25 +26452,6 @@ class MainWindow(QMainWindow):
             pass
         return snapshot
 
-    def _proof_log_managed_score_click(self, row_index: int, event: str = "selection") -> None:
-        try:
-            rows = getattr(self, "ai_managed_rows", None) or []
-            if row_index < 0 or row_index >= len(rows):
-                return
-            snap = self._proof_managed_score_snapshot(rows[row_index])
-            self._safe_log_info(
-                "[AITS][ManagedScoreClickProof] "
-                f"surface=managed | event={event} | row_index={row_index} | "
-                f"symbol={snap.get('symbol','')} | display_score={snap.get('display_score','unknown')} | "
-                f"score_source={snap.get('score_source','unknown')} | ai_score_raw={snap.get('ai_score_raw','')} | "
-                f"status={snap.get('status','unknown')} | status_source={snap.get('status_source','unknown')} | "
-                f"weight_text={snap.get('weight_text','0%/0%')} | weight_source={snap.get('weight_source','fallback')} | "
-                f"target_weight={snap.get('target_weight','0%')} | target_source={snap.get('target_source','fallback')} | "
-                f"row_origin={snap.get('row_origin','unknown')} | submitted=0"
-            )
-        except Exception:
-            pass
-
     def _proof_scanner_score_snapshot(self, row: dict | None, row_index: int = 0) -> dict:
         snapshot = {
             "symbol": "",
@@ -26516,20 +26489,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 change_pct = change_value
             snapshot["change_pct"] = f"{float(change_pct):.4f}"
-            if ai_score_raw not in (None, ""):
-                display_score = max(0, min(100, int(round(float(ai_score_raw)))))
-                snapshot["score_source"] = "row.ai_score"
-                snapshot["fallback_used"] = "False"
-            elif score_raw not in (None, ""):
-                display_score = max(0, min(100, int(round(float(score_raw)))))
-                snapshot["score_source"] = "row.score"
-                snapshot["fallback_used"] = "False"
-            else:
-                fallback = 55 + min(10, max(0, int(abs(float(change_pct)) * 0.7))) - min(5, int(row_index) // 12)
-                display_score = max(50, min(65, int(fallback)))
-                snapshot["score_source"] = "scanner_display_fallback"
-                snapshot["fallback_used"] = "True"
-            snapshot["display_score"] = str(display_score)
+            score_view = self._get_aits_score_for_display(row, surface="scanner")
+            snapshot["display_score"] = str(score_view.get("display_text") or "데이터부족")
+            snapshot["score_source"] = str(score_view.get("score_source") or "unknown")
+            snapshot["score_state"] = str(score_view.get("score_state") or "unknown")
+            snapshot["fallback_used"] = "False"
             try:
                 theme = str(self._theme_label_for_symbol(symbol) or "").strip()
             except Exception:
@@ -26539,46 +26503,6 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return snapshot
-
-    def _proof_log_scanner_score_click(self, row_index: int, event: str = "selection") -> None:
-        try:
-            rows = getattr(self, "_market_display_rows", None) or []
-            if row_index < 0 or row_index >= len(rows):
-                return
-            row = rows[row_index] if isinstance(rows[row_index], dict) else {}
-            snap = self._proof_scanner_score_snapshot(row, row_index)
-            self._safe_log_info(
-                "[AITS][ScannerScoreClickProof] "
-                f"surface=scanner | event={event} | row_index={row_index} | "
-                f"symbol={snap.get('symbol','')} | display_score={snap.get('display_score','unknown')} | "
-                f"score_source={snap.get('score_source','unknown')} | ai_score_raw={snap.get('ai_score_raw','')} | "
-                f"score_raw={snap.get('score_raw','')} | change_pct={snap.get('change_pct','unknown')} | "
-                f"theme={snap.get('theme','unknown')} | theme_source={snap.get('theme_source','unknown')} | "
-                f"fallback_used={snap.get('fallback_used','unknown')} | submitted=0"
-            )
-        except Exception:
-            pass
-
-    def _proof_log_center_selection(self, selected_from: str = "unknown") -> None:
-        try:
-            symbol = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
-            rows = getattr(self, "ai_managed_rows", None) or []
-            row = None
-            for item in rows:
-                if isinstance(item, dict) and str(item.get("symbol") or item.get("market") or "").strip() == symbol:
-                    row = item
-                    break
-            snap = self._proof_managed_score_snapshot(row)
-            preview_state = "preview" if bool(getattr(self, "_applied_ai_is_preview", False)) else "unknown"
-            self._safe_log_info(
-                "[AITS][CenterSelectionProof] "
-                f"surface=center | selected_symbol={symbol} | selected_from={selected_from} | "
-                f"display_score={snap.get('display_score','unknown')} | score_source={snap.get('score_source','unknown')} | "
-                f"status={snap.get('status','unknown')} | status_source={snap.get('status_source','unknown')} | "
-                f"preview_state={preview_state} | api_call_allowed=False | api_call_attempted=False | submitted=0"
-            )
-        except Exception:
-            pass
 
     def _focus_market_explorer_for_managed_add(self) -> None:
         try:
@@ -26997,7 +26921,7 @@ class MainWindow(QMainWindow):
             pass
 
         try:
-            table.setHorizontalHeaderLabels(["순위", "종목", "계산 점수", "상태", "비중/목표"])
+            table.setHorizontalHeaderLabels(["순위", "종목", "AITS 점수", "상태", "비중/목표"])
         except Exception:
             pass
         try:
@@ -27944,6 +27868,304 @@ class MainWindow(QMainWindow):
     def _calc_basic_ai_score(self, row: dict) -> dict:
         """Basic AI 규칙 기반 점수(0~100)."""
         st = self._sync_legacy_basic_ai_settings_from_ssot()
+        # BASIC-SCORE-V2-01: local row/market data only. No provider, router,
+        # execution, order, or RiskGuard calls are allowed from scoring.
+        def _score_float(value, default: float = 0.0) -> float:
+            try:
+                if value in (None, ""):
+                    return default
+                return float(str(value).replace(",", "").replace("%", "").strip())
+            except Exception:
+                return default
+
+        def _score_pick(data: dict, *keys: str):
+            if not isinstance(data, dict):
+                return None
+            for key in keys:
+                value = data.get(key)
+                if value not in (None, ""):
+                    return value
+            return None
+
+        def _score_symbol(value) -> str:
+            try:
+                return self._normalize_aits_market_symbol(str(value or "").strip())
+            except Exception:
+                return str(value or "").strip()
+
+        def _score_clamp(value: float, low: float, high: float) -> float:
+            return max(low, min(high, value))
+
+        try:
+            import math as _score_math
+
+            symbol = _score_symbol(_score_pick(row, "symbol", "market", "code", "ticker"))
+            market_row = {}
+            try:
+                for candidate in getattr(self, "market_all_rows", None) or []:
+                    if not isinstance(candidate, dict):
+                        continue
+                    candidate_symbol = _score_symbol(
+                        _score_pick(candidate, "symbol", "market", "code", "ticker")
+                    )
+                    if candidate_symbol == symbol:
+                        market_row = candidate
+                        break
+            except Exception:
+                market_row = {}
+
+            merged = {}
+            if isinstance(market_row, dict):
+                merged.update(market_row)
+            if isinstance(row, dict):
+                merged.update(row)
+            merged["symbol"] = symbol
+
+            reasons: list[str] = []
+            available = 0
+            raw_change = _score_pick(merged, "change_rate", "signed_change_rate", "change", "change_pct")
+            change_raw = _score_float(raw_change, 0.0)
+            if raw_change not in (None, ""):
+                available += 1
+            if abs(change_raw) <= 1.0:
+                change_rate_pct = change_raw * 100.0
+                reasons.append("change_ratio_normalized")
+            else:
+                change_rate_pct = change_raw
+                reasons.append("change_pct_normalized")
+
+            price_raw = _score_pick(merged, "price", "trade_price", "current_price")
+            price = _score_float(price_raw, 0.0)
+            if price_raw not in (None, ""):
+                available += 1
+
+            trade_value_raw = _score_pick(
+                merged,
+                "acc_trade_price_24h",
+                "acc_trade_price",
+                "trade_price_24h",
+                "trade_value",
+                "volume_krw",
+                "trade_amount",
+            )
+            trade_value_24h_krw = _score_float(trade_value_raw, 0.0)
+            trade_value_source = "krw_field" if trade_value_raw not in (None, "") else "missing"
+            volume_raw = _score_pick(
+                merged,
+                "acc_trade_volume_24h",
+                "trade_volume",
+                "volume_24h",
+                "volume",
+                "candle_volume",
+            )
+            volume_24h = _score_float(volume_raw, 0.0)
+            if volume_raw not in (None, ""):
+                available += 1
+            if trade_value_raw not in (None, ""):
+                available += 1
+            elif price > 0 and volume_24h > 0:
+                trade_value_24h_krw = price * volume_24h
+                trade_value_source = "price_x_volume_estimate"
+                available += 1
+                reasons.append("trade_value_estimated")
+
+            rsi_raw = _score_pick(merged, "rsi", "rsi14")
+            macd_raw = _score_pick(merged, "macd", "macd_hist", "macd_signal")
+            trend_raw = str(_score_pick(merged, "trend", "trend_state", "market_trend") or "").lower()
+            volatility_raw = _score_pick(merged, "volatility", "volatility_pct")
+            rsi = _score_float(rsi_raw, 0.0)
+            macd = _score_float(macd_raw, 0.0)
+            volatility = _score_float(volatility_raw, 0.0)
+            if rsi_raw not in (None, ""):
+                available += 1
+            if macd_raw not in (None, ""):
+                available += 1
+            if trend_raw:
+                available += 1
+            if volatility_raw not in (None, ""):
+                available += 1
+
+            min_trade_value_krw = _score_float(
+                st.get("min_trade_value_krw", st.get("min_volume", 100_000_000)),
+                100_000_000.0,
+            )
+            if min_trade_value_krw <= 0:
+                min_trade_value_krw = 100_000_000.0
+
+            if change_rate_pct >= 8.0:
+                momentum_score = 16.0
+                reasons.append("momentum_overheated")
+            elif change_rate_pct >= 5.0:
+                momentum_score = 21.0
+                reasons.append("momentum_strong")
+            elif change_rate_pct >= 3.0:
+                momentum_score = 18.0
+                reasons.append("momentum_positive")
+            elif change_rate_pct >= 1.0:
+                momentum_score = 15.0
+                reasons.append("momentum_mild")
+            elif change_rate_pct >= 0.2:
+                momentum_score = 12.0
+                reasons.append("momentum_flat_positive")
+            elif change_rate_pct > -0.5:
+                momentum_score = 9.0
+                reasons.append("momentum_neutral")
+            elif change_rate_pct > -2.0:
+                momentum_score = 5.0
+                reasons.append("momentum_weak")
+            else:
+                momentum_score = 1.0
+                reasons.append("momentum_negative")
+
+            if trade_value_24h_krw > 0:
+                trade_ratio = trade_value_24h_krw / max(min_trade_value_krw, 1.0)
+                if trade_ratio >= 10.0:
+                    liquidity_score = 22.0
+                    reasons.append("trade_value_very_strong")
+                elif trade_ratio >= 3.0:
+                    liquidity_score = 19.0
+                    reasons.append("trade_value_strong")
+                elif trade_ratio >= 1.0:
+                    liquidity_score = 16.0
+                    reasons.append("trade_value_ok")
+                elif trade_ratio >= 0.5:
+                    liquidity_score = 12.0
+                    reasons.append("trade_value_watch")
+                elif trade_ratio >= 0.2:
+                    liquidity_score = 8.0
+                    reasons.append("trade_value_low")
+                else:
+                    liquidity_score = 4.0
+                    reasons.append("trade_value_very_low")
+            else:
+                trade_ratio = 0.0
+                liquidity_score = 2.0
+                reasons.append("trade_value_missing")
+
+            if volume_24h > 0:
+                activity_score = _score_clamp(3.0 + _score_math.log10(volume_24h + 1.0) * 1.7, 3.0, 12.0)
+                reasons.append("activity_available")
+            else:
+                activity_score = 3.0
+                reasons.append("activity_missing")
+
+            technical_score = 9.0
+            if rsi_raw not in (None, ""):
+                if 45.0 <= rsi <= 65.0:
+                    technical_score += 4.0
+                    reasons.append("rsi_balanced")
+                elif 35.0 <= rsi < 45.0:
+                    technical_score += 2.0
+                    reasons.append("rsi_recovery")
+                elif 65.0 < rsi <= 75.0:
+                    technical_score += 1.0
+                    reasons.append("rsi_warm")
+                elif rsi > 80.0:
+                    technical_score -= 4.0
+                    reasons.append("rsi_overheated")
+                elif rsi < 25.0:
+                    technical_score -= 3.0
+                    reasons.append("rsi_weak")
+            if macd_raw not in (None, ""):
+                if macd > 0:
+                    technical_score += 3.0
+                    reasons.append("macd_positive")
+                elif macd < 0:
+                    technical_score -= 2.0
+                    reasons.append("macd_negative")
+            if trend_raw:
+                if any(token in trend_raw for token in ("up", "bull", "rise", "strong")):
+                    technical_score += 3.0
+                    reasons.append("trend_positive")
+                elif any(token in trend_raw for token in ("down", "bear", "weak", "fall")):
+                    technical_score -= 3.0
+                    reasons.append("trend_negative")
+            if rsi_raw in (None, "") and macd_raw in (None, "") and not trend_raw:
+                reasons.append("technical_neutral")
+            technical_score = _score_clamp(technical_score, 0.0, 18.0)
+
+            risk_penalty = 0.0
+            if change_rate_pct <= -5.0:
+                risk_penalty -= 10.0
+                reasons.append("risk_sharp_drop")
+            elif change_rate_pct <= -2.5:
+                risk_penalty -= 5.0
+                reasons.append("risk_downtrend")
+            if change_rate_pct >= 12.0:
+                risk_penalty -= 6.0
+                reasons.append("risk_overheated")
+            if volatility_raw not in (None, ""):
+                vol_pct = volatility * 100.0 if abs(volatility) <= 1.0 else volatility
+                if vol_pct >= 12.0:
+                    risk_penalty -= 5.0
+                    reasons.append("risk_high_volatility")
+                elif vol_pct >= 7.0:
+                    risk_penalty -= 2.0
+                    reasons.append("risk_elevated_volatility")
+            if trade_value_24h_krw > 0 and trade_ratio < 0.2:
+                risk_penalty -= 4.0
+                reasons.append("risk_low_liquidity")
+            risk_penalty = _score_clamp(risk_penalty, -15.0, 0.0)
+
+            if available >= 5:
+                data_quality = 5.0
+                score_state = "ok"
+                reasons.append("data_quality_ok")
+            elif available >= 3:
+                data_quality = 1.0
+                score_state = "calculation_limited"
+                reasons.append("data_limited")
+            elif available >= 1:
+                data_quality = -5.0
+                score_state = "calculation_limited"
+                reasons.append("data_sparse")
+            else:
+                data_quality = -10.0
+                score_state = "data_unavailable"
+                reasons.append("data_unavailable")
+
+            micro = float(sum(ord(ch) for ch in symbol) % 4)
+            score = int(
+                round(
+                    momentum_score
+                    + liquidity_score
+                    + activity_score
+                    + technical_score
+                    + risk_penalty
+                    + data_quality
+                    + micro
+                )
+            )
+            score = max(0, min(100, score))
+            return {
+                "score": score,
+                "reasons": reasons,
+                "trend_score": int(round(momentum_score + technical_score)),
+                "volume_score": int(round(liquidity_score + activity_score)),
+                "risk_penalty": int(round(abs(risk_penalty))),
+                "score_version": "v2",
+                "score_state": score_state,
+                "reason_summary": ",".join(reasons[:5]) or "calculated",
+                "inputs": {
+                    "change_rate_pct": change_rate_pct,
+                    "trade_value_24h_krw": trade_value_24h_krw,
+                    "trade_value_source": trade_value_source,
+                    "volume_24h": volume_24h,
+                    "available_fields": available,
+                },
+            }
+        except Exception as exc:
+            return {
+                "score": 0,
+                "reasons": [f"calculation_failed:{type(exc).__name__}"],
+                "trend_score": 0,
+                "volume_score": 0,
+                "risk_penalty": 0,
+                "score_version": "v2",
+                "score_state": "calculation_failed",
+                "reason_summary": type(exc).__name__,
+            }
+
         reasons: list[str] = []
         trend_score = 0
         volume_score = 0
@@ -27980,7 +28202,7 @@ class MainWindow(QMainWindow):
             reasons.append("약세 구간")
 
         min_vol = int(st.get("min_volume", 0) or 0)
-        if vol_24 >= min_vol:
+        if False:
             score += 10
             volume_score = 10
             reasons.append("최소 거래대금 충족")
@@ -28066,6 +28288,115 @@ class MainWindow(QMainWindow):
             "volume_score": int(volume_score),
             "risk_penalty": int(risk_penalty),
         }
+
+    def _get_aits_score_for_display(self, row: dict | None, surface: str = "managed") -> dict:
+        snapshot = {
+            "score_value": None,
+            "display_text": "데이터부족",
+            "score_source": "data_unavailable",
+            "score_state": "data_unavailable",
+            "reason": "missing_row",
+        }
+        try:
+            if not isinstance(row, dict):
+                return snapshot
+            symbol = self._normalize_aits_market_symbol(
+                str(row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker") or "").strip()
+            )
+            if not symbol:
+                snapshot["reason"] = "missing_symbol"
+                return snapshot
+
+            normalized = dict(row)
+            normalized["symbol"] = symbol
+            normalized["market"] = symbol
+            market_row = None
+            try:
+                for candidate in getattr(self, "market_all_rows", None) or []:
+                    if not isinstance(candidate, dict):
+                        continue
+                    candidate_symbol = self._normalize_aits_market_symbol(
+                        str(candidate.get("symbol") or candidate.get("market") or "").strip()
+                    )
+                    if candidate_symbol == symbol:
+                        market_row = candidate
+                        break
+            except Exception:
+                market_row = None
+
+            if market_row:
+                for key in (
+                    "price",
+                    "trade_price",
+                    "current_price",
+                    "change_rate",
+                    "signed_change_rate",
+                    "change",
+                    "volume_24h",
+                    "volume_krw",
+                    "acc_trade_price_24h",
+                    "trade_value",
+                ):
+                    if normalized.get(key) in (None, "") and market_row.get(key) not in (None, ""):
+                        normalized[key] = market_row.get(key)
+
+            if normalized.get("change_rate") in (None, ""):
+                for key in ("signed_change_rate", "change"):
+                    if normalized.get(key) not in (None, ""):
+                        normalized["change_rate"] = normalized.get(key)
+                        break
+
+            has_market_context = bool(market_row) or any(
+                normalized.get(key) not in (None, "")
+                for key in (
+                    "price",
+                    "trade_price",
+                    "current_price",
+                    "change_rate",
+                    "signed_change_rate",
+                    "change",
+                    "volume_24h",
+                    "volume_krw",
+                    "acc_trade_price_24h",
+                    "trade_value",
+                )
+            )
+            if not has_market_context:
+                snapshot["reason"] = "missing_market_context"
+                return snapshot
+
+            result = self._calc_basic_ai_score(normalized)
+            score = max(0, min(100, int(result.get("score", 0))))
+            snapshot.update(
+                {
+                    "score_value": score,
+                    "display_text": str(score),
+                    "score_source": "local_calculation",
+                    "score_state": str(result.get("score_state") or "ok"),
+                    "reason": str(
+                        result.get("reason_summary")
+                        or ",".join((result.get("reasons") or [])[:3])
+                        or "calculated"
+                    ),
+                }
+            )
+            if str(surface or "").strip().lower() == "managed":
+                raw = row.get("ai_score")
+                if raw not in (None, ""):
+                    try:
+                        row_score = max(0, min(100, int(round(float(raw)))))
+                        if row_score == score:
+                            snapshot["score_source"] = "row_session"
+                    except Exception:
+                        pass
+            return snapshot
+        except Exception as exc:
+            snapshot["score_value"] = None
+            snapshot["display_text"] = "계산대기"
+            snapshot["score_source"] = "calculation_failed"
+            snapshot["score_state"] = "calculation_failed"
+            snapshot["reason"] = type(exc).__name__
+            return snapshot
 
     def _is_aits_pool_row_candidate_eligible(self, row: dict) -> bool:
         """
@@ -31481,7 +31812,7 @@ class MainWindow(QMainWindow):
         t.setRowCount(0)
         try:
             t.setColumnCount(5)
-            t.setHorizontalHeaderLabels(["종목", "테마", "24h", "계산 점수", "+"])
+            t.setHorizontalHeaderLabels(["종목", "테마", "24h", "AITS 점수", "+"])
             t.setColumnWidth(0, 140)
             t.setColumnWidth(1, 90)
             t.setColumnWidth(2, 84)
@@ -31556,19 +31887,20 @@ class MainWindow(QMainWindow):
             }.get(code, "관망후보")
 
         def _display_ai_score(row, row_idx: int, change_value: float) -> int:
-            for _key in ("ai_score", "score"):
-                try:
-                    if isinstance(row, dict) and row.get(_key) is not None:
-                        return max(0, min(100, int(round(float(row.get(_key))))))
-                except Exception:
-                    pass
-            # 표시용 fallback: 실제 AI 점수가 없는 후보 행에도 탐색기 밀도를 유지한다.
             try:
-                p = self._explorer_effective_change_pct(change_value)
-                fallback = 55 + min(10, max(0, int(abs(p) * 0.7))) - min(5, row_idx // 12)
-                return max(50, min(65, int(fallback)))
+                score_view = self._get_aits_score_for_display(row, surface="scanner")
+                score_value = score_view.get("score_value")
+                if score_value is None:
+                    return -1
+                return max(0, min(100, int(score_value)))
             except Exception:
-                return 50
+                return -1
+        def _display_ai_score_text(row) -> str:
+            try:
+                score_view = self._get_aits_score_for_display(row, surface="scanner")
+                return str(score_view.get("display_text") or "데이터부족")
+            except Exception:
+                return "계산대기"
 
         def _apply_24h_color(item, change_value: float) -> None:
             try:
@@ -31667,7 +31999,7 @@ class MainWindow(QMainWindow):
                 "volume": "거래량순",
                 "all": "전체",
                 "surge": "상승률순",
-                "score": "계산 점수순",
+                "score": "AITS 점수순",
                 "change": "변동률순",
                 "major": "테마:메이저",
                 "payment": "테마:결제/송금",
@@ -31835,13 +32167,14 @@ class MainWindow(QMainWindow):
             t.setItem(i, 2, c_change)
 
             score_val = _display_ai_score(r, i, chg_val)
+            score_text = _display_ai_score_text(r)
             try:
                 score_bg, score_fg, score_border = _score_badge_colors(score_val)
                 t.setCellWidget(
                     i,
                     3,
                     _make_badge_widget(
-                        str(score_val),
+                        score_text,
                         score_bg,
                         score_fg,
                         score_border,
@@ -31852,7 +32185,7 @@ class MainWindow(QMainWindow):
                     ),
                 )
             except Exception:
-                c_score = QTableWidgetItem(str(score_val))
+                c_score = QTableWidgetItem(score_text)
                 try:
                     c_score.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                     c_score.setForeground(QColor("#64748b"))
@@ -31917,7 +32250,6 @@ class MainWindow(QMainWindow):
             self._on_market_explorer_selection_changed()
         except Exception:
             pass
-
     def _on_market_search_text_changed(self, _t: str = "") -> None:
         try:
             self._refresh_market_all_table()
@@ -32088,13 +32420,6 @@ class MainWindow(QMainWindow):
     def _add_symbol_to_ai_pool(self, row_or_symbol) -> None:
         sym = ""
         src_row = None
-        try:
-            print(f"[AITS][ManagedPool] add_request | payload={type(row_or_symbol).__name__}")
-            self._safe_log_info(
-                f"[AITS][ManagedPool] add_request | payload={type(row_or_symbol).__name__}"
-            )
-        except Exception:
-            pass
 
         def _pick(obj, *names):
             if obj is None:
@@ -32112,6 +32437,232 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             return None
+
+        def _safe_float(value, default: float = 0.0) -> float:
+            try:
+                if value in (None, ""):
+                    return default
+                return float(value)
+            except Exception:
+                return default
+
+        def _row_keys(obj) -> str:
+            if not isinstance(obj, dict):
+                return ""
+            try:
+                return ",".join(str(k) for k in list(obj.keys())[:10])
+            except Exception:
+                return ""
+
+        def _log_recovery_add(event: str, symbol: str = "", reason: str = "", **fields) -> None:
+            try:
+                parts = [
+                    "[AITS][ManagedPoolAddProof]",
+                    "proof=SCANNER-ADD-FIX-01",
+                    f"event={event}",
+                    f"symbol={symbol or 'unknown'}",
+                    f"payload_type={type(row_or_symbol).__name__}",
+                    f"row_available={'True' if isinstance(row_or_symbol, (dict, str)) else 'False'}",
+                    f"row_keys={_row_keys(row_or_symbol)}",
+                ]
+                for key, value in fields.items():
+                    parts.append(f"{key}={value}")
+                if reason:
+                    parts.append(f"reason={reason}")
+                parts.append("submitted=0")
+                self._safe_log_info(" | ".join(parts))
+            except Exception:
+                pass
+
+        try:
+            src_row = row_or_symbol if isinstance(row_or_symbol, dict) else None
+            if isinstance(row_or_symbol, str):
+                sym = self._normalize_aits_market_symbol(str(row_or_symbol or "").strip())
+            elif isinstance(row_or_symbol, dict):
+                raw_symbol = _pick(row_or_symbol, "symbol", "market", "code", "ticker")
+                sym = self._normalize_aits_market_symbol(str(raw_symbol or "").strip())
+            else:
+                _log_recovery_add("add_failed", reason=f"unsupported_payload_{type(row_or_symbol).__name__}")
+                return
+
+            if not sym:
+                _log_recovery_add("add_failed", reason="empty_symbol")
+                return
+
+            if not isinstance(getattr(self, "ai_managed_rows", None), list):
+                self.ai_managed_rows = []
+
+            scanner_row_idx = -1
+            for idx, candidate in enumerate(getattr(self, "_market_display_rows", None) or []):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_sym = self._normalize_aits_market_symbol(
+                    str(_pick(candidate, "symbol", "market", "code", "ticker") or "").strip()
+                )
+                if candidate_sym == sym:
+                    scanner_row_idx = int(idx)
+                    if src_row is None:
+                        src_row = candidate
+                    break
+
+            scanner_snap = {}
+            try:
+                scanner_snap = self._proof_scanner_score_snapshot(
+                    src_row if isinstance(src_row, dict) else None,
+                    scanner_row_idx if scanner_row_idx >= 0 else 0,
+                )
+            except Exception:
+                scanner_snap = {}
+
+            _log_recovery_add(
+                "before_add_request",
+                sym,
+                scanner_display_score=scanner_snap.get("display_score", "unknown"),
+                scanner_score_source=scanner_snap.get("score_source", "unknown"),
+                scanner_ai_score_raw=scanner_snap.get("ai_score_raw", ""),
+                scanner_score_raw=scanner_snap.get("score_raw", ""),
+                scanner_change_pct=scanner_snap.get("change_pct", "unknown"),
+                scanner_theme=scanner_snap.get("theme", "unknown"),
+            )
+
+            for existing in getattr(self, "ai_managed_rows", None) or []:
+                if not isinstance(existing, dict):
+                    continue
+                existing_sym = self._normalize_aits_market_symbol(
+                    str(_pick(existing, "symbol", "market", "code", "ticker") or "").strip()
+                )
+                if existing_sym != sym:
+                    continue
+                managed_snap = {}
+                try:
+                    managed_snap = self._proof_managed_score_snapshot(existing)
+                except Exception:
+                    managed_snap = {}
+                _log_recovery_add(
+                    "already_exists",
+                    sym,
+                    managed_display_score=managed_snap.get("display_score", "unknown"),
+                    managed_score_source=managed_snap.get("score_source", "unknown"),
+                    managed_ai_score_raw=managed_snap.get("ai_score_raw", ""),
+                    managed_status=managed_snap.get("status", "unknown"),
+                    copied_scanner_score="unknown",
+                    recalculated_by_basic="unknown",
+                    reason="managed_pool_duplicate",
+                )
+                try:
+                    self._refresh_ai_managed_table()
+                except Exception as exc:
+                    _log_recovery_add("add_failed", sym, reason=f"refresh_exception_{type(exc).__name__}")
+                return
+
+            display_name = str(
+                _pick(src_row, "korean_name", "name", "english_name") or ""
+            ).strip()
+            if not display_name:
+                try:
+                    display_name = str(self._get_aits_korean_coin_name(sym) or "").strip()
+                except Exception:
+                    display_name = ""
+            if not display_name:
+                display_name = sym.split("-")[-1] if "-" in sym else sym
+
+            new_ko_name = ""
+            try:
+                src_ko = str(_pick(src_row, "korean_name", "koreanName") or "").strip()
+                if not src_ko:
+                    src_ko = str(self._find_korean_name_from_explorer(sym) or "").strip()
+                tail = sym.split("-")[-1].upper() if sym else ""
+                if src_ko and src_ko.upper() != tail:
+                    new_ko_name = src_ko
+            except Exception:
+                new_ko_name = ""
+
+            tv = _safe_float(
+                _pick(src_row, "acc_trade_price_24h", "trade_value", "volume_krw", "trade_price_24h"),
+                0.0,
+            )
+            new_row = {
+                "symbol": sym,
+                "market": sym,
+                "name": display_name,
+                "price": _safe_float(_pick(src_row, "price", "trade_price", "current_price"), 0.0),
+                "change_rate": _safe_float(_pick(src_row, "change_rate", "change_pct", "signed_change_rate"), 0.0),
+                "source": "USER",
+                "source_type": "user_added",
+                "target_price": 0.0,
+                "stop_loss": 0.0,
+                "pnl": 0.0,
+                "locked": False,
+                "trade_value": tv,
+                "volume_krw": tv,
+            }
+            if new_ko_name:
+                new_row["korean_name"] = new_ko_name
+
+            new_row = self._ensure_aits_managed_pool_row_shape(new_row)
+            new_row["source_type"] = new_row.get("source_type") or "user_added"
+            self.ai_managed_rows.append(new_row)
+
+            sync_errors = []
+            try:
+                self._sync_ai_pool_market_fields()
+            except Exception as exc:
+                sync_errors.append(f"sync_market_fields_{type(exc).__name__}")
+            try:
+                self._update_ai_pool_statuses()
+            except Exception as exc:
+                sync_errors.append(f"update_statuses_{type(exc).__name__}")
+
+            managed_row = None
+            for candidate in getattr(self, "ai_managed_rows", None) or []:
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_sym = self._normalize_aits_market_symbol(
+                    str(_pick(candidate, "symbol", "market", "code", "ticker") or "").strip()
+                )
+                if candidate_sym == sym:
+                    managed_row = candidate
+                    break
+
+            managed_snap = {}
+            try:
+                managed_snap = self._proof_managed_score_snapshot(managed_row)
+            except Exception:
+                managed_snap = {}
+            scanner_score = str(scanner_snap.get("display_score", "unknown"))
+            scanner_source = str(scanner_snap.get("score_source", "unknown"))
+            managed_score = str(managed_snap.get("display_score", "unknown"))
+            managed_source = str(managed_snap.get("score_source", "unknown"))
+            copied = (
+                scanner_score not in ("", "unknown")
+                and managed_score not in ("", "unknown")
+                and scanner_score == managed_score
+                and scanner_source == managed_source
+            )
+            recalculated = managed_source == "local_calculation"
+
+            _log_recovery_add(
+                "after_add",
+                sym,
+                scanner_display_score=scanner_score,
+                scanner_score_source=scanner_source,
+                managed_display_score=managed_score,
+                managed_score_source=managed_source,
+                managed_ai_score_raw=managed_snap.get("ai_score_raw", ""),
+                managed_status=managed_snap.get("status", "unknown"),
+                copied_scanner_score="True" if copied else "False",
+                recalculated_by_basic="True" if recalculated else "False",
+                reason=";".join(sync_errors) if sync_errors else "added",
+            )
+
+            try:
+                self._refresh_ai_managed_table()
+            except Exception as exc:
+                _log_recovery_add("add_failed", sym, reason=f"refresh_exception_{type(exc).__name__}")
+            return
+        except Exception as exc:
+            _log_recovery_add("add_failed", sym or "", reason=f"exception_{type(exc).__name__}")
+            return
 
         if isinstance(row_or_symbol, str):
             raw = str(row_or_symbol or "").strip()
@@ -32138,11 +32689,33 @@ class MainWindow(QMainWindow):
         else:
             return
 
+        try:
+            scanner_row_idx = -1
+            for idx, candidate in enumerate(getattr(self, "_market_display_rows", None) or []):
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_sym = self._normalize_aits_market_symbol(
+                    candidate.get("symbol") or candidate.get("market") or ""
+                )
+                if candidate_sym == sym:
+                    scanner_row_idx = int(idx)
+                    break
+            scanner_snap = self._proof_scanner_score_snapshot(
+                src_row if isinstance(src_row, dict) else None,
+                scanner_row_idx if scanner_row_idx >= 0 else 0,
+            )
+        except Exception as exc:
+            scanner_snap = {}
+
         for ex in self.ai_managed_rows or []:
             rsym = self._normalize_aits_market_symbol(
                 _pick(ex, "symbol", "market", "code") or ""
             )
             if rsym == sym:
+                try:
+                    managed_snap = self._proof_managed_score_snapshot(ex if isinstance(ex, dict) else None)
+                except Exception as exc:
+                    pass
                 QMessageBox.information(self, "관리 종목", "이미 관리 종목에 있습니다.")
                 return
 
@@ -32193,17 +32766,7 @@ class MainWindow(QMainWindow):
                 src_row if isinstance(src_row, dict) else None,
                 scanner_row_idx if scanner_row_idx >= 0 else 0,
             )
-            self._safe_log_info(
-                "[AITS][ManagedPoolAddProof] "
-                f"event=before_add | symbol={sym} | "
-                f"scanner_display_score={scanner_snap.get('display_score','unknown')} | "
-                f"scanner_score_source={scanner_snap.get('score_source','unknown')} | "
-                f"scanner_ai_score_raw={scanner_snap.get('ai_score_raw','')} | "
-                f"scanner_score_raw={scanner_snap.get('score_raw','')} | "
-                f"scanner_change_pct={scanner_snap.get('change_pct','unknown')} | "
-                f"scanner_theme={scanner_snap.get('theme','unknown')} | submitted=0"
-            )
-        except Exception:
+        except Exception as exc:
             scanner_snap = {}
 
         price = float(src_row.get("price", 0.0)) if src_row else 0.0
@@ -32290,21 +32853,7 @@ class MainWindow(QMainWindow):
                 and scanner_score == managed_score
             )
             recalculated = managed_snap.get("score_source") == "local_calculation"
-            self._safe_log_info(
-                "[AITS][ManagedPoolAddProof] "
-                f"event=after_add | symbol={sym} | "
-                f"managed_display_score={managed_snap.get('display_score','unknown')} | "
-                f"managed_score_source={managed_snap.get('score_source','unknown')} | "
-                f"managed_ai_score_raw={managed_snap.get('ai_score_raw','')} | "
-                f"managed_status={managed_snap.get('status','unknown')} | "
-                f"status_source={managed_snap.get('status_source','unknown')} | "
-                f"weight_text={managed_snap.get('weight_text','0%/0%')} | "
-                f"target_weight={managed_snap.get('target_weight','0%')} | "
-                f"scanner_score={scanner_score} | scanner_source={(scanner_snap or {}).get('score_source','unknown')} | "
-                f"copied_scanner_score={self._proof_bool_text(copied)} | "
-                f"recalculated_by_basic={self._proof_bool_text(recalculated)} | submitted=0"
-            )
-        except Exception:
+        except Exception as exc:
             pass
         self._refresh_ai_managed_table()
 
@@ -32327,10 +32876,6 @@ class MainWindow(QMainWindow):
     def _on_ai_managed_table_cell_clicked(self, row: int, col: int) -> None:
         if row < 0 or row >= len(self.ai_managed_rows):
             return
-        try:
-            self._proof_log_managed_score_click(int(row), "click")
-        except Exception:
-            pass
         sym = (self.ai_managed_rows[row].get("symbol") or "").strip()
         if col == self._AI_M_COL_ACTION:
             self._remove_symbol_from_ai_pool(sym)
@@ -32381,11 +32926,6 @@ class MainWindow(QMainWindow):
             pass
 
     def _on_market_all_table_cell_clicked(self, row: int, col: int) -> None:
-        try:
-            if row >= 0:
-                self._proof_log_scanner_score_click(int(row), "click")
-        except Exception:
-            pass
         if col != self._MKT_COL_ADD:
             return
         disp = getattr(self, "_market_display_rows", None) or []
@@ -41950,12 +42490,28 @@ def main(root_dir: str, data_dir: str):
     state = AppState()
 
     # 항상 로그인 창 표시 (자동 로그인 제거)
-    login_dlg = LoginDialog()
-    if login_dlg.exec() != QDialog.Accepted:
-        sys.exit(0)
+    dev_login_bypass = bool(AITS_DEV_LOGIN_BYPASS)
+    try:
+        env_bypass = str(os.environ.get("AITS_DEV_LOGIN_BYPASS", "") or "").strip().lower()
+        if env_bypass in ("0", "false", "no", "off"):
+            dev_login_bypass = False
+        elif env_bypass in ("1", "true", "yes", "on"):
+            dev_login_bypass = True
+    except Exception:
+        pass
+    if dev_login_bypass:
+        state.login(AITS_DEV_LOGIN_EMAIL)
+        logging.getLogger("aits").warning(
+            "[AITS][DevLoginBypass] enabled=True | user=%s | restore=set AITS_DEV_LOGIN_BYPASS=False",
+            AITS_DEV_LOGIN_EMAIL,
+        )
+    else:
+        login_dlg = LoginDialog()
+        if login_dlg.exec() != QDialog.Accepted:
+            sys.exit(0)
     
     # 로그인 성공 처리
-    state.login(login_dlg.email.text())
+        state.login(login_dlg.email.text())
 
     # 메인 윈도우 생성 및 표시
     _mw_t0 = time.perf_counter()
