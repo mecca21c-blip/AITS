@@ -6418,6 +6418,8 @@ class MainWindow(QMainWindow):
             }
             if normalized in ui_overrides:
                 return ui_overrides[normalized]
+            if self._looks_like_internal_ai_key(key):
+                return "계산 기준상 추가 확인이 필요한 조건입니다."
             mapping = {
                 "change_ratio_normalized": "가격 변동률을 정규화해 반영했습니다.",
                 "momentum_neutral": "모멘텀은 중립 구간입니다.",
@@ -6542,6 +6544,60 @@ class MainWindow(QMainWindow):
                 "background": "#dcfce7",
                 "border": "#86efac",
             }
+
+    def _get_center_analysis_display_mode(self, row=None) -> str:
+        try:
+            if not isinstance(row, dict):
+                return "basic_summary"
+            generated_at = str(row.get("ai_briefing_generated_at") or "").strip()
+            provider = str(row.get("ai_briefing_provider") or row.get("ai_briefing_engine") or "").strip()
+            badge = str(row.get("ai_briefing_engine_badge") or "").strip()
+            if generated_at and (provider or badge):
+                return "ai_analysis"
+            return "basic_summary"
+        except Exception:
+            return "basic_summary"
+
+    def _center_basic_summary_meta(self) -> dict:
+        return {
+            "provider": "basic",
+            "label": "Basic",
+            "badge": "L",
+            "color": "#334155",
+            "background": "#f1f5f9",
+            "border": "#cbd5e1",
+        }
+
+    def _apply_center_analysis_display_mode(self, row=None) -> str:
+        mode = self._get_center_analysis_display_mode(row)
+        try:
+            if mode == "ai_analysis":
+                titles = (
+                    ("lbl_ai_briefing_title", "AI 브리핑"),
+                    ("lbl_ai_why_title", "AI 판단 근거"),
+                    ("lbl_ai_next_title", "AI 다음행동"),
+                )
+                meta = self._resolve_ai_briefing_engine_meta(row if isinstance(row, dict) else {})
+                tooltip = f"생성 엔진: {meta.get('label') or 'LOCAL'}"
+            else:
+                titles = (
+                    ("lbl_ai_briefing_title", "계산 요약"),
+                    ("lbl_ai_why_title", "계산 근거"),
+                    ("lbl_ai_next_title", "관찰 포인트"),
+                )
+                meta = self._center_basic_summary_meta()
+                tooltip = "Basic 계산 기반 요약"
+            for attr, text in titles:
+                label = getattr(self, attr, None)
+                if label is not None:
+                    label.setText(text)
+            self._apply_ai_briefing_engine_badge(meta)
+            badge = getattr(self, "lbl_ai_briefing_engine_badge", None)
+            if badge is not None:
+                badge.setToolTip(tooltip)
+        except Exception:
+            pass
+        return mode
 
     def _remember_ai_briefing_engine_meta(self, payload=None, force: bool = False) -> dict:
         try:
@@ -11878,6 +11934,7 @@ class MainWindow(QMainWindow):
             _lbl_bf_title.setProperty("reasonTitle", True)
         except Exception:
             pass
+        self.lbl_ai_briefing_title = _lbl_bf_title
         _lbl_bf_title.setStyleSheet("")
         _bf_title_row.addWidget(_lbl_bf_title, 1)
         self.lbl_ai_briefing_engine_badge = QLabel("L")
@@ -11949,6 +12006,7 @@ class MainWindow(QMainWindow):
         _wy_ly.setContentsMargins(14, 12, 14, 12)
         _wy_ly.setSpacing(8)
         _lbl_why_t = QLabel("근거")
+        self.lbl_ai_why_title = _lbl_why_t
         _lbl_why_t.setStyleSheet(
             "font-size: 12px; font-weight: 900; color: #0f172a; padding-bottom: 6px; "
             "border-bottom: 2px solid #cbd5e1;"
@@ -11994,6 +12052,7 @@ class MainWindow(QMainWindow):
         _nx_ly.setContentsMargins(14, 12, 14, 12)
         _nx_ly.setSpacing(8)
         _lbl_nx_t = QLabel("다음 관찰")
+        self.lbl_ai_next_title = _lbl_nx_t
         _lbl_nx_t.setStyleSheet(
             "font-size: 12px; font-weight: 900; color: #78350f; padding-bottom: 6px; "
             "border-bottom: 2px solid #fcd34d;"
@@ -22259,9 +22318,9 @@ class MainWindow(QMainWindow):
                 idx = -1
             self._set_selected_managed_row_state(idx, row)
             try:
-                self._apply_ai_briefing_engine_badge(self._resolve_ai_briefing_engine_meta(row))
+                display_mode = self._apply_center_analysis_display_mode(row)
             except Exception:
-                pass
+                display_mode = "basic_summary"
             display_name = self._format_aits_coin_display_name(symbol)
             try:
                 status_raw = str(row.get("ai_status") or row.get("status") or "Watching").strip()
@@ -22320,6 +22379,10 @@ class MainWindow(QMainWindow):
                     why.setText(why_text)
                 nxt = getattr(self, "lbl_ai_center_next", None)
                 if nxt is not None:
+                    if display_mode != "ai_analysis":
+                        guide = "더 깊은 해석이 필요하면 AI 분석 새로고침을 사용하세요."
+                        if guide not in str(next_text or ""):
+                            next_text = f"{next_text}\n- {guide}" if str(next_text or "").strip() else f"- {guide}"
                     nxt.setText(next_text)
             except Exception:
                 pass
@@ -22527,9 +22590,7 @@ class MainWindow(QMainWindow):
                 return
             self.lbl_ai_detail_hint.setVisible(False)
             try:
-                self._apply_ai_briefing_engine_badge(
-                    self._resolve_ai_briefing_engine_meta(row if isinstance(row, dict) else {})
-                )
+                self._apply_center_analysis_display_mode(row if isinstance(row, dict) else {})
             except Exception:
                 pass
             display_name = self._format_aits_coin_display_name(sym)

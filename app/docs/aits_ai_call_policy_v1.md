@@ -299,3 +299,21 @@ Implemented policy intent:
 - Status refresh, AI analysis refresh, and detail-chart open policies are unchanged.
 - `submitted=0` is preserved.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 20. AI-BRIEFING-QUALITY-01 Implementation Note
+
+`AI-BRIEFING-QUALITY-01` separates Basic/local calculation summaries from generated AI judgement copy in the central analysis center.
+
+Implemented policy intent:
+
+- Managed-row click and chart review show Basic/local calculation summaries by default.
+- Basic/local mode uses `계산 요약`, `계산 근거`, and `관찰 포인트` card titles.
+- Generated AI analysis mode uses `AI 브리핑`, `AI 판단 근거`, and `AI 다음행동` card titles.
+- Card badges distinguish Basic/local summaries from generated GPT/Gemini/LOCAL analysis.
+- Generated AI analysis continues to use generation-time engine metadata; engine changes do not rewrite existing badges.
+- Raw internal reason keys are translated or replaced with user-facing Korean fallback text.
+- Basic/local mode may guide the user to use the explicit AI analysis refresh button for deeper interpretation.
+- Managed-row selection, status refresh, and chart review are not AI call triggers.
+- Background event-based AI calls are not implemented in this Goal and remain a later policy implementation.
+- `submitted=0` is preserved.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
