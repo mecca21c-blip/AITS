@@ -7304,9 +7304,10 @@ class MainWindow(QMainWindow):
             return
         parking = self._ensure_hidden_legacy_parking()
         br = getattr(self, "btn_refresh", None)
+        ai_refresh = getattr(self, "btn_ai_analysis_refresh", None)
         logb = getattr(self, "btn_top_open_logs", None)
         left = getattr(self, "_shell_status_left_host", None)
-        _protected = {x for x in (br, logb, left) if x is not None}
+        _protected = {x for x in (br, ai_refresh, logb, left) if x is not None}
         _legacy_keep = (
             getattr(self, "lbl_aits_ops_summary", None),
             getattr(self, "ai_status_text", None),
@@ -7361,6 +7362,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         br = getattr(self, "btn_refresh", None)
+        ai_refresh = getattr(self, "btn_ai_analysis_refresh", None)
         logb = getattr(self, "btn_top_open_logs", None)
         try:
             _st = self.style()
@@ -7378,7 +7380,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         compact_runtime = getattr(self, "runtime_status_compact_container", None)
-        _protected = {x for x in (br, logb, compact_runtime) if x is not None}
+        _protected = {x for x in (br, ai_refresh, logb, compact_runtime) if x is not None}
         while ly.count() > 0:
             try:
                 _it = ly.takeAt(0)
@@ -7534,6 +7536,14 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
         ly.addSpacing(6)
+        if ai_refresh is not None:
+            try:
+                ai_refresh.setText("AI 분석 새로고침")
+                ai_refresh.setParent(row)
+                ly.addWidget(ai_refresh, 0, Qt.AlignmentFlag.AlignVCenter)
+            except Exception:
+                pass
+        ly.addSpacing(6)
         if logb is not None:
             try:
                 logb.setText("로그 열기")
@@ -7543,10 +7553,14 @@ class MainWindow(QMainWindow):
                 pass
         try:
             br = getattr(self, "btn_refresh", None)
+            ai_refresh = getattr(self, "btn_ai_analysis_refresh", None)
             logb = getattr(self, "btn_top_open_logs", None)
             if br is not None:
                 br.setMinimumHeight(30)
                 br.setMaximumHeight(30)
+            if ai_refresh is not None:
+                ai_refresh.setMinimumHeight(30)
+                ai_refresh.setMaximumHeight(30)
             if logb is not None:
                 logb.setMinimumHeight(30)
                 logb.setMaximumHeight(30)
@@ -10388,6 +10402,11 @@ class MainWindow(QMainWindow):
         # 통합 새로고침
         self.btn_refresh = QPushButton("상태 새로고침")
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
+        self.btn_ai_analysis_refresh = QPushButton("AI 분석 새로고침")
+        self.btn_ai_analysis_refresh.setToolTip(
+            "현재 선택된 AI 엔진으로 브리핑/근거/다음행동을 다시 생성합니다. "
+            "GPT/Gemini 사용 시 API 호출이 발생할 수 있습니다."
+        )
         self.btn_ai_briefing = QPushButton("브리핑 보기")
         self.btn_ai_briefing.setToolTip("AI 판단 브리핑 팝업")
         self.btn_ai_briefing.setFixedHeight(34)
@@ -10491,6 +10510,7 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.installEventFilter(self._btn_event_filter)
             self.btn_sellall.installEventFilter(self._btn_event_filter)
             self.btn_refresh.installEventFilter(self._btn_event_filter)
+            self.btn_ai_analysis_refresh.installEventFilter(self._btn_event_filter)
             self.btn_ai_briefing.installEventFilter(self._btn_event_filter)
             self.btn_top_open_logs.installEventFilter(self._btn_event_filter)
             self._log.info("[BTN-EVENT] filter installed on top buttons")
@@ -10540,16 +10560,26 @@ class MainWindow(QMainWindow):
         self.top_control_widget.setLayout(top_outer)
         try:
             self.btn_refresh.setProperty("topSubBarAction", True)
+            self.btn_ai_analysis_refresh.setProperty("topSubBarAction", True)
             self.btn_top_open_logs.setProperty("topSubBarAction", True)
             self.btn_refresh.setStyleSheet("")
+            self.btn_ai_analysis_refresh.setStyleSheet(
+                "QPushButton { padding: 4px 12px; font-weight: 700; "
+                "background:#eef6ff; color:#1d4ed8; border:1px solid #bfdbfe; "
+                "border-radius:8px; } "
+                "QPushButton:hover { background:#dbeafe; }"
+            )
             self.btn_top_open_logs.setStyleSheet("")
             _ssr = getattr(self, "_shell_status_layout", None)
             if _ssr is not None:
                 _ssr.addWidget(self.btn_refresh, 0)
+                _ssr.addWidget(self.btn_ai_analysis_refresh, 0)
                 _ssr.addWidget(self.btn_top_open_logs, 0)
             try:
                 self.btn_refresh.setMinimumHeight(30)
                 self.btn_refresh.setMaximumHeight(30)
+                self.btn_ai_analysis_refresh.setMinimumHeight(30)
+                self.btn_ai_analysis_refresh.setMaximumHeight(30)
                 self.btn_top_open_logs.setMinimumHeight(30)
                 self.btn_top_open_logs.setMaximumHeight(30)
             except Exception:
@@ -12716,6 +12746,12 @@ class MainWindow(QMainWindow):
             self._log.error(f"[BTN-CONNECT] error={e}")
         try:
             self.btn_refresh.clicked.connect(self.on_refresh)
+        except Exception:
+            pass
+        try:
+            self.btn_ai_analysis_refresh.clicked.connect(
+                self._on_ai_analysis_refresh_clicked
+            )
         except Exception:
             pass
         try:
@@ -39290,6 +39326,7 @@ class MainWindow(QMainWindow):
         try:
             self.btn_sellall.setEnabled(True)
             self.btn_refresh.setEnabled(True)
+            self.btn_ai_analysis_refresh.setEnabled(True)
         except Exception:
             pass
         self._update_info_box()
@@ -40288,6 +40325,70 @@ class MainWindow(QMainWindow):
                 else:
                     QMessageBox.information(self, "전량매도", "매도할 가용 수량이 없습니다.")
 
+    def _on_ai_analysis_refresh_clicked(self):
+        """Explicit AI analysis refresh button. Status refresh must stay data-only."""
+        try:
+            now_ts = time.time()
+            cooldown_sec = 30.0
+            last_ts = float(
+                getattr(self, "_ai_analysis_refresh_last_ts", 0.0) or 0.0
+            )
+            if last_ts > 0 and (now_ts - last_ts) < cooldown_sec:
+                remain = int(max(1, cooldown_sec - (now_ts - last_ts)))
+                try:
+                    self._log.info(
+                        "[AITS][AIAnalysisRefresh] event=cooldown_skip | "
+                        "cooldown_sec=%s | remaining_sec=%s | submitted=0",
+                        int(cooldown_sec),
+                        remain,
+                    )
+                except Exception:
+                    pass
+                try:
+                    self.set_status_msg(
+                        f"AI 분석 새로고침 대기 중 · {remain}초 후 다시 시도",
+                        "#64748b",
+                    )
+                except Exception:
+                    pass
+                return
+
+            self._ai_analysis_refresh_last_ts = now_ts
+            provider = "basic"
+            try:
+                provider = str(self._get_aits_engine_ssot() or "basic").strip().lower()
+            except Exception:
+                provider = "basic"
+            try:
+                self._log.info(
+                    "[AITS][AIAnalysisRefresh] event=manual_request | "
+                    "provider=%s | trigger=button | submitted=0",
+                    provider or "unknown",
+                )
+            except Exception:
+                pass
+            try:
+                self.set_global_status("AI 분석 갱신 중...", "busy", "ai_analysis_refresh")
+            except Exception:
+                pass
+            try:
+                self.set_status_msg("AI 분석 새로고침 요청됨", "#1d4ed8")
+            except Exception:
+                pass
+            try:
+                self._schedule_aits_main_gpt_reco(200)
+            except Exception as exc:
+                try:
+                    self._log.warning(
+                        "[AITS][AIAnalysisRefresh] event=schedule_failed | "
+                        "error_type=%s | submitted=0",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def on_refresh(self):
         """
         [새로고침] 버튼:
@@ -40387,17 +40488,18 @@ class MainWindow(QMainWindow):
                 ai_reco.update(payload)
                 # NOTE:
                 # base reco는 즉시형 추천 상태를 갱신하고,
-                # GPT reco는 같은 상황을 설명 가능한 판단으로 보강한다.
-                # STEP 44에서는 두 결과를 병합해 사용자에게는 하나의 final reco로 보이게 한다.
-                # STEP 43에서는 GPT 호출의 과다/중복/지연 덮어쓰기를 막는 안정화만 수행한다.
+                # 비용성 GPT/Gemini reco 보강은 AI 분석 새로고침 버튼에서만 수행한다.
                 try:
-                    self._schedule_aits_main_gpt_reco(200)
+                    log.info(
+                        "[AITS][RefreshPolicy] status_refresh_ai_schedule=skipped | "
+                        "reason=ai_call_policy_v1 | submitted=0"
+                    )
                 except Exception:
                     pass
             except Exception:
                 pass
 
-            self.set_status_msg("✅ 새로고침 완료", "#2e7d32")
+            self.set_status_msg("✅ 데이터/점수 새로고침 완료", "#2e7d32")
 
             try:
                 log.info("[REFRESH] done (watchlist/portfolio/trades/kpi)")

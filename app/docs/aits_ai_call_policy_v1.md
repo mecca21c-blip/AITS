@@ -195,3 +195,19 @@ The following are prohibited:
 - `AI-EVENT-CANDIDATE-01` define Basic event candidate generation.
 - `AI-BRIEFING-BADGE-01` display generation engine badge.
 
+## 14. AI-CALL-POLICY-02 Implementation Note
+
+`AI-CALL-POLICY-02` separates status refresh from explicit AI analysis refresh.
+
+Implemented policy intent:
+
+- Status refresh is data and screen refresh only.
+- Status refresh must not schedule GPT/Gemini recommendation reinforcement.
+- The explicit `AI 분석 새로고침` button owns manual AI analysis refresh.
+- The manual AI analysis button may use the currently selected engine.
+- GPT/Gemini may create paid API calls only from explicit analysis refresh or later event-policy paths.
+- LOCAL/Basic analysis remains available without paid Provider/API calls.
+- The manual AI analysis button has a 30 second click cooldown.
+- Detail chart open behavior is intentionally unchanged in this Goal and remains a later guard Goal.
+- `submitted=0` is preserved.
+- Order, Router, Risk Guard, and Execution paths are not changed by this policy split.
