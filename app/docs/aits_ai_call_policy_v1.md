@@ -399,3 +399,18 @@ Implemented policy intent:
 - Detail chart open remains a display action and does not call GPT, Gemini, OpenAI, or Provider APIs.
 - Router, Risk Guard, Order, and Execution paths are not changed.
 - `submitted=0` is preserved internally and shown to users as `실제 주문 없음`.
+
+## 26. DETAIL-CHART-AI-SNAPSHOT-FRESHNESS-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-FRESHNESS-01` adds display-only freshness metadata for recent AI analysis snapshots in the detail chart.
+
+Policy intent:
+
+- Detail chart open remains a display action and is not an AI call trigger.
+- If a recent AI analysis snapshot exists for the selected symbol, the detail chart may display it automatically.
+- A recent AI snapshot is valid only when it matches the selected symbol and has actual analysis content plus generation metadata.
+- If no matching snapshot exists, the detail chart stays in Basic/local calculation summary mode.
+- The UI may show engine, generated time, elapsed time, source label, and freshness status.
+- Freshness labels are display-only guidance for the user; they do not affect Router, Risk Guard, Order, or Execution decisions.
+- No detail-chart AI refresh button, background AI timer, or Provider/API call is added in this Goal.
+- `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` remain the expected safety state.

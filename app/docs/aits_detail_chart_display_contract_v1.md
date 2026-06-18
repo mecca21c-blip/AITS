@@ -330,3 +330,48 @@ Safety remains unchanged:
 - No detail-chart AI Preview button is added.
 - No per-symbol AI refresh timer is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 19. DETAIL-CHART-AI-SNAPSHOT-FRESHNESS-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-FRESHNESS-01` extends `detail_chart_display_contract.v1` with display-only recent AI snapshot metadata.
+
+Contract addition:
+
+```json
+"ai_snapshot": {
+  "has_snapshot": false,
+  "symbol": "KRW-BTC",
+  "payload_symbol": "",
+  "is_symbol_matched": false,
+  "engine": null,
+  "provider": "",
+  "generated_at": null,
+  "age_seconds": null,
+  "age_label": "최근 AI 분석 없음",
+  "freshness": "missing",
+  "freshness_label": "최근 AI 분석 없음",
+  "source": "unknown",
+  "source_label": "분석 없음"
+}
+```
+
+Display rules:
+
+- Only a snapshot that matches the selected detail-chart symbol can switch the chart to `last_known_ai` display mode.
+- A snapshot must have actual analysis content plus generation metadata before it is displayed as recent AI analysis.
+- Mismatched, ambiguous, or missing snapshots keep the chart in `basic_summary` mode.
+- Freshness labels are user guidance only:
+  - `fresh`: latest reference available.
+  - `usable`: reference available.
+  - `stale`: may be old.
+  - `unknown`: generated time cannot be confirmed.
+  - `missing`: no recent AI analysis.
+- Freshness does not create an order signal, execution plan, Router input, Risk Guard input, or Provider/API call.
+
+Safety remains unchanged:
+
+- Detail chart open is not an AI call trigger.
+- No GPT/Gemini/OpenAI call is added.
+- No detail-chart AI refresh button is added.
+- No background AI event or timer is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
