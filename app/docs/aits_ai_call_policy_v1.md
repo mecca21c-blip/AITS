@@ -268,3 +268,19 @@ Implemented policy intent:
 - Engine badge policy remains generation-time based.
 - A future `DETAIL-CHART-AI-PREVIEW-BUTTON-01` Goal may add an explicit detail-chart Preview refresh button.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 18. MANAGED-TAB-SYNC-REFRESH-01 Implementation Note
+
+`MANAGED-TAB-SYNC-REFRESH-01` makes the AITS managed-tab status refresh resynchronize scanner and managed scores.
+
+Implemented policy intent:
+
+- Managed-tab status refresh is Basic/local data synchronization only.
+- Refresh obtains current market/scanner rows, copies market fields into managed rows, recalculates AITS Score v2, and redraws both managed and scanner tables.
+- Managed rows no longer keep stale score input fields when matching scanner market data is available.
+- Manual hold rows may recalculate score, but their trade status remains `ManualHold` / `매매보류`.
+- The refresh path logs managed/scanner counts and score-sync summary with `submitted=0`.
+- Status refresh does not call GPT, Gemini, OpenAI, GPT Preview, or any paid Provider/API path.
+- The explicit AI analysis refresh button remains the owner of manual AI judgement requests.
+- Detail chart open Preview guard remains unchanged.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.

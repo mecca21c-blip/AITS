@@ -28296,27 +28296,65 @@ class MainWindow(QMainWindow):
             pass
 
     def _sync_ai_pool_market_fields(self) -> None:
-        """market_all_rows 시세를 ai_managed_rows 동일 symbol에 반영."""
+        """Copy latest scanner/market fields into managed rows by symbol."""
         try:
             market_map = {}
-            for r in (self.market_all_rows or []):
-                sym = str(r.get("symbol") or "").strip()
-                if sym:
-                    market_map[sym] = r
+            source_sets = (
+                getattr(self, "_market_all_rows", None) or [],
+                getattr(self, "market_all_rows", None) or [],
+                getattr(self, "_market_display_rows", None) or [],
+            )
+            for source_rows in source_sets:
+                for r in (source_rows or []):
+                    if not isinstance(r, dict):
+                        continue
+                    sym = self._normalize_aits_market_symbol(
+                        str(r.get("symbol") or r.get("market") or r.get("code") or r.get("ticker") or "").strip()
+                    )
+                    if sym:
+                        market_map[sym] = r
+
+            market_keys = (
+                "price",
+                "trade_price",
+                "current_price",
+                "change_rate",
+                "signed_change_rate",
+                "change",
+                "change_pct",
+                "acc_trade_price_24h",
+                "acc_trade_price",
+                "trade_price_24h",
+                "trade_value",
+                "volume_krw",
+                "trade_amount",
+                "acc_trade_volume_24h",
+                "trade_volume",
+                "volume_24h",
+                "volume",
+                "candle_volume",
+                "rsi",
+                "macd",
+                "trend",
+                "volatility",
+            )
             for row in (self.ai_managed_rows or []):
-                sym = str(row.get("symbol") or "").strip()
+                if not isinstance(row, dict):
+                    continue
+                sym = self._normalize_aits_market_symbol(str(row.get("symbol") or "").strip())
                 if not sym:
                     continue
                 src = market_map.get(sym)
-                if not src:
+                if not isinstance(src, dict):
                     continue
-                row["price"] = float(src.get("price", 0.0) or 0.0)
-                row["change_rate"] = float(src.get("change_rate", 0.0) or 0.0)
+                for key in market_keys:
+                    value = src.get(key)
+                    if value not in (None, ""):
+                        row[key] = value
                 if not str(row.get("name") or "").strip():
-                    row["name"] = str(src.get("name") or sym.split("-")[-1])
+                    row["name"] = str(src.get("name") or src.get("korean_name") or sym.split("-")[-1])
         except Exception:
             pass
-
     def _calc_basic_ai_score(self, row: dict) -> dict:
         """Basic AI 규칙 기반 점수(0~100)."""
         st = self._sync_legacy_basic_ai_settings_from_ssot()
@@ -29345,6 +29383,10 @@ class MainWindow(QMainWindow):
         try:
             cached = getattr(self, "_market_all_rows", None)
             if cached:
+                try:
+                    self.market_all_rows = cached
+                except Exception:
+                    pass
                 return cached
 
             all_rows: list = []
@@ -29445,6 +29487,10 @@ class MainWindow(QMainWindow):
                     pass
 
             self._market_all_rows = filtered
+            try:
+                self.market_all_rows = filtered
+            except Exception:
+                pass
             return filtered
 
         except Exception:
@@ -40919,16 +40965,57 @@ class MainWindow(QMainWindow):
 
     def _refresh_managed_tab_status_only(self) -> str:
         try:
+            selected_symbol = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            managed_count = len(getattr(self, "ai_managed_rows", []) or [])
             try:
-                self._ensure_market_all_rows()
+                self._log_refresh_dispatcher("managed_refresh_start", "managed", f"managed_count={managed_count}")
             except Exception:
+                pass
+            try:
+                self._market_all_rows = []
+            except Exception:
+                pass
+            try:
+                market_rows = list(self._ensure_market_all_rows() or [])
+                self.market_all_rows = market_rows
+            except Exception:
+                market_rows = list(getattr(self, "market_all_rows", []) or [])
                 pass
             try:
                 self._sync_ai_pool_market_fields()
             except Exception:
                 pass
+            manual_hold_count = 0
+            before_scores = {}
+            try:
+                for row in getattr(self, "ai_managed_rows", []) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    sym = str(row.get("symbol") or "").strip()
+                    if sym:
+                        before_scores[sym] = row.get("ai_score")
+                    if self._is_managed_manual_hold_row(row):
+                        manual_hold_count += 1
+            except Exception:
+                pass
             try:
                 self._update_ai_pool_statuses()
+            except Exception:
+                pass
+            updated_count = 0
+            try:
+                for row in getattr(self, "ai_managed_rows", []) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    sym = str(row.get("symbol") or "").strip()
+                    if sym and row.get("ai_score") != before_scores.get(sym):
+                        updated_count += 1
+                logging.getLogger("aits").info(
+                    "[AITS][ManagedScoreSync] event=sync_done | managed_count=%s | updated_count=%s | manual_hold_count=%s | submitted=0",
+                    len(getattr(self, "ai_managed_rows", []) or []),
+                    updated_count,
+                    manual_hold_count,
+                )
             except Exception:
                 pass
             try:
@@ -40941,6 +41028,16 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self._refresh_ai_detail_panel()
+            except Exception:
+                pass
+            try:
+                scanner_count = len(getattr(self, "_market_display_rows", []) or [])
+                logging.getLogger("aits").info(
+                    "[AITS][RefreshDispatcher] event=managed_refresh_done | tab=managed | managed_count=%s | scanner_count=%s | selected_symbol=%s | ai_call_allowed=False | api_call_attempted=False | submitted=0",
+                    len(getattr(self, "ai_managed_rows", []) or []),
+                    scanner_count,
+                    selected_symbol,
+                )
             except Exception:
                 pass
             return "managed_refreshed"
