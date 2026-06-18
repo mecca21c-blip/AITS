@@ -308,3 +308,25 @@ Safety remains unchanged:
 - No per-symbol AI refresh timer is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
 - `submitted=0` remains the internal safety state.
+
+## 18. DETAIL-CHART-LAYOUT-USABILITY-01 Implementation Note
+
+`DETAIL-CHART-LAYOUT-USABILITY-01` improves detail-chart information priority and resize behavior.
+
+Layout rules:
+
+- The detail chart uses a top-level horizontal splitter for `chart` and `information` areas.
+- The information area uses a nested horizontal splitter for `AI status` and `AI operation center`.
+- The AI status area keeps a vertical splitter so state and WHY cards can be resized.
+- The operation center uses a vertical splitter for observation scenario, observation time, and per-symbol policy.
+- The default priority is chart first, then AI status/WHY, then observation time and per-symbol policy.
+- The per-symbol policy panel remains a secondary/support area and should not visually dominate the primary judgement/WHY content.
+
+Safety remains unchanged:
+
+- This is a display/layout change only.
+- Detail chart open is not an AI call trigger.
+- No GPT/Gemini/OpenAI call is added.
+- No detail-chart AI Preview button is added.
+- No per-symbol AI refresh timer is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
