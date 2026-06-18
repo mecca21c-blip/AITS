@@ -211,3 +211,24 @@ Implemented policy intent:
 - Detail chart open behavior is intentionally unchanged in this Goal and remains a later guard Goal.
 - `submitted=0` is preserved.
 - Order, Router, Risk Guard, and Execution paths are not changed by this policy split.
+
+## 15. AI-BRIEFING-BADGE-01 Implementation Note
+
+`AI-BRIEFING-BADGE-01` improves the central briefing display without changing AI call timing.
+
+Implemented policy intent:
+
+- Briefing, reasons, and next actions display user-facing Korean copy instead of internal reason keys.
+- Internal reason keys such as `change_ratio_normalized`, `momentum_neutral`, and `trade_value_very_strong` are translated only at display time.
+- AI judgement source data is not rewritten by the display translation.
+- The central briefing card records and displays the generation-time engine badge.
+- Badge labels remain:
+  - GPT: `G`
+  - Gemini: `g`
+  - LOCAL: `L`
+- Badge colors follow the existing engine UI color family: GPT blue, Gemini purple, and LOCAL green.
+- Status refresh does not replace the existing briefing engine badge.
+- AI analysis refresh can update the badge when it creates a new briefing.
+- Detail chart open behavior is intentionally unchanged in this Goal and remains a later guard Goal.
+- `submitted=0` is preserved.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.

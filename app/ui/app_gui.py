@@ -6300,6 +6300,211 @@ class MainWindow(QMainWindow):
                 "next_action": [],
             }
 
+    def _looks_like_internal_ai_key(self, text: str) -> bool:
+        try:
+            s = str(text or "").strip()
+            if not s:
+                return False
+            if "_" in s:
+                return True
+            ascii_count = sum(1 for ch in s if ord(ch) < 128 and ch.isalpha())
+            alpha_count = sum(1 for ch in s if ch.isalpha())
+            return alpha_count > 0 and ascii_count == alpha_count and len(s.split()) <= 6
+        except Exception:
+            return False
+
+    def _translate_ai_reason_key_for_ui(self, value) -> str:
+        try:
+            key = str(value or "").strip()
+            if not key:
+                return ""
+            normalized = key.lower().strip().replace("-", "_").replace(" ", "_")
+            mapping = {
+                "change_ratio_normalized": "가격 변동률을 정규화해 반영했습니다.",
+                "momentum_neutral": "모멘텀은 중립 구간입니다.",
+                "momentum_positive": "단기 모멘텀이 개선되는 흐름입니다.",
+                "momentum_negative": "단기 모멘텀이 약해져 신중한 관찰이 필요합니다.",
+                "trade_value_very_strong": "거래대금이 매우 강합니다.",
+                "trade_value_strong": "거래대금이 충분히 강합니다.",
+                "trade_value_low": "거래대금이 부족해 신중한 관찰이 필요합니다.",
+                "trade_value_missing": "거래대금 데이터가 부족합니다.",
+                "volume_active": "거래 활동성이 확인됩니다.",
+                "volume_low": "거래량이 낮아 추격 판단은 보류합니다.",
+                "volatility_high": "변동성이 높아 추격 매수 위험이 있습니다.",
+                "risk_overheated": "단기 과열 가능성이 있습니다.",
+                "downtrend": "단기 하락 흐름이 감지됩니다.",
+                "uptrend": "단기 상승 흐름이 유지되고 있습니다.",
+                "technical_neutral": "기술 지표는 중립권입니다.",
+                "data_limited": "판단 데이터가 제한적입니다.",
+                "calculation_limited": "일부 데이터가 부족해 제한적으로 계산했습니다.",
+                "data_unavailable": "판단에 필요한 데이터가 아직 부족합니다.",
+                "calculation_failed": "계산 결과를 확정하지 못해 추가 확인이 필요합니다.",
+                "hold": "관망을 유지합니다.",
+                "wait": "추가 확인이 필요합니다.",
+                "buy_watch": "매수 후보로 관찰합니다.",
+                "sell_watch": "매도/리스크 후보로 관찰합니다.",
+                "watch": "관찰을 유지합니다.",
+                "buy": "매수 조건을 확인합니다.",
+                "sell": "매도 또는 리스크 조건을 확인합니다.",
+                "reduce": "비중 축소 필요성을 확인합니다.",
+                "remove": "관리 목록 제외 가능성을 확인합니다.",
+            }
+            if normalized in mapping:
+                return mapping[normalized]
+            compact = normalized.replace("_", "")
+            for source_key, label in mapping.items():
+                if compact == source_key.replace("_", ""):
+                    return label
+            if any(part in normalized for part in ("trade_value", "liquidity")):
+                return "거래대금과 유동성을 기준으로 신중하게 확인합니다."
+            if any(part in normalized for part in ("momentum", "trend", "rsi", "macd")):
+                return "모멘텀과 기술 흐름을 기준으로 관찰합니다."
+            if any(part in normalized for part in ("risk", "volatility", "overheat")):
+                return "리스크와 변동성 조건을 우선 확인합니다."
+            if self._looks_like_internal_ai_key(key):
+                return "계산 결과를 바탕으로 추가 관찰이 필요합니다."
+            return key
+        except Exception:
+            return "계산 결과를 바탕으로 추가 관찰이 필요합니다."
+
+    def _format_ai_reason_text_for_ui(self, value, limit: int = 5) -> str:
+        try:
+            if isinstance(value, str):
+                raw_items = []
+                for part in value.replace("·", "\n").replace("|", "\n").replace(",", "\n").splitlines():
+                    cleaned = part.strip().lstrip("-•·").strip()
+                    if cleaned:
+                        raw_items.append(cleaned)
+            elif isinstance(value, (list, tuple, set)):
+                raw_items = [str(x).strip().lstrip("-•·").strip() for x in value if str(x).strip()]
+            else:
+                raw_items = []
+            formatted = []
+            for item in raw_items:
+                text = self._translate_ai_reason_key_for_ui(item)
+                if text and text not in formatted:
+                    formatted.append(text)
+                if len(formatted) >= max(1, int(limit or 5)):
+                    break
+            if not formatted:
+                formatted = ["판단 근거를 정리할 데이터가 아직 부족합니다."]
+            return "\n".join(f"- {item}" for item in formatted)
+        except Exception:
+            return "- 판단 근거를 정리할 데이터가 아직 부족합니다."
+
+    def _format_ai_next_action_text_for_ui(self, value, limit: int = 3) -> str:
+        try:
+            if isinstance(value, str):
+                raw_items = [x.strip().lstrip("-•·").strip() for x in value.splitlines() if x.strip()]
+            elif isinstance(value, (list, tuple, set)):
+                raw_items = [str(x).strip().lstrip("-•·").strip() for x in value if str(x).strip()]
+            else:
+                raw_items = []
+            formatted = []
+            for item in raw_items:
+                text = self._translate_ai_reason_key_for_ui(item)
+                if text and text not in formatted:
+                    formatted.append(text)
+                if len(formatted) >= max(1, int(limit or 3)):
+                    break
+            if not formatted:
+                formatted = ["추가 데이터 확인 후 다음 판단을 갱신합니다."]
+            return "\n".join(f"- {item}" for item in formatted)
+        except Exception:
+            return "- 추가 데이터 확인 후 다음 판단을 갱신합니다."
+
+    def _resolve_ai_briefing_engine_meta(self, payload=None) -> dict:
+        try:
+            data = payload if isinstance(payload, dict) else {}
+            raw = " ".join(
+                str(data.get(k) or "")
+                for k in ("ai_briefing_provider", "provider", "source", "selected_engine", "actual_engine", "engine_mode")
+            ).lower()
+            if "gemini" in raw:
+                provider, label, badge, color, bg, border = "gemini", "Gemini", "g", "#7c3aed", "#f3e8ff", "#c4b5fd"
+            elif "gpt" in raw or "openai" in raw:
+                provider, label, badge, color, bg, border = "openai", "GPT", "G", "#2563eb", "#dbeafe", "#93c5fd"
+            else:
+                provider, label, badge, color, bg, border = "local", "LOCAL", "L", "#15803d", "#dcfce7", "#86efac"
+            return {
+                "provider": provider,
+                "label": label,
+                "badge": badge,
+                "color": color,
+                "background": bg,
+                "border": border,
+            }
+        except Exception:
+            return {
+                "provider": "local",
+                "label": "LOCAL",
+                "badge": "L",
+                "color": "#15803d",
+                "background": "#dcfce7",
+                "border": "#86efac",
+            }
+
+    def _remember_ai_briefing_engine_meta(self, payload=None, force: bool = False) -> dict:
+        try:
+            data = payload if isinstance(payload, dict) else {}
+            has_raw = bool(
+                str(
+                    data.get("raw_ai_response")
+                    or data.get("ai_raw_text")
+                    or data.get("raw_response")
+                    or ""
+                ).strip()
+            )
+            if not (force or has_raw):
+                existing = getattr(self, "_last_ai_briefing_engine_meta", None)
+                if isinstance(existing, dict) and existing.get("badge"):
+                    return existing
+            meta = self._resolve_ai_briefing_engine_meta(data)
+            try:
+                meta["generated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                meta["generated_at"] = ""
+            self._last_ai_briefing_engine_meta = dict(meta)
+            try:
+                sym = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+                for row in getattr(self, "ai_managed_rows", []) or []:
+                    if isinstance(row, dict) and str(row.get("symbol") or "").strip() == sym:
+                        row["ai_briefing_provider"] = meta.get("provider", "")
+                        row["ai_briefing_engine"] = meta.get("label", "")
+                        row["ai_briefing_engine_label"] = meta.get("label", "")
+                        row["ai_briefing_engine_badge"] = meta.get("badge", "")
+                        row["ai_briefing_generated_at"] = meta.get("generated_at", "")
+                        break
+            except Exception:
+                pass
+            self._apply_ai_briefing_engine_badge(meta)
+            return meta
+        except Exception:
+            return self._resolve_ai_briefing_engine_meta({})
+
+    def _apply_ai_briefing_engine_badge(self, meta=None) -> None:
+        try:
+            label = getattr(self, "lbl_ai_briefing_engine_badge", None)
+            if label is None:
+                return
+            if not isinstance(meta, dict) or not meta.get("badge"):
+                meta = getattr(self, "_last_ai_briefing_engine_meta", None)
+            if not isinstance(meta, dict) or not meta.get("badge"):
+                meta = self._resolve_ai_briefing_engine_meta({})
+            label.setText(str(meta.get("badge") or "L"))
+            label.setToolTip(f"생성 엔진: {meta.get('label') or 'LOCAL'}")
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            label.setStyleSheet(
+                "font-size: 11px; font-weight: 900;"
+                f" color: {meta.get('color', '#15803d')};"
+                f" background: {meta.get('background', '#dcfce7')};"
+                f" border: 1px solid {meta.get('border', '#86efac')};"
+                " border-radius: 9px; padding: 2px 7px;"
+                " min-width: 20px; max-width: 28px;"
+            )
+        except Exception:
+            pass
+
     def _normalize_aits_decision_text(self, decision_text: str):
         try:
             d = str(decision_text or "").strip()
@@ -6400,6 +6605,10 @@ class MainWindow(QMainWindow):
                 "next_action": list(parsed.get("next_action", []) or []),
                 "raw_ai_response": raw_text,
                 "rotation": self._extract_rotation_payload(payload),
+                "source": str(payload.get("source", "") or "").strip(),
+                "selected_engine": str(payload.get("selected_engine", "") or "").strip(),
+                "actual_engine": str(payload.get("actual_engine", "") or "").strip(),
+                "provider": str(payload.get("provider", "") or "").strip(),
             }
         except Exception:
             return {
@@ -6413,6 +6622,10 @@ class MainWindow(QMainWindow):
                     "to_symbol": "",
                     "why": "",
                 },
+                "source": "",
+                "selected_engine": "",
+                "actual_engine": "",
+                "provider": "",
             }
 
     def _merge_aits_reco_payloads(self, base_payload: dict, gpt_payload: dict):
@@ -6447,6 +6660,16 @@ class MainWindow(QMainWindow):
                 ):
                     final_rotation = dict(base_rotation)
 
+            gpt_source = str(
+                gpt.get("source", "")
+                or (gpt_payload or {}).get("source", "")
+                or ""
+            ).strip().lower()
+            if gpt_source == "openai":
+                gpt_source = "gpt"
+            if gpt_source not in ("gpt", "gemini", "local"):
+                gpt_source = "gpt" if gpt.get("raw_ai_response") else "base"
+
             merged = {
                 "decision_summary": final_decision,
                 "reason": final_reason,
@@ -6459,7 +6682,19 @@ class MainWindow(QMainWindow):
                     or base.get("raw_ai_response", "")
                     or ""
                 ).strip(),
-                "source": "gpt" if gpt.get("raw_ai_response") else "base",
+                "source": gpt_source if gpt.get("raw_ai_response") else "base",
+                "selected_engine": str(
+                    gpt.get("selected_engine", "")
+                    or (gpt_payload or {}).get("selected_engine", "")
+                    or (base_payload or {}).get("selected_engine", "")
+                    or ""
+                ).strip(),
+                "actual_engine": str(
+                    gpt.get("actual_engine", "")
+                    or (gpt_payload or {}).get("actual_engine", "")
+                    or (base_payload or {}).get("actual_engine", "")
+                    or ""
+                ).strip(),
             }
 
             return merged
@@ -6511,6 +6746,10 @@ class MainWindow(QMainWindow):
                 pass
 
             self._aits_last_ai_explanation = parsed
+            try:
+                self._remember_ai_briefing_engine_meta(final_payload)
+            except Exception:
+                pass
 
             try:
                 rot_dbg = getattr(self, "_aits_last_rotation_payload", {}) or {}
@@ -6617,6 +6856,10 @@ class MainWindow(QMainWindow):
         decision = str(data.get("decision", "") or "").strip()
         reasons = list(data.get("reason", []) or [])
         nexts = list(data.get("next_action", []) or [])
+        try:
+            self._apply_ai_briefing_engine_badge()
+        except Exception:
+            pass
 
         try:
             rot_lines = self._build_rotation_explanation_lines()
@@ -6625,8 +6868,8 @@ class MainWindow(QMainWindow):
 
         decision_text = f"[AI 판단] {decision}"
 
-        reason_text = "\n".join([f"- {r}" for r in reasons[:5]])
-        next_text = "\n".join([f"→ {n}" for n in nexts[:3]])
+        reason_text = self._format_ai_reason_text_for_ui(reasons, limit=5)
+        next_text = self._format_ai_next_action_text_for_ui(nexts, limit=3)
 
         rotation_block = ""
         if rot_lines:
@@ -11538,6 +11781,15 @@ class MainWindow(QMainWindow):
             pass
         _lbl_bf_title.setStyleSheet("")
         _bf_title_row.addWidget(_lbl_bf_title, 1)
+        self.lbl_ai_briefing_engine_badge = QLabel("L")
+        try:
+            self.lbl_ai_briefing_engine_badge.setMinimumHeight(22)
+            self.lbl_ai_briefing_engine_badge.setMaximumHeight(24)
+            self.lbl_ai_briefing_engine_badge.setFixedWidth(30)
+            self._apply_ai_briefing_engine_badge()
+        except Exception:
+            pass
+        _bf_title_row.addWidget(self.lbl_ai_briefing_engine_badge, 0)
         self.btn_ai_center_briefing_detail = QPushButton("")
         self.btn_ai_center_briefing_detail.setToolTip("AI 브리핑 팝업")
         try:
@@ -21727,6 +21979,7 @@ class MainWindow(QMainWindow):
             picked = []
             for ln in lines:
                 x = ln.lstrip("-• ").strip() or ln
+                x = self._translate_ai_reason_key_for_ui(x)
                 if x not in picked:
                     picked.append(x)
                 if len(picked) >= 3:
@@ -21801,6 +22054,7 @@ class MainWindow(QMainWindow):
 
             why_pick = []
             for w in why_plain:
+                w = self._translate_ai_reason_key_for_ui(w)
                 if w not in why_pick:
                     why_pick.append(w)
                 if len(why_pick) >= 2:
@@ -21810,6 +22064,7 @@ class MainWindow(QMainWindow):
                 src = self._get_center_symbol_context_text(row if isinstance(row, dict) else None)
                 for x in [ln.strip() for ln in src.splitlines() if ln.strip()]:
                     x = x.lstrip("-• ").strip()
+                    x = self._translate_ai_reason_key_for_ui(x)
                     if x and x not in why_pick:
                         why_pick.append(x)
                     if len(why_pick) >= 2:
@@ -21822,6 +22077,7 @@ class MainWindow(QMainWindow):
 
             next_pick = []
             for n in next_plain:
+                n = self._translate_ai_reason_key_for_ui(n)
                 if n not in next_pick:
                     next_pick.append(n)
                 if len(next_pick) >= 2:
@@ -38334,6 +38590,13 @@ class MainWindow(QMainWindow):
                 )
             parsed = self._parse_aits_ai_response(ai_raw_text)
             self._aits_last_ai_explanation = parsed
+            try:
+                manual_generation = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
+                self._remember_ai_briefing_engine_meta(_pl, force=manual_generation)
+                if manual_generation:
+                    self._ai_briefing_pending_manual_request = False
+            except Exception:
+                pass
             self._render_aits_ai_explanation()
 
             try:
@@ -40354,6 +40617,10 @@ class MainWindow(QMainWindow):
                 return
 
             self._ai_analysis_refresh_last_ts = now_ts
+            try:
+                self._ai_briefing_pending_manual_request = True
+            except Exception:
+                pass
             provider = "basic"
             try:
                 provider = str(self._get_aits_engine_ssot() or "basic").strip().lower()
