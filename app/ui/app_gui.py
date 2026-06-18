@@ -3088,18 +3088,95 @@ class AITSLargeChartDialog(QDialog):
             )
             try:
                 self._detail_popup_ai_output_contract = None
-                gpt_input = self._build_gpt_input_contract(self._symbol)
-                gpt_output = self._build_gpt_preview_output(gpt_input)
-                if isinstance(gpt_output, dict) and bool(gpt_output.get("available")):
-                    scenario_slot = gpt_output.get("scenario") if isinstance(gpt_output.get("scenario"), dict) else {}
-                    scenario_name = str(scenario_slot.get("name") or "").strip()
-                    scenario_summary = str(scenario_slot.get("summary") or "").strip()
-                    if scenario_name:
-                        self.lbl_detail_popup_scenario_title.setText(scenario_name)
-                    if scenario_summary:
-                        self.lbl_detail_popup_scenario_context.setText(scenario_summary)
-                    self.lbl_detail_popup_scenario_type.setText("GPT Preview")
-                    self.lbl_asset_scenario_source.setText("기준: GPT Preview")
+                parent_obj = None
+                try:
+                    parent_obj = self.parent()
+                except Exception:
+                    parent_obj = None
+                last_payload = {}
+                try:
+                    last_payload = dict(getattr(parent_obj, "_aits_last_final_reco_payload", {}) or {})
+                except Exception:
+                    last_payload = {}
+                last_explanation = {}
+                try:
+                    last_explanation = dict(getattr(parent_obj, "_aits_last_ai_explanation", {}) or {})
+                except Exception:
+                    last_explanation = {}
+
+                last_decision = str(
+                    last_payload.get("decision_summary")
+                    or last_explanation.get("decision")
+                    or ""
+                ).strip()
+                last_reasons = last_payload.get("reason") or last_explanation.get("reason") or []
+                if isinstance(last_reasons, str):
+                    last_reasons = [last_reasons] if last_reasons.strip() else []
+                last_reason_text = ""
+                try:
+                    if parent_obj is not None and hasattr(parent_obj, "_format_ai_reason_text_for_ui"):
+                        last_reason_text = parent_obj._format_ai_reason_text_for_ui(last_reasons, limit=3)
+                except Exception:
+                    last_reason_text = ""
+                if not last_reason_text and last_reasons:
+                    last_reason_text = "\n".join(f"- {str(x).strip()}" for x in last_reasons[:3] if str(x).strip())
+
+                if last_decision or last_reason_text:
+                    self.lbl_detail_popup_scenario_title.setText("최근 AI 분석")
+                    self.lbl_detail_popup_scenario_context.setText(
+                        "\n".join(x for x in (last_decision, last_reason_text) if str(x or "").strip())
+                    )
+                    self.lbl_detail_popup_scenario_type.setText("Last-known AI")
+                    self.lbl_asset_scenario_source.setText("기준: last-known AI 분석")
+                    self._detail_popup_ai_output_contract = {
+                        "schema": "aits_ai_output_contract.v1",
+                        "available": True,
+                        "source": "last_known_preview",
+                        "preview_status": "last_known",
+                        "safety": {
+                            "preview_only": True,
+                            "runtime_applied": False,
+                            "order_applied": False,
+                        },
+                    }
+                    proof_source = "last_known_preview"
+                    actual_engine = "last_known_response"
+                else:
+                    self.lbl_detail_popup_scenario_title.setText("AI 분석 없음")
+                    self.lbl_detail_popup_scenario_context.setText(
+                        "아직 생성된 AI Preview가 없습니다. AI 분석 새로고침을 눌러 현재 선택 엔진으로 분석을 생성할 수 있습니다."
+                    )
+                    self.lbl_detail_popup_scenario_type.setText("AI Preview 대기")
+                    self.lbl_asset_scenario_source.setText("기준: detail chart open guard")
+                    self._detail_popup_ai_output_contract = {
+                        "schema": "aits_ai_output_contract.v1",
+                        "available": False,
+                        "source": "detail_chart_open_guard",
+                        "preview_status": "not_requested",
+                        "safety": {
+                            "preview_only": True,
+                            "runtime_applied": False,
+                            "order_applied": False,
+                        },
+                    }
+                    proof_source = "detail_chart_open_guard"
+                    actual_engine = "not_called"
+
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][EnginePathProof] surface=detail_chart trigger=open actual_engine=%s source=%s "
+                        "api_call_allowed=False api_call_attempted=False order_allowed=False submitted=0",
+                        actual_engine,
+                        proof_source,
+                    )
+                    logging.getLogger("aits").info(
+                        "[AITS][DetailChartAIPreviewGuard] event=auto_preview_blocked | symbol=%s | source=%s | "
+                        "api_call_allowed=False | api_call_attempted=False | submitted=0",
+                        str(getattr(self, "_symbol", "") or ""),
+                        proof_source,
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
             self._sync_ai_briefing_center(briefing)

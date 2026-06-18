@@ -250,3 +250,21 @@ Implemented policy intent:
 - Detail chart open behavior is intentionally unchanged in this Goal and remains a later guard Goal.
 - `submitted=0` is preserved.
 - Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
+
+## 17. DETAIL-CHART-AI-PREVIEW-GUARD-01 Implementation Note
+
+`DETAIL-CHART-AI-PREVIEW-GUARD-01` blocks automatic GPT/OpenAI Preview calls when a detail chart is opened.
+
+Implemented policy intent:
+
+- Detail chart open is not an AI call trigger.
+- Detail chart open does not call GPT, Gemini, OpenAI, or any paid Provider/API path.
+- The existing GPT Preview builder remains available for a future explicit Preview refresh button.
+- Detail chart open displays last-known AI analysis when session data exists.
+- If no last-known AI analysis exists, the detail chart displays an AI Preview placeholder.
+- Guard logs report `api_call_allowed=False`, `api_call_attempted=False`, `order_allowed=False`, and `submitted=0`.
+- The top AI analysis refresh button remains the explicit AI judgement request path.
+- The status refresh dispatcher is unchanged by this guard.
+- Engine badge policy remains generation-time based.
+- A future `DETAIL-CHART-AI-PREVIEW-BUTTON-01` Goal may add an explicit detail-chart Preview refresh button.
+- Provider/API payloads, Router, Risk Guard, Order, and Execution paths are not changed.
