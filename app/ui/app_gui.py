@@ -23412,6 +23412,336 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _normalize_market_symbol_for_ai_snapshot(self, value):
+        try:
+            text = str(value or "").strip().upper()
+            if not text:
+                return ""
+            text = text.replace("/", "-").replace("_", "-")
+            if "-" in text:
+                left, right = text.split("-", 1)
+                if left and right:
+                    return f"{left}-{right}"
+            if text.isalnum() and not text.startswith("KRW"):
+                return f"KRW-{text}"
+            return text
+        except Exception:
+            return str(value or "").strip().upper()
+
+    def _resolve_current_ai_snapshot_symbol(self, fallback=""):
+        try:
+            for attr in (
+                "_ai_briefing_pending_snapshot_symbol",
+                "_aits_selected_managed_symbol",
+                "_selected_ai_pool_symbol",
+                "_aits_large_chart_symbol",
+                "_last_detail_chart_symbol",
+            ):
+                sym = self._normalize_market_symbol_for_ai_snapshot(getattr(self, attr, "") or "")
+                if sym:
+                    return sym
+            return self._normalize_market_symbol_for_ai_snapshot(fallback)
+        except Exception:
+            return self._normalize_market_symbol_for_ai_snapshot(fallback)
+
+    def _normalize_detail_chart_snapshot_engine(self, value):
+        try:
+            raw = str(value or "").strip().lower()
+            if raw in ("gpt", "openai") or raw.startswith("gpt-"):
+                return "GPT"
+            if raw in ("gemini", "google") or raw.startswith("gemini"):
+                return "Gemini"
+            if raw in ("local", "local_ai", "basic", "ollama"):
+                return "LOCAL"
+            return str(value or "").strip() or "unknown"
+        except Exception:
+            return "unknown"
+
+    def _parse_detail_chart_snapshot_dt(self, value):
+        try:
+            from datetime import datetime
+            raw = str(value or "").strip()
+            if not raw:
+                return None
+            for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+                try:
+                    return datetime.strptime(raw.replace("Z", "").split("+")[0], fmt)
+                except Exception:
+                    pass
+            return None
+        except Exception:
+            return None
+
+    def _format_detail_chart_snapshot_age_label(self, age_seconds):
+        try:
+            sec = int(age_seconds or 0)
+            if sec < 60:
+                return "\uBC29\uAE08 \uC804"
+            minutes = sec // 60
+            if minutes < 60:
+                return f"{minutes}\uBD84 \uC804"
+            hours = minutes // 60
+            rem = minutes % 60
+            if rem:
+                return f"{hours}\uC2DC\uAC04 {rem}\uBD84 \uC804"
+            return f"{hours}\uC2DC\uAC04 \uC804"
+        except Exception:
+            return "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
+
+    def _format_detail_chart_snapshot_source_label(self, value):
+        try:
+            raw = str(value or "").strip().lower()
+            if raw in ("manual_refresh", "manual", "button", "user"):
+                return "\uC218\uB3D9 \uC0C8\uB85C\uACE0\uCE68"
+            if raw in ("auto_condition", "event", "background", "auto"):
+                return "\uC790\uB3D9 \uC870\uAC74 \uAC10\uC9C0"
+            if raw in ("last_known_preview", "last_known_ai", "ai_reco_updated", "gpt", "gemini", "local"):
+                return "\uCD5C\uADFC AI \uBD84\uC11D"
+            return "\uCD9C\uCC98 \uD655\uC778 \uBD88\uAC00"
+        except Exception:
+            return "\uCD9C\uCC98 \uD655\uC778 \uBD88\uAC00"
+
+    def _record_recent_ai_snapshot_for_symbol(self, symbol="", payload=None, parsed=None, source="unknown"):
+        try:
+            sym = self._resolve_current_ai_snapshot_symbol(symbol)
+            if not sym:
+                return {}
+            payload = payload if isinstance(payload, dict) else {}
+            parsed = parsed if isinstance(parsed, dict) else {}
+            provider = (
+                payload.get("ai_briefing_provider")
+                or payload.get("provider")
+                or payload.get("actual_engine")
+                or payload.get("selected_engine")
+                or ""
+            )
+            generated_at = (
+                payload.get("ai_briefing_generated_at")
+                or payload.get("generated_at")
+                or payload.get("created_at")
+                or payload.get("timestamp")
+                or ""
+            )
+            if not str(generated_at or "").strip():
+                try:
+                    generated_at = time.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    generated_at = ""
+            reason = parsed.get("reason") or payload.get("reason") or payload.get("reasons") or []
+            next_action = parsed.get("next_action") or payload.get("next_action") or payload.get("next_actions") or []
+            decision = parsed.get("decision") or payload.get("decision_summary") or payload.get("decision") or ""
+            snapshot = {
+                "symbol": sym,
+                "engine": self._normalize_detail_chart_snapshot_engine(provider),
+                "provider": str(provider or "").strip(),
+                "generated_at": str(generated_at or "").strip(),
+                "source": str(source or payload.get("source") or "unknown").strip() or "unknown",
+                "briefing": str(decision or "").strip(),
+                "reason": reason,
+                "next_action": next_action,
+            }
+            cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._aits_recent_ai_snapshot_by_symbol = cache
+            cache[sym] = dict(snapshot)
+            try:
+                for row in getattr(self, "ai_managed_rows", []) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    row_sym = self._normalize_market_symbol_for_ai_snapshot(
+                        row.get("symbol") or row.get("market") or row.get("code") or ""
+                    )
+                    if row_sym != sym:
+                        continue
+                    row["ai_briefing_provider"] = snapshot.get("provider", "")
+                    row["ai_briefing_engine"] = snapshot.get("engine", "")
+                    row["ai_briefing_engine_label"] = snapshot.get("engine", "")
+                    row["ai_briefing_generated_at"] = snapshot.get("generated_at", "")
+                    row["ai_briefing"] = snapshot.get("briefing", "")
+                    row["ai_reason"] = snapshot.get("reason", [])
+                    row["ai_next_action"] = snapshot.get("next_action", [])
+                    break
+            except Exception:
+                pass
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s source=%s has_generated_at=%s order_allowed=False submitted=0",
+                    sym,
+                    snapshot.get("engine") or "unknown",
+                    snapshot.get("source") or "unknown",
+                    bool(snapshot.get("generated_at")),
+                )
+            except Exception:
+                pass
+            try:
+                if str(snapshot.get("source") or "").strip() == "manual_refresh":
+                    self._append_managed_live_log("\uCD5C\uADFC AI \uBD84\uC11D \uC800\uC7A5\uB428 \u00B7 \uC0C1\uC138\uCC28\uD2B8\uC5D0\uC11C \uD655\uC778 \uAC00\uB2A5", sym)
+            except Exception:
+                pass
+            try:
+                self._refresh_open_detail_chart_ai_snapshot(sym)
+            except Exception:
+                pass
+            return snapshot
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][AISnapshotStore] event=store_failed error_type=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            try:
+                self._append_managed_live_log("\uCD5C\uADFC AI \uBD84\uC11D \uC800\uC7A5 \uC2E4\uD328 \u00B7 \uB85C\uADF8 \uD655\uC778 \uD544\uC694", symbol)
+            except Exception:
+                pass
+            return {}
+
+    def _refresh_open_detail_chart_ai_snapshot(self, symbol=""):
+        try:
+            dlg = getattr(self, "_aits_large_chart_dialog", None)
+            if dlg is None:
+                return
+            current = self._normalize_market_symbol_for_ai_snapshot(
+                getattr(self, "_aits_large_chart_symbol", "") or getattr(self, "_last_detail_chart_symbol", "")
+            )
+            target = self._normalize_market_symbol_for_ai_snapshot(symbol)
+            if not current or (target and current != target):
+                return
+            row_index = int(getattr(dlg, "_aits_row_index", -1) or -1)
+            row_obj = None
+            try:
+                rows = getattr(self, "ai_managed_rows", None) or []
+                if 0 <= row_index < len(rows) and isinstance(rows[row_index], dict):
+                    row_obj = rows[row_index]
+            except Exception:
+                row_obj = None
+            contract = self._build_detail_chart_display_contract(
+                symbol_text=current,
+                row_index=row_index,
+                row_data=row_obj,
+                detail_output_contract=getattr(dlg, "_detail_popup_ai_output_contract", None),
+            )
+            self._publish_detail_chart_display_contract(contract, dlg)
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAISnapshot] event=open_chart_refreshed symbol=%s source=per_symbol_cache order_allowed=False submitted=0",
+                    current,
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _build_detail_chart_ai_snapshot_meta(self, symbol_text="", row_data=None, detail_output_contract=None):
+        symbol = self._normalize_market_symbol_for_ai_snapshot(symbol_text)
+        row_obj = row_data if isinstance(row_data, dict) else {}
+        cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
+        snapshot = {}
+        source_name = "missing"
+        if isinstance(cache, dict) and symbol:
+            snapshot = dict(cache.get(symbol) or {})
+            if snapshot:
+                source_name = "per_symbol_cache"
+        if not snapshot and row_obj:
+            provider = row_obj.get("ai_briefing_provider") or row_obj.get("ai_briefing_engine") or ""
+            generated_at = row_obj.get("ai_briefing_generated_at") or ""
+            has_text = bool(row_obj.get("ai_briefing") or row_obj.get("ai_reason") or row_obj.get("ai_next_action"))
+            if provider or generated_at or has_text:
+                snapshot = {
+                    "symbol": symbol,
+                    "engine": self._normalize_detail_chart_snapshot_engine(provider),
+                    "provider": str(provider or "").strip(),
+                    "generated_at": str(generated_at or "").strip(),
+                    "source": "row_session",
+                    "briefing": str(row_obj.get("ai_briefing") or "").strip(),
+                    "reason": row_obj.get("ai_reason") or [],
+                    "next_action": row_obj.get("ai_next_action") or [],
+                }
+                source_name = "row_session"
+        if not snapshot:
+            meta = {
+                "has_snapshot": False,
+                "symbol": symbol,
+                "payload_symbol": "",
+                "is_symbol_matched": False,
+                "engine": None,
+                "provider": "",
+                "generated_at": None,
+                "age_seconds": None,
+                "age_label": "\uCD5C\uADFC AI \uBD84\uC11D \uC5C6\uC74C",
+                "freshness": "missing",
+                "freshness_label": "\uCD5C\uADFC AI \uBD84\uC11D \uC5C6\uC74C",
+                "source": "missing",
+                "source_label": "\uBD84\uC11D \uC5C6\uC74C",
+                "lookup_source": "missing",
+            }
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=False reason=no_symbol_snapshot api_call_attempted=False order_allowed=False submitted=0",
+                    symbol,
+                )
+            except Exception:
+                pass
+            return meta
+        payload_symbol = self._normalize_market_symbol_for_ai_snapshot(snapshot.get("symbol") or symbol)
+        generated_at = snapshot.get("generated_at")
+        parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
+        age_seconds = None
+        if parsed_at is not None:
+            try:
+                from datetime import datetime
+                age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
+            except Exception:
+                age_seconds = None
+        if age_seconds is None:
+            freshness = "unknown"
+            freshness_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
+            age_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
+        elif age_seconds <= 15 * 60:
+            freshness = "fresh"
+            freshness_label = "\uCD5C\uC2E0 \uCC38\uACE0 \uAC00\uB2A5"
+            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        elif age_seconds <= 60 * 60:
+            freshness = "usable"
+            freshness_label = "\uCC38\uACE0 \uAC00\uB2A5"
+            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        else:
+            freshness = "stale"
+            freshness_label = "\uC624\uB798\uB41C \uBD84\uC11D\uC77C \uC218 \uC788\uC74C"
+            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        matched = bool(symbol and payload_symbol == symbol)
+        meta = {
+            "has_snapshot": bool(matched),
+            "symbol": symbol,
+            "payload_symbol": payload_symbol,
+            "is_symbol_matched": matched,
+            "engine": snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(snapshot.get("provider")),
+            "provider": str(snapshot.get("provider") or "").strip(),
+            "generated_at": str(generated_at or "").strip() or None,
+            "age_seconds": age_seconds,
+            "age_label": age_label,
+            "freshness": freshness,
+            "freshness_label": freshness_label,
+            "source": str(snapshot.get("source") or "unknown").strip(),
+            "source_label": self._format_detail_chart_snapshot_source_label(snapshot.get("source")),
+            "lookup_source": source_name,
+        }
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s source=%s engine=%s freshness=%s symbol_matched=%s api_call_attempted=False order_allowed=False submitted=0",
+                symbol,
+                bool(meta.get("has_snapshot")),
+                source_name,
+                meta.get("engine") or "unknown",
+                freshness,
+                matched,
+            )
+        except Exception:
+            pass
+        return meta
+
     def _append_aits_recent_log(self, sym: str, message: str) -> None:
         try:
             from datetime import datetime
@@ -23434,6 +23764,86 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _append_managed_live_log(self, message: str, symbol: str = "") -> None:
+        target_name = "none"
+        ok = False
+        try:
+            msg = str(message or "").strip()
+            sym = str(symbol or getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            if not msg:
+                return
+            try:
+                from datetime import datetime
+                logs = getattr(self, "_aits_recent_logs", None)
+                if not isinstance(logs, list):
+                    logs = []
+                line = f"{datetime.now().strftime('%H:%M')} {sym + ' ' if sym else ''}{msg}".strip()
+                logs.append(line)
+                self._aits_recent_logs = logs[-5:]
+            except Exception:
+                pass
+            try:
+                self._sync_recent_log_label()
+            except Exception:
+                pass
+            logs = getattr(self, "_aits_recent_logs", None) or []
+            latest = str(logs[-1] if logs else msg).strip()
+            raw_text = "\n".join(str(x or "").strip() for x in logs if str(x or "").strip()) or latest
+            bar = getattr(self, "lbl_ai_recent_log_bar", None)
+            lb = getattr(self, "lbl_ai_recent_log", None)
+            title = getattr(self, "lbl_ai_recent_log_title", None)
+            frame = getattr(self, "_frm_ai_recent_log", None)
+            try:
+                if frame is not None and hasattr(frame, "setVisible"):
+                    frame.setVisible(True)
+            except Exception:
+                pass
+            try:
+                if title is not None and hasattr(title, "setVisible"):
+                    title.setVisible(True)
+            except Exception:
+                pass
+            if bar is not None:
+                try:
+                    bar.setVisible(True)
+                    bar.setTextFormat(Qt.TextFormat.PlainText)
+                    bar.setText(latest)
+                    target_name = "lbl_ai_recent_log_bar"
+                    ok = True
+                except Exception:
+                    ok = False
+            if lb is not None:
+                try:
+                    lb.setTextFormat(Qt.TextFormat.PlainText)
+                except Exception:
+                    pass
+                try:
+                    if not ok:
+                        lb.setVisible(True)
+                        target_name = "lbl_ai_recent_log"
+                    lb.setText(raw_text)
+                    ok = True
+                except Exception:
+                    pass
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][ManagedLiveLog] event=append_attempt target=%s ok=%s submitted=0",
+                    target_name,
+                    bool(ok),
+                )
+            except Exception:
+                pass
+            if not ok:
+                raise RuntimeError("managed_live_log_widget_not_found")
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][ManagedLiveLog] event=append_failed error_type=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
     def _set_managed_action_status(self, message: str, color: str = "#334155", symbol: str = "") -> None:
         try:
             msg = str(message or "").strip()
@@ -23445,8 +23855,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
-                self._append_aits_recent_log(sym, msg)
-                self._sync_recent_log_label()
+                self._append_managed_live_log(msg, sym)
             except Exception:
                 pass
         except Exception:
@@ -42514,6 +42923,10 @@ class MainWindow(QMainWindow):
             except Exception:
                 entry_symbol = ""
             try:
+                self._append_managed_live_log("AI 분석 새로고침 클릭됨 · 실제 주문 없음", entry_symbol)
+            except Exception:
+                pass
+            try:
                 btn = getattr(self, "btn_managed_ai_analysis_refresh", None) or getattr(self, "btn_ai_analysis_refresh", None)
                 self._log.info(
                     "[AITS][AIAnalysisRefreshProof] event=ai_button_clicked | "
@@ -43036,6 +43449,10 @@ class MainWindow(QMainWindow):
         """Top status refresh dispatcher. This path must not schedule paid AI calls."""
         try:
             tab = self._get_current_refresh_tab_key()
+            try:
+                self._append_managed_live_log("상태 새로고침 클릭됨 · 처리 중...")
+            except Exception:
+                pass
             try:
                 btn = getattr(self, "btn_managed_state_refresh", None) or getattr(self, "btn_refresh", None)
                 logging.getLogger("aits").info(

@@ -445,6 +445,20 @@ Policy intent:
 - Skips, failures, and in-flight waits should be visible to the user without exposing API keys, prompts, account data, or full payloads.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
 
+## 30. MANAGED-TAB-LIVELOG-WIRING-01 Implementation Note
+
+`MANAGED-TAB-LIVELOG-WIRING-01` restores user feedback through the existing managed-tab Live Log surface.
+
+Policy intent:
+
+- Status refresh and AI analysis refresh should write click, progress, completion, skip, and failure feedback to the existing Live Log.
+- No separate recent-action status label is introduced.
+- Live Log append failures are recorded through safe proof logs without exposing prompts, API keys, account data, or payload bodies.
+- Status refresh remains a Basic/local display refresh and is not an AI call trigger.
+- AI analysis refresh remains an explicit user request and is unrelated to order execution.
+- Completed manual AI analysis may store a symbol-specific snapshot and report that it can be checked in the detail chart.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
+
 ## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.
