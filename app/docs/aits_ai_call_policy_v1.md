@@ -430,6 +430,21 @@ Policy intent:
 - Skipped or failed analysis should report a user-visible reason without exposing API keys, prompts, account data, or full payloads.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
 
+## 29. MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01` audits and repairs the runtime action path for the managed-tab refresh buttons.
+
+Policy intent:
+
+- The visible managed-tab status refresh button must emit click-entry proof and user feedback before running its data-only refresh.
+- Status refresh remains Basic/local display refresh only and must not schedule GPT, Gemini, OpenAI, or Provider calls.
+- The visible managed-tab AI analysis refresh button is an explicit user request and may use the existing AI analysis scheduling path.
+- AITS OFF means automated trading is off; it does not block display-only explicit AI analysis.
+- Manual AI analysis requests may bypass same-context or cooldown suppression, but not an in-flight request.
+- Completed AI analysis results are stored as symbol-specific recent snapshots for detail-chart display.
+- Skips, failures, and in-flight waits should be visible to the user without exposing API keys, prompts, account data, or full payloads.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
+
 ## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.

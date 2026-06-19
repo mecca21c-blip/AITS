@@ -9750,6 +9750,7 @@ class MainWindow(QMainWindow):
         self._aits_main_reco_latest_applied_seq = 0
         self._aits_main_reco_latest_payload_fp = ""
         self._aits_main_reco_min_change_sec = 8.0
+        self._aits_main_reco_manual_request = False
         self._aits_last_base_reco_payload = {}
         self._aits_last_gpt_reco_payload = {}
         self._aits_last_final_reco_payload = {}
@@ -32280,9 +32281,20 @@ class MainWindow(QMainWindow):
 
     def _schedule_aits_main_gpt_reco(self, delay_ms=200):
         try:
+            manual_request = bool(getattr(self, "_aits_main_reco_manual_request", False))
             should_run, _why = self._should_run_aits_main_gpt_reco()
             if not should_run:
-                return False, str(_why or "blocked")
+                if manual_request and str(_why or "").strip() != "inflight":
+                    try:
+                        self._log.info(
+                            "[AITS][AIAnalysisRefresh] event=manual_schedule_override | "
+                            "reason=%s | explicit_user_request=True | order_allowed=False | submitted=0",
+                            str(_why or "blocked"),
+                        )
+                    except Exception:
+                        pass
+                else:
+                    return False, str(_why or "blocked")
 
             QTimer.singleShot(int(delay_ms), self._run_aits_main_gpt_reco_and_publish)
             return True, "scheduled"
@@ -33113,9 +33125,46 @@ class MainWindow(QMainWindow):
         now_ts = time.time()
 
         try:
+            manual_request = bool(getattr(self, "_aits_main_reco_manual_request", False))
             should_run, _why = self._should_run_aits_main_gpt_reco()
             if not should_run:
-                return
+                if manual_request and str(_why or "").strip() != "inflight":
+                    try:
+                        self._log.info(
+                            "[AITS][AIAnalysisRefresh] event=manual_run_override | reason=%s | "
+                            "explicit_user_request=True | order_allowed=False | submitted=0",
+                            str(_why or "blocked"),
+                        )
+                    except Exception:
+                        pass
+                else:
+                    if manual_request:
+                        try:
+                            self._set_managed_action_status(
+                                "AI 분석 대기 · 이전 요청 처리 중입니다.",
+                                "#b45309",
+                                self._resolve_current_ai_snapshot_symbol(),
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            self._log.info(
+                                "[AITS][AIAnalysisRefresh] event=skipped | symbol=%s | reason=%s | "
+                                "snapshot_store_attempted=False | order_allowed=False | submitted=0",
+                                self._resolve_current_ai_snapshot_symbol(),
+                                str(_why or "blocked"),
+                            )
+                        except Exception:
+                            pass
+                    try:
+                        self._aits_main_reco_manual_request = False
+                    except Exception:
+                        pass
+                    return
+            try:
+                self._aits_main_reco_manual_request = False
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -42536,6 +42585,7 @@ class MainWindow(QMainWindow):
                 self._ai_briefing_pending_manual_request = True
                 self._ai_briefing_pending_snapshot_symbol = selected_symbol
                 self._ai_briefing_last_snapshot_source = "manual_refresh"
+                self._aits_main_reco_manual_request = True
             except Exception:
                 pass
             provider = "basic"
@@ -42573,21 +42623,40 @@ class MainWindow(QMainWindow):
                 except Exception:
                     should_run, why = True, ""
                 if not should_run:
-                    try:
-                        self._log.info(
-                            "[AITS][AIAnalysisRefresh] event=skipped | symbol=%s | reason=%s | "
-                            "api_call_allowed=True | order_allowed=False | submitted=0",
+                    if str(why or "").strip() != "inflight":
+                        try:
+                            self._log.info(
+                                "[AITS][AIAnalysisRefresh] event=manual_request_override | symbol=%s | reason=%s | "
+                                "explicit_user_request=True | api_call_allowed=True | order_allowed=False | submitted=0",
+                                selected_symbol,
+                                str(why or "blocked"),
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            self._aits_main_reco_manual_request = False
+                        except Exception:
+                            pass
+                        try:
+                            self._ai_briefing_pending_manual_request = False
+                        except Exception:
+                            pass
+                        try:
+                            self._log.info(
+                                "[AITS][AIAnalysisRefresh] event=skipped | symbol=%s | reason=%s | "
+                                "api_call_allowed=True | order_allowed=False | submitted=0",
+                                selected_symbol,
+                                str(why or "unknown"),
+                            )
+                        except Exception:
+                            pass
+                        self._set_managed_action_status(
+                            "AI 분석 대기 · 이전 요청 처리 중입니다.",
+                            "#b45309",
                             selected_symbol,
-                            str(why or "unknown"),
                         )
-                    except Exception:
-                        pass
-                    self._set_managed_action_status(
-                        f"AI 분석 생략 · {why or '조건 미충족'}",
-                        "#b45309",
-                        selected_symbol,
-                    )
-                    return
+                        return
                 scheduled, schedule_reason = self._schedule_aits_main_gpt_reco(200)
                 if not scheduled:
                     try:
@@ -42769,6 +42838,10 @@ class MainWindow(QMainWindow):
         except Exception:
             import logging
             logging.getLogger(__name__).exception("[REFRESH] failed")
+            try:
+                self._set_managed_action_status("상태 새로고침 실패 · 로그 확인 필요", "#b00020")
+            except Exception:
+                pass
             self.set_status_msg("❌ 새로고침 실패(로그 확인)", "#b00020")
         
     def _get_current_refresh_tab_key(self) -> str:
@@ -43049,6 +43122,10 @@ class MainWindow(QMainWindow):
             import logging
 
             logging.getLogger(__name__).exception("[REFRESH] failed")
+            try:
+                self._set_managed_action_status("상태 새로고침 실패 · 로그 확인 필요", "#b00020")
+            except Exception:
+                pass
             try:
                 self.set_status_msg("상태 새로고침 실패(로그 확인)", "#b00020")
             except Exception:

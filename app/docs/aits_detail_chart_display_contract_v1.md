@@ -396,6 +396,26 @@ Safety remains unchanged:
 - No background AI event or timer is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
 
+## 22. MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01` reinforces the runtime path that feeds recent AI snapshots into the detail-chart contract.
+
+Display rules:
+
+- The detail chart reads snapshots that were already stored by the managed-tab AI analysis publish path.
+- Manual AI analysis refresh records the selected symbol before scheduling analysis, then stores the completed result in the per-symbol snapshot cache.
+- Same-context or cooldown suppression should not silently hide an explicit manual analysis request.
+- In-flight requests remain guarded and must be reported as a visible wait/skip state.
+- If no matching per-symbol snapshot exists, the detail chart continues to show Basic/local calculation summary.
+
+Safety remains unchanged:
+
+- Detail chart open is not an AI call trigger.
+- Status refresh is not an AI call trigger.
+- No detail-chart AI refresh button is added.
+- No background AI event or timer is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
+
 ## 20. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` defines the runtime lookup path for the `ai_snapshot` contract field.
