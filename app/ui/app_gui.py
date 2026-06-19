@@ -2935,6 +2935,42 @@ class AITSLargeChartDialog(QDialog):
             pass
         control_container_lay.addWidget(control_header)
         control_container_lay.addWidget(control_subtitle)
+
+        self.detail_ai_refresh_panel = QFrame(self.asset_ai_control_container)
+        self.detail_ai_refresh_panel.setObjectName("aitsDetailAIRefreshPanel")
+        self.detail_ai_refresh_panel.setStyleSheet(
+            "QFrame#aitsDetailAIRefreshPanel { background:#f8fafc; border:1px solid #dbe3ee; border-radius:8px; }"
+        )
+        detail_refresh_lay = QHBoxLayout(self.detail_ai_refresh_panel)
+        detail_refresh_lay.setContentsMargins(8, 6, 8, 6)
+        detail_refresh_lay.setSpacing(8)
+        self.btn_detail_ai_analysis_refresh = QPushButton("AI \uBD84\uC11D \uC0C8\uB85C\uACE0\uCE68")
+        self.btn_detail_ai_analysis_refresh.setObjectName("aitsDetailAIAnalysisRefreshButton")
+        self.btn_detail_ai_analysis_refresh.setToolTip(
+            "\uD604\uC7AC \uC885\uBAA9 \uAE30\uC900\uC73C\uB85C AI \uBD84\uC11D\uC744 \uC694\uCCAD\uD569\uB2C8\uB2E4. \uC120\uD0DD \uC5D4\uC9C4\uC774 GPT/Gemini\uC774\uBA74 API \uD638\uCD9C\uC774 \uBC1C\uC0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC8FC\uBB38\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
+        )
+        self.lbl_detail_ai_analysis_refresh_status = QLabel("\uCD5C\uADFC AI \uBD84\uC11D \uC0C1\uD0DC\uB97C \uD45C\uC2DC\uD569\uB2C8\uB2E4.")
+        try:
+            self.btn_detail_ai_analysis_refresh.setMinimumHeight(28)
+            self.btn_detail_ai_analysis_refresh.setMaximumHeight(30)
+            self.btn_detail_ai_analysis_refresh.setStyleSheet(
+                "QPushButton { background:#eef6ff; border:1px solid #93c5fd; border-radius:7px; "
+                "color:#1d4ed8; font-size:11px; font-weight:800; padding:4px 9px; }"
+                "QPushButton:disabled { background:#f1f5f9; color:#94a3b8; border-color:#cbd5e1; }"
+            )
+            self.lbl_detail_ai_analysis_refresh_status.setWordWrap(True)
+            self.lbl_detail_ai_analysis_refresh_status.setStyleSheet(
+                "font-size:10px; font-weight:600; color:#64748b; background:transparent; border:none;"
+            )
+            self.btn_detail_ai_analysis_refresh.clicked.connect(
+                self._on_detail_chart_ai_analysis_refresh_clicked
+            )
+        except Exception:
+            pass
+        detail_refresh_lay.addWidget(self.btn_detail_ai_analysis_refresh, 0)
+        detail_refresh_lay.addWidget(self.lbl_detail_ai_analysis_refresh_status, 1)
+        control_container_lay.addWidget(self.detail_ai_refresh_panel, 0)
+
         self.detail_operation_vertical_splitter = QSplitter(Qt.Orientation.Vertical, self.asset_ai_control_container)
         self.detail_operation_vertical_splitter.setObjectName("aitsDetailOperationVerticalSplitter")
         try:
@@ -6416,6 +6452,160 @@ class AITSLargeChartDialog(QDialog):
                 "eta_explanation": "다음 평가 시간이 아니라, 현재 계산 시나리오를 참고해 관찰할 구간입니다.",
             }
 
+    def _set_detail_ai_refresh_status(self, message: str, color: str = "#64748b") -> None:
+        try:
+            label = getattr(self, "lbl_detail_ai_analysis_refresh_status", None)
+            if label is not None:
+                label.setText(str(message or ""))
+                label.setStyleSheet(
+                    f"font-size:10px; font-weight:600; color:{color}; background:transparent; border:none;"
+                )
+        except Exception:
+            pass
+
+    def _set_detail_ai_refresh_enabled(self, enabled: bool) -> None:
+        try:
+            btn = getattr(self, "btn_detail_ai_analysis_refresh", None)
+            if btn is not None:
+                btn.setEnabled(bool(enabled))
+        except Exception:
+            pass
+
+    def _on_detail_chart_ai_analysis_refresh_clicked(self) -> None:
+        symbol = ""
+        try:
+            symbol = str(getattr(self, "lbl_detail_popup_header_symbol", None).text() or "").strip()
+        except Exception:
+            symbol = ""
+        owner = None
+        try:
+            owner = self.parent()
+        except Exception:
+            owner = None
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartAIRefresh] event=clicked symbol=%s explicit_user_request=True api_call_allowed=True order_allowed=False submitted=0",
+                symbol or "unknown",
+            )
+        except Exception:
+            pass
+        if owner is None or not hasattr(owner, "_on_ai_analysis_refresh_clicked"):
+            self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC2E4\uD328 \u00B7 \uAE30\uC874 \uACC4\uC0B0 \uAE30\uBC18 \uC694\uC57D \uC720\uC9C0", "#b00020")
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAIRefresh] event=skipped symbol=%s reason=no_owner order_allowed=False submitted=0",
+                    symbol or "unknown",
+                )
+            except Exception:
+                pass
+            return
+        try:
+            normalize = getattr(owner, "_normalize_market_symbol_for_ai_snapshot", None)
+            norm_symbol = normalize(symbol) if callable(normalize) else str(symbol or "").strip().upper()
+        except Exception:
+            norm_symbol = str(symbol or "").strip().upper()
+        if not norm_symbol:
+            self._set_detail_ai_refresh_status("\uD604\uC7AC \uC885\uBAA9 \uC815\uBCF4\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC5B4 AI \uBD84\uC11D\uC744 \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", "#b45309")
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAIRefresh] event=skipped symbol=unknown reason=no_symbol order_allowed=False submitted=0"
+                )
+            except Exception:
+                pass
+            return
+        if bool(getattr(owner, "_aits_main_reco_inflight", False)):
+            self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC0DD\uB7B5 \u00B7 \uC774\uC804 \uC694\uCCAD \uCC98\uB9AC \uC911\uC785\uB2C8\uB2E4.", "#b45309")
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAIRefresh] event=skipped symbol=%s reason=inflight order_allowed=False submitted=0",
+                    norm_symbol,
+                )
+            except Exception:
+                pass
+            return
+        try:
+            cooldown_sec = 30.0
+            last_ts = float(getattr(owner, "_ai_analysis_refresh_last_ts", 0.0) or 0.0)
+            if last_ts > 0 and (time.time() - last_ts) < cooldown_sec:
+                self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC0DD\uB7B5 \u00B7 \uC774\uC804 \uC694\uCCAD \uCC98\uB9AC \uC911\uC785\uB2C8\uB2E4.", "#b45309")
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAIRefresh] event=skipped symbol=%s reason=cooldown order_allowed=False submitted=0",
+                    norm_symbol,
+                )
+                return
+        except Exception:
+            pass
+        row_obj = None
+        row_index = -1
+        try:
+            rows = getattr(owner, "ai_managed_rows", None) or []
+            for idx, row in enumerate(rows):
+                if not isinstance(row, dict):
+                    continue
+                row_sym = normalize(row.get("symbol") or row.get("market") or row.get("code") or "") if callable(normalize) else str(row.get("symbol") or "").strip().upper()
+                if row_sym == norm_symbol:
+                    row_obj = row
+                    row_index = idx
+                    break
+        except Exception:
+            row_obj = None
+            row_index = -1
+        if row_obj is None:
+            self._set_detail_ai_refresh_status("\uD604\uC7AC \uC885\uBAA9 \uC815\uBCF4\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC5B4 AI \uBD84\uC11D\uC744 \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", "#b45309")
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAIRefresh] event=skipped symbol=%s reason=no_matching_managed_row order_allowed=False submitted=0",
+                    norm_symbol,
+                )
+            except Exception:
+                pass
+            return
+        try:
+            owner._aits_selected_managed_symbol = norm_symbol
+            owner._selected_ai_pool_symbol = norm_symbol
+            owner._ai_briefing_pending_snapshot_symbol = norm_symbol
+            owner._aits_selected_managed_row = row_obj
+            owner._aits_selected_managed_row_index = row_index
+        except Exception:
+            pass
+        try:
+            setattr(self, "_detail_ai_analysis_refresh_pending_symbol", norm_symbol)
+            setattr(self, "_detail_ai_analysis_refresh_pending", True)
+        except Exception:
+            pass
+        self._set_detail_ai_refresh_enabled(False)
+        self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC694\uCCAD\uB428 \u00B7 \uACB0\uACFC \uB300\uAE30 \uC911 \u00B7 \uC2E4\uC81C \uC8FC\uBB38 \uC5C6\uC74C", "#1d4ed8")
+        try:
+            if hasattr(owner, "_append_managed_live_log"):
+                owner._append_managed_live_log("\uC0C1\uC138\uCC28\uD2B8 AI \uBD84\uC11D \uC0C8\uB85C\uACE0\uCE68 \uD074\uB9AD\uB428 \u00B7 \uC2E4\uC81C \uC8FC\uBB38 \uC5C6\uC74C", norm_symbol)
+        except Exception:
+            pass
+        try:
+            owner._on_ai_analysis_refresh_clicked()
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartAIRefresh] event=scheduled symbol=%s source=detail_chart_button order_allowed=False submitted=0",
+                norm_symbol,
+            )
+            try:
+                QTimer.singleShot(5000, lambda: self._set_detail_ai_refresh_enabled(True))
+            except Exception:
+                self._set_detail_ai_refresh_enabled(True)
+        except Exception as exc:
+            self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC2E4\uD328 \u00B7 \uAE30\uC874 \uACC4\uC0B0 \uAE30\uBC18 \uC694\uC57D \uC720\uC9C0", "#b00020")
+            self._set_detail_ai_refresh_enabled(True)
+            try:
+                setattr(self, "_detail_ai_analysis_refresh_pending", False)
+            except Exception:
+                pass
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAIRefresh] event=skipped symbol=%s reason=%s order_allowed=False submitted=0",
+                    norm_symbol,
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
     def apply_detail_chart_display_contract(self, contract):
         try:
             if not isinstance(contract, dict):
@@ -6424,6 +6614,32 @@ class AITSLargeChartDialog(QDialog):
             labels = self._build_detail_chart_mode_labels(contract)
             self._detail_chart_display_mode_labels = dict(labels)
             ai_mode = bool(labels.get("ai_mode"))
+            try:
+                pending = bool(getattr(self, "_detail_ai_analysis_refresh_pending", False))
+                pending_symbol = str(getattr(self, "_detail_ai_analysis_refresh_pending_symbol", "") or "").strip()
+                contract_symbol = str(contract.get("symbol") or "").strip()
+                ai_snapshot = contract.get("ai_snapshot") if isinstance(contract.get("ai_snapshot"), dict) else {}
+                if pending and (not pending_symbol or pending_symbol == contract_symbol):
+                    if bool(ai_snapshot.get("has_snapshot")) or str(contract.get("display_mode") or "") in ("ai_analysis", "last_known_ai"):
+                        self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC644\uB8CC \u00B7 \uCD5C\uADFC \uBD84\uC11D \uAC31\uC2E0\uB428 \u00B7 \uC2E4\uC81C \uC8FC\uBB38 \uC5C6\uC74C", "#15803d")
+                        self._set_detail_ai_refresh_enabled(True)
+                        self._detail_ai_analysis_refresh_pending = False
+                        try:
+                            logging.getLogger("aits").info(
+                                "[AITS][DetailChartAIRefresh] event=completed symbol=%s display_mode=%s order_allowed=False submitted=0",
+                                contract_symbol or pending_symbol or "unknown",
+                                str(contract.get("display_mode") or "unknown"),
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        self._set_detail_ai_refresh_status("\u0041\u0049 \uBD84\uC11D \uC694\uCCAD\uB428 \u00B7 \uACB0\uACFC \uB300\uAE30 \uC911 \u00B7 \uC2E4\uC81C \uC8FC\uBB38 \uC5C6\uC74C", "#1d4ed8")
+                elif not pending:
+                    snapshot_label = str(labels.get("analysis_label") or "").strip()
+                    if snapshot_label:
+                        self._set_detail_ai_refresh_status(snapshot_label, "#64748b")
+            except Exception:
+                pass
 
             eta = contract.get("eta") if isinstance(contract.get("eta"), dict) else {}
             why = contract.get("why_summary") if isinstance(contract.get("why_summary"), dict) else {}

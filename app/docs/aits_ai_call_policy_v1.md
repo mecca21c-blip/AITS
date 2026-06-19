@@ -459,6 +459,19 @@ Policy intent:
 - Completed manual AI analysis may store a symbol-specific snapshot and report that it can be checked in the detail chart.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
 
+## 31. DETAIL-CHART-AI-PREVIEW-BUTTON-01 Implementation Note
+
+`DETAIL-CHART-AI-PREVIEW-BUTTON-01` adds an explicit AI analysis refresh button inside the detail chart.
+
+Policy intent:
+
+- Detail chart open remains display-only and is not an AI call trigger.
+- The detail-chart AI analysis refresh button is an explicit user request for the current symbol.
+- The button reuses the existing managed-tab AI analysis refresh path and does not create a direct Provider/API client path.
+- GPT/Gemini may incur API calls only after this explicit click.
+- The result is stored as a per-symbol snapshot and the open detail-chart contract may be reapplied.
+- The button is unrelated to order execution; `order_allowed=False` and `submitted=0` remain the safety boundary.
+
 ## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.

@@ -468,3 +468,22 @@ Safety remains unchanged:
 - No detail-chart AI analysis refresh button is added.
 - No background AI timer or per-symbol AI cadence is added.
 - No Router, Risk Guard, Order, Execution, repository, run, requirements, or build path is changed.
+
+## 23. DETAIL-CHART-AI-PREVIEW-BUTTON-01 Implementation Note
+
+`DETAIL-CHART-AI-PREVIEW-BUTTON-01` adds a detail-chart scoped, explicit AI analysis refresh control.
+
+Display rules:
+
+- The detail-chart refresh button targets the currently displayed symbol.
+- Before scheduling, the owner MainWindow synchronizes the selected managed symbol and row to the detail-chart symbol.
+- Completion reuses the per-symbol snapshot cache and republishes the existing display contract.
+- Only a matching-symbol snapshot can switch the detail chart to `last_known_ai` or `ai_analysis` display mode.
+- Symbol mismatch, skipped analysis, or failure keeps the existing calculation summary and visible safety copy.
+
+Safety remains unchanged:
+
+- Opening the detail chart does not call AI.
+- The button uses the existing explicit AI analysis path only.
+- No direct Provider/API client path is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
