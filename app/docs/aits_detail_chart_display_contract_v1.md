@@ -487,3 +487,22 @@ Safety remains unchanged:
 - The button uses the existing explicit AI analysis path only.
 - No direct Provider/API client path is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 24. DETAIL-CHART-AI-SNAPSHOT-METADATA-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-METADATA-01` clarifies recent AI snapshot engine metadata.
+
+Display rules:
+
+- `ai_snapshot` may include `engine`, `provider`, `model`, `engine_label`, `model_label`, and `engine_display_label`.
+- The UI uses `engine_display_label` first, then falls back through the normalized labels.
+- Raw `unknown`, `none`, `null`, or `engine_unknown` values must not be shown directly to the user.
+- Missing engine metadata is displayed as `엔진 확인 필요`.
+- If model metadata exists, it may be shown as a secondary label beside the engine.
+
+Safety remains unchanged:
+
+- Snapshot metadata is display-only.
+- Selected-symbol matching still controls whether a snapshot can be displayed as recent AI analysis.
+- Detail chart open does not call AI.
+- No Router, Risk Guard, Order, or Execution path is changed.

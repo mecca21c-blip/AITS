@@ -472,6 +472,20 @@ Policy intent:
 - The result is stored as a per-symbol snapshot and the open detail-chart contract may be reapplied.
 - The button is unrelated to order execution; `order_allowed=False` and `submitted=0` remain the safety boundary.
 
+## 32. DETAIL-CHART-AI-SNAPSHOT-METADATA-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-METADATA-01` prevents raw `unknown` engine metadata from appearing in the detail-chart recent AI snapshot display.
+
+Policy intent:
+
+- Recent AI snapshots should store available engine, provider, and model metadata.
+- The user-facing detail chart must not display raw `unknown` as the analysis engine.
+- GPT, Gemini, LOCAL, calculation-based, or a safe `엔진 확인 필요` fallback is used for display.
+- Missing metadata is treated as an incomplete snapshot label, not as an order or execution signal.
+- Snapshot metadata remains display-only and does not affect Router, Risk Guard, Order, or Execution.
+- Detail chart open remains display-only and is not an AI call trigger.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
+
 ## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.

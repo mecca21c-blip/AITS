@@ -5942,15 +5942,51 @@ class AITSLargeChartDialog(QDialog):
     def _normalize_detail_chart_snapshot_engine(self, value):
         try:
             raw = str(value or "").strip().lower()
-            if raw in ("gpt", "openai") or raw.startswith("gpt-"):
+            if not raw or raw in ("unknown", "none", "null", "engine_unknown"):
+                return "engine_unknown"
+            if raw in ("gpt", "openai") or raw.startswith("gpt-") or "openai" in raw:
                 return "GPT"
             if raw in ("gemini", "google") or raw.startswith("gemini"):
                 return "Gemini"
-            if raw in ("local", "local_ai", "basic", "ollama", "LOCAL".lower()):
+            if raw in ("local", "local_ai", "basic", "ollama", "base"):
                 return "LOCAL"
-            return str(value or "").strip() or "알 수 없음"
+            return str(value or "").strip() or "engine_unknown"
         except Exception:
-            return "알 수 없음"
+            return "engine_unknown"
+
+    def _extract_detail_chart_snapshot_model_from_engine(self, value):
+        try:
+            raw = str(value or "").strip()
+            low = raw.lower()
+            if not raw or low in ("unknown", "none", "null", "engine_unknown"):
+                return ""
+            for prefix in ("gpt-", "gemini-"):
+                if low.startswith(prefix) and len(raw) > len(prefix):
+                    return raw[len(prefix):].strip()
+            return ""
+        except Exception:
+            return ""
+
+    def _format_detail_chart_snapshot_engine_label(self, engine="", provider="", model=""):
+        try:
+            raw = " ".join(str(x or "") for x in (engine, provider)).strip().lower()
+            model_text = str(model or "").strip()
+            if model_text.lower() in ("unknown", "none", "null", "engine_unknown"):
+                model_text = ""
+            if "gemini" in raw or "google" in raw:
+                label = "Gemini"
+            elif "gpt" in raw or "openai" in raw:
+                label = "GPT"
+            elif any(x in raw for x in ("local", "basic", "ollama", "base")):
+                label = "LOCAL"
+                if not model_text:
+                    model_text = "\uACC4\uC0B0 \uAE30\uBC18"
+            else:
+                label = "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694"
+            display = f"{label} \u00B7 {model_text}" if model_text else label
+            return {"engine_label": label, "model_label": model_text, "display_label": display}
+        except Exception:
+            return {"engine_label": "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694", "model_label": "", "display_label": "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694"}
 
     def _format_detail_chart_snapshot_source_label(self, value):
         try:
@@ -6009,10 +6045,49 @@ class AITSLargeChartDialog(QDialog):
             provider = (
                 payload.get("ai_briefing_provider")
                 or payload.get("provider")
-                or payload.get("actual_engine")
-                or payload.get("selected_engine")
+                or payload.get("selected_provider")
+                or payload.get("actual_provider")
+                or payload.get("source")
                 or ""
             )
+            engine_raw = (
+                payload.get("ai_briefing_engine")
+                or payload.get("generated_engine")
+                or payload.get("actual_engine")
+                or payload.get("selected_engine")
+                or provider
+                or getattr(self, "_selected_ai_provider", "")
+                or getattr(self, "_ai_provider_box_active", "")
+                or getattr(self, "_applied_ai_provider", "")
+                or ""
+            )
+            model_raw = (
+                payload.get("ai_briefing_model")
+                or payload.get("model")
+                or payload.get("selected_model")
+                or payload.get("actual_model")
+                or self._extract_detail_chart_snapshot_model_from_engine(payload.get("actual_engine"))
+                or getattr(self, "_selected_ai_model", "")
+                or getattr(self, "_applied_ai_model", "")
+                or ""
+            )
+            if not str(model_raw or "").strip():
+                try:
+                    getter = getattr(self, "_get_selected_ai_model", None)
+                    norm_provider = str(provider or engine_raw or getattr(self, "_selected_ai_provider", "") or "").strip().lower()
+                    if callable(getter) and norm_provider:
+                        model_raw = getter(norm_provider) or ""
+                except Exception:
+                    model_raw = ""
+            engine_norm = self._normalize_detail_chart_snapshot_engine(engine_raw or provider)
+            if not str(provider or "").strip():
+                if engine_norm == "GPT":
+                    provider = "openai"
+                elif engine_norm == "Gemini":
+                    provider = "gemini"
+                elif engine_norm == "LOCAL":
+                    provider = "local"
+            engine_labels = self._format_detail_chart_snapshot_engine_label(engine_norm, provider or engine_raw, model_raw)
             generated_at = (
                 payload.get("ai_briefing_generated_at")
                 or payload.get("generated_at")
@@ -6027,16 +6102,15 @@ class AITSLargeChartDialog(QDialog):
                     generated_at = ""
             reason = parsed.get("reason") or payload.get("reason") or payload.get("reasons") or []
             next_action = parsed.get("next_action") or payload.get("next_action") or payload.get("next_actions") or []
-            decision = (
-                parsed.get("decision")
-                or payload.get("decision_summary")
-                or payload.get("decision")
-                or ""
-            )
+            decision = parsed.get("decision") or payload.get("decision_summary") or payload.get("decision") or ""
             snapshot = {
                 "symbol": sym,
-                "engine": self._normalize_detail_chart_snapshot_engine(provider),
+                "engine": engine_norm,
                 "provider": str(provider or "").strip(),
+                "model": str(model_raw or "").strip(),
+                "engine_label": engine_labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+                "model_label": engine_labels.get("model_label") or "",
+                "engine_display_label": engine_labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
                 "generated_at": str(generated_at or "").strip(),
                 "source": str(source or payload.get("source") or "unknown").strip() or "unknown",
                 "briefing": str(decision or "").strip(),
@@ -6048,7 +6122,6 @@ class AITSLargeChartDialog(QDialog):
                 cache = {}
                 self._aits_recent_ai_snapshot_by_symbol = cache
             cache[sym] = dict(snapshot)
-
             try:
                 for row in getattr(self, "ai_managed_rows", []) or []:
                     if not isinstance(row, dict):
@@ -6060,7 +6133,8 @@ class AITSLargeChartDialog(QDialog):
                         continue
                     row["ai_briefing_provider"] = snapshot.get("provider", "")
                     row["ai_briefing_engine"] = snapshot.get("engine", "")
-                    row["ai_briefing_engine_label"] = snapshot.get("engine", "")
+                    row["ai_briefing_engine_label"] = snapshot.get("engine_label", "")
+                    row["ai_briefing_model"] = snapshot.get("model", "")
                     row["ai_briefing_generated_at"] = snapshot.get("generated_at", "")
                     row["ai_briefing"] = snapshot.get("briefing", "")
                     row["ai_reason"] = snapshot.get("reason", [])
@@ -6068,16 +6142,22 @@ class AITSLargeChartDialog(QDialog):
                     break
             except Exception:
                 pass
-
             try:
                 logging.getLogger("aits").info(
-                    "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s source=%s "
-                    "has_generated_at=%s order_allowed=False submitted=0",
+                    "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s provider=%s model=%s source=%s has_generated_at=%s metadata_incomplete=%s order_allowed=False submitted=0",
                     sym,
-                    snapshot.get("engine") or "unknown",
+                    snapshot.get("engine_label") or "engine_label_missing",
+                    snapshot.get("provider") or "unknown",
+                    snapshot.get("model") or "none",
                     snapshot.get("source") or "unknown",
                     bool(snapshot.get("generated_at")),
+                    bool(snapshot.get("engine") == "engine_unknown"),
                 )
+            except Exception:
+                pass
+            try:
+                if str(snapshot.get("source") or "").strip() == "manual_refresh":
+                    self._append_managed_live_log("\uCD5C\uADFC AI \uBD84\uC11D \uC800\uC7A5\uB428 \u00B7 \uC0C1\uC138\uCC28\uD2B8\uC5D0\uC11C \uD655\uC778 \uAC00\uB2A5", sym)
             except Exception:
                 pass
             try:
@@ -6091,6 +6171,10 @@ class AITSLargeChartDialog(QDialog):
                     "[AITS][AISnapshotStore] event=store_failed error_type=%s submitted=0",
                     type(exc).__name__,
                 )
+            except Exception:
+                pass
+            try:
+                self._append_managed_live_log("\uCD5C\uADFC AI \uBD84\uC11D \uC800\uC7A5 \uC2E4\uD328 \u00B7 \uB85C\uADF8 \uD655\uC778 \uD544\uC694", symbol)
             except Exception:
                 pass
             return {}
@@ -6134,207 +6218,137 @@ class AITSLargeChartDialog(QDialog):
             pass
 
     def _build_detail_chart_ai_snapshot_meta(self, symbol_text="", row_data=None, detail_output_contract=None):
-        try:
-            symbol = self._normalize_market_symbol_for_ai_snapshot(symbol_text)
-            row_obj = row_data if isinstance(row_data, dict) else {}
-            output_contract = detail_output_contract if isinstance(detail_output_contract, dict) else {}
-            cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
-            cache_snapshot = {}
-            if isinstance(cache, dict) and symbol:
-                cache_snapshot = dict(cache.get(symbol) or {})
-            if cache_snapshot:
-                generated_at = cache_snapshot.get("generated_at")
-                parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
-                age_seconds = None
-                if parsed_at is not None:
-                    try:
-                        from datetime import datetime
-                        age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
-                    except Exception:
-                        age_seconds = None
-                if age_seconds is None:
-                    freshness = "unknown"
-                    freshness_label = "생성 시각 확인 불가"
-                    age_label = "생성 시각 확인 불가"
-                elif age_seconds <= 15 * 60:
-                    freshness = "fresh"
-                    freshness_label = "최신 참고 가능"
-                    age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-                elif age_seconds <= 60 * 60:
-                    freshness = "usable"
-                    freshness_label = "참고 가능"
-                    age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-                else:
-                    freshness = "stale"
-                    freshness_label = "오래된 분석일 수 있음"
-                    age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-                return {
-                    "has_snapshot": True,
+        symbol = self._normalize_market_symbol_for_ai_snapshot(symbol_text)
+        row_obj = row_data if isinstance(row_data, dict) else {}
+        cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
+        snapshot = {}
+        source_name = "missing"
+        if isinstance(cache, dict) and symbol:
+            snapshot = dict(cache.get(symbol) or {})
+            if snapshot:
+                source_name = "per_symbol_cache"
+        if not snapshot and row_obj:
+            provider = row_obj.get("ai_briefing_provider") or row_obj.get("ai_briefing_engine") or ""
+            engine = row_obj.get("ai_briefing_engine") or provider or ""
+            model = row_obj.get("ai_briefing_model") or ""
+            engine_norm = self._normalize_detail_chart_snapshot_engine(engine or provider)
+            labels = self._format_detail_chart_snapshot_engine_label(engine_norm, provider or engine, model)
+            generated_at = row_obj.get("ai_briefing_generated_at") or ""
+            has_text = bool(row_obj.get("ai_briefing") or row_obj.get("ai_reason") or row_obj.get("ai_next_action"))
+            if provider or generated_at or has_text:
+                snapshot = {
                     "symbol": symbol,
-                    "payload_symbol": self._normalize_market_symbol_for_ai_snapshot(cache_snapshot.get("symbol") or symbol),
-                    "is_symbol_matched": True,
-                    "engine": cache_snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(cache_snapshot.get("provider")),
-                    "provider": str(cache_snapshot.get("provider") or "").strip(),
-                    "generated_at": str(generated_at or "").strip() or None,
-                    "age_seconds": age_seconds,
-                    "age_label": age_label,
-                    "freshness": freshness,
-                    "freshness_label": freshness_label,
-                    "source": str(cache_snapshot.get("source") or "unknown").strip() or "unknown",
-                    "source_label": self._format_detail_chart_snapshot_source_label(cache_snapshot.get("source")),
-                    "lookup_source": "per_symbol_cache",
+                    "engine": engine_norm,
+                    "provider": str(provider or "").strip(),
+                    "model": str(model or "").strip(),
+                    "engine_label": labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+                    "model_label": labels.get("model_label") or "",
+                    "engine_display_label": labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+                    "generated_at": str(generated_at or "").strip(),
+                    "source": "row_session",
+                    "briefing": str(row_obj.get("ai_briefing") or "").strip(),
+                    "reason": row_obj.get("ai_reason") or [],
+                    "next_action": row_obj.get("ai_next_action") or [],
                 }
-            last_payload = {}
-            try:
-                last_payload = dict(self._get_aits_final_explanation_payload() or {})
-            except Exception:
-                last_payload = {}
-            last_explanation = {}
-            try:
-                last_explanation = dict(getattr(self, "_aits_last_ai_explanation", {}) or {})
-            except Exception:
-                last_explanation = {}
-
-            row_symbol = self._normalize_market_symbol_for_ai_snapshot(
-                row_obj.get("symbol")
-                or row_obj.get("market")
-                or row_obj.get("code")
-                or ""
-            )
-            payload_symbol = self._normalize_market_symbol_for_ai_snapshot(
-                last_payload.get("symbol")
-                or last_payload.get("market")
-                or last_payload.get("code")
-                or last_explanation.get("symbol")
-                or output_contract.get("symbol")
-                or output_contract.get("market")
-                or ""
-            )
-            row_meta_symbol_match = bool(symbol and row_symbol and row_symbol == symbol)
-            payload_symbol_match = bool(symbol and payload_symbol and payload_symbol == symbol)
-
-            generated_at = (
-                row_obj.get("ai_briefing_generated_at")
-                or last_payload.get("ai_briefing_generated_at")
-                or last_payload.get("generated_at")
-                or last_payload.get("created_at")
-                or last_payload.get("timestamp")
-                or last_explanation.get("generated_at")
-                or last_explanation.get("created_at")
-                or output_contract.get("generated_at")
-                or None
-            )
-            provider = (
-                row_obj.get("ai_briefing_provider")
-                or row_obj.get("ai_briefing_engine")
-                or last_payload.get("ai_briefing_provider")
-                or last_payload.get("provider")
-                or last_payload.get("actual_engine")
-                or last_explanation.get("provider")
-                or output_contract.get("provider")
-                or output_contract.get("source")
-                or ""
-            )
-            decision = str(
-                last_payload.get("decision_summary")
-                or last_payload.get("decision")
-                or last_explanation.get("decision")
-                or row_obj.get("ai_briefing")
-                or ""
-            ).strip()
-            reasons = (
-                last_payload.get("reason")
-                or last_payload.get("reasons")
-                or last_explanation.get("reason")
-                or row_obj.get("ai_reason")
-                or []
-            )
-            next_actions = (
-                last_payload.get("next_action")
-                or last_payload.get("next_actions")
-                or last_explanation.get("next_action")
-                or row_obj.get("ai_next_action")
-                or []
-            )
-            if isinstance(reasons, str):
-                reasons = [reasons] if reasons.strip() else []
-            if isinstance(next_actions, str):
-                next_actions = [next_actions] if next_actions.strip() else []
-
-            row_content = bool(row_obj.get("ai_briefing") or row_obj.get("ai_reason") or row_obj.get("ai_next_action"))
-            global_content = bool(decision or reasons or next_actions or output_contract.get("available"))
-            has_content = bool((payload_symbol_match and global_content) or row_content)
-            symbol_matched = bool(payload_symbol_match or (row_meta_symbol_match and not payload_symbol))
-            has_snapshot = bool(symbol_matched and has_content and (generated_at or provider))
-
-            parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
-            age_seconds = None
-            if parsed_at is not None:
-                try:
-                    from datetime import datetime
-                    age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
-                except Exception:
-                    age_seconds = None
-            if not has_snapshot:
-                freshness = "missing"
-                freshness_label = "최근 AI 분석 없음"
-                age_label = "최근 AI 분석 없음"
-            elif age_seconds is None:
-                freshness = "unknown"
-                freshness_label = "생성 시각 확인 불가"
-                age_label = "생성 시각 확인 불가"
-            elif age_seconds <= 15 * 60:
-                freshness = "fresh"
-                freshness_label = "최신 참고 가능"
-                age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-            elif age_seconds <= 60 * 60:
-                freshness = "usable"
-                freshness_label = "참고 가능"
-                age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-            else:
-                freshness = "stale"
-                freshness_label = "오래된 분석일 수 있음"
-                age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-
-            source_raw = (
-                row_obj.get("ai_briefing_source")
-                or last_payload.get("trigger")
-                or last_payload.get("source")
-                or last_explanation.get("source")
-                or output_contract.get("source")
-                or ""
-            )
-            return {
-                "has_snapshot": bool(has_snapshot),
-                "symbol": symbol,
-                "payload_symbol": payload_symbol,
-                "is_symbol_matched": bool(symbol_matched),
-                "engine": self._normalize_detail_chart_snapshot_engine(provider),
-                "provider": str(provider or "").strip(),
-                "generated_at": str(generated_at or "").strip() or None,
-                "age_seconds": age_seconds,
-                "age_label": age_label,
-                "freshness": freshness,
-                "freshness_label": freshness_label,
-                "source": str(source_raw or "unknown").strip() or "unknown",
-                "source_label": self._format_detail_chart_snapshot_source_label(source_raw),
-            }
-        except Exception:
-            return {
+                source_name = "row_session"
+        if not snapshot:
+            meta = {
                 "has_snapshot": False,
-                "symbol": str(symbol_text or "").strip(),
+                "symbol": symbol,
                 "payload_symbol": "",
                 "is_symbol_matched": False,
                 "engine": None,
                 "provider": "",
+                "model": "",
+                "engine_label": "",
+                "model_label": "",
+                "engine_display_label": "",
                 "generated_at": None,
                 "age_seconds": None,
-                "age_label": "최근 AI 분석 없음",
+                "age_label": "\uCD5C\uADFC AI \uBD84\uC11D \uC5C6\uC74C",
                 "freshness": "missing",
-                "freshness_label": "최근 AI 분석 없음",
-                "source": "unknown",
-                "source_label": "분석 없음",
+                "freshness_label": "\uCD5C\uADFC AI \uBD84\uC11D \uC5C6\uC74C",
+                "source": "missing",
+                "source_label": "\uBD84\uC11D \uC5C6\uC74C",
+                "lookup_source": "missing",
             }
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=False reason=no_symbol_snapshot api_call_attempted=False order_allowed=False submitted=0",
+                    symbol,
+                )
+            except Exception:
+                pass
+            return meta
+        payload_symbol = self._normalize_market_symbol_for_ai_snapshot(snapshot.get("symbol") or symbol)
+        generated_at = snapshot.get("generated_at")
+        parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
+        age_seconds = None
+        if parsed_at is not None:
+            try:
+                from datetime import datetime
+                age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
+            except Exception:
+                age_seconds = None
+        if age_seconds is None:
+            freshness = "unknown"
+            freshness_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
+            age_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
+        elif age_seconds <= 15 * 60:
+            freshness = "fresh"
+            freshness_label = "\uCD5C\uC2E0 \uCC38\uACE0 \uAC00\uB2A5"
+            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        elif age_seconds <= 60 * 60:
+            freshness = "usable"
+            freshness_label = "\uCC38\uACE0 \uAC00\uB2A5"
+            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        else:
+            freshness = "stale"
+            freshness_label = "\uC624\uB798\uB41C \uBD84\uC11D\uC77C \uC218 \uC788\uC74C"
+            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        matched = bool(symbol and payload_symbol == symbol)
+        engine = snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(snapshot.get("provider"))
+        provider = str(snapshot.get("provider") or "").strip()
+        model = str(snapshot.get("model") or snapshot.get("model_label") or "").strip()
+        labels = self._format_detail_chart_snapshot_engine_label(
+            snapshot.get("engine_label") or engine,
+            provider or snapshot.get("engine"),
+            model,
+        )
+        meta = {
+            "has_snapshot": bool(matched),
+            "symbol": symbol,
+            "payload_symbol": payload_symbol,
+            "is_symbol_matched": matched,
+            "engine": engine,
+            "provider": provider,
+            "model": model,
+            "engine_label": snapshot.get("engine_label") or labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+            "model_label": snapshot.get("model_label") or labels.get("model_label") or "",
+            "engine_display_label": snapshot.get("engine_display_label") or labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+            "generated_at": str(generated_at or "").strip() or None,
+            "age_seconds": age_seconds,
+            "age_label": age_label,
+            "freshness": freshness,
+            "freshness_label": freshness_label,
+            "source": str(snapshot.get("source") or "unknown").strip(),
+            "source_label": self._format_detail_chart_snapshot_source_label(snapshot.get("source")),
+            "lookup_source": source_name,
+        }
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s source=%s engine_label=%s model_label=%s freshness=%s symbol_matched=%s api_call_attempted=False order_allowed=False submitted=0",
+                symbol,
+                bool(meta.get("has_snapshot")),
+                source_name,
+                meta.get("engine_label") or "engine_label_missing",
+                meta.get("model_label") or "none",
+                freshness,
+                matched,
+            )
+        except Exception:
+            pass
+        return meta
 
     def _normalize_detail_chart_display_mode(self, contract):
         try:
@@ -6364,11 +6378,23 @@ class AITSLargeChartDialog(QDialog):
             snapshot = contract.get("ai_snapshot") if isinstance(contract, dict) else {}
             snapshot = snapshot if isinstance(snapshot, dict) else {}
             has_snapshot = bool(snapshot.get("has_snapshot"))
-            engine_label = str(snapshot.get("engine") or "AI").strip()
-            age_label = str(snapshot.get("age_label") or "생성 시각 확인 불가").strip()
+            engine_label = str(
+                snapshot.get("engine_display_label")
+                or snapshot.get("engine_label")
+                or snapshot.get("engine")
+                or ""
+            ).strip()
+            if engine_label.lower() in ("", "unknown", "none", "null", "engine_unknown"):
+                engine_label = "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694"
+            model_label = str(snapshot.get("model_label") or snapshot.get("model") or "").strip()
+            if model_label.lower() in ("unknown", "none", "null", "engine_unknown"):
+                model_label = ""
+            if model_label and model_label not in engine_label:
+                engine_label = f"{engine_label} \u00B7 {model_label}"
+            age_label = str(snapshot.get("age_label") or "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00").strip()
             generated_at = str(snapshot.get("generated_at") or "").strip()
-            source_label = str(snapshot.get("source_label") or "출처 확인 불가").strip()
-            freshness_label = str(snapshot.get("freshness_label") or "생성 시각 확인 불가").strip()
+            source_label = str(snapshot.get("source_label") or "\uCD9C\uCC98 \uD655\uC778 \uBD88\uAC00").strip()
+            freshness_label = str(snapshot.get("freshness_label") or "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00").strip()
             if has_snapshot:
                 snapshot_summary = (
                     f"최근 AI 분석: {engine_label} · {age_label}\n"
@@ -23663,15 +23689,51 @@ class MainWindow(QMainWindow):
     def _normalize_detail_chart_snapshot_engine(self, value):
         try:
             raw = str(value or "").strip().lower()
-            if raw in ("gpt", "openai") or raw.startswith("gpt-"):
+            if not raw or raw in ("unknown", "none", "null", "engine_unknown"):
+                return "engine_unknown"
+            if raw in ("gpt", "openai") or raw.startswith("gpt-") or "openai" in raw:
                 return "GPT"
             if raw in ("gemini", "google") or raw.startswith("gemini"):
                 return "Gemini"
-            if raw in ("local", "local_ai", "basic", "ollama"):
+            if raw in ("local", "local_ai", "basic", "ollama", "base"):
                 return "LOCAL"
-            return str(value or "").strip() or "unknown"
+            return str(value or "").strip() or "engine_unknown"
         except Exception:
-            return "unknown"
+            return "engine_unknown"
+
+    def _extract_detail_chart_snapshot_model_from_engine(self, value):
+        try:
+            raw = str(value or "").strip()
+            low = raw.lower()
+            if not raw or low in ("unknown", "none", "null", "engine_unknown"):
+                return ""
+            for prefix in ("gpt-", "gemini-"):
+                if low.startswith(prefix) and len(raw) > len(prefix):
+                    return raw[len(prefix):].strip()
+            return ""
+        except Exception:
+            return ""
+
+    def _format_detail_chart_snapshot_engine_label(self, engine="", provider="", model=""):
+        try:
+            raw = " ".join(str(x or "") for x in (engine, provider)).strip().lower()
+            model_text = str(model or "").strip()
+            if model_text.lower() in ("unknown", "none", "null", "engine_unknown"):
+                model_text = ""
+            if "gemini" in raw or "google" in raw:
+                label = "Gemini"
+            elif "gpt" in raw or "openai" in raw:
+                label = "GPT"
+            elif any(x in raw for x in ("local", "basic", "ollama", "base")):
+                label = "LOCAL"
+                if not model_text:
+                    model_text = "\uACC4\uC0B0 \uAE30\uBC18"
+            else:
+                label = "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694"
+            display = f"{label} \u00B7 {model_text}" if model_text else label
+            return {"engine_label": label, "model_label": model_text, "display_label": display}
+        except Exception:
+            return {"engine_label": "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694", "model_label": "", "display_label": "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694"}
 
     def _parse_detail_chart_snapshot_dt(self, value):
         try:
@@ -23727,10 +23789,49 @@ class MainWindow(QMainWindow):
             provider = (
                 payload.get("ai_briefing_provider")
                 or payload.get("provider")
-                or payload.get("actual_engine")
-                or payload.get("selected_engine")
+                or payload.get("selected_provider")
+                or payload.get("actual_provider")
+                or payload.get("source")
                 or ""
             )
+            engine_raw = (
+                payload.get("ai_briefing_engine")
+                or payload.get("generated_engine")
+                or payload.get("actual_engine")
+                or payload.get("selected_engine")
+                or provider
+                or getattr(self, "_selected_ai_provider", "")
+                or getattr(self, "_ai_provider_box_active", "")
+                or getattr(self, "_applied_ai_provider", "")
+                or ""
+            )
+            model_raw = (
+                payload.get("ai_briefing_model")
+                or payload.get("model")
+                or payload.get("selected_model")
+                or payload.get("actual_model")
+                or self._extract_detail_chart_snapshot_model_from_engine(payload.get("actual_engine"))
+                or getattr(self, "_selected_ai_model", "")
+                or getattr(self, "_applied_ai_model", "")
+                or ""
+            )
+            if not str(model_raw or "").strip():
+                try:
+                    getter = getattr(self, "_get_selected_ai_model", None)
+                    norm_provider = str(provider or engine_raw or getattr(self, "_selected_ai_provider", "") or "").strip().lower()
+                    if callable(getter) and norm_provider:
+                        model_raw = getter(norm_provider) or ""
+                except Exception:
+                    model_raw = ""
+            engine_norm = self._normalize_detail_chart_snapshot_engine(engine_raw or provider)
+            if not str(provider or "").strip():
+                if engine_norm == "GPT":
+                    provider = "openai"
+                elif engine_norm == "Gemini":
+                    provider = "gemini"
+                elif engine_norm == "LOCAL":
+                    provider = "local"
+            engine_labels = self._format_detail_chart_snapshot_engine_label(engine_norm, provider or engine_raw, model_raw)
             generated_at = (
                 payload.get("ai_briefing_generated_at")
                 or payload.get("generated_at")
@@ -23748,8 +23849,12 @@ class MainWindow(QMainWindow):
             decision = parsed.get("decision") or payload.get("decision_summary") or payload.get("decision") or ""
             snapshot = {
                 "symbol": sym,
-                "engine": self._normalize_detail_chart_snapshot_engine(provider),
+                "engine": engine_norm,
                 "provider": str(provider or "").strip(),
+                "model": str(model_raw or "").strip(),
+                "engine_label": engine_labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+                "model_label": engine_labels.get("model_label") or "",
+                "engine_display_label": engine_labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
                 "generated_at": str(generated_at or "").strip(),
                 "source": str(source or payload.get("source") or "unknown").strip() or "unknown",
                 "briefing": str(decision or "").strip(),
@@ -23772,7 +23877,8 @@ class MainWindow(QMainWindow):
                         continue
                     row["ai_briefing_provider"] = snapshot.get("provider", "")
                     row["ai_briefing_engine"] = snapshot.get("engine", "")
-                    row["ai_briefing_engine_label"] = snapshot.get("engine", "")
+                    row["ai_briefing_engine_label"] = snapshot.get("engine_label", "")
+                    row["ai_briefing_model"] = snapshot.get("model", "")
                     row["ai_briefing_generated_at"] = snapshot.get("generated_at", "")
                     row["ai_briefing"] = snapshot.get("briefing", "")
                     row["ai_reason"] = snapshot.get("reason", [])
@@ -23782,11 +23888,14 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 logging.getLogger("aits").info(
-                    "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s source=%s has_generated_at=%s order_allowed=False submitted=0",
+                    "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s provider=%s model=%s source=%s has_generated_at=%s metadata_incomplete=%s order_allowed=False submitted=0",
                     sym,
-                    snapshot.get("engine") or "unknown",
+                    snapshot.get("engine_label") or "engine_label_missing",
+                    snapshot.get("provider") or "unknown",
+                    snapshot.get("model") or "none",
                     snapshot.get("source") or "unknown",
                     bool(snapshot.get("generated_at")),
+                    bool(snapshot.get("engine") == "engine_unknown"),
                 )
             except Exception:
                 pass
@@ -23862,13 +23971,21 @@ class MainWindow(QMainWindow):
                 source_name = "per_symbol_cache"
         if not snapshot and row_obj:
             provider = row_obj.get("ai_briefing_provider") or row_obj.get("ai_briefing_engine") or ""
+            engine = row_obj.get("ai_briefing_engine") or provider or ""
+            model = row_obj.get("ai_briefing_model") or ""
+            engine_norm = self._normalize_detail_chart_snapshot_engine(engine or provider)
+            labels = self._format_detail_chart_snapshot_engine_label(engine_norm, provider or engine, model)
             generated_at = row_obj.get("ai_briefing_generated_at") or ""
             has_text = bool(row_obj.get("ai_briefing") or row_obj.get("ai_reason") or row_obj.get("ai_next_action"))
             if provider or generated_at or has_text:
                 snapshot = {
                     "symbol": symbol,
-                    "engine": self._normalize_detail_chart_snapshot_engine(provider),
+                    "engine": engine_norm,
                     "provider": str(provider or "").strip(),
+                    "model": str(model or "").strip(),
+                    "engine_label": labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+                    "model_label": labels.get("model_label") or "",
+                    "engine_display_label": labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
                     "generated_at": str(generated_at or "").strip(),
                     "source": "row_session",
                     "briefing": str(row_obj.get("ai_briefing") or "").strip(),
@@ -23884,6 +24001,10 @@ class MainWindow(QMainWindow):
                 "is_symbol_matched": False,
                 "engine": None,
                 "provider": "",
+                "model": "",
+                "engine_label": "",
+                "model_label": "",
+                "engine_display_label": "",
                 "generated_at": None,
                 "age_seconds": None,
                 "age_label": "\uCD5C\uADFC AI \uBD84\uC11D \uC5C6\uC74C",
@@ -23928,13 +24049,25 @@ class MainWindow(QMainWindow):
             freshness_label = "\uC624\uB798\uB41C \uBD84\uC11D\uC77C \uC218 \uC788\uC74C"
             age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
         matched = bool(symbol and payload_symbol == symbol)
+        engine = snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(snapshot.get("provider"))
+        provider = str(snapshot.get("provider") or "").strip()
+        model = str(snapshot.get("model") or snapshot.get("model_label") or "").strip()
+        labels = self._format_detail_chart_snapshot_engine_label(
+            snapshot.get("engine_label") or engine,
+            provider or snapshot.get("engine"),
+            model,
+        )
         meta = {
             "has_snapshot": bool(matched),
             "symbol": symbol,
             "payload_symbol": payload_symbol,
             "is_symbol_matched": matched,
-            "engine": snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(snapshot.get("provider")),
-            "provider": str(snapshot.get("provider") or "").strip(),
+            "engine": engine,
+            "provider": provider,
+            "model": model,
+            "engine_label": snapshot.get("engine_label") or labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+            "model_label": snapshot.get("model_label") or labels.get("model_label") or "",
+            "engine_display_label": snapshot.get("engine_display_label") or labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
             "generated_at": str(generated_at or "").strip() or None,
             "age_seconds": age_seconds,
             "age_label": age_label,
@@ -23946,11 +24079,12 @@ class MainWindow(QMainWindow):
         }
         try:
             logging.getLogger("aits").info(
-                "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s source=%s engine=%s freshness=%s symbol_matched=%s api_call_attempted=False order_allowed=False submitted=0",
+                "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s source=%s engine_label=%s model_label=%s freshness=%s symbol_matched=%s api_call_attempted=False order_allowed=False submitted=0",
                 symbol,
                 bool(meta.get("has_snapshot")),
                 source_name,
-                meta.get("engine") or "unknown",
+                meta.get("engine_label") or "engine_label_missing",
+                meta.get("model_label") or "none",
                 freshness,
                 matched,
             )
