@@ -376,6 +376,26 @@ Safety remains unchanged:
 - No background AI event or timer is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
 
+## 21. MANAGED-TAB-REFRESH-ACTION-WIRING-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-ACTION-WIRING-01` confirms that detail-chart snapshots are fed by the managed-tab AI analysis publish path.
+
+Display rules:
+
+- The managed-tab AI analysis refresh button records the selected symbol before scheduling the existing AI analysis path.
+- When the analysis result is published, the selected symbol is used to store the per-symbol snapshot.
+- The detail chart reads the per-symbol snapshot cache first.
+- If the symbol does not match, the detail chart must keep `basic_summary` display.
+- If the detail dialog is already open for the same symbol, the display contract may be reapplied once after snapshot storage.
+
+Safety remains unchanged:
+
+- Status refresh does not call GPT/Gemini/OpenAI.
+- Detail chart open is not an AI call trigger.
+- No detail-chart AI refresh button is added.
+- No background AI event or timer is added.
+- No Router, Risk Guard, Order, or Execution path is changed.
+
 ## 20. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` defines the runtime lookup path for the `ai_snapshot` contract field.

@@ -7885,6 +7885,23 @@ class MainWindow(QMainWindow):
                     parsed=parsed,
                     source=source,
                 )
+                snap_symbol = self._resolve_current_ai_snapshot_symbol(
+                    getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or ""
+                )
+                self._set_managed_action_status(
+                    f"AI 분석 완료 · {snap_symbol or '선택 종목'} · 실제 주문 없음",
+                    "#15803d",
+                    snap_symbol,
+                )
+                try:
+                    self._log.info(
+                        "[AITS][AIAnalysisRefresh] event=completed | symbol=%s | "
+                        "source=%s | order_allowed=False | submitted=0",
+                        snap_symbol or "unknown",
+                        source,
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -23390,6 +23407,24 @@ class MainWindow(QMainWindow):
                 buf = []
             buf.append(line)
             self._aits_recent_logs = buf[-5:]
+        except Exception:
+            pass
+
+    def _set_managed_action_status(self, message: str, color: str = "#334155", symbol: str = "") -> None:
+        try:
+            msg = str(message or "").strip()
+            sym = str(symbol or getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+            if not msg:
+                return
+            try:
+                self.set_status_msg(msg, color)
+            except Exception:
+                pass
+            try:
+                self._append_aits_recent_log(sym, msg)
+                self._sync_recent_log_label()
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -42425,10 +42460,23 @@ class MainWindow(QMainWindow):
                     pass
                 return
 
+            selected_symbol = self._resolve_current_ai_snapshot_symbol()
+            if not selected_symbol:
+                try:
+                    self._log.info(
+                        "[AITS][AIAnalysisRefresh] event=skipped | reason=no_selected_symbol | "
+                        "explicit_user_request=True | api_call_allowed=True | order_allowed=False | submitted=0"
+                    )
+                except Exception:
+                    pass
+                self._set_managed_action_status("분석할 종목을 먼저 선택하세요.", "#b45309")
+                return
+
             self._ai_analysis_refresh_last_ts = now_ts
             try:
                 self._ai_briefing_pending_manual_request = True
-                self._ai_briefing_pending_snapshot_symbol = self._resolve_current_ai_snapshot_symbol()
+                self._ai_briefing_pending_snapshot_symbol = selected_symbol
+                self._ai_briefing_last_snapshot_source = "manual_refresh"
             except Exception:
                 pass
             provider = "basic"
@@ -42438,9 +42486,12 @@ class MainWindow(QMainWindow):
                 provider = "basic"
             try:
                 self._log.info(
-                    "[AITS][AIAnalysisRefresh] event=manual_request | "
-                    "provider=%s | trigger=button | submitted=0",
+                    "[AITS][AIAnalysisRefresh] event=clicked | symbol=%s | "
+                    "provider=%s | trigger=button | explicit_user_request=True | "
+                    "aits_running=%s | api_call_allowed=True | order_allowed=False | submitted=0",
+                    selected_symbol,
                     provider or "unknown",
+                    bool(getattr(getattr(self, "state", None), "is_running", False)),
                 )
             except Exception:
                 pass
@@ -42453,7 +42504,46 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
+                self._set_managed_action_status(
+                    f"AI 분석 요청됨 · {selected_symbol} · 실제 주문 없음",
+                    "#1d4ed8",
+                    selected_symbol,
+                )
+                try:
+                    should_run, why = self._should_run_aits_main_gpt_reco()
+                except Exception:
+                    should_run, why = True, ""
+                if not should_run:
+                    try:
+                        self._log.info(
+                            "[AITS][AIAnalysisRefresh] event=skipped | symbol=%s | reason=%s | "
+                            "api_call_allowed=True | order_allowed=False | submitted=0",
+                            selected_symbol,
+                            str(why or "unknown"),
+                        )
+                    except Exception:
+                        pass
+                    self._set_managed_action_status(
+                        f"AI 분석 생략 · {why or '조건 미충족'}",
+                        "#b45309",
+                        selected_symbol,
+                    )
+                    return
                 self._schedule_aits_main_gpt_reco(200)
+                try:
+                    self._log.info(
+                        "[AITS][AIAnalysisRefresh] event=scheduled | symbol=%s | provider=%s | "
+                        "api_call_allowed=True | order_allowed=False | submitted=0",
+                        selected_symbol,
+                        provider or "unknown",
+                    )
+                except Exception:
+                    pass
+                self._set_managed_action_status(
+                    f"AI 분석 중... · {selected_symbol} · 실제 주문 없음",
+                    "#1d4ed8",
+                    selected_symbol,
+                )
             except Exception as exc:
                 try:
                     self._log.warning(
@@ -42781,6 +42871,15 @@ class MainWindow(QMainWindow):
             tab = self._get_current_refresh_tab_key()
             self._log_refresh_dispatcher("start", tab, "dispatch")
             try:
+                logging.getLogger("aits").info(
+                    "[AITS][RefreshAction] event=state_refresh_clicked tab=%s "
+                    "api_call_allowed=False api_call_attempted=False order_allowed=False submitted=0",
+                    str(tab or "unknown"),
+                )
+            except Exception:
+                pass
+            self._set_managed_action_status("상태 새로고침 중...", "#1d4ed8")
+            try:
                 self.set_global_status("상태 새로고침 중...", "busy", "refresh")
             except Exception:
                 pass
@@ -42815,6 +42914,24 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 self.set_status_msg(msg, "#2e7d32")
+            except Exception:
+                pass
+            try:
+                managed_count = len(getattr(self, "ai_managed_rows", []) or [])
+                scanner_count = len(getattr(self, "_market_display_rows", []) or [])
+                if tab == "managed":
+                    self._set_managed_action_status(
+                        f"상태 새로고침 완료 · 관리종목 {managed_count}개 · 후보 {scanner_count}개 갱신",
+                        "#15803d",
+                    )
+                    logging.getLogger("aits").info(
+                        "[AITS][RefreshAction] event=state_refresh_done managed_count=%s "
+                        "scanner_count=%s api_call_attempted=False order_allowed=False submitted=0",
+                        managed_count,
+                        scanner_count,
+                    )
+                else:
+                    self._set_managed_action_status(msg, "#15803d")
             except Exception:
                 pass
             self._log_refresh_dispatcher("done", tab, result)

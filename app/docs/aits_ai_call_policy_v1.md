@@ -415,6 +415,21 @@ Policy intent:
 - No detail-chart AI refresh button, background AI timer, or Provider/API call is added in this Goal.
 - `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` remain the expected safety state.
 
+## 28. MANAGED-TAB-REFRESH-ACTION-WIRING-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-ACTION-WIRING-01` clarifies the active paths for the managed-tab refresh actions.
+
+Policy intent:
+
+- Status refresh is a data/display refresh only and must not schedule GPT/Gemini/OpenAI analysis.
+- Status refresh should give immediate user feedback when clicked and completion feedback after the managed/scanner tables are refreshed.
+- AI analysis refresh is an explicit user request and may use the existing AI analysis scheduling path.
+- AITS OFF does not by itself block display-only AI analysis refresh; the action remains unrelated to live orders.
+- AI analysis refresh must require a selected symbol before scheduling analysis.
+- Completed AI analysis results are stored as per-symbol recent snapshots for detail-chart display.
+- Skipped or failed analysis should report a user-visible reason without exposing API keys, prompts, account data, or full payloads.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
+
 ## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.
