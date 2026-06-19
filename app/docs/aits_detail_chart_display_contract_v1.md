@@ -430,3 +430,21 @@ Safety remains unchanged:
 - No detail-chart AI refresh button is added.
 - No background AI event or timer is added.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 22. MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01` verifies the detail-chart side of managed-tab AI analysis refresh.
+
+Display rules:
+
+- AI analysis results stored by the managed-tab publish path are looked up by normalized per-symbol cache first.
+- Detail chart open remains a display action and must not trigger AI analysis or Provider/API calls.
+- When a matching snapshot is stored while the same detail chart is already open, the existing display contract may be regenerated and applied once.
+- Snapshot lookup proof logs include symbol, `has_snapshot`, `source=per_symbol_cache` when applicable, engine, freshness, symbol match, `api_call_attempted=False`, `order_allowed=False`, and `submitted=0`.
+- If no matching snapshot exists, the detail chart continues to show Basic/local calculated summary.
+
+Safety remains unchanged:
+
+- No detail-chart AI analysis refresh button is added.
+- No background AI timer or per-symbol AI cadence is added.
+- No Router, Risk Guard, Order, Execution, repository, run, requirements, or build path is changed.

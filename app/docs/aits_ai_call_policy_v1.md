@@ -444,3 +444,18 @@ Policy intent:
 - Snapshot freshness remains display-only and does not affect Router, Risk Guard, Order, or Execution decisions.
 - No detail-chart AI refresh button, background AI timer, or Provider/API call is added in this Goal.
 - `api_call_attempted=False`, `order_allowed=False`, and `submitted=0` remain the expected safety state.
+
+## 29. MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01 Implementation Note
+
+`MANAGED-TAB-REFRESH-ACTION-AUDIT-FIX-01` audits the user-visible managed-tab refresh buttons from the actual button objects through handler entry, scheduling, publish, and snapshot display proof logs.
+
+Policy intent:
+
+- The visible `상태 새로고침` button has a stable object name/alias and logs `[AITS][RefreshActionProof]` immediately on handler entry.
+- Status refresh remains Basic/local display refresh only and must not call `_schedule_aits_main_gpt_reco`, `_build_gpt_preview_output`, GPT, Gemini, OpenAI, or a new Provider/API client.
+- The visible `AI 분석 새로고침` button has a stable object name/alias and logs `[AITS][AIAnalysisRefreshProof]` immediately on handler entry.
+- AI analysis refresh is an explicit user request, may use only the existing explicit AI analysis scheduling path, and must show skipped/failed/scheduled/completed user feedback.
+- AITS OFF is treated as automation/order OFF; display-only AI analysis may still run and must show `실제 주문 없음`.
+- Completed AI analysis publishes may store sanitized per-symbol snapshots for detail-chart display.
+- API keys, prompts, account data, order payloads, and full raw provider responses must not be exposed or stored in the snapshot proof path.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

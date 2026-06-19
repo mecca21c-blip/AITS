@@ -6036,7 +6036,7 @@ class AITSLargeChartDialog(QDialog):
             try:
                 logging.getLogger("aits").info(
                     "[AITS][AISnapshotStore] event=stored symbol=%s engine=%s source=%s "
-                    "has_generated_at=%s submitted=0",
+                    "has_generated_at=%s order_allowed=False submitted=0",
                     sym,
                     snapshot.get("engine") or "unknown",
                     snapshot.get("source") or "unknown",
@@ -6086,6 +6086,14 @@ class AITSLargeChartDialog(QDialog):
                 detail_output_contract=getattr(dlg, "_detail_popup_ai_output_contract", None),
             )
             self._publish_detail_chart_display_contract(contract, dlg)
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartAISnapshot] event=open_chart_refreshed | symbol=%s | "
+                    "source=per_symbol_cache | api_call_attempted=False | order_allowed=False | submitted=0",
+                    current,
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -7879,7 +7887,7 @@ class MainWindow(QMainWindow):
                 source = str(getattr(self, "_ai_briefing_last_snapshot_source", "") or "").strip()
                 if not source:
                     source = "manual_refresh" if pending_manual else "auto_condition"
-                self._record_recent_ai_snapshot_for_symbol(
+                snapshot = self._record_recent_ai_snapshot_for_symbol(
                     getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
                     payload=final_payload,
                     parsed=parsed,
@@ -7896,14 +7904,25 @@ class MainWindow(QMainWindow):
                 try:
                     self._log.info(
                         "[AITS][AIAnalysisRefresh] event=completed | symbol=%s | "
-                        "source=%s | order_allowed=False | submitted=0",
+                        "has_payload=%s | snapshot_store_attempted=%s | source=%s | "
+                        "order_allowed=False | submitted=0",
                         snap_symbol or "unknown",
+                        isinstance(final_payload, dict) and bool(final_payload),
+                        bool(snapshot),
                         source,
                     )
                 except Exception:
                     pass
-            except Exception:
-                pass
+            except Exception as exc:
+                try:
+                    self._log.warning(
+                        "[AITS][AIAnalysisRefresh] event=failed | symbol=%s | reason=%s | "
+                        "snapshot_store_attempted=False | order_allowed=False | submitted=0",
+                        getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "unknown",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
 
             try:
                 rot_dbg = getattr(self, "_aits_last_rotation_payload", {}) or {}
@@ -11798,8 +11817,12 @@ class MainWindow(QMainWindow):
         self.btn_sellall.clicked.connect(self.on_sell_all)  # P0-D2: 버튼 연결 확인
         # 통합 새로고침
         self.btn_refresh = QPushButton("상태 새로고침")
+        self.btn_refresh.setObjectName("managed_state_refresh")
+        self.btn_managed_state_refresh = self.btn_refresh
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
         self.btn_ai_analysis_refresh = QPushButton("AI 분석 새로고침")
+        self.btn_ai_analysis_refresh.setObjectName("managed_ai_analysis_refresh")
+        self.btn_managed_ai_analysis_refresh = self.btn_ai_analysis_refresh
         self.btn_ai_analysis_refresh.setToolTip(
             "현재 선택된 AI 엔진으로 브리핑/근거/다음행동을 다시 생성합니다. "
             "GPT/Gemini 사용 시 API 호출이 발생할 수 있습니다."
@@ -32259,11 +32282,12 @@ class MainWindow(QMainWindow):
         try:
             should_run, _why = self._should_run_aits_main_gpt_reco()
             if not should_run:
-                return
+                return False, str(_why or "blocked")
 
             QTimer.singleShot(int(delay_ms), self._run_aits_main_gpt_reco_and_publish)
-        except Exception:
-            pass
+            return True, "scheduled"
+        except Exception as exc:
+            return False, type(exc).__name__
 
     def _get_aits_engine_ssot(self) -> str:
         """
@@ -42435,6 +42459,32 @@ class MainWindow(QMainWindow):
     def _on_ai_analysis_refresh_clicked(self):
         """Explicit AI analysis refresh button. Status refresh must stay data-only."""
         try:
+            entry_symbol = ""
+            try:
+                entry_symbol = self._resolve_current_ai_snapshot_symbol()
+            except Exception:
+                entry_symbol = ""
+            try:
+                btn = getattr(self, "btn_managed_ai_analysis_refresh", None) or getattr(self, "btn_ai_analysis_refresh", None)
+                self._log.info(
+                    "[AITS][AIAnalysisRefreshProof] event=ai_button_clicked | "
+                    "button=managed_ai_analysis_refresh | symbol=%s | enabled=%s | visible=%s | "
+                    "explicit_user_request=True | aits_running=%s | order_allowed=False | submitted=0",
+                    entry_symbol or "",
+                    bool(btn.isEnabled()) if btn is not None and hasattr(btn, "isEnabled") else False,
+                    bool(btn.isVisible()) if btn is not None and hasattr(btn, "isVisible") else False,
+                    bool(getattr(getattr(self, "state", None), "is_running", False)),
+                )
+            except Exception:
+                pass
+            try:
+                self._set_managed_action_status(
+                    f"AI 분석 새로고침 클릭됨 · {entry_symbol or '종목 미선택'} · 실제 주문 없음",
+                    "#1d4ed8" if entry_symbol else "#b45309",
+                    entry_symbol,
+                )
+            except Exception:
+                pass
             now_ts = time.time()
             cooldown_sec = 30.0
             last_ts = float(
@@ -42460,7 +42510,7 @@ class MainWindow(QMainWindow):
                     pass
                 return
 
-            selected_symbol = self._resolve_current_ai_snapshot_symbol()
+            selected_symbol = entry_symbol or self._resolve_current_ai_snapshot_symbol()
             if not selected_symbol:
                 try:
                     self._log.info(
@@ -42473,6 +42523,15 @@ class MainWindow(QMainWindow):
                 return
 
             self._ai_analysis_refresh_last_ts = now_ts
+            try:
+                if not bool(getattr(getattr(self, "state", None), "is_running", False)):
+                    self._set_managed_action_status(
+                        f"AITS OFF 상태 · 분석만 수행 · {selected_symbol} · 실제 주문 없음",
+                        "#1d4ed8",
+                        selected_symbol,
+                    )
+            except Exception:
+                pass
             try:
                 self._ai_briefing_pending_manual_request = True
                 self._ai_briefing_pending_snapshot_symbol = selected_symbol
@@ -42529,11 +42588,27 @@ class MainWindow(QMainWindow):
                         selected_symbol,
                     )
                     return
-                self._schedule_aits_main_gpt_reco(200)
+                scheduled, schedule_reason = self._schedule_aits_main_gpt_reco(200)
+                if not scheduled:
+                    try:
+                        self._log.info(
+                            "[AITS][AIAnalysisRefresh] event=skipped | symbol=%s | reason=%s | "
+                            "explicit_user_request=True | api_call_allowed=True | order_allowed=False | submitted=0",
+                            selected_symbol,
+                            str(schedule_reason or "schedule_blocked"),
+                        )
+                    except Exception:
+                        pass
+                    self._set_managed_action_status(
+                        f"AI 분석 생략 · {schedule_reason or '요청 대기'}",
+                        "#b45309",
+                        selected_symbol,
+                    )
+                    return
                 try:
                     self._log.info(
                         "[AITS][AIAnalysisRefresh] event=scheduled | symbol=%s | provider=%s | "
-                        "api_call_allowed=True | order_allowed=False | submitted=0",
+                        "explicit_user_request=True | api_call_allowed=True | order_allowed=False | submitted=0",
                         selected_symbol,
                         provider or "unknown",
                     )
@@ -42553,8 +42628,27 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     pass
-        except Exception:
-            pass
+                try:
+                    self._set_managed_action_status(
+                        "AI 분석 요청 실패 · 로그 확인 필요",
+                        "#b00020",
+                        selected_symbol,
+                    )
+                except Exception:
+                    pass
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][AIAnalysisRefresh] event=failed | reason=%s | "
+                    "snapshot_store_attempted=False | order_allowed=False | submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            try:
+                self._set_managed_action_status("AI 분석 실패 · 로그 확인 필요", "#b00020")
+            except Exception:
+                pass
 
     def _legacy_global_on_refresh(self):
         """
@@ -42869,6 +42963,22 @@ class MainWindow(QMainWindow):
         """Top status refresh dispatcher. This path must not schedule paid AI calls."""
         try:
             tab = self._get_current_refresh_tab_key()
+            try:
+                btn = getattr(self, "btn_managed_state_refresh", None) or getattr(self, "btn_refresh", None)
+                logging.getLogger("aits").info(
+                    "[AITS][RefreshActionProof] event=state_button_clicked | "
+                    "button=managed_state_refresh | tab=%s | enabled=%s | visible=%s | "
+                    "api_call_attempted=False | order_allowed=False | submitted=0",
+                    str(tab or "unknown"),
+                    bool(btn.isEnabled()) if btn is not None and hasattr(btn, "isEnabled") else False,
+                    bool(btn.isVisible()) if btn is not None and hasattr(btn, "isVisible") else False,
+                )
+            except Exception:
+                pass
+            try:
+                self._set_managed_action_status("상태 새로고침 클릭됨 · 로컬 상태 갱신", "#1d4ed8")
+            except Exception:
+                pass
             self._log_refresh_dispatcher("start", tab, "dispatch")
             try:
                 logging.getLogger("aits").info(
