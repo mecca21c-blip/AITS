@@ -486,6 +486,20 @@ Policy intent:
 - Detail chart open remains display-only and is not an AI call trigger.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
 
+## 33. DETAIL-CHART-UI-POLICY-POLISH-01 Implementation Note
+
+`DETAIL-CHART-UI-POLICY-POLISH-01` is a UI polish and symbol-policy wording update.
+
+Policy intent:
+
+- The detail-chart AI analysis refresh button remains an explicit user request and now uses clearer refresh/analysis affordance.
+- Button wording and iconography do not imply buy, sell, order, or execution.
+- Detail-chart layout changes do not change AI-call policy.
+- The per-symbol policy panel remains display-only and a future design-candidate surface.
+- Per-symbol reference strength, cadence candidates, and maximum weight controls are not connected to AI timers, Router, Risk Guard, Order, or Execution.
+- Detail chart open remains display-only and is not an AI call trigger.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
+
 ## 27. DETAIL-CHART-AI-SNAPSHOT-WIRING-01 Implementation Note
 
 `DETAIL-CHART-AI-SNAPSHOT-WIRING-01` connects completed AI analysis results to the detail-chart recent snapshot display.

@@ -78,3 +78,41 @@ Future candidates:
 - `SYMBOL-AI-CADENCE-POLICY-01`: design per-symbol AI analysis cadence without adding API calls.
 - `SYMBOL-RISKGUARD-WEIGHT-CONTRACT-01`: define how a symbol-specific weight cap would be enforced by Risk Guard.
 - `DETAIL-CHART-SYMBOL-POLICY-UI-01`: split active controls from future/disabled candidates.
+
+## 7. DETAIL-CHART-UI-POLICY-POLISH-01 Notes
+
+The detail-chart symbol policy panel is currently a display and design-candidate surface.
+
+Per-symbol candidate fields:
+
+1. AI analysis cadence override
+   - Follow global policy
+   - Fast
+   - Normal
+   - Slow
+   - Manual only
+   - Must not be connected to timers or API calls without a separate AI-call policy Goal.
+
+2. Observation sensitivity override
+   - Follow global policy
+   - Low
+   - Normal
+   - High
+
+3. Maximum symbol weight override
+   - Follow global policy
+   - Symbol-specific cap
+   - Must not affect Order or Risk Guard until a separate RiskGuard integration Goal.
+
+4. Symbol operation status
+   - Follow global policy
+   - Observation only
+   - Manual hold
+   - Enhanced AI review
+   - Excluded
+
+5. Per-symbol memo or reason
+   - User note explaining why the symbol is watched
+   - Whether AI may use this note is a later policy decision.
+
+Current UI labels should make clear that `AI analysis reference strength` and symbol weight fields are display-only and do not affect orders, Risk Guard, or AI-call cadence.

@@ -1908,31 +1908,38 @@ class AITSLargeChartDialog(QDialog):
         try:
             snapshot = self._build_asset_policy_snapshot()
             max_weight = int(snapshot.get("max_weight_pct", 0) or 0)
-            max_weight_text = "전역" if max_weight <= 0 else f"{max_weight}%"
+            max_weight_text = "\uC804\uC5ED \uC815\uCC45 \uB530\uB984" if max_weight <= 0 else f"{max_weight}%"
             autonomy = int(snapshot.get("autonomy_level", 50) or 50)
-            style = str(snapshot.get("policy_style", "전역 정책 따름") or "전역 정책 따름")
-            style_text = "전역 정책 따름" if style == "전역 정책 따름" else f"{style} 개별 설정"
+            style = str(snapshot.get("policy_style", "\uC804\uC5ED \uC815\uCC45 \uB530\uB984") or "\uC804\uC5ED \uC815\uCC45 \uB530\uB984")
+            style_text = "\uC804\uC5ED \uC815\uCC45 \uB530\uB984" if "\uC804\uC5ED" in style or "global" in style.lower() else f"{style} \uC885\uBAA9\uBCC4 \uD45C\uC2DC"
             preset_key = str(snapshot.get("preset_name") or "global")
             preset_map = {
-                "global": "전역 운용 방식",
-                "safe": "초보 안정형",
-                "balanced": "균형 운용형",
-                "aggressive": "단기 공격형",
-                "swing": "관망 스윙형",
-                "autonomous": "공격적 참고형",
-                "custom": "사용자 커스텀",
+                "global": "\uC804\uC5ED \uC6B4\uC6A9 \uBC29\uC2DD",
+                "safe": "\uC548\uC815\uD615",
+                "balanced": "\uADE0\uD615\uD615",
+                "aggressive": "\uACF5\uACA9\uD615",
+                "swing": "\uAD00\uCC30 \uC2A4\uC719\uD615",
+                "autonomous": "AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uD654",
+                "custom": "\uC0AC\uC6A9\uC790 \uC124\uC815",
             }
-            preset_text = preset_map.get(preset_key, "전역 운용 방식")
-            autonomy_profile = "사용자 중심" if autonomy < 34 else "검토 민감도 높음" if autonomy >= 67 else "참고 강도 50" if autonomy == 50 else f"참고 강도 {autonomy}"
-            self.lbl_asset_policy_autonomy.setText(f"종목별 분석 참고 강도: {autonomy} (표시 전용)")
+            preset_text = preset_map.get(preset_key, "\uC804\uC5ED \uC6B4\uC6A9 \uBC29\uC2DD")
+            if autonomy < 34:
+                autonomy_profile = "AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uB3C4 \uB0AE\uC74C"
+            elif autonomy >= 67:
+                autonomy_profile = "AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uB3C4 \uB192\uC74C"
+            else:
+                autonomy_profile = f"AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uB3C4 {autonomy}"
+            self.lbl_asset_policy_autonomy.setText(f"AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uB3C4 (\uD45C\uC2DC \uC804\uC6A9): {autonomy}")
             self.lbl_asset_policy_summary.setText(
-                f"{style_text} · {preset_text}\n{autonomy_profile}\n종목별 최대 비중 {max_weight_text} · 주문 경로 미연결"
+                f"{style_text} \u00B7 {preset_text}\n"
+                f"{autonomy_profile} \u00B7 \uC8FC\uBB38 \uC2E4\uD589\uC5D0 \uBBF8\uC801\uC6A9\n"
+                f"\uCD5C\uB300 \uBE44\uC911 {max_weight_text} \u00B7 RiskGuard/Order \uBBF8\uC5F0\uACB0"
             )
             title = getattr(self, "lbl_asset_policy_title", None)
             if title is not None and hasattr(title, "setText"):
                 symbol = str(snapshot.get("symbol") or getattr(self, "_symbol", "") or "").strip()
-                base_symbol = symbol.replace("KRW-", "") if symbol else "종목"
-                title.setText(f"{base_symbol} 관찰 정책")
+                base_symbol = symbol.replace("KRW-", "") if symbol else "\uC885\uBAA9"
+                title.setText(f"{base_symbol} \uAD00\uCC30 \uC815\uCC45")
         except Exception:
             pass
 
@@ -2237,7 +2244,7 @@ class AITSLargeChartDialog(QDialog):
             visible = not bool(target.isVisible())
             target.setVisible(visible)
             self.btn_toggle_asset_advanced_policy.setText(
-                "[ 종목별 정책 세부 항목 접기 ]" if visible else "[ 종목별 정책 세부 항목 ]"
+                "\uC885\uBAA9\uBCC4 \uC815\uCC45 \uD6C4\uBCF4 \uC811\uAE30" if visible else "\uC885\uBAA9\uBCC4 \uC815\uCC45 \uD6C4\uBCF4 \uBCF4\uAE30 \u00B7 \uC900\uBE44 \uC911"
             )
         except Exception:
             pass
@@ -2310,6 +2317,8 @@ class AITSLargeChartDialog(QDialog):
             "이 종목의 표시용 관찰 성향입니다. 전역 정책과 주문 실행 경로에는 적용되지 않습니다."
         )
         try:
+            self.lbl_asset_policy_title.setText("\uC885\uBAA9\uBCC4 \uAD00\uCC30 \uC815\uCC45")
+            desc.setText("\uC774 \uC885\uBAA9\uC758 \uD45C\uC2DC/\uAD00\uCC30 \uAE30\uC900\uC785\uB2C8\uB2E4. \uC804\uC5ED \uC815\uCC45\uC774 \uC0C1\uC704 \uAE30\uC900\uC774\uBA70, \uD604\uC7AC \uC8FC\uBB38\uC5D0\uB294 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
             self.lbl_asset_policy_title.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_asset_policy_title.setStyleSheet(
                 "font-size:13px; font-weight:900; color:#111827;"
@@ -2324,6 +2333,7 @@ class AITSLargeChartDialog(QDialog):
             "전역 정책 따름\n종목별 분석 참고 강도 50\n종목별 최대 비중 전역 · 주문 경로 미연결"
         )
         try:
+            self.lbl_asset_policy_summary.setText("\uC804\uC5ED \uC815\uCC45 \uB530\uB984\nAI \uBD84\uC11D \uCC38\uACE0 \uAC15\uB3C4 50 \u00B7 \uD45C\uC2DC \uC804\uC6A9\n\uCD5C\uB300 \uBE44\uC911 \uC804\uC5ED \u00B7 \uC8FC\uBB38 \uC2E4\uD589 \uBBF8\uC801\uC6A9")
             self.lbl_asset_policy_summary.setTextFormat(Qt.TextFormat.PlainText)
             self.lbl_asset_policy_summary.setWordWrap(True)
             self.lbl_asset_policy_summary.setStyleSheet(
@@ -2343,7 +2353,8 @@ class AITSLargeChartDialog(QDialog):
         preset_row = QHBoxLayout()
         preset_row.setContentsMargins(0, 0, 0, 0)
         preset_row.setSpacing(6)
-        preset_row.addWidget(QLabel("운용 방식"))
+        lbl_asset_policy_preset = QLabel("\uC6B4\uC6A9 \uBC29\uC2DD")
+        preset_row.addWidget(lbl_asset_policy_preset)
         self.cmb_asset_policy_preset = QComboBox()
         self.cmb_asset_policy_preset.addItem("전역 정책 따름", "global")
         self.cmb_asset_policy_preset.addItem("초보 안정형", "safe")
@@ -2352,23 +2363,46 @@ class AITSLargeChartDialog(QDialog):
         self.cmb_asset_policy_preset.addItem("관망 스윙형", "swing")
         self.cmb_asset_policy_preset.addItem("공격적 참고형", "autonomous")
         self.cmb_asset_policy_preset.addItem("사용자 커스텀", "custom")
+        try:
+            self.cmb_asset_policy_preset.clear()
+            self.cmb_asset_policy_preset.addItem("\uC804\uC5ED \uC815\uCC45 \uB530\uB984", "global")
+            self.cmb_asset_policy_preset.addItem("\uC548\uC815\uD615", "safe")
+            self.cmb_asset_policy_preset.addItem("\uADE0\uD615\uD615", "balanced")
+            self.cmb_asset_policy_preset.addItem("\uACF5\uACA9\uD615", "aggressive")
+            self.cmb_asset_policy_preset.addItem("\uAD00\uCC30 \uC2A4\uC719\uD615", "swing")
+            self.cmb_asset_policy_preset.addItem("AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uD654", "autonomous")
+            self.cmb_asset_policy_preset.addItem("\uC0AC\uC6A9\uC790 \uC124\uC815", "custom")
+            self.cmb_asset_policy_preset.setToolTip("\uD604\uC7AC\uB294 \uC0C1\uC138\uCC28\uD2B8 \uD45C\uC2DC \uCC38\uACE0\uC6A9\uC774\uBA70 \uC8FC\uBB38\uC5D0 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
+        except Exception:
+            pass
         preset_row.addWidget(self.cmb_asset_policy_preset, 1)
         controls_layout.addLayout(preset_row)
 
         style_row = QHBoxLayout()
         style_row.setContentsMargins(0, 0, 0, 0)
         style_row.setSpacing(6)
-        style_row.addWidget(QLabel("종목 성향"))
+        lbl_asset_policy_style = QLabel("\uC885\uBAA9 \uD45C\uC2DC \uACBD\uD5A5")
+        style_row.addWidget(lbl_asset_policy_style)
         self.cmb_asset_policy_style = QComboBox()
         self.cmb_asset_policy_style.addItems(["전역 정책 따름", "안정형", "중립형", "공격형"])
+        try:
+            self.cmb_asset_policy_style.clear()
+            self.cmb_asset_policy_style.addItems(["\uC804\uC5ED \uC815\uCC45 \uB530\uB984", "\uC548\uC815\uD615", "\uC911\uB9BD\uD615", "\uACF5\uACA9\uD615"])
+            self.cmb_asset_policy_style.setToolTip("\uC885\uBAA9\uBCC4 \uD45C\uC2DC \uACBD\uD5A5\uC785\uB2C8\uB2E4. \uC804\uC5ED \uC815\uCC45\uC774 \uC0C1\uC704 \uAE30\uC900\uC785\uB2C8\uB2E4.")
+        except Exception:
+            pass
         style_row.addWidget(self.cmb_asset_policy_style, 1)
         controls_layout.addLayout(style_row)
 
-        self.lbl_asset_policy_autonomy = QLabel("종목별 분석 참고 강도: 50 (표시 전용)")
+        self.lbl_asset_policy_autonomy = QLabel("AI ?? ?? ?? (?? ??): 50")
         self.slider_asset_policy_autonomy = QSlider(Qt.Orientation.Horizontal)
         try:
             self.slider_asset_policy_autonomy.setRange(0, 100)
             self.slider_asset_policy_autonomy.setValue(50)
+        except Exception:
+            pass
+        try:
+            self.lbl_asset_policy_autonomy.setText("AI \uBD84\uC11D \uCC38\uACE0 \uAC15\uB3C4 (\uD45C\uC2DC \uC804\uC6A9): 50")
         except Exception:
             pass
         controls_layout.addWidget(self.lbl_asset_policy_autonomy)
@@ -2377,7 +2411,8 @@ class AITSLargeChartDialog(QDialog):
         weight_row = QHBoxLayout()
         weight_row.setContentsMargins(0, 0, 0, 0)
         weight_row.setSpacing(6)
-        weight_row.addWidget(QLabel("종목별 최대 비중"))
+        lbl_asset_policy_weight = QLabel("\uC885\uBAA9\uBCC4 \uCD5C\uB300 \uBE44\uC911 (\uD45C\uC2DC \uC804\uC6A9)")
+        weight_row.addWidget(lbl_asset_policy_weight)
         self.spin_asset_policy_max_weight = QSpinBox()
         try:
             self.spin_asset_policy_max_weight.setRange(0, 100)
@@ -2390,7 +2425,7 @@ class AITSLargeChartDialog(QDialog):
 
         weight_hint = QLabel("0%는 전역 정책 따름")
         try:
-            weight_hint.setText("0%는 전역 정책 따름")
+            weight_hint.setText("\uC804\uC5ED \uC815\uCC45 \uB530\uB984: 0%. \uD604\uC7AC \uC2E4\uC81C \uC8FC\uBB38 \uBE44\uC911\uC5D0\uB294 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
             weight_hint.setTextFormat(Qt.TextFormat.PlainText)
             weight_hint.setStyleSheet("font-size:10px; font-weight:600; color:#94a3b8;")
         except Exception:
@@ -2398,16 +2433,16 @@ class AITSLargeChartDialog(QDialog):
         controls_layout.addWidget(weight_hint)
         self.btn_reset_asset_policy_defaults = QPushButton("기본값 복원")
         try:
-            weight_hint.setText("0%는 전역 정책 따름")
+            weight_hint.setText("\uC804\uC5ED \uC815\uCC45 \uB530\uB984: 0%. \uD604\uC7AC \uC2E4\uC81C \uC8FC\uBB38 \uBE44\uC911\uC5D0\uB294 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
             weight_hint.setStyleSheet("font-size:10px; font-weight:600; color:#64748b;")
-            self.btn_reset_asset_policy_defaults.setText("기본값 복원")
+            self.btn_reset_asset_policy_defaults.setText("\uAE30\uBCF8\uAC12 \uBCF5\uC6D0")
         except Exception:
             pass
         controls_layout.addWidget(self.btn_reset_asset_policy_defaults)
 
         self.btn_toggle_asset_advanced_policy = QPushButton("[ 종목별 정책 세부 항목 ]")
         try:
-            self.btn_toggle_asset_advanced_policy.setText("종목별 정책 세부 항목")
+            self.btn_toggle_asset_advanced_policy.setText("\uC885\uBAA9\uBCC4 \uC815\uCC45 \uD6C4\uBCF4 \uBCF4\uAE30 \u00B7 \uC900\uBE44 \uC911")
         except Exception:
             pass
         controls_layout.addWidget(self.btn_toggle_asset_advanced_policy)
@@ -2416,10 +2451,11 @@ class AITSLargeChartDialog(QDialog):
         advanced_lay.setContentsMargins(0, 0, 0, 0)
         advanced_lay.setSpacing(4)
         advanced_label = QLabel(
-            "표시 전용 감사 영역입니다. AI 분석 주기, 관찰 민감도, 종목별 비중 상한은 "
-            "후속 설계 후보이며 현재 주문/호출 경로에는 연결하지 않습니다."
+            "?? ?? ?????. AI ?? ??, ?? ???, ??? ?? ??, "
+            "????/?? ??? ?? ??/RiskGuard/AI ?? ??? ???? ????."
         )
         try:
+            advanced_label.setText("\uD6C4\uC18D \uC124\uACC4 \uD6C4\uBCF4\uC785\uB2C8\uB2E4. AI \uBD84\uC11D \uC8FC\uAE30, \uAD00\uCC30 \uBBFC\uAC10\uB3C4, \uC885\uBAA9\uBCC4 \uBE44\uC911 \uC0C1\uD55C, \uAD00\uCC30\uC804\uC6A9/\uC81C\uC678 \uD56D\uBAA9\uC744 \uD6C4\uC18D Goal\uC5D0\uC11C \uB2E4\uB8F9\uB2C8\uB2E4. \uD604\uC7AC\uB294 \uC8FC\uBB38/RiskGuard/AI \uD638\uCD9C \uC8FC\uAE30\uC5D0 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
             advanced_label.setTextFormat(Qt.TextFormat.PlainText)
             advanced_label.setWordWrap(True)
             advanced_label.setStyleSheet("font-size:11px; font-weight:600; color:#64748b;")
@@ -2430,6 +2466,12 @@ class AITSLargeChartDialog(QDialog):
         controls_layout.addWidget(self.asset_advanced_policy_container)
         self.asset_policy_layout.addWidget(self.asset_policy_controls_container)
         self.asset_policy_controls_container.setVisible(True)
+        try:
+            self.slider_asset_policy_autonomy.setToolTip("AI \uBD84\uC11D \uACB0\uACFC\uB97C \uC0C1\uC138\uCC28\uD2B8\uC5D0\uC11C \uC5BC\uB9C8\uB098 \uAC15\uD558\uAC8C \uCC38\uACE0\uB85C \uD45C\uC2DC\uD560\uC9C0\uC758 \uD45C\uC2DC\uAC12\uC785\uB2C8\uB2E4. \uC8FC\uBB38\uC5D0 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
+            self.spin_asset_policy_max_weight.setToolTip("\uD6C4\uC18D RiskGuard \uC5F0\uACB0 \uD6C4\uBCF4\uC785\uB2C8\uB2E4. \uD604\uC7AC\uB294 \uD45C\uC2DC/\uC800\uC7A5\uC6A9\uC774\uBA70 \uC2E4\uC81C \uC8FC\uBB38 \uBE44\uC911\uC5D0 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
+            self.btn_toggle_asset_advanced_policy.setToolTip("\uC885\uBAA9\uBCC4 AI \uBD84\uC11D \uC8FC\uAE30, \uAD00\uCC30 \uBBFC\uAC10\uB3C4, \uCD5C\uB300 \uBE44\uC911, \uAD00\uCC30\uC804\uC6A9/\uC81C\uC678 \uD6C4\uBCF4\uB97C \uD6C4\uC18D \uC124\uACC4\uC5D0\uC11C \uB2E4\uB8F9\uB2C8\uB2E4. \uD604\uC7AC \uC8FC\uBB38\uC5D0\uB294 \uC801\uC6A9\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")
+        except Exception:
+            pass
 
         try:
             self.cmb_asset_policy_preset.currentIndexChanged.connect(
@@ -2884,7 +2926,6 @@ class AITSLargeChartDialog(QDialog):
         status_header = QLabel("AI 현황")
         status_header.setStyleSheet("font-size:14px; font-weight:900; color:#111827;")
         status_container_lay.addWidget(status_header)
-        status_container_lay.addWidget(self.ai_briefing_center_container, 0)
         self.detail_ai_status_vertical_splitter = QSplitter(Qt.Orientation.Vertical, self.asset_ai_status_container)
         self.detail_ai_status_vertical_splitter.setObjectName("aitsDetailAIStatusVerticalSplitter")
         try:
@@ -2896,6 +2937,7 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         for card, min_height in (
+            (self.ai_briefing_center_container, 125),
             (self._frm_detail_ai_status_card, 115),
             (self._frm_detail_ai_reason_card, 135),
         ):
@@ -2906,9 +2948,10 @@ class AITSLargeChartDialog(QDialog):
                 pass
             self.detail_ai_status_vertical_splitter.addWidget(card)
         try:
-            self.detail_ai_status_vertical_splitter.setStretchFactor(0, 4)
-            self.detail_ai_status_vertical_splitter.setStretchFactor(1, 5)
-            self.detail_ai_status_vertical_splitter.setSizes([160, 220])
+            self.detail_ai_status_vertical_splitter.setStretchFactor(0, 3)
+            self.detail_ai_status_vertical_splitter.setStretchFactor(1, 3)
+            self.detail_ai_status_vertical_splitter.setStretchFactor(2, 4)
+            self.detail_ai_status_vertical_splitter.setSizes([150, 150, 230])
         except Exception:
             pass
         status_container_lay.addWidget(self.detail_ai_status_vertical_splitter, 1)
@@ -2944,7 +2987,7 @@ class AITSLargeChartDialog(QDialog):
         detail_refresh_lay = QHBoxLayout(self.detail_ai_refresh_panel)
         detail_refresh_lay.setContentsMargins(8, 6, 8, 6)
         detail_refresh_lay.setSpacing(8)
-        self.btn_detail_ai_analysis_refresh = QPushButton("AI \uBD84\uC11D \uC0C8\uB85C\uACE0\uCE68")
+        self.btn_detail_ai_analysis_refresh = QPushButton("\u21BB AI \uBD84\uC11D \uC0C8\uB85C\uACE0\uCE68")
         self.btn_detail_ai_analysis_refresh.setObjectName("aitsDetailAIAnalysisRefreshButton")
         self.btn_detail_ai_analysis_refresh.setToolTip(
             "\uD604\uC7AC \uC885\uBAA9 \uAE30\uC900\uC73C\uB85C AI \uBD84\uC11D\uC744 \uC694\uCCAD\uD569\uB2C8\uB2E4. \uC120\uD0DD \uC5D4\uC9C4\uC774 GPT/Gemini\uC774\uBA74 API \uD638\uCD9C\uC774 \uBC1C\uC0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC8FC\uBB38\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
@@ -3023,13 +3066,11 @@ class AITSLargeChartDialog(QDialog):
         handle_lay = QVBoxLayout(self.asset_policy_drawer_handle)
         handle_lay.setContentsMargins(3, 5, 3, 5)
         handle_lay.setSpacing(5)
-        self.btn_toggle_asset_ai_control = QPushButton("▶")
+        self.btn_toggle_asset_ai_control = QPushButton("")
         self.lbl_asset_policy_drawer_collapsed = QLabel("AI\n조정")
         try:
-            self.btn_toggle_asset_ai_control.setStyleSheet(
-                "min-height:24px; border:1px solid #94a3b8; border-radius:7px; "
-                "background:#f8fafc; color:#111827; font-weight:900; padding:2px 4px;"
-            )
+            self.btn_toggle_asset_ai_control.setFixedSize(0, 0)
+            self.btn_toggle_asset_ai_control.setStyleSheet("border:none; background:transparent; padding:0; margin:0;")
             self.btn_toggle_asset_ai_control.clicked.connect(self._toggle_asset_ai_control)
             self.lbl_asset_policy_drawer_collapsed.setAlignment(Qt.AlignmentFlag.AlignCenter)
             self.lbl_asset_policy_drawer_collapsed.setStyleSheet(
@@ -3041,6 +3082,7 @@ class AITSLargeChartDialog(QDialog):
         handle_lay.addWidget(self.lbl_asset_policy_drawer_collapsed, 1)
         try:
             self.asset_policy_drawer_handle.setVisible(False)
+            self.asset_policy_drawer_handle.setFixedWidth(0)
         except Exception:
             pass
         drawer_lay.addWidget(self.asset_policy_drawer_handle, 0)
@@ -3087,6 +3129,11 @@ class AITSLargeChartDialog(QDialog):
             logging.getLogger("aits").info(
                 "[AITS][DetailChartLayout] event=layout_ready splitter=enabled "
                 "chart_panel=True info_panel=True policy_panel=True submitted=0"
+            )
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartUIPolish] event=ready ai_refresh_button_icon=True "
+                "vertical_splitter=True empty_header_widget_removed=True "
+                "symbol_policy_display_only=True submitted=0"
             )
         except Exception:
             pass

@@ -506,3 +506,20 @@ Safety remains unchanged:
 - Selected-symbol matching still controls whether a snapshot can be displayed as recent AI analysis.
 - Detail chart open does not call AI.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 25. DETAIL-CHART-UI-POLICY-POLISH-01 Implementation Note
+
+`DETAIL-CHART-UI-POLICY-POLISH-01` adjusts detail-chart usability without changing the display contract.
+
+Display rules:
+
+- The explicit AI analysis refresh control may include a refresh/analysis icon, but it remains a manual analysis request only.
+- AI status, state judgment, and WHY content may be placed inside resizable splitters for readability.
+- Empty or collapsed drawer controls should not appear as unexplained buttons.
+- Per-symbol policy wording should identify display-only fields and future design candidates.
+
+Safety remains unchanged:
+
+- Detail chart open does not call AI.
+- The AI refresh button reuses the existing explicit analysis path.
+- Per-symbol policy controls are not connected to AI cadence, Risk Guard, Order, or Execution.
