@@ -2911,6 +2911,13 @@ class AITSLargeChartDialog(QDialog):
 
         self._frm_detail_ai_reason_card.layout().addWidget(self.lbl_detail_popup_reason_text, 1)
         self._frm_detail_ai_next_card.layout().addWidget(self.lbl_detail_popup_next_text, 1)
+        for unused_card in (self._frm_detail_ai_next_card, self._frm_detail_ai_metrics_card):
+            try:
+                unused_card.hide()
+                unused_card.setVisible(False)
+                unused_card.setParent(None)
+            except Exception:
+                pass
 
         self.lbl_detail_popup_core_metrics_compact = QLabel(
             self._format_asset_core_metrics_compact_text()
@@ -3128,7 +3135,12 @@ class AITSLargeChartDialog(QDialog):
         drawer_lay.addWidget(self.asset_ai_control_container, 1)
 
         sidebar_lay.addStretch(1)
-
+        try:
+            self._frm_detail_ai_sidebar.hide()
+            self._frm_detail_ai_sidebar.setVisible(False)
+            self._frm_detail_ai_sidebar.setParent(None)
+        except Exception:
+            pass
         try:
             self._frm_detail_left_chart_area.setMinimumWidth(650)
             self._frm_detail_left_chart_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)

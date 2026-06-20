@@ -548,6 +548,7 @@ Display rules:
 
 - Legacy widgets from the pre-SaaS detail chart layout are no longer detached as visible orphan children.
 - Only reusable detail chart controls are preserved when rebuilding the active popup layout.
+- Unused legacy sidebar/card widgets are hidden and detached so they cannot remain at the top-left of the dialog.
 - The collapsed per-symbol policy drawer handle is removed from the active layout instead of being kept as a hidden zero-width rounded frame.
 - The cleanup is display-only and does not change the detail chart display contract, snapshot, AI refresh, or chart calculation behavior.
 
