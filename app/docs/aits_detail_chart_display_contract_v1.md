@@ -557,3 +557,22 @@ Safety remains unchanged:
 - Detail chart open does not call AI.
 - The AI refresh button still reuses the existing explicit analysis path.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 28. DETAIL-CHART-AI-OUTPUT-SANITY-01 Implementation Note
+
+`DETAIL-CHART-AI-OUTPUT-SANITY-01` applies user-facing sanity checks to AI output before the detail chart renders it.
+
+Display rules:
+
+- AI output text is sanitized against the current detail-chart symbol.
+- Foreign `KRW-*` symbols are not displayed as if they belong to the current chart.
+- Raw action tokens are converted to UI labels such as AI reference entry/buy/sell/watch review.
+- Execution-like wording is lowered to observation or review conditions.
+- WHY text must not show a bare `AI` token; it falls back to a natural AI-reference explanation.
+- Engine/model labels are recalculated from engine, provider, and model together to avoid combinations such as LOCAL with a GPT model.
+
+Safety remains unchanged:
+
+- Detail chart open does not call AI.
+- The AI refresh button still reuses the existing explicit analysis path.
+- No Router, Risk Guard, Order, or Execution path is changed.

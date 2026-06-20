@@ -529,3 +529,18 @@ Policy intent:
 - Completed AI analysis publishes may store sanitized per-symbol snapshots for detail-chart display.
 - API keys, prompts, account data, order payloads, and full raw provider responses must not be exposed or stored in the snapshot proof path.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 34. DETAIL-CHART-AI-OUTPUT-SANITY-01 Implementation Note
+
+`DETAIL-CHART-AI-OUTPUT-SANITY-01` sanitizes detail-chart AI output before user display.
+
+Policy intent:
+
+- Detail-chart AI output is filtered against the selected symbol before display.
+- Foreign market symbols in AI text are replaced with current-symbol-safe wording.
+- Raw action tokens such as `ENTER`, `BUY`, `SELL`, `EXIT`, and `STAY` are displayed as AI reference opinions, not execution commands.
+- Order-like copy such as split-entry language is softened into review/observation conditions.
+- Engine/model labels are normalized so GPT models display as GPT, Gemini models display as Gemini, and LOCAL/basic stays separate.
+- Detail chart open remains display-only and is not an AI call trigger.
+- The AI refresh button still reuses only the existing explicit AI analysis path.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

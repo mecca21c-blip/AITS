@@ -14,6 +14,7 @@ import warnings
 import time
 import json
 import math
+import re
 from pathlib import Path
 import concurrent.futures
 from PySide6 import QtGui
@@ -6071,7 +6072,7 @@ class AITSLargeChartDialog(QDialog):
 
     def _format_detail_chart_snapshot_engine_label(self, engine="", provider="", model=""):
         try:
-            raw = " ".join(str(x or "") for x in (engine, provider)).strip().lower()
+            raw = " ".join(str(x or "") for x in (engine, provider, model)).strip().lower()
             model_text = str(model or "").strip()
             if model_text.lower() in ("unknown", "none", "null", "engine_unknown"):
                 model_text = ""
@@ -6093,7 +6094,7 @@ class AITSLargeChartDialog(QDialog):
     def _format_detail_chart_snapshot_source_label(self, value):
         try:
             raw = str(value or "").strip().lower()
-            if raw in ("manual_refresh", "manual", "button", "user"):
+            if raw in ("manual_refresh", "manual", "button", "user", "detail_chart_button", "detail_chart_manual_refresh", "main_ai_refresh"):
                 return "수동 새로고침"
             if raw in ("auto_condition", "event", "background", "auto"):
                 return "자동 조건 감지"
@@ -6427,7 +6428,7 @@ class AITSLargeChartDialog(QDialog):
             "model": model,
             "engine_label": snapshot.get("engine_label") or labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
             "model_label": snapshot.get("model_label") or labels.get("model_label") or "",
-            "engine_display_label": snapshot.get("engine_display_label") or labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+            "engine_display_label": labels.get("display_label") or snapshot.get("engine_display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
             "generated_at": str(generated_at or "").strip() or None,
             "age_seconds": age_seconds,
             "age_label": age_label,
@@ -23818,7 +23819,7 @@ class MainWindow(QMainWindow):
 
     def _format_detail_chart_snapshot_engine_label(self, engine="", provider="", model=""):
         try:
-            raw = " ".join(str(x or "") for x in (engine, provider)).strip().lower()
+            raw = " ".join(str(x or "") for x in (engine, provider, model)).strip().lower()
             model_text = str(model or "").strip()
             if model_text.lower() in ("unknown", "none", "null", "engine_unknown"):
                 model_text = ""
@@ -23871,7 +23872,7 @@ class MainWindow(QMainWindow):
     def _format_detail_chart_snapshot_source_label(self, value):
         try:
             raw = str(value or "").strip().lower()
-            if raw in ("manual_refresh", "manual", "button", "user"):
+            if raw in ("manual_refresh", "manual", "button", "user", "detail_chart_button", "detail_chart_manual_refresh", "main_ai_refresh"):
                 return "\uC218\uB3D9 \uC0C8\uB85C\uACE0\uCE68"
             if raw in ("auto_condition", "event", "background", "auto"):
                 return "\uC790\uB3D9 \uC870\uAC74 \uAC10\uC9C0"
@@ -24169,7 +24170,7 @@ class MainWindow(QMainWindow):
             "model": model,
             "engine_label": snapshot.get("engine_label") or labels.get("engine_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
             "model_label": snapshot.get("model_label") or labels.get("model_label") or "",
-            "engine_display_label": snapshot.get("engine_display_label") or labels.get("display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
+            "engine_display_label": labels.get("display_label") or snapshot.get("engine_display_label") or "\uC5D4\uC9C4 \uD655\uC778 \uD544\uC694",
             "generated_at": str(generated_at or "").strip() or None,
             "age_seconds": age_seconds,
             "age_label": age_label,
@@ -27062,6 +27063,82 @@ class MainWindow(QMainWindow):
         except Exception:
             return "현재는 계산 기준상 관찰 구간입니다."
 
+    def _sanitize_detail_chart_ai_action_for_ui(self, value=""):
+        raw = str(value or "").strip()
+        key = raw.upper().strip()
+        if key == "ENTER":
+            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uC9C4\uC785 \uAC80\uD1A0"
+        if key == "STAY":
+            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uAD00\uB9DD"
+        if key == "BUY":
+            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uB9E4\uC218 \uAC80\uD1A0"
+        if key in ("SELL", "EXIT"):
+            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uB9E4\uB3C4 \uAC80\uD1A0"
+        return raw
+
+    def _sanitize_detail_chart_ai_output_text_for_symbol(self, text="", symbol=""):
+        try:
+            current = self._normalize_market_symbol_for_ai_snapshot(symbol)
+        except Exception:
+            current = str(symbol or "").strip().upper()
+        raw = str(text or "").strip()
+        if not raw:
+            return raw
+        removed_foreign_symbol = False
+
+        def _replace_symbol(match):
+            nonlocal removed_foreign_symbol
+            found = str(match.group(0) or "").upper()
+            if current and found == current:
+                return found
+            removed_foreign_symbol = True
+            return "\uD604\uC7AC \uC885\uBAA9"
+
+        safe = re.sub(r"\bKRW-[A-Z0-9]{1,12}\b", _replace_symbol, raw, flags=re.IGNORECASE)
+        for raw_action in ("ENTER", "STAY", "BUY", "SELL", "EXIT"):
+            safe = re.sub(
+                rf"\b{raw_action}\b",
+                self._sanitize_detail_chart_ai_action_for_ui(raw_action),
+                safe,
+                flags=re.IGNORECASE,
+            )
+        for before, after in (
+            ("\uBD84\uD560 \uC9C4\uC785", "\uC9C4\uC785 \uAC80\uD1A0 \uC870\uAC74"),
+            ("\uC9C4\uC785 \uC608\uC815", "\uC9C4\uC785 \uAC80\uD1A0 \uC870\uAC74"),
+            ("\uB9E4\uC218 \uC608\uC815", "\uB9E4\uC218 \uAC80\uD1A0 \uC870\uAC74"),
+            ("\uB9E4\uB3C4 \uC608\uC815", "\uB9E4\uB3C4 \uAC80\uD1A0 \uC870\uAC74"),
+        ):
+            safe = safe.replace(before, after)
+        if safe.strip().upper() == "AI":
+            safe = (
+                "\uCD5C\uADFC AI \uBD84\uC11D\uC5D0\uC11C \uAD00\uCC30 \uB300\uC0C1\uC73C\uB85C "
+                "\uC720\uC9C0\uD560 \uC870\uAC74\uC774 \uD655\uC778\uB410\uC2B5\uB2C8\uB2E4. "
+                "\uB2E8, \uC8FC\uBB38 \uC2E4\uD589 \uACC4\uD68D\uC740 \uC544\uB2D9\uB2C8\uB2E4."
+            )
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartAIOutputSanity] event=sanitized symbol=%s removed_foreign_symbol=%s submitted=0",
+                current or "-",
+                bool(removed_foreign_symbol),
+            )
+        except Exception:
+            pass
+        return safe or (
+            "AI \uBD84\uC11D\uC740 \uCC38\uACE0 \uC815\uBCF4\uC774\uBA70, "
+            "\uD604\uC7AC \uC885\uBAA9 \uAE30\uC900\uC73C\uB85C \uB2E4\uC2DC \uD655\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."
+        )
+
+    def _sanitize_detail_chart_ai_output_lines_for_symbol(self, lines, symbol="", limit=4):
+        items = lines if isinstance(lines, (list, tuple)) else [lines]
+        result = []
+        for item in items:
+            safe = self._sanitize_detail_chart_ai_output_text_for_symbol(item, symbol)
+            if safe and safe not in result:
+                result.append(safe)
+            if len(result) >= int(limit or 4):
+                break
+        return result
+
     def _build_detail_chart_display_contract(
         self,
         symbol_text="",
@@ -27192,6 +27269,17 @@ class MainWindow(QMainWindow):
                     "더 깊은 해석이 필요하면 AI 분석 새로고침을 사용하세요.",
                 ]
 
+            last_decision = self._sanitize_detail_chart_ai_output_text_for_symbol(last_decision, symbol)
+            reason_lines = self._sanitize_detail_chart_ai_output_lines_for_symbol(
+                reason_lines,
+                symbol,
+                limit=4,
+            )
+            plan_lines = self._sanitize_detail_chart_ai_output_lines_for_symbol(
+                plan_lines,
+                symbol,
+                limit=3,
+            )
             status_text = str(
                 row_obj.get("ai_status")
                 or row_obj.get("status")
