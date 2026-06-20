@@ -1531,16 +1531,32 @@ class AITSLargeChartDialog(QDialog):
         root.addWidget(self.canvas, 1)
         self._rebuild_detail_popup_saas_layout(root)
 
-    def _clear_dialog_layout_items_detach(self, layout):
+    def _clear_dialog_layout_items_detach(self, layout, keep_widgets=None):
+        keep_widgets = set(keep_widgets or ())
         try:
             while layout is not None and layout.count():
                 item = layout.takeAt(0)
                 child = item.widget()
                 if child is not None:
-                    child.setParent(self)
+                    if child in keep_widgets:
+                        child.setParent(self)
+                    else:
+                        try:
+                            child.hide()
+                            child.setVisible(False)
+                        except Exception:
+                            pass
+                        try:
+                            child.setParent(None)
+                        except Exception:
+                            pass
+                        try:
+                            child.deleteLater()
+                        except Exception:
+                            pass
                 child_layout = item.layout()
                 if child_layout is not None:
-                    self._clear_dialog_layout_items_detach(child_layout)
+                    self._clear_dialog_layout_items_detach(child_layout, keep_widgets)
         except Exception:
             pass
 
@@ -2500,7 +2516,23 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
-        self._clear_dialog_layout_items_detach(root)
+        reusable_detail_widgets = {
+            self.lbl_title,
+            self.lbl_basic,
+            self.lbl_price,
+            self.txt_ai,
+            self.lbl_ai_banner,
+            self.lbl_ai_action,
+            self.lbl_ai_plan,
+            self.cmb_tf,
+            self.cmb_count,
+            self.btn_refresh,
+            self._btn_popup_indicator_rsi,
+            self._btn_popup_indicator_macd,
+            self.canvas,
+            self.toolbar,
+        }
+        self._clear_dialog_layout_items_detach(root, reusable_detail_widgets)
         root.setSpacing(10)
         root.setContentsMargins(14, 14, 14, 14)
 
@@ -3086,7 +3118,13 @@ class AITSLargeChartDialog(QDialog):
             self.asset_policy_drawer_handle.setFixedWidth(0)
         except Exception:
             pass
-        drawer_lay.addWidget(self.asset_policy_drawer_handle, 0)
+        try:
+            drawer_lay.removeWidget(self.asset_policy_drawer_handle)
+            self.asset_policy_drawer_handle.hide()
+            self.asset_policy_drawer_handle.setVisible(False)
+            self.asset_policy_drawer_handle.setParent(None)
+        except Exception:
+            pass
         drawer_lay.addWidget(self.asset_ai_control_container, 1)
 
         sidebar_lay.addStretch(1)
@@ -3135,6 +3173,10 @@ class AITSLargeChartDialog(QDialog):
                 "[AITS][DetailChartUIPolish] event=ready ai_refresh_button_icon=False "
                 "vertical_splitter=True empty_header_widget_removed=True "
                 "symbol_policy_display_only=True submitted=0"
+            )
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartArtifact] event=cleanup_ready "
+                "top_left_artifact_removed=True left_edge_text_removed=True submitted=0"
             )
         except Exception:
             pass

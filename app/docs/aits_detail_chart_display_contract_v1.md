@@ -539,3 +539,20 @@ Safety remains unchanged:
 - Detail chart open does not call AI.
 - The button still reuses the existing explicit AI analysis path.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 27. DETAIL-CHART-ARTIFACT-CLEANUP-01 Implementation Note
+
+`DETAIL-CHART-ARTIFACT-CLEANUP-01` removes remaining visual artifacts from the detail chart surface.
+
+Display rules:
+
+- Legacy widgets from the pre-SaaS detail chart layout are no longer detached as visible orphan children.
+- Only reusable detail chart controls are preserved when rebuilding the active popup layout.
+- The collapsed per-symbol policy drawer handle is removed from the active layout instead of being kept as a hidden zero-width rounded frame.
+- The cleanup is display-only and does not change the detail chart display contract, snapshot, AI refresh, or chart calculation behavior.
+
+Safety remains unchanged:
+
+- Detail chart open does not call AI.
+- The AI refresh button still reuses the existing explicit analysis path.
+- No Router, Risk Guard, Order, or Execution path is changed.
