@@ -523,3 +523,19 @@ Safety remains unchanged:
 - Detail chart open does not call AI.
 - The AI refresh button reuses the existing explicit analysis path.
 - Per-symbol policy controls are not connected to AI cadence, Risk Guard, Order, or Execution.
+
+## 26. DETAIL-CHART-FINAL-HEADER-POLISH-01 Implementation Note
+
+`DETAIL-CHART-FINAL-HEADER-POLISH-01` removes the remaining unexplained header placeholder and simplifies the AI refresh button copy.
+
+Display rules:
+
+- The detail-chart header should not show empty logo, placeholder, or collapsed-toggle widgets.
+- The AI analysis refresh button is text-first: `AI 분석 새로고침`.
+- The button tooltip continues to explain that GPT/Gemini may call APIs and that orders are not executed.
+
+Safety remains unchanged:
+
+- Detail chart open does not call AI.
+- The button still reuses the existing explicit AI analysis path.
+- No Router, Risk Guard, Order, or Execution path is changed.

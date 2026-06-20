@@ -2549,12 +2549,13 @@ class AITSLargeChartDialog(QDialog):
         self.lbl_detail_popup_header_title.setStyleSheet(
             "font-size:18px; font-weight:800; color:#111827;"
         )
-        self._lbl_popup_logo_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._lbl_popup_logo_badge.setFixedSize(32, 32)
-        self._lbl_popup_logo_badge.setStyleSheet(
-            "font-size:14px; font-weight:900; color:#ffffff; "
-            "background:#0f172a; border-radius:10px;"
-        )
+        try:
+            self._lbl_popup_logo_badge.setVisible(False)
+            self._lbl_popup_logo_badge.hide()
+            self._lbl_popup_logo_badge.setFixedSize(0, 0)
+            self._lbl_popup_logo_badge.setParent(None)
+        except Exception:
+            pass
         self.lbl_detail_popup_header_name.setStyleSheet(
             "font-size:16px; font-weight:800; color:#111827;"
         )
@@ -2582,7 +2583,6 @@ class AITSLargeChartDialog(QDialog):
         symbol_box.setSpacing(2)
         symbol_box.addWidget(self.lbl_detail_popup_header_name)
         symbol_box.addWidget(self.lbl_detail_popup_header_symbol)
-        header_lay.addWidget(self._lbl_popup_logo_badge, 0)
         header_lay.addWidget(self.lbl_detail_popup_header_title, 0)
         header_lay.addStretch(1)
         header_lay.addWidget(self._frm_detail_popup_symbol_pill, 0)
@@ -2987,13 +2987,14 @@ class AITSLargeChartDialog(QDialog):
         detail_refresh_lay = QHBoxLayout(self.detail_ai_refresh_panel)
         detail_refresh_lay.setContentsMargins(8, 6, 8, 6)
         detail_refresh_lay.setSpacing(8)
-        self.btn_detail_ai_analysis_refresh = QPushButton("\u21BB AI \uBD84\uC11D \uC0C8\uB85C\uACE0\uCE68")
+        self.btn_detail_ai_analysis_refresh = QPushButton("AI \uBD84\uC11D \uC0C8\uB85C\uACE0\uCE68")
         self.btn_detail_ai_analysis_refresh.setObjectName("aitsDetailAIAnalysisRefreshButton")
         self.btn_detail_ai_analysis_refresh.setToolTip(
             "\uD604\uC7AC \uC885\uBAA9 \uAE30\uC900\uC73C\uB85C AI \uBD84\uC11D\uC744 \uC694\uCCAD\uD569\uB2C8\uB2E4. \uC120\uD0DD \uC5D4\uC9C4\uC774 GPT/Gemini\uC774\uBA74 API \uD638\uCD9C\uC774 \uBC1C\uC0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC8FC\uBB38\uC740 \uC2E4\uD589\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."
         )
         self.lbl_detail_ai_analysis_refresh_status = QLabel("\uCD5C\uADFC AI \uBD84\uC11D \uC0C1\uD0DC\uB97C \uD45C\uC2DC\uD569\uB2C8\uB2E4.")
         try:
+            self.btn_detail_ai_analysis_refresh.setMinimumWidth(118)
             self.btn_detail_ai_analysis_refresh.setMinimumHeight(28)
             self.btn_detail_ai_analysis_refresh.setMaximumHeight(30)
             self.btn_detail_ai_analysis_refresh.setStyleSheet(
@@ -3131,7 +3132,7 @@ class AITSLargeChartDialog(QDialog):
                 "chart_panel=True info_panel=True policy_panel=True submitted=0"
             )
             logging.getLogger("aits").info(
-                "[AITS][DetailChartUIPolish] event=ready ai_refresh_button_icon=True "
+                "[AITS][DetailChartUIPolish] event=ready ai_refresh_button_icon=False "
                 "vertical_splitter=True empty_header_widget_removed=True "
                 "symbol_policy_display_only=True submitted=0"
             )
