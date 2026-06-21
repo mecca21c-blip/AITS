@@ -10656,9 +10656,12 @@ class MainWindow(QMainWindow):
                 return fr, lv
 
             sum_row = QWidget()
+            sum_row.setObjectName("investmentCompactKpiSummaryRow")
+            sum_row.setMaximumHeight(58)
+            sum_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
             sum_ly = QHBoxLayout(sum_row)
-            sum_ly.setContentsMargins(0, 0, 0, 4)
-            sum_ly.setSpacing(8)
+            sum_ly.setContentsMargins(0, 0, 0, 2)
+            sum_ly.setSpacing(6)
             _fe, self._pf15_val_eval = _mk_sum_card("총 평가액")
             _fp, self._pf15_val_pnl = _mk_sum_card("평가손익")
             _fr, self._pf15_val_roi = _mk_sum_card("수익률")
@@ -10666,6 +10669,11 @@ class MainWindow(QMainWindow):
             self._pf15_frm_pnl = _fp
             self._pf15_frm_roi = _fr
             for _w in (_fe, _fp, _fr, _fc):
+                try:
+                    _w.setMaximumHeight(54)
+                    _w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+                except Exception:
+                    pass
                 sum_ly.addWidget(_w, 1)
             lay.insertWidget(0, sum_row)
 
@@ -10694,6 +10702,11 @@ class MainWindow(QMainWindow):
                     )
                     _ad_lay.addWidget(_hint_ai)
                     self._pf15_ai_hint_added = True
+            except Exception:
+                pass
+
+            try:
+                self._compact_investment_center_layout(pt)
             except Exception:
                 pass
 
@@ -10758,6 +10771,162 @@ class MainWindow(QMainWindow):
                 self._portfolio_tab_sync_phase15()
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _compact_investment_center_layout(self, pt) -> None:
+        """Compact Investment Center chrome only; never touch balances or risk logic."""
+        try:
+            if pt is None:
+                return
+            root = pt.layout()
+            if root is not None:
+                try:
+                    root.setContentsMargins(10, 8, 10, 8)
+                    root.setSpacing(6)
+                except Exception:
+                    pass
+
+            def _set_layout_tight(widget, margins=(10, 7, 10, 7), spacing=4):
+                try:
+                    lay = widget.layout() if widget is not None else None
+                    if lay is not None:
+                        lay.setContentsMargins(*margins)
+                        lay.setSpacing(spacing)
+                except Exception:
+                    pass
+
+            def _limit_height(widget, maximum=None, minimum=None):
+                try:
+                    if widget is None:
+                        return
+                    if minimum is not None:
+                        widget.setMinimumHeight(int(minimum))
+                    if maximum is not None:
+                        widget.setMaximumHeight(int(maximum))
+                        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+                except Exception:
+                    pass
+
+            header = pt.findChild(QFrame, "headerSection")
+            _set_layout_tight(header, (12, 8, 12, 8), 6)
+            _limit_height(header, 74, 58)
+
+            ai_card = pt.findChild(QFrame, "aiDecisionCard")
+            _set_layout_tight(ai_card, (12, 7, 12, 7), 6)
+            _limit_height(ai_card, 64, 48)
+            try:
+                summary = getattr(pt, "lbl_ai_decision_summary", None)
+                if summary is not None:
+                    summary.setMaximumHeight(22)
+                    summary.setWordWrap(False)
+                    summary.setText(str(summary.text() or "최근 AI 판단 정보가 아직 없습니다.").replace("\n", " · "))
+            except Exception:
+                pass
+
+            for card in pt.findChildren(QFrame):
+                try:
+                    if bool(card.property("kpiCard")):
+                        _set_layout_tight(card, (9, 6, 9, 6), 2)
+                        _limit_height(card, 58, 46)
+                        for label in card.findChildren(QLabel):
+                            if label in getattr(pt, "_kpi_values", {}).values():
+                                label.setStyleSheet("font-size: 15px; font-weight: 900; color: #111827;")
+                            elif bool(label.property("muted")):
+                                label.setStyleSheet("font-size: 10px; color: #6b7280;")
+                except Exception:
+                    pass
+
+            splitter = pt.findChild(QSplitter, "investmentMainSplitter")
+            if splitter is not None:
+                try:
+                    splitter.setSizes([1020, 390])
+                    splitter.setStretchFactor(0, 7)
+                    splitter.setStretchFactor(1, 3)
+                except Exception:
+                    pass
+
+            right_panel = splitter.widget(1) if splitter is not None and splitter.count() > 1 else None
+            right_layout = right_panel.layout() if right_panel is not None else None
+            if right_layout is not None:
+                try:
+                    right_layout.setSpacing(7)
+                    right_layout.setContentsMargins(0, 0, 0, 0)
+                    right_layout.setStretch(0, 0)
+                    right_layout.setStretch(1, 0)
+                    right_layout.setStretch(2, 1)
+                except Exception:
+                    pass
+
+            donut = getattr(pt, "_composition_donut", None)
+            composition_card = None
+            try:
+                if donut is not None:
+                    donut.setMinimumSize(92, 92)
+                    donut.setMaximumSize(108, 108)
+                    parent = donut.parent()
+                    while parent is not None and parent is not pt:
+                        if isinstance(parent, QFrame) and parent.property("centerCard"):
+                            composition_card = parent
+                            break
+                        parent = parent.parent()
+            except Exception:
+                pass
+            _set_layout_tight(composition_card, (12, 8, 12, 8), 6)
+            _limit_height(composition_card, 168, 132)
+            try:
+                empty = getattr(pt, "lbl_composition_empty", None)
+                if empty is not None:
+                    empty.setMaximumHeight(58)
+                    empty.setStyleSheet(
+                        "background:#f8fafc; border:1px dashed #d1d5db; border-radius:8px;"
+                        "padding:6px; color:#6b7280; font-weight:700;"
+                    )
+            except Exception:
+                pass
+
+            risk_card = pt.findChild(QFrame, "riskCard")
+            _set_layout_tight(risk_card, (12, 7, 12, 8), 5)
+            _limit_height(risk_card, 132, 104)
+            try:
+                for box in risk_card.findChildren(QFrame) if risk_card is not None else []:
+                    if bool(box.property("smallMetric")):
+                        _set_layout_tight(box, (6, 4, 6, 4), 4)
+            except Exception:
+                pass
+
+            detail_card = pt.findChild(QFrame, "positionDetailCard")
+            _set_layout_tight(detail_card, (12, 7, 12, 8), 5)
+            if detail_card is not None:
+                try:
+                    detail_card.setMinimumHeight(190)
+                    detail_card.setMaximumHeight(16777215)
+                    detail_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                except Exception:
+                    pass
+            try:
+                placeholder = getattr(pt, "lbl_detail_placeholder", None)
+                if placeholder is not None:
+                    placeholder.setMaximumHeight(54)
+                    placeholder.setStyleSheet(
+                        "background:#f8fafc; border:1px dashed #d1d5db; border-radius:8px;"
+                        "padding:6px; color:#6b7280; font-weight:800;"
+                    )
+            except Exception:
+                pass
+
+            table = getattr(pt, "tbl_positions", None)
+            if table is not None:
+                try:
+                    table.setMinimumHeight(280)
+                    table.verticalHeader().setDefaultSectionSize(28)
+                    table.horizontalHeader().setFixedHeight(30)
+                except Exception:
+                    pass
+
+            self._log.info(
+                "[AITS][InvestmentLayoutCompact] event=applied kpi_compact=True ai_summary_compact=True right_panel_compact=True order_allowed=False submitted=0"
+            )
         except Exception:
             pass
 
