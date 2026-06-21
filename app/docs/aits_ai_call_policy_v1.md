@@ -544,3 +544,21 @@ Policy intent:
 - Detail chart open remains display-only and is not an AI call trigger.
 - The AI refresh button still reuses only the existing explicit AI analysis path.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 35. AI-POLICY-CENTER-UI-SSOT-01 Implementation Note
+
+`AI-POLICY-CENTER-UI-SSOT-01` clarifies AI Policy Center wording and global policy ownership.
+
+Policy intent:
+
+- The AI Policy Center is the global AI policy preview and save surface for AITS.
+- User-facing `Preview` wording is shown as `미리보기`.
+- `AI 주도형` is softened to `AI 우선 분석형`.
+- `균형형` is shown as `균형 분석형`.
+- `사용자 통제형` is shown as `사용자 확인 우선형`.
+- `AI 관여 수준` is shown as `AI 판단 참고 강도`.
+- Low, standard, and high involvement are shown as conservative, basic, and active reference strength.
+- `LOCAL 데이터 정책` is shown as a local data management policy, not as a LOCAL engine selector.
+- Policy Center save updates preview policy state only; it does not place buy, sell, liquidation, or order actions.
+- Budget and daily-loss fields are preview/reference values and are not connected to Risk Guard, Order, or Execution in this Goal.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

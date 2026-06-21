@@ -116,3 +116,17 @@ Per-symbol candidate fields:
    - Whether AI may use this note is a later policy decision.
 
 Current UI labels should make clear that `AI analysis reference strength` and symbol weight fields are display-only and do not affect orders, Risk Guard, or AI-call cadence.
+
+## 8. AI-POLICY-CENTER-UI-SSOT-01 Notes
+
+The AI Policy Center is the upper-level global policy SSOT.
+
+Relationship rules:
+
+- Global AI policy defaults are previewed and saved in the AI Policy Center.
+- The detail-chart symbol policy panel is a per-symbol exception candidate and display-only surface.
+- Per-symbol settings may describe observation sensitivity, review strength, future cadence candidates, or symbol-specific notes.
+- Per-symbol settings do not override global policy for live orders until a separate Router/Risk Guard/Order integration Goal defines that contract.
+- Per-symbol AI cadence candidates must not create timers or GPT/Gemini calls in this Goal.
+- Per-symbol maximum weight candidates must not affect Risk Guard or Order sizing in this Goal.
+- The user-facing copy should say `전역 정책 따름`, `표시 전용`, or `후속 적용 예정` when a field is not connected to runtime enforcement.

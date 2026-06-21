@@ -19212,7 +19212,7 @@ class MainWindow(QMainWindow):
         title = QLabel("AI 운용 프로필 센터")
         title.setStyleSheet("font-size: 16px; font-weight: 900; color: #111827;")
         desc = QLabel(
-            "AI 정책 센터는 운용 성향과 조건 계산 기준을 정리하는 Preview 영역입니다. 저장만으로 주문은 실행되지 않습니다."
+            "AI 정책 센터는 AITS 전체에 적용되는 전역 AI 정책의 미리보기/저장 영역입니다. 저장만으로 주문은 실행되지 않습니다."
         )
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 11px; color: #64748b;")
@@ -19220,7 +19220,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addWidget(desc)
 
         self.lbl_ai_policy_guidance = QLabel(
-            "현재는 Shadow/Preview 기준입니다. Router/RiskGuard/Execution의 별도 안전 조건을 우회하지 않습니다."
+            "현재는 정책 미리보기 기준입니다. Router/RiskGuard/Execution의 별도 안전 조건을 우회하지 않습니다."
         )
         self.lbl_ai_policy_guidance.setWordWrap(True)
         self.lbl_ai_policy_guidance.setStyleSheet(
@@ -19228,7 +19228,7 @@ class MainWindow(QMainWindow):
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_guidance)
 
-        self.lbl_ai_policy_flow = QLabel("운용 프로필 → 종목 Override → AI Runtime Preview")
+        self.lbl_ai_policy_flow = QLabel("전역 정책 미리보기 → 종목별 예외 후보 → AI Runtime 미리보기")
         self.lbl_ai_policy_flow.setStyleSheet(
             "font-size: 11px; font-weight: 700; color: #475569;"
         )
@@ -19239,7 +19239,7 @@ class MainWindow(QMainWindow):
         preset_layout = QVBoxLayout(self.ai_policy_preset_container)
         preset_layout.setContentsMargins(8, 8, 8, 8)
         preset_layout.setSpacing(6)
-        preset_title = QLabel("운용 프로필 Preview")
+        preset_title = QLabel("운용 프로필 미리보기")
         preset_title.setStyleSheet("font-size: 12px; font-weight: 800; color: #111827;")
         preset_subtitle = QLabel("후보 평가와 조건 계산의 참고 성향을 선택합니다. 주문 없음.")
         preset_subtitle.setStyleSheet("font-size: 10px; color: #64748b;")
@@ -19254,7 +19254,7 @@ class MainWindow(QMainWindow):
             ("btn_policy_preset_balanced", "균형 운용형", "balanced"),
             ("btn_policy_preset_aggressive", "단기 공격형", "aggressive"),
             ("btn_policy_preset_swing", "관망 스윙형", "swing"),
-            ("btn_policy_preset_autonomous", "공격적 Preview", "autonomous"),
+            ("btn_policy_preset_autonomous", "AI 우선 분석형", "autonomous"),
         )
         for attr_name, text, preset_name in preset_buttons:
             button = QPushButton(text)
@@ -19264,7 +19264,7 @@ class MainWindow(QMainWindow):
             preset_button_row.addWidget(button)
         preset_layout.addLayout(preset_button_row)
 
-        self.lbl_ai_policy_preset_desc = QLabel("균형형 Preview 운용 프로필입니다. 주문 없음.")
+        self.lbl_ai_policy_preset_desc = QLabel("균형 분석형 운용 프로필 미리보기입니다. 주문 없음.")
         self.lbl_ai_policy_preset_desc.setWordWrap(True)
         self.lbl_ai_policy_preset_desc.setStyleSheet("font-size: 10px; color: #475569;")
         preset_layout.addWidget(self.lbl_ai_policy_preset_desc)
@@ -19299,7 +19299,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addLayout(grid)
 
         self.lbl_ai_policy_summary = QLabel(
-            "현재 운용 프로필 Preview\n균형형 · 리스크 중간 · 관망 우선 · 참고 강도 중간 · 주문 없음"
+            "현재 운용 프로필 미리보기\n균형 분석형 · 리스크 중간 · 관망 우선 · 기본 참고 · 주문 없음"
         )
         self.lbl_ai_policy_summary.setWordWrap(True)
         self.lbl_ai_policy_summary.setObjectName("aitsPolicyBadge")
@@ -19310,7 +19310,7 @@ class MainWindow(QMainWindow):
         )
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_summary)
 
-        self.lbl_ai_policy_preset_badge = QLabel("Preset: 균형 운용형")
+        self.lbl_ai_policy_preset_badge = QLabel("운용 방식: 균형 분석형")
         self.lbl_ai_policy_preset_badge.setObjectName("aitsPolicyPresetBadge")
         self.lbl_ai_policy_preset_badge.setStyleSheet(
             "font-size: 11px; font-weight: 800; color: #334155;"
@@ -19320,7 +19320,7 @@ class MainWindow(QMainWindow):
         self.ai_policy_hero_layout.addWidget(self.lbl_ai_policy_preset_badge)
 
         self.lbl_ai_policy_local_runtime_notice = QLabel(
-            "LOCAL · GPT · GEMINI는 독립된 Preview 엔진입니다. LOCAL 설정은 데이터·복기 반영 정책을 관리합니다."
+            "로컬 데이터 관리 정책은 LOCAL 엔진 선택이 아니라 데이터 보관, 요약, 복기 기준을 관리합니다."
         )
         self.lbl_ai_policy_local_runtime_notice.setWordWrap(True)
         self.lbl_ai_policy_local_runtime_notice.setStyleSheet(
@@ -19385,7 +19385,7 @@ class MainWindow(QMainWindow):
             header = QLabel("AI 정책 센터")
             header.setStyleSheet("font-size: 18px; font-weight: 900; color: #111827;")
             desc = QLabel(
-                "AI 정책을 설정하는 Preview 영역입니다. 저장만으로 주문은 실행되지 않으며 "
+                "AI 정책센터는 AITS 전체 전역 정책의 미리보기/저장 영역입니다. 저장만으로 주문은 실행되지 않으며 "
                 "실제 매매는 별도 실행 모드와 안전 조건을 따릅니다."
             )
             desc.setWordWrap(True)
@@ -19393,7 +19393,7 @@ class MainWindow(QMainWindow):
             header_text_col.addWidget(header)
             header_text_col.addWidget(desc)
             header_layout.addLayout(header_text_col, 1)
-            header_notice = QLabel("Preview/정책 관리 전용\n저장 시에도 주문 없음")
+            header_notice = QLabel("정책 미리보기 / 저장 전용\n저장 시에도 주문 없음")
             header_notice.setAlignment(Qt.AlignmentFlag.AlignCenter)
             header_notice.setStyleSheet(
                 "font-size: 11px; font-weight: 800; color: #166534;"
@@ -19442,7 +19442,7 @@ class MainWindow(QMainWindow):
     def _build_ai_policy_operating_mode_card(self):
         card = self._build_ai_policy_card("AI 운용 방식")
         layout = card.layout()
-        info = QLabel("어떤 방식도 직접 주문 권한을 의미하지 않습니다. 모든 판단은 Preview/Shadow 기준입니다.")
+        info = QLabel("어떤 방식도 직접 주문 권한을 의미하지 않습니다. 모든 판단은 정책 미리보기 기준입니다.")
         info.setWordWrap(True)
         info.setStyleSheet("font-size: 10px; color: #64748b;")
         layout.addWidget(info)
@@ -19450,9 +19450,9 @@ class MainWindow(QMainWindow):
         self.ai_policy_mode_group = QButtonGroup(self)
         self.ai_policy_mode_group.setExclusive(True)
         modes = (
-            ("ai_led", "AI 주도형", "AI가 시장 상황에 따라 관망·진입·청산 후보를 적극적으로 조절합니다. 운용 한도와 안전 조건은 유지됩니다."),
-            ("balanced", "균형형", "AI 판단을 기본으로 사용하되, 보수적인 안전 조건을 함께 적용합니다. 기본 권장 모드입니다."),
-            ("user_controlled", "사용자 통제형", "AI는 분석과 후보를 제시하고, 사용자의 확인과 통제를 더 우선합니다."),
+            ("ai_led", "AI 우선 분석형", "AI가 시장을 분석하고 관찰 후보를 적극적으로 제안합니다. 실제 주문 권한을 의미하지 않습니다."),
+            ("balanced", "균형 분석형", "AI 판단과 안전 조건을 균형 있게 반영합니다. 기본 권장 모드입니다."),
+            ("user_controlled", "사용자 확인 우선형", "AI는 분석과 후보를 제시하고 사용자의 확인을 우선합니다. 실제 주문 실행을 의미하지 않습니다."),
         )
         for idx, (code, title, desc) in enumerate(modes):
             radio = QRadioButton(title)
@@ -19472,24 +19472,24 @@ class MainWindow(QMainWindow):
     def _build_ai_policy_risk_budget_card(self):
         card = self._build_ai_policy_card("운용 자금 한도")
         layout = card.layout()
-        info = QLabel("정책 저장/Preview 기준입니다. 이번 단계에서는 RiskGuard, Execution, Order 금액 계산에 연결하지 않습니다.")
+        info = QLabel("정책 미리보기 값입니다. 이번 단계에서는 RiskGuard, Execution, Order 금액 계산에 연결하지 않습니다.")
         info.setWordWrap(True)
         info.setStyleSheet("font-size: 10px; color: #64748b;")
         layout.addWidget(info)
 
         self.sp_policy_total_budget_krw = self._build_policy_money_spin(
-            "AITS가 운용 대상으로 삼을 수 있는 최대 금액입니다."
+            "AITS가 운용 대상으로 삼을 수 있는 최대 금액입니다. 현재는 정책 미리보기 값이며 저장만으로 주문은 실행되지 않습니다."
         )
         self.sp_policy_max_entry_krw = self._build_policy_money_spin(
-            "한 번의 신규 진입 또는 한 종목 기준 최대 진입 금액입니다."
+            "한 번의 신규 진입 또는 한 종목 기준 최대 진입 참고 금액입니다. 실제 주문 한도 적용은 아닙니다."
         )
-        self.sp_policy_reserve_cash_krw = self._build_policy_money_spin("항상 남겨둘 최소 KRW입니다.")
+        self.sp_policy_reserve_cash_krw = self._build_policy_money_spin("항상 남겨둘 최소 KRW 참고값입니다.")
         self.sp_policy_max_positions = QSpinBox()
         self.sp_policy_max_positions.setRange(1, 200)
         self.sp_policy_max_positions.setValue(3)
-        self.sp_policy_max_positions.setToolTip("동시에 보유 가능한 최대 종목 수입니다.")
+        self.sp_policy_max_positions.setToolTip("동시에 관찰 또는 보유 대상으로 볼 최대 종목 수 참고값입니다.")
         self.sp_policy_daily_loss_limit_krw = self._build_policy_money_spin(
-            "한도 도달 시 신규 진입 중지 후보로 사용됩니다. 즉시 강제 매도를 의미하지 않습니다."
+            "손실 관리 참고값입니다. 즉시 강제 매도나 청산을 의미하지 않습니다."
         )
 
         grid = QGridLayout()
@@ -19523,25 +19523,25 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_ai_policy_involvement_card(self):
-        card = self._build_ai_policy_card("AI 관여 수준")
+        card = self._build_ai_policy_card("AI 판단 참고 강도")
         layout = card.layout()
         self.cmb_ai_policy_involvement = QComboBox()
-        self.cmb_ai_policy_involvement.addItem("낮음", "low")
-        self.cmb_ai_policy_involvement.addItem("표준", "standard")
-        self.cmb_ai_policy_involvement.addItem("높음", "high")
+        self.cmb_ai_policy_involvement.addItem("보수적 참고", "low")
+        self.cmb_ai_policy_involvement.addItem("기본 참고", "standard")
+        self.cmb_ai_policy_involvement.addItem("적극 참고", "high")
         self.cmb_ai_policy_involvement.setCurrentIndex(1)
         self.cmb_ai_policy_involvement.currentIndexChanged.connect(self._on_ai_policy_changed)
         layout.addWidget(self.cmb_ai_policy_involvement)
-        desc = QLabel("AI 관여 수준은 판단 후보와 조건 계산에 반영되는 참고 강도입니다. 직접 주문 권한을 의미하지 않습니다.")
+        desc = QLabel("AI 판단을 계산, 요약, 후보 선정에 얼마나 강하게 참고할지 정하는 값입니다. 직접 주문 권한을 의미하지 않습니다.")
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 10px; color: #64748b;")
         layout.addWidget(desc)
         return card
 
     def _build_ai_policy_local_data_card(self):
-        card = self._build_ai_policy_card("LOCAL 데이터 정책")
+        card = self._build_ai_policy_card("로컬 데이터 관리 정책")
         layout = card.layout()
-        desc = QLabel("LOCAL 데이터 정책은 모델 선택이 아니라 데이터 보관, 복기, 학습 반영 기준을 정합니다.")
+        desc = QLabel("AI 엔진 선택이 아니라 데이터 보관, 요약, 복기 기준을 정하는 영역입니다. 자동 요약과 검증 전 차단은 주문 실행 권한을 의미하지 않습니다.")
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 10px; color: #64748b;")
         layout.addWidget(desc)
@@ -19581,7 +19581,7 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_ai_policy_summary_sidebar_card(self):
-        card = self._build_ai_policy_card("정책 요약")
+        card = self._build_ai_policy_card("전역 정책 요약")
         card.setObjectName("aitsPolicySummarySidebar")
         card.setStyleSheet(
             "QFrame#aitsPolicySummarySidebar {"
@@ -19590,7 +19590,7 @@ class MainWindow(QMainWindow):
             "}"
         )
         layout = card.layout()
-        badge = QLabel("Preview")
+        badge = QLabel("미리보기")
         badge.setStyleSheet(
             "font-size: 11px; font-weight: 800; color: #166534;"
             "background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 8px;"
@@ -19607,7 +19607,7 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.lbl_ai_policy_operating_summary)
 
-        notice = QLabel("저장은 정책 snapshot만 갱신합니다. 주문, 매수, 매도는 실행되지 않습니다.")
+        notice = QLabel("정책 미리보기 저장만 수행합니다. 주문, 매수, 매도는 실행되지 않습니다.")
         notice.setWordWrap(True)
         notice.setStyleSheet(
             "font-size: 10px; color: #64748b;"
@@ -19658,7 +19658,7 @@ class MainWindow(QMainWindow):
             legacy_layout.setContentsMargins(6, 6, 6, 6)
             legacy_layout.setSpacing(4)
 
-            self.lbl_legacy_policy_header = QLabel("레거시 전략 설정 · 고급 · Preview/조건 계산 · 주문 없음")
+            self.lbl_legacy_policy_header = QLabel("레거시 전략 설정 · 고급 · 미리보기/조건 계산 · 주문 없음")
             self.lbl_legacy_policy_header.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_header.setStyleSheet(
                 "font-size: 11px; font-weight: 700; color: #475569;"
@@ -19666,7 +19666,7 @@ class MainWindow(QMainWindow):
             legacy_layout.addWidget(self.lbl_legacy_policy_header)
 
             self.lbl_legacy_policy_desc = QLabel(
-                "기존 전략 엔진 및 세부 조건을 설정합니다. Preview/조건 계산 전용이며 저장만으로 주문은 실행되지 않습니다."
+                "기존 전략 엔진 및 세부 조건을 설정합니다. 미리보기/조건 계산 전용이며 저장만으로 주문은 실행되지 않습니다."
             )
             self.lbl_legacy_policy_desc.setObjectName("aitsLegacyPolicyLabel")
             self.lbl_legacy_policy_desc.setWordWrap(True)
@@ -19740,15 +19740,15 @@ class MainWindow(QMainWindow):
         card = self._build_ai_policy_card("운용 스타일")
         layout = card.layout()
         self.cmb_ai_policy_style = QComboBox()
-        self.cmb_ai_policy_style.addItems(["안정형", "균형형", "공격형", "Preview 참고 강화형"])
-        self.cmb_ai_policy_style.setCurrentText("균형형")
+        self.cmb_ai_policy_style.addItems(["안정형", "균형 분석형", "공격형", "미리보기 참고 강화형"])
+        self.cmb_ai_policy_style.setCurrentText("균형 분석형")
         self.cmb_ai_policy_style.currentTextChanged.connect(self._on_ai_policy_changed)
         layout.addWidget(self.cmb_ai_policy_style)
         help_label = QLabel(
             "안정형: 관망 우선 / 리스크 최소화\n"
-            "균형형: 기회와 안정성 균형\n"
+            "균형 분석형: 기회와 안정성 균형\n"
             "공격형: 빠른 진입 / 높은 변동 허용\n"
-            "Preview 참고 강화형: 후보 평가 참고 강도 확대 · 주문 없음"
+            "미리보기 참고 강화형: 후보 평가 참고 강도 확대 · 주문 없음"
         )
         help_label.setWordWrap(True)
         help_label.setStyleSheet("font-size: 10px; color: #6b7280;")
@@ -19830,11 +19830,11 @@ class MainWindow(QMainWindow):
 
     def _ai_policy_mode_label(self, mode=None):
         labels = {
-            "ai_led": "AI 주도형",
-            "balanced": "균형형",
-            "user_controlled": "사용자 통제형",
+            "ai_led": "AI 우선 분석형",
+            "balanced": "균형 분석형",
+            "user_controlled": "사용자 확인 우선형",
         }
-        return labels.get(str(mode or self._current_ai_policy_operating_mode()), "균형형")
+        return labels.get(str(mode or self._current_ai_policy_operating_mode()), "균형 분석형")
 
     def _current_ai_policy_involvement_level(self):
         try:
@@ -19861,8 +19861,8 @@ class MainWindow(QMainWindow):
             pass
 
     def _ai_policy_involvement_label(self, level=None):
-        labels = {"low": "낮음", "standard": "표준", "high": "높음"}
-        return labels.get(str(level or self._current_ai_policy_involvement_level()), "표준")
+        labels = {"low": "보수적 참고", "standard": "기본 참고", "high": "적극 참고"}
+        return labels.get(str(level or self._current_ai_policy_involvement_level()), "기본 참고")
 
     def _on_ai_policy_risk_budget_changed(self, *args):
         try:
@@ -19946,8 +19946,8 @@ class MainWindow(QMainWindow):
             },
             "balanced": {
                 "label": "균형 운용형",
-                "desc": "균형형 Preview 운용 프로필입니다. 주문 없음.",
-                "style": "균형형",
+                "desc": "균형 분석형 운용 프로필 미리보기입니다. 주문 없음.",
+                "style": "균형 분석형",
                 "risk": 50,
                 "wait": 50,
                 "autonomy": 50,
@@ -19963,13 +19963,13 @@ class MainWindow(QMainWindow):
             "swing": {
                 "label": "관망 스윙형",
                 "desc": "추세 확인 · 신중 관망 · 중기 기회 포착",
-                "style": "균형형",
+                "style": "균형 분석형",
                 "risk": 55,
                 "wait": 75,
                 "autonomy": 60,
             },
             "autonomous": {
-                "label": "공격적 Preview",
+                "label": "AI 우선 분석형",
                 "desc": "후보 평가 민감도 높음 · Live 전 별도 검증 필요 · 주문 없음",
                 "style": "공격형",
                 "risk": 70,
@@ -19978,8 +19978,8 @@ class MainWindow(QMainWindow):
             },
             "custom": {
                 "label": "사용자 커스텀",
-                "desc": "사용자가 직접 조정한 Preview 운용 프로필입니다.",
-                "style": "균형형",
+                "desc": "사용자가 직접 조정한 운용 프로필 미리보기입니다.",
+                "style": "균형 분석형",
                 "risk": 50,
                 "wait": 50,
                 "autonomy": 50,
@@ -19992,10 +19992,10 @@ class MainWindow(QMainWindow):
             meta = self._ai_policy_preset_meta(preset_name or getattr(self, "_ai_policy_preset_name", "balanced"))
             badge = getattr(self, "lbl_ai_policy_preset_badge", None)
             if badge is not None and hasattr(badge, "setText"):
-                badge.setText(f"Preset: {meta.get('label', '균형 운용형')}")
+                badge.setText(f"운용 방식: {meta.get('label', '균형 운용형')}")
             desc = getattr(self, "lbl_ai_policy_preset_desc", None)
             if desc is not None and hasattr(desc, "setText"):
-                desc.setText(str(meta.get("desc") or "균형형 Preview 운용 프로필입니다. 주문 없음."))
+                desc.setText(str(meta.get("desc") or "균형 분석형 운용 프로필 미리보기입니다. 주문 없음."))
         except Exception:
             pass
 
@@ -20019,7 +20019,7 @@ class MainWindow(QMainWindow):
                         continue
                     previous.append(bool(widget.blockSignals(True)))
                 if hasattr(self, "cmb_ai_policy_style"):
-                    self.cmb_ai_policy_style.setCurrentText(str(meta.get("style") or "균형형"))
+                    self.cmb_ai_policy_style.setCurrentText(str(meta.get("style") or "균형 분석형"))
                 if hasattr(self, "slider_policy_risk"):
                     self.slider_policy_risk.setValue(int(meta.get("risk", 50)))
                 if hasattr(self, "slider_policy_wait"):
@@ -20051,9 +20051,9 @@ class MainWindow(QMainWindow):
     def _build_ai_policy_snapshot(self):
         """Build a UI-only AI policy snapshot; never apply it to runtime or orders."""
         try:
-            style = "균형형"
+            style = "균형 분석형"
             if hasattr(self, "cmb_ai_policy_style"):
-                style = str(self.cmb_ai_policy_style.currentText() or "균형형")
+                style = str(self.cmb_ai_policy_style.currentText() or "균형 분석형")
             risk = int(getattr(self, "slider_policy_risk", None).value()) if hasattr(self, "slider_policy_risk") else 50
             wait = int(getattr(self, "slider_policy_wait", None).value()) if hasattr(self, "slider_policy_wait") else 50
             autonomy = int(getattr(self, "slider_policy_autonomy", None).value()) if hasattr(self, "slider_policy_autonomy") else 50
@@ -20096,7 +20096,7 @@ class MainWindow(QMainWindow):
         except Exception:
             return {
                 "schema": "aits_ai_policy_snapshot.v1",
-                "policy_style": "균형형",
+                "policy_style": "균형 분석형",
                 "preset_name": "balanced",
                 "risk_level": 50,
                 "wait_preference": 50,
@@ -20181,7 +20181,7 @@ class MainWindow(QMainWindow):
             asset_policy = self._get_asset_policy_preview_snapshot(symbol)
             if not isinstance(asset_policy, dict):
                 asset_policy = {}
-            global_style = str(global_policy.get("policy_style") or "균형형")
+            global_style = str(global_policy.get("policy_style") or "균형 분석형")
             global_preset = str(global_policy.get("preset_name") or "balanced")
             asset_style = str(asset_policy.get("policy_style") or "전역 정책 따름")
             asset_preset = str(asset_policy.get("preset_name") or "global")
@@ -20212,11 +20212,11 @@ class MainWindow(QMainWindow):
             return {
                 "schema": "aits_effective_policy_preview.v1",
                 "symbol": str(symbol or "").strip() if symbol is not None else "",
-                "global_policy_style": "균형형",
+                "global_policy_style": "균형 분석형",
                 "global_preset_name": "balanced",
                 "asset_policy_style": "전역 정책 따름",
                 "asset_preset_name": "global",
-                "effective_policy_style": "균형형",
+                "effective_policy_style": "균형 분석형",
                 "effective_preset_name": "balanced",
                 "risk_level": 50,
                 "wait_preference": 50,
@@ -20234,7 +20234,7 @@ class MainWindow(QMainWindow):
         if not isinstance(snapshot, dict):
             snapshot = {}
         try:
-            style = str(snapshot.get("effective_policy_style") or "균형형")
+            style = str(snapshot.get("effective_policy_style") or "균형 분석형")
             asset_style = str(snapshot.get("asset_policy_style") or "전역 정책 따름")
             preset_name = str(snapshot.get("effective_preset_name") or "balanced")
             preset_label = self._ai_policy_preset_meta(preset_name).get("label", "균형 운용형")
@@ -20242,26 +20242,26 @@ class MainWindow(QMainWindow):
             override = bool(snapshot.get("asset_override_active"))
             if override and asset_style != "전역 정책 따름":
                 symbol_text = symbol.replace("KRW-", "") if symbol else "종목"
-                return f"정책 Preview: {symbol_text} {asset_style} override"
+                return f"정책 미리보기: {symbol_text} 종목별 예외 후보"
             if preset_name and preset_name != "custom":
-                return f"정책 Preview: {preset_label}"
+                return f"정책 미리보기: {preset_label}"
             if asset_style == "전역 정책 따름":
-                return f"정책 Preview: {style} 기준"
-            return f"정책 Preview: {style} 기준"
+                return f"정책 미리보기: {style} 기준"
+            return f"정책 미리보기: {style} 기준"
         except Exception:
-            return "정책 Preview: 전역 정책 기준"
+            return "정책 미리보기: 전역 정책 기준"
 
     def _format_policy_hint_text(self, snapshot=None):
         """Format a short policy hint for preview labels."""
         if not isinstance(snapshot, dict):
             snapshot = self._build_effective_policy_preview_snapshot()
         try:
-            style = str(snapshot.get("effective_policy_style") or "균형형")
+            style = str(snapshot.get("effective_policy_style") or "균형 분석형")
             asset_style = str(snapshot.get("asset_policy_style") or "전역 정책 따름")
             symbol = str(snapshot.get("symbol") or "").strip().replace("KRW-", "")
             if bool(snapshot.get("asset_override_active")) and asset_style != "전역 정책 따름":
                 target = symbol or "종목"
-                return f"정책 힌트: {target} {asset_style} override"
+                return f"정책 힌트: {target} 종목별 예외 후보"
             return f"정책 힌트: {style} 기준으로 판단 준비"
         except Exception:
             return "정책 힌트: 전역 정책 기준으로 판단 준비"
@@ -20305,7 +20305,7 @@ class MainWindow(QMainWindow):
             snapshot = ui_state.get("ai_policy_snapshot", {})
             if not isinstance(snapshot, dict):
                 snapshot = {}
-            style = str(snapshot.get("policy_style") or "균형형")
+            style = str(snapshot.get("policy_style") or "균형 분석형")
             preset_name = str(snapshot.get("preset_name") or "balanced")
             risk = int(snapshot.get("risk_level") or 50)
             wait = int(snapshot.get("wait_preference") or 50)
@@ -20346,7 +20346,7 @@ class MainWindow(QMainWindow):
             try:
                 if hasattr(self, "cmb_ai_policy_style"):
                     if self.cmb_ai_policy_style.findText(style) < 0:
-                        style = "균형형"
+                        style = "균형 분석형"
                     self.cmb_ai_policy_style.setCurrentText(style)
                 if hasattr(self, "slider_policy_risk"):
                     self.slider_policy_risk.setValue(max(0, min(100, risk)))
@@ -20418,20 +20418,20 @@ class MainWindow(QMainWindow):
                 reflection_days = int(local_data.get("reflection_retention_days") or 365)
                 summary_text = (
                     f"AI 운용 방식: {mode_label}\n"
-                    f"AI 관여 수준: {involvement_label}\n\n"
+                    f"AI 판단 참고 강도: {involvement_label}\n\n"
                     f"운용 자금 한도\n"
                     f"- 총 운용 한도: {total_text}\n"
                     f"- 1회 진입 한도: {entry_text}\n"
                     f"- 예비 현금: {reserve_text}\n"
                     f"- 동시 보유 종목 수: {max_positions}개\n"
                     f"- 일일 손실 제한: {daily_loss_text}\n\n"
-                    f"LOCAL 데이터 정책\n"
+                    f"로컬 데이터 관리 정책\n"
                     f"- 권장 자동 관리: {auto_manage}\n"
                     f"- 상세 데이터 보관: {raw_days}일\n"
                     f"- 복기 데이터 보관: {reflection_days}일\n"
                     f"- 자동 요약: {auto_summary}\n"
                     f"- 검증 전 학습 차단: {block_learning}\n\n"
-                    f"Preview/주문 없음"
+                    f"미리보기 / 실제 주문 없음"
                 )
                 for attr_name in ("lbl_ai_policy_summary", "lbl_ai_policy_operating_summary"):
                     label = getattr(self, attr_name, None)
@@ -20453,13 +20453,13 @@ class MainWindow(QMainWindow):
             autonomy_text = self._policy_level_text(
                 snapshot.get("autonomy_level"),
                 low="사용자 중심",
-                mid="참고 강도 중간",
-                high="참고 강도 높음",
+                mid="기본 참고",
+                high="적극 참고",
             )
             label = getattr(self, "lbl_ai_policy_summary", None)
             if label is not None and hasattr(label, "setText"):
                 label.setText(
-                    "현재 운용 프로필 Preview\n"
+                    "현재 운용 프로필 미리보기\n"
                     f"{snapshot.get('policy_style')} · {risk_text} · {wait_text} · {autonomy_text} · 주문 없음"
                 )
         except Exception:
@@ -20513,7 +20513,7 @@ class MainWindow(QMainWindow):
             reasoning_text = "준비" if bool(reasoning.get("reasoning_ready")) else "대기"
             shadow_text = str(shadow.get("candidate_text") or "판단 대기")
             router_text = self._format_router_preview_humanized_text(router).replace(
-                "Router Preview: ",
+                "Router 미리보기: ",
                 "",
             )
             submitted = int(router.get("submitted") or 0)
@@ -20521,7 +20521,7 @@ class MainWindow(QMainWindow):
             if not isinstance(policy, dict):
                 policy = {}
             asset_policy = str(policy.get("asset_policy_style") or "전역 정책 따름")
-            effective_policy = str(policy.get("effective_policy_style") or "균형형")
+            effective_policy = str(policy.get("effective_policy_style") or "균형 분석형")
             preset_label = self._ai_policy_preset_meta(
                 policy.get("effective_preset_name") or "balanced"
             ).get("label", "균형 운용형")
@@ -20536,10 +20536,10 @@ class MainWindow(QMainWindow):
                 "[2] 입력 연결\n"
                 f"- {input_count}/5 연결: {connected_text}\n"
                 f"- 부족: {missing_text}\n"
-                "[3] Preview\n"
+                "[3] 미리보기\n"
                 f"- Reasoning {reasoning_text} · Shadow {shadow_text} · Router {router_text}\n"
                 f"- 정책: {preset_label} · {effective_policy} (종목 {asset_policy})\n"
-                f"- 참고 강도 {autonomy} · 최대비중 {weight_text} · submitted={submitted}\n"
+                f"- 참고 강도 {autonomy} · 최대비중 {weight_text} · 실제 주문 없음\n"
                 "AITS는 운용 철학 기반 AI Runtime 시스템입니다."
             )
         except Exception:
@@ -20765,14 +20765,14 @@ class MainWindow(QMainWindow):
         review_required = bool(snapshot.get("review_required", True))
         candidate_action = str(snapshot.get("candidate_action") or "wait").strip().lower()
         if confidence <= 0.05:
-            return "Router Preview: 입력 부족"
+            return "Router 미리보기: 입력 부족"
         if allowed:
-            return "Router Preview: 검토 준비"
+            return "Router 미리보기: 검토 준비"
         if (not allowed) and review_required:
-            return "Router Preview: 검토 대기"
+            return "Router 미리보기: 검토 대기"
         if candidate_action in ("wait", "hold", "none", "stay"):
-            return "Router Preview: 보호모드 관망"
-        return "Router Preview: 검토 대기"
+            return "Router 미리보기: 보호모드 관망"
+        return "Router 미리보기: 검토 대기"
 
     def _format_shadow_decision_preview_text(self, snapshot):
         """Format shadow decision preview text without buy/sell/action prediction."""
@@ -20781,9 +20781,9 @@ class MainWindow(QMainWindow):
         candidate_text = str(snapshot.get("candidate_text") or "판단 대기")
         router_text = self._format_router_preview_humanized_text(
             self._get_router_preview_snapshot()
-        ).replace("Router Preview: ", "Router: ")
+        ).replace("Router 미리보기: ", "Router: ")
         policy_hint = self._format_policy_hint_text().replace("정책 힌트: ", "정책: ")
-        return f"Shadow Preview: {candidate_text}\n{router_text} · {policy_hint}"
+        return f"Shadow 미리보기: {candidate_text}\n{router_text} · {policy_hint}"
 
     def _build_runtime_preview_compact_text(self):
         """Build a two-line runtime preview summary from existing preview snapshots."""
