@@ -10746,6 +10746,7 @@ class MainWindow(QMainWindow):
                 _foot = QLabel(
                     "투자현황은 현재 AI가 관리 중인 포지션 상태를 보여줍니다."
                 )
+                _foot.setObjectName("investmentPhase15FooterNotice")
                 _foot.setWordWrap(True)
                 _foot.setStyleSheet(
                     "font-size: 11px; color: #7a8794; padding: 8px 2px 2px 2px;"
@@ -10758,6 +10759,10 @@ class MainWindow(QMainWindow):
 
                 def _pf_refresh_wrapped(reason: str = "manual"):
                     _orig_pf(reason)
+                    try:
+                        self._compact_investment_center_layout(pt)
+                    except Exception:
+                        pass
                     try:
                         self._portfolio_tab_sync_phase15()
                     except Exception:
@@ -10782,8 +10787,25 @@ class MainWindow(QMainWindow):
             root = pt.layout()
             if root is not None:
                 try:
-                    root.setContentsMargins(10, 8, 10, 8)
-                    root.setSpacing(6)
+                    root.setContentsMargins(10, 6, 10, 14)
+                    root.setSpacing(5)
+                except Exception:
+                    pass
+            try:
+                scroll = pt.parent()
+                while scroll is not None and not isinstance(scroll, QScrollArea):
+                    scroll = scroll.parent()
+                if isinstance(scroll, QScrollArea):
+                    scroll.setContentsMargins(0, 0, 0, 0)
+                    scroll.setViewportMargins(0, 0, 0, 10)
+            except Exception:
+                pass
+
+            compact_summary = pt.findChild(QWidget, "investmentCompactKpiSummaryRow")
+            if compact_summary is not None:
+                try:
+                    compact_summary.setMaximumHeight(50)
+                    compact_summary.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
                 except Exception:
                     pass
 
@@ -10809,16 +10831,16 @@ class MainWindow(QMainWindow):
                     pass
 
             header = pt.findChild(QFrame, "headerSection")
-            _set_layout_tight(header, (12, 8, 12, 8), 6)
-            _limit_height(header, 74, 58)
+            _set_layout_tight(header, (12, 6, 12, 6), 5)
+            _limit_height(header, 62, 48)
 
             ai_card = pt.findChild(QFrame, "aiDecisionCard")
-            _set_layout_tight(ai_card, (12, 7, 12, 7), 6)
-            _limit_height(ai_card, 64, 48)
+            _set_layout_tight(ai_card, (12, 5, 12, 5), 5)
+            _limit_height(ai_card, 54, 40)
             try:
                 summary = getattr(pt, "lbl_ai_decision_summary", None)
                 if summary is not None:
-                    summary.setMaximumHeight(22)
+                    summary.setMaximumHeight(18)
                     summary.setWordWrap(False)
                     summary.setText(str(summary.text() or "최근 AI 판단 정보가 아직 없습니다.").replace("\n", " · "))
             except Exception:
@@ -10827,11 +10849,11 @@ class MainWindow(QMainWindow):
             for card in pt.findChildren(QFrame):
                 try:
                     if bool(card.property("kpiCard")):
-                        _set_layout_tight(card, (9, 6, 9, 6), 2)
-                        _limit_height(card, 58, 46)
+                        _set_layout_tight(card, (8, 4, 8, 4), 2)
+                        _limit_height(card, 50, 40)
                         for label in card.findChildren(QLabel):
                             if label in getattr(pt, "_kpi_values", {}).values():
-                                label.setStyleSheet("font-size: 15px; font-weight: 900; color: #111827;")
+                                label.setStyleSheet("font-size: 14px; font-weight: 900; color: #111827;")
                             elif bool(label.property("muted")):
                                 label.setStyleSheet("font-size: 10px; color: #6b7280;")
                 except Exception:
@@ -10840,9 +10862,9 @@ class MainWindow(QMainWindow):
             splitter = pt.findChild(QSplitter, "investmentMainSplitter")
             if splitter is not None:
                 try:
-                    splitter.setSizes([1020, 390])
-                    splitter.setStretchFactor(0, 7)
-                    splitter.setStretchFactor(1, 3)
+                    splitter.setSizes([920, 500])
+                    splitter.setStretchFactor(0, 6)
+                    splitter.setStretchFactor(1, 4)
                 except Exception:
                     pass
 
@@ -10850,11 +10872,11 @@ class MainWindow(QMainWindow):
             right_layout = right_panel.layout() if right_panel is not None else None
             if right_layout is not None:
                 try:
-                    right_layout.setSpacing(7)
+                    right_layout.setSpacing(4)
                     right_layout.setContentsMargins(0, 0, 0, 0)
                     right_layout.setStretch(0, 0)
                     right_layout.setStretch(1, 0)
-                    right_layout.setStretch(2, 1)
+                    right_layout.setStretch(2, 2)
                 except Exception:
                     pass
 
@@ -10862,8 +10884,8 @@ class MainWindow(QMainWindow):
             composition_card = None
             try:
                 if donut is not None:
-                    donut.setMinimumSize(92, 92)
-                    donut.setMaximumSize(108, 108)
+                    donut.setMinimumSize(72, 72)
+                    donut.setMaximumSize(86, 86)
                     parent = donut.parent()
                     while parent is not None and parent is not pt:
                         if isinstance(parent, QFrame) and parent.property("centerCard"):
@@ -10872,60 +10894,97 @@ class MainWindow(QMainWindow):
                         parent = parent.parent()
             except Exception:
                 pass
-            _set_layout_tight(composition_card, (12, 8, 12, 8), 6)
-            _limit_height(composition_card, 168, 132)
+            _set_layout_tight(composition_card, (10, 6, 10, 6), 4)
+            _limit_height(composition_card, 132, 104)
             try:
                 empty = getattr(pt, "lbl_composition_empty", None)
                 if empty is not None:
-                    empty.setMaximumHeight(58)
+                    empty.setMaximumHeight(42)
                     empty.setStyleSheet(
                         "background:#f8fafc; border:1px dashed #d1d5db; border-radius:8px;"
-                        "padding:6px; color:#6b7280; font-weight:700;"
+                        "padding:5px; color:#6b7280; font-weight:700;"
                     )
             except Exception:
                 pass
 
             risk_card = pt.findChild(QFrame, "riskCard")
-            _set_layout_tight(risk_card, (12, 7, 12, 8), 5)
-            _limit_height(risk_card, 132, 104)
+            _set_layout_tight(risk_card, (10, 6, 10, 6), 4)
+            _limit_height(risk_card, 104, 86)
             try:
                 for box in risk_card.findChildren(QFrame) if risk_card is not None else []:
                     if bool(box.property("smallMetric")):
-                        _set_layout_tight(box, (6, 4, 6, 4), 4)
+                        _set_layout_tight(box, (5, 3, 5, 3), 3)
             except Exception:
                 pass
 
             detail_card = pt.findChild(QFrame, "positionDetailCard")
-            _set_layout_tight(detail_card, (12, 7, 12, 8), 5)
+            _set_layout_tight(detail_card, (10, 6, 10, 7), 4)
             if detail_card is not None:
                 try:
-                    detail_card.setMinimumHeight(190)
+                    detail_card.setMinimumHeight(240)
                     detail_card.setMaximumHeight(16777215)
                     detail_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+                except Exception:
+                    pass
+                try:
+                    for box in detail_card.findChildren(QFrame):
+                        if bool(box.property("smallMetric")):
+                            _set_layout_tight(box, (6, 4, 6, 4), 3)
+                            box.setMaximumHeight(58)
                 except Exception:
                     pass
             try:
                 placeholder = getattr(pt, "lbl_detail_placeholder", None)
                 if placeholder is not None:
-                    placeholder.setMaximumHeight(54)
+                    placeholder.setMaximumHeight(42)
                     placeholder.setStyleSheet(
                         "background:#f8fafc; border:1px dashed #d1d5db; border-radius:8px;"
-                        "padding:6px; color:#6b7280; font-weight:800;"
+                        "padding:5px; color:#6b7280; font-weight:800;"
                     )
+                memo = getattr(pt, "lbl_detail_memo", None)
+                if memo is not None:
+                    memo.setMaximumHeight(44)
             except Exception:
                 pass
 
             table = getattr(pt, "tbl_positions", None)
             if table is not None:
                 try:
-                    table.setMinimumHeight(280)
+                    table.setMinimumHeight(220)
                     table.verticalHeader().setDefaultSectionSize(28)
                     table.horizontalHeader().setFixedHeight(30)
+                    if table.rowCount() == 1 and table.columnSpan(0, 0) > 1:
+                        table.setRowHeight(0, 132)
+                except Exception:
+                    pass
+
+            footer = pt.findChild(QLabel, "footerNotice")
+            if footer is not None:
+                try:
+                    footer.setMaximumHeight(28)
+                    footer.setWordWrap(False)
+                    footer.setStyleSheet(
+                        "background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;"
+                        "padding:4px 8px; color:#1e3a8a; font-size:10px; font-weight:800;"
+                    )
+                    footer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+                except Exception:
+                    pass
+
+            phase_footer = pt.findChild(QLabel, "investmentPhase15FooterNotice")
+            if phase_footer is not None:
+                try:
+                    phase_footer.setMaximumHeight(22)
+                    phase_footer.setWordWrap(False)
+                    phase_footer.setStyleSheet(
+                        "font-size: 10px; color: #7a8794; padding: 2px 2px 0 2px;"
+                    )
+                    phase_footer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
                 except Exception:
                     pass
 
             self._log.info(
-                "[AITS][InvestmentLayoutCompact] event=applied kpi_compact=True ai_summary_compact=True right_panel_compact=True order_allowed=False submitted=0"
+                "[AITS][InvestmentRightPanelFit] event=applied bottom_inset=True right_panel_fit=True empty_table_compact=True order_allowed=False submitted=0"
             )
         except Exception:
             pass
