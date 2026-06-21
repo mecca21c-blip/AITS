@@ -1343,6 +1343,7 @@ class AITSLargeChartDialog(QDialog):
         self._reason_box = None
         self._asset_policy_drawer_expanded = False
         self._detail_chart_layout_restoring = False
+        self._detail_chart_layout_dirty = False
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
@@ -2013,6 +2014,13 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             return None, {}
 
+    def _mark_detail_chart_layout_dirty(self):
+        try:
+            if not bool(getattr(self, "_detail_chart_layout_restoring", False)):
+                self._detail_chart_layout_dirty = True
+        except Exception:
+            pass
+
     def _save_detail_chart_layout_state(self):
         try:
             if bool(getattr(self, "_detail_chart_layout_restoring", False)):
@@ -2021,6 +2029,9 @@ class AITSLargeChartDialog(QDialog):
             if settings is None:
                 return
             splitter = getattr(self, "detail_chart_main_splitter", None)
+            info_splitter = getattr(self, "detail_info_splitter", None)
+            ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
+            op_splitter = getattr(self, "detail_operation_vertical_splitter", None)
             geom = self.geometry()
             state = {
                 "schema": "aits_detail_chart_layout_state.v1",
@@ -2032,12 +2043,8 @@ class AITSLargeChartDialog(QDialog):
                 },
                 "splitter_sizes": list(splitter.sizes()) if splitter is not None else [820, 760],
                 "info_splitter_sizes": list(info_splitter.sizes()) if info_splitter is not None else [410, 350],
-                "ai_status_splitter_sizes": list(
-                    self.detail_ai_status_vertical_splitter.sizes()
-                ) if getattr(self, "detail_ai_status_vertical_splitter", None) is not None else [160, 220],
-                "operation_splitter_sizes": list(
-                    self.detail_operation_vertical_splitter.sizes()
-                ) if getattr(self, "detail_operation_vertical_splitter", None) is not None else [250, 150, 190],
+                "ai_status_splitter_sizes": list(ai_splitter.sizes()) if ai_splitter is not None else [150, 150, 230],
+                "operation_splitter_sizes": list(op_splitter.sizes()) if op_splitter is not None else [250, 150, 190],
                 "drawer_expanded": bool(getattr(self, "_asset_policy_drawer_expanded", False)),
             }
             ui_state["detail_chart_layout_state"] = state
@@ -2047,7 +2054,18 @@ class AITSLargeChartDialog(QDialog):
                 settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else {}
                 settings_dict["ui_state"] = ui_state
                 settings = type(settings)(**settings_dict)
-            save_settings(settings)
+            if save_settings(settings):
+                self._detail_chart_layout_dirty = False
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartSplitterState] event=save main=%s info=%s ai_status=%s ai_operation=%s submitted=0",
+                    state.get("splitter_sizes"),
+                    state.get("info_splitter_sizes"),
+                    state.get("ai_status_splitter_sizes"),
+                    state.get("operation_splitter_sizes"),
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -2058,6 +2076,7 @@ class AITSLargeChartDialog(QDialog):
             state = ui_state.get("detail_chart_layout_state", {})
             if not isinstance(state, dict):
                 state = {}
+            restore_source = "saved" if state else "default"
             geom = state.get("window_geometry", {})
             if isinstance(geom, dict):
                 try:
@@ -2099,22 +2118,39 @@ class AITSLargeChartDialog(QDialog):
                     info_splitter.setSizes([410, 350])
             ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
             if ai_splitter is not None:
-                ai_sizes = state.get("ai_status_splitter_sizes", [160, 220])
-                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 2:
-                    ai_sizes = [160, 220]
+                ai_sizes = state.get("ai_status_splitter_sizes", [150, 150, 230])
+                if not isinstance(ai_sizes, (list, tuple)) or len(ai_sizes) < 3:
+                    ai_sizes = [150, 150, 230]
                 try:
-                    ai_splitter.setSizes([max(1, int(v)) for v in list(ai_sizes)[:2]])
+                    ai_sizes = [max(1, int(v)) for v in list(ai_sizes)[:3]]
+                    if sum(ai_sizes) <= 3:
+                        ai_sizes = [150, 150, 230]
+                    ai_splitter.setSizes(ai_sizes)
                 except Exception:
-                    ai_splitter.setSizes([160, 220])
+                    ai_splitter.setSizes([150, 150, 230])
             op_splitter = getattr(self, "detail_operation_vertical_splitter", None)
             if op_splitter is not None:
                 op_sizes = state.get("operation_splitter_sizes", [250, 150, 190])
                 if not isinstance(op_sizes, (list, tuple)) or len(op_sizes) < 3:
                     op_sizes = [250, 150, 190]
                 try:
-                    op_splitter.setSizes([max(1, int(v)) for v in list(op_sizes)[:3]])
+                    op_sizes = [max(1, int(v)) for v in list(op_sizes)[:3]]
+                    if sum(op_sizes) <= 3:
+                        op_sizes = [250, 150, 190]
+                    op_splitter.setSizes(op_sizes)
                 except Exception:
                     op_splitter.setSizes([250, 150, 190])
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][DetailChartSplitterState] event=restore main=%s info=%s ai_status=%s ai_operation=%s source=%s submitted=0",
+                    bool(splitter is not None),
+                    bool(info_splitter is not None),
+                    bool(ai_splitter is not None),
+                    bool(op_splitter is not None),
+                    restore_source,
+                )
+            except Exception:
+                pass
         except Exception:
             try:
                 self._set_asset_policy_drawer_expanded(False, save=False)
@@ -2126,13 +2162,14 @@ class AITSLargeChartDialog(QDialog):
                     info_splitter.setSizes([410, 350])
                 ai_splitter = getattr(self, "detail_ai_status_vertical_splitter", None)
                 if ai_splitter is not None:
-                    ai_splitter.setSizes([160, 220])
+                    ai_splitter.setSizes([150, 150, 230])
                 op_splitter = getattr(self, "detail_operation_vertical_splitter", None)
                 if op_splitter is not None:
                     op_splitter.setSizes([250, 150, 190])
             except Exception:
                 pass
         finally:
+            self._detail_chart_layout_dirty = False
             self._detail_chart_layout_restoring = False
 
     def _save_asset_policy_snapshot(self, symbol=None, snapshot=None):
@@ -2509,6 +2546,7 @@ class AITSLargeChartDialog(QDialog):
         return self.asset_policy_container
 
     def _rebuild_detail_popup_saas_layout(self, root):
+        self._detail_chart_layout_restoring = True
         try:
             self.setWindowTitle("AITS 상세 차트")
             self.resize(1280, 820)
@@ -2632,7 +2670,7 @@ class AITSLargeChartDialog(QDialog):
             pass
         try:
             self.detail_chart_main_splitter.splitterMoved.connect(
-                lambda _pos, _index: self._save_detail_chart_layout_state()
+                lambda _pos, _index: self._mark_detail_chart_layout_dirty()
             )
         except Exception:
             pass
@@ -2972,7 +3010,7 @@ class AITSLargeChartDialog(QDialog):
             self.detail_ai_status_vertical_splitter.setChildrenCollapsible(False)
             self.detail_ai_status_vertical_splitter.setHandleWidth(5)
             self.detail_ai_status_vertical_splitter.splitterMoved.connect(
-                lambda _pos, _index: self._save_detail_chart_layout_state()
+                lambda _pos, _index: self._mark_detail_chart_layout_dirty()
             )
         except Exception:
             pass
@@ -3061,7 +3099,7 @@ class AITSLargeChartDialog(QDialog):
             self.detail_operation_vertical_splitter.setChildrenCollapsible(False)
             self.detail_operation_vertical_splitter.setHandleWidth(5)
             self.detail_operation_vertical_splitter.splitterMoved.connect(
-                lambda _pos, _index: self._save_detail_chart_layout_state()
+                lambda _pos, _index: self._mark_detail_chart_layout_dirty()
             )
         except Exception:
             pass
@@ -3156,7 +3194,7 @@ class AITSLargeChartDialog(QDialog):
             self.detail_info_splitter.setChildrenCollapsible(False)
             self.detail_info_splitter.setHandleWidth(6)
             self.detail_info_splitter.splitterMoved.connect(
-                lambda _pos, _index: self._save_detail_chart_layout_state()
+                lambda _pos, _index: self._mark_detail_chart_layout_dirty()
             )
         except Exception:
             pass
@@ -40176,6 +40214,12 @@ class MainWindow(QMainWindow):
         return "basic"
 
     def _on_save_settings(self) -> None:
+        try:
+            dlg = getattr(self, "_aits_large_chart_dialog", None)
+            if dlg is not None and hasattr(dlg, "_save_detail_chart_layout_state"):
+                dlg._save_detail_chart_layout_state()
+        except Exception:
+            pass
         # ✅ P0-B: Log save button text before and after
         button_text_before = getattr(self, 'btn_save', None).text() if hasattr(self, 'btn_save') else "unknown"
         openai_key_before = self.ed_openai_key.text() if hasattr(self, "ed_openai_key") else ""

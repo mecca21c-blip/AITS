@@ -576,3 +576,22 @@ Safety remains unchanged:
 - Detail chart open does not call AI.
 - The AI refresh button still reuses the existing explicit analysis path.
 - No Router, Risk Guard, Order, or Execution path is changed.
+
+## 29. DETAIL-CHART-SPLITTER-PERSIST-01 Implementation Note
+
+`DETAIL-CHART-SPLITTER-PERSIST-01` persists the detail-chart splitter layout as UI state.
+
+Display state rules:
+
+- Detail chart splitter sizes are saved under the existing prefs `ui_state.detail_chart_layout_state`.
+- The persisted state covers the main chart/info splitter, the AI status/operation splitter, and both internal vertical splitters.
+- Saved splitter sizes are restored after all splitter widgets are created and after default sizes are assigned.
+- If a saved value is missing, malformed, or incompatible with the current splitter, the existing default sizes are used.
+- Default `setSizes` calls must not overwrite a valid saved layout during dialog rebuild.
+- Splitter movement marks the layout dirty; persistence happens on detail-chart close or the main settings save action.
+
+Safety remains unchanged:
+
+- Detail chart open does not call AI.
+- The AI refresh button still reuses the existing explicit analysis path.
+- Splitter persistence is UI-only state and does not affect Contract, snapshot, Router, Risk Guard, Order, or Execution behavior.
