@@ -248,7 +248,7 @@ class InvestmentCenterTab(QWidget):
         root.addWidget(self.main_splitter, 1)
         root.addWidget(self._build_footer_notice())
         self._restore_layout_state()
-        self._emit_proof("dashboard_ready", splitter=True, right_cards=3)
+        self._emit_proof("dashboard_ready", splitter=True, top_summary=True, right_cards=1)
 
     def _card(self, object_name: str | None = None) -> QFrame:
         card = QFrame()
@@ -330,6 +330,7 @@ class InvestmentCenterTab(QWidget):
             layout.addWidget(sub)
             self._kpi_values[key] = value
             grid.addWidget(card, 0, col)
+        grid.addWidget(self._build_composition_card(compact=True), 0, len(specs))
         return grid
 
     def _build_ai_decision_card(self) -> QFrame:
@@ -353,6 +354,7 @@ class InvestmentCenterTab(QWidget):
             tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
             tag.setProperty("stateBadge", kind)
             layout.addWidget(tag, 0)
+        layout.addWidget(self._build_risk_card(compact=True), 1)
         return card
 
     def _build_positions_card(self) -> QFrame:
@@ -399,23 +401,26 @@ class InvestmentCenterTab(QWidget):
         return card
 
     def _build_right_column(self) -> QWidget:
-        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
-        self.right_splitter.setObjectName("investmentRightSplitter")
-        self.right_splitter.addWidget(self._build_composition_card())
-        self.right_splitter.addWidget(self._build_risk_card())
-        self.right_splitter.addWidget(self._build_detail_card())
-        self.right_splitter.setSizes([150, 110, 300])
-        self.right_splitter.splitterMoved.connect(
-            lambda _pos, _index: self._mark_layout_dirty("right_splitter_moved")
-        )
-        return self.right_splitter
+        self.right_splitter = None
+        return self._build_detail_card()
 
-    def _build_composition_card(self) -> QFrame:
-        card = self._card("portfolioCard")
-        card.setMinimumHeight(220)
+    def _build_composition_card(self, compact: bool = False) -> QFrame:
+        card = self._card("portfolioCompositionCard")
+        if compact:
+            card.setProperty("kpiCard", True)
+            card.setMinimumHeight(72)
+            card.setMaximumHeight(96)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            self._composition_compact = True
+        else:
+            card.setMinimumHeight(220)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 12, 14, 14)
-        layout.setSpacing(10)
+        if compact:
+            layout.setContentsMargins(12, 8, 12, 8)
+            layout.setSpacing(5)
+        else:
+            layout.setContentsMargins(14, 12, 14, 14)
+            layout.setSpacing(10)
         title = QLabel("포트폴리오 구성")
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
@@ -425,6 +430,9 @@ class InvestmentCenterTab(QWidget):
         content.setSpacing(12)
         self._composition_donut = DonutChartWidget()
         self._composition_donut.setObjectName("portfolioDonut")
+        if compact:
+            self._composition_donut.setMinimumSize(48, 48)
+            self._composition_donut.setMaximumSize(58, 58)
         content.addWidget(self._composition_donut, 0, Qt.AlignmentFlag.AlignTop)
 
         list_wrap = QVBoxLayout()
@@ -446,11 +454,18 @@ class InvestmentCenterTab(QWidget):
         layout.addLayout(content)
         return card
 
-    def _build_risk_card(self) -> QFrame:
+    def _build_risk_card(self, compact: bool = False) -> QFrame:
         card = self._card("riskCard")
+        if compact:
+            card.setMaximumHeight(96)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(14, 10, 14, 12)
-        layout.setSpacing(7)
+        if compact:
+            layout.setContentsMargins(12, 7, 12, 7)
+            layout.setSpacing(5)
+        else:
+            layout.setContentsMargins(14, 10, 14, 12)
+            layout.setSpacing(7)
         title = QLabel("위험 관리")
         title.setProperty("sectionTitle", True)
         layout.addWidget(title)
@@ -1033,7 +1048,8 @@ class InvestmentCenterTab(QWidget):
         center_title = "구성" if basis == "eval_amount" else "매입 기준"
         if hasattr(self, "_composition_donut"):
             self._composition_donut.set_data(segments, center_title, center_value)
-        for row in rows[:6]:
+        max_items = 2 if bool(getattr(self, "_composition_compact", False)) else 6
+        for row in rows[:max_items]:
             source_label = "현재 평가" if row.get("valuation_source") in {"current_price", "current_market_price"} else "매입원금 기준"
             text = f"{row.get('symbol', '-')} · {row.get('weight', '-')} · {source_label}"
             label = QLabel(text)
@@ -1288,10 +1304,10 @@ class InvestmentCenterTab(QWidget):
         if table is not None:
             columns = [int(table.columnWidth(i)) for i in range(table.columnCount())]
         return {
-            "schema": "aits_investment_tab_layout_state.v1",
+            "schema": "aits_investment_tab_layout_state.v2",
             "table_column_widths": columns,
             "main_splitter_sizes": list(main_splitter.sizes()) if main_splitter is not None else [980, 420],
-            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [150, 110, 300],
+            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [],
             "row_height": 34,
         }
 

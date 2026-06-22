@@ -639,3 +639,17 @@ Policy intent:
 - This work is UI persistence only and does not change balances, position valuation formulas, or read-only market price lookup logic.
 - This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 41. INVESTMENT-TAB-DASHBOARD-RESTRUCTURE-01 Implementation Note
+
+`INVESTMENT-TAB-DASHBOARD-RESTRUCTURE-01` reorganizes the Investment tab dashboard layout.
+
+Policy intent:
+
+- Portfolio composition is displayed as a compact top summary card beside the Investment tab KPI cards.
+- Risk management is displayed as a compact summary beside the recent AI/position analysis summary.
+- The main body is simplified to holdings table plus selected position detail.
+- Existing position rows, dust filtering, valuation sources, column width persistence, and splitter persistence remain display-only UI behavior.
+- This work does not change balance fetch, market price lookup, valuation formulas, AI call conditions, or provider behavior.
+- This work does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
