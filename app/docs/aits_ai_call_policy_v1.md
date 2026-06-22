@@ -562,3 +562,18 @@ Policy intent:
 - Policy Center save updates preview policy state only; it does not place buy, sell, liquidation, or order actions.
 - Budget and daily-loss fields are preview/reference values and are not connected to Risk Guard, Order, or Execution in this Goal.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 36. INVESTMENT-TAB-POSITION-SOURCE-WIRING-01 Implementation Note
+
+`INVESTMENT-TAB-POSITION-SOURCE-WIRING-01` connects the Investment tab position display to a read-only holdings source.
+
+Policy intent:
+
+- The Investment tab may refresh read-only position rows from existing parent caches or the existing `fetch_live_holdings` path.
+- The tab distinguishes real empty holdings from source failure or unavailable state in user-facing copy.
+- If account summary implies non-cash holdings but the position source returns no rows, the tab treats it as a source mismatch rather than as real empty holdings.
+- Portfolio composition, risk summary, and selected-position detail share the same normalized read-only rows.
+- Risk summary values that are not connected to Risk Guard remain placeholders and are not shown as enforced limits.
+- This wiring does not call AI providers, does not create Provider/API clients, and does not change AI call policy.
+- This wiring does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

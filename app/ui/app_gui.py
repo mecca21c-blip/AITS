@@ -10758,7 +10758,12 @@ class MainWindow(QMainWindow):
                 _orig_pf = pt.refresh
 
                 def _pf_refresh_wrapped(reason: str = "manual"):
+                    source_result = self._refresh_investment_position_source(reason)
                     _orig_pf(reason)
+                    try:
+                        self._apply_investment_position_source_feedback(pt, source_result)
+                    except Exception:
+                        pass
                     try:
                         self._compact_investment_center_layout(pt)
                     except Exception:
@@ -10771,11 +10776,293 @@ class MainWindow(QMainWindow):
                 pt.refresh = _pf_refresh_wrapped
                 self._pf15_refresh_wrapped = True
 
+            try:
+                pt.refresh("source_wiring")
+            except Exception:
+                pass
+
             self._portfolio_phase15_done = True
             try:
                 self._portfolio_tab_sync_phase15()
             except Exception:
                 pass
+        except Exception:
+            pass
+
+    def _refresh_investment_position_source(self, reason: str = "manual") -> dict:
+        """Load read-only holdings rows for InvestmentCenterTab without touching orders."""
+        result = self._load_investment_positions_from_parent(reason)
+        rows = result.get("rows") if isinstance(result, dict) else []
+        if not isinstance(rows, list):
+            rows = []
+        try:
+            self._investment_center_positions = list(rows)
+            self._investment_center_position_source = {
+                "status": result.get("status", "failed") if isinstance(result, dict) else "failed",
+                "source": result.get("source", "unavailable") if isinstance(result, dict) else "unavailable",
+                "message": result.get("message", "") if isinstance(result, dict) else "",
+                "rows": len(rows),
+            }
+        except Exception:
+            pass
+        try:
+            self._log.info(
+                "[AITS][InvestmentPositionSource] event=load status=%s source=%s rows=%s submitted=0",
+                self._investment_center_position_source.get("status"),
+                self._investment_center_position_source.get("source"),
+                len(rows),
+            )
+        except Exception:
+            pass
+        return result if isinstance(result, dict) else {
+            "status": "failed",
+            "source": "unavailable",
+            "rows": [],
+            "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
+        }
+
+    def _load_investment_positions_from_parent(self, reason: str = "manual") -> dict:
+        """Return normalized read-only position rows plus source status."""
+        try:
+            for attr_name in (
+                "_portfolio_positions",
+                "_holdings_rows",
+                "portfolio_rows",
+            ):
+                cached_rows = getattr(self, attr_name, None)
+                if isinstance(cached_rows, list) and cached_rows:
+                    rows = [
+                        self._normalize_investment_position_row(row)
+                        for row in cached_rows
+                        if isinstance(row, dict)
+                    ]
+                    rows = [row for row in rows if row]
+                    if rows:
+                        return {
+                            "status": "ok",
+                            "source": f"parent_cache:{attr_name}",
+                            "rows": rows,
+                            "message": f"포지션 조회 완료 · {len(rows)}개 보유",
+                        }
+        except Exception:
+            pass
+
+        try:
+            from app.services.holdings_service import fetch_live_holdings
+
+            force = str(reason or "").lower() in {"manual", "manual_refresh", "source_wiring"}
+            holdings_data = fetch_live_holdings(force=force)
+            if not isinstance(holdings_data, dict):
+                return {
+                    "status": "failed",
+                    "source": "live_holdings",
+                    "rows": [],
+                    "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
+                }
+            if not bool(holdings_data.get("ok")):
+                reason_text = str(holdings_data.get("err") or "unknown")[:80]
+                try:
+                    self._log.warning(
+                        "[AITS][InvestmentPositionSource] event=load status=failed source=live_holdings reason=%s submitted=0",
+                        reason_text,
+                    )
+                except Exception:
+                    pass
+                return {
+                    "status": "failed",
+                    "source": "live_holdings",
+                    "rows": [],
+                    "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
+                }
+            items = holdings_data.get("items") or []
+            total_eval = holdings_data.get("total_eval")
+            rows = [
+                self._normalize_investment_position_row(item, total_eval=total_eval)
+                for item in items
+                if isinstance(item, dict)
+            ]
+            rows = [row for row in rows if row]
+            if rows:
+                return {
+                    "status": "ok",
+                    "source": "live_holdings",
+                    "rows": rows,
+                    "message": f"포지션 조회 완료 · {len(rows)}개 보유",
+                }
+            if self._investment_account_summary_implies_positions():
+                return {
+                    "status": "failed",
+                    "source": "live_holdings:mismatch",
+                    "rows": [],
+                    "message": "보유 포지션 조회 실패 · 계좌 요약과 포지션 source가 일치하지 않습니다.",
+                }
+            return {
+                "status": "empty",
+                "source": "live_holdings",
+                "rows": [],
+                "message": "실제 보유 포지션이 없습니다.",
+            }
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][InvestmentPositionSource] event=load status=failed source=live_holdings reason=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return {
+                "status": "failed",
+                "source": "live_holdings",
+                "rows": [],
+                "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
+            }
+
+    def _normalize_investment_position_row(self, row: dict, total_eval=None) -> dict:
+        """Normalize a read-only holdings row for InvestmentCenterTab display."""
+        if not isinstance(row, dict):
+            return {}
+
+        def _num(value):
+            try:
+                if value is None:
+                    return None
+                text = str(value).replace(",", "").replace("원", "").replace("%", "").strip()
+                if text in {"", "-", "None"}:
+                    return None
+                return float(text)
+            except Exception:
+                return None
+
+        symbol = str(row.get("symbol") or row.get("market") or "").strip()
+        if not symbol:
+            cur = str(row.get("currency") or "").strip().upper()
+            if cur and cur != "KRW":
+                symbol = f"KRW-{cur}"
+        if not symbol or symbol == "KRW":
+            return {}
+
+        balance = _num(row.get("balance"))
+        locked = _num(row.get("locked")) or 0.0
+        qty = _num(row.get("qty") or row.get("volume"))
+        if balance is not None:
+            qty = balance + locked
+        avg = _num(row.get("avg_price") or row.get("avg") or row.get("avg_buy_price"))
+        price = _num(row.get("current_price") or row.get("price") or row.get("px"))
+        eval_krw = _num(row.get("eval_krw") or row.get("value_krw") or row.get("position_krw") or row.get("total_krw"))
+        if eval_krw is None and qty is not None and price is not None:
+            eval_krw = qty * price
+        cost = qty * avg if qty is not None and avg is not None else None
+        pnl = _num(row.get("pnl") or row.get("pnl_krw"))
+        if pnl is None and eval_krw is not None and cost is not None:
+            pnl = eval_krw - cost
+        ret = _num(row.get("return_rate") or row.get("pnl_pct"))
+        if ret is None and price is not None and avg and avg > 0:
+            ret = ((price / avg) - 1.0) * 100.0
+        weight = row.get("weight")
+        if (weight is None or str(weight).strip() in {"", "-"}) and eval_krw is not None:
+            total = _num(total_eval)
+            if total and total > 0:
+                weight = f"{(eval_krw / total * 100.0):.1f}%"
+
+        market_supported = row.get("market_supported")
+        memo = row.get("memo") or row.get("execution_memo")
+        if not memo:
+            memo = "시장 지원 확인 필요" if market_supported is False else "읽기 전용 보유 포지션"
+        return {
+            "symbol": symbol,
+            "qty": qty,
+            "avg": avg,
+            "price": price,
+            "eval_krw": eval_krw,
+            "pnl": pnl,
+            "return_rate": ret,
+            "weight": weight or "-",
+            "ai_state": row.get("ai_state") or "관망",
+            "tp": row.get("tp") or row.get("tp_pct") or "-",
+            "sl": row.get("sl") or row.get("sl_pct") or "-",
+            "memo": memo,
+        }
+
+    def _investment_account_summary_implies_positions(self) -> bool:
+        """Detect account-summary/position-source mismatch without fetching orders."""
+        def _num(value):
+            try:
+                if value is None:
+                    return None
+                text = str(value).replace(",", "").replace("원", "").replace("+", "").strip()
+                if text in {"", "-", "None"}:
+                    return None
+                return float(text)
+            except Exception:
+                return None
+
+        def _label_num(name: str):
+            try:
+                label = getattr(self, name, None)
+                if label is not None and hasattr(label, "text"):
+                    return _num(label.text())
+            except Exception:
+                pass
+            return None
+
+        total = _num(getattr(self, "_last_total_asset", None))
+        cash = _num(getattr(self, "_last_available_krw", None))
+        if total is None:
+            total = _label_num("lbl_asset_value")
+        if cash is None:
+            cash = _label_num("lbl_krw_value")
+        if total is None or cash is None:
+            return False
+        return total > max(cash + 1000.0, cash * 1.01)
+
+    def _apply_investment_position_source_feedback(self, pt, source_result: dict) -> None:
+        """Reflect empty/failure source state in existing InvestmentCenterTab widgets."""
+        if pt is None or not isinstance(source_result, dict):
+            return
+        status = str(source_result.get("status") or "failed")
+        rows = source_result.get("rows") if isinstance(source_result.get("rows"), list) else []
+        if status == "ok" and rows:
+            message = source_result.get("message") or f"포지션 조회 완료 · {len(rows)}개 보유"
+        elif status == "empty":
+            message = "실제 보유 포지션이 없습니다."
+        elif status == "unavailable":
+            message = "보유 포지션 source가 아직 연결되지 않았습니다."
+        else:
+            message = source_result.get("message") or "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요"
+        try:
+            label = getattr(pt, "lbl_updated_at", None)
+            if label is not None and hasattr(label, "setToolTip"):
+                label.setToolTip(f"{message} · source={source_result.get('source', '-')}")
+        except Exception:
+            pass
+        if status != "ok" or not rows:
+            try:
+                table = getattr(pt, "tbl_positions", None)
+                if table is not None and table.rowCount() > 0:
+                    item = table.item(0, 0)
+                    if item is not None:
+                        item.setText(message)
+            except Exception:
+                pass
+            try:
+                empty = getattr(pt, "lbl_composition_empty", None)
+                if empty is not None:
+                    empty.setText(message)
+                    empty.setVisible(True)
+            except Exception:
+                pass
+            try:
+                placeholder = getattr(pt, "lbl_detail_placeholder", None)
+                if placeholder is not None:
+                    placeholder.setText(message + "\n포지션 row가 표시되면 선택 상세가 갱신됩니다.")
+            except Exception:
+                pass
+        try:
+            risk_values = getattr(pt, "_risk_values", {}) or {}
+            loss_limit = risk_values.get("loss_limit")
+            if loss_limit is not None:
+                loss_limit.setText("미연결")
+                loss_limit.setToolTip("RiskGuard 실제 한도와 아직 연결되지 않은 placeholder입니다.")
         except Exception:
             pass
 
