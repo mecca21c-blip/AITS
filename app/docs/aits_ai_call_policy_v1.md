@@ -594,3 +594,19 @@ Policy intent:
 - The filter does not call AI providers, does not create Provider/API clients, and does not change AI call policy.
 - The filter does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 38. INVESTMENT-TAB-COST-BASIS-VS-EVAL-01 Implementation Note
+
+`INVESTMENT-TAB-COST-BASIS-VS-EVAL-01` separates cost-basis display from current market valuation in the Investment tab.
+
+Policy intent:
+
+- Average buy price is treated as cost-basis input and is not used as a current-price fallback.
+- `cost_basis` is quantity multiplied by average buy price.
+- `eval_amount` is quantity multiplied by a current market price only when a current price source is available.
+- If current price is unavailable, current price, PnL, and return rate are shown as unavailable rather than calculated from average buy price.
+- Portfolio composition clearly marks whether its center value is current-valuation based or cost-basis based.
+- Risk summary uses the same visible rows and marks cost-basis-only weight as a reference basis.
+- This display correction does not delete holdings, create fake rows, or change account/holding source data.
+- This display correction does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

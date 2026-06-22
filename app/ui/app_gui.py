@@ -10970,41 +10970,89 @@ class MainWindow(QMainWindow):
         if balance is not None:
             qty = balance + locked
         avg = _num(row.get("avg_price") or row.get("avg") or row.get("avg_buy_price"))
-        price = _num(row.get("current_price") or row.get("price") or row.get("px"))
-        eval_krw = _num(row.get("eval_krw") or row.get("value_krw") or row.get("position_krw") or row.get("total_krw"))
-        if eval_krw is None and qty is not None and price is not None:
-            eval_krw = qty * price
+        raw_current_price = (
+            row.get("current_price")
+            or row.get("trade_price")
+            or row.get("market_price")
+            or row.get("price")
+        )
+        price = _num(raw_current_price)
+        raw_px = _num(row.get("px"))
+        cost = qty * avg if qty is not None and avg is not None else None
+        raw_eval_krw = _num(row.get("eval_krw") or row.get("value_krw") or row.get("position_krw") or row.get("total_krw"))
+        price_source = "market_price" if price is not None else "missing"
+        if price is None and raw_px is not None:
+            px_matches_avg = avg is not None and abs(raw_px - avg) < 1e-9
+            raw_eval_matches_cost = (
+                raw_eval_krw is not None
+                and cost is not None
+                and abs(raw_eval_krw - cost) < max(1.0, abs(cost) * 0.0001)
+            )
+            if not (px_matches_avg and raw_eval_matches_cost):
+                price = raw_px
+                price_source = "px"
+            else:
+                price_source = "avg_fallback_ignored"
+        eval_krw = qty * price if qty is not None and price is not None else None
+        valuation_source = "current_price" if eval_krw is not None else "cost_basis_only"
         cost = qty * avg if qty is not None and avg is not None else None
         pnl = _num(row.get("pnl") or row.get("pnl_krw"))
-        if pnl is None and eval_krw is not None and cost is not None:
+        if eval_krw is None:
+            pnl = None
+        elif pnl is None and cost is not None:
             pnl = eval_krw - cost
         ret = _num(row.get("return_rate") or row.get("pnl_pct"))
-        if ret is None and price is not None and avg and avg > 0:
+        if eval_krw is None:
+            ret = None
+        elif ret is None and price is not None and avg and avg > 0:
             ret = ((price / avg) - 1.0) * 100.0
         weight = row.get("weight")
-        if (weight is None or str(weight).strip() in {"", "-"}) and eval_krw is not None:
+        weight_basis = eval_krw if eval_krw is not None else cost
+        if (weight is None or str(weight).strip() in {"", "-"}) and weight_basis is not None:
             total = _num(total_eval)
             if total and total > 0:
-                weight = f"{(eval_krw / total * 100.0):.1f}%"
+                weight = f"{(weight_basis / total * 100.0):.1f}%"
 
         market_supported = row.get("market_supported")
         memo = row.get("memo") or row.get("execution_memo")
         if not memo:
             memo = "시장 지원 확인 필요" if market_supported is False else "읽기 전용 보유 포지션"
+        if eval_krw is None:
+            if market_supported is False:
+                memo = "시장 지원 확인 필요 · 매입원금 기준 보유"
+            else:
+                memo = "현재가 확인 필요 · 매입원금 기준 보유"
         dust = row.get("dust")
         if dust is None:
             dust = row.get("is_dust")
-        if dust is None and eval_krw is not None:
-            dust = 0 <= eval_krw < 5000
+        if dust is None and weight_basis is not None:
+            dust = 0 <= weight_basis < 5000
+        try:
+            self._log.info(
+                "[AITS][InvestmentValuation] event=normalize symbol=%s has_avg_price=%s has_current_price=%s cost_basis=%s eval_amount=%s valuation_source=%s submitted=0",
+                symbol,
+                avg is not None,
+                price is not None,
+                cost,
+                eval_krw,
+                valuation_source,
+            )
+        except Exception:
+            pass
         return {
             "symbol": symbol,
             "qty": qty,
             "avg": avg,
             "price": price,
             "eval_krw": eval_krw,
+            "eval_amount": eval_krw,
+            "cost_basis": cost,
             "pnl": pnl,
             "return_rate": ret,
             "weight": weight or "-",
+            "valuation_source": valuation_source,
+            "price_source": price_source,
+            "cost_basis_source": "avg_price",
             "ai_state": row.get("ai_state") or "관망",
             "tp": row.get("tp") or row.get("tp_pct") or "-",
             "sl": row.get("sl") or row.get("sl_pct") or "-",

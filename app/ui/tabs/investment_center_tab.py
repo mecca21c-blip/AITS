@@ -487,7 +487,7 @@ class InvestmentCenterTab(QWidget):
         layout.addWidget(self.lbl_detail_placeholder)
 
         layout.addWidget(self._detail_section("기본 정보", (("symbol", "종목"), ("qty", "수량"), ("avg", "평균단가"), ("price", "현재가"))))
-        layout.addWidget(self._detail_section("손익 정보", (("pnl", "평가손익"), ("return_rate", "수익률"), ("weight", "비중"))))
+        layout.addWidget(self._detail_section("손익 정보", (("cost_basis", "매입원금"), ("eval_amount", "현재 평가금액"), ("pnl", "평가손익"), ("return_rate", "수익률"), ("weight", "비중"))))
         layout.addWidget(self._detail_section("AI 관리", (("ai_state", "AI 상태"), ("tp", "TP"), ("sl", "SL"))))
 
         memo_title = QLabel("실행 메모")
@@ -934,6 +934,8 @@ class InvestmentCenterTab(QWidget):
             "qty": row.get("qty") if row else "-",
             "avg": row.get("avg") if row else "-",
             "price": row.get("price") if row else "-",
+            "cost_basis": row.get("cost_basis_label") if row else "-",
+            "eval_amount": row.get("eval_amount_label") if row else "-",
             "pnl": row.get("pnl") if row else "-",
             "return_rate": row.get("return_rate") if row else "-",
             "weight": row.get("weight") if row else "-",
@@ -992,20 +994,32 @@ class InvestmentCenterTab(QWidget):
         if hasattr(self, "lbl_composition_empty"):
             self.lbl_composition_empty.setVisible(False)
         segments = []
-        total_eval = 0.0
+        total_basis = 0.0
+        basis = "eval_amount"
         for idx, row in enumerate(rows[:6]):
+            basis_value = self._row_valuation_basis_value(row)
             weight = self._parse_number(row.get("weight"))
+            if weight is None and basis_value is not None:
+                row_total = sum(
+                    value for value in (self._row_valuation_basis_value(item) for item in rows)
+                    if value is not None
+                )
+                if row_total > 0:
+                    weight = basis_value / row_total * 100.0
             if weight is None:
                 continue
             segments.append((weight, ""))
-            eval_value = self._parse_number(row.get("eval_krw"))
-            if eval_value is not None:
-                total_eval += eval_value
-        center_value = self._format_krw(total_eval) if total_eval > 0 else f"{len(rows)}개"
+            if basis_value is not None:
+                total_basis += basis_value
+            if row.get("valuation_source") != "current_price":
+                basis = "cost_basis"
+        center_value = self._format_krw(total_basis) if total_basis > 0 else f"{len(rows)}개"
+        center_title = "구성" if basis == "eval_amount" else "매입 기준"
         if hasattr(self, "_composition_donut"):
-            self._composition_donut.set_data(segments, "구성", center_value)
+            self._composition_donut.set_data(segments, center_title, center_value)
         for row in rows[:6]:
-            text = f"{row.get('symbol', '-')} · {row.get('weight', '-')}"
+            source_label = "현재 평가" if row.get("valuation_source") == "current_price" else "매입원금 기준"
+            text = f"{row.get('symbol', '-')} · {row.get('weight', '-')} · {source_label}"
             label = QLabel(text)
             label.setProperty("muted", True)
             label.setStyleSheet(
@@ -1013,6 +1027,12 @@ class InvestmentCenterTab(QWidget):
                 "padding:5px 7px; color:#374151; font-weight:700;"
             )
             layout.addWidget(label)
+        self._emit_proof(
+            "valuation_composition",
+            basis=basis,
+            total=round(total_basis, 2) if total_basis else 0,
+            submitted=0,
+        )
 
     def _update_risk(self, rows: list[dict[str, Any]], source_state: dict[str, Any] | None = None) -> None:
         status = str((source_state or {}).get("status") or "unknown")
@@ -1022,6 +1042,9 @@ class InvestmentCenterTab(QWidget):
             "loss_limit": "-",
             "loss_rate": self._estimate_loss_rate(rows),
         }
+        basis_label = self._valuation_basis_label(rows)
+        if rows and basis_label == "매입원금 기준" and values["weight"] != "-":
+            values["weight"] = f"{values['weight']} · 매입원금 기준"
         if not rows and status in {"mismatch", "failed", "unavailable", "unknown"}:
             values.update({
                 "positions": "0개",
@@ -1046,11 +1069,25 @@ class InvestmentCenterTab(QWidget):
         symbol = row.get("symbol") or row.get("market") or "-"
         qty = row.get("qty") or row.get("volume") or row.get("balance") or "-"
         avg = row.get("avg") or row.get("avg_price") or row.get("avg_buy_price") or "-"
-        price = row.get("price") or row.get("current_price") or row.get("px") or "-"
+        price = row.get("current_price")
+        if price is None or str(price).strip() == "":
+            price = row.get("price")
+        if price is None or str(price).strip() == "":
+            price = row.get("market_price")
+        if price is None or str(price).strip() == "":
+            price = row.get("px") if row.get("valuation_source") == "current_price" else "-"
         pnl = row.get("pnl") or row.get("pnl_krw") or "-"
         ret = row.get("return_rate") or row.get("pnl_pct") or "-"
         weight = row.get("weight") or "-"
+        cost_basis = row.get("cost_basis") or row.get("buy_amount") or row.get("principal")
+        if cost_basis is None:
+            qty_num = self._parse_number(qty)
+            avg_num = self._parse_number(avg)
+            if qty_num is not None and avg_num is not None:
+                cost_basis = qty_num * avg_num
         eval_krw = row.get("eval_krw")
+        if eval_krw is None:
+            eval_krw = row.get("eval_amount")
         if eval_krw is None or str(eval_krw).strip() == "":
             eval_krw = row.get("value_krw")
         if eval_krw is None or str(eval_krw).strip() == "":
@@ -1059,6 +1096,12 @@ class InvestmentCenterTab(QWidget):
             eval_krw = row.get("total_krw")
         if eval_krw is None or str(eval_krw).strip() == "":
             eval_krw = "-"
+        valuation_source = row.get("valuation_source") or ("current_price" if self._parse_number(price) is not None else "cost_basis_only")
+        if valuation_source != "current_price":
+            price = "-"
+            eval_krw = "-"
+            pnl = "-"
+            ret = "-"
         ai_state = row.get("ai_state") or "관망"
         tp = row.get("tp") or row.get("tp_pct") or "-"
         sl = row.get("sl") or row.get("sl_pct") or "-"
@@ -1076,6 +1119,13 @@ class InvestmentCenterTab(QWidget):
             "return_rate": self._format_pct(ret),
             "weight": self._format_pct(weight),
             "eval_krw": eval_krw,
+            "eval_amount": eval_krw,
+            "eval_amount_label": self._format_krw(eval_krw),
+            "cost_basis": cost_basis,
+            "cost_basis_label": self._format_krw(cost_basis),
+            "valuation_source": valuation_source,
+            "price_source": row.get("price_source") or "unknown",
+            "cost_basis_source": row.get("cost_basis_source") or "avg_price",
             "ai_state": ai_state,
             "tp": tp,
             "sl": sl,
@@ -1105,6 +1155,23 @@ class InvestmentCenterTab(QWidget):
                 total += value
                 seen = True
         return f"{total:.1f}%" if seen else "-"
+
+    def _row_valuation_basis_value(self, row: dict[str, Any]) -> float | None:
+        if not isinstance(row, dict):
+            return None
+        eval_value = self._parse_number(row.get("eval_krw"))
+        if eval_value is None:
+            eval_value = self._parse_number(row.get("eval_amount"))
+        if row.get("valuation_source") == "current_price" and eval_value is not None:
+            return eval_value
+        return self._parse_number(row.get("cost_basis"))
+
+    def _valuation_basis_label(self, rows: list[dict[str, Any]]) -> str:
+        if not rows:
+            return ""
+        if all(row.get("valuation_source") == "current_price" for row in rows):
+            return "현재 평가 기준"
+        return "매입원금 기준"
 
     def _estimate_loss_rate(self, rows: list[dict[str, Any]]) -> str:
         losses = [self._parse_number(row.get("return_rate")) for row in rows]
