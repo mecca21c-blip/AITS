@@ -10806,11 +10806,14 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
+            _total_asset, _available_krw = self._investment_account_summary_values()
             self._log.info(
-                "[AITS][InvestmentPositionSource] event=load status=%s source=%s rows=%s submitted=0",
+                "[AITS][InvestmentPositionSource] event=load status=%s source=%s rows=%s total_asset=%s available_krw=%s submitted=0",
                 self._investment_center_position_source.get("status"),
                 self._investment_center_position_source.get("source"),
                 len(rows),
+                _total_asset,
+                _available_krw,
             )
         except Exception:
             pass
@@ -10890,11 +10893,20 @@ class MainWindow(QMainWindow):
                     "message": f"포지션 조회 완료 · {len(rows)}개 보유",
                 }
             if self._investment_account_summary_implies_positions():
+                try:
+                    _total_asset, _available_krw = self._investment_account_summary_values()
+                    self._log.warning(
+                        "[AITS][InvestmentPositionSource] event=load status=mismatch source=live_holdings total_asset=%s available_krw=%s rows=0 submitted=0",
+                        _total_asset,
+                        _available_krw,
+                    )
+                except Exception:
+                    pass
                 return {
-                    "status": "failed",
+                    "status": "mismatch",
                     "source": "live_holdings:mismatch",
                     "rows": [],
-                    "message": "보유 포지션 조회 실패 · 계좌 요약과 포지션 source가 일치하지 않습니다.",
+                    "message": "계좌 요약에는 비현금 자산이 있으나 포지션 상세를 불러오지 못했습니다.",
                 }
             return {
                 "status": "empty",
@@ -10939,6 +10951,12 @@ class MainWindow(QMainWindow):
             if cur and cur != "KRW":
                 symbol = f"KRW-{cur}"
         if not symbol or symbol == "KRW":
+            try:
+                self._log.info(
+                    "[AITS][InvestmentPositionSource] event=row_normalize_skipped reason=missing_symbol_or_krw_cash submitted=0"
+                )
+            except Exception:
+                pass
             return {}
 
         balance = _num(row.get("balance"))
@@ -10983,34 +11001,43 @@ class MainWindow(QMainWindow):
             "memo": memo,
         }
 
-    def _investment_account_summary_implies_positions(self) -> bool:
-        """Detect account-summary/position-source mismatch without fetching orders."""
-        def _num(value):
-            try:
-                if value is None:
-                    return None
-                text = str(value).replace(",", "").replace("원", "").replace("+", "").strip()
-                if text in {"", "-", "None"}:
-                    return None
-                return float(text)
-            except Exception:
+    def _parse_investment_money_value(self, value) -> float | None:
+        """Parse visible KRW-like text without depending on localized suffixes."""
+        try:
+            if value is None:
                 return None
+            text = str(value).strip()
+            if not text or text in {"-", "None"}:
+                return None
+            filtered = "".join(ch for ch in text if ch.isdigit() or ch in ".-")
+            if filtered in {"", "-", ".", "-."}:
+                return None
+            return float(filtered)
+        except Exception:
+            return None
 
+    def _investment_account_summary_values(self) -> tuple[float | None, float | None]:
+        """Return account summary total/cash values from cache or visible labels."""
         def _label_num(name: str):
             try:
                 label = getattr(self, name, None)
                 if label is not None and hasattr(label, "text"):
-                    return _num(label.text())
+                    return self._parse_investment_money_value(label.text())
             except Exception:
                 pass
             return None
 
-        total = _num(getattr(self, "_last_total_asset", None))
-        cash = _num(getattr(self, "_last_available_krw", None))
+        total = self._parse_investment_money_value(getattr(self, "_last_total_asset", None))
+        cash = self._parse_investment_money_value(getattr(self, "_last_available_krw", None))
         if total is None:
             total = _label_num("lbl_asset_value")
         if cash is None:
             cash = _label_num("lbl_krw_value")
+        return total, cash
+
+    def _investment_account_summary_implies_positions(self) -> bool:
+        """Detect account-summary/position-source mismatch without fetching orders."""
+        total, cash = self._investment_account_summary_values()
         if total is None or cash is None:
             return False
         return total > max(cash + 1000.0, cash * 1.01)
@@ -11021,14 +11048,28 @@ class MainWindow(QMainWindow):
             return
         status = str(source_result.get("status") or "failed")
         rows = source_result.get("rows") if isinstance(source_result.get("rows"), list) else []
+        if status == "empty" and not rows and self._investment_account_summary_implies_positions():
+            status = "mismatch"
+            source_result = dict(source_result)
+            source_result["status"] = "mismatch"
+            source_result["source"] = f"{source_result.get('source', 'unknown')}:mismatch"
+            source_result["message"] = "계좌 요약에는 비현금 자산이 있으나 포지션 상세를 불러오지 못했습니다."
         if status == "ok" and rows:
             message = source_result.get("message") or f"포지션 조회 완료 · {len(rows)}개 보유"
         elif status == "empty":
             message = "실제 보유 포지션이 없습니다."
+        elif status == "mismatch":
+            message = source_result.get("message") or "계좌 요약에는 비현금 자산이 있으나 포지션 상세를 불러오지 못했습니다."
         elif status == "unavailable":
             message = "보유 포지션 source가 아직 연결되지 않았습니다."
         else:
             message = source_result.get("message") or "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요"
+        composition_message = {
+            "empty": "보유 포지션이 없어 구성 그래프를 표시할 수 없습니다.",
+            "mismatch": "계좌 요약과 포지션 상세가 일치하지 않아 구성 그래프를 표시하지 않습니다.",
+            "failed": "포지션 조회 실패로 구성 그래프를 표시할 수 없습니다.",
+            "unavailable": "포지션 source 연결 대기 중입니다.",
+        }.get(status, message)
         try:
             label = getattr(pt, "lbl_updated_at", None)
             if label is not None and hasattr(label, "setToolTip"):
@@ -11047,7 +11088,7 @@ class MainWindow(QMainWindow):
             try:
                 empty = getattr(pt, "lbl_composition_empty", None)
                 if empty is not None:
-                    empty.setText(message)
+                    empty.setText(composition_message)
                     empty.setVisible(True)
             except Exception:
                 pass
@@ -11059,10 +11100,32 @@ class MainWindow(QMainWindow):
                 pass
         try:
             risk_values = getattr(pt, "_risk_values", {}) or {}
+            if status in {"mismatch", "failed", "unavailable"}:
+                positions = risk_values.get("positions")
+                weight = risk_values.get("weight")
+                loss_rate = risk_values.get("loss_rate")
+                if positions is not None:
+                    positions.setText("0개")
+                if weight is not None:
+                    weight.setText("-")
+                if loss_rate is not None:
+                    loss_rate.setText("-")
             loss_limit = risk_values.get("loss_limit")
             if loss_limit is not None:
                 loss_limit.setText("미연결")
                 loss_limit.setToolTip("RiskGuard 실제 한도와 아직 연결되지 않은 placeholder입니다.")
+        except Exception:
+            pass
+        try:
+            total_asset, available_krw = self._investment_account_summary_values()
+            self._log.info(
+                "[AITS][InvestmentPositionSource] event=feedback status=%s source=%s rows=%s total_asset=%s available_krw=%s submitted=0",
+                status,
+                source_result.get("source", "-"),
+                len(rows),
+                total_asset,
+                available_krw,
+            )
         except Exception:
             pass
 
