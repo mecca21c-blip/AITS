@@ -1,0 +1,1093 @@
+﻿diff --git a/AITS_MASTER_STATUS.md b/AITS_MASTER_STATUS.md
+deleted file mode 100644
+index e6da9ec..0000000
+--- a/AITS_MASTER_STATUS.md
++++ /dev/null
+@@ -1,223 +0,0 @@
+-# AITS MASTER STATUS (Single Source of Truth)
+-
+-최종 업데이트: 2026-04-03
+-
+----
+-
+-# 1. 프로젝트 개요
+-
+-AITS는 KMTS 기반 구조 위에 구축된 **AI 중심 자동매매 시스템**이다.
+-
+-핵심 목표:
+-- 사용자는 “설정”만 한다
+-- 실제 종목 선택 / 매수 / 매도 판단은 AI가 수행한다
+-- UI는 “AI가 판단하는 시스템처럼 보이게” 설계한다
+-
+----
+-
+-# 2. 현재 진행 상태 (Progress)
+-
+-## 전체 진행률
+-약 60%
+-
+----
+-
+-## 완료된 주요 기능
+-
+-### [A] 실행 및 기본 구조
+-- app_gui.py 정상 실행
+-- KMTS 구조 위에 AITS UI 확장 완료
+-
+----
+-
+-### [B] AITS 컨트롤 패널
+-- AITS ON/OFF 버튼
+-- 전략매도 버튼
+-- 상태 새로고침
+-- Active Engine 표시
+-
+----
+-
+-### [C] AI 엔진 구조
+-- OpenAI 엔진 선택 가능
+-- Gemini 엔진 구조 연결 준비
+-- Basic AI (설정 기반 엔진) 도입
+-
+-※ “선택 엔진”과 “Active Engine” 분리 완료
+-
+----
+-
+-### [D] AITS 종목관리 시스템
+-
+-#### 상단: Managed Pool
+-- AI 종목 / USER 종목 구분
+-- 상태:
+-  - Watching
+-  - Buy Ready
+-  - Holding
+-  - Sell Ready
+-  - Dropped
+-
+-#### 하단: Market Explorer
+-- 전체 종목 리스트 표시
+-- USER 종목 추가 기능
+-
+----
+-
+-### [E] 사용자 기능
+-- USER 종목 추가 / 제거
+-- 종목 잠금 기능
+-- 최소 종목 수 경고
+-
+----
+-
+-### [F] Basic AI 설정 패널
+-
+-구조:
+-- 핵심 운용값
+-- 목표/손절
+-- 매수/매도 동작
+-- 시장 필터
+-
+-특징:
+-- Ollama/Local AI 완전 제거
+-- 설정 기반 자동매매 엔진으로 전환 완료
+-- 2열 레이아웃 적용 (가독성 개선)
+-
+----
+-
+-# 3. Basic AI 정의 (핵심)
+-
+-Basic AI는 LLM이 아니라:
+-
+-> “설정값 기반 규칙형 AI 엔진”
+-
+-이다.
+-
+-역할:
+-- 시장 데이터 기반 점수 계산
+-- 종목 상태 자동 변경
+-- 매수/매도 후보 선정
+-
+----
+-
+-# 4. 현재 핵심 구조
+-
+-## 데이터 흐름
+-
+-Market Explorer
+-→ Managed Pool (AI/USER 분리)
+-→ AI 점수 계산
+-→ 상태 변경
+-
+----
+-
+-## 상태 시스템
+-
+-| 상태 | 의미 |
+-|------|------|
+-| Watching | 관찰 중 |
+-| Buy Ready | 매수 후보 |
+-| Holding | 보유 중 |
+-| Sell Ready | 매도 후보 |
+-| Dropped | 제외 |
+-
+----
+-
+-# 5. 다음 핵심 개발 단계 (중요)
+-
+-## 1순위: AI 점수 기반 엔진 완성
+-
+-목표:
+-- 각 종목에 대해 AI 점수 계산
+-- 점수 기반 상태 자동 변경
+-
+-포함:
+-- 진입 기준 점수
+-- 청산 기준 점수
+-- 거래량 필터
+-- 추세 필터
+-- 악장 회피
+-- 재진입 제한
+-
+----
+-
+-## 2순위: AITS 상태 시스템 고도화
+-
+-AI 상태 표시:
+-
+-- Market Scanning
+-- Opportunity Scoring
+-- Position Monitoring
+-- Position Limit Reached
+-
+----
+-
+-## 3순위: 종목 상세 패널 + 차트
+-
+-필수 기능:
+-- 선택 종목 차트
+-- AI 판단 이유 표시
+-- 목표가 / 손절가
+-- 사용자 개입 버튼
+-
+----
+-
+-## 4순위: 엔진 연결 완성
+-
+-- Gemini 실제 적용
+-- OpenAI 판단 결과 반영
+-
+----
+-
+-## 5순위: 안정화
+-
+-- 예외 처리
+-- 저장/복원 안정화
+-- 로그 정리
+-- 패키징
+-
+----
+-
+-# 6. 개발 원칙 (절대 규칙)
+-
+-## 1. 최소 침습 패치
+-- 기존 코드 최대한 유지
+-- 필요한 부분만 수정
+-
+-## 2. 단일 파일 수정 원칙
+-- 가능하면 app_gui.py만 수정
+-
+-## 3. UI 먼저 → 로직 나중
+-- 항상 UI → 로직 순서
+-
+-## 4. 단계별 진행
+-- 한 번에 여러 기능 금지
+-
+-## 5. 기존 기능 절대 깨지지 않게
+-
+----
+-
+-# 7. 현재 리스크
+-
+-- KMTS 레거시 코드 혼재
+-- 엔진 로직 미완성
+-- 상태 변경 규칙 단순
+-- LLM 연결 일부 미완성
+-
+----
+-
+-# 8. 다음 작업 (Next Task)
+-
+-현재 진행 중:
+-
+-👉 AI 점수 계산 + 상태 변화 로직 구현
+-
+----
+-
+-# 9. 메모
+-
+-이 문서는 프로젝트의 기준이다.
+-
+-ChatGPT 응답이 틀리거나 기억이 누락된 경우:
+-👉 반드시 이 문서를 기준으로 수정한다.
+\ No newline at end of file
+diff --git a/__pycache__/run.cpython-314.pyc b/__pycache__/run.cpython-314.pyc
+index 84de790..f29dee5 100644
+Binary files a/__pycache__/run.cpython-314.pyc and b/__pycache__/run.cpython-314.pyc differ
+diff --git a/app/docs/aits_detail_chart_display_source_proof_v1.md b/app/docs/aits_detail_chart_display_source_proof_v1.md
+index 5714b49..7cb629a 100644
+--- a/app/docs/aits_detail_chart_display_source_proof_v1.md
++++ b/app/docs/aits_detail_chart_display_source_proof_v1.md
+@@ -367,3 +367,87 @@ Key fields:
+ - `api_call_allowed=False`
+ - `api_call_attempted=False`
+ - `submitted=0`
++
++## 12. Active Managed / Scanner Click Path Proof
++
++`MANAGED-SCORE-PROOF-03` was added after the first click rerun showed `ScoreProof`,
++`EnginePathProof`, and `GPTPreview` but none of the click proof prefixes from
++`MANAGED-SCORE-PROOF-02`.
++
++### Rerun Finding
++
++The detail-chart open path was active, but the originally instrumented managed/scanner
++selection handlers were not proven to be the visible table click path. This means one
++of the following must be distinguished at runtime:
++
++- the visible table is not the same object as `self.tbl_ai_managed` or `self.tbl_market_all`;
++- click/selection is handled by a different Qt signal than the original handler;
++- the add button returns early before the previous add proof point;
++- center/detail refresh uses a detail-open path instead of the center refresh path.
++
++### ManagedScoreActiveSurfaceProof
++
++`ManagedScoreActiveSurfaceProof` is emitted at table build/refresh and records the
++actual visible table surface without changing the UI.
++
++Fields:
++
++- `event`: `surface_discovery_build`, `surface_discovery_refresh`, or `signal_connected`
++- `widget_role`: `managed` or `scanner`
++- `object_name`
++- `python_id`
++- `visible`
++- `enabled`
++- `row_count`
++- `col_count`
++- `headers`
++- `parent_class`
++- `table_attr_name`
++- `submitted=0`
++
++### Active Signal Proof
++
++The visible managed/scanner tables receive proof-only signal connections:
++
++- `cellClicked`
++- `cellDoubleClicked`
++- `currentCellChanged`
++- `itemSelectionChanged`
++- `selectionModel().currentChanged`
++- `selectionModel().selectionChanged`
++
++The existing UI handlers are not removed or replaced. The proof connections only emit
++`ManagedScoreClickProof` or `ScannerScoreClickProof` and include `table_python_id`.
++
++### Add Path Early Return Proof
++
++`ManagedPoolAddProof` now includes:
++
++- `event=before_add_request`
++- `event=already_exists`
++- `event=before_add`
++- `event=after_add`
++
++This proves whether the active add request reaches `_add_symbol_to_ai_pool`, whether
++it exits early because the symbol already exists, and whether scanner score and managed
++score remain separate after add. No scanner score copy logic was added.
++
++### Center Detail Proof
++
++`CenterSelectionProof` is also emitted from the active detail-open path with
++`event=detail_open`. This records the selected symbol and score source before any
++existing GPT preview path is allowed to continue.
++
++### Safety Boundary
++
++This proof pass does not change:
++
++- managed score calculation;
++- scanner fallback calculation;
++- UI labels or columns;
++- provider/API connection logic;
++- Router, Execution, Order, or RiskGuard behavior;
++- database or runtime data schemas.
++
++`FUNCTION-FIX-03` remains the later fix candidate if the proof logs confirm a real
++SSOT collision between managed score and scanner display score.
+diff --git a/app/services/__pycache__/ai_context_builder.cpython-314.pyc b/app/services/__pycache__/ai_context_builder.cpython-314.pyc
+index a3d9b73..3e92bfa 100644
+Binary files a/app/services/__pycache__/ai_context_builder.cpython-314.pyc and b/app/services/__pycache__/ai_context_builder.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/ai_prompt_builder.cpython-314.pyc b/app/services/__pycache__/ai_prompt_builder.cpython-314.pyc
+index 2bced37..60f7020 100644
+Binary files a/app/services/__pycache__/ai_prompt_builder.cpython-314.pyc and b/app/services/__pycache__/ai_prompt_builder.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/ai_provider_mock_bridge.cpython-314.pyc b/app/services/__pycache__/ai_provider_mock_bridge.cpython-314.pyc
+index e0f77bd..423ef93 100644
+Binary files a/app/services/__pycache__/ai_provider_mock_bridge.cpython-314.pyc and b/app/services/__pycache__/ai_provider_mock_bridge.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/ai_provider_router.cpython-314.pyc b/app/services/__pycache__/ai_provider_router.cpython-314.pyc
+index b90fdf5..db52050 100644
+Binary files a/app/services/__pycache__/ai_provider_router.cpython-314.pyc and b/app/services/__pycache__/ai_provider_router.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/ai_response_parser.cpython-314.pyc b/app/services/__pycache__/ai_response_parser.cpython-314.pyc
+index ae30a8a..aba54bb 100644
+Binary files a/app/services/__pycache__/ai_response_parser.cpython-314.pyc and b/app/services/__pycache__/ai_response_parser.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/decision_router.cpython-314.pyc b/app/services/__pycache__/decision_router.cpython-314.pyc
+index fa771fc..99901a8 100644
+Binary files a/app/services/__pycache__/decision_router.cpython-314.pyc and b/app/services/__pycache__/decision_router.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/gemini_provider_bridge.cpython-314.pyc b/app/services/__pycache__/gemini_provider_bridge.cpython-314.pyc
+index 1aedf87..a3444da 100644
+Binary files a/app/services/__pycache__/gemini_provider_bridge.cpython-314.pyc and b/app/services/__pycache__/gemini_provider_bridge.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/gpt_provider_bridge.cpython-314.pyc b/app/services/__pycache__/gpt_provider_bridge.cpython-314.pyc
+index 7d69a54..b14b2d6 100644
+Binary files a/app/services/__pycache__/gpt_provider_bridge.cpython-314.pyc and b/app/services/__pycache__/gpt_provider_bridge.cpython-314.pyc differ
+diff --git a/app/services/__pycache__/ollama_provider_bridge.cpython-314.pyc b/app/services/__pycache__/ollama_provider_bridge.cpython-314.pyc
+index 9ba5eeb..8804ee0 100644
+Binary files a/app/services/__pycache__/ollama_provider_bridge.cpython-314.pyc and b/app/services/__pycache__/ollama_provider_bridge.cpython-314.pyc differ
+diff --git a/app/ui/__pycache__/app_gui.cpython-314.pyc b/app/ui/__pycache__/app_gui.cpython-314.pyc
+index 13e38e8..df3964f 100644
+Binary files a/app/ui/__pycache__/app_gui.cpython-314.pyc and b/app/ui/__pycache__/app_gui.cpython-314.pyc differ
+diff --git a/app/ui/app_gui.py b/app/ui/app_gui.py
+index 1e7e945..4c18561 100644
+--- a/app/ui/app_gui.py
++++ b/app/ui/app_gui.py
+@@ -20,6 +20,11 @@ from PySide6 import QtGui
+ 
+ MASKED_API_KEY_TEXT = "●●●●●●●●●●●●●●●●●●●●"
+ 
++# Development-only login bypass. Set this to False after repeated runtime testing.
++# It can also be disabled for one run with AITS_DEV_LOGIN_BYPASS=0.
++AITS_DEV_LOGIN_BYPASS = True
++AITS_DEV_LOGIN_EMAIL = "dev@aits.local"
++
+ # =========================
+ # KMTS Light Unified QSS (P0)
+ # - 로직/데이터/시그널/레이아웃 변경 없음
+@@ -4852,6 +4857,15 @@ class AITSLargeChartDialog(QDialog):
+                     provider or "unknown",
+                     actual_engine or "unknown",
+                 )
++                try:
++                    if parent_obj is not None and hasattr(parent_obj, "_log_runtime_source_proof05"):
++                        parent_obj._log_runtime_source_proof05(
++                            "near_enginepathproof",
++                            api_call_allowed=True,
++                            api_call_attempted=True,
++                        )
++                except Exception:
++                    pass
+             except Exception:
+                 pass
+             from openai import OpenAI
+@@ -10849,6 +10863,10 @@ class MainWindow(QMainWindow):
+             pass
+         self.tbl_ai_managed.cellClicked.connect(self._on_ai_managed_table_cell_clicked)
+         self.tbl_ai_managed.itemSelectionChanged.connect(self._on_ai_managed_table_selection_changed)
++        try:
++            self._connect_managed_score_active_table_proof(self.tbl_ai_managed, "managed", "build")
++        except Exception:
++            pass
+         try:
+             # [UI MASTER PLAN / Phase 2 / PATCH 2-3]
+             # Managed UX 정리
+@@ -12158,6 +12176,10 @@ class MainWindow(QMainWindow):
+             )
+         except Exception:
+             pass
++        try:
++            self._connect_managed_score_active_table_proof(self.tbl_market_all, "scanner", "build")
++        except Exception:
++            pass
+         try:
+             self.tbl_market_all.doubleClicked.connect(
+                 self._on_aits_market_table_double_clicked
+@@ -23007,6 +23029,29 @@ class MainWindow(QMainWindow):
+                     bool(user_added),
+                     bool(managed_pool_row),
+                 )
++                try:
++                    logging.getLogger("aits").info(
++                        "[AITS][RuntimeSourceProof06] "
++                        "event=inline_after_scoreproof | pid=%s | file=%s | "
++                        "func=_open_aits_large_chart_dialog_for_row | line=after_scoreproof | "
++                        "symbol=%s | submitted=0",
++                        os.getpid(),
++                        __file__,
++                        str(symbol_text or ""),
++                    )
++                except Exception as exc:
++                    try:
++                        logging.getLogger("aits").info(
++                            "[AITS][RuntimeSourceProof06] event=proof_error | "
++                            "where=inline_after_scoreproof | error_type=%s | submitted=0",
++                            exc.__class__.__name__,
++                        )
++                    except Exception:
++                        pass
++                try:
++                    self._log_runtime_source_proof05("near_scoreproof")
++                except Exception:
++                    pass
+                 logging.getLogger("aits").info(
+                     "[AITS][EnginePathProof] selected=%s saved=%s actual=%s source=%s "
+                     "api_call_allowed=False api_call_attempted=False order_allowed=False submitted=0",
+@@ -23015,6 +23060,37 @@ class MainWindow(QMainWindow):
+                     actual_engine or "unknown",
+                     engine_source,
+                 )
++                try:
++                    logging.getLogger("aits").info(
++                        "[AITS][RuntimeSourceProof06] "
++                        "event=inline_after_enginepathproof | pid=%s | file=%s | "
++                        "func=_open_aits_large_chart_dialog_for_row | "
++                        "api_call_allowed=False | api_call_attempted=False | symbol=%s | submitted=0",
++                        os.getpid(),
++                        __file__,
++                        str(symbol_text or ""),
++                    )
++                except Exception as exc:
++                    try:
++                        logging.getLogger("aits").info(
++                            "[AITS][RuntimeSourceProof06] event=proof_error | "
++                            "where=inline_after_enginepathproof | error_type=%s | submitted=0",
++                            exc.__class__.__name__,
++                        )
++                    except Exception:
++                        pass
++                try:
++                    self._log_runtime_source_proof05(
++                        "near_enginepathproof",
++                        api_call_allowed=False,
++                        api_call_attempted=False,
++                    )
++                except Exception:
++                    pass
++                try:
++                    self._proof_log_center_selection("detail", event="detail_open")
++                except Exception:
++                    pass
+             except Exception:
+                 pass
+ 
+@@ -26391,6 +26467,287 @@ class MainWindow(QMainWindow):
+     def _proof_bool_text(self, value) -> str:
+         return "True" if bool(value) else "False"
+ 
++    def _proof_table_headers(self, table) -> str:
++        try:
++            headers = []
++            for idx in range(int(table.columnCount())):
++                item = table.horizontalHeaderItem(idx)
++                text = str(item.text() if item is not None else "").strip()
++                headers.append(text or f"col{idx}")
++            return ",".join(headers)
++        except Exception:
++            return "unknown"
++
++    def _log_managed_score_active_surface_proof(
++        self,
++        table,
++        role: str,
++        event: str = "surface_discovery",
++        attr_name: str = "unknown",
++    ) -> None:
++        try:
++            if table is None:
++                return
++            try:
++                parent = table.parent()
++            except Exception:
++                parent = None
++            try:
++                object_name = str(table.objectName() or "")
++            except Exception:
++                object_name = ""
++            self._safe_log_info(
++                "[AITS][ManagedScoreActiveSurfaceProof] "
++                f"event={event} | widget_role={role or 'unknown'} | "
++                f"object_name={object_name or 'unknown'} | python_id={id(table)} | "
++                f"visible={self._proof_bool_text(table.isVisible())} | "
++                f"enabled={self._proof_bool_text(table.isEnabled())} | "
++                f"row_count={int(table.rowCount())} | col_count={int(table.columnCount())} | "
++                f"headers={self._proof_table_headers(table)} | "
++                f"parent_class={parent.__class__.__name__ if parent is not None else 'unknown'} | "
++                f"table_attr_name={attr_name or 'unknown'} | submitted=0"
++            )
++        except Exception:
++            pass
++
++    def _proof_table_row_from_signal(self, table, row_hint=None, index=None) -> int:
++        try:
++            if row_hint is not None:
++                row = int(row_hint)
++                if row >= 0:
++                    return row
++        except Exception:
++            pass
++        try:
++            if index is not None and hasattr(index, "row"):
++                row = int(index.row())
++                if row >= 0:
++                    return row
++        except Exception:
++            pass
++        try:
++            row = int(table.currentRow())
++            if row >= 0:
++                return row
++        except Exception:
++            pass
++        return -1
++
++    def _proof_log_active_table_signal(self, role: str, table, event: str, row_hint=None, col_hint=None, index=None) -> None:
++        try:
++            row = self._proof_table_row_from_signal(table, row_hint, index)
++            col = -1
++            try:
++                if col_hint is not None:
++                    col = int(col_hint)
++                elif index is not None and hasattr(index, "column"):
++                    col = int(index.column())
++            except Exception:
++                col = -1
++            role_key = str(role or "").strip().lower()
++            if role_key == "managed":
++                rows = getattr(self, "ai_managed_rows", None) or []
++                row_obj = rows[row] if 0 <= row < len(rows) and isinstance(rows[row], dict) else None
++                snap = self._proof_managed_score_snapshot(row_obj)
++                logging.getLogger("aits").info(
++                    "[AITS][ManagedScoreClickProof] "
++                    "surface=managed | proof=04 | event=%s | row_index=%s | col_index=%s | "
++                    "symbol=%s | display_score=%s | score_source=%s | ai_score_raw=%s | "
++                    "status=%s | status_source=%s | weight_text=%s | weight_source=%s | "
++                    "target_weight=%s | target_source=%s | table_python_id=%s | submitted=0",
++                    event,
++                    row,
++                    col,
++                    snap.get("symbol", ""),
++                    snap.get("display_score", "unknown"),
++                    snap.get("score_source", "unknown"),
++                    snap.get("ai_score_raw", ""),
++                    snap.get("status", "unknown"),
++                    snap.get("status_source", "unknown"),
++                    snap.get("weight_text", "0%/0%"),
++                    snap.get("weight_source", "fallback"),
++                    snap.get("target_weight", "0%"),
++                    snap.get("target_source", "fallback"),
++                    id(table),
++                )
++            elif role_key == "scanner":
++                rows = getattr(self, "_market_display_rows", None) or []
++                row_obj = rows[row] if 0 <= row < len(rows) and isinstance(rows[row], dict) else None
++                snap = self._proof_scanner_score_snapshot(row_obj, row if row >= 0 else 0)
++                logging.getLogger("aits").info(
++                    "[AITS][ScannerScoreClickProof] "
++                    "surface=scanner | proof=04 | event=%s | row_index=%s | col_index=%s | "
++                    "symbol=%s | display_score=%s | score_source=%s | ai_score_raw=%s | "
++                    "score_raw=%s | change_pct=%s | theme=%s | fallback_used=%s | "
++                    "table_python_id=%s | submitted=0",
++                    event,
++                    row,
++                    col,
++                    snap.get("symbol", ""),
++                    snap.get("display_score", "unknown"),
++                    snap.get("score_source", "unknown"),
++                    snap.get("ai_score_raw", ""),
++                    snap.get("score_raw", ""),
++                    snap.get("change_pct", "unknown"),
++                    snap.get("theme", "unknown"),
++                    snap.get("fallback_used", "unknown"),
++                    id(table),
++                )
++        except Exception as exc:
++            try:
++                prefix = "[AITS][ManagedScoreClickProof]" if str(role or "").strip().lower() == "managed" else "[AITS][ScannerScoreClickProof]"
++                logging.getLogger("aits").info(
++                    "%s proof=04 | event=proof_error | error_type=%s | submitted=0",
++                    prefix,
++                    exc.__class__.__name__,
++                )
++            except Exception:
++                pass
++
++    def _connect_managed_score_active_table_proof(self, table, role: str, reason: str = "unknown") -> None:
++        try:
++            if table is None:
++                return
++            if table is getattr(self, "tbl_ai_managed", None):
++                attr_name = "tbl_ai_managed"
++            elif table is getattr(self, "tbl_market_all", None):
++                attr_name = "tbl_market_all"
++            else:
++                attr_name = "unknown"
++            self._log_managed_score_active_surface_proof(
++                table, role, f"surface_discovery_{reason}", attr_name
++            )
++            role_key = str(role or "").strip().lower()
++            prop_name = (
++                "_aits_managed_score_proof04_connected"
++                if role_key == "managed"
++                else "_aits_scanner_score_proof04_connected"
++            )
++            if bool(table.property(prop_name)):
++                return
++            table.setProperty(prop_name, True)
++            try:
++                table.cellClicked.connect(
++                    lambda row, col, _table=table, _role=role: self._proof_log_active_table_signal(
++                        _role, _table, "cellClicked", row_hint=row, col_hint=col
++                    )
++                )
++            except Exception:
++                pass
++            try:
++                table.cellDoubleClicked.connect(
++                    lambda row, col, _table=table, _role=role: self._proof_log_active_table_signal(
++                        _role, _table, "cellDoubleClicked", row_hint=row, col_hint=col
++                    )
++                )
++            except Exception:
++                pass
++            try:
++                table.currentCellChanged.connect(
++                    lambda row, col, _prev_row, _prev_col, _table=table, _role=role: self._proof_log_active_table_signal(
++                        _role, _table, "currentCellChanged", row_hint=row, col_hint=col
++                    )
++                )
++            except Exception:
++                pass
++            try:
++                table.itemSelectionChanged.connect(
++                    lambda _table=table, _role=role: self._proof_log_active_table_signal(
++                        _role, _table, "itemSelectionChanged"
++                    )
++                )
++            except Exception:
++                pass
++            try:
++                model = table.selectionModel()
++                if model is not None:
++                    model.currentChanged.connect(
++                        lambda current, _previous, _table=table, _role=role: self._proof_log_active_table_signal(
++                            _role, _table, "selectionModel.currentChanged", index=current
++                        )
++                    )
++                    model.selectionChanged.connect(
++                        lambda _selected, _deselected, _table=table, _role=role: self._proof_log_active_table_signal(
++                            _role, _table, "selectionModel.selectionChanged"
++                        )
++                    )
++            except Exception:
++                pass
++            self._safe_log_info(
++                "[AITS][ManagedScoreActiveSurfaceProof] "
++                f"event={role_key or 'unknown'}_signal_connected | widget_role={role or 'unknown'} | "
++                f"object_name={str(table.objectName() or '') or 'unknown'} | python_id={id(table)} | "
++                f"table_attr_name={attr_name} | "
++                "signals=cellClicked,cellDoubleClicked,currentCellChanged,itemSelectionChanged,currentChanged,selectionChanged | "
++                "submitted=0"
++            )
++        except Exception:
++            pass
++
++    def _log_runtime_source_proof05(
++        self,
++        event: str,
++        api_call_allowed=False,
++        api_call_attempted=False,
++    ) -> None:
++        try:
++            module = sys.modules.get(__name__)
++            module_file = str(getattr(module, "__file__", "") or "")
++            module_cached = str(getattr(module, "__cached__", "") or "")
++            file_source = ""
++            try:
++                with open(module_file, "r", encoding="utf-8") as fh:
++                    file_source = fh.read()
++            except Exception:
++                file_source = ""
++            cls = self.__class__
++            detail_func = getattr(cls, "_open_aits_large_chart_dialog_for_row", None)
++            render_func = getattr(cls, "_render_aits_large_chart_dialog", None)
++            detail_line = "unknown"
++            render_line = "unknown"
++            detail_id = "unknown"
++            render_id = "unknown"
++            detail_source = ""
++            try:
++                detail_line = getattr(getattr(detail_func, "__code__", None), "co_firstlineno", "unknown")
++                detail_id = id(detail_func) if detail_func is not None else "unknown"
++            except Exception:
++                pass
++            try:
++                render_line = getattr(getattr(render_func, "__code__", None), "co_firstlineno", "unknown")
++                render_id = id(render_func) if render_func is not None else "unknown"
++            except Exception:
++                pass
++            try:
++                inspect_mod = __import__("inspect")
++                if detail_func is not None:
++                    detail_source = inspect_mod.getsource(detail_func)
++            except Exception:
++                detail_source = ""
++            argv0 = ""
++            try:
++                argv0 = str((sys.argv or [""])[0] or "")
++            except Exception:
++                argv0 = ""
++            self._safe_log_info(
++                "[AITS][RuntimeSourceProof05] "
++                f"event={event} | pid={os.getpid()} | executable={sys.executable} | "
++                f"argv0={argv0} | cwd={os.getcwd()} | module_file={module_file} | "
++                f"module_cached={module_cached} | class_name={cls.__name__} | "
++                f"self_class_module={cls.__module__} | "
++                f"detail_open_firstlineno={detail_line} | detail_open_func_id={detail_id} | "
++                f"render_firstlineno={render_line} | render_func_id={render_id} | "
++                f"has_center_marker={self._proof_bool_text('CenterSelectionProof' in detail_source)} | "
++                f"has_active_surface_marker={self._proof_bool_text('ManagedScoreActiveSurfaceProof' in file_source)} | "
++                f"has_managed_click_marker={self._proof_bool_text('ManagedScoreClickProof' in file_source)} | "
++                f"has_scanner_click_marker={self._proof_bool_text('ScannerScoreClickProof' in file_source)} | "
++                f"has_add_marker={self._proof_bool_text('ManagedPoolAddProof' in file_source)} | "
++                f"api_call_allowed={self._proof_bool_text(api_call_allowed)} | "
++                f"api_call_attempted={self._proof_bool_text(api_call_attempted)} | submitted=0"
++            )
++        except Exception:
++            pass
++
+     def _proof_managed_score_snapshot(self, row: dict | None) -> dict:
+         snapshot = {
+             "symbol": "",
+@@ -26460,21 +26817,22 @@ class MainWindow(QMainWindow):
+             pass
+         return snapshot
+ 
+-    def _proof_log_managed_score_click(self, row_index: int, event: str = "selection") -> None:
++    def _proof_log_managed_score_click(self, row_index: int, event: str = "selection", table=None, col_index: int = -1) -> None:
+         try:
+             rows = getattr(self, "ai_managed_rows", None) or []
+             if row_index < 0 or row_index >= len(rows):
+                 return
+             snap = self._proof_managed_score_snapshot(rows[row_index])
++            table_id = id(table) if table is not None else id(getattr(self, "tbl_ai_managed", None))
+             self._safe_log_info(
+                 "[AITS][ManagedScoreClickProof] "
+-                f"surface=managed | event={event} | row_index={row_index} | "
++                f"surface=managed | event={event} | row_index={row_index} | col_index={col_index} | "
+                 f"symbol={snap.get('symbol','')} | display_score={snap.get('display_score','unknown')} | "
+                 f"score_source={snap.get('score_source','unknown')} | ai_score_raw={snap.get('ai_score_raw','')} | "
+                 f"status={snap.get('status','unknown')} | status_source={snap.get('status_source','unknown')} | "
+                 f"weight_text={snap.get('weight_text','0%/0%')} | weight_source={snap.get('weight_source','fallback')} | "
+                 f"target_weight={snap.get('target_weight','0%')} | target_source={snap.get('target_source','fallback')} | "
+-                f"row_origin={snap.get('row_origin','unknown')} | submitted=0"
++                f"row_origin={snap.get('row_origin','unknown')} | table_python_id={table_id} | submitted=0"
+             )
+         except Exception:
+             pass
+@@ -26540,26 +26898,27 @@ class MainWindow(QMainWindow):
+             pass
+         return snapshot
+ 
+-    def _proof_log_scanner_score_click(self, row_index: int, event: str = "selection") -> None:
++    def _proof_log_scanner_score_click(self, row_index: int, event: str = "selection", table=None, col_index: int = -1) -> None:
+         try:
+             rows = getattr(self, "_market_display_rows", None) or []
+             if row_index < 0 or row_index >= len(rows):
+                 return
+             row = rows[row_index] if isinstance(rows[row_index], dict) else {}
+             snap = self._proof_scanner_score_snapshot(row, row_index)
++            table_id = id(table) if table is not None else id(getattr(self, "tbl_market_all", None))
+             self._safe_log_info(
+                 "[AITS][ScannerScoreClickProof] "
+-                f"surface=scanner | event={event} | row_index={row_index} | "
++                f"surface=scanner | event={event} | row_index={row_index} | col_index={col_index} | "
+                 f"symbol={snap.get('symbol','')} | display_score={snap.get('display_score','unknown')} | "
+                 f"score_source={snap.get('score_source','unknown')} | ai_score_raw={snap.get('ai_score_raw','')} | "
+                 f"score_raw={snap.get('score_raw','')} | change_pct={snap.get('change_pct','unknown')} | "
+                 f"theme={snap.get('theme','unknown')} | theme_source={snap.get('theme_source','unknown')} | "
+-                f"fallback_used={snap.get('fallback_used','unknown')} | submitted=0"
++                f"fallback_used={snap.get('fallback_used','unknown')} | table_python_id={table_id} | submitted=0"
+             )
+         except Exception:
+             pass
+ 
+-    def _proof_log_center_selection(self, selected_from: str = "unknown") -> None:
++    def _proof_log_center_selection(self, selected_from: str = "unknown", event: str = "refresh") -> None:
+         try:
+             symbol = str(getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
+             rows = getattr(self, "ai_managed_rows", None) or []
+@@ -26572,7 +26931,7 @@ class MainWindow(QMainWindow):
+             preview_state = "preview" if bool(getattr(self, "_applied_ai_is_preview", False)) else "unknown"
+             self._safe_log_info(
+                 "[AITS][CenterSelectionProof] "
+-                f"surface=center | selected_symbol={symbol} | selected_from={selected_from} | "
++                f"surface=center | event={event} | selected_symbol={symbol} | selected_from={selected_from} | "
+                 f"display_score={snap.get('display_score','unknown')} | score_source={snap.get('score_source','unknown')} | "
+                 f"status={snap.get('status','unknown')} | status_source={snap.get('status_source','unknown')} | "
+                 f"preview_state={preview_state} | api_call_allowed=False | api_call_attempted=False | submitted=0"
+@@ -27583,6 +27942,29 @@ class MainWindow(QMainWindow):
+                 self._apply_ai_managed_row_visual_state()
+             except Exception:
+                 pass
++            try:
++                _proof_t = getattr(self, "tbl_ai_managed", None)
++                if _proof_t is not None:
++                    logging.getLogger("aits").info(
++                        "[AITS][ManagedScoreActiveSurfaceProof] "
++                        "event=managed_render_active | table_python_id=%s | visible=%s | "
++                        "enabled=%s | row_count=%s | col_count=%s | headers=%s | "
++                        "rows_source=ai_managed_rows | submitted=0",
++                        id(_proof_t),
++                        bool(_proof_t.isVisible()),
++                        bool(_proof_t.isEnabled()),
++                        int(_proof_t.rowCount()),
++                        int(_proof_t.columnCount()),
++                        self._proof_table_headers(_proof_t),
++                    )
++            except Exception:
++                pass
++            try:
++                self._connect_managed_score_active_table_proof(
++                    getattr(self, "tbl_ai_managed", None), "managed", "refresh"
++                )
++            except Exception:
++                pass
+             try:
+                 self._log_aits_validation_summary("managed_refresh")
+             except Exception:
+@@ -31917,6 +32299,29 @@ class MainWindow(QMainWindow):
+             self._on_market_explorer_selection_changed()
+         except Exception:
+             pass
++        try:
++            _proof_t = getattr(self, "tbl_market_all", None)
++            if _proof_t is not None:
++                logging.getLogger("aits").info(
++                    "[AITS][ManagedScoreActiveSurfaceProof] "
++                    "event=scanner_render_active | table_python_id=%s | visible=%s | "
++                    "enabled=%s | row_count=%s | col_count=%s | headers=%s | "
++                    "rows_source=_market_display_rows | submitted=0",
++                    id(_proof_t),
++                    bool(_proof_t.isVisible()),
++                    bool(_proof_t.isEnabled()),
++                    int(_proof_t.rowCount()),
++                    int(_proof_t.columnCount()),
++                    self._proof_table_headers(_proof_t),
++                )
++        except Exception:
++            pass
++        try:
++            self._connect_managed_score_active_table_proof(
++                getattr(self, "tbl_market_all", None), "scanner", "refresh"
++            )
++        except Exception:
++            pass
+ 
+     def _on_market_search_text_changed(self, _t: str = "") -> None:
+         try:
+@@ -32088,6 +32493,21 @@ class MainWindow(QMainWindow):
+     def _add_symbol_to_ai_pool(self, row_or_symbol) -> None:
+         sym = ""
+         src_row = None
++        row_available = isinstance(row_or_symbol, dict) or isinstance(row_or_symbol, str)
++        try:
++            logging.getLogger("aits").info(
++                "[AITS][ManagedPoolAddProof] "
++                "proof=04B | event=enter_add_function | symbol=unknown | "
++                f"row_available={self._proof_bool_text(row_available)} | "
++                "scanner_display_score=unknown | scanner_score_source=unknown | "
++                "scanner_ai_score_raw= | scanner_score_raw= | scanner_change_pct=unknown | "
++                "scanner_theme=unknown | managed_display_score=unknown | "
++                "managed_score_source=unknown | managed_ai_score_raw= | managed_status=unknown | "
++                "copied_scanner_score=unknown | recalculated_by_basic=unknown | "
++                "reason=entered | submitted=0"
++            )
++        except Exception:
++            pass
+         try:
+             print(f"[AITS][ManagedPool] add_request | payload={type(row_or_symbol).__name__}")
+             self._safe_log_info(
+@@ -32117,6 +32537,11 @@ class MainWindow(QMainWindow):
+             raw = str(row_or_symbol or "").strip()
+             sym = self._normalize_aits_market_symbol(raw)
+             if not sym:
++                self._safe_log_info(
++                    "[AITS][ManagedPoolAddProof] "
++                    "proof=04B | event=add_failed | symbol=unknown | "
++                    "reason=empty_symbol_from_string | submitted=0"
++                )
+                 return
+             for r in self.market_all_rows or []:
+                 if not isinstance(r, dict):
+@@ -32133,16 +32558,79 @@ class MainWindow(QMainWindow):
+             ).strip()
+             sym = self._normalize_aits_market_symbol(raw)
+             if not sym:
++                self._safe_log_info(
++                    "[AITS][ManagedPoolAddProof] "
++                    "proof=04B | event=add_failed | symbol=unknown | "
++                    "reason=empty_symbol_from_row | submitted=0"
++                )
+                 return
+             src_row = row_or_symbol
+         else:
++            self._safe_log_info(
++                "[AITS][ManagedPoolAddProof] "
++                "proof=04B | event=add_failed | symbol=unknown | "
++                f"reason=unsupported_payload_{type(row_or_symbol).__name__} | submitted=0"
++            )
+             return
+ 
++        try:
++            scanner_row_idx = -1
++            for idx, candidate in enumerate(getattr(self, "_market_display_rows", None) or []):
++                if not isinstance(candidate, dict):
++                    continue
++                candidate_sym = self._normalize_aits_market_symbol(
++                    candidate.get("symbol") or candidate.get("market") or ""
++                )
++                if candidate_sym == sym:
++                    scanner_row_idx = int(idx)
++                    break
++            scanner_snap = self._proof_scanner_score_snapshot(
++                src_row if isinstance(src_row, dict) else None,
++                scanner_row_idx if scanner_row_idx >= 0 else 0,
++            )
++            self._safe_log_info(
++                "[AITS][ManagedPoolAddProof] "
++                f"proof=04B | event=before_add_request | symbol={sym} | "
++                f"scanner_display_score={scanner_snap.get('display_score','unknown')} | "
++                f"scanner_score_source={scanner_snap.get('score_source','unknown')} | "
++                f"scanner_ai_score_raw={scanner_snap.get('ai_score_raw','')} | "
++                f"scanner_score_raw={scanner_snap.get('score_raw','')} | "
++                f"scanner_change_pct={scanner_snap.get('change_pct','unknown')} | "
++                f"scanner_theme={scanner_snap.get('theme','unknown')} | submitted=0"
++            )
++        except Exception as exc:
++            scanner_snap = {}
++            self._safe_log_info(
++                "[AITS][ManagedPoolAddProof] "
++                f"proof=04B | event=add_failed | symbol={sym or 'unknown'} | "
++                f"reason=before_add_request_error_{type(exc).__name__} | submitted=0"
++            )
++
+         for ex in self.ai_managed_rows or []:
+             rsym = self._normalize_aits_market_symbol(
+                 _pick(ex, "symbol", "market", "code") or ""
+             )
+             if rsym == sym:
++                try:
++                    managed_snap = self._proof_managed_score_snapshot(ex if isinstance(ex, dict) else None)
++                    self._safe_log_info(
++                        "[AITS][ManagedPoolAddProof] "
++                        f"proof=04B | event=already_exists | symbol={sym} | "
++                        f"scanner_display_score={(scanner_snap or {}).get('display_score','unknown')} | "
++                        f"scanner_score_source={(scanner_snap or {}).get('score_source','unknown')} | "
++                        f"managed_display_score={managed_snap.get('display_score','unknown')} | "
++                        f"managed_score_source={managed_snap.get('score_source','unknown')} | "
++                        f"managed_ai_score_raw={managed_snap.get('ai_score_raw','')} | "
++                        f"managed_status={managed_snap.get('status','unknown')} | "
++                        f"copied_scanner_score=unknown | recalculated_by_basic=unknown | "
++                        f"reason=managed_pool_duplicate | submitted=0"
++                    )
++                except Exception as exc:
++                    self._safe_log_info(
++                        "[AITS][ManagedPoolAddProof] "
++                        f"proof=04B | event=add_failed | symbol={sym} | "
++                        f"reason=already_exists_proof_error_{type(exc).__name__} | submitted=0"
++                    )
+                 QMessageBox.information(self, "관리 종목", "이미 관리 종목에 있습니다.")
+                 return
+ 
+@@ -32195,7 +32683,7 @@ class MainWindow(QMainWindow):
+             )
+             self._safe_log_info(
+                 "[AITS][ManagedPoolAddProof] "
+-                f"event=before_add | symbol={sym} | "
++                f"proof=04B | event=before_add | symbol={sym} | "
+                 f"scanner_display_score={scanner_snap.get('display_score','unknown')} | "
+                 f"scanner_score_source={scanner_snap.get('score_source','unknown')} | "
+                 f"scanner_ai_score_raw={scanner_snap.get('ai_score_raw','')} | "
+@@ -32203,8 +32691,13 @@ class MainWindow(QMainWindow):
+                 f"scanner_change_pct={scanner_snap.get('change_pct','unknown')} | "
+                 f"scanner_theme={scanner_snap.get('theme','unknown')} | submitted=0"
+             )
+-        except Exception:
++        except Exception as exc:
+             scanner_snap = {}
++            self._safe_log_info(
++                "[AITS][ManagedPoolAddProof] "
++                f"proof=04B | event=add_failed | symbol={sym or 'unknown'} | "
++                f"reason=before_add_error_{type(exc).__name__} | submitted=0"
++            )
+ 
+         price = float(src_row.get("price", 0.0)) if src_row else 0.0
+         chg = float(src_row.get("change_rate", 0.0)) if src_row else 0.0
+@@ -32292,7 +32785,7 @@ class MainWindow(QMainWindow):
+             recalculated = managed_snap.get("score_source") == "local_calculation"
+             self._safe_log_info(
+                 "[AITS][ManagedPoolAddProof] "
+-                f"event=after_add | symbol={sym} | "
++                f"proof=04B | event=after_add | symbol={sym} | "
+                 f"managed_display_score={managed_snap.get('display_score','unknown')} | "
+                 f"managed_score_source={managed_snap.get('score_source','unknown')} | "
+                 f"managed_ai_score_raw={managed_snap.get('ai_score_raw','')} | "
+@@ -32304,8 +32797,12 @@ class MainWindow(QMainWindow):
+                 f"copied_scanner_score={self._proof_bool_text(copied)} | "
+                 f"recalculated_by_basic={self._proof_bool_text(recalculated)} | submitted=0"
+             )
+-        except Exception:
+-            pass
++        except Exception as exc:
++            self._safe_log_info(
++                "[AITS][ManagedPoolAddProof] "
++                f"proof=04B | event=add_failed | symbol={sym or 'unknown'} | "
++                f"reason=after_add_proof_error_{type(exc).__name__} | submitted=0"
++            )
+         self._refresh_ai_managed_table()
+ 
+     def _remove_symbol_from_ai_pool(self, symbol: str) -> None:
+@@ -41950,12 +42447,28 @@ def main(root_dir: str, data_dir: str):
+     state = AppState()
+ 
+     # 항상 로그인 창 표시 (자동 로그인 제거)
+-    login_dlg = LoginDialog()
+-    if login_dlg.exec() != QDialog.Accepted:
+-        sys.exit(0)
++    dev_login_bypass = bool(AITS_DEV_LOGIN_BYPASS)
++    try:
++        env_bypass = str(os.environ.get("AITS_DEV_LOGIN_BYPASS", "") or "").strip().lower()
++        if env_bypass in ("0", "false", "no", "off"):
++            dev_login_bypass = False
++        elif env_bypass in ("1", "true", "yes", "on"):
++            dev_login_bypass = True
++    except Exception:
++        pass
++    if dev_login_bypass:
++        state.login(AITS_DEV_LOGIN_EMAIL)
++        logging.getLogger("aits").warning(
++            "[AITS][DevLoginBypass] enabled=True | user=%s | restore=set AITS_DEV_LOGIN_BYPASS=False",
++            AITS_DEV_LOGIN_EMAIL,
++        )
++    else:
++        login_dlg = LoginDialog()
++        if login_dlg.exec() != QDialog.Accepted:
++            sys.exit(0)
+     
+     # 로그인 성공 처리
+-    state.login(login_dlg.email.text())
++        state.login(login_dlg.email.text())
+ 
+     # 메인 윈도우 생성 및 표시
+     _mw_t0 = time.perf_counter()
+diff --git a/app/utils/__pycache__/prefs.cpython-314.pyc b/app/utils/__pycache__/prefs.cpython-314.pyc
+index 790b05a..e19b847 100644
+Binary files a/app/utils/__pycache__/prefs.cpython-314.pyc and b/app/utils/__pycache__/prefs.cpython-314.pyc differ
+diff --git a/app/utils/__pycache__/settings_schema.cpython-314.pyc b/app/utils/__pycache__/settings_schema.cpython-314.pyc
+index 51c6975..08eb306 100644
+Binary files a/app/utils/__pycache__/settings_schema.cpython-314.pyc and b/app/utils/__pycache__/settings_schema.cpython-314.pyc differ
