@@ -29312,11 +29312,128 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _detail_chart_render_ttl_seconds(self, timeframe: str) -> int:
+        try:
+            raw = str(timeframe or "").strip().lower()
+            if raw in ("1m", "1", "minute1"):
+                return 60
+            if raw in ("5m", "5", "minute5"):
+                return 120
+            if raw in ("15m", "15", "minute15", "30m", "30", "minute30"):
+                return 180
+            if raw in ("60m", "60", "1h", "hour"):
+                return 300
+            return 600
+        except Exception:
+            return 300
+
+    def _is_ai_detail_chart_visible_for_render(self, canvas) -> bool:
+        try:
+            if canvas is None or not hasattr(canvas, "isVisible"):
+                return False
+            if not canvas.isVisible():
+                return False
+            parent = canvas.parentWidget() if hasattr(canvas, "parentWidget") else None
+            while parent is not None:
+                if hasattr(parent, "isVisible") and not parent.isVisible():
+                    return False
+                parent = parent.parentWidget() if hasattr(parent, "parentWidget") else None
+            return True
+        except Exception:
+            return False
+
+    def _build_ai_detail_chart_render_signature(self, symbol: str, row: dict | None, timeframe: str, count: int, canvas):
+        try:
+            sym = str(symbol or "").strip()
+            row_obj = row if isinstance(row, dict) else {}
+            ttl = self._detail_chart_render_ttl_seconds(timeframe)
+            bucket = int(time.time() // max(1, int(ttl)))
+            try:
+                canvas_size = (
+                    int(canvas.width()) if canvas is not None and hasattr(canvas, "width") else 0,
+                    int(canvas.height()) if canvas is not None and hasattr(canvas, "height") else 0,
+                )
+            except Exception:
+                canvas_size = (0, 0)
+            row_bits = tuple(
+                str(row_obj.get(key, "") or "")
+                for key in (
+                    "price",
+                    "change_rate",
+                    "change_pct",
+                    "target_price",
+                    "stop_loss",
+                    "ai_score",
+                    "ai_status",
+                    "locked",
+                    "updated_at",
+                    "last_update",
+                    "timestamp",
+                )
+            )
+            snapshot_bits = ()
+            try:
+                cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
+                snap = {}
+                if isinstance(cache, dict) and sym:
+                    snap = cache.get(sym) or {}
+                if isinstance(snap, dict) and snap:
+                    snapshot_bits = (
+                        str(snap.get("engine_label", "") or ""),
+                        str(snap.get("model_label", "") or ""),
+                        str(snap.get("source", "") or ""),
+                        str(snap.get("briefing", "") or "")[:160],
+                        str(snap.get("reason", "") or "")[:160],
+                        str(snap.get("next_action", "") or "")[:160],
+                    )
+            except Exception:
+                snapshot_bits = ()
+            return (
+                sym,
+                str(timeframe or ""),
+                int(count or 0),
+                bucket,
+                canvas_size,
+                row_bits,
+                snapshot_bits,
+            )
+        except Exception:
+            return (str(symbol or ""), str(timeframe or ""), int(count or 0), "signature_failed")
+
+    def _should_skip_ai_detail_chart_render(self, canvas, signature) -> str:
+        try:
+            if not self._is_ai_detail_chart_visible_for_render(canvas):
+                return "hidden"
+            if signature == getattr(self, "_ai_detail_chart_last_render_signature", None):
+                return "signature_unchanged"
+            return ""
+        except Exception:
+            return ""
+
+    def _log_ai_detail_chart_render_skip(self, reason: str, signature) -> None:
+        try:
+            now = time.time()
+            key = (str(reason or "unknown"), signature)
+            last_key = getattr(self, "_ai_detail_chart_last_skip_log_key", None)
+            last_at = float(getattr(self, "_ai_detail_chart_last_skip_log_at", 0.0) or 0.0)
+            if key == last_key and now - last_at < 60:
+                return
+            self._ai_detail_chart_last_skip_log_key = key
+            self._ai_detail_chart_last_skip_log_at = now
+            logging.getLogger("aits").info(
+                "[AITS][DetailChartRender] event=skip reason=%s submitted=0",
+                str(reason or "unknown"),
+            )
+        except Exception:
+            pass
+
     def _refresh_ai_detail_chart(self) -> None:
-        _aits_t0 = self._aits_perf_log("_refresh_ai_detail_chart.start")
+        _aits_t0 = None
         render_used = "legacy"
         mpf_rendered = False
         render_reason = ""
+        render_trigger_reason = "signature_changed"
+        render_signature = None
         mpf_addplots = []
         mpf_rsi_addplots = []
         _detail_title_base = "AI Detail Chart"
@@ -29325,14 +29442,31 @@ class MainWindow(QMainWindow):
             canvas = getattr(self, "detail_chart_canvas", None)
             if fig is None or canvas is None:
                 return
-            fig.clf()
-            ax = fig.add_subplot(111)
             sym = (getattr(self, "_selected_ai_pool_symbol", "") or "").strip()
             row = None
             for r in self.ai_managed_rows or []:
                 if (r.get("symbol") or "").strip() == sym:
                     row = r
                     break
+            _tf = str(getattr(self, "_detail_chart_tf", "60m") or "60m")
+            _cnt = int(getattr(self, "_detail_chart_count", 50) or 50)
+            render_signature = self._build_ai_detail_chart_render_signature(
+                sym,
+                row if isinstance(row, dict) else None,
+                _tf,
+                _cnt,
+                canvas,
+            )
+            if getattr(self, "_ai_detail_chart_last_render_signature", None) is None:
+                render_trigger_reason = "initial"
+            skip_reason = self._should_skip_ai_detail_chart_render(canvas, render_signature)
+            if skip_reason:
+                self._log_ai_detail_chart_render_skip(skip_reason, render_signature)
+                return
+            _aits_t0 = self._aits_perf_log("_refresh_ai_detail_chart.start")
+            self._ai_detail_chart_last_render_signature = render_signature
+            fig.clf()
+            ax = fig.add_subplot(111)
             if not sym or row is None:
                 self._detail_chart_ohlc_rows = None
                 self._detail_chart_xlim_default = None
@@ -29353,8 +29487,6 @@ class MainWindow(QMainWindow):
             name = (row.get("name") or "").strip() or sym
             tp = float(row.get("target_price") or 0.0)
             sl = float(row.get("stop_loss") or 0.0)
-            _tf = str(getattr(self, "_detail_chart_tf", "60m") or "60m")
-            _cnt = int(getattr(self, "_detail_chart_count", 50) or 50)
             candles = self._fetch_upbit_candles(sym, _tf, _cnt)
             try:
                 candles = list(reversed(candles))
@@ -29676,11 +29808,21 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         finally:
-            try:
-                self._aits_log_detail_render_used(render_used, render_reason)
-            except Exception:
-                pass
-            self._aits_perf_log("_refresh_ai_detail_chart.end", _aits_t0)
+            if _aits_t0 is not None:
+                try:
+                    self._aits_log_detail_render_used(render_used, render_reason)
+                except Exception:
+                    pass
+                elapsed_ms = self._aits_perf_log("_refresh_ai_detail_chart.end", _aits_t0)
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][DetailChartRender] event=render symbol=%s reason=%s elapsed_ms=%s submitted=0",
+                        str((render_signature or ("",))[0] if render_signature else ""),
+                        render_trigger_reason,
+                        elapsed_ms,
+                    )
+                except Exception:
+                    pass
 
     def _apply_aits_saas_chart_style(self, fig=None, axes=None, title: str = "") -> None:
         try:

@@ -595,3 +595,22 @@ Safety remains unchanged:
 - Detail chart open does not call AI.
 - The AI refresh button still reuses the existing explicit analysis path.
 - Splitter persistence is UI-only state and does not affect Contract, snapshot, Router, Risk Guard, Order, or Execution behavior.
+
+## 30. DETAIL-CHART-RENDER-TIMER-PERF-AUDIT-01 Implementation Note
+
+`DETAIL-CHART-RENDER-TIMER-PERF-AUDIT-01` reduces repeated full redraws of the managed-tab detail chart.
+
+Render rules:
+
+- Full chart render requires a visible chart canvas.
+- Full chart render also requires a changed render signature.
+- The render signature includes selected symbol, timeframe, count, key row fields, canvas size, selected AI snapshot display content, and a timeframe-based candle refresh bucket.
+- Hidden or unchanged detail charts skip full redraw and do not emit `_refresh_ai_detail_chart` SLOW logs.
+- Skip logs are rate-limited so background timer ticks do not spam the runtime log.
+
+Safety remains unchanged:
+
+- This is a rendering performance guard only.
+- Detail chart open still does not call AI.
+- The explicit AI refresh button path is unchanged.
+- No Router, Risk Guard, Order, or Execution path is changed.
