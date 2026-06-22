@@ -624,3 +624,18 @@ Policy intent:
 - The read-only ticker lookup does not create an order client, does not call AI providers, and does not change AI call policy.
 - This wiring does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 40. INVESTMENT-TAB-RESPONSIVE-LAYOUT-PERSIST-01 Implementation Note
+
+`INVESTMENT-TAB-RESPONSIVE-LAYOUT-PERSIST-01` persists Investment tab layout state.
+
+Policy intent:
+
+- The Investment tab stores table column widths and splitter sizes in existing `ui_state`.
+- The footer save button treats Investment tab layout changes as a save target.
+- Table rows use a compact default height; long memo text remains available through cell tooltips.
+- Saved column widths and splitter sizes take precedence over default layout values on restart.
+- The top KPI PnL remains account-summary based, while position row PnL remains position-valuation based; this Goal only clarifies copy.
+- This work is UI persistence only and does not change balances, position valuation formulas, or read-only market price lookup logic.
+- This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

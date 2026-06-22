@@ -106,6 +106,10 @@ class InvestmentCenterTab(QWidget):
         self._visible_positions: list[dict[str, Any]] = []
         self._hidden_dust_position_count = 0
         self._dust_position_count = 0
+        self._layout_dirty = False
+        self._restoring_layout_state = False
+        self._columns_restored = False
+        self._has_saved_layout_state = False
         self._kpi_values: dict[str, QLabel] = {}
         self._detail_values: dict[str, QLabel] = {}
         self._composition_layout: QVBoxLayout | None = None
@@ -233,13 +237,17 @@ class InvestmentCenterTab(QWidget):
         root.addLayout(self._build_kpi_row())
         root.addWidget(self._build_ai_decision_card())
 
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setObjectName("investmentMainSplitter")
-        splitter.addWidget(self._build_positions_card())
-        splitter.addWidget(self._build_right_column())
-        splitter.setSizes([980, 420])
-        root.addWidget(splitter, 1)
+        self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.main_splitter.setObjectName("investmentMainSplitter")
+        self.main_splitter.addWidget(self._build_positions_card())
+        self.main_splitter.addWidget(self._build_right_column())
+        self.main_splitter.setSizes([980, 420])
+        self.main_splitter.splitterMoved.connect(
+            lambda _pos, _index: self._mark_layout_dirty("main_splitter_moved")
+        )
+        root.addWidget(self.main_splitter, 1)
         root.addWidget(self._build_footer_notice())
+        self._restore_layout_state()
         self._emit_proof("dashboard_ready", splitter=True, right_cards=3)
 
     def _card(self, object_name: str | None = None) -> QFrame:
@@ -295,7 +303,7 @@ class InvestmentCenterTab(QWidget):
         grid.setHorizontalSpacing(10)
         specs = (
             ("total_asset", "총 평가금액", "자산 평가 합계"),
-            ("pnl", "평가손익", "보유 포지션 손익"),
+            ("pnl", "평가손익", "계좌 요약 기준"),
             ("return_rate", "수익률", "보유 평가 기준"),
             ("available_cash", "주문가능(KRW)", "읽기 전용 표시"),
         )
@@ -377,23 +385,30 @@ class InvestmentCenterTab(QWidget):
         self.tbl_positions.setAlternatingRowColors(True)
         self.tbl_positions.setShowGrid(False)
         self.tbl_positions.verticalHeader().setVisible(False)
+        self.tbl_positions.verticalHeader().setDefaultSectionSize(34)
         header = self.tbl_positions.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
         header.setMinimumHeight(36)
+        header.sectionResized.connect(
+            lambda _section, _old, _new: self._mark_layout_dirty("column_resized")
+        )
+        self._apply_default_column_widths()
         self.tbl_positions.itemSelectionChanged.connect(self._on_position_selected)
         layout.addWidget(self.tbl_positions, 1)
         return card
 
     def _build_right_column(self) -> QWidget:
-        wrap = QWidget()
-        layout = QVBoxLayout(wrap)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-        layout.addWidget(self._build_composition_card())
-        layout.addWidget(self._build_risk_card())
-        layout.addWidget(self._build_detail_card(), 1)
-        return wrap
+        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.right_splitter.setObjectName("investmentRightSplitter")
+        self.right_splitter.addWidget(self._build_composition_card())
+        self.right_splitter.addWidget(self._build_risk_card())
+        self.right_splitter.addWidget(self._build_detail_card())
+        self.right_splitter.setSizes([150, 110, 300])
+        self.right_splitter.splitterMoved.connect(
+            lambda _pos, _index: self._mark_layout_dirty("right_splitter_moved")
+        )
+        return self.right_splitter
 
     def _build_composition_card(self) -> QFrame:
         card = self._card("portfolioCard")
@@ -795,7 +810,7 @@ class InvestmentCenterTab(QWidget):
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             item.setData(Qt.ItemDataRole.UserRole, None)
             table.setItem(0, 0, item)
-            table.setRowHeight(0, 240)
+            table.setRowHeight(0, 92)
             self._emit_proof(
                 "position_source_last_writer",
                 target="positions_table",
@@ -820,6 +835,7 @@ class InvestmentCenterTab(QWidget):
             )
             for c, value in enumerate(values):
                 item = QTableWidgetItem("" if value is None else str(value))
+                item.setToolTip("" if value is None else str(value))
                 item.setData(Qt.ItemDataRole.UserRole, r)
                 if c in (4, 5):
                     num = self._parse_number(value)
@@ -828,7 +844,7 @@ class InvestmentCenterTab(QWidget):
                     elif num is not None and num < 0:
                         item.setForeground(QColor("#dc2626"))
                 table.setItem(r, c, item)
-        table.resizeColumnsToContents()
+            table.setRowHeight(r, 34)
 
     def _on_position_selected(self) -> None:
         selected = self.tbl_positions.selectedItems()
@@ -1230,5 +1246,153 @@ class InvestmentCenterTab(QWidget):
         except Exception:
             return None
 
+    def _default_column_widths(self) -> list[int]:
+        return [110, 86, 96, 96, 96, 78, 72, 104, 82, 220]
+
+    def _apply_default_column_widths(self) -> None:
+        table = getattr(self, "tbl_positions", None)
+        if table is None:
+            return
+        previous = self._restoring_layout_state
+        self._restoring_layout_state = True
+        try:
+            for index, width in enumerate(self._default_column_widths()):
+                if index < table.columnCount():
+                    table.setColumnWidth(index, int(width))
+        finally:
+            self._restoring_layout_state = previous
+
+    def _read_saved_layout_state(self) -> dict[str, Any]:
+        parent = self._parent_window
+        ui_state = {}
+        try:
+            if parent is not None and hasattr(parent, "_get_ui_state_dict"):
+                ui_state = parent._get_ui_state_dict()
+            else:
+                settings = getattr(parent, "_settings", None)
+                raw = getattr(settings, "ui_state", None) if settings is not None else {}
+                if hasattr(raw, "model_dump"):
+                    ui_state = raw.model_dump()
+                elif isinstance(raw, dict):
+                    ui_state = raw
+        except Exception:
+            ui_state = {}
+        state = ui_state.get("investment_tab_layout_state") if isinstance(ui_state, dict) else {}
+        return state if isinstance(state, dict) else {}
+
+    def _current_layout_state(self) -> dict[str, Any]:
+        table = getattr(self, "tbl_positions", None)
+        main_splitter = getattr(self, "main_splitter", None)
+        right_splitter = getattr(self, "right_splitter", None)
+        columns = []
+        if table is not None:
+            columns = [int(table.columnWidth(i)) for i in range(table.columnCount())]
+        return {
+            "schema": "aits_investment_tab_layout_state.v1",
+            "table_column_widths": columns,
+            "main_splitter_sizes": list(main_splitter.sizes()) if main_splitter is not None else [980, 420],
+            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [150, 110, 300],
+            "row_height": 34,
+        }
+
+    def _restore_layout_state(self) -> None:
+        state = self._read_saved_layout_state()
+        source = "saved" if state else "default"
+        self._has_saved_layout_state = bool(state)
+        self._restoring_layout_state = True
+        columns_ok = False
+        main_ok = False
+        right_ok = False
+        try:
+            table = getattr(self, "tbl_positions", None)
+            widths = state.get("table_column_widths") if isinstance(state, dict) else None
+            if (
+                table is not None
+                and isinstance(widths, list)
+                and len(widths) == table.columnCount()
+                and all(isinstance(w, (int, float)) and int(w) > 20 for w in widths)
+            ):
+                for index, width in enumerate(widths):
+                    table.setColumnWidth(index, int(width))
+                self._columns_restored = True
+                columns_ok = True
+            elif table is not None:
+                self._apply_default_column_widths()
+
+            main_splitter = getattr(self, "main_splitter", None)
+            main_sizes = state.get("main_splitter_sizes") if isinstance(state, dict) else None
+            if (
+                main_splitter is not None
+                and isinstance(main_sizes, list)
+                and len(main_sizes) == main_splitter.count()
+                and any(int(v) > 0 for v in main_sizes)
+            ):
+                main_splitter.setSizes([max(1, int(v)) for v in main_sizes])
+                main_ok = True
+
+            right_splitter = getattr(self, "right_splitter", None)
+            right_sizes = state.get("right_splitter_sizes") if isinstance(state, dict) else None
+            if (
+                right_splitter is not None
+                and isinstance(right_sizes, list)
+                and len(right_sizes) == right_splitter.count()
+                and any(int(v) > 0 for v in right_sizes)
+            ):
+                right_splitter.setSizes([max(1, int(v)) for v in right_sizes])
+                right_ok = True
+
+            self._layout_dirty = False
+            self._emit_proof(
+                "layout_state_restore",
+                columns=columns_ok,
+                splitters=bool(main_ok or right_ok),
+                source=source,
+                submitted=0,
+            )
+        except Exception as exc:
+            self._emit_proof("layout_state_restore_failed", reason=type(exc).__name__, submitted=0)
+        finally:
+            self._restoring_layout_state = False
+
+    def _mark_layout_dirty(self, reason: str) -> None:
+        if self._restoring_layout_state:
+            return
+        self._layout_dirty = True
+        self._emit_proof("layout_state_dirty", reason=reason, submitted=0)
+        parent = self._parent_window
+        try:
+            if parent is not None and hasattr(parent, "set_status_msg"):
+                parent.set_status_msg("투자현황 화면 배치 변경됨 · 저장 필요", "#334155")
+        except Exception:
+            pass
+
+    def save_layout_state(self) -> bool:
+        state = self._current_layout_state()
+        parent = self._parent_window
+        ok = False
+        try:
+            if parent is not None and hasattr(parent, "_apply_settings_patch"):
+                ok = bool(
+                    parent._apply_settings_patch(
+                        {"ui_state": {"investment_tab_layout_state": state}},
+                        reason="investment_tab_layout_save",
+                    )
+                )
+        except Exception:
+            ok = False
+        if ok:
+            self._layout_dirty = False
+        self._emit_proof(
+            "layout_state_save",
+            columns=bool(state.get("table_column_widths")),
+            splitters=bool(state.get("main_splitter_sizes") or state.get("right_splitter_sizes")),
+            ok=ok,
+            submitted=0,
+        )
+        return ok
+
     def show_no_save_message(self) -> None:
-        QMessageBox.information(self, "저장 대상 없음", "투자현황 탭은 저장할 설정이 없습니다 · 주문 없음")
+        if self.save_layout_state():
+            QMessageBox.information(self, "저장 완료", "투자현황 화면 배치를 저장했습니다 · 주문 없음")
+        else:
+            QMessageBox.warning(self, "저장 실패", "투자현황 화면 배치를 저장하지 못했습니다 · 주문 없음")

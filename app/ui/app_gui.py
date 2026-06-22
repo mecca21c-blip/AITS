@@ -11386,7 +11386,8 @@ class MainWindow(QMainWindow):
             splitter = pt.findChild(QSplitter, "investmentMainSplitter")
             if splitter is not None:
                 try:
-                    splitter.setSizes([920, 500])
+                    if not bool(getattr(pt, "_has_saved_layout_state", False)):
+                        splitter.setSizes([920, 500])
                     splitter.setStretchFactor(0, 6)
                     splitter.setStretchFactor(1, 4)
                 except Exception:
@@ -11475,10 +11476,10 @@ class MainWindow(QMainWindow):
             if table is not None:
                 try:
                     table.setMinimumHeight(220)
-                    table.verticalHeader().setDefaultSectionSize(28)
+                    table.verticalHeader().setDefaultSectionSize(34)
                     table.horizontalHeader().setFixedHeight(30)
                     if table.rowCount() == 1 and table.columnSpan(0, 0) > 1:
-                        table.setRowHeight(0, 132)
+                        table.setRowHeight(0, 92)
                 except Exception:
                     pass
 
@@ -15717,19 +15718,35 @@ class MainWindow(QMainWindow):
         if active_widget is getattr(self, "portfolio_tab", None) or active_widget.__class__.__name__ == "InvestmentCenterTab":
             try:
                 self._log.info(
-                    "[AITS][TabSaveDispatcher] active_tab=investment_center | handler=no_save_needed | status=dispatch"
+                    "[AITS][TabSaveDispatcher] active_tab=investment_center | handler=layout_state | status=dispatch"
                 )
             except Exception:
                 pass
+            ok = False
             try:
-                self.set_status_msg("투자현황 탭은 저장할 설정이 없습니다 · 주문 없음", "#334155")
+                if active_widget is not None and hasattr(active_widget, "save_layout_state"):
+                    ok = bool(active_widget.save_layout_state())
+            except Exception:
+                ok = False
+            if ok:
+                try:
+                    self.set_status_msg("투자현황 화면 배치 저장 완료 · 주문 없음", "#15803d")
+                except Exception:
+                    pass
+                try:
+                    QMessageBox.information(self, "저장 완료", "투자현황 화면 배치를 저장했습니다 · 주문 없음")
+                except Exception:
+                    pass
+                return True
+            try:
+                self.set_status_msg("투자현황 화면 배치 저장 실패 · 주문 없음", "#b00020")
             except Exception:
                 pass
             try:
-                QMessageBox.information(self, "저장 대상 없음", "투자현황 탭은 저장할 설정이 없습니다 · 주문 없음")
+                QMessageBox.warning(self, "저장 실패", "투자현황 화면 배치를 저장하지 못했습니다 · 주문 없음")
             except Exception:
                 pass
-            return True
+            return False
 
         handler = "save_settings" if active_tab == "common_settings" else "save_settings_fallback"
         try:
@@ -40224,10 +40241,16 @@ class MainWindow(QMainWindow):
                 and isinstance(_us, dict)
                 and set(_us.keys()) == {"session_restore"}
             )
+            _investment_layout_only_ui = (
+                set(_p.keys()) == {"ui_state"}
+                and isinstance(_us, dict)
+                and set(_us.keys()) == {"investment_tab_layout_state"}
+            )
             _ui_autosave_exempt = (
                 _splitter_only_ui
                 or _overview_only_ui
                 or _session_restore_only_ui
+                or _investment_layout_only_ui
             )
             
             # 부팅 후 10초간 모든 저장 차단 (splitter / overview UI 자동 저장은 예외)
