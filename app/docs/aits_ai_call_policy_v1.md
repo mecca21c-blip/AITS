@@ -610,3 +610,17 @@ Policy intent:
 - This display correction does not delete holdings, create fake rows, or change account/holding source data.
 - This display correction does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 39. INVESTMENT-TAB-MARKET-PRICE-WIRING-01 Implementation Note
+
+`INVESTMENT-TAB-MARKET-PRICE-WIRING-01` connects Investment tab position valuation to read-only market prices.
+
+Policy intent:
+
+- The Investment tab may look up current prices from existing market caches, scanner rows, or the existing read-only ticker helper.
+- Current valuation, PnL, return rate, portfolio composition, and risk weight are calculated only when a read-only current market price is available.
+- Average buy price remains cost-basis input and is never used as a current-price fallback.
+- If current price lookup fails, the row remains cost-basis-only and user-facing copy says current price confirmation is needed.
+- The read-only ticker lookup does not create an order client, does not call AI providers, and does not change AI call policy.
+- This wiring does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

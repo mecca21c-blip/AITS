@@ -10839,8 +10839,18 @@ class MainWindow(QMainWindow):
             ):
                 cached_rows = getattr(self, attr_name, None)
                 if isinstance(cached_rows, list) and cached_rows:
+                    price_lookup = self._get_investment_market_price_map(
+                        [
+                            str(row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker") or "").strip()
+                            for row in cached_rows
+                            if isinstance(row, dict)
+                        ]
+                    )
                     rows = [
-                        self._normalize_investment_position_row(row)
+                        self._normalize_investment_position_row(
+                            row,
+                            price_lookup=price_lookup,
+                        )
                         for row in cached_rows
                         if isinstance(row, dict)
                     ]
@@ -10883,9 +10893,15 @@ class MainWindow(QMainWindow):
                     "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
                 }
             items = holdings_data.get("items") or []
-            total_eval = holdings_data.get("total_eval")
+            price_lookup = self._get_investment_market_price_map(
+                [
+                    str(item.get("symbol") or item.get("market") or "").strip()
+                    for item in items
+                    if isinstance(item, dict)
+                ]
+            )
             rows = [
-                self._normalize_investment_position_row(item, total_eval=total_eval)
+                self._normalize_investment_position_row(item, price_lookup=price_lookup)
                 for item in items
                 if isinstance(item, dict)
             ]
@@ -10934,7 +10950,97 @@ class MainWindow(QMainWindow):
                 "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
             }
 
-    def _normalize_investment_position_row(self, row: dict, total_eval=None) -> dict:
+    def _normalize_investment_symbol(self, value) -> str:
+        text = str(value or "").strip().upper()
+        if not text:
+            return ""
+        if text == "KRW":
+            return ""
+        if "-" not in text:
+            text = f"KRW-{text}"
+        return text
+
+    def _get_investment_market_price_map(self, symbols: list[str] | tuple[str, ...]) -> dict[str, dict]:
+        normalized = []
+        for symbol in symbols or []:
+            market = self._normalize_investment_symbol(symbol)
+            if market and market not in normalized:
+                normalized.append(market)
+        result: dict[str, dict] = {}
+
+        def _num(value):
+            try:
+                if value is None:
+                    return None
+                text = str(value).replace(",", "").replace("원", "").replace("%", "").strip()
+                if text in {"", "-", "None"}:
+                    return None
+                num = float(text)
+                return num if num > 0 else None
+            except Exception:
+                return None
+
+        def _row_market(row):
+            return self._normalize_investment_symbol(
+                row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker")
+            )
+
+        for source_name, rows in (
+            ("market_cache", getattr(self, "_market_all_rows", None) or []),
+            ("market_cache", getattr(self, "market_all_rows", None) or []),
+            ("scanner_rows", getattr(self, "_market_display_rows", None) or []),
+        ):
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                market = _row_market(row)
+                if market not in normalized or market in result:
+                    continue
+                price = _num(row.get("trade_price") or row.get("current_price") or row.get("market_price") or row.get("price"))
+                if price is not None:
+                    result[market] = {"price": price, "source": source_name, "status": "ok"}
+
+        missing = [symbol for symbol in normalized if symbol not in result]
+        if missing:
+            try:
+                for i in range(0, len(missing), 50):
+                    ticks = get_tickers(missing[i : i + 50]) or []
+                    for tick in ticks:
+                        if not isinstance(tick, dict):
+                            continue
+                        market = self._normalize_investment_symbol(tick.get("market"))
+                        if market not in missing or market in result:
+                            continue
+                        price = _num(tick.get("trade_price") or tick.get("current_price") or tick.get("price"))
+                        if price is not None:
+                            result[market] = {"price": price, "source": "ticker_readonly", "status": "ok"}
+            except Exception as exc:
+                try:
+                    self._log.warning(
+                        "[AITS][InvestmentMarketPrice] event=lookup_batch status=failed reason=%s submitted=0",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+
+        for symbol in normalized:
+            info = result.get(symbol) or {"price": None, "source": "unavailable", "status": "unavailable"}
+            try:
+                self._log.info(
+                    "[AITS][InvestmentMarketPrice] event=lookup symbol=%s status=%s source=%s price=%s submitted=0",
+                    symbol,
+                    info.get("status"),
+                    info.get("source"),
+                    info.get("price"),
+                )
+            except Exception:
+                pass
+            result.setdefault(symbol, info)
+        return result
+
+    def _normalize_investment_position_row(self, row: dict, total_eval=None, price_lookup=None) -> dict:
         """Normalize a read-only holdings row for InvestmentCenterTab display."""
         if not isinstance(row, dict):
             return {}
@@ -10963,6 +11069,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             return {}
+        symbol = self._normalize_investment_symbol(symbol)
 
         balance = _num(row.get("balance"))
         locked = _num(row.get("locked")) or 0.0
@@ -10977,10 +11084,15 @@ class MainWindow(QMainWindow):
             or row.get("price")
         )
         price = _num(raw_current_price)
+        lookup_info = {}
+        if isinstance(price_lookup, dict):
+            lookup_info = price_lookup.get(symbol) or {}
+        if price is None and lookup_info.get("status") == "ok":
+            price = _num(lookup_info.get("price"))
         raw_px = _num(row.get("px"))
         cost = qty * avg if qty is not None and avg is not None else None
         raw_eval_krw = _num(row.get("eval_krw") or row.get("value_krw") or row.get("position_krw") or row.get("total_krw"))
-        price_source = "market_price" if price is not None else "missing"
+        price_source = "market_price" if raw_current_price is not None and price is not None else str(lookup_info.get("source") or "missing")
         if price is None and raw_px is not None:
             px_matches_avg = avg is not None and abs(raw_px - avg) < 1e-9
             raw_eval_matches_cost = (
@@ -10994,7 +11106,7 @@ class MainWindow(QMainWindow):
             else:
                 price_source = "avg_fallback_ignored"
         eval_krw = qty * price if qty is not None and price is not None else None
-        valuation_source = "current_price" if eval_krw is not None else "cost_basis_only"
+        valuation_source = "current_market_price" if eval_krw is not None else "cost_basis_only"
         cost = qty * avg if qty is not None and avg is not None else None
         pnl = _num(row.get("pnl") or row.get("pnl_krw"))
         if eval_krw is None:
@@ -11017,7 +11129,9 @@ class MainWindow(QMainWindow):
         memo = row.get("memo") or row.get("execution_memo")
         if not memo:
             memo = "시장 지원 확인 필요" if market_supported is False else "읽기 전용 보유 포지션"
-        if eval_krw is None:
+        if eval_krw is not None:
+            memo = "현재가 기준 평가"
+        else:
             if market_supported is False:
                 memo = "시장 지원 확인 필요 · 매입원금 기준 보유"
             else:

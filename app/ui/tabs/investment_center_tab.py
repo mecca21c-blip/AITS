@@ -1011,14 +1011,14 @@ class InvestmentCenterTab(QWidget):
             segments.append((weight, ""))
             if basis_value is not None:
                 total_basis += basis_value
-            if row.get("valuation_source") != "current_price":
+            if row.get("valuation_source") not in {"current_price", "current_market_price"}:
                 basis = "cost_basis"
         center_value = self._format_krw(total_basis) if total_basis > 0 else f"{len(rows)}개"
         center_title = "구성" if basis == "eval_amount" else "매입 기준"
         if hasattr(self, "_composition_donut"):
             self._composition_donut.set_data(segments, center_title, center_value)
         for row in rows[:6]:
-            source_label = "현재 평가" if row.get("valuation_source") == "current_price" else "매입원금 기준"
+            source_label = "현재 평가" if row.get("valuation_source") in {"current_price", "current_market_price"} else "매입원금 기준"
             text = f"{row.get('symbol', '-')} · {row.get('weight', '-')} · {source_label}"
             label = QLabel(text)
             label.setProperty("muted", True)
@@ -1096,8 +1096,8 @@ class InvestmentCenterTab(QWidget):
             eval_krw = row.get("total_krw")
         if eval_krw is None or str(eval_krw).strip() == "":
             eval_krw = "-"
-        valuation_source = row.get("valuation_source") or ("current_price" if self._parse_number(price) is not None else "cost_basis_only")
-        if valuation_source != "current_price":
+        valuation_source = row.get("valuation_source") or ("current_market_price" if self._parse_number(price) is not None else "cost_basis_only")
+        if valuation_source not in {"current_price", "current_market_price"}:
             price = "-"
             eval_krw = "-"
             pnl = "-"
@@ -1154,7 +1154,20 @@ class InvestmentCenterTab(QWidget):
             if value is not None:
                 total += value
                 seen = True
-        return f"{total:.1f}%" if seen else "-"
+        if seen:
+            return f"{total:.1f}%"
+        position_basis = sum(
+            value for value in (self._row_valuation_basis_value(row) for row in rows)
+            if value is not None
+        )
+        account_total = None
+        try:
+            account_total = self._parse_number(self._kpi_values.get("total_asset").text())
+        except Exception:
+            account_total = None
+        if position_basis > 0 and account_total and account_total > 0:
+            return f"{(position_basis / account_total * 100.0):.1f}%"
+        return "-"
 
     def _row_valuation_basis_value(self, row: dict[str, Any]) -> float | None:
         if not isinstance(row, dict):
@@ -1162,14 +1175,14 @@ class InvestmentCenterTab(QWidget):
         eval_value = self._parse_number(row.get("eval_krw"))
         if eval_value is None:
             eval_value = self._parse_number(row.get("eval_amount"))
-        if row.get("valuation_source") == "current_price" and eval_value is not None:
+        if row.get("valuation_source") in {"current_price", "current_market_price"} and eval_value is not None:
             return eval_value
         return self._parse_number(row.get("cost_basis"))
 
     def _valuation_basis_label(self, rows: list[dict[str, Any]]) -> str:
         if not rows:
             return ""
-        if all(row.get("valuation_source") == "current_price" for row in rows):
+        if all(row.get("valuation_source") in {"current_price", "current_market_price"} for row in rows):
             return "현재 평가 기준"
         return "매입원금 기준"
 
