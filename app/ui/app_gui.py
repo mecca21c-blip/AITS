@@ -11408,8 +11408,8 @@ class MainWindow(QMainWindow):
             composition_card = None
             try:
                 if donut is not None:
-                    donut.setMinimumSize(72, 72)
-                    donut.setMaximumSize(86, 86)
+                    donut.setMinimumSize(112, 112)
+                    donut.setMaximumSize(138, 138)
                     parent = donut.parent()
                     while parent is not None and parent is not pt:
                         if isinstance(parent, QFrame) and parent.property("centerCard"):
@@ -11419,7 +11419,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             _set_layout_tight(composition_card, (10, 6, 10, 6), 4)
-            _limit_height(composition_card, 132, 72)
+            _limit_height(composition_card, 220, 160)
             try:
                 empty = getattr(pt, "lbl_composition_empty", None)
                 if empty is not None:

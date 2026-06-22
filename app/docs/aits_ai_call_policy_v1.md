@@ -666,3 +666,16 @@ Policy intent:
 - This work is a UI layout change only and does not change balances, holdings, market price lookup, valuation formulas, or AI call conditions.
 - This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 43. INVESTMENT-TAB-RIGHT-PANEL-COMPOSITION-SIZE-01 Implementation Note
+
+`INVESTMENT-TAB-RIGHT-PANEL-COMPOSITION-SIZE-01` adjusts the Investment tab right composite panel sizing.
+
+Policy intent:
+
+- The portfolio composition sub-card has a larger default height inside the right-side position analysis panel.
+- The donut chart uses larger display bounds and remains controlled by the right-side splitter.
+- Very small restored right splitter sizes fall back to the safer default ratio.
+- This is a visual layout persistence adjustment only and does not change portfolio composition calculations, market price lookup, valuation formulas, or holdings source wiring.
+- This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

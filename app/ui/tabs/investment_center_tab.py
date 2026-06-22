@@ -422,7 +422,7 @@ class InvestmentCenterTab(QWidget):
         self.right_splitter.addWidget(self._build_composition_card(compact=True))
         self.right_splitter.addWidget(self._build_risk_card(compact=True))
         self.right_splitter.addWidget(self._build_detail_card())
-        self.right_splitter.setSizes([130, 110, 360])
+        self.right_splitter.setSizes([190, 105, 330])
         self.right_splitter.splitterMoved.connect(
             lambda _pos, _index: self._mark_layout_dirty("right_splitter_moved")
         )
@@ -432,8 +432,8 @@ class InvestmentCenterTab(QWidget):
     def _build_composition_card(self, compact: bool = False) -> QFrame:
         card = self._card("portfolioCompositionCard")
         if compact:
-            card.setMinimumHeight(72)
-            card.setMaximumHeight(132)
+            card.setMinimumHeight(160)
+            card.setMaximumHeight(220)
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             self._composition_compact = True
         else:
@@ -455,8 +455,8 @@ class InvestmentCenterTab(QWidget):
         self._composition_donut = DonutChartWidget()
         self._composition_donut.setObjectName("portfolioDonut")
         if compact:
-            self._composition_donut.setMinimumSize(48, 48)
-            self._composition_donut.setMaximumSize(58, 58)
+            self._composition_donut.setMinimumSize(112, 112)
+            self._composition_donut.setMaximumSize(138, 138)
         content.addWidget(self._composition_donut, 0, Qt.AlignmentFlag.AlignTop)
 
         list_wrap = QVBoxLayout()
@@ -1331,7 +1331,7 @@ class InvestmentCenterTab(QWidget):
             "schema": "aits_investment_tab_layout_state.v3",
             "table_column_widths": columns,
             "main_splitter_sizes": list(main_splitter.sizes()) if main_splitter is not None else [980, 420],
-            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [130, 110, 360],
+            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [190, 105, 330],
             "row_height": 34,
         }
 
@@ -1377,9 +1377,12 @@ class InvestmentCenterTab(QWidget):
                 and isinstance(right_sizes, list)
                 and len(right_sizes) == right_splitter.count()
                 and any(int(v) > 0 for v in right_sizes)
+                and int(right_sizes[0] or 0) >= 150
             ):
                 right_splitter.setSizes([max(1, int(v)) for v in right_sizes])
                 right_ok = True
+            elif right_splitter is not None:
+                right_splitter.setSizes([190, 105, 330])
 
             self._layout_dirty = False
             self._emit_proof(
