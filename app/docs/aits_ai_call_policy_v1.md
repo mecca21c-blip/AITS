@@ -679,3 +679,17 @@ Policy intent:
 - This is a visual layout persistence adjustment only and does not change portfolio composition calculations, market price lookup, valuation formulas, or holdings source wiring.
 - This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 44. INVESTMENT-TAB-METRIC-CONSISTENCY-01 Implementation Note
+
+`INVESTMENT-TAB-METRIC-CONSISTENCY-01` clarifies Investment tab metric display bases.
+
+Policy intent:
+
+- Account-summary KPI PnL/return labels are distinguished from holdings-row valuation PnL/return.
+- Holdings table weight, portfolio composition legend, risk summary weight, and selected-position detail weight share the same display row basis.
+- Row weights are display-only percentages derived from existing valuation/cost-basis fields and account total; no new balance or market source is introduced.
+- TP/SL text is compacted for table display only and is not connected to order policy.
+- Current-price valuation copy references the last update context without changing price lookup or valuation formulas.
+- This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

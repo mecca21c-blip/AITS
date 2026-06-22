@@ -312,8 +312,8 @@ class InvestmentCenterTab(QWidget):
         grid.setHorizontalSpacing(10)
         specs = (
             ("total_asset", "총 평가금액", "자산 평가 합계"),
-            ("pnl", "평가손익", "계좌 요약 기준"),
-            ("return_rate", "수익률", "보유 평가 기준"),
+            ("pnl", "계좌 요약 손익", "보유 포지션 손익은 아래 표 기준"),
+            ("return_rate", "계좌 요약 수익률", "보유 포지션 수익률은 아래 표 기준"),
             ("available_cash", "주문가능(KRW)", "읽기 전용 표시"),
         )
         for col, (key, title, hint) in enumerate(specs):
@@ -621,6 +621,7 @@ class InvestmentCenterTab(QWidget):
             self._normalize_position(row) for row in source_rows if isinstance(row, dict)
         ]
         visible_rows = self._get_visible_position_rows()
+        self._apply_position_metric_consistency(visible_rows)
         self._populate_positions(visible_rows, source_state)
         self._update_composition(visible_rows, source_state)
         self._update_risk(visible_rows, source_state)
@@ -660,6 +661,12 @@ class InvestmentCenterTab(QWidget):
             "pnl": self._parse_number(pnl),
             "return_rate": self._parse_number(ret),
         }
+        self._emit_proof(
+            "metric_consistency_kpi_basis",
+            pnl_basis="account_summary",
+            position_pnl_available=bool(self._positions),
+            submitted=0,
+        )
 
     def _read_cached_positions(self) -> list[dict[str, Any]]:
         parent = self._parent_window
@@ -1003,6 +1010,7 @@ class InvestmentCenterTab(QWidget):
             label = self._detail_values.get(key)
             if label is not None:
                 label.setText(str(value or "-"))
+                label.setToolTip(str(value or "-"))
                 if key in {"pnl", "return_rate"}:
                     num = self._parse_number(value)
                     if num is not None and num > 0:
@@ -1011,6 +1019,34 @@ class InvestmentCenterTab(QWidget):
                         label.setStyleSheet("font-weight:900; color:#dc2626;")
                     else:
                         label.setStyleSheet("font-weight:800; color:#111827;")
+
+    def _apply_position_metric_consistency(self, rows: list[dict[str, Any]]) -> None:
+        total_asset, _cash = self._account_summary_values()
+        if not rows or total_asset is None or total_asset <= 0:
+            return
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            basis_value = self._row_valuation_basis_value(row)
+            if basis_value is None:
+                continue
+            row_weight = basis_value / total_asset * 100.0
+            row["weight"] = f"{row_weight:.1f}%"
+            row["weight_basis"] = (
+                "current_eval"
+                if row.get("valuation_source") in {"current_price", "current_market_price"}
+                else "cost_basis"
+            )
+            try:
+                self._emit_proof(
+                    "metric_consistency_weight_apply",
+                    symbol=row.get("symbol", "-"),
+                    row_weight=round(row_weight, 2),
+                    basis=row.get("weight_basis"),
+                    submitted=0,
+                )
+            except Exception:
+                pass
 
     def _update_composition(self, rows: list[dict[str, Any]], source_state: dict[str, Any] | None = None) -> None:
         layout = self._composition_layout
@@ -1162,6 +1198,8 @@ class InvestmentCenterTab(QWidget):
         tp = row.get("tp") or row.get("tp_pct") or "-"
         sl = row.get("sl") or row.get("sl_pct") or "-"
         memo = row.get("memo") or row.get("execution_memo") or "읽기 전용"
+        if valuation_source in {"current_price", "current_market_price"} and "업데이트" not in str(memo):
+            memo = "현재가 기준 평가 · 마지막 업데이트 기준"
         market_supported = row.get("market_supported")
         explicit_dust = row.get("dust")
         if explicit_dust is None:
@@ -1185,11 +1223,24 @@ class InvestmentCenterTab(QWidget):
             "ai_state": ai_state,
             "tp": tp,
             "sl": sl,
-            "tp_sl": f"TP {tp}\nSL {sl}",
+            "tp_sl": self._format_tp_sl_display(tp, sl),
             "memo": memo,
             "market_supported": market_supported,
             "dust": explicit_dust,
         }
+
+    def _format_tp_sl_display(self, tp: Any, sl: Any) -> str:
+        tp_text = str(tp or "").strip()
+        sl_text = str(sl or "").strip()
+        tp_empty = tp_text in {"", "-", "None"}
+        sl_empty = sl_text in {"", "-", "None"}
+        if tp_empty and sl_empty:
+            return "-"
+        if not tp_empty and not sl_empty:
+            return f"TP {tp_text} / SL {sl_text}"
+        if not tp_empty:
+            return f"TP {tp_text}"
+        return f"SL {sl_text}"
 
     def _read_label_text(self, owner: Any, name: str) -> str:
         try:
