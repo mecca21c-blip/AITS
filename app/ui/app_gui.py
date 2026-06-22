@@ -11360,7 +11360,7 @@ class MainWindow(QMainWindow):
 
             ai_card = pt.findChild(QFrame, "aiDecisionCard")
             _set_layout_tight(ai_card, (12, 5, 12, 5), 5)
-            _limit_height(ai_card, 108, 72)
+            _limit_height(ai_card, 54, 40)
             try:
                 summary = getattr(pt, "lbl_ai_decision_summary", None)
                 if summary is not None:
@@ -11374,7 +11374,7 @@ class MainWindow(QMainWindow):
                 try:
                     if bool(card.property("kpiCard")):
                         _set_layout_tight(card, (8, 4, 8, 4), 2)
-                        _limit_height(card, 96, 40)
+                        _limit_height(card, 50, 40)
                         for label in card.findChildren(QLabel):
                             if label in getattr(pt, "_kpi_values", {}).values():
                                 label.setStyleSheet("font-size: 14px; font-weight: 900; color: #111827;")
@@ -11394,16 +11394,13 @@ class MainWindow(QMainWindow):
                     pass
 
             right_panel = splitter.widget(1) if splitter is not None and splitter.count() > 1 else None
-            right_layout = right_panel.layout() if (
-                right_panel is not None and getattr(right_panel, "objectName", lambda: "")() != "positionDetailCard"
-            ) else None
+            right_layout = right_panel.layout() if right_panel is not None else None
             if right_layout is not None:
                 try:
                     right_layout.setSpacing(4)
                     right_layout.setContentsMargins(0, 0, 0, 0)
                     right_layout.setStretch(0, 0)
-                    right_layout.setStretch(1, 0)
-                    right_layout.setStretch(2, 2)
+                    right_layout.setStretch(1, 1)
                 except Exception:
                     pass
 
@@ -11422,7 +11419,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             _set_layout_tight(composition_card, (10, 6, 10, 6), 4)
-            _limit_height(composition_card, 96, 72)
+            _limit_height(composition_card, 132, 72)
             try:
                 empty = getattr(pt, "lbl_composition_empty", None)
                 if empty is not None:
@@ -11436,7 +11433,7 @@ class MainWindow(QMainWindow):
 
             risk_card = pt.findChild(QFrame, "riskCard")
             _set_layout_tight(risk_card, (10, 6, 10, 6), 4)
-            _limit_height(risk_card, 96, 72)
+            _limit_height(risk_card, 122, 72)
             try:
                 for box in risk_card.findChildren(QFrame) if risk_card is not None else []:
                     if bool(box.property("smallMetric")):

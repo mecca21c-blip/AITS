@@ -653,3 +653,16 @@ Policy intent:
 - This work does not change balance fetch, market price lookup, valuation formulas, AI call conditions, or provider behavior.
 - This work does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 42. INVESTMENT-TAB-RIGHT-COMPOSITE-PANEL-01 Implementation Note
+
+`INVESTMENT-TAB-RIGHT-COMPOSITE-PANEL-01` groups the Investment tab right-side information into one composite analysis panel.
+
+Policy intent:
+
+- Portfolio composition, risk summary, and selected position detail are displayed as sub-sections inside a single right-side position analysis panel.
+- The left side remains focused on KPI summary, recent AI/position summary, and the holdings table.
+- Table dust filtering, compact row height, column width persistence, and splitter persistence remain intact.
+- This work is a UI layout change only and does not change balances, holdings, market price lookup, valuation formulas, or AI call conditions.
+- This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

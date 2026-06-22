@@ -234,12 +234,10 @@ class InvestmentCenterTab(QWidget):
         root.setContentsMargins(16, 16, 16, 16)
         root.setSpacing(12)
         root.addWidget(self._build_header())
-        root.addLayout(self._build_kpi_row())
-        root.addWidget(self._build_ai_decision_card())
 
         self.main_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.main_splitter.setObjectName("investmentMainSplitter")
-        self.main_splitter.addWidget(self._build_positions_card())
+        self.main_splitter.addWidget(self._build_left_column())
         self.main_splitter.addWidget(self._build_right_column())
         self.main_splitter.setSizes([980, 420])
         self.main_splitter.splitterMoved.connect(
@@ -248,7 +246,18 @@ class InvestmentCenterTab(QWidget):
         root.addWidget(self.main_splitter, 1)
         root.addWidget(self._build_footer_notice())
         self._restore_layout_state()
-        self._emit_proof("dashboard_ready", splitter=True, top_summary=True, right_cards=1)
+        self._emit_proof("dashboard_ready", splitter=True, right_composite=True, right_cards=3)
+
+    def _build_left_column(self) -> QWidget:
+        wrap = QWidget()
+        wrap.setObjectName("investmentLeftColumn")
+        layout = QVBoxLayout(wrap)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+        layout.addLayout(self._build_kpi_row())
+        layout.addWidget(self._build_ai_decision_card())
+        layout.addWidget(self._build_positions_card(), 1)
+        return wrap
 
     def _card(self, object_name: str | None = None) -> QFrame:
         card = QFrame()
@@ -330,7 +339,6 @@ class InvestmentCenterTab(QWidget):
             layout.addWidget(sub)
             self._kpi_values[key] = value
             grid.addWidget(card, 0, col)
-        grid.addWidget(self._build_composition_card(compact=True), 0, len(specs))
         return grid
 
     def _build_ai_decision_card(self) -> QFrame:
@@ -354,7 +362,6 @@ class InvestmentCenterTab(QWidget):
             tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
             tag.setProperty("stateBadge", kind)
             layout.addWidget(tag, 0)
-        layout.addWidget(self._build_risk_card(compact=True), 1)
         return card
 
     def _build_positions_card(self) -> QFrame:
@@ -401,16 +408,33 @@ class InvestmentCenterTab(QWidget):
         return card
 
     def _build_right_column(self) -> QWidget:
-        self.right_splitter = None
-        return self._build_detail_card()
+        panel = self._card("positionAnalysisPanel")
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 12, 14, 14)
+        layout.setSpacing(8)
+
+        title = QLabel("포지션 분석")
+        title.setProperty("sectionTitle", True)
+        layout.addWidget(title)
+
+        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.right_splitter.setObjectName("investmentRightSplitter")
+        self.right_splitter.addWidget(self._build_composition_card(compact=True))
+        self.right_splitter.addWidget(self._build_risk_card(compact=True))
+        self.right_splitter.addWidget(self._build_detail_card())
+        self.right_splitter.setSizes([130, 110, 360])
+        self.right_splitter.splitterMoved.connect(
+            lambda _pos, _index: self._mark_layout_dirty("right_splitter_moved")
+        )
+        layout.addWidget(self.right_splitter, 1)
+        return panel
 
     def _build_composition_card(self, compact: bool = False) -> QFrame:
         card = self._card("portfolioCompositionCard")
         if compact:
-            card.setProperty("kpiCard", True)
             card.setMinimumHeight(72)
-            card.setMaximumHeight(96)
-            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            card.setMaximumHeight(132)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             self._composition_compact = True
         else:
             card.setMinimumHeight(220)
@@ -457,8 +481,8 @@ class InvestmentCenterTab(QWidget):
     def _build_risk_card(self, compact: bool = False) -> QFrame:
         card = self._card("riskCard")
         if compact:
-            card.setMaximumHeight(96)
-            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            card.setMaximumHeight(122)
+            card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         layout = QVBoxLayout(card)
         if compact:
             layout.setContentsMargins(12, 7, 12, 7)
@@ -1304,10 +1328,10 @@ class InvestmentCenterTab(QWidget):
         if table is not None:
             columns = [int(table.columnWidth(i)) for i in range(table.columnCount())]
         return {
-            "schema": "aits_investment_tab_layout_state.v2",
+            "schema": "aits_investment_tab_layout_state.v3",
             "table_column_widths": columns,
             "main_splitter_sizes": list(main_splitter.sizes()) if main_splitter is not None else [980, 420],
-            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [],
+            "right_splitter_sizes": list(right_splitter.sizes()) if right_splitter is not None else [130, 110, 360],
             "row_height": 34,
         }
 
