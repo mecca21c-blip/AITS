@@ -10759,9 +10759,14 @@ class MainWindow(QMainWindow):
 
                 def _pf_refresh_wrapped(reason: str = "manual"):
                     source_result = self._refresh_investment_position_source(reason)
+                    try:
+                        setattr(pt, "_pending_position_source_state", source_result)
+                    except Exception:
+                        pass
                     _orig_pf(reason)
                     try:
-                        self._apply_investment_position_source_feedback(pt, source_result)
+                        if not hasattr(pt, "_position_source_state"):
+                            self._apply_investment_position_source_feedback(pt, source_result)
                     except Exception:
                         pass
                     try:

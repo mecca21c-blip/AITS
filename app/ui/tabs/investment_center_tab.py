@@ -107,6 +107,12 @@ class InvestmentCenterTab(QWidget):
         self._composition_layout: QVBoxLayout | None = None
         self._risk_values: dict[str, QLabel] = {}
         self._last_totals: dict[str, Any] = {}
+        self._position_source_state: dict[str, Any] = {
+            "status": "unknown",
+            "source": "init",
+            "rows": [],
+            "message": "포지션 상태를 확인 중입니다.",
+        }
         self._build_ui()
         self.refresh("init")
         self._emit_proof("create_new_tab", widget="InvestmentCenterTab")
@@ -536,13 +542,26 @@ class InvestmentCenterTab(QWidget):
 
     def refresh(self, reason: str = "manual") -> None:
         self._update_kpis_from_parent()
-        self._positions = self._read_cached_positions()
-        self._populate_positions(self._positions)
-        self._update_composition(self._positions)
-        self._update_risk(self._positions)
+        source_state = self._load_position_source_state(reason)
+        self._position_source_state = source_state
+        source_rows = source_state.get("rows") if isinstance(source_state, dict) else []
+        if not isinstance(source_rows, list):
+            source_rows = []
+        self._positions = [
+            self._normalize_position(row) for row in source_rows if isinstance(row, dict)
+        ]
+        self._populate_positions(self._positions, source_state)
+        self._update_composition(self._positions, source_state)
+        self._update_risk(self._positions, source_state)
         self._set_detail(None)
         self.lbl_updated_at.setText(datetime.now().strftime("%H:%M:%S"))
-        self._emit_proof("refresh", reason=reason, rows=len(self._positions))
+        self._emit_proof(
+            "refresh",
+            reason=reason,
+            rows=len(self._positions),
+            source_status=source_state.get("status"),
+            source=source_state.get("source"),
+        )
 
     def get_summary_metrics(self):
         totals = self._last_totals or {}
@@ -583,7 +602,151 @@ class InvestmentCenterTab(QWidget):
                 return [self._normalize_position(row) for row in rows if isinstance(row, dict)]
         return []
 
-    def _populate_positions(self, rows: list[dict[str, Any]]) -> None:
+    def _load_position_source_state(self, reason: str = "manual") -> dict[str, Any]:
+        pending = getattr(self, "_pending_position_source_state", None)
+        if isinstance(pending, dict):
+            try:
+                delattr(self, "_pending_position_source_state")
+            except Exception:
+                pass
+            return self._finalize_position_source_state(pending)
+
+        parent = self._parent_window
+        loader = getattr(parent, "_refresh_investment_position_source", None)
+        if callable(loader):
+            try:
+                return self._finalize_position_source_state(loader(reason))
+            except Exception as exc:
+                self._emit_proof(
+                    "position_source_failed",
+                    reason=type(exc).__name__,
+                    submitted=0,
+                )
+                return self._finalize_position_source_state({
+                    "status": "failed",
+                    "source": "parent_loader",
+                    "rows": [],
+                    "message": "보유 포지션 조회 실패\n계좌 연결 상태를 확인하세요.",
+                })
+
+        rows = self._read_cached_positions()
+        status = "ok" if rows else "unavailable"
+        return self._finalize_position_source_state({
+            "status": status,
+            "source": "owner_cache" if rows else "unavailable",
+            "rows": rows,
+            "message": f"포지션 조회 완료 · {len(rows)}개 보유" if rows else "보유 포지션 source가 아직 연결되지 않았습니다.",
+        })
+
+    def _finalize_position_source_state(self, state: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(state, dict):
+            state = {}
+        rows = state.get("rows") if isinstance(state.get("rows"), list) else []
+        status = str(state.get("status") or "unknown")
+        if not rows and status == "empty" and self._account_summary_implies_positions():
+            status = "mismatch"
+            state = dict(state)
+            state["status"] = "mismatch"
+            state["source"] = f"{state.get('source', 'unknown')}:mismatch"
+            state["message"] = "계좌 요약에는 비현금 자산이 있으나\n포지션 상세를 불러오지 못했습니다.\n계좌/포지션 연결 상태를 확인하세요."
+        state = dict(state)
+        state["status"] = status
+        state["rows"] = rows
+        if not state.get("message"):
+            state["message"] = self._position_source_messages(status)[0]
+        try:
+            total, cash = self._account_summary_values()
+            non_cash = (total - cash) if total is not None and cash is not None else None
+            self._emit_proof(
+                "position_source_classify",
+                status=status,
+                source=state.get("source", "-"),
+                rows=len(rows),
+                total_asset=total,
+                available_krw=cash,
+                non_cash_estimate=non_cash,
+                submitted=0,
+            )
+        except Exception:
+            pass
+        return state
+
+    def _parse_krw_display_value_for_investment(self, value: Any) -> float | None:
+        try:
+            if value is None:
+                return None
+            text = str(value).strip()
+            if not text or text in {"-", "None"}:
+                return None
+            filtered = "".join(ch for ch in text if ch.isdigit() or ch in ".-")
+            if filtered in {"", "-", ".", "-."}:
+                return None
+            return float(filtered)
+        except Exception:
+            return None
+
+    def _account_summary_values(self) -> tuple[float | None, float | None]:
+        parent = self._parent_window
+
+        def _label_num(name: str) -> float | None:
+            try:
+                label = getattr(parent, name, None)
+                if label is not None and hasattr(label, "text"):
+                    return self._parse_krw_display_value_for_investment(label.text())
+            except Exception:
+                pass
+            return None
+
+        total = self._parse_krw_display_value_for_investment(
+            getattr(parent, "_last_total_asset", None)
+        )
+        cash = self._parse_krw_display_value_for_investment(
+            getattr(parent, "_last_available_krw", None)
+        )
+        if total is None:
+            total = _label_num("lbl_asset_value")
+        if cash is None:
+            cash = _label_num("lbl_krw_value")
+        return total, cash
+
+    def _account_summary_implies_positions(self) -> bool:
+        total, cash = self._account_summary_values()
+        if total is None or cash is None:
+            return False
+        return total > max(cash + 1000.0, cash * 1.01)
+
+    def _position_source_messages(self, status: str) -> tuple[str, str, str]:
+        if status == "mismatch":
+            return (
+                "계좌 요약에는 비현금 자산이 있으나\n포지션 상세를 불러오지 못했습니다.\n계좌/포지션 연결 상태를 확인하세요.",
+                "계좌 요약과 포지션 상세가 일치하지 않아\n구성 그래프를 표시하지 않습니다.",
+                "계좌 요약과 포지션 상세가 일치하지 않습니다.",
+            )
+        if status == "empty":
+            return (
+                "실제 보유 포지션이 없습니다.",
+                "보유 포지션이 없어 구성 그래프를 표시할 수 없습니다.",
+                "실제 보유 포지션이 없습니다.",
+            )
+        if status == "failed":
+            return (
+                "보유 포지션 조회 실패\n계좌 연결 상태를 확인하세요.",
+                "포지션 조회 실패로 구성 그래프를 표시할 수 없습니다.",
+                "포지션 조회 실패 상태입니다.",
+            )
+        if status == "unavailable":
+            return (
+                "보유 포지션 source가 아직 연결되지 않았습니다.",
+                "포지션 source 연결 대기 중입니다.",
+                "포지션 source 연결 대기 중입니다.",
+            )
+        return (
+            "포지션 상태를 확인 중입니다.",
+            "포지션 상태 확인 후 구성 그래프를 표시합니다.",
+            "포지션 상태를 확인 중입니다.",
+        )
+
+    def _populate_positions(self, rows: list[dict[str, Any]], source_state: dict[str, Any] | None = None) -> None:
         table = self.tbl_positions
         try:
             table.clearSpans()
@@ -591,17 +754,26 @@ class InvestmentCenterTab(QWidget):
             pass
         table.clearSelection()
         if not rows:
+            status = str((source_state or {}).get("status") or "unknown")
+            table_message = self._position_source_messages(status)[0]
             table.setRowCount(1)
             try:
                 table.setSpan(0, 0, 1, len(self.COLUMNS))
             except Exception:
                 pass
-            item = QTableWidgetItem("보유 포지션이 없습니다.\n잔고/포지션 정보가 연결되면 이곳에 표시됩니다.")
+            item = QTableWidgetItem(table_message)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setFlags(Qt.ItemFlag.ItemIsEnabled)
             item.setData(Qt.ItemDataRole.UserRole, None)
             table.setItem(0, 0, item)
             table.setRowHeight(0, 240)
+            self._emit_proof(
+                "position_source_last_writer",
+                target="positions_table",
+                status=status,
+                writer="InvestmentCenterTab._populate_positions",
+                submitted=0,
+            )
             return
         table.setRowCount(len(rows))
         for r, row in enumerate(rows):
@@ -646,6 +818,9 @@ class InvestmentCenterTab(QWidget):
 
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         self.lbl_detail_placeholder.setVisible(row is None)
+        if row is None:
+            status = str((self._position_source_state or {}).get("status") or "unknown")
+            self.lbl_detail_placeholder.setText(self._position_source_messages(status)[2])
         values = {
             "symbol": row.get("symbol") if row else "-",
             "qty": row.get("qty") if row else "-",
@@ -672,7 +847,7 @@ class InvestmentCenterTab(QWidget):
                     else:
                         label.setStyleSheet("font-weight:800; color:#111827;")
 
-    def _update_composition(self, rows: list[dict[str, Any]]) -> None:
+    def _update_composition(self, rows: list[dict[str, Any]], source_state: dict[str, Any] | None = None) -> None:
         layout = self._composition_layout
         if layout is None:
             return
@@ -682,10 +857,20 @@ class InvestmentCenterTab(QWidget):
             if widget is not None:
                 widget.deleteLater()
         if not rows:
+            status = str((source_state or {}).get("status") or "unknown")
+            composition_message = self._position_source_messages(status)[1]
             if hasattr(self, "_composition_donut"):
                 self._composition_donut.set_data([], "구성", "없음")
             if hasattr(self, "lbl_composition_empty"):
+                self.lbl_composition_empty.setText(composition_message)
                 self.lbl_composition_empty.setVisible(True)
+            self._emit_proof(
+                "position_source_last_writer",
+                target="composition_empty",
+                status=status,
+                writer="InvestmentCenterTab._update_composition",
+                submitted=0,
+            )
             return
         if hasattr(self, "lbl_composition_empty"):
             self.lbl_composition_empty.setVisible(False)
@@ -712,17 +897,33 @@ class InvestmentCenterTab(QWidget):
             )
             layout.addWidget(label)
 
-    def _update_risk(self, rows: list[dict[str, Any]]) -> None:
+    def _update_risk(self, rows: list[dict[str, Any]], source_state: dict[str, Any] | None = None) -> None:
+        status = str((source_state or {}).get("status") or "unknown")
         values = {
             "positions": f"{len(rows)}개",
             "weight": self._sum_weight(rows),
             "loss_limit": "-",
             "loss_rate": self._estimate_loss_rate(rows),
         }
+        if not rows and status in {"mismatch", "failed", "unavailable", "unknown"}:
+            values.update({
+                "positions": "0개",
+                "weight": "-",
+                "loss_limit": "미연결",
+                "loss_rate": "-",
+            })
         for key, value in values.items():
             label = self._risk_values.get(key)
             if label is not None:
                 label.setText(str(value or "-"))
+        if not rows:
+            self._emit_proof(
+                "position_source_last_writer",
+                target="risk_summary",
+                status=status,
+                writer="InvestmentCenterTab._update_risk",
+                submitted=0,
+            )
 
     def _normalize_position(self, row: dict[str, Any]) -> dict[str, Any]:
         symbol = row.get("symbol") or row.get("market") or "-"

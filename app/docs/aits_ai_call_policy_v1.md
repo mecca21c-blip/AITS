@@ -573,6 +573,7 @@ Policy intent:
 - The tab distinguishes real empty holdings from source failure or unavailable state in user-facing copy.
 - If account summary implies non-cash holdings but the position source returns no rows, the tab treats it as a source mismatch rather than as real empty holdings.
 - Runtime feedback also rechecks the account-summary/position mismatch so a later empty-table render cannot mask a source mismatch as real empty holdings.
+- `InvestmentCenterTab` owns the final table/composition/risk source-status messages; `app_gui.py` post-processing must not overwrite those owner messages when the owner state is present.
 - Portfolio composition, risk summary, and selected-position detail share the same normalized read-only rows.
 - Risk summary values that are not connected to Risk Guard remain placeholders and are not shown as enforced limits.
 - This wiring does not call AI providers, does not create Provider/API clients, and does not change AI call policy.
