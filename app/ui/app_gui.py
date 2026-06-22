@@ -10991,6 +10991,11 @@ class MainWindow(QMainWindow):
         memo = row.get("memo") or row.get("execution_memo")
         if not memo:
             memo = "시장 지원 확인 필요" if market_supported is False else "읽기 전용 보유 포지션"
+        dust = row.get("dust")
+        if dust is None:
+            dust = row.get("is_dust")
+        if dust is None and eval_krw is not None:
+            dust = 0 <= eval_krw < 5000
         return {
             "symbol": symbol,
             "qty": qty,
@@ -11004,6 +11009,8 @@ class MainWindow(QMainWindow):
             "tp": row.get("tp") or row.get("tp_pct") or "-",
             "sl": row.get("sl") or row.get("sl_pct") or "-",
             "memo": memo,
+            "market_supported": market_supported,
+            "dust": dust,
         }
 
     def _parse_investment_money_value(self, value) -> float | None:

@@ -579,3 +579,18 @@ Policy intent:
 - This wiring does not call AI providers, does not create Provider/API clients, and does not change AI call policy.
 - This wiring does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 37. INVESTMENT-TAB-DUST-POSITION-FILTER-01 Implementation Note
+
+`INVESTMENT-TAB-DUST-POSITION-FILTER-01` adds a display-only dust-position filter to the Investment tab.
+
+Policy intent:
+
+- The Investment tab keeps the original read-only position rows intact and filters only the rows shown in the table.
+- Dust positions are hidden by default when their evaluation amount is below the display threshold, or when market data is unavailable and the row is marked as requiring market support review.
+- Users can enable `먼지 종목 표시` to include those rows in the visible table.
+- Portfolio composition and risk summary use the same visible rows as the position table.
+- The filter does not delete holdings, create fake rows, or change account/holding source data.
+- The filter does not call AI providers, does not create Provider/API clients, and does not change AI call policy.
+- The filter does not call Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.

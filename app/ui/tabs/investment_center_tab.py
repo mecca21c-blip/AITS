@@ -7,6 +7,7 @@ from typing import Any
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -102,6 +103,9 @@ class InvestmentCenterTab(QWidget):
         super().__init__(parent)
         self._parent_window = parent_window
         self._positions: list[dict[str, Any]] = []
+        self._visible_positions: list[dict[str, Any]] = []
+        self._hidden_dust_position_count = 0
+        self._dust_position_count = 0
         self._kpi_values: dict[str, QLabel] = {}
         self._detail_values: dict[str, QLabel] = {}
         self._composition_layout: QVBoxLayout | None = None
@@ -348,9 +352,21 @@ class InvestmentCenterTab(QWidget):
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 14)
         layout.setSpacing(8)
-        title = QLabel("보유 포지션")
-        title.setProperty("sectionTitle", True)
-        layout.addWidget(title)
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(8)
+        self.lbl_positions_title = QLabel("보유 포지션")
+        self.lbl_positions_title.setProperty("sectionTitle", True)
+        title_row.addWidget(self.lbl_positions_title, 1)
+        self.chk_show_dust_positions = QCheckBox("먼지 종목 표시")
+        self.chk_show_dust_positions.setObjectName("showDustPositionsCheck")
+        self.chk_show_dust_positions.setToolTip(
+            "평가금액이 작거나 시장 정보가 부족한 잔여 종목을 함께 표시합니다."
+        )
+        self.chk_show_dust_positions.setChecked(False)
+        self.chk_show_dust_positions.toggled.connect(self._on_show_dust_positions_toggled)
+        title_row.addWidget(self.chk_show_dust_positions, 0, Qt.AlignmentFlag.AlignRight)
+        layout.addLayout(title_row)
 
         self.tbl_positions = QTableWidget(0, len(self.COLUMNS))
         self.tbl_positions.setObjectName("positionTable")
@@ -550,15 +566,18 @@ class InvestmentCenterTab(QWidget):
         self._positions = [
             self._normalize_position(row) for row in source_rows if isinstance(row, dict)
         ]
-        self._populate_positions(self._positions, source_state)
-        self._update_composition(self._positions, source_state)
-        self._update_risk(self._positions, source_state)
+        visible_rows = self._get_visible_position_rows()
+        self._populate_positions(visible_rows, source_state)
+        self._update_composition(visible_rows, source_state)
+        self._update_risk(visible_rows, source_state)
         self._set_detail(None)
         self.lbl_updated_at.setText(datetime.now().strftime("%H:%M:%S"))
         self._emit_proof(
             "refresh",
             reason=reason,
             rows=len(self._positions),
+            visible_rows=len(visible_rows),
+            hidden_dust=self._hidden_dust_position_count,
             source_status=source_state.get("status"),
             source=source_state.get("source"),
         )
@@ -756,6 +775,16 @@ class InvestmentCenterTab(QWidget):
         if not rows:
             status = str((source_state or {}).get("status") or "unknown")
             table_message = self._position_source_messages(status)[0]
+            if (
+                status == "ok"
+                and self._hidden_dust_position_count > 0
+                and not self._show_dust_positions_enabled()
+            ):
+                table_message = (
+                    "유효 보유 포지션이 없습니다.\n"
+                    f"먼지 종목 {self._hidden_dust_position_count}개가 숨겨져 있습니다.\n"
+                    "'먼지 종목 표시'를 켜면 함께 확인할 수 있습니다."
+                )
             table.setRowCount(1)
             try:
                 table.setSpan(0, 0, 1, len(self.COLUMNS))
@@ -811,10 +840,89 @@ class InvestmentCenterTab(QWidget):
             self._set_detail(None)
             return
         try:
-            row = self._positions[int(row_index)]
+            rows = self._visible_positions or []
+            row = rows[int(row_index)]
         except Exception:
             row = None
         self._set_detail(row)
+
+    def _on_show_dust_positions_toggled(self, _checked: bool = False) -> None:
+        try:
+            source_state = self._position_source_state or {"status": "unknown", "source": "unknown"}
+            visible_rows = self._get_visible_position_rows()
+            self._populate_positions(visible_rows, source_state)
+            self._update_composition(visible_rows, source_state)
+            self._update_risk(visible_rows, source_state)
+            self._set_detail(None)
+        except Exception as exc:
+            self._emit_proof("dust_filter_failed", reason=type(exc).__name__, submitted=0)
+
+    def _show_dust_positions_enabled(self) -> bool:
+        checkbox = getattr(self, "chk_show_dust_positions", None)
+        try:
+            return bool(checkbox is not None and checkbox.isChecked())
+        except Exception:
+            return False
+
+    def _get_visible_position_rows(self) -> list[dict[str, Any]]:
+        rows = list(self._positions or [])
+        dust_flags = [self._is_dust_position_row(row) for row in rows]
+        dust_count = sum(1 for is_dust in dust_flags if is_dust)
+        show_dust = self._show_dust_positions_enabled()
+        if show_dust:
+            visible_rows = rows
+            hidden_dust = 0
+        else:
+            visible_rows = [row for row, is_dust in zip(rows, dust_flags) if not is_dust]
+            hidden_dust = dust_count
+        self._dust_position_count = dust_count
+        self._hidden_dust_position_count = hidden_dust
+        self._visible_positions = visible_rows
+        self._update_positions_title()
+        self._emit_proof(
+            "dust_filter",
+            show_dust=show_dust,
+            total_rows=len(rows),
+            visible_rows=len(visible_rows),
+            hidden_dust=hidden_dust,
+            submitted=0,
+        )
+        return visible_rows
+
+    def _update_positions_title(self) -> None:
+        label = getattr(self, "lbl_positions_title", None)
+        if label is None:
+            return
+        if self._show_dust_positions_enabled() and self._dust_position_count > 0:
+            text = f"보유 포지션 · 전체 {len(self._positions or [])}개 표시"
+        elif self._hidden_dust_position_count > 0:
+            text = f"보유 포지션 · 먼지 {self._hidden_dust_position_count}개 숨김"
+        else:
+            text = "보유 포지션"
+        label.setText(text)
+
+    def _is_dust_position_row(self, row: dict[str, Any]) -> bool:
+        if not isinstance(row, dict):
+            return False
+        explicit = row.get("dust")
+        if explicit is None:
+            explicit = row.get("is_dust")
+        if isinstance(explicit, bool):
+            return explicit
+        eval_value = self._parse_number(row.get("eval_krw"))
+        if eval_value is not None:
+            return 0 <= eval_value < 5000
+        price = self._parse_number(row.get("price"))
+        memo = str(row.get("memo") or row.get("execution_memo") or "")
+        market_supported = row.get("market_supported")
+        missing_market_value = price is None and eval_value is None
+        if missing_market_value and (market_supported is False or "시장 지원 확인 필요" in memo):
+            return True
+        weight = self._parse_number(row.get("weight"))
+        pnl = self._parse_number(row.get("pnl"))
+        if missing_market_value and weight is not None and abs(weight) < 0.01 and pnl is None:
+            return True
+        return False
 
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         self.lbl_detail_placeholder.setVisible(row is None)
@@ -859,6 +967,15 @@ class InvestmentCenterTab(QWidget):
         if not rows:
             status = str((source_state or {}).get("status") or "unknown")
             composition_message = self._position_source_messages(status)[1]
+            if (
+                status == "ok"
+                and self._hidden_dust_position_count > 0
+                and not self._show_dust_positions_enabled()
+            ):
+                composition_message = (
+                    "유효 포지션이 없어 구성 그래프를 표시하지 않습니다.\n"
+                    f"먼지 종목 {self._hidden_dust_position_count}개가 숨겨져 있습니다."
+                )
             if hasattr(self, "_composition_donut"):
                 self._composition_donut.set_data([], "구성", "없음")
             if hasattr(self, "lbl_composition_empty"):
@@ -933,11 +1050,23 @@ class InvestmentCenterTab(QWidget):
         pnl = row.get("pnl") or row.get("pnl_krw") or "-"
         ret = row.get("return_rate") or row.get("pnl_pct") or "-"
         weight = row.get("weight") or "-"
-        eval_krw = row.get("eval_krw") or row.get("value_krw") or row.get("position_krw") or row.get("total_krw") or "-"
+        eval_krw = row.get("eval_krw")
+        if eval_krw is None or str(eval_krw).strip() == "":
+            eval_krw = row.get("value_krw")
+        if eval_krw is None or str(eval_krw).strip() == "":
+            eval_krw = row.get("position_krw")
+        if eval_krw is None or str(eval_krw).strip() == "":
+            eval_krw = row.get("total_krw")
+        if eval_krw is None or str(eval_krw).strip() == "":
+            eval_krw = "-"
         ai_state = row.get("ai_state") or "관망"
         tp = row.get("tp") or row.get("tp_pct") or "-"
         sl = row.get("sl") or row.get("sl_pct") or "-"
         memo = row.get("memo") or row.get("execution_memo") or "읽기 전용"
+        market_supported = row.get("market_supported")
+        explicit_dust = row.get("dust")
+        if explicit_dust is None:
+            explicit_dust = row.get("is_dust")
         return {
             "symbol": symbol,
             "qty": self._format_number(qty),
@@ -952,6 +1081,8 @@ class InvestmentCenterTab(QWidget):
             "sl": sl,
             "tp_sl": f"TP {tp}\nSL {sl}",
             "memo": memo,
+            "market_supported": market_supported,
+            "dust": explicit_dust,
         }
 
     def _read_label_text(self, owner: Any, name: str) -> str:
