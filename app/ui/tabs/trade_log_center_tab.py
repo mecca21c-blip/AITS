@@ -395,7 +395,21 @@ class TradeLogCenterTab(QWidget):
         except Exception as exc:
             log.info("[TradeLogCenter] recent_trades unavailable: %s", exc)
             rows = []
-        self._rows = [self._normalize_trade_row(row) for row in rows]
+        normalized = [self._normalize_trade_row(row) for row in rows]
+        try:
+            parent = getattr(self, "_parent_window", None)
+            getter = getattr(parent, "_get_trade_log_shadow_journal_rows", None)
+            if callable(getter):
+                for row in list(getter(limit=300) or []):
+                    if isinstance(row, dict):
+                        normalized.append(self._normalize_trade_row(row))
+        except Exception as exc:
+            log.info("[TradeLogCenter] shadow journal unavailable: %s", exc)
+        try:
+            normalized.sort(key=lambda row: float(row.get("sort_ts") or 0), reverse=True)
+        except Exception:
+            pass
+        self._rows = normalized[:300]
         self._apply_filters()
         self._emit_proof("refresh", rows=len(self._rows))
 
@@ -468,6 +482,10 @@ class TradeLogCenterTab(QWidget):
                 item = QTableWidgetItem("" if value is None else str(value))
                 item.setData(Qt.ItemDataRole.UserRole, r)
                 table.setItem(r, c, item)
+            try:
+                table.setRowHeight(r, 34)
+            except Exception:
+                pass
         self.empty_label.hide()
         table.resizeColumnsToContents()
 
@@ -527,6 +545,8 @@ class TradeLogCenterTab(QWidget):
                 label.setText(value)
 
     def _normalize_trade_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        if str(row.get("record_type") or "").strip() or str(row.get("category") or "").strip() in {"preview", "blocked", "reflection"}:
+            return self._normalize_journal_row(row)
         ts = row.get("ts") or row.get("time") or row.get("created_at")
         time_text = self._format_time(ts)
         symbol = row.get("market") or row.get("symbol") or "-"
@@ -545,6 +565,7 @@ class TradeLogCenterTab(QWidget):
             submitted_text = "실행됨" if str(submitted) not in ("0", "False", "false", "") else "주문 없음"
         return {
             "category": "fills",
+            "sort_ts": self._sort_timestamp(ts),
             "time": time_text,
             "type": "실제 체결",
             "symbol": symbol,
@@ -558,6 +579,60 @@ class TradeLogCenterTab(QWidget):
             "basis": row.get("reason_short") or "-",
             "reason": reason,
         }
+
+    def _normalize_journal_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        ts = row.get("ts") or row.get("timestamp") or row.get("time") or row.get("created_at")
+        record_type = str(row.get("record_type") or row.get("type") or "preview_decision").strip()
+        category = str(row.get("category") or "").strip().lower()
+        if not category:
+            if record_type in {"blocked", "skipped", "risk_blocked"}:
+                category = "blocked"
+            elif record_type == "reflection":
+                category = "reflection"
+            else:
+                category = "preview"
+        type_label = str(row.get("type_label") or "").strip()
+        if not type_label:
+            type_label = {
+                "shadow_decision": "Shadow 판단",
+                "preview_decision": "Preview 판단",
+                "blocked": "차단/보류",
+                "skipped": "스킵",
+                "reflection": "Reflection",
+            }.get(record_type, "Preview 판단")
+        return {
+            "category": category,
+            "sort_ts": self._sort_timestamp(ts),
+            "time": self._format_time(ts),
+            "type": type_label,
+            "symbol": row.get("symbol") or "-",
+            "action": row.get("action_display") or row.get("action") or "-",
+            "status": row.get("status_display") or row.get("status") or "실제 주문 없음",
+            "price": row.get("price") or "-",
+            "amount": row.get("amount") or "-",
+            "selected_engine": row.get("selected_engine") or "-",
+            "actual_engine": row.get("actual_engine") or row.get("provider") or "-",
+            "submitted": row.get("submitted_display") or "실제 주문 없음",
+            "basis": row.get("basis") or row.get("reason") or "-",
+            "reason": row.get("skip_reason") or row.get("reason") or row.get("safety_note") or "-",
+        }
+
+    def _sort_timestamp(self, value: Any) -> float:
+        try:
+            if isinstance(value, (int, float)) or str(value).isdigit():
+                ts = float(value)
+                if ts > 10_000_000_000:
+                    ts = ts / 1000
+                return ts
+            text = str(value or "").strip()
+            if text:
+                try:
+                    return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return 0.0
 
     def _format_time(self, value: Any) -> str:
         try:

@@ -723,3 +723,18 @@ Policy intent:
 - Scanner/market candidate rows remain candidates until the user adds them to the managed pool.
 - This persistence path does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 47. TRADE-LOG-SHADOW-JOURNAL-WIRING-01 Implementation Note
+
+`TRADE-LOG-SHADOW-JOURNAL-WIRING-01` connects Shadow/Preview AI decision records to the Trade Log Center as an observe-only journal.
+
+Policy intent:
+
+- Actual trade records remain sourced from the existing `recent_trades()` path.
+- Shadow/Preview decision records are held in an in-app journal and merged into the Trade Log Center display adapter.
+- Preview/Shadow records are typed separately from actual fills; actual fill counters count only fill records.
+- Shadow/Preview rows display user-facing action/status labels such as `관망`, `진입 검토`, and `실제 주문 없음`.
+- Journal rows are created after AI snapshot storage and include `order_allowed=False`, `submitted=0`, and `real_order=False`.
+- Non-manual repeated runtime records are deduplicated by content signature; manual refresh records are preserved.
+- This path does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- This path does not submit, create, buy, sell, liquidate, or modify orders.

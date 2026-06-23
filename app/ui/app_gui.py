@@ -24953,6 +24953,161 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _get_trade_log_shadow_journal_rows(self, limit: int = 300) -> list[dict]:
+        try:
+            rows = list(getattr(self, "_trade_log_shadow_journal_rows", []) or [])
+            if limit and limit > 0:
+                rows = rows[-int(limit):]
+            return [dict(row) for row in reversed(rows) if isinstance(row, dict)]
+        except Exception:
+            return []
+
+    def _trade_log_shadow_action_display(self, raw_action: object = "", decision: object = "") -> tuple[str, str]:
+        raw = str(raw_action or "").strip()
+        text = f"{raw} {decision or ''}".strip()
+        upper = text.upper()
+        if "ENTER" in upper:
+            return "진입 검토", raw or "ENTER"
+        if "BUY" in upper and "SELL" not in upper:
+            return "매수 검토", raw or "BUY"
+        if any(token in upper for token in ("SELL", "EXIT")):
+            return "매도 검토", raw or "SELL"
+        if any(token in upper for token in ("STAY", "HOLD", "WAIT", "WATCH")):
+            return "관망", raw or "STAY"
+        if any(token in text for token in ("진입", "매수")) and "매도" not in text:
+            return "진입 검토", raw or "ENTER"
+        if any(token in text for token in ("매도", "청산", "손절")):
+            return "매도 검토", raw or "SELL"
+        if any(token in text for token in ("관망", "대기", "보류", "유지")):
+            return "관망", raw or "STAY"
+        return str(decision or raw or "관망").strip()[:80] or "관망", raw or ""
+
+    def _append_trade_log_shadow_journal_from_snapshot(self, snapshot=None, payload=None, parsed=None) -> None:
+        try:
+            snapshot = snapshot if isinstance(snapshot, dict) else {}
+            payload = payload if isinstance(payload, dict) else {}
+            parsed = parsed if isinstance(parsed, dict) else {}
+            symbol = str(snapshot.get("symbol") or payload.get("symbol") or payload.get("market") or "").strip()
+            if not symbol:
+                return
+            source = str(snapshot.get("source") or payload.get("source") or "unknown").strip() or "unknown"
+            manual = source in {
+                "manual_refresh",
+                "manual",
+                "button",
+                "user",
+                "detail_chart_button",
+                "detail_chart_manual_refresh",
+                "main_ai_refresh",
+            }
+            decision = (
+                parsed.get("decision")
+                or snapshot.get("briefing")
+                or payload.get("decision_summary")
+                or payload.get("decision")
+                or ""
+            )
+            raw_action = (
+                payload.get("action")
+                or payload.get("raw_action")
+                or payload.get("final_action")
+                or payload.get("router_action")
+                or ""
+            )
+            action_display, raw_action_sanitized = self._trade_log_shadow_action_display(raw_action, decision)
+            reason_raw = parsed.get("reason") or snapshot.get("reason") or payload.get("reason") or payload.get("reasons") or []
+            if isinstance(reason_raw, (list, tuple)):
+                reason = " · ".join(str(item).strip() for item in reason_raw if str(item).strip())
+            else:
+                reason = str(reason_raw or "").strip()
+            next_raw = parsed.get("next_action") or snapshot.get("next_action") or payload.get("next_action") or []
+            if isinstance(next_raw, (list, tuple)):
+                next_action = " · ".join(str(item).strip() for item in next_raw if str(item).strip())
+            else:
+                next_action = str(next_raw or "").strip()
+            engine_label = str(snapshot.get("engine_label") or snapshot.get("engine") or payload.get("selected_engine") or "-").strip() or "-"
+            actual_engine = str(
+                snapshot.get("engine_display_label")
+                or payload.get("actual_engine")
+                or payload.get("generated_engine")
+                or engine_label
+            ).strip() or "-"
+            provider = str(snapshot.get("provider") or payload.get("provider") or payload.get("selected_provider") or "").strip()
+            record_type = "preview_decision" if manual else "shadow_decision"
+            record = {
+                "ts": time.time(),
+                "record_type": record_type,
+                "category": "preview",
+                "type_label": "Preview 판단" if manual else "Shadow 판단",
+                "symbol": symbol,
+                "action_display": action_display,
+                "raw_action_sanitized": raw_action_sanitized,
+                "status_display": "실제 주문 없음",
+                "selected_engine": engine_label,
+                "actual_engine": actual_engine,
+                "provider": provider or "-",
+                "confidence": payload.get("confidence") or payload.get("score") or "",
+                "reason": reason or str(decision or "").strip() or "-",
+                "next_action": next_action,
+                "basis": reason or str(decision or "").strip() or "AI 판단 기록",
+                "order_allowed": False,
+                "submitted": 0,
+                "submitted_display": "실제 주문 없음",
+                "real_order": False,
+                "skip_reason": payload.get("skip_reason") or "",
+                "source": source,
+                "safety_note": "observe-only journal · order_allowed=False · submitted=0 · real_order=False",
+            }
+            sig = "|".join(
+                str(record.get(key) or "")
+                for key in ("record_type", "symbol", "action_display", "reason", "next_action", "source")
+            )
+            if not manual:
+                sig_cache = getattr(self, "_trade_log_shadow_journal_signatures", None)
+                if not isinstance(sig_cache, set):
+                    sig_cache = set()
+                    self._trade_log_shadow_journal_signatures = sig_cache
+                if sig in sig_cache:
+                    try:
+                        self._log.info(
+                            "[AITS][TradeLogShadowJournal] event=duplicate_skip symbol=%s submitted=0",
+                            symbol,
+                        )
+                    except Exception:
+                        pass
+                    return
+                sig_cache.add(sig)
+            rows = getattr(self, "_trade_log_shadow_journal_rows", None)
+            if not isinstance(rows, list):
+                rows = []
+                self._trade_log_shadow_journal_rows = rows
+            rows.append(record)
+            if len(rows) > 500:
+                del rows[:-500]
+            try:
+                self._log.info(
+                    "[AITS][TradeLogShadowJournal] event=record record_type=%s symbol=%s action=%s order_allowed=False submitted=0 real_order=False",
+                    record_type,
+                    symbol,
+                    action_display,
+                )
+            except Exception:
+                pass
+            try:
+                tab = getattr(self, "tab_trades", None)
+                if tab is not None and hasattr(tab, "refresh"):
+                    tab.refresh()
+            except Exception:
+                pass
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][TradeLogShadowJournal] event=record_failed reason=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
     def _record_recent_ai_snapshot_for_symbol(self, symbol="", payload=None, parsed=None, source="unknown"):
         try:
             sym = self._resolve_current_ai_snapshot_symbol(symbol)
@@ -42764,11 +42919,16 @@ class MainWindow(QMainWindow):
                 try:
                     source = "manual_refresh" if manual_generation else "auto_condition"
                     self._ai_briefing_last_snapshot_source = source
-                    self._record_recent_ai_snapshot_for_symbol(
+                    snapshot = self._record_recent_ai_snapshot_for_symbol(
                         getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
                         payload=_pl,
                         parsed=parsed,
                         source=source,
+                    )
+                    self._append_trade_log_shadow_journal_from_snapshot(
+                        snapshot=snapshot,
+                        payload=_pl,
+                        parsed=parsed,
                     )
                 except Exception:
                     pass
