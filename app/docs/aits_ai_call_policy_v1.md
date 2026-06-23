@@ -753,3 +753,19 @@ Policy intent:
 - Stored/restored journal rows preserve `order_allowed=False`, `submitted=0`, and `real_order=False`.
 - This persistence path does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - This persistence path does not submit, create, buy, sell, liquidate, or modify orders.
+
+## 49. RUNTIME-AI-VISIBILITY-AND-COPY-FIX-01 Implementation Note
+
+`RUNTIME-AI-VISIBILITY-AND-COPY-FIX-01` clarifies runtime AI-decision visibility and user-facing copy.
+
+Policy intent:
+
+- Runtime `ai.reco.updated` events can create recent-AI snapshots with `source=auto_condition`; this is classified as runtime-generated visibility, not a new provider/API call.
+- Explicit user AI refresh remains distinguishable as `source=manual_refresh`.
+- The Trade Log Center may journal runtime Shadow/Preview rows after snapshot storage, but the journal remains observe-only and does not connect to Router, Execution, Order, or Risk Guard.
+- Trade Log detail display separates `판단 근거` from `사유`: the former is the compact system basis, while the latter is a user-readable explanation.
+- If legacy rows have only one source text, the UI fallback expands one side so identical text is not repeated in both fields.
+- User-facing copy should explain internal conditions in plain Korean while keeping internal keys, source labels, and log identifiers stable.
+- Save-complete messages must state clearly that no real order was submitted.
+- This work does not change AI provider call conditions, order actions, Router decisions, Risk Guard policy, or execution behavior.
+- `order_allowed=False`, `real_order=False`, and `submitted=0` remain the safety boundary.

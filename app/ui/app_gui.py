@@ -7752,6 +7752,16 @@ class MainWindow(QMainWindow):
             key = str(value or "").strip()
             if not key:
                 return ""
+            friendly_replacements = (
+                ("보유 여유슬롯 존재 + 신규 후보 우위", "현재 보유 여력이 있어 신규 후보를 우선 검토하는 상황입니다."),
+                ("신규 후보 우위", "새 후보 종목의 우선순위가 높아 추가 관찰 대상으로 검토 중입니다."),
+                ("보유 여유슬롯 존재", "현재 보유 여력이 있어 추가 관찰 후보를 검토할 수 있습니다."),
+            )
+            for old, new in friendly_replacements:
+                if old in key:
+                    key = key.replace(old, new)
+            if key.endswith("입니다.") and any(text in key for text in ("신규 후보", "보유 여력", "추가 관찰")):
+                return key
             normalized = key.lower().strip().replace("-", "_").replace(" ", "_")
             ui_overrides = {
                 "change_ratio_normalized": "가격 변동률을 정규화해 반영했습니다.",
@@ -15858,16 +15868,16 @@ class MainWindow(QMainWindow):
             ok = self._save_trade_log_center_state(reason="trade_log_center_footer_save")
             if ok:
                 try:
-                    QMessageBox.information(self, "Saved", "Trade log journal/layout saved. No order submitted.")
+                    QMessageBox.information(self, "저장 완료", "매매기록 설정과 판단 기록이 저장되었습니다. 실제 주문은 실행되지 않았습니다.")
                 except Exception:
                     pass
                 return True
             try:
-                self.set_status_msg("Trade log journal/layout save failed · no order submitted", "#b45309")
+                self.set_status_msg("매매기록 설정과 판단 기록 저장 실패 · 실제 주문 없음", "#b45309")
             except Exception:
                 pass
             try:
-                QMessageBox.warning(self, "Save failed", "Trade log journal/layout save failed. No order submitted.")
+                QMessageBox.warning(self, "저장 실패", "매매기록 설정과 판단 기록 저장에 실패했습니다. 실제 주문은 실행되지 않았습니다.")
             except Exception:
                 pass
             return False
@@ -25194,7 +25204,7 @@ class MainWindow(QMainWindow):
                 "confidence": payload.get("confidence") or payload.get("score") or "",
                 "reason": reason or str(decision or "").strip() or "-",
                 "next_action": next_action,
-                "basis": reason or str(decision or "").strip() or "AI 판단 기록",
+                "basis": next_action or action_display or str(decision or "").strip() or "AI 판단 기록",
                 "order_allowed": False,
                 "submitted": 0,
                 "submitted_display": "실제 주문 없음",
@@ -43175,6 +43185,17 @@ class MainWindow(QMainWindow):
                         payload=_pl,
                         parsed=parsed,
                     )
+                    try:
+                        classification = "manual_refresh_only" if source == "manual_refresh" else "runtime_auto_generated"
+                        self._log.info(
+                            "[AITS][RuntimeAIDecisionAudit] event=ai_reco_updated source=%s classification=%s visible=%s journaled=%s submitted=0",
+                            source,
+                            classification,
+                            True,
+                            bool(snapshot),
+                        )
+                    except Exception:
+                        pass
                 except Exception:
                     pass
                 if manual_generation:

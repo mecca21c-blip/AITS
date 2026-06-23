@@ -597,9 +597,57 @@ class TradeLogCenterTab(QWidget):
             row = None
         self._set_detail(row)
 
+    def _humanize_trade_log_text(self, text: Any) -> str:
+        value = str(text or "").strip()
+        if not value or value == "-":
+            return "-"
+        replacements = (
+            ("보유 여유슬롯 존재 + 신규 후보 우위", "현재 보유 여력이 있어 신규 후보를 우선 검토하는 상황입니다."),
+            ("신규 후보 우위", "새 후보 종목의 우선순위가 높아 추가 관찰 대상으로 검토 중입니다."),
+            ("보유 여유슬롯 존재", "현재 보유 여력이 있어 추가 관찰 후보를 검토할 수 있습니다."),
+        )
+        for old, new in replacements:
+            value = value.replace(old, new)
+        return value.strip() or "-"
+
+    def _split_journal_basis_reason(self, row: dict[str, Any] | None) -> tuple[str, str, bool]:
+        if not row:
+            return "-", "-", False
+        basis_source = row.get("basis") or row.get("reason_short") or row.get("next_action") or row.get("action_display") or ""
+        reason_source = row.get("skip_reason") or row.get("reason") or row.get("safety_note") or row.get("basis") or ""
+        basis = self._humanize_trade_log_text(basis_source)
+        reason = self._humanize_trade_log_text(reason_source)
+        identical_before = bool(basis and reason and basis != "-" and basis == reason)
+        if basis in ("", "-") and reason not in ("", "-"):
+            basis = reason.split("。")[0].split(".")[0].split("·")[0].strip()[:90] or reason
+        if reason in ("", "-") and basis not in ("", "-"):
+            reason = f"{basis} 표시용 판단 기록이며 실제 주문은 실행되지 않았습니다."
+        if identical_before:
+            reason = f"{basis} 표시용 판단 기록이며 실제 주문은 실행되지 않았습니다."
+        return basis or "-", reason or "-", identical_before
+
+    def _emit_reason_audit(self, identical_before: bool, basis: str, reason: str) -> None:
+        if not identical_before:
+            return
+        try:
+            identical_after = bool(basis and reason and basis == reason)
+            message = (
+                "[AITS][TradeLogReasonAudit] "
+                f"event=detail_reason_split source_fields=basis,reason "
+                f"identical_before={identical_before} identical_after={identical_after} submitted=0"
+            )
+            log.info(message)
+            parent_log = getattr(getattr(self, "_parent_window", None), "_log", None)
+            if parent_log is not None:
+                parent_log.info(message)
+        except Exception:
+            pass
+
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         is_empty = row is None
         self.detail_placeholder.setVisible(is_empty)
+        basis, reason, identical_before = self._split_journal_basis_reason(row)
+        self._emit_reason_audit(identical_before, basis, reason)
         values = {
             "type": row.get("type") if row else "-",
             "symbol": row.get("symbol") if row else "-",
@@ -607,8 +655,8 @@ class TradeLogCenterTab(QWidget):
             "submitted": row.get("submitted") if row else "-",
             "selected_engine": row.get("selected_engine") if row else "-",
             "actual_engine": row.get("actual_engine") if row else "-",
-            "basis": row.get("basis") if row else "-",
-            "reason": row.get("reason") if row else "-",
+            "basis": basis,
+            "reason": reason,
         }
         for key, value in values.items():
             label = self._detail_values.get(key)
@@ -693,6 +741,7 @@ class TradeLogCenterTab(QWidget):
                 "skipped": "스킵",
                 "reflection": "Reflection",
             }.get(record_type, "Preview 판단")
+        basis, reason, _identical_before = self._split_journal_basis_reason(row)
         return {
             "category": category,
             "sort_ts": self._sort_timestamp(ts),
@@ -706,8 +755,8 @@ class TradeLogCenterTab(QWidget):
             "selected_engine": row.get("selected_engine") or "-",
             "actual_engine": row.get("actual_engine") or row.get("provider") or "-",
             "submitted": row.get("submitted_display") or "실제 주문 없음",
-            "basis": row.get("basis") or row.get("reason") or "-",
-            "reason": row.get("skip_reason") or row.get("reason") or row.get("safety_note") or "-",
+            "basis": basis,
+            "reason": reason,
         }
 
     def _sort_timestamp(self, value: Any) -> float:
