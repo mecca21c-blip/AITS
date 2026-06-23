@@ -63,6 +63,9 @@ class TradeLogCenterTab(QWidget):
         self._detail_values: dict[str, QLabel] = {}
         self._kpi_values: dict[str, QLabel] = {}
         self._filter_buttons: dict[str, QPushButton] = {}
+        self._column_widths_dirty = False
+        self._has_saved_column_widths = False
+        self._restoring_column_widths = False
         self._build_ui()
         self.refresh()
         self._emit_proof("create_new_tab", widget="TradeLogCenterTab")
@@ -331,6 +334,11 @@ class TradeLogCenterTab(QWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setMinimumHeight(36)
         header.setStretchLastSection(True)
+        try:
+            header.sectionResized.connect(self._on_column_resized)
+        except Exception:
+            pass
+        self._restore_column_widths_from_parent()
         self.tbl_records.itemSelectionChanged.connect(self._on_row_selected)
         layout.addWidget(self.tbl_records, 1)
         return card
@@ -487,7 +495,92 @@ class TradeLogCenterTab(QWidget):
             except Exception:
                 pass
         self.empty_label.hide()
-        table.resizeColumnsToContents()
+        self._apply_default_column_widths_if_needed()
+
+    def _apply_default_column_widths_if_needed(self) -> None:
+        if self._column_widths_dirty or self._has_saved_column_widths:
+            return
+        table = getattr(self, "tbl_records", None)
+        if table is None:
+            return
+        try:
+            self._restoring_column_widths = True
+            table.resizeColumnsToContents()
+        except Exception:
+            pass
+        finally:
+            self._restoring_column_widths = False
+
+    def _on_column_resized(self, *_args) -> None:
+        if bool(getattr(self, "_restoring_column_widths", False)):
+            return
+        self._column_widths_dirty = True
+        try:
+            parent_log = getattr(getattr(self, "_parent_window", None), "_log", None)
+            if parent_log is not None:
+                parent_log.info("[AITS][TradeLogCenterLayout] event=dirty reason=column_resized submitted=0")
+        except Exception:
+            pass
+
+    def get_column_widths(self) -> list[int]:
+        table = getattr(self, "tbl_records", None)
+        if table is None:
+            return []
+        header = table.horizontalHeader()
+        widths: list[int] = []
+        try:
+            for idx in range(table.columnCount()):
+                widths.append(int(header.sectionSize(idx)))
+        except Exception:
+            return []
+        return widths
+
+    def _restore_column_widths_from_parent(self) -> bool:
+        try:
+            parent = getattr(self, "_parent_window", None)
+            ui_getter = getattr(parent, "_get_ui_state_dict", None)
+            ui_state = ui_getter() if callable(ui_getter) else {}
+            state = dict((ui_state or {}).get("trade_log_center_layout_state") or {})
+            widths = state.get("column_widths")
+            table = getattr(self, "tbl_records", None)
+            if table is None or not isinstance(widths, list) or len(widths) != table.columnCount():
+                return False
+            self._restoring_column_widths = True
+            header = table.horizontalHeader()
+            for idx, width in enumerate(widths):
+                try:
+                    w = int(width)
+                except Exception:
+                    w = 0
+                if w > 20:
+                    header.resizeSection(idx, w)
+            self._has_saved_column_widths = True
+            self._column_widths_dirty = False
+            try:
+                parent_log = getattr(parent, "_log", None)
+                if parent_log is not None:
+                    parent_log.info(
+                        "[AITS][TradeLogCenterLayout] event=restore_column_widths columns=%s submitted=0",
+                        len(widths),
+                    )
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+        finally:
+            self._restoring_column_widths = False
+
+    def clear_layout_dirty(self) -> None:
+        self._column_widths_dirty = False
+        self._has_saved_column_widths = True
+
+    def save_layout_state(self) -> bool:
+        parent = getattr(self, "_parent_window", None)
+        saver = getattr(parent, "_save_trade_log_center_state", None)
+        if callable(saver):
+            return bool(saver(reason="trade_log_center_tab_save"))
+        return False
 
     def _on_row_selected(self) -> None:
         selected = self.tbl_records.selectedItems()

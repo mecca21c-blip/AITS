@@ -738,3 +738,18 @@ Policy intent:
 - Non-manual repeated runtime records are deduplicated by content signature; manual refresh records are preserved.
 - This path does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - This path does not submit, create, buy, sell, liquidate, or modify orders.
+
+## 48. TRADE-LOG-SHADOW-JOURNAL-PERSISTENCE-01 Implementation Note
+
+`TRADE-LOG-SHADOW-JOURNAL-PERSISTENCE-01` persists the observe-only Trade Log Center journal and table layout.
+
+Policy intent:
+
+- Shadow/Preview journal rows are persisted under `ui_state.trade_log_shadow_journal_rows`.
+- Trade Log Center column widths are persisted under `ui_state.trade_log_center_layout_state.column_widths`.
+- The journal is capped at 500 observe-only rows and excludes actual fill records.
+- Actual trade/fill records remain sourced from the existing `recent_trades()` path and are not mixed into the Shadow/Preview journal store.
+- Restored journal rows contribute to Preview/Shadow counters and detail display, while actual fill counters continue to count only actual fills.
+- Stored/restored journal rows preserve `order_allowed=False`, `submitted=0`, and `real_order=False`.
+- This persistence path does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- This persistence path does not submit, create, buy, sell, liquidate, or modify orders.

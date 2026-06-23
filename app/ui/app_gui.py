@@ -15851,19 +15851,26 @@ class MainWindow(QMainWindow):
         if active_widget is getattr(self, "tab_trades", None) or active_widget.__class__.__name__ == "TradeLogCenterTab":
             try:
                 self._log.info(
-                    "[AITS][TabSaveDispatcher] active_tab=trade_log_center | handler=no_save_needed | status=dispatch"
+                    "[AITS][TabSaveDispatcher] active_tab=trade_log_center | handler=journal_layout_state | status=dispatch"
                 )
             except Exception:
                 pass
+            ok = self._save_trade_log_center_state(reason="trade_log_center_footer_save")
+            if ok:
+                try:
+                    QMessageBox.information(self, "Saved", "Trade log journal/layout saved. No order submitted.")
+                except Exception:
+                    pass
+                return True
             try:
-                self.set_status_msg("매매기록 탭은 저장할 설정이 없습니다 · 주문 없음", "#334155")
+                self.set_status_msg("Trade log journal/layout save failed · no order submitted", "#b45309")
             except Exception:
                 pass
             try:
-                QMessageBox.information(self, "저장 대상 없음", "매매기록 탭은 저장할 설정이 없습니다 · 주문 없음")
+                QMessageBox.warning(self, "Save failed", "Trade log journal/layout save failed. No order submitted.")
             except Exception:
                 pass
-            return True
+            return False
         if active_widget is getattr(self, "portfolio_tab", None) or active_widget.__class__.__name__ == "InvestmentCenterTab":
             try:
                 self._log.info(
@@ -24955,12 +24962,146 @@ class MainWindow(QMainWindow):
 
     def _get_trade_log_shadow_journal_rows(self, limit: int = 300) -> list[dict]:
         try:
+            try:
+                self._restore_trade_log_shadow_journal_from_settings()
+            except Exception:
+                pass
             rows = list(getattr(self, "_trade_log_shadow_journal_rows", []) or [])
             if limit and limit > 0:
                 rows = rows[-int(limit):]
             return [dict(row) for row in reversed(rows) if isinstance(row, dict)]
         except Exception:
             return []
+
+    def _trade_log_shadow_journal_signature(self, row: dict) -> str:
+        if not isinstance(row, dict):
+            return ""
+        return "|".join(
+            str(row.get(key) or "")
+            for key in ("record_type", "symbol", "action_display", "reason", "next_action", "source")
+        )
+
+    def _sanitize_trade_log_shadow_journal_row(self, row) -> dict:
+        if not isinstance(row, dict):
+            return {}
+        record_type = str(row.get("record_type") or "").strip() or "preview_decision"
+        category = str(row.get("category") or "").strip().lower()
+        if category == "fills" or record_type in {"actual_trade", "fill", "fills"}:
+            return {}
+        if not category:
+            category = "blocked" if record_type in {"blocked", "skipped", "risk_blocked"} else "preview"
+        if category not in {"preview", "blocked", "reflection"}:
+            category = "preview"
+        symbol = str(row.get("symbol") or row.get("market") or "").strip()
+        if not symbol:
+            return {}
+        out: dict = {}
+        keys = (
+            "ts",
+            "timestamp",
+            "time",
+            "record_type",
+            "category",
+            "type_label",
+            "symbol",
+            "action_display",
+            "raw_action_sanitized",
+            "status_display",
+            "selected_engine",
+            "actual_engine",
+            "provider",
+            "confidence",
+            "reason",
+            "next_action",
+            "basis",
+            "source",
+            "skip_reason",
+            "safety_note",
+        )
+        for key in keys:
+            if key in row and row.get(key) is not None:
+                out[key] = row.get(key)
+        out["record_type"] = record_type
+        out["category"] = category
+        out["symbol"] = symbol
+        out["order_allowed"] = False
+        out["submitted"] = 0
+        out["submitted_display"] = "실제 주문 없음"
+        out["real_order"] = False
+        if not str(out.get("status_display") or "").strip():
+            out["status_display"] = "실제 주문 없음"
+        if not str(out.get("safety_note") or "").strip():
+            out["safety_note"] = "observe-only journal · order_allowed=False · submitted=0 · real_order=False"
+        if not out.get("ts"):
+            try:
+                out["ts"] = float(row.get("created_at") or time.time())
+            except Exception:
+                out["ts"] = time.time()
+        return out
+
+    def _build_trade_log_shadow_journal_snapshot(self) -> list[dict]:
+        rows = getattr(self, "_trade_log_shadow_journal_rows", None)
+        if not isinstance(rows, list):
+            return []
+        snapshot: list[dict] = []
+        seen: set[str] = set()
+        for row in rows[-500:]:
+            clean = self._sanitize_trade_log_shadow_journal_row(row)
+            if not clean:
+                continue
+            sig = self._trade_log_shadow_journal_signature(clean)
+            if sig and sig in seen:
+                continue
+            if sig:
+                seen.add(sig)
+            snapshot.append(clean)
+        return snapshot[-500:]
+
+    def _restore_trade_log_shadow_journal_from_settings(self, force: bool = False) -> bool:
+        if bool(getattr(self, "_trade_log_shadow_journal_restore_attempted", False)) and not force:
+            return bool(getattr(self, "_trade_log_shadow_journal_restored", False))
+        self._trade_log_shadow_journal_restore_attempted = True
+        try:
+            ui_state = self._get_ui_state_dict()
+            if "trade_log_shadow_journal_rows" not in ui_state:
+                return False
+            raw_rows = ui_state.get("trade_log_shadow_journal_rows") or []
+            if not isinstance(raw_rows, list):
+                raw_rows = []
+            restored: list[dict] = []
+            signatures: set[str] = set()
+            for row in raw_rows[-500:]:
+                clean = self._sanitize_trade_log_shadow_journal_row(row)
+                if not clean:
+                    continue
+                sig = self._trade_log_shadow_journal_signature(clean)
+                if sig and sig in signatures:
+                    continue
+                if sig:
+                    signatures.add(sig)
+                restored.append(clean)
+            self._trade_log_shadow_journal_rows = restored[-500:]
+            self._trade_log_shadow_journal_signatures = signatures
+            self._trade_log_shadow_journal_restored = True
+            try:
+                preview_count = sum(1 for row in restored if row.get("category") == "preview")
+                self._log.info(
+                    "[AITS][TradeLogShadowJournalPersistence] event=restore rows=%s preview=%s submitted=0",
+                    len(restored),
+                    preview_count,
+                )
+            except Exception:
+                pass
+            return True
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][TradeLogShadowJournalPersistence] event=restore_failed reason=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
 
     def _trade_log_shadow_action_display(self, raw_action: object = "", decision: object = "") -> tuple[str, str]:
         raw = str(raw_action or "").strip()
@@ -24984,6 +25125,10 @@ class MainWindow(QMainWindow):
 
     def _append_trade_log_shadow_journal_from_snapshot(self, snapshot=None, payload=None, parsed=None) -> None:
         try:
+            try:
+                self._restore_trade_log_shadow_journal_from_settings()
+            except Exception:
+                pass
             snapshot = snapshot if isinstance(snapshot, dict) else {}
             payload = payload if isinstance(payload, dict) else {}
             parsed = parsed if isinstance(parsed, dict) else {}
@@ -25107,6 +25252,63 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+
+    def _save_trade_log_center_state(self, reason: str = "trade_log_center_state_save") -> bool:
+        try:
+            try:
+                self._restore_trade_log_shadow_journal_from_settings()
+            except Exception:
+                pass
+            ui_state = self._get_ui_state_dict()
+            journal_rows = self._build_trade_log_shadow_journal_snapshot()
+            layout_state = dict(ui_state.get("trade_log_center_layout_state") or {})
+            column_widths: list[int] = []
+            tab = getattr(self, "tab_trades", None)
+            try:
+                if tab is not None and hasattr(tab, "get_column_widths"):
+                    column_widths = list(tab.get_column_widths() or [])
+            except Exception:
+                column_widths = []
+            if column_widths:
+                layout_state["column_widths"] = column_widths
+                layout_state["schema"] = "trade_log_center_layout_state.v1"
+            ui_state["trade_log_shadow_journal_rows"] = journal_rows[-500:]
+            ui_state["trade_log_center_layout_state"] = layout_state
+            ok = bool(self._apply_settings_patch({"ui_state": ui_state}, reason=reason))
+            if ok:
+                try:
+                    if tab is not None and hasattr(tab, "clear_layout_dirty"):
+                        tab.clear_layout_dirty()
+                except Exception:
+                    pass
+                try:
+                    preview_count = sum(1 for row in journal_rows if row.get("category") == "preview")
+                    self._log.info(
+                        "[AITS][TradeLogShadowJournalPersistence] event=save rows=%s preview=%s actual_trade=0 submitted=0",
+                        len(journal_rows),
+                        preview_count,
+                    )
+                    if column_widths:
+                        self._log.info(
+                            "[AITS][TradeLogCenterLayout] event=save_column_widths columns=%s submitted=0",
+                            len(column_widths),
+                        )
+                except Exception:
+                    pass
+                try:
+                    self.set_status_msg("매매기록 Journal/Layout 저장 완료 · 주문 없음", "#15803d")
+                except Exception:
+                    pass
+            return ok
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][TradeLogShadowJournalPersistence] event=save_failed reason=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
 
     def _record_recent_ai_snapshot_for_symbol(self, symbol="", payload=None, parsed=None, source="unknown"):
         try:
@@ -41979,6 +42181,49 @@ class MainWindow(QMainWindow):
                 try:
                     self._log.warning(
                         "[AITS][ManagedPoolPersistence] event=save_failed reason=%s submitted=0",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
+
+            try:
+                if isinstance(patch.get("ui_state"), dict):
+                    us_merged = dict(patch["ui_state"])
+                else:
+                    us_merged = {}
+                journal_rows = self._build_trade_log_shadow_journal_snapshot()
+                layout_state = dict(us_merged.get("trade_log_center_layout_state") or {})
+                tab = getattr(self, "tab_trades", None)
+                column_widths = []
+                try:
+                    if tab is not None and hasattr(tab, "get_column_widths"):
+                        column_widths = list(tab.get_column_widths() or [])
+                except Exception:
+                    column_widths = []
+                if column_widths:
+                    layout_state["schema"] = "trade_log_center_layout_state.v1"
+                    layout_state["column_widths"] = column_widths
+                us_merged["trade_log_shadow_journal_rows"] = journal_rows[-500:]
+                us_merged["trade_log_center_layout_state"] = layout_state
+                patch["ui_state"] = us_merged
+                try:
+                    preview_count = sum(1 for row in journal_rows if row.get("category") == "preview")
+                    self._log.info(
+                        "[AITS][TradeLogShadowJournalPersistence] event=save rows=%s preview=%s actual_trade=0 submitted=0",
+                        len(journal_rows),
+                        preview_count,
+                    )
+                    if column_widths:
+                        self._log.info(
+                            "[AITS][TradeLogCenterLayout] event=save_column_widths columns=%s submitted=0",
+                            len(column_widths),
+                        )
+                except Exception:
+                    pass
+            except Exception as exc:
+                try:
+                    self._log.warning(
+                        "[AITS][TradeLogShadowJournalPersistence] event=save_failed reason=%s submitted=0",
                         type(exc).__name__,
                     )
                 except Exception:
