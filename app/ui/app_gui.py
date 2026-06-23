@@ -15468,6 +15468,156 @@ class MainWindow(QMainWindow):
             pass
         return {}
 
+    def _normalize_managed_pool_symbol_for_persistence(self, value) -> str:
+        try:
+            raw = str(value or "").strip()
+            if not raw:
+                return ""
+            if hasattr(self, "_normalize_aits_market_symbol"):
+                return str(self._normalize_aits_market_symbol(raw) or "").strip()
+            sym = raw.upper()
+            return sym if "-" in sym else f"KRW-{sym}"
+        except Exception:
+            return str(value or "").strip().upper()
+
+    def _sanitize_managed_pool_row_for_persistence(self, row) -> dict:
+        if not isinstance(row, dict):
+            return {}
+        symbol = self._normalize_managed_pool_symbol_for_persistence(
+            row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker")
+        )
+        if not symbol:
+            return {}
+        out = {}
+        keys = (
+            "symbol",
+            "market",
+            "name",
+            "display_name",
+            "source",
+            "source_type",
+            "status",
+            "ai_status",
+            "score",
+            "ai_score",
+            "decision",
+            "reason",
+            "next_action",
+            "manual_hold",
+            "user_trade_hold",
+            "hold_source",
+            "hold_reason",
+            "_ai_status_before_pause",
+            "target_weight",
+            "weight",
+            "target_price",
+            "stop_loss",
+            "take_profit",
+            "created_at",
+            "added_at",
+            "updated_at",
+            "locked",
+            "rotation_needed",
+        )
+        for key in keys:
+            if key in row:
+                value = row.get(key)
+                if value is not None:
+                    out[key] = value
+        out["symbol"] = symbol
+        out["market"] = symbol
+        if not str(out.get("source_type") or "").strip():
+            out["source_type"] = "user_added"
+        if not str(out.get("source") or "").strip():
+            out["source"] = "USER" if out.get("source_type") == "user_added" else "AI"
+        if not str(out.get("name") or "").strip():
+            out["name"] = symbol.split("-")[-1]
+        return out
+
+    def _build_managed_pool_rows_snapshot(self) -> list[dict]:
+        rows = getattr(self, "ai_managed_rows", None)
+        if not isinstance(rows, list):
+            return []
+        snapshot = []
+        seen = set()
+        for row in rows:
+            clean = self._sanitize_managed_pool_row_for_persistence(row)
+            symbol = str(clean.get("symbol") or "").strip()
+            if not symbol or symbol in seen:
+                continue
+            snapshot.append(clean)
+            seen.add(symbol)
+        return snapshot
+
+    def _restore_managed_pool_rows_from_settings(self, force: bool = False) -> bool:
+        if bool(getattr(self, "_managed_pool_restore_attempted", False)) and not force:
+            return bool(getattr(self, "_managed_pool_persisted_state_seen", False))
+        self._managed_pool_restore_attempted = True
+        try:
+            ui_state = self._get_ui_state_dict()
+            if "managed_pool_rows" not in ui_state:
+                try:
+                    self._log.info(
+                        "[AITS][ManagedPoolPersistence] event=restore source=none rows=0 fallback_default=True submitted=0"
+                    )
+                except Exception:
+                    pass
+                return False
+            raw_rows = ui_state.get("managed_pool_rows")
+            self._managed_pool_persisted_state_seen = True
+            if raw_rows is None:
+                raw_rows = []
+            if not isinstance(raw_rows, list):
+                self._managed_pool_persisted_state_seen = False
+                try:
+                    self._log.warning(
+                        "[AITS][ManagedPoolPersistence] event=restore source=settings rows=0 fallback_default=True reason=invalid_type submitted=0"
+                    )
+                except Exception:
+                    pass
+                return False
+            restored = []
+            seen = set()
+            for item in raw_rows:
+                clean = self._sanitize_managed_pool_row_for_persistence(item)
+                symbol = str(clean.get("symbol") or "").strip()
+                if not symbol or symbol in seen:
+                    continue
+                try:
+                    clean = self._ensure_aits_managed_pool_row_shape(clean)
+                except Exception:
+                    pass
+                restored.append(clean)
+                seen.add(symbol)
+            if raw_rows and not restored:
+                self._managed_pool_persisted_state_seen = False
+                try:
+                    self._log.warning(
+                        "[AITS][ManagedPoolPersistence] event=restore source=settings rows=0 fallback_default=True reason=no_valid_symbols submitted=0"
+                    )
+                except Exception:
+                    pass
+                return False
+            self.ai_managed_rows = restored
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolPersistence] event=restore source=settings rows=%s fallback_default=False submitted=0",
+                    len(restored),
+                )
+            except Exception:
+                pass
+            return True
+        except Exception as exc:
+            self._managed_pool_persisted_state_seen = False
+            try:
+                self._log.warning(
+                    "[AITS][ManagedPoolPersistence] event=restore source=settings rows=0 fallback_default=True reason=%s submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
+
     def _build_session_restore_snapshot(self) -> dict:
         from datetime import datetime
 
@@ -32048,7 +32198,22 @@ class MainWindow(QMainWindow):
     def _ensure_demo_ai_rows(self) -> None:
         """AI 소스 종목이 없을 때만 샘플 AI 종목을 1회 주입한다."""
         try:
-            if any(str(r.get("source") or "").upper() == "AI" for r in (self.ai_managed_rows or [])):
+            try:
+                self._restore_managed_pool_rows_from_settings()
+            except Exception:
+                pass
+            if bool(getattr(self, "_managed_pool_persisted_state_seen", False)):
+                try:
+                    if not bool(getattr(self, "_managed_pool_fallback_skip_logged", False)):
+                        self._managed_pool_fallback_skip_logged = True
+                        self._log.info(
+                            "[AITS][ManagedPoolPersistence] event=default_fallback_skipped reason=saved_state_present rows=%s submitted=0",
+                            len(getattr(self, "ai_managed_rows", None) or []),
+                        )
+                except Exception:
+                    pass
+                return
+            if getattr(self, "ai_managed_rows", None):
                 return
             existing = {str(r.get("symbol") or "").strip() for r in (self.ai_managed_rows or [])}
             for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP"):
@@ -32070,6 +32235,13 @@ class MainWindow(QMainWindow):
                 demo_row["source_type"] = "system_default"
                 self.ai_managed_rows.append(demo_row)
                 existing.add(sym)
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolPersistence] event=restore source=default_fallback rows=%s fallback_default=True submitted=0",
+                    len(getattr(self, "ai_managed_rows", None) or []),
+                )
+            except Exception:
+                pass
             print(f"[AITS] demo ai rows injected count={len([r for r in self.ai_managed_rows if str(r.get('source')) == 'AI'])}")
         except Exception:
             pass
@@ -41625,6 +41797,37 @@ class MainWindow(QMainWindow):
                 patch["ui_state"] = us_merged
             except Exception:
                 pass
+
+            try:
+                if isinstance(patch.get("ui_state"), dict):
+                    us_merged = dict(patch["ui_state"])
+                else:
+                    us_merged = {}
+                managed_rows = self._build_managed_pool_rows_snapshot()
+                us_merged["managed_pool_rows"] = managed_rows
+                patch["ui_state"] = us_merged
+                try:
+                    user_added = sum(
+                        1
+                        for row in managed_rows
+                        if str(row.get("source_type") or "").strip().lower()
+                        in ("user_added", "user", "manual", "manual_added")
+                    )
+                    self._log.info(
+                        "[AITS][ManagedPoolPersistence] event=save rows=%s user_added=%s submitted=0",
+                        len(managed_rows),
+                        int(user_added),
+                    )
+                except Exception:
+                    pass
+            except Exception as exc:
+                try:
+                    self._log.warning(
+                        "[AITS][ManagedPoolPersistence] event=save_failed reason=%s submitted=0",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
 
             save_ok = self._apply_settings_patch(patch, reason="settings_tab_save")
             self._log.info("[SAVE] apply_patch ok=%s", save_ok)

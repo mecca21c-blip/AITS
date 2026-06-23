@@ -708,3 +708,18 @@ Policy intent:
 - Repeated automatic snapshots with identical symbol/source/engine/provider/model/briefing/reason/next-action content are skipped; generated time alone does not force another store.
 - Manual refresh snapshots are not deduplicated away, so explicit user analysis results remain visible.
 - API keys, prompts, raw account payloads, and order payloads must not be logged by the snapshot audit path.
+
+## 46. MANAGED-POOL-PERSISTENCE-SSOT-FIX-01 Implementation Note
+
+`MANAGED-POOL-PERSISTENCE-SSOT-FIX-01` defines the managed symbol pool persistence owner.
+
+Policy intent:
+
+- Managed symbols are persisted in the existing prefs `ui_state.managed_pool_rows` key.
+- The runtime owner remains `MainWindow.ai_managed_rows`; save writes a sanitized snapshot of that runtime list.
+- `user_added` rows are preserved across app restart, including hold/status/score fields when available.
+- The default `KRW-BTC`, `KRW-ETH`, and `KRW-XRP` fallback is used only when no saved managed-pool state exists.
+- If a saved managed-pool state exists, the default fallback must not overwrite or append over the user's saved pool.
+- Scanner/market candidate rows remain candidates until the user adds them to the managed pool.
+- This persistence path does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- `order_allowed=False` and `submitted=0` remain the safety boundary.
