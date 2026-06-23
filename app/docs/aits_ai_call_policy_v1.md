@@ -811,3 +811,17 @@ Policy intent:
 - Candidate feed recovery refresh updates scanner rows, managed-row market fields, Basic score display, and related UI only.
 - Candidate feed recovery does not run manual AI analysis refresh, GPT/Gemini/OpenAI calls, Router decisions, Risk Guard policy, or order execution.
 - Recovery and stale logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 53. NETWORK-RECONNECT-CANDIDATE-UI-ACTUAL-RECOVERY-FIX-01 Implementation Note
+
+`NETWORK-RECONNECT-CANDIDATE-UI-ACTUAL-RECOVERY-FIX-01` aligns candidate-feed recovery messages with actual scanner table rendering.
+
+Policy intent:
+
+- Candidate feed recovery is complete only after the candidate table renders rows and at least one visible row has a valid change-rate or score field.
+- A network/ticker check returning `ok` may start candidate refresh, but it must not show candidate-list completion by itself.
+- Incomplete recovery keeps the candidate feed in stale/degraded state and shows a retry/in-progress message instead of a success message.
+- Manual status refresh and automatic network recovery use the same observe-only candidate feed refresh/render validation path.
+- Duplicate recovery scheduling is guarded by pending/running flags and backoff.
+- This recovery path does not run manual AI analysis refresh, GPT/Gemini/OpenAI calls, Router decisions, Risk Guard policy, or order execution.
+- Recovery logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
