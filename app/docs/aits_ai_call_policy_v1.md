@@ -693,3 +693,18 @@ Policy intent:
 - Current-price valuation copy references the last update context without changing price lookup or valuation formulas.
 - This work does not call AI providers, Order Adapter, Execution Bridge, Router, or Risk Guard.
 - `order_allowed=False` and `submitted=0` remain the safety boundary.
+
+## 45. AI-SNAPSHOT-AUTO-CONDITION-AUDIT-01 Implementation Note
+
+`AI-SNAPSHOT-AUTO-CONDITION-AUDIT-01` clarifies the meaning of automatic recent-AI snapshot storage.
+
+Policy intent:
+
+- `auto_condition` is a runtime snapshot-store source label, not an order signal.
+- Snapshot storage itself does not call GPT, Gemini, OpenAI, Order Adapter, Execution Bridge, Router, or Risk Guard.
+- Cost-capable provider calls remain limited to explicit user AI analysis refresh paths.
+- Status refresh and detail-chart open must not create a new cost-capable AI provider call.
+- Automatic runtime snapshots emit `[AITS][AISnapshotAudit]` proof logs with `api_call=False`, `cost_api=False`, `order_allowed=False`, and `submitted=0`.
+- Repeated automatic snapshots with identical symbol/source/engine/provider/model/briefing/reason/next-action content are skipped; generated time alone does not force another store.
+- Manual refresh snapshots are not deduplicated away, so explicit user analysis results remain visible.
+- API keys, prompts, raw account payloads, and order payloads must not be logged by the snapshot audit path.

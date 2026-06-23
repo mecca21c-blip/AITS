@@ -24688,6 +24688,121 @@ class MainWindow(QMainWindow):
         except Exception:
             return "\uCD9C\uCC98 \uD655\uC778 \uBD88\uAC00"
 
+    def _stable_ai_snapshot_content_fingerprint(self, snapshot):
+        try:
+            if not isinstance(snapshot, dict):
+                return ""
+            content = {
+                "symbol": snapshot.get("symbol") or "",
+                "source": snapshot.get("source") or "",
+                "engine": snapshot.get("engine") or "",
+                "provider": snapshot.get("provider") or "",
+                "model": snapshot.get("model") or "",
+                "briefing": snapshot.get("briefing") or "",
+                "reason": snapshot.get("reason") or [],
+                "next_action": snapshot.get("next_action") or [],
+            }
+            return json.dumps(content, ensure_ascii=False, sort_keys=True, default=str)
+        except Exception:
+            return ""
+
+    def _classify_ai_snapshot_store_audit(self, source="", provider="", payload=None):
+        try:
+            payload = payload if isinstance(payload, dict) else {}
+            source_raw = str(source or payload.get("source") or "").strip().lower()
+            provider_raw = str(provider or payload.get("provider") or payload.get("selected_provider") or "").strip().lower()
+            payload_source = str(payload.get("source") or "").strip().lower()
+            engine_raw = str(
+                payload.get("actual_engine")
+                or payload.get("selected_engine")
+                or payload.get("generated_engine")
+                or payload.get("ai_briefing_engine")
+                or ""
+            ).strip().lower()
+            has_raw_ai_text = any(
+                bool(str(payload.get(k) or "").strip())
+                for k in ("raw_ai_response", "ai_raw_text", "raw_response")
+            )
+            provider_blob = " ".join([provider_raw, payload_source, engine_raw])
+            provider_cost_capable = any(x in provider_blob for x in ("gpt", "openai", "gemini", "google"))
+            manual = source_raw in (
+                "manual_refresh",
+                "manual",
+                "button",
+                "user",
+                "detail_chart_button",
+                "detail_chart_manual_refresh",
+                "main_ai_refresh",
+            )
+            auto_condition = source_raw in ("auto_condition", "event", "background", "auto")
+            cost_api = bool(manual and provider_cost_capable and has_raw_ai_text)
+            api_call = cost_api
+            if auto_condition:
+                reason = "runtime_condition_snapshot_store_only"
+                api_call = False
+                cost_api = False
+            elif manual and provider_cost_capable:
+                reason = "user_explicit_refresh"
+            elif manual:
+                reason = "user_explicit_refresh_non_cost_provider"
+            else:
+                reason = "snapshot_store_only"
+            return {
+                "source": source_raw or "unknown",
+                "provider": provider_raw or payload_source or engine_raw or "unknown",
+                "api_call": api_call,
+                "cost_api": cost_api,
+                "reason": reason,
+                "payload_source": payload_source or "unknown",
+                "has_raw_ai_text": has_raw_ai_text,
+            }
+        except Exception:
+            return {
+                "source": str(source or "unknown"),
+                "provider": str(provider or "unknown"),
+                "api_call": False,
+                "cost_api": False,
+                "reason": "audit_classification_failed",
+                "payload_source": "unknown",
+                "has_raw_ai_text": False,
+            }
+
+    def _log_ai_snapshot_store_audit(self, event="store", symbol="", source="", provider="", payload=None, duplicate=False):
+        try:
+            audit = self._classify_ai_snapshot_store_audit(source, provider, payload)
+            now = time.time()
+            key = (
+                str(event or "store"),
+                str(symbol or ""),
+                str(audit.get("source") or ""),
+                str(audit.get("provider") or ""),
+                bool(duplicate),
+                bool(audit.get("api_call")),
+                bool(audit.get("cost_api")),
+            )
+            last_key = getattr(self, "_ai_snapshot_audit_last_log_key", None)
+            last_at = float(getattr(self, "_ai_snapshot_audit_last_log_at", 0.0) or 0.0)
+            if key == last_key and now - last_at < 60:
+                return
+            self._ai_snapshot_audit_last_log_key = key
+            self._ai_snapshot_audit_last_log_at = now
+            logging.getLogger("aits").info(
+                "[AITS][AISnapshotAudit] event=%s symbol=%s source=%s provider=%s "
+                "payload_source=%s api_call=%s cost_api=%s duplicate=%s reason=%s "
+                "order_allowed=False submitted=0",
+                str(event or "store"),
+                str(symbol or ""),
+                str(audit.get("source") or "unknown"),
+                str(audit.get("provider") or "unknown"),
+                str(audit.get("payload_source") or "unknown"),
+                bool(audit.get("api_call")),
+                bool(audit.get("cost_api")),
+                bool(duplicate),
+                str(audit.get("reason") or "unknown"),
+            )
+        except Exception:
+            pass
+
     def _record_recent_ai_snapshot_for_symbol(self, symbol="", payload=None, parsed=None, source="unknown"):
         try:
             sym = self._resolve_current_ai_snapshot_symbol(symbol)
@@ -24774,7 +24889,42 @@ class MainWindow(QMainWindow):
             if not isinstance(cache, dict):
                 cache = {}
                 self._aits_recent_ai_snapshot_by_symbol = cache
+            source_raw = str(snapshot.get("source") or "").strip().lower()
+            manual_snapshot = source_raw in (
+                "manual_refresh",
+                "manual",
+                "button",
+                "user",
+                "detail_chart_button",
+                "detail_chart_manual_refresh",
+                "main_ai_refresh",
+            )
+            fingerprint = self._stable_ai_snapshot_content_fingerprint(snapshot)
+            fp_cache = getattr(self, "_aits_recent_ai_snapshot_fingerprint_by_symbol", None)
+            if not isinstance(fp_cache, dict):
+                fp_cache = {}
+                self._aits_recent_ai_snapshot_fingerprint_by_symbol = fp_cache
+            fp_key = f"{sym}|{source_raw or 'unknown'}"
+            if (not manual_snapshot) and fingerprint and fp_cache.get(fp_key) == fingerprint:
+                self._log_ai_snapshot_store_audit(
+                    event="duplicate_skip",
+                    symbol=sym,
+                    source=snapshot.get("source") or "unknown",
+                    provider=snapshot.get("provider") or "",
+                    payload=payload,
+                    duplicate=True,
+                )
+                return dict(cache.get(sym) or {})
+            fp_cache[fp_key] = fingerprint
             cache[sym] = dict(snapshot)
+            self._log_ai_snapshot_store_audit(
+                event="stored",
+                symbol=sym,
+                source=snapshot.get("source") or "unknown",
+                provider=snapshot.get("provider") or "",
+                payload=payload,
+                duplicate=False,
+            )
             try:
                 for row in getattr(self, "ai_managed_rows", []) or []:
                     if not isinstance(row, dict):
