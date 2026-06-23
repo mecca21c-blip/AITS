@@ -854,3 +854,17 @@ Policy intent:
 - Network recovery and candidate-feed recovery must not rewrite AI decision timestamps or promote old decisions to fresh decisions.
 - This work does not change Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
 - Freshness visibility logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 56. DETAIL-CHART-AI-SNAPSHOT-LIVE-REFRESH-FIX-01 Implementation Note
+
+`DETAIL-CHART-AI-SNAPSHOT-LIVE-REFRESH-FIX-01` wires stored AI snapshots to already-open detail charts.
+
+Policy intent:
+
+- After an explicit AI analysis refresh stores a per-symbol snapshot, an open detail chart for the same symbol may update its AI display contract immediately.
+- The update is contract/text display only; it must not call GPT, Gemini, OpenAI, or any provider again.
+- The update must not redraw the chart canvas or reintroduce full-render timer churn.
+- `최근 AI 분석 없음 · 계산 기반 요약` is used only when no matching snapshot exists.
+- Freshness labels continue from the stored snapshot `generated_at` and are updated by the display-only freshness timer.
+- This work does not change Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
+- Live-refresh logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.

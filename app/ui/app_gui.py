@@ -26181,7 +26181,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
-                self._refresh_open_detail_chart_ai_snapshot(sym)
+                self._refresh_open_detail_chart_ai_snapshot(sym, reason="snapshot_updated")
             except Exception:
                 pass
             return snapshot
@@ -26199,16 +26199,43 @@ class MainWindow(QMainWindow):
                 pass
             return {}
 
-    def _refresh_open_detail_chart_ai_snapshot(self, symbol=""):
+    def _refresh_open_detail_chart_ai_snapshot(self, symbol="", reason="snapshot_updated"):
         try:
             dlg = getattr(self, "_aits_large_chart_dialog", None)
             if dlg is None:
                 return
+            try:
+                if hasattr(dlg, "isVisible") and not bool(dlg.isVisible()):
+                    return
+            except Exception:
+                pass
+            target = self._normalize_market_symbol_for_ai_snapshot(symbol)
             current = self._normalize_market_symbol_for_ai_snapshot(
                 getattr(self, "_aits_large_chart_symbol", "") or getattr(self, "_last_detail_chart_symbol", "")
             )
-            target = self._normalize_market_symbol_for_ai_snapshot(symbol)
+            if not current:
+                try:
+                    current = self._normalize_market_symbol_for_ai_snapshot(getattr(dlg, "_symbol", "") or "")
+                except Exception:
+                    current = ""
+            if not current:
+                try:
+                    existing_contract = getattr(dlg, "_detail_chart_display_contract", None)
+                    if isinstance(existing_contract, dict):
+                        current = self._normalize_market_symbol_for_ai_snapshot(existing_contract.get("symbol") or "")
+                except Exception:
+                    current = ""
+            if not current and target:
+                current = target
             if not current or (target and current != target):
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][DetailChartAISnapshot] event=live_refresh_skipped current=%s target=%s reason=symbol_mismatch submitted=0 order_allowed=False real_order=False",
+                        current or "missing",
+                        target or "missing",
+                    )
+                except Exception:
+                    pass
                 return
             row_index = int(getattr(dlg, "_aits_row_index", -1) or -1)
             row_obj = None
@@ -26216,6 +26243,20 @@ class MainWindow(QMainWindow):
                 rows = getattr(self, "ai_managed_rows", None) or []
                 if 0 <= row_index < len(rows) and isinstance(rows[row_index], dict):
                     row_obj = rows[row_index]
+                if not isinstance(row_obj, dict) or self._normalize_market_symbol_for_ai_snapshot(row_obj.get("symbol") or row_obj.get("market") or row_obj.get("code") or "") != current:
+                    row_obj = None
+                    for idx, candidate in enumerate(rows):
+                        if not isinstance(candidate, dict):
+                            continue
+                        cand_sym = self._normalize_market_symbol_for_ai_snapshot(candidate.get("symbol") or candidate.get("market") or candidate.get("code") or "")
+                        if cand_sym == current:
+                            row_obj = candidate
+                            row_index = idx
+                            try:
+                                dlg._aits_row_index = idx
+                            except Exception:
+                                pass
+                            break
             except Exception:
                 row_obj = None
             contract = self._build_detail_chart_display_contract(
@@ -26227,8 +26268,11 @@ class MainWindow(QMainWindow):
             self._publish_detail_chart_display_contract(contract, dlg)
             try:
                 logging.getLogger("aits").info(
-                    "[AITS][DetailChartAISnapshot] event=open_chart_refreshed symbol=%s source=per_symbol_cache order_allowed=False submitted=0",
+                    "[AITS][DetailChartAISnapshot] event=live_refresh symbol=%s reason=%s surface=detail_chart has_snapshot=%s display_mode=%s order_allowed=False real_order=False submitted=0",
                     current,
+                    str(reason or "snapshot_updated"),
+                    bool((contract.get("ai_snapshot") if isinstance(contract.get("ai_snapshot"), dict) else {}).get("has_snapshot")),
+                    str(contract.get("display_mode") or ""),
                 )
             except Exception:
                 pass
@@ -29392,6 +29436,7 @@ class MainWindow(QMainWindow):
                     or str(row_obj.get("ai_briefing_engine_badge") or "").strip()
                     or str(last_payload.get("provider") or last_payload.get("actual_engine") or "").strip()
                     or str(output_contract.get("provider") or output_contract.get("source") or "").strip()
+                    or str(ai_snapshot.get("provider") or ai_snapshot.get("engine") or ai_snapshot.get("engine_label") or "").strip()
                 )
             )
             row_ai_content = bool(
@@ -29399,9 +29444,17 @@ class MainWindow(QMainWindow):
                 or row_obj.get("ai_reason")
                 or row_obj.get("ai_next_action")
             )
+            snapshot_ai_content = bool(
+                ai_snapshot.get("has_snapshot")
+                and (
+                    str(ai_snapshot.get("lookup_source") or "") in ("per_symbol_cache", "row_session")
+                    or str(ai_snapshot.get("engine") or ai_snapshot.get("generated_at") or "").strip()
+                )
+            )
             has_ai_content = bool(
                 (payload_symbol and payload_symbol == symbol and (output_available or last_decision or last_reasons or last_next))
                 or row_ai_content
+                or snapshot_ai_content
             )
             explicit_ai_available = bool(symbol_match and has_ai_meta and has_ai_content and ai_snapshot.get("has_snapshot"))
             if explicit_ai_available:
