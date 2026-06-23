@@ -825,3 +825,18 @@ Policy intent:
 - Duplicate recovery scheduling is guarded by pending/running flags and backoff.
 - This recovery path does not run manual AI analysis refresh, GPT/Gemini/OpenAI calls, Router decisions, Risk Guard policy, or order execution.
 - Recovery logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 54. STALE-AI-DECISION-GUARD-01 Implementation Note
+
+`STALE-AI-DECISION-GUARD-01` adds display-only freshness labels for AI decisions and snapshots.
+
+Policy intent:
+
+- AI decision freshness is based on the decision/snapshot `generated_at` or journal timestamp, not network recovery time.
+- Freshness display buckets are: fresh up to 10 minutes, recent/reference up to 30 minutes, stale after 30 minutes, and very stale after 60 minutes.
+- Stale and very stale decisions must be shown as reference-only and should include a user-facing recheck/reanalysis warning.
+- Recent AI cards, detail-chart AI snapshots, and Trade Log Shadow/Preview journal detail use the same freshness semantics.
+- Network recovery must not promote an old AI decision to a fresh decision; it may only re-evaluate and log freshness.
+- This is a display and observability guard only. It does not change Router action, Risk Guard policy, order submission, or execution behavior.
+- Stale-decision order blocking, if needed, must be handled by a separate high-risk live-trading Goal.
+- Freshness logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.

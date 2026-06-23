@@ -6423,30 +6423,15 @@ class AITSLargeChartDialog(QDialog):
             return meta
         payload_symbol = self._normalize_market_symbol_for_ai_snapshot(snapshot.get("symbol") or symbol)
         generated_at = snapshot.get("generated_at")
-        parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
-        age_seconds = None
-        if parsed_at is not None:
-            try:
-                from datetime import datetime
-                age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
-            except Exception:
-                age_seconds = None
-        if age_seconds is None:
-            freshness = "unknown"
-            freshness_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
-            age_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
-        elif age_seconds <= 15 * 60:
-            freshness = "fresh"
-            freshness_label = "\uCD5C\uC2E0 \uCC38\uACE0 \uAC00\uB2A5"
-            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-        elif age_seconds <= 60 * 60:
-            freshness = "usable"
-            freshness_label = "\uCC38\uACE0 \uAC00\uB2A5"
-            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-        else:
-            freshness = "stale"
-            freshness_label = "\uC624\uB798\uB41C \uBD84\uC11D\uC77C \uC218 \uC788\uC74C"
-            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        freshness_info = self._build_ai_decision_freshness_state(
+            generated_at,
+            source=snapshot.get("source") or source_name,
+            symbol=symbol,
+        )
+        age_seconds = freshness_info.get("age_seconds")
+        freshness = str(freshness_info.get("freshness_state") or "unknown")
+        freshness_label = str(freshness_info.get("display_label") or freshness_info.get("freshness_label") or "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00")
+        age_label = str(freshness_info.get("age_label") or "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00")
         matched = bool(symbol and payload_symbol == symbol)
         engine = snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(snapshot.get("provider"))
         provider = str(snapshot.get("provider") or "").strip()
@@ -6472,10 +6457,16 @@ class AITSLargeChartDialog(QDialog):
             "age_label": age_label,
             "freshness": freshness,
             "freshness_label": freshness_label,
+            "warning_text": str(freshness_info.get("warning_text") or ""),
+            "should_emphasize": bool(freshness_info.get("should_emphasize")),
             "source": str(snapshot.get("source") or "unknown").strip(),
             "source_label": self._format_detail_chart_snapshot_source_label(snapshot.get("source")),
             "lookup_source": source_name,
         }
+        try:
+            self._log_ai_decision_freshness_state(symbol=symbol, source="detail_chart", freshness=freshness_info)
+        except Exception:
+            pass
         try:
             logging.getLogger("aits").info(
                 "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s source=%s engine_label=%s model_label=%s freshness=%s symbol_matched=%s api_call_attempted=False order_allowed=False submitted=0",
@@ -8436,6 +8427,26 @@ class MainWindow(QMainWindow):
 
         reason_text = self._format_ai_reason_text_for_ui(reasons, limit=5)
         next_text = self._format_ai_next_action_text_for_ui(nexts, limit=3)
+        freshness_block = ""
+        try:
+            generated_at = data.get("generated_at") or data.get("ai_briefing_generated_at") or ""
+            freshness_info = self._build_ai_decision_freshness_state(
+                generated_at,
+                source=data.get("source") or "recent_ai_card",
+                symbol=self._resolve_current_ai_snapshot_symbol(""),
+            )
+            if generated_at:
+                freshness_block = f"\n[?? ???]\n{freshness_info.get('display_label') or ''}"
+                warning_text = str(freshness_info.get("warning_text") or "").strip()
+                if warning_text:
+                    freshness_block += f"\n{warning_text}"
+                self._log_ai_decision_freshness_state(
+                    symbol=freshness_info.get("symbol") or "",
+                    source="recent_ai_card",
+                    freshness=freshness_info,
+                )
+        except Exception:
+            freshness_block = ""
 
         rotation_block = ""
         if rot_lines:
@@ -10035,6 +10046,24 @@ class MainWindow(QMainWindow):
                         feed_status = str(getattr(self, "_candidate_feed_status", "ok") or "ok")
                         if feed_status in {"degraded", "disconnected", "stale"}:
                             self._schedule_candidate_feed_recovery(f"network_recovered:{source}")
+                    except Exception:
+                        pass
+                    try:
+                        sym = self._resolve_current_ai_snapshot_symbol("")
+                        cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None) or {}
+                        snap = dict(cache.get(sym) or {}) if isinstance(cache, dict) and sym else {}
+                        if snap:
+                            info = self._build_ai_decision_freshness_state(
+                                snap.get("generated_at"),
+                                source="network_recovered_snapshot_unchanged",
+                                symbol=sym,
+                            )
+                            self._log_ai_decision_freshness_state(
+                                symbol=sym,
+                                source="network_recovered_snapshot_unchanged",
+                                freshness=info,
+                                event="network_recovered_snapshot_unchanged",
+                            )
                     except Exception:
                         pass
                 return
@@ -25279,6 +25308,102 @@ class MainWindow(QMainWindow):
         except Exception:
             return "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
 
+    def _build_ai_decision_freshness_state(self, generated_at=None, *, source="unknown", symbol="") -> dict:
+        """Build display-only freshness metadata for an AI decision/snapshot."""
+        try:
+            from datetime import datetime
+            parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
+            age_sec = None
+            if parsed_at is not None:
+                age_sec = max(0, int((datetime.now() - parsed_at).total_seconds()))
+            if age_sec is None:
+                state = "unknown"
+                label = "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00"
+                warning = "\uc0dd\uc131 \uc2dc\uac01\uc744 \ud655\uc778\ud560 \uc218 \uc5c6\uc5b4 \ucd5c\uc2e0 \ud310\ub2e8\uc73c\ub85c \ubcf4\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4."
+                emphasize = False
+                age_label = "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00"
+            elif age_sec <= 10 * 60:
+                state = "fresh"
+                label = f"\ucd5c\uc2e0 \ud310\ub2e8 \u00b7 {self._format_detail_chart_snapshot_age_label(age_sec)}"
+                warning = ""
+                emphasize = True
+                age_label = self._format_detail_chart_snapshot_age_label(age_sec)
+            elif age_sec <= 30 * 60:
+                state = "reference"
+                label = f"\ucd5c\uadfc \ucc38\uace0 \ud310\ub2e8 \u00b7 {self._format_detail_chart_snapshot_age_label(age_sec)}"
+                warning = "\uc2dc\uc7a5\uc774 \ubcc0\ud588\uc744 \uc218 \uc788\uc73c\ubbc0\ub85c \ucc38\uace0\uc6a9\uc73c\ub85c \ubcf4\uc138\uc694."
+                emphasize = False
+                age_label = self._format_detail_chart_snapshot_age_label(age_sec)
+            elif age_sec <= 60 * 60:
+                state = "stale"
+                label = f"\uc624\ub798\ub41c \ud310\ub2e8 \u00b7 {self._format_detail_chart_snapshot_age_label(age_sec)} \u00b7 \uc7ac\uac80\ud1a0 \ud544\uc694"
+                warning = "\ud604\uc7ac \uc2dc\uc7a5 \uc0c1\ud669\uacfc \ub2e4\ub97c \uc218 \uc788\uc5b4 \uc0c8 \ubd84\uc11d\uc774 \ud544\uc694\ud569\ub2c8\ub2e4."
+                emphasize = False
+                age_label = self._format_detail_chart_snapshot_age_label(age_sec)
+            else:
+                state = "very_stale"
+                label = "\uc624\ub798\ub41c \ud310\ub2e8 \u00b7 1\uc2dc\uac04 \uc774\uc0c1 \uacbd\uacfc \u00b7 \uc0c8 \ubd84\uc11d \uad8c\uc7a5"
+                warning = "\ucd5c\uc2e0 \ud310\ub2e8\uc73c\ub85c \ubcf4\uae30 \uc5b4\ub835\uc2b5\ub2c8\ub2e4. \uc0c8 \ubd84\uc11d \ud6c4 \ud310\ub2e8\ud558\uc138\uc694."
+                emphasize = False
+                age_label = self._format_detail_chart_snapshot_age_label(age_sec)
+            return {
+                "freshness_state": state,
+                "freshness": state,
+                "age_sec": age_sec,
+                "age_seconds": age_sec,
+                "age_label": age_label,
+                "display_label": label,
+                "freshness_label": label,
+                "warning_text": warning,
+                "should_emphasize": emphasize,
+                "source": str(source or "unknown"),
+                "symbol": str(symbol or ""),
+                "submitted": 0,
+            }
+        except Exception:
+            return {
+                "freshness_state": "unknown",
+                "freshness": "unknown",
+                "age_sec": None,
+                "age_seconds": None,
+                "age_label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00",
+                "display_label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00",
+                "freshness_label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00",
+                "warning_text": "\uc0dd\uc131 \uc2dc\uac01\uc744 \ud655\uc778\ud560 \uc218 \uc5c6\uc5b4 \ucd5c\uc2e0 \ud310\ub2e8\uc73c\ub85c \ubcf4\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
+                "should_emphasize": False,
+                "source": str(source or "unknown"),
+                "symbol": str(symbol or ""),
+                "submitted": 0,
+            }
+
+    def _log_ai_decision_freshness_state(self, *, symbol="", source="unknown", freshness=None, event="state") -> None:
+        try:
+            info = freshness if isinstance(freshness, dict) else {}
+            key = (
+                str(event or "state"),
+                str(symbol or ""),
+                str(source or "unknown"),
+                str(info.get("freshness_state") or info.get("freshness") or "unknown"),
+                int(float(info.get("age_sec") or info.get("age_seconds") or 0) // 300),
+            )
+            now = time.time()
+            last_key = getattr(self, "_ai_decision_freshness_last_log_key", None)
+            last_at = float(getattr(self, "_ai_decision_freshness_last_log_at", 0.0) or 0.0)
+            if key == last_key and now - last_at < 60:
+                return
+            self._ai_decision_freshness_last_log_key = key
+            self._ai_decision_freshness_last_log_at = now
+            logging.getLogger("aits").info(
+                "[AITS][AIDecisionFreshness] event=%s symbol=%s freshness=%s age_sec=%s source=%s submitted=0 order_allowed=False real_order=False",
+                str(event or "state"),
+                str(symbol or ""),
+                str(info.get("freshness_state") or info.get("freshness") or "unknown"),
+                info.get("age_sec") if info.get("age_sec") is not None else "unknown",
+                str(source or "unknown"),
+            )
+        except Exception:
+            pass
+
     def _format_detail_chart_snapshot_source_label(self, value):
         try:
             raw = str(value or "").strip().lower()
@@ -25464,6 +25589,10 @@ class MainWindow(QMainWindow):
             "source",
             "skip_reason",
             "safety_note",
+            "generated_at",
+            "decision_generated_at",
+            "freshness",
+            "freshness_label",
         )
         for key in keys:
             if key in row and row.get(key) is not None:
@@ -26037,30 +26166,15 @@ class MainWindow(QMainWindow):
             return meta
         payload_symbol = self._normalize_market_symbol_for_ai_snapshot(snapshot.get("symbol") or symbol)
         generated_at = snapshot.get("generated_at")
-        parsed_at = self._parse_detail_chart_snapshot_dt(generated_at)
-        age_seconds = None
-        if parsed_at is not None:
-            try:
-                from datetime import datetime
-                age_seconds = max(0, int((datetime.now() - parsed_at).total_seconds()))
-            except Exception:
-                age_seconds = None
-        if age_seconds is None:
-            freshness = "unknown"
-            freshness_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
-            age_label = "\uC0DD\uC131 \uC2DC\uAC01 \uD655\uC778 \uBD88\uAC00"
-        elif age_seconds <= 15 * 60:
-            freshness = "fresh"
-            freshness_label = "\uCD5C\uC2E0 \uCC38\uACE0 \uAC00\uB2A5"
-            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-        elif age_seconds <= 60 * 60:
-            freshness = "usable"
-            freshness_label = "\uCC38\uACE0 \uAC00\uB2A5"
-            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
-        else:
-            freshness = "stale"
-            freshness_label = "\uC624\uB798\uB41C \uBD84\uC11D\uC77C \uC218 \uC788\uC74C"
-            age_label = self._format_detail_chart_snapshot_age_label(age_seconds)
+        freshness_info = self._build_ai_decision_freshness_state(
+            generated_at,
+            source=snapshot.get("source") or source_name,
+            symbol=symbol,
+        )
+        age_seconds = freshness_info.get("age_seconds")
+        freshness = str(freshness_info.get("freshness_state") or "unknown")
+        freshness_label = str(freshness_info.get("display_label") or freshness_info.get("freshness_label") or "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00")
+        age_label = str(freshness_info.get("age_label") or "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00")
         matched = bool(symbol and payload_symbol == symbol)
         engine = snapshot.get("engine") or self._normalize_detail_chart_snapshot_engine(snapshot.get("provider"))
         provider = str(snapshot.get("provider") or "").strip()
@@ -26086,10 +26200,16 @@ class MainWindow(QMainWindow):
             "age_label": age_label,
             "freshness": freshness,
             "freshness_label": freshness_label,
+            "warning_text": str(freshness_info.get("warning_text") or ""),
+            "should_emphasize": bool(freshness_info.get("should_emphasize")),
             "source": str(snapshot.get("source") or "unknown").strip(),
             "source_label": self._format_detail_chart_snapshot_source_label(snapshot.get("source")),
             "lookup_source": source_name,
         }
+        try:
+            self._log_ai_decision_freshness_state(symbol=symbol, source="detail_chart", freshness=freshness_info)
+        except Exception:
+            pass
         try:
             logging.getLogger("aits").info(
                 "[AITS][DetailChartAISnapshot] symbol=%s has_snapshot=%s source=%s engine_label=%s model_label=%s freshness=%s symbol_matched=%s api_call_attempted=False order_allowed=False submitted=0",

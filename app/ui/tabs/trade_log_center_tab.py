@@ -749,17 +749,127 @@ class TradeLogCenterTab(QWidget):
         except Exception:
             pass
 
+    def _parse_ai_decision_ts(self, value: Any) -> datetime | None:
+        try:
+            if isinstance(value, (int, float)) or str(value).isdigit():
+                ts = float(value)
+                if ts > 10_000_000_000:
+                    ts = ts / 1000
+                return datetime.fromtimestamp(ts)
+            raw = str(value or "").strip()
+            if not raw:
+                return None
+            return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+        except Exception:
+            try:
+                raw = str(value or "").strip().replace("Z", "").split("+")[0]
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
+                    try:
+                        return datetime.strptime(raw, fmt)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        return None
+
+    def _format_ai_decision_age_label(self, age_sec: int | None) -> str:
+        try:
+            if age_sec is None:
+                return "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00"
+            sec = max(0, int(age_sec))
+            if sec < 60:
+                return "\ubc29\uae08 \uc804"
+            minutes = sec // 60
+            if minutes < 60:
+                return f"{minutes}\ubd84 \uc804"
+            hours = minutes // 60
+            rem = minutes % 60
+            return f"{hours}\uc2dc\uac04 {rem}\ubd84 \uc804" if rem else f"{hours}\uc2dc\uac04 \uc804"
+        except Exception:
+            return "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00"
+
+    def _build_trade_log_freshness_state(self, row: dict[str, Any] | None) -> dict[str, Any]:
+        try:
+            row = row if isinstance(row, dict) else {}
+            record_type = str(row.get("record_type") or row.get("type") or "").strip()
+            category = str(row.get("category") or "").strip().lower()
+            is_journal = bool(record_type or category in {"preview", "blocked", "reflection"})
+            if not is_journal:
+                return {"display_label": "-", "freshness": "not_applicable", "age_sec": None, "warning_text": ""}
+            ts_value = (
+                row.get("generated_at")
+                or row.get("decision_generated_at")
+                or row.get("ai_briefing_generated_at")
+                or row.get("timestamp")
+                or row.get("ts")
+                or row.get("time")
+                or row.get("created_at")
+            )
+            parsed = self._parse_ai_decision_ts(ts_value)
+            age_sec = None
+            if parsed is not None:
+                age_sec = max(0, int((datetime.now() - parsed).total_seconds()))
+            if age_sec is None:
+                state = "unknown"
+                label = "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00"
+                warning = "\uc0dd\uc131 \uc2dc\uac01\uc744 \ud655\uc778\ud560 \uc218 \uc5c6\uc5b4 \ucd5c\uc2e0 \ud310\ub2e8\uc73c\ub85c \ubcf4\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4."
+            elif age_sec <= 10 * 60:
+                state = "fresh"
+                label = f"\ucd5c\uc2e0 \ud310\ub2e8 \u00b7 {self._format_ai_decision_age_label(age_sec)}"
+                warning = ""
+            elif age_sec <= 30 * 60:
+                state = "reference"
+                label = f"\ucd5c\uadfc \ucc38\uace0 \ud310\ub2e8 \u00b7 {self._format_ai_decision_age_label(age_sec)}"
+                warning = "\uc2dc\uc7a5\uc774 \ubcc0\ud588\uc744 \uc218 \uc788\uc73c\ubbc0\ub85c \ucc38\uace0\uc6a9\uc73c\ub85c \ubcf4\uc138\uc694."
+            elif age_sec <= 60 * 60:
+                state = "stale"
+                label = f"\uc624\ub798\ub41c \ud310\ub2e8 \u00b7 {self._format_ai_decision_age_label(age_sec)} \u00b7 \uc7ac\uac80\ud1a0 \ud544\uc694"
+                warning = "\ud604\uc7ac \uc2dc\uc7a5 \uc0c1\ud669\uacfc \ub2e4\ub97c \uc218 \uc788\uc5b4 \uc0c8 \ubd84\uc11d\uc774 \ud544\uc694\ud569\ub2c8\ub2e4."
+            else:
+                state = "very_stale"
+                label = "\uc624\ub798\ub41c \ud310\ub2e8 \u00b7 1\uc2dc\uac04 \uc774\uc0c1 \uacbd\uacfc \u00b7 \uc0c8 \ubd84\uc11d \uad8c\uc7a5"
+                warning = "\ucd5c\uc2e0 \ud310\ub2e8\uc73c\ub85c \ubcf4\uae30 \uc5b4\ub835\uc2b5\ub2c8\ub2e4. \uc0c8 \ubd84\uc11d \ud6c4 \ud310\ub2e8\ud558\uc138\uc694."
+            return {"display_label": label, "freshness": state, "age_sec": age_sec, "warning_text": warning}
+        except Exception:
+            return {"display_label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00", "freshness": "unknown", "age_sec": None, "warning_text": ""}
+
+    def _emit_trade_log_freshness_log(self, row: dict[str, Any] | None, freshness: dict[str, Any]) -> None:
+        try:
+            if not row:
+                return
+            state = str(freshness.get("freshness") or "unknown")
+            age = freshness.get("age_sec") if freshness.get("age_sec") is not None else "unknown"
+            symbol = str(row.get("symbol") or "")
+            message = (
+                "[AITS][AIDecisionFreshness] "
+                f"event=state symbol={symbol} freshness={state} age_sec={age} "
+                "source=trade_log submitted=0 order_allowed=False real_order=False"
+            )
+            log.info(message)
+            parent_log = getattr(getattr(self, "_parent_window", None), "_log", None)
+            if parent_log is not None:
+                parent_log.info(message)
+        except Exception:
+            pass
+
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         is_empty = row is None
         self.detail_placeholder.setVisible(is_empty)
         basis, reason, identical_before = self._split_journal_basis_reason(row)
+        freshness = self._build_trade_log_freshness_state(row)
         self._emit_reason_audit(identical_before, basis, reason)
         self._emit_user_reason_log(row, basis, reason)
+        self._emit_trade_log_freshness_log(row, freshness)
+        freshness_text = str(freshness.get("display_label") or "-")
+        warning_text = str(freshness.get("warning_text") or "").strip()
+        if warning_text:
+            freshness_text = f"{freshness_text}\n{warning_text}"
         values = {
             "type": row.get("type") if row else "-",
             "symbol": row.get("symbol") if row else "-",
             "action": row.get("action") if row else "-",
             "submitted": row.get("submitted") if row else "-",
+            "freshness": freshness_text if row else "-",
             "selected_engine": row.get("selected_engine") if row else "-",
             "actual_engine": row.get("actual_engine") if row else "-",
             "basis": basis,
@@ -824,6 +934,7 @@ class TradeLogCenterTab(QWidget):
             "selected_engine": selected_engine,
             "actual_engine": actual_engine,
             "submitted": submitted_text,
+            "freshness": "-",
             "basis": row.get("reason_short") or "-",
             "reason": reason,
         }
@@ -849,6 +960,11 @@ class TradeLogCenterTab(QWidget):
                 "reflection": "Reflection",
             }.get(record_type, "Preview 판단")
         basis, reason, _identical_before = self._split_journal_basis_reason(row)
+        freshness = self._build_trade_log_freshness_state(row)
+        freshness_text = str(freshness.get("display_label") or "-")
+        warning_text = str(freshness.get("warning_text") or "").strip()
+        if warning_text:
+            freshness_text = f"{freshness_text}\n{warning_text}"
         return {
             "category": category,
             "sort_ts": self._sort_timestamp(ts),
