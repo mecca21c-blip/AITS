@@ -10031,6 +10031,12 @@ class MainWindow(QMainWindow):
                         self.set_status_msg("연결 복구됨 · 새로고침 완료", "#15803d")
                     except Exception:
                         pass
+                    try:
+                        feed_status = str(getattr(self, "_candidate_feed_status", "ok") or "ok")
+                        if feed_status in {"degraded", "disconnected", "stale"}:
+                            self._schedule_candidate_feed_recovery(f"network_recovered:{source}")
+                    except Exception:
+                        pass
                 return
 
             failures = int(getattr(self, "_network_consecutive_failures", 0) or 0) + 1
@@ -10066,6 +10072,179 @@ class MainWindow(QMainWindow):
                 pass
         except Exception:
             pass
+
+
+    def _mark_candidate_feed_state(self, ok: bool, source: str = "top_markets", reason: str = "", rows: int = 0) -> None:
+        """Track market/candidate feed health separately from provider/key status."""
+        try:
+            import logging
+            import time
+
+            now = time.time()
+            prev = str(getattr(self, "_candidate_feed_status", "unknown") or "unknown")
+            source = str(source or "top_markets").strip()[:80] or "top_markets"
+            reason_text = str(reason or "").strip().replace("\n", " ")[:120]
+            if ok:
+                self._candidate_feed_status = "ok"
+                self._candidate_feed_stale = False
+                self._candidate_feed_last_ok_at = now
+                self._candidate_feed_last_rows = int(rows or 0)
+                self._note_network_state(True, source)
+                if prev in {"degraded", "disconnected", "stale"}:
+                    try:
+                        logging.getLogger("aits").info(
+                            "[AITS][NetworkRecovery] event=candidate_refresh_ok source=%s rows=%s submitted=0 order_allowed=False real_order=False",
+                            source,
+                            int(rows or 0),
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        self.set_global_status("연결 복구됨 · 후보리스트 새로고침 완료", "ok", "network")
+                    except Exception:
+                        pass
+                    try:
+                        self.set_status_msg("연결 복구됨 · 후보리스트 새로고침 완료", "#15803d")
+                    except Exception:
+                        pass
+                    try:
+                        self._append_managed_live_log("연결 복구됨 · 후보리스트 새로고침 완료")
+                    except Exception:
+                        pass
+                return
+
+            self._candidate_feed_status = "degraded"
+            self._candidate_feed_stale = True
+            self._candidate_feed_last_failed_at = now
+            self._candidate_feed_last_error = reason_text or "candidate_feed_degraded"
+            self._note_network_state(False, source, reason_text or "candidate_feed_degraded")
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][NetworkState] event=check_failed source=%s status=degraded reason=%s rows=%s submitted=0 order_allowed=False real_order=False",
+                    source,
+                    reason_text or "candidate_feed_degraded",
+                    int(rows or 0),
+                )
+                last_ok = getattr(self, "_candidate_feed_last_ok_at", None)
+                age = int(max(0.0, now - float(last_ok))) if last_ok else -1
+                logging.getLogger("aits").warning(
+                    "[AITS][CandidateFeedState] event=stale source=%s reason=%s last_ok_age_sec=%s submitted=0 order_allowed=False real_order=False",
+                    source,
+                    reason_text or "candidate_feed_degraded",
+                    age,
+                )
+            except Exception:
+                pass
+            message = "네트워크 확인 필요 · 후보리스트는 마지막 성공 기준입니다"
+            try:
+                self.set_global_status(message, "warn", "network")
+            except Exception:
+                pass
+            try:
+                self.set_status_msg(message, "#b45309")
+            except Exception:
+                pass
+            try:
+                self._set_managed_action_status(message, "#b45309")
+            except Exception:
+                pass
+            try:
+                self._append_managed_live_log("시세 데이터 확인 중 · 연결 복구 후 자동 새로고침합니다")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _schedule_candidate_feed_recovery(self, reason: str = "network_recovered") -> None:
+        """Schedule one observe-only candidate feed refresh after network recovery."""
+        try:
+            if bool(getattr(self, "_candidate_feed_recovery_pending", False)):
+                return
+            import time
+            now = time.time()
+            reason_text = str(reason or "network_recovered")[:120]
+            last = float(getattr(self, "_candidate_feed_recovery_last_scheduled_at", 0.0) or 0.0)
+            if not reason_text.startswith("network_recovered") and now - last < 30.0:
+                return
+            self._candidate_feed_recovery_last_scheduled_at = now
+            self._candidate_feed_recovery_pending = True
+            import logging
+
+            logging.getLogger("aits").info(
+                "[AITS][NetworkRecovery] event=schedule_candidate_refresh reason=%s submitted=0 order_allowed=False real_order=False",
+                reason_text,
+            )
+            QTimer.singleShot(1500, self._run_candidate_feed_recovery_once)
+        except Exception:
+            try:
+                self._candidate_feed_recovery_pending = False
+            except Exception:
+                pass
+
+    def _run_candidate_feed_recovery_once(self) -> None:
+        """Refresh candidate/scanner market data only; never runs paid AI or orders."""
+        try:
+            self._candidate_feed_recovery_pending = False
+            try:
+                self._market_all_rows = []
+            except Exception:
+                pass
+            rows = list(self._ensure_market_all_rows(force_refresh=True) or [])
+            if rows:
+                try:
+                    self.market_all_rows = rows
+                except Exception:
+                    pass
+                try:
+                    self._sync_ai_pool_market_fields()
+                except Exception:
+                    pass
+                try:
+                    self._update_ai_pool_statuses()
+                except Exception:
+                    pass
+                try:
+                    self._refresh_ai_managed_table()
+                except Exception:
+                    pass
+                try:
+                    self._refresh_market_all_table()
+                except Exception:
+                    pass
+                try:
+                    self._refresh_ai_detail_panel()
+                except Exception:
+                    pass
+                try:
+                    import logging
+                    logging.getLogger("aits").info(
+                        "[AITS][NetworkRecovery] event=candidate_refresh_ok rows=%s submitted=0 order_allowed=False real_order=False",
+                        len(rows),
+                    )
+                except Exception:
+                    pass
+                return
+            try:
+                import logging
+                logging.getLogger("aits").warning(
+                    "[AITS][NetworkRecovery] event=candidate_refresh_failed reason=top_markets_empty submitted=0 order_allowed=False real_order=False"
+                )
+            except Exception:
+                pass
+            self._mark_candidate_feed_state(False, "top_markets", "recovery_empty", 0)
+        except Exception as exc:
+            try:
+                import logging
+                logging.getLogger("aits").warning(
+                    "[AITS][NetworkRecovery] event=candidate_refresh_failed reason=%s submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            try:
+                self._mark_candidate_feed_state(False, "top_markets", type(exc).__name__, 0)
+            except Exception:
+                pass
 
     # === [ADD] UI mini-helpers (spin/line/readonly) ===
     # (삭제됨) _mk_spin_int / _mk_line / _mk_readonly_text / _show_toast:
@@ -12905,6 +13084,12 @@ class MainWindow(QMainWindow):
                             self.portfolio_tab.refresh()
                     except Exception:
                         pass
+
+                try:
+                    if bool(getattr(self, "_candidate_feed_stale", False)):
+                        self._schedule_candidate_feed_recovery("tables_timer_candidate_feed_stale")
+                except Exception:
+                    pass
 
             except Exception as e:
                 # 예외 발생 시에도 조용히 죽지 않도록 워닝 로그만 남김
@@ -33454,9 +33639,21 @@ class MainWindow(QMainWindow):
 
             buy_ready_count = sum(1 for r in rows if str(r.get("ai_status") or "") == "Buy Ready")
             watching_count = sum(1 for r in rows if str(r.get("ai_status") or "") == "Watching")
+            market_data_stale = bool(getattr(self, "_candidate_feed_stale", False))
             print(
-                f"[AITS] ai score update total={len(rows)} buy_ready={buy_ready_count} watching={watching_count}"
+                f"[AITS] ai score update total={len(rows)} buy_ready={buy_ready_count} watching={watching_count} market_data_stale={market_data_stale}"
             )
+            try:
+                import logging
+                logging.getLogger("aits").info(
+                    "[AITS][CandidateFeedState] event=score_update total=%s buy_ready=%s watching=%s market_data_stale=%s submitted=0 order_allowed=False real_order=False",
+                    len(rows),
+                    buy_ready_count,
+                    watching_count,
+                    market_data_stale,
+                )
+            except Exception:
+                pass
 
             sel_p = self._get_aits_engine_ssot()
             preview_p = ""
@@ -33788,10 +33985,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _ensure_market_all_rows(self):
+    def _ensure_market_all_rows(self, force_refresh: bool = False):
         try:
             cached = getattr(self, "_market_all_rows", None)
-            if cached:
+            if cached and not force_refresh:
                 try:
                     self.market_all_rows = cached
                 except Exception:
@@ -33877,6 +34074,10 @@ class MainWindow(QMainWindow):
                 mkts = [str(x.get("symbol") or "").strip() for x in filtered if x.get("symbol")]
                 try:
                     tick_list = get_tickers(mkts) or []
+                    if mkts and not tick_list:
+                        self._mark_candidate_feed_state(False, "top_markets", "ticker_empty", 0)
+                    elif tick_list:
+                        self._mark_candidate_feed_state(True, "top_markets", rows=len(tick_list))
                     tick_by_m = {}
                     for t in tick_list:
                         if not isinstance(t, dict):
@@ -33892,8 +34093,11 @@ class MainWindow(QMainWindow):
                         row["acc_trade_price_24h"] = float(td.get("acc_trade_price_24h") or 0.0)
                         row["trade_price_24h"] = float(td.get("acc_trade_price_24h") or 0.0)
                         row["volume_24h"] = float(td.get("acc_trade_volume_24h") or 0.0)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self._mark_candidate_feed_state(False, "top_markets", type(exc).__name__, 0)
+
+            if not filtered:
+                self._mark_candidate_feed_state(False, "top_markets", "market_rows_empty", 0)
 
             self._market_all_rows = filtered
             try:
@@ -33902,7 +34106,11 @@ class MainWindow(QMainWindow):
                 pass
             return filtered
 
-        except Exception:
+        except Exception as exc:
+            try:
+                self._mark_candidate_feed_state(False, "top_markets", type(exc).__name__, 0)
+            except Exception:
+                pass
             self._market_all_rows = []
             return []
 
@@ -37050,6 +37258,12 @@ class MainWindow(QMainWindow):
 
         self._market_display_rows = display_rows
         _market_summary_label = _market_filter_label(filter_key)
+        try:
+            if bool(getattr(self, "_candidate_feed_stale", False)):
+                self.lbl_market_search_status.setText("네트워크 확인 필요 · 후보리스트는 마지막 성공 기준입니다")
+                self.lbl_market_search_status.setVisible(True)
+        except Exception:
+            pass
 
         for i, r in enumerate(display_rows):
             t.insertRow(i)
@@ -37286,6 +37500,10 @@ class MainWindow(QMainWindow):
     def _load_market_explorer_initial_data(self) -> None:
         try:
             raw = get_top_markets_by_volume(limit=30) or []
+            if raw:
+                self._mark_candidate_feed_state(True, "top_markets", rows=len(raw))
+            else:
+                self._mark_candidate_feed_state(False, "top_markets", "top_markets_empty", 0)
             self.market_all_rows = []
             for r in raw:
                 if not isinstance(r, dict):
@@ -37311,7 +37529,11 @@ class MainWindow(QMainWindow):
             self._update_market_price_history()
             self._refresh_ai_managed_table()
             self._refresh_market_all_table()
-        except Exception:
+        except Exception as exc:
+            try:
+                self._mark_candidate_feed_state(False, "top_markets", type(exc).__name__, 0)
+            except Exception:
+                pass
             self.market_all_rows = []
             self._ensure_demo_ai_rows()
             self._sync_ai_pool_market_fields()

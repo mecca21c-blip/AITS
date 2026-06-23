@@ -797,3 +797,17 @@ Policy intent:
 - This work does not change network retry policy, GPT/Gemini timeout behavior, AI provider call conditions, stale-decision policy, Router decisions, Risk Guard policy, or execution behavior.
 - No raw account payloads, API keys, prompts, or order payloads are logged by the network-state proof path.
 - `order_allowed=False`, `real_order=False`, and `submitted=0` remain the safety boundary.
+
+## 52. NETWORK-RECONNECT-DATA-FEED-RECOVERY-FIX-01 Implementation Note
+
+`NETWORK-RECONNECT-DATA-FEED-RECOVERY-FIX-01` separates provider/key status from market data feed health and adds candidate feed recovery proof.
+
+Policy intent:
+
+- Provider connection status describes AI provider/key verification only; market data health is tracked separately by `top_markets`/candidate-feed state.
+- `top_markets` and ticker-empty results may mark the candidate feed as degraded/stale when the result is likely caused by a fetch failure or unavailable ticker data.
+- Candidate feed stale state is user-facing: the UI can show that the candidate list is based on the last successful refresh.
+- When the network recovers or the UI timer observes a stale feed, AITS schedules one observe-only candidate feed refresh with backoff.
+- Candidate feed recovery refresh updates scanner rows, managed-row market fields, Basic score display, and related UI only.
+- Candidate feed recovery does not run manual AI analysis refresh, GPT/Gemini/OpenAI calls, Router decisions, Risk Guard policy, or order execution.
+- Recovery and stale logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
