@@ -610,6 +610,80 @@ class TradeLogCenterTab(QWidget):
             value = value.replace(old, new)
         return value.strip() or "-"
 
+    def _trade_log_basis_kind(self, text: Any, action: Any = "") -> str:
+        value = str(text or "").replace(" ", "")
+        action_text = str(action or "").lower()
+        if "기존보유" in value or "보유유지" in value or "확신부족" in value:
+            return "hold_priority"
+        if "보유여유" in value or "신규후보우위" in value or "신규후보를우선검토" in value or "추가로관찰할수있는여유" in value:
+            return "new_candidate_priority"
+        if "데이터부족" in value or "거래대금" in value or "필터" in value:
+            return "data_or_liquidity_limited"
+        if "판단불가" in value:
+            return "undecidable"
+        if "진입검토" in value or "진입" in value or "enter" in action_text or "buy" in action_text:
+            return "entry_review"
+        if "관망" in value or "stay" in action_text or "hold" in action_text or "wait" in action_text:
+            return "watch"
+        return "generic"
+
+    def _format_trade_log_user_reason(self, basis: Any, reason: Any = "", action: Any = "", status: Any = "") -> tuple[str, bool, str]:
+        basis_text = self._humanize_trade_log_text(basis)
+        reason_text = self._humanize_trade_log_text(reason)
+        action_text = str(action or "").strip()
+        status_text = str(status or "").strip()
+        combined = " ".join(
+            item for item in (str(basis_text or ""), str(reason_text or ""), action_text, status_text) if item and item != "-"
+        )
+        kind = self._trade_log_basis_kind(combined, action_text)
+
+        if reason_text not in ("", "-") and reason_text != basis_text:
+            stripped = reason_text.replace("표시용 판단 기록이며 실제 주문은 실행되지 않았습니다.", "").strip()
+            if len(stripped) >= 28 and stripped != basis_text:
+                return stripped, False, kind
+
+        templates = {
+            "hold_priority": (
+                "현재는 새 종목을 추가로 매수하기보다 이미 보유 중인 포지션을 유지하는 쪽이 더 안전하다고 판단했습니다. "
+                "새 후보는 가격 흐름이나 거래 조건이 아직 충분히 강하지 않아 관망합니다."
+            ),
+            "new_candidate_priority": (
+                "현재 추가로 관찰할 수 있는 여유가 있고, 새 후보 종목의 우선순위가 기존 후보보다 높게 평가되었습니다. "
+                "다만 즉시 주문을 실행할 단계는 아니므로 관찰 대상으로 기록합니다."
+            ),
+            "data_or_liquidity_limited": (
+                "현재 후보 종목은 판단에 필요한 데이터가 부족하거나 거래대금 조건을 충분히 만족하지 못했습니다. "
+                "그래서 새로 진입하기보다 추가 확인이 필요하다고 판단했습니다."
+            ),
+            "watch": (
+                "현재는 매수나 매도 중 하나를 선택하기보다 시장 흐름을 더 확인하는 구간입니다. "
+                "추가 신호가 확인되기 전까지는 지켜보는 판단입니다."
+            ),
+            "undecidable": (
+                "현재 데이터만으로는 매수·매도 방향을 확정하기 어렵습니다. "
+                "신호가 불충분하므로 판단을 보류합니다."
+            ),
+            "entry_review": (
+                "현재 조건은 신규 진입 후보로 검토할 만하지만, 아직 즉시 주문을 실행할 정도로 확정된 상태는 아닙니다. "
+                "추가 조건 확인이 필요합니다."
+            ),
+        }
+        if kind in templates:
+            return templates[kind], True, kind
+        if basis_text not in ("", "-"):
+            return (
+                f"{basis_text} 이 판단은 참고용 요약이며, 매수·매도 방향을 확정하기 전에 추가 확인이 필요합니다.",
+                True,
+                kind,
+            )
+        if action_text:
+            return (
+                f"{action_text} 상태로 기록된 판단입니다. 현재 화면에서는 주문 실행보다 판단 내용 확인을 우선합니다.",
+                True,
+                kind,
+            )
+        return "판단에 필요한 설명 정보가 충분하지 않아 상세 사유를 확인할 수 없습니다.", True, kind
+
     def _split_journal_basis_reason(self, row: dict[str, Any] | None) -> tuple[str, str, bool]:
         if not row:
             return "-", "-", False
@@ -620,10 +694,20 @@ class TradeLogCenterTab(QWidget):
         identical_before = bool(basis and reason and basis != "-" and basis == reason)
         if basis in ("", "-") and reason not in ("", "-"):
             basis = reason.split("。")[0].split(".")[0].split("·")[0].strip()[:90] or reason
-        if reason in ("", "-") and basis not in ("", "-"):
-            reason = f"{basis} 표시용 판단 기록이며 실제 주문은 실행되지 않았습니다."
-        if identical_before:
-            reason = f"{basis} 표시용 판단 기록이며 실제 주문은 실행되지 않았습니다."
+        if reason in ("", "-") or identical_before:
+            reason, _generated, _kind = self._format_trade_log_user_reason(
+                basis,
+                reason,
+                row.get("action") or row.get("action_display") or "",
+                row.get("status") or row.get("status_display") or "",
+            )
+        else:
+            reason, _generated, _kind = self._format_trade_log_user_reason(
+                basis,
+                reason,
+                row.get("action") or row.get("action_display") or "",
+                row.get("status") or row.get("status_display") or "",
+            )
         return basis or "-", reason or "-", identical_before
 
     def _emit_reason_audit(self, identical_before: bool, basis: str, reason: str) -> None:
@@ -643,11 +727,34 @@ class TradeLogCenterTab(QWidget):
         except Exception:
             pass
 
+    def _emit_user_reason_log(self, row: dict[str, Any] | None, basis: str, reason: str) -> None:
+        if not row:
+            return
+        try:
+            _reason, generated, kind = self._format_trade_log_user_reason(
+                basis,
+                row.get("reason") or row.get("skip_reason") or "",
+                row.get("action") or row.get("action_display") or "",
+                row.get("status") or row.get("status_display") or "",
+            )
+            message = (
+                "[AITS][TradeLogUserReason] "
+                f"event={'format' if generated else 'skip'} "
+                f"basis_kind={kind} reason_generated={generated} submitted=0"
+            )
+            log.info(message)
+            parent_log = getattr(getattr(self, "_parent_window", None), "_log", None)
+            if parent_log is not None:
+                parent_log.info(message)
+        except Exception:
+            pass
+
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         is_empty = row is None
         self.detail_placeholder.setVisible(is_empty)
         basis, reason, identical_before = self._split_journal_basis_reason(row)
         self._emit_reason_audit(identical_before, basis, reason)
+        self._emit_user_reason_log(row, basis, reason)
         values = {
             "type": row.get("type") if row else "-",
             "symbol": row.get("symbol") if row else "-",

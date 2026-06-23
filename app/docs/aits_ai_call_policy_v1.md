@@ -769,3 +769,16 @@ Policy intent:
 - Save-complete messages must state clearly that no real order was submitted.
 - This work does not change AI provider call conditions, order actions, Router decisions, Risk Guard policy, or execution behavior.
 - `order_allowed=False`, `real_order=False`, and `submitted=0` remain the safety boundary.
+
+## 50. TRADE-LOG-USER-REASON-EXPLAINER-01 Implementation Note
+
+`TRADE-LOG-USER-REASON-EXPLAINER-01` improves Trade Log detail explanations.
+
+Policy intent:
+
+- `판단 근거` remains a short decision basis summary.
+- `사유` is a deterministic, user-readable explanation derived from the same observe-only journal row.
+- Internal phrases such as hold-priority, candidate-priority, data/liquidity-limited, watch, undecidable, and entry-review states are expanded into plain Korean copy.
+- The reason body should not mechanically repeat `실제 주문 없음`; order safety remains shown by the submitted/status fields and journal safety metadata.
+- This is a display formatter only and does not change AI provider call conditions, Router action, Risk Guard policy, execution behavior, or actual trade storage.
+- `order_allowed=False`, `real_order=False`, and `submitted=0` remain the safety boundary.
