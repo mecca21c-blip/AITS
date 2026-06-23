@@ -2848,6 +2848,12 @@ class AITSLargeChartDialog(QDialog):
             self._detail_popup_eta_timer.timeout.connect(self._tick_detail_popup_eta_timer)
         except Exception:
             pass
+        self._detail_popup_freshness_timer = QTimer(self)
+        try:
+            self._detail_popup_freshness_timer.setInterval(30000)
+            self._detail_popup_freshness_timer.timeout.connect(self._tick_detail_popup_freshness_timer)
+        except Exception:
+            pass
 
         self.lbl_detail_popup_decision_state_title.setStyleSheet(
             "font-size:11px; font-weight:800; color:#6B7280;"
@@ -6769,6 +6775,10 @@ class AITSLargeChartDialog(QDialog):
             if not isinstance(contract, dict):
                 return
             self._detail_chart_display_contract = dict(contract)
+            try:
+                self._start_detail_popup_freshness_timer()
+            except Exception:
+                pass
             labels = self._build_detail_chart_mode_labels(contract)
             self._detail_chart_display_mode_labels = dict(labels)
             ai_mode = bool(labels.get("ai_mode"))
@@ -6922,6 +6932,70 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
 
+    def _start_detail_popup_freshness_timer(self):
+        try:
+            snapshot = {}
+            contract = getattr(self, "_detail_chart_display_contract", None)
+            if isinstance(contract, dict):
+                snapshot = contract.get("ai_snapshot") if isinstance(contract.get("ai_snapshot"), dict) else {}
+            has_snapshot = bool(snapshot.get("has_snapshot"))
+            generated_at = str(snapshot.get("generated_at") or "").strip()
+            if has_snapshot and generated_at and self._detail_popup_freshness_timer is not None and not self._detail_popup_freshness_timer.isActive():
+                self._detail_popup_freshness_timer.start()
+        except Exception:
+            pass
+
+    def _stop_detail_popup_freshness_timer(self):
+        try:
+            if self._detail_popup_freshness_timer is not None and self._detail_popup_freshness_timer.isActive():
+                self._detail_popup_freshness_timer.stop()
+        except Exception:
+            pass
+
+    def _tick_detail_popup_freshness_timer(self):
+        """Update AI freshness labels only; does not redraw chart or call providers."""
+        try:
+            if not self.isVisible():
+                self._stop_detail_popup_freshness_timer()
+                return
+            parent = self.parent()
+            contract = getattr(self, "_detail_chart_display_contract", None)
+            if not isinstance(contract, dict):
+                self._stop_detail_popup_freshness_timer()
+                return
+            snapshot = contract.get("ai_snapshot") if isinstance(contract.get("ai_snapshot"), dict) else {}
+            if not snapshot or not snapshot.get("has_snapshot") or not str(snapshot.get("generated_at") or "").strip():
+                self._stop_detail_popup_freshness_timer()
+                return
+            helper = getattr(parent, "_build_ai_decision_freshness_state", None)
+            logger = getattr(parent, "_log_ai_decision_freshness_state", None)
+            if not callable(helper):
+                return
+            symbol = str(contract.get("symbol") or snapshot.get("symbol") or "").strip()
+            freshness = helper(snapshot.get("generated_at"), source="detail_chart_label_refresh", symbol=symbol)
+            new_snapshot = dict(snapshot)
+            new_snapshot["age_seconds"] = freshness.get("age_seconds")
+            new_snapshot["age_label"] = freshness.get("age_label")
+            new_snapshot["freshness"] = freshness.get("freshness_state") or freshness.get("freshness")
+            new_snapshot["freshness_label"] = freshness.get("display_label") or freshness.get("freshness_label")
+            new_snapshot["warning_text"] = freshness.get("warning_text") or ""
+            new_snapshot["should_emphasize"] = bool(freshness.get("should_emphasize"))
+            new_contract = dict(contract)
+            new_contract["ai_snapshot"] = new_snapshot
+            self._detail_chart_display_contract = dict(new_contract)
+            self.apply_detail_chart_display_contract(new_contract)
+            state = str(freshness.get("freshness_state") or freshness.get("freshness") or "unknown")
+            prev = str(getattr(self, "_detail_popup_last_freshness_state", "") or "")
+            prev_age_bucket = int(float(getattr(self, "_detail_popup_last_freshness_age_bucket", -1) or -1))
+            age_sec = freshness.get("age_sec") if freshness.get("age_sec") is not None else freshness.get("age_seconds")
+            age_bucket = int(float(age_sec or 0) // 60)
+            if callable(logger) and (state != prev or age_bucket != prev_age_bucket):
+                logger(symbol=symbol, source="detail_chart", freshness=freshness, event="label_refresh")
+            self._detail_popup_last_freshness_state = state
+            self._detail_popup_last_freshness_age_bucket = age_bucket
+        except Exception:
+            pass
+
     def _start_detail_popup_eta_timer(self):
         try:
             if self._detail_popup_eta_timer is not None and not self._detail_popup_eta_timer.isActive():
@@ -7043,6 +7117,10 @@ class AITSLargeChartDialog(QDialog):
             pass
         try:
             self._stop_detail_popup_eta_timer()
+        except Exception:
+            pass
+        try:
+            self._stop_detail_popup_freshness_timer()
         except Exception:
             pass
         try:
@@ -8519,6 +8597,29 @@ class MainWindow(QMainWindow):
                 "next_action": [],
             }
 
+    def _refresh_ai_decision_freshness_labels_only(self, reason="timer"):
+        """Refresh freshness labels only; does not call providers or redraw charts."""
+        try:
+            self._render_aits_ai_explanation()
+            data = self._get_aits_final_explanation_payload()
+            generated_at = data.get("generated_at") or data.get("ai_briefing_generated_at") or ""
+            if generated_at:
+                symbol = self._resolve_current_ai_snapshot_symbol("")
+                freshness_info = self._build_ai_decision_freshness_state(
+                    generated_at,
+                    source=data.get("source") or "recent_ai_card",
+                    symbol=symbol,
+                )
+                self._log_ai_decision_freshness_state(
+                    symbol=symbol,
+                    source=str(reason or "label_refresh"),
+                    freshness=freshness_info,
+                    event="label_refresh",
+                )
+            return True
+        except Exception:
+            return False
+
     def _get_aits_final_explanation_payload(self):
         try:
             final_payload = getattr(self, "_aits_last_final_reco_payload", {}) or {}
@@ -8541,6 +8642,29 @@ class MainWindow(QMainWindow):
             rot_to = str(rotation_payload.get("to_symbol", "") or "").strip()
             rot_why = str(rotation_payload.get("why", "") or "").strip()
             rot_mode = str(final_payload.get("rotation_mode", "") or "soft").strip()
+            generated_at = str(
+                final_payload.get("ai_briefing_generated_at")
+                or final_payload.get("generated_at")
+                or final_payload.get("decision_generated_at")
+                or ""
+            ).strip()
+            source = str(final_payload.get("source") or final_payload.get("snapshot_source") or "").strip()
+            if not generated_at:
+                try:
+                    symbol = self._resolve_current_ai_snapshot_symbol("")
+                    cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None) or {}
+                    snap = cache.get(symbol) if isinstance(cache, dict) and symbol else {}
+                    if isinstance(snap, dict):
+                        generated_at = str(
+                            snap.get("generated_at")
+                            or snap.get("decision_generated_at")
+                            or snap.get("ai_briefing_generated_at")
+                            or ""
+                        ).strip()
+                        if not source:
+                            source = str(snap.get("source") or "").strip()
+                except Exception:
+                    pass
 
             decision_norm = self._normalize_aits_decision_text(decision)
             if rot_needed and "교체" not in decision_norm:
@@ -8557,6 +8681,9 @@ class MainWindow(QMainWindow):
                     "why": rot_why,
                     "mode": rot_mode or "soft",
                 },
+                "generated_at": generated_at,
+                "ai_briefing_generated_at": generated_at,
+                "source": source or "recent_ai_card",
             }
         except Exception:
             return {
@@ -8570,6 +8697,9 @@ class MainWindow(QMainWindow):
                     "why": "",
                     "mode": "soft",
                 },
+                "generated_at": "",
+                "ai_briefing_generated_at": "",
+                "source": "recent_ai_card",
             }
 
     def _build_aits_unified_decision_banner(self):
@@ -13278,6 +13408,10 @@ class MainWindow(QMainWindow):
                 try:
                     if bool(getattr(self, "_candidate_feed_stale", False)):
                         self._schedule_candidate_feed_recovery("tables_timer_candidate_feed_stale")
+                except Exception:
+                    pass
+                try:
+                    self._refresh_ai_decision_freshness_labels_only("tables_timer_label_refresh")
                 except Exception:
                     pass
 

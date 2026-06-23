@@ -366,6 +366,7 @@ class TradeLogCenterTab(QWidget):
             ("symbol", "종목"),
             ("action", "판단 Action"),
             ("submitted", "주문 실행 여부"),
+            ("freshness", "판단 신선도"),
             ("selected_engine", "선택 엔진"),
             ("actual_engine", "실제 엔진"),
             ("basis", "판단 근거"),

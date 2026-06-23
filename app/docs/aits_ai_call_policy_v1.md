@@ -840,3 +840,17 @@ Policy intent:
 - This is a display and observability guard only. It does not change Router action, Risk Guard policy, order submission, or execution behavior.
 - Stale-decision order blocking, if needed, must be handled by a separate high-risk live-trading Goal.
 - Freshness logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 55. STALE-AI-DECISION-VISIBILITY-FIX-01 Implementation Note
+
+`STALE-AI-DECISION-VISIBILITY-FIX-01` makes display-only freshness labels visible and time-aware.
+
+Policy intent:
+
+- Freshness labels are recalculated from stored AI decision timestamps; recalculation does not call GPT, Gemini, OpenAI, or any provider.
+- Detail-chart freshness updates are lightweight label updates for visible dialogs and must not trigger a full chart redraw.
+- Recent AI and operation-center freshness labels may be refreshed by the existing UI timer as text-only updates.
+- Trade Log Shadow/Preview detail rows show `판단 신선도` dynamically from the journal timestamp; restored rows are recalculated at selection time.
+- Network recovery and candidate-feed recovery must not rewrite AI decision timestamps or promote old decisions to fresh decisions.
+- This work does not change Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
+- Freshness visibility logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
