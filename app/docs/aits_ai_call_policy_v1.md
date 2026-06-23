@@ -782,3 +782,18 @@ Policy intent:
 - The reason body should not mechanically repeat `실제 주문 없음`; order safety remains shown by the submitted/status fields and journal safety metadata.
 - This is a display formatter only and does not change AI provider call conditions, Router action, Risk Guard policy, execution behavior, or actual trade storage.
 - `order_allowed=False`, `real_order=False`, and `submitted=0` remain the safety boundary.
+
+## 51. NETWORK-RECONNECT-UX-STATE-PROOF-01 Implementation Note
+
+`NETWORK-RECONNECT-UX-STATE-PROOF-01` adds runtime proof for network lookup failure and recovery.
+
+Policy intent:
+
+- Network state is a runtime UI/check state, not an API-key or provider-selection state.
+- The lightweight runtime state tracks `network_status`, `last_ok_at`, `last_failed_at`, `last_recovered_at`, `consecutive_failures`, and `last_checked_source`.
+- Account, ticker, investment holdings, investment market-price, and investment refresh checks may report `check_failed`, `check_ok`, or `recovered` through `[AITS][NetworkState]`.
+- Failure UI should tell the user that current values may be based on the last successful refresh.
+- Recovery UI should make the next successful refresh visible as normal connection/recovery proof.
+- This work does not change network retry policy, GPT/Gemini timeout behavior, AI provider call conditions, stale-decision policy, Router decisions, Risk Guard policy, or execution behavior.
+- No raw account payloads, API keys, prompts, or order payloads are logged by the network-state proof path.
+- `order_allowed=False`, `real_order=False`, and `submitted=0` remain the safety boundary.

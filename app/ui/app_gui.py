@@ -9991,6 +9991,82 @@ class MainWindow(QMainWindow):
         except Exception:
             print(f"[UI] ERROR: {msg}")
 
+    def _note_network_state(self, ok: bool, source: str = "unknown", error: str = "") -> None:
+        """Record network/check state for UI proof without touching trading paths."""
+        try:
+            import logging
+            import time
+
+            now = time.time()
+            status = "ok" if ok else "disconnected"
+            prev = str(getattr(self, "_network_status", "unknown") or "unknown")
+            source = str(source or "unknown").strip()[:80] or "unknown"
+            error_summary = str(error or "").strip().replace("\n", " ")[:120]
+            if ok:
+                last_failed_at = getattr(self, "_network_last_failed_at", None)
+                self._network_status = "ok"
+                self._network_last_ok_at = now
+                self._network_last_recovered_at = now if prev in {"degraded", "disconnected"} else getattr(
+                    self, "_network_last_recovered_at", None
+                )
+                self._network_consecutive_failures = 0
+                self._network_last_checked_source = source
+                event = "recovered" if prev in {"degraded", "disconnected"} else "check_ok"
+                should_log = event == "recovered" or now - float(getattr(self, "_network_last_ok_log_at", 0.0) or 0.0) > 60.0
+                if should_log:
+                    self._network_last_ok_log_at = now
+                    logging.getLogger("aits").info(
+                        "[AITS][NetworkState] event=%s source=%s status=%s last_failed_at=%s submitted=0 order_allowed=False real_order=False",
+                        event,
+                        source,
+                        status,
+                        last_failed_at or "-",
+                    )
+                if event == "recovered":
+                    try:
+                        self.set_global_status("연결 복구됨 · 새로고침 완료", "ok", "network")
+                    except Exception:
+                        pass
+                    try:
+                        self.set_status_msg("연결 복구됨 · 새로고침 완료", "#15803d")
+                    except Exception:
+                        pass
+                return
+
+            failures = int(getattr(self, "_network_consecutive_failures", 0) or 0) + 1
+            self._network_status = "disconnected"
+            self._network_last_failed_at = now
+            self._network_last_error_summary = error_summary or "network_check_failed"
+            self._network_consecutive_failures = failures
+            self._network_last_checked_source = source
+            should_log = (
+                prev != "disconnected"
+                or failures <= 1
+                or now - float(getattr(self, "_network_last_failed_log_at", 0.0) or 0.0) > 60.0
+            )
+            if should_log:
+                self._network_last_failed_log_at = now
+                logging.getLogger("aits").warning(
+                    "[AITS][NetworkState] event=check_failed source=%s status=%s error=%s consecutive_failures=%s submitted=0 order_allowed=False real_order=False",
+                    source,
+                    status,
+                    error_summary or "unknown",
+                    failures,
+                )
+            last_ok = getattr(self, "_network_last_ok_at", None)
+            last_ok_text = time.strftime("%H:%M:%S", time.localtime(float(last_ok))) if last_ok else "-"
+            message = f"네트워크 확인 필요 · 마지막 성공 {last_ok_text} 기준 표시 중"
+            try:
+                self.set_global_status(message, "warn", "network")
+            except Exception:
+                pass
+            try:
+                self.set_status_msg(message, "#b45309")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     # === [ADD] UI mini-helpers (spin/line/readonly) ===
     # (삭제됨) _mk_spin_int / _mk_line / _mk_readonly_text / _show_toast:
     # StrategyTab 완전 이전으로 app_gui.py에서 더 이상 사용하지 않는 UI 헬퍼들.
@@ -10517,11 +10593,13 @@ class MainWindow(QMainWindow):
             return 0.0, 0.0
         try:
             rows = svc_order.fetch_accounts() or []
+            self._note_network_state(True, "upbit_accounts")
         except Exception as e:
             # ✅ 실패 시 상세 로그 추가
             import logging
             log = logging.getLogger(__name__)
             log.error(f"[UPBIT-TOTALS] fetch_accounts failed: {type(e).__name__}: {e}")
+            self._note_network_state(False, "upbit_accounts", type(e).__name__)
             log.error(f"[UPBIT-TOTALS] last_known: total={self._last_total_asset} available={self._last_available_krw}")
             
             if self._last_total_asset is not None:
@@ -10583,7 +10661,9 @@ class MainWindow(QMainWindow):
                             m = t.get("market")
                             if m:
                                 prices[m] = float(t.get("trade_price") or 0.0)
+                    self._note_network_state(True, "upbit_ticker")
                 except Exception:
+                    self._note_network_state(False, "upbit_ticker", "ticker_lookup_failed")
                     pass
 
             for sym, bal, lck, avgp in coins:
@@ -10822,6 +10902,11 @@ class MainWindow(QMainWindow):
             pass
         try:
             _total_asset, _available_krw = self._investment_account_summary_values()
+            _status = self._investment_center_position_source.get("status")
+            if _status in {"failed", "unavailable"}:
+                self._note_network_state(False, "investment_refresh", _status)
+            elif _status in {"ok", "empty", "mismatch"}:
+                self._note_network_state(True, "investment_refresh")
             self._log.info(
                 "[AITS][InvestmentPositionSource] event=load status=%s source=%s rows=%s total_asset=%s available_krw=%s submitted=0",
                 self._investment_center_position_source.get("status"),
@@ -10889,6 +10974,7 @@ class MainWindow(QMainWindow):
                 }
             if not bool(holdings_data.get("ok")):
                 reason_text = str(holdings_data.get("err") or "unknown")[:80]
+                self._note_network_state(False, "investment_holdings", reason_text)
                 try:
                     self._log.warning(
                         "[AITS][InvestmentPositionSource] event=load status=failed source=live_holdings reason=%s submitted=0",
@@ -10903,6 +10989,7 @@ class MainWindow(QMainWindow):
                     "message": "보유 포지션 조회 실패 · 계좌/연결 상태 확인 필요",
                 }
             items = holdings_data.get("items") or []
+            self._note_network_state(True, "investment_holdings")
             price_lookup = self._get_investment_market_price_map(
                 [
                     str(item.get("symbol") or item.get("market") or "").strip()
@@ -10917,6 +11004,7 @@ class MainWindow(QMainWindow):
             ]
             rows = [row for row in rows if row]
             if rows:
+                self._note_network_state(True, "investment_holdings")
                 return {
                     "status": "ok",
                     "source": "live_holdings",
@@ -10946,6 +11034,7 @@ class MainWindow(QMainWindow):
                 "message": "실제 보유 포지션이 없습니다.",
             }
         except Exception as exc:
+            self._note_network_state(False, "investment_holdings", type(exc).__name__)
             try:
                 self._log.warning(
                     "[AITS][InvestmentPositionSource] event=load status=failed source=live_holdings reason=%s submitted=0",
@@ -11026,7 +11115,9 @@ class MainWindow(QMainWindow):
                         price = _num(tick.get("trade_price") or tick.get("current_price") or tick.get("price"))
                         if price is not None:
                             result[market] = {"price": price, "source": "ticker_readonly", "status": "ok"}
+                self._note_network_state(True, "investment_market_price")
             except Exception as exc:
+                self._note_network_state(False, "investment_market_price", type(exc).__name__)
                 try:
                     self._log.warning(
                         "[AITS][InvestmentMarketPrice] event=lookup_batch status=failed reason=%s submitted=0",
