@@ -25763,10 +25763,83 @@ class MainWindow(QMainWindow):
             return default
         return default
 
+    def _managed_pool_holding_review_rows(self) -> dict[str, dict]:
+        def _num(value, default=None):
+            try:
+                if value is None:
+                    return default
+                text = str(value).strip().replace(",", "").replace("%", "")
+                if text in {"", "-", "None"}:
+                    return default
+                return float(text)
+            except Exception:
+                return default
+
+        def _symbol(row):
+            try:
+                raw = row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker")
+                if not raw:
+                    cur = str(row.get("currency") or "").strip().upper()
+                    if cur and cur != "KRW":
+                        raw = f"KRW-{cur}"
+                return self._normalize_investment_symbol(raw)
+            except Exception:
+                return ""
+
+        result: dict[str, dict] = {}
+        for attr_name in ("_investment_center_positions", "_portfolio_positions", "_holdings_rows", "portfolio_rows"):
+            rows = getattr(self, attr_name, None)
+            if not isinstance(rows, list):
+                continue
+            for src in rows:
+                if not isinstance(src, dict):
+                    continue
+                symbol = _symbol(src)
+                if not symbol or symbol in result:
+                    continue
+                qty = _num(src.get("qty") or src.get("balance") or src.get("volume"), 0.0) or 0.0
+                locked = _num(src.get("locked"), 0.0) or 0.0
+                if qty <= 0 and locked > 0:
+                    qty = locked
+                avg = _num(src.get("avg") or src.get("avg_buy_price") or src.get("avg_price"))
+                price = _num(src.get("price") or src.get("current_price") or src.get("trade_price") or src.get("market_price"))
+                cost_basis = _num(src.get("cost_basis"))
+                if cost_basis is None and qty > 0 and avg is not None:
+                    cost_basis = qty * avg
+                eval_amount = _num(src.get("eval_amount") or src.get("eval_krw") or src.get("value_krw"))
+                if eval_amount is None and qty > 0 and price is not None:
+                    eval_amount = qty * price
+                pnl_krw = _num(src.get("pnl") or src.get("pnl_krw"))
+                if pnl_krw is None and eval_amount is not None and cost_basis is not None:
+                    pnl_krw = eval_amount - cost_basis
+                return_rate = _num(src.get("return_rate") or src.get("pnl_pct") or src.get("roi_pct") or src.get("profit_rate"))
+                if return_rate is None and price is not None and avg and avg > 0:
+                    return_rate = ((price / avg) - 1.0) * 100.0
+                dust = src.get("dust")
+                if dust is None:
+                    dust = src.get("is_dust")
+                if dust is None and eval_amount is not None:
+                    dust = 0 <= eval_amount < 5000
+                result[symbol] = {
+                    "symbol": symbol,
+                    "holding_source": attr_name,
+                    "qty": qty,
+                    "avg_buy_price": avg,
+                    "current_price": price,
+                    "cost_basis": cost_basis,
+                    "eval_amount": eval_amount,
+                    "pnl": pnl_krw,
+                    "return_rate": return_rate,
+                    "dust_position": bool(dust),
+                }
+        return result
+
     def _build_managed_pool_ai_review_queue(self, *, reason: str = "") -> list[dict]:
         try:
             rows = getattr(self, "ai_managed_rows", None) or []
             market_data_stale = bool(getattr(self, "_candidate_feed_stale", False))
+            holdings_by_symbol = self._managed_pool_holding_review_rows()
+            managed_symbols = set()
             queue = []
             for row in rows:
                 if not isinstance(row, dict):
@@ -25774,6 +25847,9 @@ class MainWindow(QMainWindow):
                 symbol = str(row.get("symbol") or row.get("market") or "").strip()
                 if not symbol:
                     continue
+                symbol = self._normalize_investment_symbol(symbol) or symbol
+                managed_symbols.add(symbol)
+                holding_info = holdings_by_symbol.get(symbol) or {}
                 freshness = self._sync_managed_pool_ai_review_sla_state(row, log=False)
                 status = str(row.get("ai_status") or row.get("status") or "").strip()
                 manual_hold = self._is_managed_manual_hold_row(row)
@@ -25783,40 +25859,61 @@ class MainWindow(QMainWindow):
                 change_pct = self._managed_pool_review_float(row, "change_rate", "signed_change_rate", "change_pct", "change", default=0.0) or 0.0
                 trade_value = self._managed_pool_review_float(row, "trade_value", "acc_trade_price_24h", "acc_trade_price", "volume_krw", default=0.0) or 0.0
                 pnl = self._managed_pool_review_float(row, "pnl", "return_rate", "roi_pct", "profit_rate", default=0.0) or 0.0
+                holding_return_rate = self._managed_pool_review_float(holding_info, "return_rate", default=None)
+                holding_pnl = self._managed_pool_review_float(holding_info, "pnl", default=None)
+                if holding_return_rate is not None:
+                    pnl = holding_return_rate
                 weight = self._managed_pool_review_float(row, "position_weight_pct", "weight_pct", "weight", default=0.0) or 0.0
-                is_holding = status == "Holding" or abs(weight) > 0.0 or row.get("holding") is True
+                is_holding = status == "Holding" or bool(holding_info) or abs(weight) > 0.0 or row.get("holding") is True
+                current_price = self._managed_pool_review_float(holding_info, "current_price", default=None)
+                if current_price is None:
+                    current_price = self._managed_pool_review_float(row, "current_price", "price", "trade_price", default=None)
+                target_price = self._managed_pool_review_float(row, "target_price", "tp_price", default=None)
+                stop_price = self._managed_pool_review_float(row, "stop_loss", "stop_price", "sl_price", default=None)
                 state = str(freshness.get("freshness_state") or "unknown")
                 triggers = []
                 priority = 0
                 if state == "missing":
-                    priority = max(priority, 60)
-                    triggers.append("AI 분석 없음")
+                    priority = max(priority, 70 if is_holding else 60)
+                    triggers.append("보유 포지션 AI 분석 없음" if is_holding else "AI 분석 없음")
                 elif state == "very_stale":
-                    priority = max(priority, 55)
-                    triggers.append("새 분석 권장")
+                    priority = max(priority, 75 if is_holding else 55)
+                    triggers.append("보유 포지션 새 분석 권장" if is_holding else "새 분석 권장")
                 elif state == "stale":
-                    priority = max(priority, 45)
-                    triggers.append("오래된 AI 판단")
+                    priority = max(priority, 65 if is_holding else 45)
+                    triggers.append("보유 포지션 오래된 판단" if is_holding else "오래된 AI 판단")
                 if abs(score_delta) >= 15:
                     priority = max(priority, 50)
                     triggers.append("점수 급변")
                 if abs(change_pct) >= 5:
-                    priority = max(priority, 40)
-                    triggers.append("가격 변동 확대")
+                    priority = max(priority, 65 if is_holding else 40)
+                    triggers.append("보유 포지션 가격 변동 확대" if is_holding else "가격 변동 확대")
                 if trade_value >= 1_000_000_000:
                     priority = max(priority, 30)
                     triggers.append("거래대금 변화 감지")
                 if is_holding and abs(pnl) >= 2:
                     priority = max(priority, 80)
                     triggers.append("보유 포지션 손익 변화")
+                if is_holding and holding_pnl is not None and abs(float(holding_pnl)) >= 50_000:
+                    priority = max(priority, 80)
+                    triggers.append("보유 포지션 손익 금액 변화")
+                if is_holding and current_price and current_price > 0:
+                    near_target = target_price and target_price > 0 and abs(float(target_price) - float(current_price)) / float(current_price) <= 0.015
+                    near_stop = stop_price and stop_price > 0 and abs(float(current_price) - float(stop_price)) / float(current_price) <= 0.015
+                    if near_target or near_stop:
+                        priority = max(priority, 78)
+                        triggers.append("손절/익절 기준 확인 필요")
                 if market_data_stale:
-                    priority = max(priority, 35)
-                    triggers.append("데이터 확인 후 재검토")
+                    priority = max(priority, 55 if is_holding else 35)
+                    triggers.append("보유 포지션 데이터 재확인 필요" if is_holding else "데이터 확인 후 재검토")
                 if manual_hold:
-                    row["ai_review_queue_status"] = "매매보류 · 참고"
-                    row["ai_review_queue_reason"] = "매매보류 상태"
-                    row["_review_queue_prev_ai_score"] = score
-                    continue
+                    if not is_holding:
+                        row["ai_review_queue_status"] = "매매보류 · 참고"
+                        row["ai_review_queue_reason"] = "매매보류 상태"
+                        row["_review_queue_prev_ai_score"] = score
+                        continue
+                    priority = min(max(priority, 25), 25)
+                    triggers = ["매매보류 보유 포지션 참고"]
                 if not triggers:
                     row["ai_review_queue_status"] = ""
                     row["ai_review_queue_reason"] = ""
@@ -25827,6 +25924,17 @@ class MainWindow(QMainWindow):
                     "display_name": row.get("name") or row.get("display_name") or symbol,
                     "source_type": row.get("source_type") or row.get("source") or "",
                     "is_holding": bool(is_holding),
+                    "holding_source": holding_info.get("holding_source") or ("managed_pool" if is_holding else ""),
+                    "holding_in_managed_pool": True,
+                    "qty": holding_info.get("qty"),
+                    "avg_buy_price": holding_info.get("avg_buy_price"),
+                    "current_price": current_price,
+                    "cost_basis": holding_info.get("cost_basis"),
+                    "eval_amount": holding_info.get("eval_amount"),
+                    "pnl": holding_pnl,
+                    "return_rate": holding_return_rate,
+                    "tp_sl_status": "near" if "손절/익절 기준 확인 필요" in triggers else "",
+                    "dust_position": bool(holding_info.get("dust_position", False)),
                     "current_status": status,
                     "ai_score": score,
                     "score_delta": score_delta,
@@ -25835,16 +25943,77 @@ class MainWindow(QMainWindow):
                     "queue_reason": " · ".join(dict.fromkeys(triggers)),
                     "priority": int(priority),
                     "trigger_type": triggers[0],
+                    "holding_priority_reason": triggers[0] if is_holding else "",
                     "market_data_stale": market_data_stale,
                     "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                     "submitted": 0,
                     "order_allowed": False,
                     "real_order": False,
                 }
-                row["ai_review_queue_status"] = "재검토 후보"
+                if manual_hold:
+                    row["ai_review_queue_status"] = "매매보류 · 보유 참고"
+                else:
+                    row["ai_review_queue_status"] = "보유 우선 재검토" if is_holding else "재검토 후보"
                 row["ai_review_queue_reason"] = record["queue_reason"]
                 row["_review_queue_prev_ai_score"] = score
                 queue.append(record)
+            for symbol, holding_info in holdings_by_symbol.items():
+                if symbol in managed_symbols:
+                    continue
+                synthetic_row = {"symbol": symbol}
+                freshness = self._sync_managed_pool_ai_review_sla_state(synthetic_row, log=False)
+                state = str(freshness.get("freshness_state") or "unknown")
+                dust = bool(holding_info.get("dust_position", False))
+                triggers = ["보유 포지션이 관리종목 밖에 있음"]
+                priority = 25 if dust else 85
+                if state == "missing":
+                    triggers.append("보유 포지션 AI 분석 없음")
+                    priority = max(priority, 35 if dust else 85)
+                elif state == "very_stale":
+                    triggers.append("보유 포지션 새 분석 권장")
+                    priority = max(priority, 35 if dust else 85)
+                elif state == "stale":
+                    triggers.append("보유 포지션 오래된 판단")
+                    priority = max(priority, 35 if dust else 85)
+                return_rate = self._managed_pool_review_float(holding_info, "return_rate", default=0.0) or 0.0
+                if abs(return_rate) >= 2:
+                    triggers.append("보유 포지션 손익 변화")
+                    priority = max(priority, 35 if dust else 90)
+                if market_data_stale:
+                    triggers.append("보유 포지션 데이터 재확인 필요")
+                    priority = max(priority, 35 if dust else 85)
+                queue.append({
+                    "symbol": symbol,
+                    "display_name": symbol,
+                    "source_type": "holding_outside_managed_pool",
+                    "is_holding": True,
+                    "holding_source": holding_info.get("holding_source") or "investment_positions",
+                    "holding_in_managed_pool": False,
+                    "qty": holding_info.get("qty"),
+                    "avg_buy_price": holding_info.get("avg_buy_price"),
+                    "current_price": holding_info.get("current_price"),
+                    "cost_basis": holding_info.get("cost_basis"),
+                    "eval_amount": holding_info.get("eval_amount"),
+                    "pnl": holding_info.get("pnl"),
+                    "return_rate": holding_info.get("return_rate"),
+                    "position_age": "",
+                    "tp_sl_status": "",
+                    "holding_priority_reason": triggers[0],
+                    "dust_position": dust,
+                    "current_status": "HoldingOutsideManagedPool",
+                    "ai_score": None,
+                    "score_delta": 0.0,
+                    "freshness_state": state,
+                    "last_ai_review_at": freshness.get("generated_at") or "",
+                    "queue_reason": " · ".join(dict.fromkeys(triggers)),
+                    "priority": int(priority),
+                    "trigger_type": triggers[0],
+                    "market_data_stale": market_data_stale,
+                    "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "submitted": 0,
+                    "order_allowed": False,
+                    "real_order": False,
+                })
             queue.sort(key=lambda item: int(item.get("priority") or 0), reverse=True)
             self._managed_pool_ai_review_queue = queue[:20]
             self._log_managed_pool_ai_review_queue(self._managed_pool_ai_review_queue, reason=reason)
@@ -25859,6 +26028,8 @@ class MainWindow(QMainWindow):
             high = sum(1 for x in queue if int(x.get("priority") or 0) >= 70)
             medium = sum(1 for x in queue if 40 <= int(x.get("priority") or 0) < 70)
             low = sum(1 for x in queue if int(x.get("priority") or 0) < 40)
+            holdings = sum(1 for x in queue if bool(x.get("is_holding")))
+            outside = sum(1 for x in queue if x.get("holding_in_managed_pool") is False)
             signature = (total, high, medium, low, tuple((x.get("symbol"), x.get("queue_reason"), x.get("priority")) for x in (queue or [])[:5]))
             now = time.time()
             if signature == getattr(self, "_managed_pool_ai_review_queue_last_sig", None) and now - float(getattr(self, "_managed_pool_ai_review_queue_last_log_at", 0.0) or 0.0) < 60:
@@ -25869,8 +26040,16 @@ class MainWindow(QMainWindow):
                 "[AITS][ManagedPoolAIReviewQueue] event=queue_built reason=%s total=%s high=%s medium=%s low=%s submitted=0 order_allowed=False real_order=False",
                 str(reason or "unknown"), total, high, medium, low,
             )
+            logging.getLogger("aits").info(
+                "[AITS][HoldingsAIReviewPriority] event=queue_built holdings=%s outside_managed=%s high=%s submitted=0 order_allowed=False real_order=False",
+                holdings, outside, high,
+            )
             if total:
-                self._append_managed_live_log(f"AI 재검토 후보 {total}개 · 보유 {high}개 우선 · 실제 주문 없음", str((queue or [{}])[0].get("symbol") or ""))
+                if holdings:
+                    msg = f"보유종목 재검토 후보 {holdings}개 · 관리종목 밖 {outside}개 · 실제 주문 없음"
+                else:
+                    msg = f"AI 재검토 후보 {total}개 · 실제 주문 없음"
+                self._append_managed_live_log(msg, str((queue or [{}])[0].get("symbol") or ""))
         except Exception:
             pass
 

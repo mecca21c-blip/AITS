@@ -910,3 +910,16 @@ Policy intent:
 - Queue output is user-facing through managed-row status text, Live Log, and `[AITS][ManagedPoolAIReviewQueue]` proof logs.
 - The queue is not an order signal, Router action, Risk Guard rule, or execution plan.
 - High-priority queue rows still keep `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 60. HOLDINGS-AI-REVIEW-PRIORITY-01 Implementation Note
+
+`HOLDINGS-AI-REVIEW-PRIORITY-01` extends the observe-only review queue so real holdings receive priority even when they are not already present in the managed pool.
+
+Policy intent:
+
+- Holdings are read from existing investment/portfolio caches and are not auto-added to the managed pool.
+- Managed-pool rows that match a holding receive higher queue priority for missing/stale AI review, PnL movement, price movement, stale market data, or target/stop proximity.
+- Holdings outside the managed pool are surfaced as observe-only queue entries and Live Log guidance so the user can decide whether to register them.
+- Dust positions may be lower priority, but the queue still keeps all entries observe-only.
+- This queue never starts GPT, Gemini, OpenAI, Router, order, execution, or risk-management work.
+- High-priority holding queue entries still keep `order_allowed=False`, `real_order=False`, and `submitted=0`.
