@@ -91,6 +91,17 @@ The following surfaces should prefer contract fields:
 - Shadow/Preview Journal display and detail panel
 - per-symbol AI snapshot cache
 
+## Judgment Stage Semantics
+
+The contract remains the source of truth for decision content. Journal stage metadata only explains where that content appears in the operator workflow.
+
+- `ai_original` is displayed as `AI 원판단`.
+- `aits_shadow_final` is displayed as `AITS 모의판정`.
+- Snapshot storage and UI sanitizing are not new judgment stages.
+- A single decision group may contain at most one row per stage.
+
+See `app/docs/aits_ai_judgment_semantics_v1.md` for stage labels, dedupe rules, change-reason display, and review-mode copy.
+
 ## Ollama Diagnostic Boundary
 
 Manual LOCAL/Ollama diagnostic results are not active AI decisions.

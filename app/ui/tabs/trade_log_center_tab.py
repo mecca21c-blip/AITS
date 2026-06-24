@@ -37,8 +37,8 @@ class TradeLogCenterTab(QWidget):
     FILTERS = (
         ("all", "전체"),
         ("fills", "실제 체결"),
-        ("preview", "Preview 판단"),
-        ("reflection", "Reflection"),
+        ("preview", "AI 판단 기록"),
+        ("reflection", "복기"),
         ("blocked", "차단/보류"),
     )
 
@@ -46,12 +46,12 @@ class TradeLogCenterTab(QWidget):
         "시간",
         "유형",
         "종목",
-        "Action",
+        "판단 결과",
         "상태",
         "가격",
         "금액",
         "선택 엔진",
-        "실제 엔진",
+        "사용 엔진",
     )
 
     def __init__(self, parent_window=None, parent=None):
@@ -200,12 +200,12 @@ class TradeLogCenterTab(QWidget):
         title_row = QHBoxLayout()
         title = QLabel("매매기록 센터")
         title.setStyleSheet("font-size: 20px; font-weight: 900; color: #111827;")
-        badge = QLabel("Preview")
+        badge = QLabel("AI 판단 기록")
         badge.setProperty("badge", True)
         title_row.addWidget(title)
         title_row.addWidget(badge, 0)
         title_row.addStretch(1)
-        desc = QLabel("실제 체결, Preview 판단, Reflection, 차단 이력을 구분해 확인합니다.")
+        desc = QLabel("실제 체결, AI 원판단, AITS 모의판정, 복기와 차단 이력을 구분해 확인합니다.")
         desc.setWordWrap(True)
         desc.setProperty("muted", True)
         text_col.addLayout(title_row)
@@ -229,7 +229,7 @@ class TradeLogCenterTab(QWidget):
         specs = (
             ("total", "전체 기록"),
             ("fills", "실제 체결"),
-            ("preview", "Preview 판단"),
+            ("preview", "AI 판단 기록"),
             ("blocked", "차단/보류"),
             ("engine", "최근 엔진"),
         )
@@ -364,11 +364,16 @@ class TradeLogCenterTab(QWidget):
         for key, label in (
             ("type", "기록 유형"),
             ("symbol", "종목"),
-            ("action", "판단 Action"),
+            ("action", "판단 결과"),
+            ("ai_original_decision", "AI 원판단"),
+            ("aits_final_decision", "AITS 모의 최종판정"),
+            ("change_status", "판단 변경 여부"),
+            ("change_reason", "판단 변경 이유"),
             ("submitted", "주문 실행 여부"),
             ("freshness", "판단 신선도"),
             ("selected_engine", "선택 엔진"),
-            ("actual_engine", "실제 엔진"),
+            ("actual_engine", "사용 엔진"),
+            ("review_mode", "재검토 방식"),
             ("basis", "판단 근거"),
             ("reason", "사유"),
         ):
@@ -464,7 +469,7 @@ class TradeLogCenterTab(QWidget):
                 pass
             item = QTableWidgetItem(
                 "아직 표시할 매매기록이 없습니다.\n"
-                "Preview/Shadow 실행 시 AI 판단 기록이 이곳에 표시됩니다.\n"
+                "AI 원판단과 AITS 모의판정 기록이 이곳에 표시됩니다.\n"
                 "실제 주문이 없으면 체결 기록은 0건일 수 있습니다."
             )
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -839,11 +844,11 @@ class TradeLogCenterTab(QWidget):
             elif age_sec <= 60 * 60:
                 state = "stale"
                 label = f"\uc624\ub798\ub41c \ud310\ub2e8 \u00b7 {self._format_ai_decision_age_label(age_sec)} \u00b7 \uc7ac\uac80\ud1a0 \ud544\uc694"
-                warning = "\ud604\uc7ac \uc2dc\uc7a5 \uc0c1\ud669\uacfc \ub2e4\ub97c \uc218 \uc788\uc5b4 \uc0c8 \ubd84\uc11d\uc774 \ud544\uc694\ud569\ub2c8\ub2e4."
+                warning = "\uc7ac\uac80\ud1a0 \ud6c4\ubcf4 \u00b7 \uc790\ub3d9 \uac10\uc2dc \uc911\nAI \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694"
             else:
                 state = "very_stale"
                 label = "\uc624\ub798\ub41c \ud310\ub2e8 \u00b7 1\uc2dc\uac04 \uc774\uc0c1 \uacbd\uacfc \u00b7 \uc0c8 \ubd84\uc11d \uad8c\uc7a5"
-                warning = "\ucd5c\uc2e0 \ud310\ub2e8\uc73c\ub85c \ubcf4\uae30 \uc5b4\ub835\uc2b5\ub2c8\ub2e4. \uc0c8 \ubd84\uc11d \ud6c4 \ud310\ub2e8\ud558\uc138\uc694."
+                warning = "\uc0c8 \ubd84\uc11d \uad8c\uc7a5 \u00b7 \uc790\ub3d9 \uac10\uc2dc \uc911\n\ube44\uc6a9\uc131 AI \uc7ac\ubd84\uc11d\uc740 \uc790\ub3d9 \uc2e4\ud589\ub418\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4."
             return {"display_label": label, "freshness": state, "age_sec": age_sec, "warning_text": warning}
         except Exception:
             return {"display_label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778 \ubd88\uac00", "freshness": "unknown", "age_sec": None, "warning_text": ""}
@@ -883,10 +888,15 @@ class TradeLogCenterTab(QWidget):
             "type": row.get("type") if row else "-",
             "symbol": row.get("symbol") if row else "-",
             "action": row.get("action") if row else "-",
+            "ai_original_decision": row.get("ai_original_decision") if row else "-",
+            "aits_final_decision": row.get("aits_final_decision") if row else "-",
+            "change_status": row.get("change_status") if row else "-",
+            "change_reason": row.get("change_reason") if row else "-",
             "submitted": row.get("submitted") if row else "-",
             "freshness": freshness_text if row else "-",
             "selected_engine": row.get("selected_engine") if row else "-",
             "actual_engine": row.get("actual_engine") if row else "-",
+            "review_mode": row.get("review_mode") if row else "-",
             "basis": basis,
             "reason": reason,
         }
@@ -968,12 +978,22 @@ class TradeLogCenterTab(QWidget):
         type_label = str(row.get("type_label") or "").strip()
         if not type_label:
             type_label = {
-                "shadow_decision": "Shadow 판단",
-                "preview_decision": "Preview 판단",
+                "shadow_decision": "AITS 모의판정",
+                "preview_decision": "AI 원판단",
                 "blocked": "차단/보류",
                 "skipped": "스킵",
-                "reflection": "Reflection",
-            }.get(record_type, "Preview 판단")
+                "reflection": "복기",
+            }.get(record_type, "AI 원판단")
+        stage = str(row.get("record_stage") or "").strip()
+        if not stage:
+            stage = "aits_shadow_final" if record_type == "shadow_decision" else "ai_original"
+        stage_label = str(row.get("record_stage_label") or "").strip() or {
+            "ai_original": "AI 원판단",
+            "aits_shadow_final": "AITS 모의판정",
+            "blocked_or_skipped": "차단/보류",
+        }.get(stage, type_label)
+        if record_type in {"preview_decision", "shadow_decision"}:
+            type_label = stage_label
         basis, reason, _identical_before = self._split_journal_basis_reason(row)
         freshness = self._build_trade_log_freshness_state(row)
         freshness_text = str(freshness.get("display_label") or "-")
@@ -995,6 +1015,11 @@ class TradeLogCenterTab(QWidget):
             "submitted": row.get("submitted_display") or "실제 주문 없음",
             "basis": basis,
             "reason": reason,
+            "ai_original_decision": row.get("ai_original_decision") or ("-" if stage != "ai_original" else row.get("action_display") or row.get("action") or "-"),
+            "aits_final_decision": row.get("aits_final_decision") or ("-" if stage != "aits_shadow_final" else row.get("action_display") or row.get("action") or "-"),
+            "change_status": row.get("change_status") or ("변경 있음" if row.get("change_detected") else "변경 없음"),
+            "change_reason": row.get("change_reason") or "상세 이유 기록 없음",
+            "review_mode": row.get("review_mode") or "AI 재분석은 수동 실행 필요",
         }
 
     def _sort_timestamp(self, value: Any) -> float:

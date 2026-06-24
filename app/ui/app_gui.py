@@ -13565,10 +13565,10 @@ class MainWindow(QMainWindow):
         self._aits_overview_body_ly = QVBoxLayout(self._aits_overview_body)
         self._aits_overview_body_ly.setContentsMargins(0, 0, 0, 0)
         self._aits_overview_body_ly.setSpacing(2)
-        self.lbl_aits_regime = QLabel("AITS Regime: 연결 대기")
-        self.lbl_aits_action = QLabel("AITS Action: 연결 대기")
-        self.lbl_aits_summary = QLabel("AITS Summary: AITS 상태 없음")
-        self.lbl_aits_market = QLabel("AITS Market: AITS 상태 없음")
+        self.lbl_aits_regime = QLabel("AITS 장세: 연결 대기")
+        self.lbl_aits_action = QLabel("AITS 판단 결과: 연결 대기")
+        self.lbl_aits_summary = QLabel("AITS 요약: AITS 상태 없음")
+        self.lbl_aits_market = QLabel("AITS 시장: AITS 상태 없음")
         self.lbl_aits_oversight = QLabel("AITS Oversight: AITS 상태 없음")
         for _lw in (self.lbl_aits_summary, self.lbl_aits_market, self.lbl_aits_oversight):
             _lw.setWordWrap(True)
@@ -14187,7 +14187,7 @@ class MainWindow(QMainWindow):
             pass
         self._managed_header_card = _AitsManagedCard(_gb_managed)
         _mh = self._managed_header_card.body_layout()
-        self.lbl_ai_managed_title = QLabel("AI MANAGED CANDIDATES")
+        self.lbl_ai_managed_title = QLabel("AI ????")
         try:
             self.lbl_ai_managed_title.setProperty("managedTitleMain", True)
             self.lbl_ai_managed_title.setWordWrap(False)
@@ -15372,7 +15372,7 @@ class MainWindow(QMainWindow):
             _market_title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         except Exception:
             pass
-        self.lbl_market_title = QLabel("AI THEME SCANNER")
+        self.lbl_market_title = QLabel("AI ?? ??")
         try:
             self.lbl_market_title.setWordWrap(False)
             self.lbl_market_title.setStyleSheet(
@@ -17505,10 +17505,10 @@ class MainWindow(QMainWindow):
         try:
             rs = self._get_aits_runtime_state()
             if rs is None:
-                self.lbl_aits_regime.setText("AITS Regime: 연결 대기")
-                self.lbl_aits_action.setText("AITS Action: 연결 대기")
-                self.lbl_aits_summary.setText("AITS Summary: AITS 상태 없음")
-                self.lbl_aits_market.setText("AITS Market: AITS 상태 없음")
+                self.lbl_aits_regime.setText("AITS 장세: 연결 대기")
+                self.lbl_aits_action.setText("AITS 판단 결과: 연결 대기")
+                self.lbl_aits_summary.setText("AITS 요약: AITS 상태 없음")
+                self.lbl_aits_market.setText("AITS 시장: AITS 상태 없음")
                 self.lbl_aits_oversight.setText("AITS Oversight: AITS 상태 없음")
                 self._set_aits_module_pack_labels()
                 self._set_aits_override_labels()
@@ -17527,10 +17527,10 @@ class MainWindow(QMainWindow):
             mstory = getattr(expl, "current_market_story", "") if expl else ""
             over = getattr(rs, "oversight", None)
             ovsum = getattr(over, "oversight_summary", "") if over else ""
-            self.lbl_aits_regime.setText(f"AITS Regime: {regime_lbl or '—'}")
-            self.lbl_aits_action.setText(f"AITS Action: {action or '—'}")
-            self.lbl_aits_summary.setText(f"AITS Summary: {summary or '—'}")
-            self.lbl_aits_market.setText(f"AITS Market: {mstory or '—'}")
+            self.lbl_aits_regime.setText(f"AITS 장세: {regime_lbl or '—'}")
+            self.lbl_aits_action.setText(f"AITS 판단 결과: {action or '—'}")
+            self.lbl_aits_summary.setText(f"AITS 요약: {summary or '—'}")
+            self.lbl_aits_market.setText(f"AITS 시장: {mstory or '—'}")
             self.lbl_aits_oversight.setText(f"AITS Oversight: {ovsum or '—'}")
             self._set_aits_module_pack_labels()
             self._set_aits_override_labels()
@@ -17538,10 +17538,10 @@ class MainWindow(QMainWindow):
             self._set_aits_order_adapter_labels()
             self._sync_aits_exec_mode_combo()
         except Exception:
-            self.lbl_aits_regime.setText("AITS Regime: 연결 대기")
-            self.lbl_aits_action.setText("AITS Action: 연결 대기")
-            self.lbl_aits_summary.setText("AITS Summary: AITS 상태 없음")
-            self.lbl_aits_market.setText("AITS Market: AITS 상태 없음")
+            self.lbl_aits_regime.setText("AITS 장세: 연결 대기")
+            self.lbl_aits_action.setText("AITS 판단 결과: 연결 대기")
+            self.lbl_aits_summary.setText("AITS 요약: AITS 상태 없음")
+            self.lbl_aits_market.setText("AITS 시장: AITS 상태 없음")
             self.lbl_aits_oversight.setText("AITS Oversight: AITS 상태 없음")
             try:
                 self._set_aits_module_pack_labels()
@@ -24683,7 +24683,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "lbl_ai_center_header_icon"):
             self.lbl_ai_center_header_icon = QLabel("▶")
         if not hasattr(self, "lbl_ai_center_header_title"):
-            self.lbl_ai_center_header_title = QLabel("MAIN ANALYSIS CENTER")
+            self.lbl_ai_center_header_title = QLabel("?? ?? ??")
         if not hasattr(self, "lbl_ai_center_header_subtitle"):
             self.lbl_ai_center_header_subtitle = QLabel("[AI 분석 & 차트]")
         if not hasattr(self, "btn_ai_center_fullscreen"):
@@ -24695,7 +24695,7 @@ class MainWindow(QMainWindow):
                 "font-size:15px;font-weight:900;color:#ffffff;background:#111827;"
                 "border:1px solid #111827;border-radius:6px;padding-left:1px;"
             )
-            self.lbl_ai_center_header_title.setText("MAIN ANALYSIS CENTER")
+            self.lbl_ai_center_header_title.setText("?? ?? ??")
             self.lbl_ai_center_header_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
             self.lbl_ai_center_header_title.setStyleSheet(
                 "font-size:18px;font-weight:900;color:#111827;background:transparent;border:none;letter-spacing:0px;"
@@ -24828,11 +24828,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             if not hasattr(self, "lbl_ai_center_condition_title"):
-                self.lbl_ai_center_condition_title = QLabel("Current Condition:")
+                self.lbl_ai_center_condition_title = QLabel("?? ??:")
             if not hasattr(self, "lbl_ai_center_condition_value"):
                 self.lbl_ai_center_condition_value = QLabel("RSI 확인 중 | 거래대금 확인 중 | 변동성 확인 중")
             try:
-                self.lbl_ai_center_condition_title.setText("Current Condition:")
+                self.lbl_ai_center_condition_title.setText("?? ??:")
                 self.lbl_ai_center_condition_title.setWordWrap(False)
                 self.lbl_ai_center_condition_title.setTextFormat(Qt.TextFormat.PlainText)
                 self.lbl_ai_center_condition_title.setStyleSheet(
@@ -25048,10 +25048,10 @@ class MainWindow(QMainWindow):
         try:
             old_title = getattr(self, "lbl_ai_recent_log_title", None)
             if old_title is None:
-                old_title = QLabel("LIVE LOG")
+                old_title = QLabel("??? ??")
                 self.lbl_ai_recent_log_title = old_title
             old_title.setVisible(True)
-            old_title.setText("LIVE LOG")
+            old_title.setText("??? ??")
             old_title.setFixedWidth(72)
             old_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
             old_title.setStyleSheet(
@@ -25114,7 +25114,7 @@ class MainWindow(QMainWindow):
     def _set_center_condition_line(self, text: str) -> None:
         try:
             plain = str(text or "").strip()
-            plain = plain.replace("현재 조건:", "").replace("Current Condition:", "").strip()
+            plain = plain.replace("현재 조건:", "").replace("?? ??:", "").strip()
             plain = plain.replace(" · ", " | ").replace(" / ", " | ")
             if "<" in plain and ">" in plain:
                 try:
@@ -26163,10 +26163,10 @@ class MainWindow(QMainWindow):
                     "real_order": False,
                 }
                 if manual_hold:
-                    row["ai_review_queue_status"] = "매매보류 · 보유 참고"
+                    row["ai_review_queue_status"] = "보유 우선 재검토 · 자동 감시 중" if is_holding else "재검토 후보 · 자동 감시 중"
                 else:
                     row["ai_review_queue_status"] = "보유 우선 재검토" if is_holding else "재검토 후보"
-                row["ai_review_queue_reason"] = record["queue_reason"]
+                row["ai_review_queue_reason"] = f"{record['queue_reason']} · AI 재분석은 수동 실행 필요"
                 row["_review_queue_prev_ai_score"] = score
                 queue.append(record)
             for symbol, holding_info in holdings_by_symbol.items():
@@ -26258,9 +26258,13 @@ class MainWindow(QMainWindow):
             )
             if total:
                 if holdings:
-                    msg = f"보유종목 재검토 후보 {holdings}개 · 관리종목 밖 {outside}개 · 실제 주문 없음"
+                    msg = f"보유종목 재검토 후보 {holdings}개 · 관리종목 밖 {outside}개 · 자동 감시 중 · AI 재분석은 수동 실행 필요 · 실제 주문 없음"
                 else:
-                    msg = f"AI 재검토 후보 {total}개 · 실제 주문 없음"
+                    msg = f"AI 재검토 후보 {total}개 · 자동 감시 중 · AI 재분석은 수동 실행 필요 · 실제 주문 없음"
+                logging.getLogger("aits").info(
+                    "[AITS][AIJudgmentSemantics] event=review_mode symbol=%s basic_monitoring=True review_queue=True provider_reanalysis=manual submitted=0",
+                    str((queue or [{}])[0].get("symbol") or ""),
+                )
                 self._append_managed_live_log(msg, str((queue or [{}])[0].get("symbol") or ""))
         except Exception:
             pass
@@ -26601,6 +26605,15 @@ class MainWindow(QMainWindow):
                 "detail_chart_manual_refresh",
                 "main_ai_refresh",
             }
+            record_stage = str(payload.get("record_stage") or snapshot.get("record_stage") or "").strip()
+            if not record_stage:
+                record_stage = "ai_original" if manual else "aits_shadow_final"
+            stage_label = {
+                "ai_original": "AI 원판단",
+                "aits_shadow_final": "AITS 모의판정",
+                "blocked_or_skipped": "차단/보류",
+                "actual_trade": "실제 체결",
+            }.get(record_stage, "AI 판단 기록")
             decision = (
                 parsed.get("decision")
                 or snapshot.get("briefing")
@@ -26616,6 +26629,10 @@ class MainWindow(QMainWindow):
                 or ""
             )
             action_display, raw_action_sanitized = self._trade_log_shadow_action_display(raw_action, decision)
+            try:
+                decision_code = str((output_contract or {}).get("decision_code") or "").strip()
+            except Exception:
+                decision_code = ""
             reason_raw = parsed.get("reason") or snapshot.get("reason") or payload.get("reason") or payload.get("reasons") or []
             if isinstance(reason_raw, (list, tuple)):
                 reason = " · ".join(str(item).strip() for item in reason_raw if str(item).strip())
@@ -26634,12 +26651,63 @@ class MainWindow(QMainWindow):
                 or engine_label
             ).strip() or "-"
             provider = str(snapshot.get("provider") or payload.get("provider") or payload.get("selected_provider") or "").strip()
-            record_type = "preview_decision" if manual else "shadow_decision"
+            generated_at_for_group = str(
+                payload.get("generated_at")
+                or payload.get("ai_briefing_generated_at")
+                or snapshot.get("generated_at")
+                or (output_contract or {}).get("generated_at")
+                or ""
+            ).strip()
+            contract_hash_seed = "|".join(
+                str(x or "")
+                for x in (
+                    decision_code,
+                    action_display,
+                    reason,
+                    next_action,
+                    provider,
+                    payload.get("model") or snapshot.get("model") or "",
+                )
+            )
+            try:
+                import hashlib
+
+                contract_hash = hashlib.sha1(contract_hash_seed.encode("utf-8", errors="ignore")).hexdigest()[:12]
+                group_seed = "|".join(
+                    str(x or "")
+                    for x in (
+                        symbol,
+                        generated_at_for_group,
+                        provider,
+                        payload.get("model") or snapshot.get("model") or "",
+                    )
+                )
+                decision_group_id = str(payload.get("decision_group_id") or snapshot.get("decision_group_id") or "").strip()
+                if not decision_group_id:
+                    decision_group_id = hashlib.sha1(group_seed.encode("utf-8", errors="ignore")).hexdigest()[:16]
+            except Exception:
+                contract_hash = str(abs(hash(contract_hash_seed)))[:12]
+                decision_group_id = str(payload.get("decision_group_id") or snapshot.get("decision_group_id") or symbol or "unknown")
+            original_decision = str(payload.get("ai_original_decision") or payload.get("original_decision") or "").strip()
+            final_decision = str(payload.get("aits_final_decision") or payload.get("shadow_decision") or "").strip()
+            if record_stage == "ai_original" and not original_decision:
+                original_decision = action_display
+            if record_stage == "aits_shadow_final" and not final_decision:
+                final_decision = action_display
+            change_detected = bool(original_decision and final_decision and original_decision != final_decision)
+            change_reason = str(payload.get("change_reason") or payload.get("stage_change_reason") or "").strip()
+            if not change_reason:
+                change_reason = "변경 없음" if not change_detected else "후처리 단계의 상세 이유가 기록되지 않았습니다."
+            record_type = "preview_decision" if record_stage == "ai_original" else "shadow_decision"
+            decision_stage_signature = "|".join(
+                str(x or "")
+                for x in (decision_group_id, record_stage, symbol, contract_hash)
+            )
             record = {
                 "ts": time.time(),
                 "record_type": record_type,
                 "category": "preview",
-                "type_label": "Preview 판단" if manual else "Shadow 판단",
+                "type_label": stage_label,
                 "symbol": symbol,
                 "action_display": action_display,
                 "raw_action_sanitized": raw_action_sanitized,
@@ -26659,30 +26727,43 @@ class MainWindow(QMainWindow):
                 "source": source,
                 "output_contract": output_contract if isinstance(output_contract, dict) else {},
                 "safety_note": "observe-only journal · order_allowed=False · submitted=0 · real_order=False",
+                "decision_group_id": decision_group_id,
+                "record_stage": record_stage,
+                "record_stage_label": stage_label,
+                "decision_stage_signature": decision_stage_signature,
+                "contract_hash": contract_hash,
+                "source_event": payload.get("source_event") or "",
+                "ai_original_decision": original_decision or "-",
+                "aits_final_decision": final_decision or "-",
+                "change_detected": bool(change_detected),
+                "change_status": "변경 있음" if change_detected else "변경 없음",
+                "change_reason": change_reason,
+                "review_mode": "AI 재분석은 수동 실행 필요",
             }
-            sig = "|".join(
-                str(record.get(key) or "")
-                for key in ("record_type", "symbol", "action_display", "reason", "next_action", "source")
-            )
-            if not manual:
-                sig_cache = getattr(self, "_trade_log_shadow_journal_signatures", None)
-                if not isinstance(sig_cache, set):
-                    sig_cache = set()
-                    self._trade_log_shadow_journal_signatures = sig_cache
-                if sig in sig_cache:
-                    try:
-                        self._log.info(
-                            "[AITS][TradeLogShadowJournal] event=duplicate_skip symbol=%s submitted=0",
-                            symbol,
-                        )
-                    except Exception:
-                        pass
-                    return
-                sig_cache.add(sig)
             rows = getattr(self, "_trade_log_shadow_journal_rows", None)
             if not isinstance(rows, list):
                 rows = []
                 self._trade_log_shadow_journal_rows = rows
+            stage_cache = getattr(self, "_trade_log_decision_stage_signatures", None)
+            if not isinstance(stage_cache, set):
+                stage_cache = set()
+                self._trade_log_decision_stage_signatures = stage_cache
+            if decision_stage_signature in stage_cache or any(
+                str(row.get("decision_stage_signature") or "") == decision_stage_signature
+                for row in rows
+                if isinstance(row, dict)
+            ):
+                try:
+                    self._log.info(
+                        "[AITS][TradeLogDecisionStage] event=duplicate_skip group_id=%s stage=%s symbol=%s submitted=0 order_allowed=False real_order=False",
+                        decision_group_id,
+                        record_stage,
+                        symbol,
+                    )
+                except Exception:
+                    pass
+                return
+            stage_cache.add(decision_stage_signature)
             rows.append(record)
             if len(rows) > 500:
                 del rows[:-500]
@@ -26692,6 +26773,16 @@ class MainWindow(QMainWindow):
                     record_type,
                     symbol,
                     action_display,
+                )
+            except Exception:
+                pass
+            try:
+                self._log.info(
+                    "[AITS][AIJudgmentSemantics] event=stage_resolved group_id=%s original=%s shadow=%s changed=%s submitted=0 order_allowed=False real_order=False",
+                    decision_group_id,
+                    original_decision or "-",
+                    final_decision or "-",
+                    bool(change_detected),
                 )
             except Exception:
                 pass
@@ -40555,8 +40646,8 @@ class MainWindow(QMainWindow):
             def _norm_payload(p):
                 return p.get("advice", p) if isinstance(p, dict) else p
             eventbus.subscribe("ai.reco.updated", self._on_ai_reco_updated)
-            eventbus.subscribe("ai.reco.items", lambda p: self._on_ai_reco_updated(_norm_payload(p)))
-            eventbus.subscribe("ai.reco.strategy_suggested", lambda p: self._on_ai_reco_updated(_norm_payload(p)))
+            eventbus.subscribe("ai.reco.items", lambda p: self._on_ai_reco_side_channel("ai.reco.items", _norm_payload(p)))
+            eventbus.subscribe("ai.reco.strategy_suggested", lambda p: self._on_ai_reco_side_channel("ai.reco.strategy_suggested", _norm_payload(p)))
         except Exception:
             pass
         if not hasattr(self, "_gpt_poll_timer") or self._gpt_poll_timer is None:
@@ -44763,6 +44854,15 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _on_ai_reco_side_channel(self, source_event: str = "", _payload=None):
+        try:
+            self._log.info(
+                "[AITS][AIJudgmentSemantics] event=duplicate_writer_skip source_event=%s reason=side_channel_not_journal_writer submitted=0 order_allowed=False real_order=False",
+                str(source_event or "unknown"),
+            )
+        except Exception:
+            pass
+
     def _on_ai_reco_updated(self, _payload=None):
         """ai.reco.updated/items/strategy_suggested 수신. payload normalize(advice 래퍼 또는 본문) 후 SSOT 엔진 1곳만 갱신."""
         try:
@@ -44862,6 +44962,10 @@ class MainWindow(QMainWindow):
                 try:
                     source = "manual_refresh" if manual_generation else "auto_condition"
                     self._ai_briefing_last_snapshot_source = source
+                    if isinstance(_pl, dict):
+                        _pl = dict(_pl)
+                        _pl.setdefault("source_event", "ai.reco.updated")
+                        _pl.setdefault("record_stage", "ai_original" if manual_generation else "aits_shadow_final")
                     snapshot = self._record_recent_ai_snapshot_for_symbol(
                         getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
                         payload=_pl,
