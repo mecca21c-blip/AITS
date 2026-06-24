@@ -7019,7 +7019,7 @@ class AITSLargeChartDialog(QDialog):
         except Exception:
             pass
         try:
-            owner._on_ai_analysis_refresh_clicked()
+            owner._on_ai_analysis_refresh_clicked(target_symbol=norm_symbol, target_row=row_obj, source="detail_chart")
             logging.getLogger("aits").info(
                 "[AITS][DetailChartAIRefresh] event=scheduled symbol=%s source=detail_chart_button order_allowed=False submitted=0",
                 norm_symbol,
@@ -8606,9 +8606,13 @@ class MainWindow(QMainWindow):
                     normalize_ai_output_contract,
                 )
 
+                request_context = self._get_ai_refresh_request_context()
                 requested_symbol = (
-                    final_payload.get("symbol")
+                    final_payload.get("target_symbol")
+                    or final_payload.get("requested_symbol")
+                    or final_payload.get("symbol")
                     or final_payload.get("market")
+                    or request_context.get("target_symbol")
                     or getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
                     or ""
                 )
@@ -8655,6 +8659,23 @@ class MainWindow(QMainWindow):
                 final_payload = dict(final_payload)
                 final_payload.setdefault("output_contract", {})
 
+            request_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                final_payload.get("target_symbol")
+                or final_payload.get("requested_symbol")
+                or final_payload.get("symbol")
+                or final_payload.get("market")
+                or getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
+                or ""
+            )
+            if request_symbol:
+                final_payload.setdefault("symbol", request_symbol)
+                final_payload.setdefault("market", request_symbol)
+                final_payload.setdefault("target_symbol", request_symbol)
+                final_payload.setdefault("requested_symbol", request_symbol)
+                self._ai_briefing_pending_snapshot_symbol = request_symbol
+            current_ui_symbol = self._current_managed_ui_symbol_for_ai_refresh()
+            ui_apply_allowed = bool(not current_ui_symbol or not request_symbol or current_ui_symbol == request_symbol)
+
             self._aits_last_final_reco_payload = dict(final_payload)
 
             try:
@@ -8679,30 +8700,32 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-            self._aits_last_ai_explanation = parsed
-            try:
-                self._remember_ai_briefing_engine_meta(final_payload)
-            except Exception:
-                pass
+            if ui_apply_allowed:
+                self._aits_last_ai_explanation = parsed
+                try:
+                    self._remember_ai_briefing_engine_meta(final_payload)
+                except Exception:
+                    pass
             try:
                 pending_manual = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
                 source = str(getattr(self, "_ai_briefing_last_snapshot_source", "") or "").strip()
                 if not source:
                     source = "manual_refresh" if pending_manual else "auto_condition"
                 snapshot = self._record_recent_ai_snapshot_for_symbol(
-                    getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
+                    request_symbol or getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
                     payload=final_payload,
                     parsed=parsed,
                     source=source,
                 )
-                snap_symbol = self._resolve_current_ai_snapshot_symbol(
+                snap_symbol = request_symbol or self._normalize_market_symbol_for_ai_snapshot(
                     getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or ""
                 )
-                self._set_managed_action_status(
-                    f"AI 분석 완료 · {snap_symbol or '선택 종목'} · 실제 주문 없음",
-                    "#15803d",
-                    snap_symbol,
-                )
+                if ui_apply_allowed:
+                    self._set_managed_action_status(
+                        f"AI 분석 완료 · {snap_symbol or '선택 종목'} · 실제 주문 없음",
+                        "#15803d",
+                        snap_symbol,
+                    )
                 try:
                     self._log.info(
                         "[AITS][AIAnalysisRefresh] event=completed | symbol=%s | "
@@ -8733,7 +8756,17 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-            self._render_aits_ai_explanation()
+            if ui_apply_allowed:
+                self._render_aits_ai_explanation()
+            else:
+                try:
+                    self._log.info(
+                        "[AITS][AIRefreshTarget] event=late_result request_symbol=%s current_ui_symbol=%s ui_apply_skipped=True snapshot_saved=True submitted=0",
+                        request_symbol or "unknown",
+                        current_ui_symbol or "unknown",
+                    )
+                except Exception:
+                    pass
 
             try:
                 rot = getattr(self, "_aits_last_rotation_payload", {}) or {}
@@ -25705,6 +25738,183 @@ class MainWindow(QMainWindow):
         except Exception:
             return str(value or "").strip().upper()
 
+
+    def _extract_ai_refresh_symbol_from_managed_row(self, row) -> str:
+        try:
+            if not isinstance(row, dict):
+                return ""
+            return self._normalize_market_symbol_for_ai_snapshot(
+                row.get("symbol") or row.get("market") or row.get("code") or ""
+            )
+        except Exception:
+            return ""
+
+    def _current_managed_table_selection_for_ai_refresh(self) -> dict:
+        result = {"symbol": "", "row": None, "row_index": -1, "source": "none"}
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            table = getattr(self, "tbl_ai_managed", None)
+            row_index = -1
+            if table is not None:
+                try:
+                    row_index = int(table.currentRow())
+                except Exception:
+                    row_index = -1
+                if row_index < 0:
+                    try:
+                        items = table.selectedItems()
+                        if items:
+                            row_index = int(items[0].row())
+                    except Exception:
+                        row_index = -1
+            if 0 <= row_index < len(rows):
+                row_obj = rows[row_index]
+                symbol = self._extract_ai_refresh_symbol_from_managed_row(row_obj)
+                if symbol:
+                    result.update(
+                        {
+                            "symbol": symbol,
+                            "row": row_obj if isinstance(row_obj, dict) else None,
+                            "row_index": row_index,
+                            "source": "tbl_ai_managed",
+                        }
+                    )
+            return result
+        except Exception:
+            return result
+
+    def _managed_row_for_ai_refresh_symbol(self, symbol: str) -> tuple[dict | None, int]:
+        try:
+            target = self._normalize_market_symbol_for_ai_snapshot(symbol)
+            if not target:
+                return None, -1
+            rows = getattr(self, "ai_managed_rows", None) or []
+            for idx, row in enumerate(rows):
+                if self._extract_ai_refresh_symbol_from_managed_row(row) == target:
+                    return row if isinstance(row, dict) else None, int(idx)
+        except Exception:
+            pass
+        return None, -1
+
+    def _resolve_ai_refresh_target_symbol(self, target_symbol=None, target_row=None, source: str = "managed_tab") -> dict:
+        source = str(source or "managed_tab").strip() or "managed_tab"
+        if isinstance(target_symbol, bool):
+            target_symbol = ""
+        explicit = self._normalize_market_symbol_for_ai_snapshot(target_symbol or "")
+        row_symbol = self._extract_ai_refresh_symbol_from_managed_row(target_row)
+        selected = (
+            self._current_managed_table_selection_for_ai_refresh()
+            if source != "detail_chart"
+            else {"symbol": "", "row": None, "row_index": -1, "source": "detail_chart"}
+        )
+        legacy_alias = self._normalize_market_symbol_for_ai_snapshot(
+            getattr(self, "_aits_selected_managed_symbol", "")
+            or getattr(self, "_selected_ai_pool_symbol", "")
+            or ""
+        )
+        target = explicit or row_symbol or str(selected.get("symbol") or "")
+        row_obj = target_row if isinstance(target_row, dict) else selected.get("row")
+        row_index = int(selected.get("row_index") or -1)
+        if target and row_obj is None:
+            row_obj, row_index = self._managed_row_for_ai_refresh_symbol(target)
+        if source == "managed_tab" and not explicit and str(selected.get("symbol") or ""):
+            target = str(selected.get("symbol") or "")
+            row_obj = selected.get("row")
+            row_index = int(selected.get("row_index") or -1)
+        valid = bool(target)
+        if source == "managed_tab" and target:
+            if row_obj is None:
+                row_obj, row_index = self._managed_row_for_ai_refresh_symbol(target)
+            valid = row_obj is not None
+        corrected = bool(target and legacy_alias and legacy_alias != target)
+        return {
+            "symbol": target if valid else "",
+            "row": row_obj if isinstance(row_obj, dict) else None,
+            "row_index": row_index if isinstance(row_index, int) else -1,
+            "source": source,
+            "previous_alias": legacy_alias,
+            "corrected": corrected,
+            "valid": valid,
+            "skip_reason": "" if valid else ("no_valid_selected_row" if source == "managed_tab" else "no_target_symbol"),
+        }
+
+    def _apply_ai_refresh_target_aliases(self, target_info: dict) -> None:
+        try:
+            symbol = str((target_info or {}).get("symbol") or "").strip()
+            if not symbol:
+                return
+            row_obj = (target_info or {}).get("row")
+            row_index = int((target_info or {}).get("row_index") or -1)
+            self._aits_selected_managed_symbol = symbol
+            self._selected_ai_pool_symbol = symbol
+            self._aits_selected_managed_row = row_obj if isinstance(row_obj, dict) else None
+            self._aits_selected_managed_row_index = row_index
+        except Exception:
+            pass
+
+    def _freeze_ai_refresh_request_context(self, target_info: dict, decision_group_id: str) -> dict:
+        try:
+            symbol = str((target_info or {}).get("symbol") or "").strip()
+            row_obj = (target_info or {}).get("row") if isinstance(target_info, dict) else None
+            row_snapshot = {}
+            if isinstance(row_obj, dict):
+                for key in (
+                    "symbol",
+                    "market",
+                    "code",
+                    "name",
+                    "korean_name",
+                    "source",
+                    "source_type",
+                    "ai_score",
+                    "score",
+                    "change_rate",
+                    "change_pct",
+                ):
+                    if key in row_obj:
+                        row_snapshot[key] = row_obj.get(key)
+            ctx = {
+                "decision_group_id": str(decision_group_id or ""),
+                "request_id": str(decision_group_id or ""),
+                "target_symbol": symbol,
+                "normalized_symbol": symbol,
+                "requested_symbol": symbol,
+                "target_row": row_snapshot,
+                "target_row_index": int((target_info or {}).get("row_index") or -1),
+                "source": str((target_info or {}).get("source") or "managed_tab"),
+                "manual_refresh": True,
+                "requested_at": time.time(),
+                "submitted": 0,
+                "order_allowed": False,
+                "real_order": False,
+            }
+            self._aits_ai_refresh_request_context = ctx
+            self._aits_ai_refresh_request_symbol = symbol
+            return ctx
+        except Exception:
+            return {}
+
+    def _get_ai_refresh_request_context(self) -> dict:
+        try:
+            ctx = getattr(self, "_aits_ai_refresh_request_context", None)
+            return dict(ctx) if isinstance(ctx, dict) else {}
+        except Exception:
+            return {}
+
+    def _current_managed_ui_symbol_for_ai_refresh(self) -> str:
+        try:
+            selected = self._current_managed_table_selection_for_ai_refresh()
+            if selected.get("symbol"):
+                return str(selected.get("symbol") or "").strip()
+        except Exception:
+            pass
+        try:
+            return self._normalize_market_symbol_for_ai_snapshot(
+                getattr(self, "_selected_ai_pool_symbol", "") or ""
+            )
+        except Exception:
+            return ""
+
     def _resolve_current_ai_snapshot_symbol(self, fallback=""):
         try:
             for attr in (
@@ -36199,8 +36409,17 @@ class MainWindow(QMainWindow):
             opportunity = self._build_opportunity_comparison(quick_rows, managed_rows)
 
             rotw = self._get_aits_rotation_soft_weights()
+            request_context = self._get_ai_refresh_request_context()
+            request_target_symbol = str(
+                request_context.get("target_symbol")
+                or request_context.get("requested_symbol")
+                or ""
+            ).strip()
 
             context = {
+                "request_target_symbol": request_target_symbol,
+                "request_source": str(request_context.get("source") or ""),
+                "manual_refresh": bool(request_context.get("manual_refresh")),
                 "market_regime": regime,
                 "market_regime_text": {
                     "bull": "상승장",
@@ -36464,12 +36683,23 @@ class MainWindow(QMainWindow):
         try:
             context = self._build_aits_ai_decision_context()
 
+            target_symbol = str(context.get("request_target_symbol") or "").strip()
+            target_section = ""
+            if target_symbol:
+                target_section = (
+                    "[Manual analysis target]\n"
+                    f"- Target symbol: {target_symbol}\n"
+                    "- Use other symbols only as comparison context"
+                )
+
             sections = [
                 "[AITS 목적]",
                 "AITS는 단순 규칙 매매 시스템이 아니다.",
                 "최종 판단은 AI가 하되, 시장 상태, 후보 품질, 현재 관리 종목 상태, 기회비용을 함께 고려한다.",
                 "",
                 self._build_aits_prompt_market_section(context),
+                "",
+                target_section,
                 "",
                 self._build_aits_prompt_candidates_section(context, limit=5),
                 "",
@@ -36626,6 +36856,20 @@ class MainWindow(QMainWindow):
     def _schedule_aits_main_gpt_reco(self, delay_ms=200):
         try:
             manual_request = bool(getattr(self, "_aits_main_reco_manual_request", False))
+            request_context = self._get_ai_refresh_request_context()
+            target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                request_context.get("target_symbol")
+                or request_context.get("requested_symbol")
+                or getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
+                or ""
+            )
+            if manual_request and not target_symbol:
+                try:
+                    self._log.info("[AITS][AIRefreshTarget] event=skipped reason=no_target_symbol submitted=0 order_allowed=False real_order=False")
+                except Exception:
+                    pass
+                self._aits_main_reco_manual_request = False
+                return False, "no_target_symbol"
             should_run, _why = self._should_run_aits_main_gpt_reco()
             if not should_run:
                 if manual_request and str(_why or "").strip() != "inflight":
@@ -36701,9 +36945,17 @@ class MainWindow(QMainWindow):
                 basic_config = self._collect_aits_basic_engine_settings()
             except Exception:
                 basic_config = {}
+            request_context = self._get_ai_refresh_request_context()
+            target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
+            )
             payload = {
                 "use_basic_engine": True,
                 "basic_fallback": True,
+                "symbol": target_symbol,
+                "market": target_symbol,
+                "target_symbol": target_symbol,
+                "requested_symbol": target_symbol,
                 "market_rows": market_rows_fb,
                 "positions": positions_fb,
                 "basic_config": basic_config,
@@ -36712,7 +36964,7 @@ class MainWindow(QMainWindow):
                 payload["engine_mode"] = str(engine_mode or "").strip()
             if str(reason or "").strip():
                 payload["reason"] = str(reason or "").strip()[:300]
-            group_id = self._resolve_ai_judgment_group_id(payload, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+            group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id(payload, {}, target_symbol, "manual_refresh")
             payload.setdefault("decision_group_id", group_id)
             payload.setdefault("request_id", group_id)
             payload.setdefault("record_stage", "ai_original")
@@ -36734,6 +36986,9 @@ class MainWindow(QMainWindow):
     ) -> dict:
         text = str(ai_raw_text or "").strip()
         ctx = context if isinstance(context, dict) else {}
+        target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+            ctx.get("target_symbol") or ctx.get("requested_symbol") or ctx.get("normalized_symbol") or ""
+        )
         rotation_d: dict = {}
         try:
             srot = text
@@ -36777,6 +37032,10 @@ class MainWindow(QMainWindow):
         return {
             "ok": True,
             "source": provider_norm,
+            "symbol": target_symbol,
+            "market": target_symbol,
+            "target_symbol": target_symbol,
+            "requested_symbol": target_symbol,
             "fallback": False,
             "items": items,
             "decision_summary": decision[:500] if decision else "AITS 판단",
@@ -36874,6 +37133,17 @@ class MainWindow(QMainWindow):
                 if result.get("decision_group_id"):
                     result_context.setdefault("decision_group_id", result.get("decision_group_id"))
                     result_context.setdefault("request_id", result.get("request_id") or result.get("decision_group_id"))
+                target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                    result_context.get("target_symbol")
+                    or result_context.get("requested_symbol")
+                    or result.get("symbol")
+                    or ""
+                )
+                if target_symbol:
+                    result_context.setdefault("target_symbol", target_symbol)
+                    result_context.setdefault("requested_symbol", target_symbol)
+                    result_context.setdefault("normalized_symbol", target_symbol)
+                    self._ai_briefing_pending_snapshot_symbol = target_symbol
                 reco_payload = self._build_aits_provider_reco_payload(
                     provider,
                     str(result.get("model") or ""),
@@ -36950,6 +37220,18 @@ class MainWindow(QMainWindow):
                     ),
                     "#b00020",
                 )
+            except Exception:
+                pass
+            try:
+                failed_ctx = result.get("context") if isinstance(result.get("context"), dict) else {}
+                failed_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                    failed_ctx.get("target_symbol")
+                    or failed_ctx.get("requested_symbol")
+                    or result.get("symbol")
+                    or ""
+                )
+                if failed_symbol:
+                    self._ai_briefing_pending_snapshot_symbol = failed_symbol
             except Exception:
                 pass
             self._publish_aits_basic_fallback_reco(provider, f"{provider} fallback: {error_summary[:160]}")
@@ -37169,10 +37451,18 @@ class MainWindow(QMainWindow):
         except Exception:
             positions_fb = []
 
-        group_id = self._resolve_ai_judgment_group_id({}, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+        request_context = self._get_ai_refresh_request_context()
+        target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+            request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
+        )
+        group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
         return {
             "use_basic_engine": True,
             "basic_fallback": True,
+            "symbol": target_symbol,
+            "market": target_symbol,
+            "target_symbol": target_symbol,
+            "requested_symbol": target_symbol,
             "market_rows": market_rows_fb,
             "positions": positions_fb,
             "decision_group_id": group_id,
@@ -37735,6 +38025,20 @@ class MainWindow(QMainWindow):
 
         try:
             manual_request = bool(getattr(self, "_aits_main_reco_manual_request", False))
+            request_context = self._get_ai_refresh_request_context()
+            target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                request_context.get("target_symbol")
+                or request_context.get("requested_symbol")
+                or getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
+                or ""
+            )
+            if manual_request and not target_symbol:
+                try:
+                    self._log.info("[AITS][AIRefreshTarget] event=skipped reason=no_target_symbol submitted=0 order_allowed=False real_order=False")
+                except Exception:
+                    pass
+                self._aits_main_reco_manual_request = False
+                return
             should_run, _why = self._should_run_aits_main_gpt_reco()
             if not should_run:
                 if manual_request and str(_why or "").strip() != "inflight":
@@ -37752,7 +38056,7 @@ class MainWindow(QMainWindow):
                             self._set_managed_action_status(
                                 "AI 분석 대기 · 이전 요청 처리 중입니다.",
                                 "#b45309",
-                                self._resolve_current_ai_snapshot_symbol(),
+                                target_symbol,
                             )
                         except Exception:
                             pass
@@ -37760,7 +38064,7 @@ class MainWindow(QMainWindow):
                             self._log.info(
                                 "[AITS][AIAnalysisRefresh] event=skipped | symbol=%s | reason=%s | "
                                 "snapshot_store_attempted=False | order_allowed=False | submitted=0",
-                                self._resolve_current_ai_snapshot_symbol(),
+                                target_symbol,
                                 str(_why or "blocked"),
                             )
                         except Exception:
@@ -37953,15 +38257,20 @@ class MainWindow(QMainWindow):
                         int(getattr(self, "_aits_main_reco_request_seq", 0) or 0) + 1
                     )
                     current_seq = int(self._aits_main_reco_request_seq)
-                    group_id = self._resolve_ai_judgment_group_id({}, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+                    group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
                     try:
                         ctx["decision_group_id"] = group_id
                         ctx["request_id"] = group_id
+                        ctx["target_symbol"] = target_symbol
+                        ctx["requested_symbol"] = target_symbol
+                        ctx["normalized_symbol"] = target_symbol
                     except Exception:
                         pass
                     request_payload = {
                         "provider": "gemini",
-                        "symbol": self._resolve_current_ai_snapshot_symbol(),
+                        "symbol": target_symbol,
+                        "target_symbol": target_symbol,
+                        "requested_symbol": target_symbol,
                         "decision_group_id": group_id,
                         "request_id": group_id,
                         "seq": current_seq,
@@ -38072,15 +38381,20 @@ class MainWindow(QMainWindow):
                 "max_tokens": 1200,
             }
             ctx = self._build_aits_ai_decision_context()
-            group_id = self._resolve_ai_judgment_group_id({}, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+            group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
             try:
                 ctx["decision_group_id"] = group_id
                 ctx["request_id"] = group_id
+                ctx["target_symbol"] = target_symbol
+                ctx["requested_symbol"] = target_symbol
+                ctx["normalized_symbol"] = target_symbol
             except Exception:
                 pass
             request_payload = {
                 "provider": "gpt",
-                "symbol": self._resolve_current_ai_snapshot_symbol(),
+                "symbol": target_symbol,
+                "target_symbol": target_symbol,
+                "requested_symbol": target_symbol,
                 "decision_group_id": group_id,
                 "request_id": group_id,
                 "seq": current_seq,
@@ -45136,23 +45450,38 @@ class MainWindow(QMainWindow):
                     ensure_ascii=False,
                 )
             parsed = self._parse_aits_ai_response(ai_raw_text)
-            self._aits_last_ai_explanation = parsed
             try:
                 manual_generation = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
+                request_symbol = ""
                 self._remember_ai_briefing_engine_meta(_pl, force=manual_generation)
                 try:
                     source = "manual_refresh" if manual_generation else "auto_condition"
                     self._ai_briefing_last_snapshot_source = source
                     if isinstance(_pl, dict):
                         _pl = dict(_pl)
-                        group_id = self._resolve_ai_judgment_group_id(_pl, {}, getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "", "manual_refresh", create=manual_generation)
+                        request_context = self._get_ai_refresh_request_context()
+                        request_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                            _pl.get("target_symbol")
+                            or _pl.get("requested_symbol")
+                            or _pl.get("symbol")
+                            or request_context.get("target_symbol")
+                            or getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
+                            or ""
+                        )
+                        if request_symbol:
+                            _pl.setdefault("symbol", request_symbol)
+                            _pl.setdefault("market", request_symbol)
+                            _pl.setdefault("target_symbol", request_symbol)
+                            _pl.setdefault("requested_symbol", request_symbol)
+                            self._ai_briefing_pending_snapshot_symbol = request_symbol
+                        group_id = self._resolve_ai_judgment_group_id(_pl, {}, request_symbol or getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "", "manual_refresh", create=manual_generation)
                         if group_id:
                             _pl.setdefault("decision_group_id", group_id)
                             _pl.setdefault("request_id", group_id)
                         _pl.setdefault("source_event", "ai.reco.updated")
                         _pl.setdefault("record_stage", "ai_original" if manual_generation else "aits_shadow_final")
                     snapshot = self._record_recent_ai_snapshot_for_symbol(
-                        getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
+                        request_symbol or getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
                         payload=_pl,
                         parsed=parsed,
                         source=source,
@@ -45175,18 +45504,33 @@ class MainWindow(QMainWindow):
                         pass
                 except Exception:
                     pass
+                current_ui_symbol = self._current_managed_ui_symbol_for_ai_refresh()
+                ui_apply_allowed = bool((not manual_generation) or not current_ui_symbol or not request_symbol or current_ui_symbol == request_symbol)
+                if ui_apply_allowed:
+                    self._aits_last_ai_explanation = parsed
+                elif manual_generation:
+                    try:
+                        self._log.info(
+                            "[AITS][AIRefreshTarget] event=late_result request_symbol=%s current_ui_symbol=%s ui_apply_skipped=True snapshot_saved=True submitted=0",
+                            request_symbol or "unknown",
+                            current_ui_symbol or "unknown",
+                        )
+                    except Exception:
+                        pass
                 if manual_generation:
                     self._ai_briefing_pending_manual_request = False
             except Exception:
-                pass
-            self._render_aits_ai_explanation()
+                ui_apply_allowed = True
+            if ui_apply_allowed:
+                self._render_aits_ai_explanation()
 
             try:
                 final_payload = self._merge_aits_reco_payloads(
                     getattr(self, "_aits_last_base_reco_payload", {}) or {},
                     getattr(self, "_aits_last_gpt_reco_payload", {}) or {},
                 )
-                self._apply_final_aits_reco_payload(final_payload)
+                if ui_apply_allowed:
+                    self._apply_final_aits_reco_payload(final_payload)
             except Exception:
                 pass
         except Exception:
@@ -47170,14 +47514,21 @@ class MainWindow(QMainWindow):
                 else:
                     QMessageBox.information(self, "전량매도", "매도할 가용 수량이 없습니다.")
 
-    def _on_ai_analysis_refresh_clicked(self):
+    def _on_ai_analysis_refresh_clicked(self, target_symbol=None, target_row=None, source="managed_tab"):
         """Explicit AI analysis refresh button. Status refresh must stay data-only."""
         try:
-            entry_symbol = ""
+            target_info = self._resolve_ai_refresh_target_symbol(target_symbol, target_row, source)
+            entry_symbol = str(target_info.get("symbol") or "").strip()
             try:
-                entry_symbol = self._resolve_current_ai_snapshot_symbol()
+                self._log.info(
+                    "[AITS][AIRefreshTarget] event=resolved source=%s symbol=%s previous_alias=%s corrected=%s submitted=0",
+                    str(target_info.get("source") or source or "managed_tab"),
+                    entry_symbol or "unknown",
+                    str(target_info.get("previous_alias") or ""),
+                    bool(target_info.get("corrected")),
+                )
             except Exception:
-                entry_symbol = ""
+                pass
             try:
                 self._append_managed_live_log("AI 분석 새로고침 클릭됨 · 실제 주문 없음", entry_symbol)
             except Exception:
@@ -47228,7 +47579,7 @@ class MainWindow(QMainWindow):
                     pass
                 return
 
-            selected_symbol = entry_symbol or self._resolve_current_ai_snapshot_symbol()
+            selected_symbol = entry_symbol
             if not selected_symbol:
                 try:
                     self._log.info(
@@ -47240,6 +47591,7 @@ class MainWindow(QMainWindow):
                 self._set_managed_action_status("분석할 종목을 먼저 선택하세요.", "#b45309")
                 return
 
+            self._apply_ai_refresh_target_aliases(target_info)
             self._ai_analysis_refresh_last_ts = now_ts
             try:
                 if not bool(getattr(getattr(self, "state", None), "is_running", False)):
@@ -47258,8 +47610,14 @@ class MainWindow(QMainWindow):
                 self._ai_briefing_pending_snapshot_symbol = selected_symbol
                 self._ai_briefing_last_snapshot_source = "manual_refresh"
                 self._aits_main_reco_manual_request = True
+                self._freeze_ai_refresh_request_context(target_info, group_id)
                 self._log.info(
                     "[AITS][AIJudgmentGroup] event=created group_id=%s symbol=%s source=manual_refresh submitted=0",
+                    group_id,
+                    selected_symbol,
+                )
+                self._log.info(
+                    "[AITS][AIRefreshTarget] event=request_frozen group_id=%s symbol=%s submitted=0 order_allowed=False real_order=False",
                     group_id,
                     selected_symbol,
                 )

@@ -923,3 +923,19 @@ Policy intent:
 - Dust positions may be lower priority, but the queue still keeps all entries observe-only.
 - This queue never starts GPT, Gemini, OpenAI, Router, order, execution, or risk-management work.
 - High-priority holding queue entries still keep `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 61. MANAGED-TAB-AI-REFRESH-TARGET-SYMBOL-FIX-01 Implementation Note
+
+`MANAGED-TAB-AI-REFRESH-TARGET-SYMBOL-FIX-01` fixes the explicit AI analysis refresh target owner for the managed tab.
+
+Policy intent:
+
+- The managed-tab `AI 분석 새로고침` target is the currently selected managed-table row at click time.
+- The detail-chart `AI 분석 새로고침` target is the currently open detail-chart symbol.
+- Restored login selection, legacy selected-symbol aliases, and the latest AI snapshot symbol are not request-target sources of truth when a managed-table row is selected.
+- The request context freezes `target_symbol`, `decision_group_id`, source, and safety metadata before provider or LOCAL/Basic work starts.
+- Async worker results, canonical contract metadata, per-symbol snapshot storage, and Trade Log Shadow Journal records use the frozen request symbol.
+- If the user selects another row while the request is in flight, the result remains owned by the request symbol and must not overwrite the newly selected row's central display.
+- Missing or invalid managed-row selection skips safely and does not start a provider call.
+- This work does not change provider call frequency, Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
+- Target-resolution logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
