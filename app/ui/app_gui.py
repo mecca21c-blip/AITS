@@ -1098,6 +1098,129 @@ class OllamaCommandWorker(QThread):
             err_str = str(e)[:200]
             self.finished.emit(False, f"오류: {err_str}")
 
+class LocalOllamaDiagnosticWorker(QThread):
+    """Run the manual LOCAL/Ollama diagnostic HTTP calls off the Qt UI thread."""
+
+    result_ready = Signal(dict)
+
+    def __init__(self, request_payload: dict, parent=None):
+        super().__init__(parent)
+        self.request_payload = dict(request_payload or {})
+
+    def run(self):
+        import json
+        import socket
+        import time
+        import urllib.error
+        import urllib.request
+
+        started = time.time()
+        base_url = str(
+            self.request_payload.get("base_url") or "http://127.0.0.1:11434"
+        ).strip() or "http://127.0.0.1:11434"
+        model = str(self.request_payload.get("model") or "qwen2.5").strip() or "qwen2.5"
+        prompt = str(self.request_payload.get("prompt") or "respond with OK")
+        timeout_sec = int(self.request_payload.get("timeout_sec") or 60)
+        tag_timeout_sec = int(self.request_payload.get("tag_timeout_sec") or 5)
+        result = {
+            "ok": False,
+            "status": "failed",
+            "model": model,
+            "endpoint": "/api/generate",
+            "seq": int(self.request_payload.get("seq") or 0),
+            "elapsed_ms": 0,
+            "response_summary": "",
+            "error_summary": "",
+            "submitted": 0,
+            "order_allowed": False,
+            "real_order": False,
+            "shadow_only": True,
+            "suggestion_only": True,
+        }
+
+        def _finish(status: str, ok: bool = False, error_summary: str = "", response_summary: str = ""):
+            result.update(
+                {
+                    "ok": bool(ok),
+                    "status": str(status or ("ok" if ok else "failed")),
+                    "error_summary": str(error_summary or "")[:160],
+                    "response_summary": str(response_summary or "")[:160],
+                    "elapsed_ms": int((time.time() - started) * 1000),
+                }
+            )
+            self.result_ready.emit(result)
+
+        try:
+            tags_url = (base_url.rstrip("/") + "/api/tags").replace("//api", "/api")
+            with urllib.request.urlopen(tags_url, timeout=tag_timeout_sec) as resp:
+                if resp.status != 200:
+                    _finish("unavailable", error_summary=f"tags status={resp.status}")
+                    return
+                try:
+                    tags_data = json.loads(resp.read().decode("utf-8"))
+                except Exception:
+                    _finish("parse_error", error_summary="tags parse failed")
+                    return
+                models = [
+                    str(m.get("name") or "").strip()
+                    for m in (tags_data.get("models") or [])
+                    if isinstance(m, dict) and str(m.get("name") or "").strip()
+                ]
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(reason).lower():
+                _finish("timeout", error_summary="tags timeout")
+            else:
+                _finish("unavailable", error_summary=str(reason or "urlerror"))
+            return
+        except (socket.timeout, TimeoutError):
+            _finish("timeout", error_summary="tags timeout")
+            return
+        except Exception as exc:
+            _finish("failed", error_summary=type(exc).__name__)
+            return
+
+        model_bases = [m.split(":", 1)[0] for m in models]
+        if model not in models and model not in model_bases:
+            _finish("model_missing", error_summary=f"model not found: {model}")
+            return
+
+        try:
+            generate_url = (base_url.rstrip("/") + "/api/generate").replace("//api", "/api")
+            body = json.dumps(
+                {"model": model, "prompt": prompt, "stream": False}
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                generate_url,
+                data=body,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
+                if resp.status != 200:
+                    _finish("failed", error_summary=f"generate status={resp.status}")
+                    return
+                try:
+                    data = json.loads(resp.read().decode("utf-8"))
+                except Exception:
+                    _finish("parse_error", error_summary="generate parse failed")
+                    return
+                out = str(data.get("response") or "").strip()
+                if not out:
+                    _finish("parse_error", error_summary="empty response")
+                    return
+                _finish("ok", ok=True, response_summary=out[:80])
+                return
+        except urllib.error.URLError as exc:
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, (socket.timeout, TimeoutError)) or "timed out" in str(reason).lower():
+                _finish("timeout", error_summary="generate timeout")
+            else:
+                _finish("unavailable", error_summary=str(reason or "urlerror"))
+        except (socket.timeout, TimeoutError):
+            _finish("timeout", error_summary="generate timeout")
+        except Exception as exc:
+            _finish("failed", error_summary=type(exc).__name__)
 
 class AITSProviderRefreshWorker(QThread):
     """Run explicit GPT/Gemini refresh HTTP outside the Qt UI thread."""
@@ -43944,52 +44067,166 @@ class MainWindow(QMainWindow):
         return None
 
     def _on_test_local_ai(self):
-        """provider=local일 때 로컬 AI(Ollama) 연결 테스트. tags → generate 순서."""
+        """Start the manual LOCAL/Ollama diagnostic without blocking the UI thread."""
         provider = str(
             getattr(self, "_ai_provider_box_active", "local") or "local"
         ).strip().lower()
-        if provider != "local":
-            QMessageBox.information(self, "로컬 AI 테스트", "AI Provider가 local일 때만 테스트할 수 있습니다.")
+        if provider not in ("local", "basic"):
+            QMessageBox.information(
+                self,
+                "LOCAL LLM 진단",
+                "LOCAL 엔진이 선택된 상태에서만 로컬 LLM 진단을 실행할 수 있습니다.",
+            )
+            return
+
+        worker = getattr(self, "_local_ollama_test_worker", None)
+        if worker is not None and worker.isRunning():
+            try:
+                self._set_local_ollama_test_status(
+                    "LOCAL 로컬 LLM 진단 중입니다 · 실제 주문 없음", "#b45309"
+                )
+                self._log.info(
+                    "[AITS][LocalOllamaTest] event=duplicate_skip submitted=0 order_allowed=False real_order=False"
+                )
+            except Exception:
+                pass
             return
 
         base_url = (self.inp_local_url.text() or "").strip() or "http://127.0.0.1:11434"
         model = (self.cmb_local_model.currentText() or "").strip() or "qwen2.5"
+        seq = int(getattr(self, "_local_ollama_test_seq", 0)) + 1
+        self._local_ollama_test_seq = seq
+        payload = {
+            "seq": seq,
+            "base_url": base_url,
+            "model": model,
+            "prompt": "respond with OK",
+            "timeout_sec": 60,
+            "tag_timeout_sec": 5,
+        }
 
-        ok, result = self._check_local_ollama_tags(base_url)
-        if not ok:
-            QMessageBox.warning(
-                self,
-                "로컬 AI 연결 실패",
-                f"LOCAL 로컬 LLM 런타임에 연결할 수 없습니다.\n\n"
-                f"URL: {base_url}\n"
-                f"사유: {result}\n\n"
-                f"조치:\n"
-                f"1) 로컬 LLM 런타임 실행 확인\n"
-                f"2) 모델 설치 버튼으로 모델 준비 확인"
+        try:
+            self._set_local_ollama_test_running(True)
+            self._set_local_ollama_test_status(
+                f"LOCAL 로컬 LLM 진단 중... · 모델 {model} · 실제 주문 없음",
+                "#2563eb",
             )
+            self._log.info(
+                "[AITS][LocalOllamaTest] event=start model=%s submitted=0 order_allowed=False real_order=False",
+                model,
+            )
+        except Exception:
+            pass
+
+        worker = LocalOllamaDiagnosticWorker(payload, self)
+        self._local_ollama_test_worker = worker
+        worker.result_ready.connect(self._on_local_ollama_test_result)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _set_local_ollama_test_running(self, running: bool) -> None:
+        try:
+            button = getattr(self, "btn_test_local_ai", None)
+            if button is not None:
+                button.setEnabled(not bool(running))
+                button.setText("로컬 LLM 진단 중..." if running else "로컬 AI 테스트")
+        except Exception:
+            pass
+
+    def _set_local_ollama_test_status(self, text: str, color: str = "#475569") -> None:
+        message = str(text or "").strip()
+        if not message:
+            return
+        try:
+            label = getattr(self, "lbl_basic_ai_subtitle", None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(message)
+                label.setStyleSheet(
+                    f"font-size: 11px; color: {color}; padding: 0 0 6px 0;"
+                )
+        except Exception:
+            pass
+        try:
+            label = getattr(self, "lbl_ai_analysis_dryrun_status", None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(message)
+        except Exception:
+            pass
+        try:
+            self._set_local_engine_status_labels(message)
+        except Exception:
+            pass
+
+    def _format_local_ollama_test_failure_message(self, status: str, error_summary: str) -> str:
+        status_norm = str(status or "failed").strip().lower()
+        detail = str(error_summary or "").strip()
+        if status_norm == "timeout":
+            return "LOCAL 로컬 LLM 응답 시간이 초과되었습니다. Ollama 실행 상태와 모델을 확인하세요. 실제 주문 없음"
+        if status_norm == "unavailable":
+            return "Ollama 서버에 연결할 수 없습니다. 로컬 LLM 실행 상태를 확인하세요. 실제 주문 없음"
+        if status_norm == "model_missing":
+            return "선택한 LOCAL LLM 모델을 찾을 수 없습니다. 모델 설치 상태를 확인하세요. 실제 주문 없음"
+        if status_norm == "parse_error":
+            return "LOCAL 로컬 LLM 응답을 해석할 수 없습니다. 진단 결과는 AI 판단으로 반영되지 않았습니다. 실제 주문 없음"
+        if detail:
+            return f"LOCAL 로컬 LLM 진단 실패 · {detail} · 실제 주문 없음"
+        return "LOCAL 로컬 LLM 진단 실패 · 실제 주문 없음"
+
+    def _on_local_ollama_test_result(self, result: dict) -> None:
+        data = dict(result or {})
+        seq = int(data.get("seq") or 0)
+        if seq and seq != int(getattr(self, "_local_ollama_test_seq", 0)):
+            try:
+                self._log.info(
+                    "[AITS][LocalOllamaTest] event=late_result_skip seq=%s submitted=0 order_allowed=False real_order=False",
+                    seq,
+                )
+            except Exception:
+                pass
             return
 
-        models = result
-        models_base = [m.split(":")[0] for m in models]
-        if model not in models and model not in models_base:
-            QMessageBox.warning(
-                self,
-                "로컬 AI 모델 없음",
-                f"선택한 모델이 설치되어 있지 않습니다.\n\n"
-                f"모델: {model}\n"
-                f"설치 방법:\n  앱의 '{model} 설치 필요' 버튼 사용"
-            )
-            return
-
-        prompt = "respond with OK"
-        ok, msg = self._call_local_ollama(prompt, model, base_url, timeout_sec=60)
+        self._local_ollama_test_worker = None
+        self._set_local_ollama_test_running(False)
+        ok = bool(data.get("ok"))
+        model = str(data.get("model") or "").strip() or "-"
+        elapsed_ms = int(data.get("elapsed_ms") or 0)
+        status = str(data.get("status") or ("ok" if ok else "failed"))
         if ok:
+            message = (
+                f"LOCAL 로컬 LLM 진단 성공 · 모델 {model} · {elapsed_ms}ms · 실제 주문 없음"
+            )
             self._active_ai_engine = "local"
             self._last_response_provider = "basic"
-            self._update_active_engine_label()
-            QMessageBox.information(self, "로컬 AI 테스트", "LOCAL 로컬 LLM 준비 확인 완료")
-        else:
-            QMessageBox.warning(self, "로컬 AI 테스트", f"LOCAL 로컬 LLM 호출 실패: {msg}")
+            try:
+                self._update_active_engine_label()
+            except Exception:
+                pass
+            self._set_local_ollama_test_status(message, "#15803d")
+            try:
+                self._log.info(
+                    "[AITS][LocalOllamaTest] event=finish ok=True model=%s elapsed_ms=%s submitted=0 order_allowed=False real_order=False",
+                    model,
+                    elapsed_ms,
+                )
+            except Exception:
+                pass
+            QMessageBox.information(self, "LOCAL LLM 진단", message)
+            return
+
+        failure_message = self._format_local_ollama_test_failure_message(
+            status, str(data.get("error_summary") or "")
+        )
+        self._set_local_ollama_test_status(failure_message, "#dc2626")
+        try:
+            self._log.warning(
+                "[AITS][LocalOllamaTest] event=failed status=%s model=%s elapsed_ms=%s submitted=0 order_allowed=False real_order=False",
+                status,
+                model,
+                elapsed_ms,
+            )
+        except Exception:
+            pass
+        QMessageBox.warning(self, "LOCAL LLM 진단", failure_message)
 
     def _on_open_openai_usage(self):
         """OpenAI Usage 페이지를 기본 브라우저로 연다."""

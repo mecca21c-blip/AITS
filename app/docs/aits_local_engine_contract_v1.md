@@ -183,3 +183,11 @@ Acceptance criteria:
 - Ollama remains an optional local LLM runtime and diagnostic/inference-gate target; the normal LOCAL refresh path must not imply that Ollama inference is automatically active.
 - LOCAL data policy copy describes retention, review-summary preparation, and validation-before-application policy. It must not imply that automatic deep learning or active training is currently running.
 - LOCAL output remains reference/display/shadow-oriented and must keep `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
+## 13. LOCAL-OLLAMA-NONBLOCKING-FIX-01 Update
+
+- The manual LOCAL/Ollama LLM diagnostic button runs its `/api/tags` and `/api/generate` checks in a Qt worker thread so the UI thread does not wait on the 60 second diagnostic timeout.
+- This diagnostic path is not the normal LOCAL analysis path. Normal LOCAL analysis remains the internal calculation-based payload path and does not promote Ollama to an active provider.
+- Diagnostic results are displayed as readiness/test feedback only. They must not publish `ai.reco.updated`, create `AISnapshotStore` entries, update detail-chart AI snapshots, or write `TradeLogShadowJournal` decision records.
+- Failure, timeout, unavailable server, missing model, and parse failure states remain `submitted=0`, `order_allowed=False`, and `real_order=False`.
+- Router, Execution, Order, and RiskGuard boundaries remain unchanged.
