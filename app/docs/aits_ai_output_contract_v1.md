@@ -2,8 +2,7 @@
 
 ## Purpose
 
-`aits.ai_output_contract.v1` is the canonical display contract for GPT, Gemini, and LOCAL calculation results.
-It is an observe/display contract only. It is not a Router action, execution plan, or order signal.
+`aits.ai_output_contract.v1` is the canonical display contract for GPT, Gemini, and LOCAL calculation results. It is an observe/display contract only. It is not a Router action, execution plan, or order signal.
 
 ## Canonical Fields
 
@@ -63,8 +62,7 @@ Raw prompts, raw HTTP bodies, API keys, account payloads, and order payloads mus
 
 GPT/OpenAI and Gemini raw text are parsed into the same contract. Malformed JSON becomes a safe fallback contract.
 
-LOCAL Basic calculation payloads become `analysis_kind=local_calculation` and `provider_actual=local`.
-LOCAL/Basic output must not be presented as a provider AI judgment.
+LOCAL Basic calculation payloads become `analysis_kind=local_calculation` and `provider_actual=local`. LOCAL/Basic output must not be presented as a provider AI judgment.
 
 Provider fallback separates selected and actual provider. For example, GPT selected with LOCAL fallback keeps:
 
@@ -73,13 +71,22 @@ Provider fallback separates selected and actual provider. For example, GPT selec
 - `fallback_used=True`
 - `engine_label=LOCAL 계산 기반`
 
-## Compatibility Policy
+## Stage Metadata Boundary
 
-Existing consumers may temporarily read compatibility aliases such as `decision`, `decision_summary`, `reason`, and `next_action`.
-Those aliases are derived from `output_contract`; they are not a separate source of truth.
+The contract remains the source of truth for decision content. Journal stage metadata only explains where that content appears in the operator workflow.
 
-Snapshot and Shadow Journal rows may include `output_contract` while retaining legacy fields for restore compatibility.
-No DB migration is required for this contract.
+- `ai_original` is displayed as `AI 원판단`.
+- `aits_shadow_final` is displayed as `AITS 모의판정`.
+- A single decision group may contain at most one row per stage and symbol.
+- Stage pairing uses `decision_group_id` plus symbol, not timestamp proximity.
+
+Stage metadata may include `decision_group_id`, `record_stage`, `source_event`, `contract_hash`, `selected_engine`, `original_generation_engine`, `shadow_processing_method`, `model_invoked`, `invoked_model`, and `ollama_invoked`. These fields do not replace the output contract.
+
+## Engine Provenance
+
+Configured local model names and invoked model names are distinct. LOCAL Basic calculation displays as `LOCAL 계산 기반`. A local model such as `qwen2.5` may be displayed as `LOCAL ? qwen2.5` only when `ollama_invoked=True` and `invoked_model=qwen2.5` are recorded.
+
+Manual LOCAL/Ollama diagnostic results are not active AI decisions. They must not publish `ai.reco.updated`, write `AISnapshotStore`, update detail-chart AI snapshots, or create `TradeLogShadowJournal` decision rows.
 
 ## Surface Wiring
 
@@ -91,23 +98,12 @@ The following surfaces should prefer contract fields:
 - Shadow/Preview Journal display and detail panel
 - per-symbol AI snapshot cache
 
-## Judgment Stage Semantics
+## Compatibility Policy
 
-The contract remains the source of truth for decision content. Journal stage metadata only explains where that content appears in the operator workflow.
+Existing consumers may temporarily read compatibility aliases such as `decision`, `decision_summary`, `reason`, and `next_action`. Those aliases are derived from `output_contract`; they are not a separate source of truth.
 
-- `ai_original` is displayed as `AI 원판단`.
-- `aits_shadow_final` is displayed as `AITS 모의판정`.
-- Snapshot storage and UI sanitizing are not new judgment stages.
-- A single decision group may contain at most one row per stage.
-
-See `app/docs/aits_ai_judgment_semantics_v1.md` for stage labels, dedupe rules, change-reason display, and review-mode copy.
-
-## Ollama Diagnostic Boundary
-
-Manual LOCAL/Ollama diagnostic results are not active AI decisions.
-They must not publish `ai.reco.updated`, write `AISnapshotStore`, update detail-chart AI snapshots, or create `TradeLogShadowJournal` decision rows.
+Snapshot and Shadow Journal rows may include `output_contract` while retaining legacy fields for restore compatibility. No DB migration is required for this contract.
 
 ## Trading Safety
 
-This contract does not change trading strategy, Router action, Execution, Order, or RiskGuard behavior.
-All outputs remain `submitted=0`, `order_allowed=False`, and `real_order=False`.
+This contract does not change trading strategy, Router action, Execution, Order, or RiskGuard behavior. All outputs remain `submitted=0`, `order_allowed=False`, and `real_order=False`.

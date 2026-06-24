@@ -1241,6 +1241,8 @@ class AITSProviderRefreshWorker(QThread):
             "seq": int(self.request_payload.get("seq") or 0),
             "fingerprint": str(self.request_payload.get("fingerprint") or ""),
             "context": self.request_payload.get("context") or {},
+            "decision_group_id": str(self.request_payload.get("decision_group_id") or ""),
+            "request_id": str(self.request_payload.get("request_id") or ""),
             "model": str(self.request_payload.get("model") or ""),
             "text": "",
             "error_summary": "",
@@ -6481,6 +6483,11 @@ class AITSLargeChartDialog(QDialog):
                 except Exception:
                     model_raw = ""
             engine_norm = self._normalize_detail_chart_snapshot_engine(engine_raw or provider)
+            analysis_kind = str(payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "").strip().lower()
+            model_invoked = bool(payload.get("model_invoked") or (output_contract or {}).get("model_invoked"))
+            ollama_invoked = bool(payload.get("ollama_invoked") or (output_contract or {}).get("ollama_invoked"))
+            if engine_norm == "LOCAL" and (analysis_kind == "local_calculation" or not ollama_invoked) and not model_invoked:
+                model_raw = ""
             if not str(provider or "").strip():
                 if engine_norm == "GPT":
                     provider = "openai"
@@ -6518,6 +6525,18 @@ class AITSLargeChartDialog(QDialog):
                 "reason": reason,
                 "next_action": next_action,
                 "output_contract": output_contract if isinstance(output_contract, dict) else {},
+                "decision_group_id": payload.get("decision_group_id") or (output_contract or {}).get("decision_group_id") or "",
+                "request_id": payload.get("request_id") or payload.get("decision_group_id") or "",
+                "record_stage": payload.get("record_stage") or "",
+                "source_event": payload.get("source_event") or "",
+                "analysis_kind": payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "",
+                "provider_selected": payload.get("provider_selected") or (output_contract or {}).get("provider_selected") or "",
+                "provider_actual": payload.get("provider_actual") or (output_contract or {}).get("provider_actual") or "",
+                "original_generation_engine": payload.get("original_generation_engine") or "",
+                "shadow_processing_method": payload.get("shadow_processing_method") or "",
+                "model_invoked": bool(payload.get("model_invoked") or (output_contract or {}).get("model_invoked")),
+                "invoked_model": payload.get("invoked_model") or (output_contract or {}).get("invoked_model") or "",
+                "ollama_invoked": bool(payload.get("ollama_invoked") or (output_contract or {}).get("ollama_invoked")),
             }
             cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
             if not isinstance(cache, dict):
@@ -26560,6 +26579,74 @@ class MainWindow(QMainWindow):
             return display, raw
         except Exception:
             return str(decision or raw_action or "").strip()[:80], str(raw_action or "").strip()
+    def _build_ai_judgment_group_id(self, symbol: str = "", source: str = "manual_refresh") -> str:
+        try:
+            import hashlib
+            seed = "|".join(str(x or "") for x in (symbol, source, time.time(), id(self)))
+            return hashlib.sha1(seed.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        except Exception:
+            return str(int(time.time() * 1000))
+
+    def _resolve_ai_judgment_group_id(self, payload=None, snapshot=None, symbol: str = "", source: str = "manual_refresh", create: bool = True) -> str:
+        try:
+            payload = payload if isinstance(payload, dict) else {}
+            snapshot = snapshot if isinstance(snapshot, dict) else {}
+            group_id = str(payload.get("decision_group_id") or snapshot.get("decision_group_id") or "").strip()
+            if group_id:
+                return group_id
+            group_id = str(getattr(self, "_ai_briefing_pending_decision_group_id", "") or "").strip()
+            if group_id:
+                return group_id
+            group_id = str(getattr(self, "_aits_active_decision_group_id", "") or "").strip()
+            if group_id:
+                return group_id
+            if not create:
+                return ""
+            group_id = self._build_ai_judgment_group_id(symbol, source)
+            self._aits_active_decision_group_id = group_id
+            return group_id
+        except Exception:
+            return ""
+
+    def _resolve_ai_engine_provenance_for_journal(self, payload=None, snapshot=None, output_contract=None, record_stage: str = "") -> dict:
+        payload = payload if isinstance(payload, dict) else {}
+        snapshot = snapshot if isinstance(snapshot, dict) else {}
+        output_contract = output_contract if isinstance(output_contract, dict) else {}
+        selected = str(payload.get("provider_selected") or output_contract.get("provider_selected") or payload.get("selected_engine") or snapshot.get("provider") or "").strip()
+        actual = str(payload.get("provider_actual") or output_contract.get("provider_actual") or payload.get("provider") or snapshot.get("provider") or selected or "").strip().lower()
+        analysis_kind = str(payload.get("analysis_kind") or output_contract.get("analysis_kind") or "").strip().lower()
+        model_invoked = bool(payload.get("model_invoked") or output_contract.get("model_invoked"))
+        ollama_invoked = bool(payload.get("ollama_invoked") or output_contract.get("ollama_invoked"))
+        invoked_model = str(payload.get("invoked_model") or output_contract.get("invoked_model") or "").strip()
+        configured_model = str(payload.get("model") or output_contract.get("model") or snapshot.get("model") or "").strip()
+        if actual in {"local", "basic", "base"} or analysis_kind == "local_calculation":
+            actual_engine = f"LOCAL \u00b7 {invoked_model}" if ollama_invoked and invoked_model else "LOCAL \uacc4\uc0b0 \uae30\ubc18"
+            shadow_method = "LOCAL \uacc4\uc0b0 \uae30\ubc18" if record_stage == "aits_shadow_final" else ""
+            original_engine = actual_engine
+        elif actual == "gemini":
+            model = invoked_model or configured_model
+            actual_engine = f"Gemini \u00b7 {model}" if model else "Gemini"
+            original_engine = actual_engine
+            shadow_method = "AITS \uc815\ucc45 \ud6c4\ucc98\ub9ac" if record_stage == "aits_shadow_final" else ""
+        elif actual in {"gpt", "openai"}:
+            model = invoked_model or configured_model
+            actual_engine = f"GPT \u00b7 {model}" if model else "GPT"
+            original_engine = actual_engine
+            shadow_method = "AITS \uc815\ucc45 \ud6c4\ucc98\ub9ac" if record_stage == "aits_shadow_final" else ""
+        else:
+            actual_engine = str(snapshot.get("engine_display_label") or payload.get("actual_engine") or "\uc5d4\uc9c4 \ud655\uc778 \ud544\uc694").strip()
+            original_engine = actual_engine
+            shadow_method = "AITS \uc815\ucc45 \ud6c4\ucc98\ub9ac" if record_stage == "aits_shadow_final" else ""
+        return {
+            "selected_engine": selected or "-",
+            "actual_engine": actual_engine or "-",
+            "original_generation_engine": original_engine or "-",
+            "shadow_processing_method": shadow_method or "-",
+            "model_invoked": bool(model_invoked or ollama_invoked or actual in {"gpt", "openai", "gemini"}),
+            "invoked_model": invoked_model if (model_invoked or ollama_invoked) else "",
+            "ollama_invoked": bool(ollama_invoked),
+        }
+
     def _append_trade_log_shadow_journal_from_snapshot(self, snapshot=None, payload=None, parsed=None) -> None:
         try:
             try:
@@ -26643,14 +26730,10 @@ class MainWindow(QMainWindow):
                 next_action = " · ".join(str(item).strip() for item in next_raw if str(item).strip())
             else:
                 next_action = str(next_raw or "").strip()
-            engine_label = str(snapshot.get("engine_label") or snapshot.get("engine") or payload.get("selected_engine") or "-").strip() or "-"
-            actual_engine = str(
-                snapshot.get("engine_display_label")
-                or payload.get("actual_engine")
-                or payload.get("generated_engine")
-                or engine_label
-            ).strip() or "-"
             provider = str(snapshot.get("provider") or payload.get("provider") or payload.get("selected_provider") or "").strip()
+            provenance = self._resolve_ai_engine_provenance_for_journal(payload, snapshot, output_contract, record_stage)
+            engine_label = str(provenance.get("selected_engine") or snapshot.get("engine_label") or snapshot.get("engine") or payload.get("selected_engine") or "-").strip() or "-"
+            actual_engine = str(provenance.get("actual_engine") or snapshot.get("engine_display_label") or payload.get("actual_engine") or payload.get("generated_engine") or engine_label).strip() or "-"
             generated_at_for_group = str(
                 payload.get("generated_at")
                 or payload.get("ai_briefing_generated_at")
@@ -26682,12 +26765,12 @@ class MainWindow(QMainWindow):
                         payload.get("model") or snapshot.get("model") or "",
                     )
                 )
-                decision_group_id = str(payload.get("decision_group_id") or snapshot.get("decision_group_id") or "").strip()
+                decision_group_id = self._resolve_ai_judgment_group_id(payload, snapshot, symbol, source, create=True)
                 if not decision_group_id:
                     decision_group_id = hashlib.sha1(group_seed.encode("utf-8", errors="ignore")).hexdigest()[:16]
             except Exception:
                 contract_hash = str(abs(hash(contract_hash_seed)))[:12]
-                decision_group_id = str(payload.get("decision_group_id") or snapshot.get("decision_group_id") or symbol or "unknown")
+                decision_group_id = self._resolve_ai_judgment_group_id(payload, snapshot, symbol, source, create=True) or symbol or "unknown"
             original_decision = str(payload.get("ai_original_decision") or payload.get("original_decision") or "").strip()
             final_decision = str(payload.get("aits_final_decision") or payload.get("shadow_decision") or "").strip()
             if record_stage == "ai_original" and not original_decision:
@@ -26697,11 +26780,11 @@ class MainWindow(QMainWindow):
             change_detected = bool(original_decision and final_decision and original_decision != final_decision)
             change_reason = str(payload.get("change_reason") or payload.get("stage_change_reason") or "").strip()
             if not change_reason:
-                change_reason = "변경 없음" if not change_detected else "후처리 단계의 상세 이유가 기록되지 않았습니다."
+                change_reason = "\ubcc0\uacbd \uc5c6\uc74c" if not change_detected else "\ud6c4\ucc98\ub9ac \ub2e8\uacc4\uc758 \uc0c1\uc138 \uc774\uc720\uac00 \uae30\ub85d\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4"
             record_type = "preview_decision" if record_stage == "ai_original" else "shadow_decision"
             decision_stage_signature = "|".join(
                 str(x or "")
-                for x in (decision_group_id, record_stage, symbol, contract_hash)
+                for x in (decision_group_id, record_stage, symbol)
             )
             record = {
                 "ts": time.time(),
@@ -26711,17 +26794,22 @@ class MainWindow(QMainWindow):
                 "symbol": symbol,
                 "action_display": action_display,
                 "raw_action_sanitized": raw_action_sanitized,
-                "status_display": "실제 주문 없음",
+                "status_display": "\uc2e4\uc81c \uc8fc\ubb38 \uc5c6\uc74c",
                 "selected_engine": engine_label,
                 "actual_engine": actual_engine,
+                "original_generation_engine": provenance.get("original_generation_engine") or actual_engine,
+                "shadow_processing_method": provenance.get("shadow_processing_method") or "-",
+                "model_invoked": bool(provenance.get("model_invoked")),
+                "invoked_model": provenance.get("invoked_model") or "",
+                "ollama_invoked": bool(provenance.get("ollama_invoked")),
                 "provider": provider or "-",
                 "confidence": payload.get("confidence") or payload.get("score") or "",
                 "reason": reason or str(decision or "").strip() or "-",
                 "next_action": next_action,
-                "basis": next_action or action_display or str(decision or "").strip() or "AI 판단 기록",
+                "basis": next_action or action_display or str(decision or "").strip() or "AI \ud310\ub2e8 \uae30\ub85d",
                 "order_allowed": False,
                 "submitted": 0,
-                "submitted_display": "실제 주문 없음",
+                "submitted_display": "\uc2e4\uc81c \uc8fc\ubb38 \uc5c6\uc74c",
                 "real_order": False,
                 "skip_reason": payload.get("skip_reason") or "",
                 "source": source,
@@ -26736,9 +26824,9 @@ class MainWindow(QMainWindow):
                 "ai_original_decision": original_decision or "-",
                 "aits_final_decision": final_decision or "-",
                 "change_detected": bool(change_detected),
-                "change_status": "변경 있음" if change_detected else "변경 없음",
+                "change_status": "\ubcc0\uacbd \uc788\uc74c" if change_detected else "\ubcc0\uacbd \uc5c6\uc74c",
                 "change_reason": change_reason,
-                "review_mode": "AI 재분석은 수동 실행 필요",
+                "review_mode": "AI \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
             }
             rows = getattr(self, "_trade_log_shadow_journal_rows", None)
             if not isinstance(rows, list):
@@ -26748,14 +26836,28 @@ class MainWindow(QMainWindow):
             if not isinstance(stage_cache, set):
                 stage_cache = set()
                 self._trade_log_decision_stage_signatures = stage_cache
-            if decision_stage_signature in stage_cache or any(
-                str(row.get("decision_stage_signature") or "") == decision_stage_signature
-                for row in rows
-                if isinstance(row, dict)
-            ):
+            existing_row = None
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("decision_stage_signature") or "") == decision_stage_signature:
+                    existing_row = row
+                    break
+                if (
+                    str(row.get("decision_group_id") or "") == decision_group_id
+                    and str(row.get("record_stage") or "") == record_stage
+                    and str(row.get("symbol") or "") == symbol
+                ):
+                    existing_row = row
+                    break
+            if existing_row is not None:
+                for key, value in record.items():
+                    if value not in (None, "", [], {}, "-") or key not in existing_row:
+                        existing_row[key] = value
+                existing_row["decision_stage_signature"] = decision_stage_signature
                 try:
                     self._log.info(
-                        "[AITS][TradeLogDecisionStage] event=duplicate_skip group_id=%s stage=%s symbol=%s submitted=0 order_allowed=False real_order=False",
+                        "[AITS][TradeLogDecisionStage] event=stage_update group_id=%s stage=%s symbol=%s submitted=0 order_allowed=False real_order=False",
                         decision_group_id,
                         record_stage,
                         symbol,
@@ -26783,6 +26885,17 @@ class MainWindow(QMainWindow):
                     original_decision or "-",
                     final_decision or "-",
                     bool(change_detected),
+                )
+            except Exception:
+                pass
+            try:
+                self._log.info(
+                    "[AITS][AIEngineProvenance] event=resolved stage=%s selected=%s original_engine=%s shadow_method=%s ollama_invoked=%s submitted=0",
+                    record_stage,
+                    engine_label,
+                    record.get("original_generation_engine") or "-",
+                    record.get("shadow_processing_method") or "-",
+                    bool(record.get("ollama_invoked")),
                 )
             except Exception:
                 pass
@@ -26925,6 +27038,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     model_raw = ""
             engine_norm = self._normalize_detail_chart_snapshot_engine(engine_raw or provider)
+            analysis_kind = str(payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "").strip().lower()
+            model_invoked = bool(payload.get("model_invoked") or (output_contract or {}).get("model_invoked"))
+            ollama_invoked = bool(payload.get("ollama_invoked") or (output_contract or {}).get("ollama_invoked"))
+            if engine_norm == "LOCAL" and (analysis_kind == "local_calculation" or not ollama_invoked) and not model_invoked:
+                model_raw = ""
             if not str(provider or "").strip():
                 if engine_norm == "GPT":
                     provider = "openai"
@@ -26962,6 +27080,18 @@ class MainWindow(QMainWindow):
                 "reason": reason,
                 "next_action": next_action,
                 "output_contract": output_contract if isinstance(output_contract, dict) else {},
+                "decision_group_id": payload.get("decision_group_id") or (output_contract or {}).get("decision_group_id") or "",
+                "request_id": payload.get("request_id") or payload.get("decision_group_id") or "",
+                "record_stage": payload.get("record_stage") or "",
+                "source_event": payload.get("source_event") or "",
+                "analysis_kind": payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "",
+                "provider_selected": payload.get("provider_selected") or (output_contract or {}).get("provider_selected") or "",
+                "provider_actual": payload.get("provider_actual") or (output_contract or {}).get("provider_actual") or "",
+                "original_generation_engine": payload.get("original_generation_engine") or "",
+                "shadow_processing_method": payload.get("shadow_processing_method") or "",
+                "model_invoked": bool(payload.get("model_invoked") or (output_contract or {}).get("model_invoked")),
+                "invoked_model": payload.get("invoked_model") or (output_contract or {}).get("invoked_model") or "",
+                "ollama_invoked": bool(payload.get("ollama_invoked") or (output_contract or {}).get("ollama_invoked")),
             }
             cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
             if not isinstance(cache, dict):
@@ -36582,6 +36712,15 @@ class MainWindow(QMainWindow):
                 payload["engine_mode"] = str(engine_mode or "").strip()
             if str(reason or "").strip():
                 payload["reason"] = str(reason or "").strip()[:300]
+            group_id = self._resolve_ai_judgment_group_id(payload, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+            payload.setdefault("decision_group_id", group_id)
+            payload.setdefault("request_id", group_id)
+            payload.setdefault("record_stage", "ai_original")
+            payload.setdefault("analysis_kind", "local_calculation")
+            payload.setdefault("provider_selected", engine_mode or "basic")
+            payload.setdefault("provider_actual", "local")
+            payload.setdefault("model_invoked", False)
+            payload.setdefault("ollama_invoked", False)
             ai_reco.update(payload=payload, from_boot=True)
         except Exception:
             pass
@@ -36647,6 +36786,17 @@ class MainWindow(QMainWindow):
             "rotation": rotation_d,
             "actual_engine": f"{engine_prefix}-{str(model or '').strip()}",
             "selected_engine": provider_norm,
+            "decision_group_id": str(ctx.get("decision_group_id") or ""),
+            "request_id": str(ctx.get("request_id") or ctx.get("decision_group_id") or ""),
+            "record_stage": "ai_original",
+            "source_event": "ai.reco.updated",
+            "provider_selected": provider_norm,
+            "provider_actual": provider_norm,
+            "analysis_kind": "provider_ai",
+            "original_generation_engine": f"{engine_prefix}-{str(model or "").strip()}",
+            "model_invoked": True,
+            "invoked_model": str(model or "").strip(),
+            "ollama_invoked": False,
         }
 
     def _start_aits_provider_refresh_worker(self, request_payload: dict) -> bool:
@@ -36719,11 +36869,16 @@ class MainWindow(QMainWindow):
             pass
         try:
             if ok:
+                result_context = result.get("context") if isinstance(result.get("context"), dict) else {}
+                result_context = dict(result_context or {})
+                if result.get("decision_group_id"):
+                    result_context.setdefault("decision_group_id", result.get("decision_group_id"))
+                    result_context.setdefault("request_id", result.get("request_id") or result.get("decision_group_id"))
                 reco_payload = self._build_aits_provider_reco_payload(
                     provider,
                     str(result.get("model") or ""),
                     str(result.get("text") or ""),
-                    result.get("context") if isinstance(result.get("context"), dict) else {},
+                    result_context,
                 )
                 self._aits_last_ai_raw_response = str(result.get("text") or "")
                 try:
@@ -37014,11 +37169,21 @@ class MainWindow(QMainWindow):
         except Exception:
             positions_fb = []
 
+        group_id = self._resolve_ai_judgment_group_id({}, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
         return {
             "use_basic_engine": True,
             "basic_fallback": True,
             "market_rows": market_rows_fb,
             "positions": positions_fb,
+            "decision_group_id": group_id,
+            "request_id": group_id,
+            "record_stage": "ai_original",
+            "analysis_kind": "local_calculation",
+            "provider_selected": "basic",
+            "provider_actual": "local",
+            "original_generation_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+            "model_invoked": False,
+            "ollama_invoked": False,
         }
 
     def _collect_aits_basic_engine_settings(self) -> dict:
@@ -37788,9 +37953,17 @@ class MainWindow(QMainWindow):
                         int(getattr(self, "_aits_main_reco_request_seq", 0) or 0) + 1
                     )
                     current_seq = int(self._aits_main_reco_request_seq)
+                    group_id = self._resolve_ai_judgment_group_id({}, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+                    try:
+                        ctx["decision_group_id"] = group_id
+                        ctx["request_id"] = group_id
+                    except Exception:
+                        pass
                     request_payload = {
                         "provider": "gemini",
                         "symbol": self._resolve_current_ai_snapshot_symbol(),
+                        "decision_group_id": group_id,
+                        "request_id": group_id,
                         "seq": current_seq,
                         "fingerprint": current_fp,
                         "context": ctx,
@@ -37899,9 +38072,17 @@ class MainWindow(QMainWindow):
                 "max_tokens": 1200,
             }
             ctx = self._build_aits_ai_decision_context()
+            group_id = self._resolve_ai_judgment_group_id({}, {}, self._resolve_current_ai_snapshot_symbol(), "manual_refresh")
+            try:
+                ctx["decision_group_id"] = group_id
+                ctx["request_id"] = group_id
+            except Exception:
+                pass
             request_payload = {
                 "provider": "gpt",
                 "symbol": self._resolve_current_ai_snapshot_symbol(),
+                "decision_group_id": group_id,
+                "request_id": group_id,
                 "seq": current_seq,
                 "fingerprint": current_fp,
                 "context": ctx,
@@ -44964,6 +45145,10 @@ class MainWindow(QMainWindow):
                     self._ai_briefing_last_snapshot_source = source
                     if isinstance(_pl, dict):
                         _pl = dict(_pl)
+                        group_id = self._resolve_ai_judgment_group_id(_pl, {}, getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "", "manual_refresh", create=manual_generation)
+                        if group_id:
+                            _pl.setdefault("decision_group_id", group_id)
+                            _pl.setdefault("request_id", group_id)
                         _pl.setdefault("source_event", "ai.reco.updated")
                         _pl.setdefault("record_stage", "ai_original" if manual_generation else "aits_shadow_final")
                     snapshot = self._record_recent_ai_snapshot_for_symbol(
@@ -47066,10 +47251,18 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
+                group_id = self._build_ai_judgment_group_id(selected_symbol, "manual_refresh")
+                self._aits_active_decision_group_id = group_id
+                self._ai_briefing_pending_decision_group_id = group_id
                 self._ai_briefing_pending_manual_request = True
                 self._ai_briefing_pending_snapshot_symbol = selected_symbol
                 self._ai_briefing_last_snapshot_source = "manual_refresh"
                 self._aits_main_reco_manual_request = True
+                self._log.info(
+                    "[AITS][AIJudgmentGroup] event=created group_id=%s symbol=%s source=manual_refresh submitted=0",
+                    group_id,
+                    selected_symbol,
+                )
             except Exception:
                 pass
             provider = "basic"

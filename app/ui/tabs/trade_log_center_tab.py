@@ -372,7 +372,8 @@ class TradeLogCenterTab(QWidget):
             ("submitted", "주문 실행 여부"),
             ("freshness", "판단 신선도"),
             ("selected_engine", "선택 엔진"),
-            ("actual_engine", "사용 엔진"),
+            ("actual_engine", "실제 판단 생성 엔진"),
+            ("shadow_processing_method", "AITS 판정 방식"),
             ("review_mode", "재검토 방식"),
             ("basis", "판단 근거"),
             ("reason", "사유"),
@@ -872,10 +873,99 @@ class TradeLogCenterTab(QWidget):
         except Exception:
             pass
 
+    def _is_empty_stage_value(self, value: Any) -> bool:
+        text = str(value or "").strip()
+        return text in {"", "-", "None", "null"}
+
+    def _find_original_stage_for_row(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
+        try:
+            if not isinstance(row, dict):
+                return None
+            if str(row.get("record_stage") or "").strip() != "aits_shadow_final":
+                return None
+            group_id = str(row.get("decision_group_id") or "").strip()
+            symbol = str(row.get("symbol") or "").strip()
+            if not group_id or not symbol:
+                return None
+            for candidate in getattr(self, "_rows", []) or []:
+                if not isinstance(candidate, dict) or candidate is row:
+                    continue
+                if str(candidate.get("decision_group_id") or "").strip() != group_id:
+                    continue
+                if str(candidate.get("record_stage") or "").strip() != "ai_original":
+                    continue
+                if str(candidate.get("symbol") or "").strip() != symbol:
+                    continue
+                return candidate
+        except Exception:
+            return None
+        return None
+
+    def _decision_compare_value(self, row: dict[str, Any] | None) -> str:
+        if not isinstance(row, dict):
+            return ""
+        return str(row.get("decision_code") or row.get("action") or row.get("action_display") or "").strip()
+
+    def _display_basis_for_stage(self, row: dict[str, Any] | None, basis: str) -> str:
+        try:
+            if not isinstance(row, dict):
+                return basis
+            if str(row.get("record_stage") or "").strip() != "aits_shadow_final":
+                return basis
+            action = str(row.get("action") or row.get("action_display") or "").strip()
+            basis_text = str(basis or "").strip()
+            fallback = "AITS \ubaa8\uc758\ud310\uc815 \uadfc\uac70\uac00 \ubcc4\ub3c4\ub85c \uae30\ub85d\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4"
+            if not basis_text or basis_text == "-":
+                return fallback
+            normalized = basis_text.replace(" ", "")
+            if ("\ubcf4\uc720" in action or "\uc720\uc9c0" in action) and (
+                "\uad00\ub9dd" in normalized or "\ud544\ud130" in normalized or "\ud6c4\ubcf4\ub370\uc774\ud130" in normalized
+            ):
+                return fallback
+            return basis
+        except Exception:
+            return basis
+
+    def _format_engine_provenance_display(self, row: dict[str, Any] | None) -> str:
+        try:
+            if not isinstance(row, dict):
+                return "-"
+            actual = str(row.get("actual_engine") or row.get("provider") or "-").strip() or "-"
+            actual_lower = actual.lower()
+            if ("qwen" in actual_lower or "llama" in actual_lower or "mistral" in actual_lower) and not bool(row.get("ollama_invoked")):
+                return "LOCAL \uacc4\uc0b0 \uae30\ubc18"
+            if str(row.get("analysis_kind") or "").strip() == "local_calculation" and not bool(row.get("ollama_invoked")):
+                return "LOCAL \uacc4\uc0b0 \uae30\ubc18"
+            return actual
+        except Exception:
+            return "-"
+
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         is_empty = row is None
         self.detail_placeholder.setVisible(is_empty)
+        if isinstance(row, dict):
+            row = dict(row)
+            if str(row.get("record_stage") or "").strip() == "aits_shadow_final":
+                original = self._find_original_stage_for_row(row)
+                if original is not None:
+                    original_action = original.get("action") or original.get("action_display") or "-"
+                    row["ai_original_decision"] = original_action
+                    row.setdefault("derived_from_stage", "ai_original")
+                    original_cmp = self._decision_compare_value(original)
+                    shadow_cmp = self._decision_compare_value(row)
+                    if original_cmp and shadow_cmp:
+                        changed = original_cmp != shadow_cmp
+                        row["change_status"] = "\ubcc0\uacbd\ub428" if changed else "\ubcc0\uacbd \uc5c6\uc74c"
+                        if changed and self._is_empty_stage_value(row.get("change_reason")):
+                            row["change_reason"] = "\ud6c4\ucc98\ub9ac \ub2e8\uacc4\uc758 \uc0c1\uc138 \uc774\uc720\uac00 \uae30\ub85d\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4"
+                        elif not changed:
+                            row["change_reason"] = "\ubcc0\uacbd \uc5c6\uc74c"
+                elif self._is_empty_stage_value(row.get("ai_original_decision")):
+                    row["ai_original_decision"] = "\uc5f0\uacb0\ub41c \uae30\ub85d \uc5c6\uc74c"
+                    row["change_status"] = "\ube44\uad50 \ubd88\uac00"
+                    row["change_reason"] = "\uc6d0\ud310\ub2e8 \uc5f0\uacb0 \uc815\ubcf4\uac00 \uc5c6\ub294 \uc774\uc804 \uae30\ub85d\uc785\ub2c8\ub2e4"
         basis, reason, identical_before = self._split_journal_basis_reason(row)
+        basis = self._display_basis_for_stage(row, basis)
         freshness = self._build_trade_log_freshness_state(row)
         self._emit_reason_audit(identical_before, basis, reason)
         self._emit_user_reason_log(row, basis, reason)
@@ -895,7 +985,8 @@ class TradeLogCenterTab(QWidget):
             "submitted": row.get("submitted") if row else "-",
             "freshness": freshness_text if row else "-",
             "selected_engine": row.get("selected_engine") if row else "-",
-            "actual_engine": row.get("actual_engine") if row else "-",
+            "actual_engine": self._format_engine_provenance_display(row) if row else "-",
+            "shadow_processing_method": row.get("shadow_processing_method") if row else "-",
             "review_mode": row.get("review_mode") if row else "-",
             "basis": basis,
             "reason": reason,
@@ -978,19 +1069,19 @@ class TradeLogCenterTab(QWidget):
         type_label = str(row.get("type_label") or "").strip()
         if not type_label:
             type_label = {
-                "shadow_decision": "AITS 모의판정",
-                "preview_decision": "AI 원판단",
-                "blocked": "차단/보류",
-                "skipped": "스킵",
-                "reflection": "복기",
-            }.get(record_type, "AI 원판단")
+                "shadow_decision": "AITS \ubaa8\uc758\ud310\uc815",
+                "preview_decision": "AI \uc6d0\ud310\ub2e8",
+                "blocked": "\ucc28\ub2e8/\ubcf4\ub958",
+                "skipped": "\uc2a4\ud0b5",
+                "reflection": "\ubcf5\uae30",
+            }.get(record_type, "AI \uc6d0\ud310\ub2e8")
         stage = str(row.get("record_stage") or "").strip()
         if not stage:
             stage = "aits_shadow_final" if record_type == "shadow_decision" else "ai_original"
         stage_label = str(row.get("record_stage_label") or "").strip() or {
-            "ai_original": "AI 원판단",
-            "aits_shadow_final": "AITS 모의판정",
-            "blocked_or_skipped": "차단/보류",
+            "ai_original": "AI \uc6d0\ud310\ub2e8",
+            "aits_shadow_final": "AITS \ubaa8\uc758\ud310\uc815",
+            "blocked_or_skipped": "\ucc28\ub2e8/\ubcf4\ub958",
         }.get(stage, type_label)
         if record_type in {"preview_decision", "shadow_decision"}:
             type_label = stage_label
@@ -1000,6 +1091,14 @@ class TradeLogCenterTab(QWidget):
         warning_text = str(freshness.get("warning_text") or "").strip()
         if warning_text:
             freshness_text = f"{freshness_text}\n{warning_text}"
+        output_contract = row.get("output_contract") if isinstance(row.get("output_contract"), dict) else {}
+        actual_engine_display = self._format_engine_provenance_display(
+            {
+                "actual_engine": row.get("actual_engine") or row.get("provider") or "-",
+                "analysis_kind": row.get("analysis_kind") or output_contract.get("analysis_kind") or "",
+                "ollama_invoked": bool(row.get("ollama_invoked")),
+            }
+        )
         return {
             "category": category,
             "sort_ts": self._sort_timestamp(ts),
@@ -1007,19 +1106,33 @@ class TradeLogCenterTab(QWidget):
             "type": type_label,
             "symbol": row.get("symbol") or "-",
             "action": row.get("action_display") or row.get("action") or "-",
-            "status": row.get("status_display") or row.get("status") or "실제 주문 없음",
+            "status": row.get("status_display") or row.get("status") or "\uc2e4\uc81c \uc8fc\ubb38 \uc5c6\uc74c",
             "price": row.get("price") or "-",
             "amount": row.get("amount") or "-",
             "selected_engine": row.get("selected_engine") or "-",
-            "actual_engine": row.get("actual_engine") or row.get("provider") or "-",
-            "submitted": row.get("submitted_display") or "실제 주문 없음",
+            "actual_engine": actual_engine_display,
+            "original_generation_engine": row.get("original_generation_engine") or "",
+            "shadow_processing_method": row.get("shadow_processing_method") or "",
+            "model_invoked": bool(row.get("model_invoked")),
+            "invoked_model": row.get("invoked_model") or "",
+            "ollama_invoked": bool(row.get("ollama_invoked")),
+            "submitted": row.get("submitted_display") or "\uc2e4\uc81c \uc8fc\ubb38 \uc5c6\uc74c",
             "basis": basis,
             "reason": reason,
+            "decision_group_id": row.get("decision_group_id") or "",
+            "request_id": row.get("request_id") or row.get("decision_group_id") or "",
+            "record_stage": stage,
+            "record_stage_label": stage_label,
+            "decision_stage_signature": row.get("decision_stage_signature") or "",
+            "contract_hash": row.get("contract_hash") or "",
+            "source_event": row.get("source_event") or "",
+            "decision_code": row.get("decision_code") or output_contract.get("decision_code") or "",
+            "analysis_kind": row.get("analysis_kind") or output_contract.get("analysis_kind") or "",
             "ai_original_decision": row.get("ai_original_decision") or ("-" if stage != "ai_original" else row.get("action_display") or row.get("action") or "-"),
             "aits_final_decision": row.get("aits_final_decision") or ("-" if stage != "aits_shadow_final" else row.get("action_display") or row.get("action") or "-"),
-            "change_status": row.get("change_status") or ("변경 있음" if row.get("change_detected") else "변경 없음"),
-            "change_reason": row.get("change_reason") or "상세 이유 기록 없음",
-            "review_mode": row.get("review_mode") or "AI 재분석은 수동 실행 필요",
+            "change_status": row.get("change_status") or ("\ubcc0\uacbd \uc788\uc74c" if row.get("change_detected") else "\ubcc0\uacbd \uc5c6\uc74c"),
+            "change_reason": row.get("change_reason") or "\uc0c1\uc138 \uc774\uc720 \uae30\ub85d \uc5c6\uc74c",
+            "review_mode": row.get("review_mode") or "AI \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
         }
 
     def _sort_timestamp(self, value: Any) -> float:
