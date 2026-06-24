@@ -896,3 +896,17 @@ Policy intent:
 - Recheck-needed is an operational visibility label in this Goal, not a Router action change or order-blocking rule.
 - This work does not change Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
 - Managed-pool SLA logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 59. MANAGED-POOL-AUTO-REVIEW-QUEUE-01 Implementation Note
+
+`MANAGED-POOL-AUTO-REVIEW-QUEUE-01` builds an observe-only AI recheck candidate queue from managed-pool Basic/LOCAL monitoring.
+
+Policy intent:
+
+- The queue marks which managed symbols should be reviewed next; it does not call GPT, Gemini, OpenAI, or any provider.
+- Queue triggers are display/operations signals such as missing AI review, stale or very stale AI review, score changes, price/volume changes when available, holding PnL movement, and stale market data.
+- Holding rows receive higher queue priority than ordinary candidates when position risk/profit movement is visible.
+- Manual-hold rows are not promoted into active review urgency unless another stronger signal exists.
+- Queue output is user-facing through managed-row status text, Live Log, and `[AITS][ManagedPoolAIReviewQueue]` proof logs.
+- The queue is not an order signal, Router action, Risk Guard rule, or execution plan.
+- High-priority queue rows still keep `order_allowed=False`, `real_order=False`, and `submitted=0`.

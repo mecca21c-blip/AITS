@@ -25750,6 +25750,130 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _managed_pool_review_float(self, row: dict, *keys, default=None):
+        try:
+            for key in keys:
+                val = row.get(key)
+                if val in (None, ""):
+                    continue
+                text = str(val).strip().replace("%", "").replace(",", "")
+                if text:
+                    return float(text)
+        except Exception:
+            return default
+        return default
+
+    def _build_managed_pool_ai_review_queue(self, *, reason: str = "") -> list[dict]:
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            market_data_stale = bool(getattr(self, "_candidate_feed_stale", False))
+            queue = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                symbol = str(row.get("symbol") or row.get("market") or "").strip()
+                if not symbol:
+                    continue
+                freshness = self._sync_managed_pool_ai_review_sla_state(row, log=False)
+                status = str(row.get("ai_status") or row.get("status") or "").strip()
+                manual_hold = self._is_managed_manual_hold_row(row)
+                score = self._managed_pool_review_float(row, "ai_score", "score", "confidence", default=None)
+                prev_score = self._managed_pool_review_float(row, "_review_queue_prev_ai_score", default=score)
+                score_delta = 0.0 if score is None or prev_score is None else float(score) - float(prev_score)
+                change_pct = self._managed_pool_review_float(row, "change_rate", "signed_change_rate", "change_pct", "change", default=0.0) or 0.0
+                trade_value = self._managed_pool_review_float(row, "trade_value", "acc_trade_price_24h", "acc_trade_price", "volume_krw", default=0.0) or 0.0
+                pnl = self._managed_pool_review_float(row, "pnl", "return_rate", "roi_pct", "profit_rate", default=0.0) or 0.0
+                weight = self._managed_pool_review_float(row, "position_weight_pct", "weight_pct", "weight", default=0.0) or 0.0
+                is_holding = status == "Holding" or abs(weight) > 0.0 or row.get("holding") is True
+                state = str(freshness.get("freshness_state") or "unknown")
+                triggers = []
+                priority = 0
+                if state == "missing":
+                    priority = max(priority, 60)
+                    triggers.append("AI 분석 없음")
+                elif state == "very_stale":
+                    priority = max(priority, 55)
+                    triggers.append("새 분석 권장")
+                elif state == "stale":
+                    priority = max(priority, 45)
+                    triggers.append("오래된 AI 판단")
+                if abs(score_delta) >= 15:
+                    priority = max(priority, 50)
+                    triggers.append("점수 급변")
+                if abs(change_pct) >= 5:
+                    priority = max(priority, 40)
+                    triggers.append("가격 변동 확대")
+                if trade_value >= 1_000_000_000:
+                    priority = max(priority, 30)
+                    triggers.append("거래대금 변화 감지")
+                if is_holding and abs(pnl) >= 2:
+                    priority = max(priority, 80)
+                    triggers.append("보유 포지션 손익 변화")
+                if market_data_stale:
+                    priority = max(priority, 35)
+                    triggers.append("데이터 확인 후 재검토")
+                if manual_hold:
+                    row["ai_review_queue_status"] = "매매보류 · 참고"
+                    row["ai_review_queue_reason"] = "매매보류 상태"
+                    row["_review_queue_prev_ai_score"] = score
+                    continue
+                if not triggers:
+                    row["ai_review_queue_status"] = ""
+                    row["ai_review_queue_reason"] = ""
+                    row["_review_queue_prev_ai_score"] = score
+                    continue
+                record = {
+                    "symbol": symbol,
+                    "display_name": row.get("name") or row.get("display_name") or symbol,
+                    "source_type": row.get("source_type") or row.get("source") or "",
+                    "is_holding": bool(is_holding),
+                    "current_status": status,
+                    "ai_score": score,
+                    "score_delta": score_delta,
+                    "freshness_state": state,
+                    "last_ai_review_at": freshness.get("generated_at") or row.get("last_ai_review_at") or "",
+                    "queue_reason": " · ".join(dict.fromkeys(triggers)),
+                    "priority": int(priority),
+                    "trigger_type": triggers[0],
+                    "market_data_stale": market_data_stale,
+                    "generated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "submitted": 0,
+                    "order_allowed": False,
+                    "real_order": False,
+                }
+                row["ai_review_queue_status"] = "재검토 후보"
+                row["ai_review_queue_reason"] = record["queue_reason"]
+                row["_review_queue_prev_ai_score"] = score
+                queue.append(record)
+            queue.sort(key=lambda item: int(item.get("priority") or 0), reverse=True)
+            self._managed_pool_ai_review_queue = queue[:20]
+            self._log_managed_pool_ai_review_queue(self._managed_pool_ai_review_queue, reason=reason)
+            return self._managed_pool_ai_review_queue
+        except Exception:
+            self._managed_pool_ai_review_queue = []
+            return []
+
+    def _log_managed_pool_ai_review_queue(self, queue: list[dict], *, reason: str = "") -> None:
+        try:
+            total = len(queue or [])
+            high = sum(1 for x in queue if int(x.get("priority") or 0) >= 70)
+            medium = sum(1 for x in queue if 40 <= int(x.get("priority") or 0) < 70)
+            low = sum(1 for x in queue if int(x.get("priority") or 0) < 40)
+            signature = (total, high, medium, low, tuple((x.get("symbol"), x.get("queue_reason"), x.get("priority")) for x in (queue or [])[:5]))
+            now = time.time()
+            if signature == getattr(self, "_managed_pool_ai_review_queue_last_sig", None) and now - float(getattr(self, "_managed_pool_ai_review_queue_last_log_at", 0.0) or 0.0) < 60:
+                return
+            self._managed_pool_ai_review_queue_last_sig = signature
+            self._managed_pool_ai_review_queue_last_log_at = now
+            logging.getLogger("aits").info(
+                "[AITS][ManagedPoolAIReviewQueue] event=queue_built reason=%s total=%s high=%s medium=%s low=%s submitted=0 order_allowed=False real_order=False",
+                str(reason or "unknown"), total, high, medium, low,
+            )
+            if total:
+                self._append_managed_live_log(f"AI 재검토 후보 {total}개 · 보유 {high}개 우선 · 실제 주문 없음", str((queue or [{}])[0].get("symbol") or ""))
+        except Exception:
+            pass
+
     def _format_detail_chart_snapshot_source_label(self, value):
         try:
             raw = str(value or "").strip().lower()
@@ -32903,13 +33027,14 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
+                status_sub_text = str(row.get("ai_review_queue_reason") or ai_review_sla.get("label") or "")
                 st_cell = _AitsManagedStatusCell(
                     str(st_main or "—"),
-                    str(ai_review_sla.get("label") or ""),
+                    status_sub_text,
                     str(st_kind or "watch"),
                 )
                 try:
-                    st_cell.setToolTip(str(ai_review_sla.get("tooltip") or ""))
+                    st_cell.setToolTip(str(row.get("ai_review_queue_reason") or ai_review_sla.get("tooltip") or ""))
                 except Exception:
                     pass
                 t.setCellWidget(
@@ -34220,6 +34345,16 @@ class MainWindow(QMainWindow):
 
             rows = self.ai_managed_rows or []
             position_limit_blocked = False
+            prev_scores_for_queue = {}
+            try:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    sym = str(row.get("symbol") or row.get("market") or "").strip()
+                    if sym:
+                        prev_scores_for_queue[sym] = row.get("ai_score")
+            except Exception:
+                prev_scores_for_queue = {}
 
             for row in rows:
                 try:
@@ -34337,6 +34472,17 @@ class MainWindow(QMainWindow):
                     watching_count,
                     market_data_stale,
                 )
+            except Exception:
+                pass
+
+            try:
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    sym = str(row.get("symbol") or row.get("market") or "").strip()
+                    if sym:
+                        row["_review_queue_prev_ai_score"] = prev_scores_for_queue.get(sym, row.get("ai_score"))
+                self._build_managed_pool_ai_review_queue(reason="score_update")
             except Exception:
                 pass
 
