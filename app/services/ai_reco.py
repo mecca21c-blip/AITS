@@ -6,6 +6,10 @@ import json
 from typing import Any, Callable, Dict, List, Optional
 
 from app.services.basic_decision_engine import build_basic_decision
+from app.services.ai_output_contract import (
+    contract_to_compat_payload,
+    normalize_ai_output_contract,
+)
 
 _LAST_DECISION: Dict[str, Any] = {
     "actual_engine": "",
@@ -177,6 +181,16 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
             merged = _basic_dict_to_reco_payload(basic)
             for k, v in merged.items():
                 out[k] = v
+
+        contract = normalize_ai_output_contract(
+            out,
+            raw_response=out.get("raw_ai_response") or out,
+            provider_selected=out.get("selected_engine") or out.get("source") or "local",
+            provider_actual=out.get("actual_engine") or out.get("source") or "local",
+            source=out.get("source") or "local_basic",
+            analysis_kind="local_calculation" if out.get("source") == "local" else "",
+        )
+        out.update(contract_to_compat_payload(contract))
 
         _LAST_ADVICE = dict(out)
         _LAST_DECISION = {

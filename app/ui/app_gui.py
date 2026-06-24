@@ -6421,6 +6421,28 @@ class AITSLargeChartDialog(QDialog):
                 return {}
             payload = payload if isinstance(payload, dict) else {}
             parsed = parsed if isinstance(parsed, dict) else {}
+            output_contract = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+            if output_contract:
+                payload = dict(payload)
+                parsed = dict(parsed)
+                payload.setdefault("symbol", output_contract.get("symbol") or "")
+                payload.setdefault("provider", output_contract.get("provider_actual") or "")
+                payload.setdefault("model", output_contract.get("model") or "")
+                payload.setdefault("generated_at", output_contract.get("generated_at") or "")
+                payload.setdefault("decision_summary", output_contract.get("decision_display") or "")
+                payload.setdefault(
+                    "reason",
+                    [
+                        x for x in (
+                            output_contract.get("basis_summary"),
+                            output_contract.get("user_reason"),
+                        ) if str(x or "").strip()
+                    ],
+                )
+                payload.setdefault("next_action", [output_contract.get("next_observation") or ""])
+                parsed.setdefault("decision", output_contract.get("decision_display") or "")
+                parsed.setdefault("reason", payload.get("reason") or [])
+                parsed.setdefault("next_action", payload.get("next_action") or [])
             provider = (
                 payload.get("ai_briefing_provider")
                 or payload.get("provider")
@@ -6495,6 +6517,7 @@ class AITSLargeChartDialog(QDialog):
                 "briefing": str(decision or "").strip(),
                 "reason": reason,
                 "next_action": next_action,
+                "output_contract": output_contract if isinstance(output_contract, dict) else {},
             }
             cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
             if not isinstance(cache, dict):
@@ -7994,45 +8017,56 @@ class MainWindow(QMainWindow):
             pass
 
     def _parse_aits_ai_response(self, raw_text: str) -> dict:
-        """
-        AI 응답을 decision / reason / next_action 구조로 파싱
-        실패 시 fallback 구조 반환
-        """
         try:
-            s = str(raw_text or "").strip()
-            if s.startswith("```"):
-                lines = s.split("\n")
-                if len(lines) >= 3 and lines[-1].strip() == "```":
-                    s = "\n".join(lines[1:-1]).strip()
-                elif len(lines) >= 2:
-                    s = "\n".join(lines[1:]).strip()
-                    if s.endswith("```"):
-                        s = s[:-3].strip()
-            data = json.loads(s)
-            decision = data.get("decision", "판단 불가")
-            if decision is None:
-                decision = "판단 불가"
-            reason = data.get("reason", [])
-            if isinstance(reason, str):
-                reason = [reason] if str(reason).strip() else []
-            elif not isinstance(reason, list):
-                reason = []
-            next_action = data.get("next_action", [])
-            if isinstance(next_action, str):
-                next_action = [next_action] if str(next_action).strip() else []
-            elif not isinstance(next_action, list):
-                next_action = []
-            # rotation 등 추가 키가 있어도 json.loads는 성공하며, 아래는 decision/reason/next_action만 반환.
+            from app.services.ai_output_contract import normalize_ai_output_contract
+
+            requested_symbol = ""
+            try:
+                requested_symbol = self._resolve_current_ai_snapshot_symbol(
+                    getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or ""
+                )
+            except Exception:
+                requested_symbol = str(getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "").strip()
+            provider_selected = str(
+                getattr(self, "_selected_ai_provider", "")
+                or getattr(self, "_ai_provider_box_active", "")
+                or ""
+            ).strip()
+            contract = normalize_ai_output_contract(
+                raw_response=raw_text,
+                requested_symbol=requested_symbol,
+                provider_selected=provider_selected,
+                provider_actual=provider_selected,
+                source="manual_refresh",
+            )
+            reason = [
+                item for item in (
+                    contract.get("basis_summary"),
+                    contract.get("user_reason"),
+                ) if str(item or "").strip()
+            ]
+            next_action = [contract.get("next_observation") or ""]
             return {
-                "decision": decision,
+                "decision": contract.get("decision_display") or "데이터 확인 필요",
                 "reason": reason,
                 "next_action": next_action,
+                "output_contract": contract,
             }
         except Exception:
             return {
-                "decision": "판단 불가",
-                "reason": [str(raw_text or "")[:200]],
+                "decision": "데이터 확인 필요",
+                "reason": ["AI 응답을 안전하게 해석하지 못해 현재 판단을 보류합니다."],
                 "next_action": [],
+                "output_contract": {
+                    "schema": "aits.ai_output_contract.v1",
+                    "parse_status": "parse_failed",
+                    "fallback_used": True,
+                    "safety": {
+                        "submitted": 0,
+                        "order_allowed": False,
+                        "real_order": False,
+                    },
+                },
             }
 
     def _looks_like_internal_ai_key(self, text: str) -> bool:
@@ -8546,6 +8580,61 @@ class MainWindow(QMainWindow):
         try:
             if not isinstance(final_payload, dict):
                 return
+
+            try:
+                from app.services.ai_output_contract import (
+                    contract_to_compat_payload,
+                    normalize_ai_output_contract,
+                )
+
+                requested_symbol = (
+                    final_payload.get("symbol")
+                    or final_payload.get("market")
+                    or getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
+                    or ""
+                )
+                provider_selected = (
+                    final_payload.get("selected_provider")
+                    or final_payload.get("provider_selected")
+                    or getattr(self, "_selected_ai_provider", "")
+                    or ""
+                )
+                provider_actual = (
+                    final_payload.get("actual_provider")
+                    or final_payload.get("provider_actual")
+                    or final_payload.get("provider")
+                    or provider_selected
+                )
+                output_contract = normalize_ai_output_contract(
+                    final_payload,
+                    raw_response=final_payload.get("raw_ai_response") or final_payload,
+                    requested_symbol=requested_symbol,
+                    provider_selected=provider_selected,
+                    provider_actual=provider_actual,
+                    model=final_payload.get("model") or final_payload.get("selected_model") or "",
+                    source=final_payload.get("source") or "manual_refresh",
+                )
+                compat = contract_to_compat_payload(output_contract)
+                final_payload = dict(final_payload)
+                for key, value in compat.items():
+                    if key == "output_contract" or key not in final_payload or final_payload.get(key) in (None, "", [], {}):
+                        final_payload[key] = value
+                try:
+                    self._log.info(
+                        "[AITS][AIOutputContract] event=normalized schema=%s symbol=%s provider_selected=%s provider_actual=%s decision=%s valid=%s fallback=%s submitted=0 order_allowed=False real_order=False",
+                        output_contract.get("schema"),
+                        output_contract.get("symbol") or "unknown",
+                        output_contract.get("provider_selected") or "unknown",
+                        output_contract.get("provider_actual") or "unknown",
+                        output_contract.get("decision_code") or "unknown",
+                        bool(output_contract.get("is_valid")),
+                        bool(output_contract.get("fallback_used")),
+                    )
+                except Exception:
+                    pass
+            except Exception:
+                final_payload = dict(final_payload)
+                final_payload.setdefault("output_contract", {})
 
             self._aits_last_final_reco_payload = dict(final_payload)
 
@@ -26452,25 +26541,21 @@ class MainWindow(QMainWindow):
             return False
 
     def _trade_log_shadow_action_display(self, raw_action: object = "", decision: object = "") -> tuple[str, str]:
-        raw = str(raw_action or "").strip()
-        text = f"{raw} {decision or ''}".strip()
-        upper = text.upper()
-        if "ENTER" in upper:
-            return "진입 검토", raw or "ENTER"
-        if "BUY" in upper and "SELL" not in upper:
-            return "매수 검토", raw or "BUY"
-        if any(token in upper for token in ("SELL", "EXIT")):
-            return "매도 검토", raw or "SELL"
-        if any(token in upper for token in ("STAY", "HOLD", "WAIT", "WATCH")):
-            return "관망", raw or "STAY"
-        if any(token in text for token in ("진입", "매수")) and "매도" not in text:
-            return "진입 검토", raw or "ENTER"
-        if any(token in text for token in ("매도", "청산", "손절")):
-            return "매도 검토", raw or "SELL"
-        if any(token in text for token in ("관망", "대기", "보류", "유지")):
-            return "관망", raw or "STAY"
-        return str(decision or raw or "관망").strip()[:80] or "관망", raw or ""
+        try:
+            from app.services.ai_output_contract import (
+                decision_code_from_raw,
+                decision_display_from_code,
+                sanitize_user_text,
+            )
 
+            raw = str(raw_action or "").strip()
+            code = decision_code_from_raw(raw or decision)
+            display = decision_display_from_code(code)
+            if code == "insufficient_data" and decision:
+                display = sanitize_user_text(decision, limit=80) or display
+            return display, raw
+        except Exception:
+            return str(decision or raw_action or "").strip()[:80], str(raw_action or "").strip()
     def _append_trade_log_shadow_journal_from_snapshot(self, snapshot=None, payload=None, parsed=None) -> None:
         try:
             try:
@@ -26480,6 +26565,29 @@ class MainWindow(QMainWindow):
             snapshot = snapshot if isinstance(snapshot, dict) else {}
             payload = payload if isinstance(payload, dict) else {}
             parsed = parsed if isinstance(parsed, dict) else {}
+            output_contract = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+            if not output_contract and isinstance(snapshot.get("output_contract"), dict):
+                output_contract = snapshot.get("output_contract") or {}
+            if output_contract:
+                payload = dict(payload)
+                parsed = dict(parsed)
+                payload.setdefault("symbol", output_contract.get("symbol") or "")
+                payload.setdefault("decision_summary", output_contract.get("decision_display") or "")
+                payload.setdefault("confidence", output_contract.get("confidence"))
+                payload.setdefault("provider", output_contract.get("provider_actual") or "")
+                payload.setdefault("model", output_contract.get("model") or "")
+                payload.setdefault("generated_at", output_contract.get("generated_at") or "")
+                parsed.setdefault("decision", output_contract.get("decision_display") or "")
+                parsed.setdefault(
+                    "reason",
+                    [
+                        x for x in (
+                            output_contract.get("basis_summary"),
+                            output_contract.get("user_reason"),
+                        ) if str(x or "").strip()
+                    ],
+                )
+                parsed.setdefault("next_action", [output_contract.get("next_observation") or ""])
             symbol = str(snapshot.get("symbol") or payload.get("symbol") or payload.get("market") or "").strip()
             if not symbol:
                 return
@@ -26549,6 +26657,7 @@ class MainWindow(QMainWindow):
                 "real_order": False,
                 "skip_reason": payload.get("skip_reason") or "",
                 "source": source,
+                "output_contract": output_contract if isinstance(output_contract, dict) else {},
                 "safety_note": "observe-only journal · order_allowed=False · submitted=0 · real_order=False",
             }
             sig = "|".join(
@@ -26665,6 +26774,28 @@ class MainWindow(QMainWindow):
                 return {}
             payload = payload if isinstance(payload, dict) else {}
             parsed = parsed if isinstance(parsed, dict) else {}
+            output_contract = payload.get("output_contract") if isinstance(payload.get("output_contract"), dict) else {}
+            if output_contract:
+                payload = dict(payload)
+                parsed = dict(parsed)
+                payload.setdefault("symbol", output_contract.get("symbol") or "")
+                payload.setdefault("provider", output_contract.get("provider_actual") or "")
+                payload.setdefault("model", output_contract.get("model") or "")
+                payload.setdefault("generated_at", output_contract.get("generated_at") or "")
+                payload.setdefault("decision_summary", output_contract.get("decision_display") or "")
+                payload.setdefault(
+                    "reason",
+                    [
+                        x for x in (
+                            output_contract.get("basis_summary"),
+                            output_contract.get("user_reason"),
+                        ) if str(x or "").strip()
+                    ],
+                )
+                payload.setdefault("next_action", [output_contract.get("next_observation") or ""])
+                parsed.setdefault("decision", output_contract.get("decision_display") or "")
+                parsed.setdefault("reason", payload.get("reason") or [])
+                parsed.setdefault("next_action", payload.get("next_action") or [])
             provider = (
                 payload.get("ai_briefing_provider")
                 or payload.get("provider")
@@ -26739,6 +26870,7 @@ class MainWindow(QMainWindow):
                 "briefing": str(decision or "").strip(),
                 "reason": reason,
                 "next_action": next_action,
+                "output_contract": output_contract if isinstance(output_contract, dict) else {},
             }
             cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None)
             if not isinstance(cache, dict):
@@ -29910,60 +30042,33 @@ class MainWindow(QMainWindow):
             return "현재는 계산 기준상 관찰 구간입니다."
 
     def _sanitize_detail_chart_ai_action_for_ui(self, value=""):
-        raw = str(value or "").strip()
-        key = raw.upper().strip()
-        if key == "ENTER":
-            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uC9C4\uC785 \uAC80\uD1A0"
-        if key == "STAY":
-            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uAD00\uB9DD"
-        if key == "BUY":
-            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uB9E4\uC218 \uAC80\uD1A0"
-        if key in ("SELL", "EXIT"):
-            return "\u0041\u0049 \uCC38\uACE0 \uC758\uACAC: \uB9E4\uB3C4 \uAC80\uD1A0"
-        return raw
+        try:
+            from app.services.ai_output_contract import (
+                decision_code_from_raw,
+                decision_display_from_code,
+            )
+
+            return decision_display_from_code(decision_code_from_raw(value))
+        except Exception:
+            return str(value or "").strip()
 
     def _sanitize_detail_chart_ai_output_text_for_symbol(self, text="", symbol=""):
         try:
             current = self._normalize_market_symbol_for_ai_snapshot(symbol)
         except Exception:
             current = str(symbol or "").strip().upper()
-        raw = str(text or "").strip()
-        if not raw:
-            return raw
-        removed_foreign_symbol = False
+        try:
+            from app.services.ai_output_contract import sanitize_user_text
 
-        def _replace_symbol(match):
-            nonlocal removed_foreign_symbol
-            found = str(match.group(0) or "").upper()
-            if current and found == current:
-                return found
-            removed_foreign_symbol = True
-            return "\uD604\uC7AC \uC885\uBAA9"
-
-        safe = re.sub(r"\bKRW-[A-Z0-9]{1,12}\b", _replace_symbol, raw, flags=re.IGNORECASE)
-        for raw_action in ("ENTER", "STAY", "BUY", "SELL", "EXIT"):
-            safe = re.sub(
-                rf"\b{raw_action}\b",
-                self._sanitize_detail_chart_ai_action_for_ui(raw_action),
-                safe,
-                flags=re.IGNORECASE,
-            )
-        for before, after in (
-            ("\uBD84\uD560 \uC9C4\uC785", "\uC9C4\uC785 \uAC80\uD1A0 \uC870\uAC74"),
-            ("\uC9C4\uC785 \uC608\uC815", "\uC9C4\uC785 \uAC80\uD1A0 \uC870\uAC74"),
-            ("\uB9E4\uC218 \uC608\uC815", "\uB9E4\uC218 \uAC80\uD1A0 \uC870\uAC74"),
-            ("\uB9E4\uB3C4 \uC608\uC815", "\uB9E4\uB3C4 \uAC80\uD1A0 \uC870\uAC74"),
-        ):
-            safe = safe.replace(before, after)
-        if safe.strip().upper() == "AI":
-            safe = (
-                "\uCD5C\uADFC AI \uBD84\uC11D\uC5D0\uC11C \uAD00\uCC30 \uB300\uC0C1\uC73C\uB85C "
-                "\uC720\uC9C0\uD560 \uC870\uAC74\uC774 \uD655\uC778\uB410\uC2B5\uB2C8\uB2E4. "
-                "\uB2E8, \uC8FC\uBB38 \uC2E4\uD589 \uACC4\uD68D\uC740 \uC544\uB2D9\uB2C8\uB2E4."
-            )
+            raw = str(text or "").strip()
+            safe = sanitize_user_text(raw, symbol=current, limit=360)
+            removed_foreign_symbol = bool(current and re.search(r"\bKRW-[A-Z0-9]{1,12}\b", raw, flags=re.IGNORECASE))
+        except Exception:
+            safe = str(text or "").strip()
+            removed_foreign_symbol = False
         try:
             logging.getLogger("aits").info(
-                "[AITS][DetailChartAIOutputSanity] event=sanitized symbol=%s removed_foreign_symbol=%s submitted=0",
+                "[AITS][AIOutputContract] event=sanitized symbol=%s foreign_symbol_removed=%s raw_action_mapped=True submitted=0",
                 current or "-",
                 bool(removed_foreign_symbol),
             )

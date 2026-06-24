@@ -688,6 +688,20 @@ class TradeLogCenterTab(QWidget):
     def _split_journal_basis_reason(self, row: dict[str, Any] | None) -> tuple[str, str, bool]:
         if not row:
             return "-", "-", False
+        contract = row.get("output_contract") if isinstance(row.get("output_contract"), dict) else {}
+        if contract.get("schema") == "aits.ai_output_contract.v1":
+            basis = self._humanize_trade_log_text(contract.get("basis_summary") or row.get("basis") or "")
+            reason = self._humanize_trade_log_text(contract.get("user_reason") or row.get("reason") or "")
+            if basis in ("", "-"):
+                basis = self._humanize_trade_log_text(contract.get("decision_display") or row.get("action_display") or "")
+            if reason in ("", "-") or reason == basis:
+                reason, _generated, _kind = self._format_trade_log_user_reason(
+                    basis,
+                    reason,
+                    contract.get("decision_display") or row.get("action_display") or "",
+                    row.get("status") or row.get("status_display") or "",
+                )
+            return basis or "-", reason or "-", bool(basis and reason and basis == reason)
         basis_source = row.get("basis") or row.get("reason_short") or row.get("next_action") or row.get("action_display") or ""
         reason_source = row.get("skip_reason") or row.get("reason") or row.get("safety_note") or row.get("basis") or ""
         basis = self._humanize_trade_log_text(basis_source)
