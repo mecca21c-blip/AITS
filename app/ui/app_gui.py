@@ -14187,7 +14187,7 @@ class MainWindow(QMainWindow):
             pass
         self._managed_header_card = _AitsManagedCard(_gb_managed)
         _mh = self._managed_header_card.body_layout()
-        self.lbl_ai_managed_title = QLabel("AI ????")
+        self.lbl_ai_managed_title = QLabel("AI MANAGED CANDIDATES")
         try:
             self.lbl_ai_managed_title.setProperty("managedTitleMain", True)
             self.lbl_ai_managed_title.setWordWrap(False)
@@ -15372,7 +15372,7 @@ class MainWindow(QMainWindow):
             _market_title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
         except Exception:
             pass
-        self.lbl_market_title = QLabel("AI ?? ??")
+        self.lbl_market_title = QLabel("AI THEME SCANNER")
         try:
             self.lbl_market_title.setWordWrap(False)
             self.lbl_market_title.setStyleSheet(
@@ -24683,7 +24683,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "lbl_ai_center_header_icon"):
             self.lbl_ai_center_header_icon = QLabel("▶")
         if not hasattr(self, "lbl_ai_center_header_title"):
-            self.lbl_ai_center_header_title = QLabel("?? ?? ??")
+            self.lbl_ai_center_header_title = QLabel("MAIN ANALYSIS CENTER")
         if not hasattr(self, "lbl_ai_center_header_subtitle"):
             self.lbl_ai_center_header_subtitle = QLabel("[AI 분석 & 차트]")
         if not hasattr(self, "btn_ai_center_fullscreen"):
@@ -24695,7 +24695,7 @@ class MainWindow(QMainWindow):
                 "font-size:15px;font-weight:900;color:#ffffff;background:#111827;"
                 "border:1px solid #111827;border-radius:6px;padding-left:1px;"
             )
-            self.lbl_ai_center_header_title.setText("?? ?? ??")
+            self.lbl_ai_center_header_title.setText("MAIN ANALYSIS CENTER")
             self.lbl_ai_center_header_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
             self.lbl_ai_center_header_title.setStyleSheet(
                 "font-size:18px;font-weight:900;color:#111827;background:transparent;border:none;letter-spacing:0px;"
@@ -24828,11 +24828,11 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             if not hasattr(self, "lbl_ai_center_condition_title"):
-                self.lbl_ai_center_condition_title = QLabel("?? ??:")
+                self.lbl_ai_center_condition_title = QLabel("Current Condition:")
             if not hasattr(self, "lbl_ai_center_condition_value"):
                 self.lbl_ai_center_condition_value = QLabel("RSI 확인 중 | 거래대금 확인 중 | 변동성 확인 중")
             try:
-                self.lbl_ai_center_condition_title.setText("?? ??:")
+                self.lbl_ai_center_condition_title.setText("Current Condition:")
                 self.lbl_ai_center_condition_title.setWordWrap(False)
                 self.lbl_ai_center_condition_title.setTextFormat(Qt.TextFormat.PlainText)
                 self.lbl_ai_center_condition_title.setStyleSheet(
@@ -25048,10 +25048,10 @@ class MainWindow(QMainWindow):
         try:
             old_title = getattr(self, "lbl_ai_recent_log_title", None)
             if old_title is None:
-                old_title = QLabel("??? ??")
+                old_title = QLabel("LIVE LOG")
                 self.lbl_ai_recent_log_title = old_title
             old_title.setVisible(True)
-            old_title.setText("??? ??")
+            old_title.setText("LIVE LOG")
             old_title.setFixedWidth(72)
             old_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
             old_title.setStyleSheet(
@@ -25114,7 +25114,7 @@ class MainWindow(QMainWindow):
     def _set_center_condition_line(self, text: str) -> None:
         try:
             plain = str(text or "").strip()
-            plain = plain.replace("현재 조건:", "").replace("?? ??:", "").strip()
+            plain = plain.replace("현재 조건:", "").replace("Current Condition:", "").strip()
             plain = plain.replace(" · ", " | ").replace(" / ", " | ")
             if "<" in plain and ">" in plain:
                 try:
