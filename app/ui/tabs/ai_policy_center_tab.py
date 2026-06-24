@@ -350,14 +350,17 @@ class AIPolicyCenterTab(QWidget):
         layout.setContentsMargins(16, 14, 16, 14)
         layout.setSpacing(9)
         layout.addWidget(self._section_title("4. LOCAL 데이터 정책"))
-        desc = QLabel("LOCAL 데이터 정책은 모델 선택이 아니라 데이터 보관, 복기, 학습 반영 기준을 정합니다.")
+        desc = QLabel(
+            "LOCAL 데이터 정책은 모델 선택이나 자동 학습 실행이 아니라 "
+            "데이터 보관, 복기용 요약 후보, 검증 전 적용 보호 기준을 정합니다."
+        )
         desc.setWordWrap(True)
         desc.setProperty("muted", True)
         layout.addWidget(desc)
 
         self.chk_auto_manage = QCheckBox("권장 자동 관리")
-        self.chk_auto_summary = QCheckBox("자동 요약")
-        self.chk_block_learning = QCheckBox("검증 전 학습 차단")
+        self.chk_auto_summary = QCheckBox("복기용 요약 준비")
+        self.chk_block_learning = QCheckBox("학습 적용 전 검증 필요")
         self.sp_raw_days = QSpinBox()
         self.sp_raw_days.setRange(7, 3650)
         self.sp_raw_days.setSuffix(" 일")
@@ -370,8 +373,8 @@ class AIPolicyCenterTab(QWidget):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
         grid.addWidget(self._toggle_block(self.chk_auto_manage, "권장 자동 관리", "기본 보관/요약 정책을 사용합니다."), 0, 0)
-        grid.addWidget(self._toggle_block(self.chk_auto_summary, "자동 요약", "오래된 원본은 요약 후보로 관리합니다."), 0, 1)
-        grid.addWidget(self._toggle_block(self.chk_block_learning, "검증 전 학습 차단", "검증 전 후보는 active 반영하지 않습니다."), 0, 2)
+        grid.addWidget(self._toggle_block(self.chk_auto_summary, "복기용 요약 준비", "오래된 원본은 복기용 요약 후보로 관리합니다."), 0, 1)
+        grid.addWidget(self._toggle_block(self.chk_block_learning, "학습 적용 전 검증 필요", "검증 전 후보는 운용 판단에 자동 반영하지 않습니다."), 0, 2)
         grid.addWidget(self._field_block("상세 데이터 보관 기간", "최근 원본 상세 데이터 기준입니다.", self.sp_raw_days), 1, 0)
         grid.addWidget(self._field_block("복기 데이터 보관 기간", "Reflection 이벤트 보관 기준입니다.", self.sp_reflection_days), 1, 1)
         layout.addLayout(grid)
@@ -689,8 +692,8 @@ class AIPolicyCenterTab(QWidget):
                 f"자동 관리: {self._yn(self.chk_auto_manage.isChecked())}\n"
                 f"상세 보관: {self.sp_raw_days.value()}일\n"
                 f"복기 보관: {self.sp_reflection_days.value()}일\n"
-                f"자동 요약: {self._yn(self.chk_auto_summary.isChecked())}\n"
-                f"검증 전 차단: {self._yn(self.chk_block_learning.isChecked())}"
+                f"복기용 요약 준비: {self._yn(self.chk_auto_summary.isChecked())}\n"
+                f"학습 적용 전 검증 필요: {self._yn(self.chk_block_learning.isChecked())}"
             ),
             "safe": "Preview 전용\n저장만으로 주문 없음",
         }

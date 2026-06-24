@@ -175,3 +175,11 @@ Acceptance criteria:
 - qwen, mistral, and Ollama are not user choices.
 - The follow-up UI patch removes `BASIC(Local)` and internal model/runtime names from normal user surfaces.
 - Preview remains separate from live trading, and all Router/RiskGuard/Execution boundaries remain intact.
+
+## 12. LOCAL-ENGINE-USER-FACING-COPY-FIX-01 Update
+
+- Normal user-facing copy should describe LOCAL as internal calculation-based analysis that works without external AI API credentials.
+- BASIC remains an internal implementation term for calculation, scoring, summaries, and diagnostics; it should not appear as an independent user-selectable engine.
+- Ollama remains an optional local LLM runtime and diagnostic/inference-gate target; the normal LOCAL refresh path must not imply that Ollama inference is automatically active.
+- LOCAL data policy copy describes retention, review-summary preparation, and validation-before-application policy. It must not imply that automatic deep learning or active training is currently running.
+- LOCAL output remains reference/display/shadow-oriented and must keep `submitted=0`, `order_allowed=False`, and `real_order=False`.

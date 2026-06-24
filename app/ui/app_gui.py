@@ -1093,7 +1093,7 @@ class OllamaCommandWorker(QThread):
                 err_msg = proc.stderr.strip() or proc.stdout.strip() or "실패"
                 self.finished.emit(False, err_msg[:200])  # 길이 제한
         except FileNotFoundError:
-            self.finished.emit(False, "Basic AI가 설치되어 있지 않거나 PATH에 없습니다.")
+            self.finished.emit(False, "LOCAL 로컬 LLM 런타임이 설치되어 있지 않거나 PATH에 없습니다.")
         except Exception as e:
             err_str = str(e)[:200]
             self.finished.emit(False, f"오류: {err_str}")
@@ -5493,7 +5493,7 @@ class AITSLargeChartDialog(QDialog):
                 "상태 전환 기준\n주문 실행 경로 미연결 · 실거래 실행 없음"
             )
             self.lbl_ai_review_learning_placeholder.setText(
-                "Basic Engine 계산 기반 참고 · 실거래 실행 없음"
+                "LOCAL 내부 계산 기반 참고 · 실거래 실행 없음"
             )
         except Exception:
             pass
@@ -7405,7 +7405,7 @@ class AITSLargeChartDialog(QDialog):
                 self.lbl_detail_popup_scenario_type.setText("기준: 계산 기반 참고")
                 self.lbl_detail_popup_scenario_context.setText(
                     "최근 AI 분석 없음 · 계산 기반 요약을 표시합니다.\n"
-                    "현재 표시는 Basic Engine 계산 기반 참고이며 주문 신호가 아닙니다."
+                    "현재 표시는 LOCAL 내부 계산 기반 참고이며 주문 신호가 아닙니다."
                 )
                 self.lbl_detail_popup_scenario_confidence.setText("계산 기반 참고 · AI 판단 아님")
                 try:
@@ -7852,7 +7852,7 @@ class MainWindow(QMainWindow):
             has_ai_contract = self._main_ai_output_contract_available()
             lines.append(f"선택 엔진: {engine}")
             if not has_ai_contract:
-                lines.append("AI 판단 없음: Basic Engine 계산 기반 참고이며 주문 신호가 아닙니다.")
+                lines.append("AI 판단 없음: LOCAL 내부 계산 기반 참고이며 주문 신호가 아닙니다.")
             else:
                 lines.append("Router/RiskGuard 검증 전이며 주문 실행 신호가 아닙니다.")
             if state:
@@ -8106,7 +8106,7 @@ class MainWindow(QMainWindow):
     def _center_basic_summary_meta(self) -> dict:
         return {
             "provider": "basic",
-            "label": "Basic",
+            "label": "LOCAL",
             "badge": "L",
             "color": "#334155",
             "background": "#f1f5f9",
@@ -8131,7 +8131,7 @@ class MainWindow(QMainWindow):
                     ("lbl_ai_next_title", "관찰 포인트"),
                 )
                 meta = self._center_basic_summary_meta()
-                tooltip = "Basic 계산 기반 요약"
+                tooltip = "LOCAL 내부 계산 기반 요약"
             for attr, text in titles:
                 label = getattr(self, attr, None)
                 if label is not None:
@@ -13200,7 +13200,7 @@ class MainWindow(QMainWindow):
             pass
 
         self.lbl_aits_ops_summary = QLabel(
-            "선택 엔진: Basic | 실제 엔진: 미적용 | 연결 상태: 연결확인 필요"
+            "선택 엔진: LOCAL | 실제 엔진: 미적용 | 연결 상태: 연결확인 필요"
         )
         self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
         self.lbl_aits_ops_summary.setProperty("topSubText", True)
@@ -13821,7 +13821,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         top.addStretch(0)
-        self.lbl_active_engine = QLabel("Active Engine: Basic AI")
+        self.lbl_active_engine = QLabel("Active Engine: LOCAL")
         self.lbl_active_engine.setStyleSheet("font-size: 10px; color: #9e9e9e; font-weight: bold;")
         self.lbl_active_engine.setToolTip("실제로 연결 완료되어 현재 적용 중인 AI 엔진")
         try:
@@ -21204,16 +21204,16 @@ class MainWindow(QMainWindow):
     def _build_ai_policy_local_data_card(self):
         card = self._build_ai_policy_card("로컬 데이터 관리 정책")
         layout = card.layout()
-        desc = QLabel("AI 엔진 선택이 아니라 데이터 보관, 요약, 복기 기준을 정하는 영역입니다. 자동 요약과 검증 전 차단은 주문 실행 권한을 의미하지 않습니다.")
+        desc = QLabel("LOCAL 데이터 정책은 AI 엔진 선택이나 자동 학습 실행이 아니라 데이터 보관, 복기용 요약 후보, 검증 전 적용 보호 기준을 정하는 영역입니다. 주문 실행 권한을 의미하지 않습니다.")
         desc.setWordWrap(True)
         desc.setStyleSheet("font-size: 10px; color: #64748b;")
         layout.addWidget(desc)
 
         self.chk_policy_local_auto_manage = QCheckBox("권장 자동 관리")
         self.chk_policy_local_auto_manage.setChecked(True)
-        self.chk_policy_local_auto_summary = QCheckBox("자동 요약")
+        self.chk_policy_local_auto_summary = QCheckBox("복기용 요약 준비")
         self.chk_policy_local_auto_summary.setChecked(True)
-        self.chk_policy_local_block_unverified = QCheckBox("검증 전 학습 차단")
+        self.chk_policy_local_block_unverified = QCheckBox("학습 적용 전 검증 필요")
         self.chk_policy_local_block_unverified.setChecked(True)
 
         form = QFormLayout()
@@ -22092,8 +22092,8 @@ class MainWindow(QMainWindow):
                     f"- 권장 자동 관리: {auto_manage}\n"
                     f"- 상세 데이터 보관: {raw_days}일\n"
                     f"- 복기 데이터 보관: {reflection_days}일\n"
-                    f"- 자동 요약: {auto_summary}\n"
-                    f"- 검증 전 학습 차단: {block_learning}\n\n"
+                    f"- 복기용 요약 준비: {auto_summary}\n"
+                    f"- 학습 적용 전 검증 필요: {block_learning}\n\n"
                     f"미리보기 / 실제 주문 없음"
                 )
                 for attr_name in ("lbl_ai_policy_summary", "lbl_ai_policy_operating_summary"):
@@ -29712,12 +29712,12 @@ class MainWindow(QMainWindow):
             if raw in ("gemini", "google", "google_gemini"):
                 return "GEMINI"
             if raw in ("local", "basic", "local_ai", "ollama", "ollama_provider"):
-                return "LOCAL" if raw != "basic" else "BASIC"
+                return "LOCAL"
             if raw:
                 return raw.upper()
         except Exception:
             pass
-        return "BASIC"
+        return "LOCAL"
 
     def _detail_chart_contract_lines(self, value, limit=4):
         try:
@@ -34979,7 +34979,7 @@ class MainWindow(QMainWindow):
             self._sync_basic_ai_settings_from_ui()
             self._advance_basic_ai_status_line()
             print(f"[AITS] basic ai settings saved: {self.basic_ai_settings}")
-            QMessageBox.information(self, "Basic AI", "저장되었습니다.")
+            QMessageBox.information(self, "LOCAL 계산 기준", "저장되었습니다.")
             try:
                 s0 = self._get_settings_cached(force=False)
                 us0 = getattr(s0, "ui_state", None) or {}
@@ -39692,11 +39692,11 @@ class MainWindow(QMainWindow):
         self.sp_sl = QDoubleSpinBox(); self.sp_sl.setRange(0.0, 50.0); self.sp_sl.setDecimals(2); self.sp_sl.setSingleStep(0.1)
         self.sp_tp = QDoubleSpinBox(); self.sp_tp.setRange(0.0, 100.0); self.sp_tp.setDecimals(2); self.sp_tp.setSingleStep(0.1)
         self.sp_sl.setToolTip(
-            "공통 운용 정책용 기준입니다. Basic 엔진 전용 점수 규칙과는 별개입니다.\n"
+            "공통 운용 정책용 기준입니다. LOCAL 내부 계산 점수 규칙과는 별개입니다.\n"
             "기본 위험 관리·연동 참고용이며, 전략 탭에서 '사용자 손절/익절' 선택 시 적용됩니다."
         )
         self.sp_tp.setToolTip(
-            "공통 운용 정책용 기준입니다. Basic 엔진 전용 점수 규칙과는 별개입니다.\n"
+            "공통 운용 정책용 기준입니다. LOCAL 내부 계산 점수 규칙과는 별개입니다.\n"
             "기본 위험 관리·연동 참고용이며, 전략 탭에서 '사용자 손절/익절' 선택 시 적용됩니다."
         )
         self.sp_sl.setStyleSheet(
@@ -39779,7 +39779,7 @@ class MainWindow(QMainWindow):
         info_text = QLabel(
             "【업비트】 이 화면의 연결 확인은 계좌 조회만 수행하며 주문은 실행하지 않습니다 · Secret 노출 금지.\n"
             "【GPT/Gemini】 API 응답 가능 여부를 확인합니다 · 운용 시작이나 주문 연결을 의미하지 않습니다.\n"
-            "【Basic】 AI 판단이 아닌 로컬 계산 엔진입니다 · URL은 기본 http://127.0.0.1:11434."
+            "【LOCAL】 AI 판단이 아닌 내부 계산 기반 분석입니다 · 로컬 LLM 런타임은 선택 진단 대상입니다."
         )
         info_text.setWordWrap(True)
         info_text.setStyleSheet("QLabel { padding: 8px; background-color: #f5f5f5; border-radius: 4px; font-size: 11px; }")
@@ -39788,8 +39788,8 @@ class MainWindow(QMainWindow):
 
         # (레거시) 상단 공통 엔진 UI는 숨김 유지 — 엔진 설정은 하단 3박스에서만 수행
         self.cmb_ai_engine = QComboBox()
-        self.cmb_ai_engine.addItems(["OpenAI", "Gemini", "Basic AI"])
-        self.cmb_ai_engine.setCurrentText("Basic AI")
+        self.cmb_ai_engine.addItems(["OpenAI", "Gemini", "LOCAL"])
+        self.cmb_ai_engine.setCurrentText("LOCAL")
         self.cmb_ai_model = QComboBox()
         self.ed_ai_api_key = QLineEdit()
         self.ed_ai_api_key.setEchoMode(QLineEdit.Password)
@@ -39930,7 +39930,7 @@ class MainWindow(QMainWindow):
         )
         self.lbl_local_engines = QLabel(
             "Local 엔진 3종: llama3.1(범용) | qwen2.5(추천/점수 적합) | mistral(경량·실시간). "
-            "설치: Basic AI 설치 후 앱의 모델 설치 버튼으로 준비. "
+            "설치: 선택적 로컬 LLM 런타임 설치 후 앱의 모델 설치 버튼으로 준비. "
             "설정: URL 기본 http://127.0.0.1:11434"
         )
         self.lbl_local_engines.setWordWrap(True)
@@ -39938,8 +39938,8 @@ class MainWindow(QMainWindow):
         self.btn_test_local_ai = QPushButton("로컬 AI 테스트")
         self.btn_test_local_ai.setObjectName("btn_test_local_ai")
         # ✅ LOCAL 옵션 가이드 버튼들
-        self.btn_ollama_install_guide = QPushButton("Basic AI 설치 안내(웹)")
-        self.btn_ollama_install_guide.setToolTip("Basic AI 설치 후 모델 설치 버튼을 눌러주세요.")
+        self.btn_ollama_install_guide = QPushButton("로컬 LLM 설치 안내(웹)")
+        self.btn_ollama_install_guide.setToolTip("선택적 로컬 LLM 런타임 설치 후 모델 설치 버튼을 눌러주세요.")
         self.btn_ollama_install_guide.setObjectName("btn_ollama_install_guide")
         self.btn_install_qwen = QPushButton("qwen2.5 설치 필요")
         self.btn_install_qwen.setObjectName("btn_install_qwen")
@@ -40057,7 +40057,7 @@ class MainWindow(QMainWindow):
         local_layout.setContentsMargins(2, 4, 2, 2)
         # 제목 영역: "Basic AI" + ⓘ 버튼
         local_title_row = QHBoxLayout()
-        local_title_label = QLabel("Basic AI 엔진 설정")
+        local_title_label = QLabel("LOCAL 로컬 LLM 진단")
         local_title_label.setStyleSheet(
             "font-size: 13px; font-weight: 700; color: #2f3b48;"
         )
@@ -40071,7 +40071,7 @@ class MainWindow(QMainWindow):
         local_layout.addLayout(local_title_row)
         self.btn_local_info.setVisible(False)
         self.lbl_basic_ai_subtitle = QLabel(
-            "Basic 엔진 선택 시에만 사용됩니다."
+            "선택적 로컬 LLM 런타임 진단용입니다. 기본 LOCAL 분석은 내부 계산 기반으로 동작합니다."
         )
         self.lbl_basic_ai_subtitle.setStyleSheet(
             "font-size: 11px; color: #6b7785; padding: 0 0 6px 0;"
@@ -40107,7 +40107,7 @@ class MainWindow(QMainWindow):
         self.cb_basic_ai_avoid_bear = QCheckBox("하락장 회피")
         self.cb_basic_ai_avoid_bear.setChecked(True)
         self.cb_basic_ai_avoid_bear.setToolTip(
-            "Basic 엔진이 약세장 신규 진입을 억제할지 결정합니다."
+            "LOCAL 내부 계산이 약세장 신규 진입을 억제할지 결정합니다."
         )
         self.cmb_basic_ai_buy_sensitivity = QComboBox()
         self.cmb_basic_ai_buy_sensitivity.addItems(["낮음", "보통", "높음"])
@@ -40149,7 +40149,7 @@ class MainWindow(QMainWindow):
         self.sp_basic_ai_max_new_entries = QSpinBox()
         self.sp_basic_ai_max_new_entries.setRange(0, 50)
         self.sp_basic_ai_max_new_entries.setValue(2)
-        self.btn_save_basic_ai_settings = QPushButton("Basic AI 설정 저장")
+        self.btn_save_basic_ai_settings = QPushButton("LOCAL 계산 기준 저장")
         self.btn_save_basic_ai_settings.clicked.connect(self._save_basic_ai_settings)
 
         # [PATCH 4-1]
@@ -40204,7 +40204,7 @@ class MainWindow(QMainWindow):
         gf = _basic_ai_grid(gb_filter)
         lbl_basic_min_volume = QLabel("최소 거래대금 (원)")
         lbl_basic_min_volume.setToolTip(
-            "Basic 엔진이 후보 종목을 필터링할 때 사용하는 최소 거래대금 기준입니다."
+            "LOCAL 내부 계산이 후보 종목을 필터링할 때 사용하는 최소 거래대금 기준입니다."
         )
         self.sp_basic_ai_min_volume.setToolTip(lbl_basic_min_volume.toolTip())
         gf.addWidget(lbl_basic_min_volume, 0, 0)
@@ -40216,18 +40216,18 @@ class MainWindow(QMainWindow):
         gf.addWidget(self.cb_basic_ai_avoid_sudden_drop, 2, 0, 1, 2)
         local_layout.addWidget(gb_filter)
 
-        gb_ai_logic = QGroupBox("AI 판단 로직 · Basic 엔진 전용")
+        gb_ai_logic = QGroupBox("LOCAL 내부 계산 기준")
         gl = _basic_ai_grid(gb_ai_logic)
         lbl_basic_entry_score = QLabel("AI 진입 기준 점수")
         lbl_basic_entry_score.setToolTip(
-            "Basic 엔진이 신규 진입을 판단할 때 사용하는 기준 점수입니다."
+            "LOCAL 내부 계산이 신규 진입 참고 상태를 판단할 때 사용하는 기준 점수입니다."
         )
         self.sp_basic_ai_entry_score.setToolTip(lbl_basic_entry_score.toolTip())
         gl.addWidget(lbl_basic_entry_score, 0, 0)
         gl.addWidget(self.sp_basic_ai_entry_score, 0, 1)
         lbl_basic_exit_score = QLabel("AI 청산 기준 점수")
         lbl_basic_exit_score.setToolTip(
-            "Basic 엔진이 보유 유지/교체를 판단할 때 참고하는 기준 점수입니다."
+            "LOCAL 내부 계산이 보유 유지/교체 참고 상태를 판단할 때 사용하는 기준 점수입니다."
         )
         self.sp_basic_ai_exit_score.setToolTip(lbl_basic_exit_score.toolTip())
         gl.addWidget(lbl_basic_exit_score, 0, 2)
@@ -40238,7 +40238,7 @@ class MainWindow(QMainWindow):
         gl.addWidget(self.sp_basic_ai_reentry_cooldown, 1, 3)
         lbl_basic_max_new = QLabel("동시 매수 제한 수")
         lbl_basic_max_new.setToolTip(
-            "Basic 엔진이 한 사이클에서 새로 진입할 수 있는 종목 수 제한입니다."
+            "LOCAL 내부 계산이 한 사이클에서 새 진입 후보를 제한할 때 사용하는 수치입니다."
         )
         self.sp_basic_ai_max_new_entries.setToolTip(lbl_basic_max_new.toolTip())
         gl.addWidget(lbl_basic_max_new, 2, 0)
@@ -40431,7 +40431,7 @@ class MainWindow(QMainWindow):
         _tp_sl_row.addStretch()
         _tp_sl_ref_lay.addLayout(_tp_sl_row)
         self.lbl_tp_sl_common_hint = QLabel(
-            "연동·참고: 공통 운용 정책용 기준입니다. Basic 엔진 전용 점수 규칙과는 별개입니다."
+            "연동·참고: 공통 운용 정책용 기준입니다. LOCAL 내부 계산 점수 규칙과는 별개입니다."
         )
         self.lbl_tp_sl_common_hint.setWordWrap(True)
         self.lbl_tp_sl_common_hint.setStyleSheet("font-size: 10px; color: #888;")
@@ -40581,7 +40581,7 @@ class MainWindow(QMainWindow):
         ) = _engine_select_card(
             "local",
             "LOCAL",
-            "API 없이 작동하는 AITS 기본 엔진",
+            "API 없이 사용하는 내부 계산 기반 분석",
         )
         (
             self.aits_engine_gpt_card,
@@ -40632,7 +40632,7 @@ class MainWindow(QMainWindow):
         self.btn_engine_basic_test.clicked.connect(
             lambda: (
                 self._set_ai_provider_ui_active("local"),
-                _append_common_engine_log("[AITS] Basic engine ready. No API key required."),
+                _append_common_engine_log("[AITS] LOCAL internal calculation ready. No API key required."),
             )
         )
         self.btn_engine_gpt_test.clicked.connect(
@@ -40661,7 +40661,7 @@ class MainWindow(QMainWindow):
         self.lbl_basic_ready_status.setStyleSheet("font-size: 13px; font-weight: 700; color: #15803d;")
         _basic_ready_lay.addWidget(self.lbl_basic_ready_status)
 
-        self.btn_basic_detail_settings = QPushButton("Basic 세부설정")
+        self.btn_basic_detail_settings = QPushButton("LOCAL 계산 기준")
         self.btn_basic_detail_settings.setMinimumHeight(36)
         self.btn_basic_detail_settings.setStyleSheet(
             "QPushButton { background: #2563eb; color: #ffffff; border: 1px solid #1d4ed8; "
@@ -40680,8 +40680,8 @@ class MainWindow(QMainWindow):
                 pass
             QMessageBox.information(
                 self,
-                "Basic 세부설정",
-                "Basic 엔진 세부 운용값은 전략설정 탭에서 조정합니다.",
+                "LOCAL 계산 기준",
+                "LOCAL 내부 계산 기준은 전략설정 탭에서 조정합니다.",
         )
 
         self.btn_basic_detail_settings.clicked.connect(_go_basic_detail_settings)
@@ -40830,7 +40830,7 @@ class MainWindow(QMainWindow):
                 title_label.setObjectName("aitsEngineTitleBasic")
                 desc_label.setObjectName("aitsEngineDescBasic")
                 title_label.setText("LOCAL")
-                desc_label.setText("API 없이 작동하는 AITS 기본 엔진")
+                desc_label.setText("API 없이 사용하는 내부 계산 기반 분석")
             elif object_name == "card_engine_gpt_new":
                 title_label.setObjectName("aitsEngineTitleGpt")
                 desc_label.setObjectName("aitsEngineDescGpt")
@@ -40903,7 +40903,7 @@ class MainWindow(QMainWindow):
                     "aitsEngineTitleBasic",
                     "aitsEngineDescBasic",
                     "LOCAL",
-                    "API 없이 작동하는 AITS 기본 엔진",
+                    "API 없이 사용하는 내부 계산 기반 분석",
                 ),
                 (
                     self.card_engine_gpt_new,
@@ -40948,7 +40948,7 @@ class MainWindow(QMainWindow):
                         _hide_blank_engine_card_widget(child)
 
             final_texts = (
-                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "LOCAL", "API 없이 작동하는 AITS 기본 엔진"),
+                (self.lbl_engine_title_basic_new, self.lbl_engine_desc_basic_new, "LOCAL", "API 없이 사용하는 내부 계산 기반 분석"),
                 (self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new, "GPT", "OpenAI API 기반 고급 판단 엔진"),
                 (self.lbl_engine_title_gemini_new, self.lbl_engine_desc_gemini_new, "GEMINI", "Gemini API 기반 고급 판단 엔진"),
             )
@@ -41117,7 +41117,7 @@ class MainWindow(QMainWindow):
                 "aitsEngineTitleBasic",
                 "aitsEngineDescBasic",
                 "LOCAL",
-                "API 없이 작동하는 AITS 기본 엔진",
+                "API 없이 사용하는 내부 계산 기반 분석",
             )
             self.lbl_engine_title_gpt_new, self.lbl_engine_desc_gpt_new = _rebuild_visible_engine_card(
                 self.card_engine_gpt_new,
@@ -41303,9 +41303,9 @@ class MainWindow(QMainWindow):
         self.gpt_box.setMaximumHeight(0)
         self.gemini_box.setMaximumHeight(0)
         self.lbl_basic_settings_notice = QLabel(
-            "Basic 엔진의 세부 운용값은 전략설정 탭에서 조정합니다."
+            "LOCAL 내부 계산 기준은 전략설정 탭에서 조정합니다."
         )
-        self.lbl_basic_settings_notice.setText("Basic 엔진의 세부 값은 전략설정 탭에서 조정합니다.")
+        self.lbl_basic_settings_notice.setText("LOCAL 내부 계산 기준은 전략설정 탭에서 조정합니다.")
         self.lbl_basic_settings_notice.setWordWrap(True)
         self.lbl_basic_settings_notice.setStyleSheet(
             "font-size: 12px; color: #5f6b7a; background: transparent;"
@@ -41394,7 +41394,7 @@ class MainWindow(QMainWindow):
             self.aits_gpt_setting_box_new.setVisible(key == "gpt")
             self.aits_gemini_setting_box_new.setVisible(key == "gemini")
             if hasattr(self, "aits_common_log_view"):
-                name = {"basic": "BASIC", "gpt": "GPT", "gemini": "GEMINI"}.get(key, "BASIC")
+                name = {"basic": "LOCAL", "gpt": "GPT", "gemini": "GEMINI"}.get(key, "LOCAL")
                 if getattr(self, "_aits_common_last_engine_log", "") != key:
                     self._aits_common_last_engine_log = key
                     self.aits_common_log_view.append(f"[AITS] Engine changed: {name}")
@@ -41419,7 +41419,7 @@ class MainWindow(QMainWindow):
             pass
         self.btn_engine_basic_test_new.clicked.connect(
             lambda: _append_common_engine_log(
-                "[AITS] Basic engine ready. No API key required."
+                "[AITS] LOCAL internal calculation ready. No API key required."
             )
         )
         self.btn_engine_gpt_test_new.clicked.connect(self._on_test_gpt)
@@ -41592,7 +41592,7 @@ class MainWindow(QMainWindow):
             "gemini", "GEMINI", "Gemini API 기반 고급 판단 엔진"
         )
         self.btn_engine_local = _make_engine_choice_button(
-            "local", "LOCAL", "API 없이 작동하는 AITS 기본 엔진"
+            "local", "LOCAL", "API 없이 사용하는 내부 계산 기반 분석"
         )
 
         self.engine_choice_group = QButtonGroup(self)
@@ -41664,7 +41664,8 @@ class MainWindow(QMainWindow):
         self._build_runtime_panel_container()
         runtime_preview = self._build_runtime_preview_container()
         _local_desc = QLabel(
-            "LOCAL은 AITS 내부 데이터, 점수 계산, 복기 기록, 학습 후보를 기반으로 작동합니다. "
+            "LOCAL은 외부 AI API 없이 AITS 내부 데이터와 점수 계산을 바탕으로 참고 분석을 표시합니다. "
+            "Ollama는 선택적 로컬 LLM 진단 대상이며 기본 LOCAL 분석 경로는 아닙니다. "
             "주문은 직접 실행하지 않으며, 판단 결과는 Router/RiskGuard를 거칩니다."
         )
         _local_desc.setWordWrap(True)
@@ -41729,7 +41730,7 @@ class MainWindow(QMainWindow):
                 button_texts = {
                     "openai": "GPT\nOpenAI API 기반 고급 판단 엔진",
                     "gemini": "GEMINI\nGemini API 기반 고급 판단 엔진",
-                    "local": "LOCAL\nAPI 없이 작동하는 AITS 기본 엔진",
+                    "local": "LOCAL\nAPI 없이 사용하는 내부 계산 기반 분석",
                 }
                 for _key, _button in selected.items():
                     _button.blockSignals(True)
@@ -41814,7 +41815,7 @@ class MainWindow(QMainWindow):
             lambda: (
                 _sync_engine_choice_panel("local"),
                 self._on_basic_runtime_ready_check(),
-                _append_engine_choice_log("[AITS] BASIC(Local) runtime status checked."),
+                _append_engine_choice_log("[AITS] LOCAL internal runtime status checked."),
             )
         )
         _choice_panel_lay.addWidget(self.btn_engine_openai)
@@ -42851,8 +42852,8 @@ class MainWindow(QMainWindow):
                 engine_text = {
                     "gpt": "OpenAI",
                     "gemini": "Gemini",
-                    "local": "Basic AI",
-                }.get(provider_ui, "Basic AI")
+                    "local": "LOCAL",
+                }.get(provider_ui, "LOCAL")
                 self.cmb_ai_engine.blockSignals(True)
                 self.cmb_ai_engine.setCurrentText(engine_text)
                 self.cmb_ai_engine.blockSignals(False)
@@ -43959,11 +43960,11 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self,
                 "로컬 AI 연결 실패",
-                f"Basic AI 서버에 연결할 수 없습니다.\n\n"
+                f"LOCAL 로컬 LLM 런타임에 연결할 수 없습니다.\n\n"
                 f"URL: {base_url}\n"
                 f"사유: {result}\n\n"
                 f"조치:\n"
-                f"1) Basic AI 실행 확인\n"
+                f"1) 로컬 LLM 런타임 실행 확인\n"
                 f"2) 모델 설치 버튼으로 모델 준비 확인"
             )
             return
@@ -43986,9 +43987,9 @@ class MainWindow(QMainWindow):
             self._active_ai_engine = "local"
             self._last_response_provider = "basic"
             self._update_active_engine_label()
-            QMessageBox.information(self, "로컬 AI 테스트", "Basic AI 준비 확인 완료")
+            QMessageBox.information(self, "로컬 AI 테스트", "LOCAL 로컬 LLM 준비 확인 완료")
         else:
-            QMessageBox.warning(self, "로컬 AI 테스트", f"Basic AI 호출 실패: {msg}")
+            QMessageBox.warning(self, "로컬 AI 테스트", f"LOCAL 로컬 LLM 호출 실패: {msg}")
 
     def _on_open_openai_usage(self):
         """OpenAI Usage 페이지를 기본 브라우저로 연다."""
@@ -44040,19 +44041,19 @@ class MainWindow(QMainWindow):
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.information(
                 self,
-                "LOCAL AI (Basic AI) 사용 안내",
-                "[Basic AI란?]\n"
-                "- 내 PC에서 AI를 실행하는 로컬 AI 엔진\n"
-                "- 인터넷 비용 없음\n"
-                "- GPT보다 응답은 느릴 수 있음\n\n"
+                "LOCAL 로컬 LLM 사용 안내",
+                "[LOCAL 로컬 LLM이란?]\n"
+                "- 선택적으로 내 PC에서 LLM을 실행하는 진단/추론 준비 경로입니다.\n"
+                "- 기본 LOCAL 분석 새로고침은 외부 AI API 없이 내부 계산 기반으로 동작합니다.\n"
+                "- 실제 주문 신호가 아니며 GPT/Gemini보다 응답이 느릴 수 있습니다.\n\n"
                 "[설치 방법]\n"
-                "1. Basic AI 설치 안내 버튼 클릭\n"
+                "1. 로컬 LLM 설치 안내 버튼 클릭\n"
                 "2. 설치 후 앱 재시작\n"
                 "3. 모델 설치 버튼으로 모델 준비\n\n"
                 "[모델 설명]\n\n"
                 "qwen2.5\n"
                 "- 빠르고 안정적\n"
-                "- 자동매매용 추천\n\n"
+                "- 로컬 진단 후보\n\n"
                 "llama3.1\n"
                 "- 균형형 모델\n"
                 "- 다목적\n\n"
@@ -44077,7 +44078,7 @@ class MainWindow(QMainWindow):
             try:
                 QMessageBox.warning(
                     self,
-                    "Basic AI 설치 안내",
+                    "로컬 LLM 설치 안내",
                     f"브라우저를 열 수 없습니다.\n\n사유: {e}"
                 )
             except Exception:
@@ -44242,9 +44243,9 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self,
                         f"{model} 설치 실패",
-                        f"Basic AI가 설치되어 있지 않거나 PATH에 없습니다.\n\n"
+                        f"LOCAL 로컬 LLM 런타임이 설치되어 있지 않거나 PATH에 없습니다.\n\n"
                         f"조치:\n"
-                        f"1) 'Basic AI 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
+                        f"1) '로컬 LLM 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
                         f"2) 설치 후 앱을 재시작하세요."
                     )
                 else:
@@ -44255,7 +44256,7 @@ class MainWindow(QMainWindow):
                         f"설치 중 오류가 발생했습니다.\n\n"
                         f"사유: {error_display}\n\n"
                         f"조치:\n"
-                        f"1) Basic AI가 실행 중인지 확인하세요.\n"
+                        f"1) 로컬 LLM 런타임이 실행 중인지 확인하세요.\n"
                         f"2) 앱에서 '{model} 설치 필요' 버튼을 다시 눌러주세요."
                     )
         except Exception as e:
@@ -44292,9 +44293,9 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(
                         self,
                         "모델 목록 새로고침 실패",
-                        "Basic AI가 설치되어 있지 않거나 PATH에 없습니다.\n\n"
+                        "LOCAL 로컬 LLM 런타임이 설치되어 있지 않거나 PATH에 없습니다.\n\n"
                         "조치:\n"
-                        "1) 'Basic AI 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
+                        "1) '로컬 LLM 설치 안내(웹)' 버튼을 눌러 설치하세요.\n"
                         "2) 설치 후 앱을 재시작하세요."
                     )
                 else:
@@ -44304,7 +44305,7 @@ class MainWindow(QMainWindow):
                         f"명령 실행 중 오류가 발생했습니다.\n\n"
                         f"사유: {output}\n\n"
                         f"조치:\n"
-                        f"1) Basic AI가 실행 중인지 확인하세요.\n"
+                        f"1) 로컬 LLM 런타임이 실행 중인지 확인하세요.\n"
                         f"2) 앱에서 모델 설치 버튼 상태를 확인하세요."
                     )
                 return
@@ -45804,7 +45805,7 @@ class MainWindow(QMainWindow):
                 if current_active == "basic":
                     current_active = "local"
                 if selected_active != current_active:
-                    active_label = "Basic AI"
+                    active_label = "LOCAL"
                     if current_active == "gpt":
                         active_label = "OpenAI"
                     elif current_active == "gemini":
