@@ -1099,6 +1099,115 @@ class OllamaCommandWorker(QThread):
             self.finished.emit(False, f"오류: {err_str}")
 
 
+class AITSProviderRefreshWorker(QThread):
+    """Run explicit GPT/Gemini refresh HTTP outside the Qt UI thread."""
+
+    result_ready = Signal(dict)
+
+    def __init__(self, request_payload: dict, parent=None):
+        super().__init__(parent)
+        self.request_payload = dict(request_payload or {})
+
+    def run(self):
+        started = time.time()
+        provider = str(self.request_payload.get("provider") or "").strip().lower()
+        result = {
+            "ok": False,
+            "provider": provider,
+            "symbol": str(self.request_payload.get("symbol") or "").strip(),
+            "seq": int(self.request_payload.get("seq") or 0),
+            "fingerprint": str(self.request_payload.get("fingerprint") or ""),
+            "context": self.request_payload.get("context") or {},
+            "model": str(self.request_payload.get("model") or ""),
+            "text": "",
+            "error_summary": "",
+            "timed_out": False,
+            "elapsed_ms": 0,
+            "submitted": 0,
+            "order_allowed": False,
+            "real_order": False,
+        }
+        try:
+            import requests
+            from requests import Timeout
+
+            timeout_sec = int(self.request_payload.get("timeout_sec") or 90)
+            if provider == "gemini":
+                resp = requests.post(
+                    str(self.request_payload.get("url") or ""),
+                    headers=dict(self.request_payload.get("headers") or {}),
+                    params=dict(self.request_payload.get("params") or {}),
+                    json=self.request_payload.get("json") or {},
+                    timeout=timeout_sec,
+                )
+                result["status_code"] = int(getattr(resp, "status_code", 0) or 0)
+                if resp.status_code != 200:
+                    result["error_summary"] = f"Gemini HTTP {resp.status_code}"
+                    return
+                try:
+                    body = resp.json()
+                except Exception:
+                    result["error_summary"] = "Gemini JSON parsing failed"
+                    return
+                text_out = ""
+                try:
+                    candidates = body.get("candidates") or []
+                    if candidates:
+                        content = (candidates[0] or {}).get("content") or {}
+                        parts = content.get("parts") or []
+                        texts = []
+                        for part in parts:
+                            if isinstance(part, dict) and part.get("text"):
+                                texts.append(str(part.get("text")))
+                        text_out = "\n".join(texts).strip()
+                except Exception:
+                    text_out = ""
+                if not text_out:
+                    result["error_summary"] = "Gemini response body empty"
+                    return
+                result["ok"] = True
+                result["text"] = text_out
+                return
+
+            if provider == "gpt":
+                resp = requests.post(
+                    str(self.request_payload.get("url") or ""),
+                    headers=dict(self.request_payload.get("headers") or {}),
+                    json=self.request_payload.get("json") or {},
+                    timeout=timeout_sec,
+                )
+                result["status_code"] = int(getattr(resp, "status_code", 0) or 0)
+                if resp.status_code != 200:
+                    result["error_summary"] = f"OpenAI HTTP {resp.status_code}"
+                    return
+                try:
+                    body = resp.json()
+                except Exception:
+                    result["error_summary"] = "OpenAI JSON parsing failed"
+                    return
+                choices = body.get("choices") or []
+                ai_raw_text = ""
+                if choices and isinstance(choices[0], dict):
+                    delta = choices[0].get("message") or choices[0].get("delta") or {}
+                    ai_raw_text = (delta.get("content") or "").strip()
+                if not ai_raw_text:
+                    result["error_summary"] = "OpenAI response body empty"
+                    return
+                result["ok"] = True
+                result["text"] = ai_raw_text
+                return
+
+            result["error_summary"] = f"unsupported provider: {provider or 'unknown'}"
+        except Timeout:
+            result["timed_out"] = True
+            result["error_summary"] = "timeout"
+        except Exception as exc:
+            result["error_summary"] = type(exc).__name__
+        finally:
+            result["elapsed_ms"] = int(max(0.0, (time.time() - started) * 1000.0))
+            self.result_ready.emit(dict(result))
+
+
 from app.services.upbit import (
     test_public_ping,
     get_tickers,
@@ -35654,6 +35763,308 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             return False, type(exc).__name__
 
+    def _publish_aits_basic_fallback_reco(self, engine_mode="", reason=""):
+        market_rows_fb = []
+        positions_fb = []
+        try:
+            ctx_fb = self._build_aits_ai_decision_context()
+            for qc in (ctx_fb.get("quick_candidates") or [])[:50]:
+                if not isinstance(qc, dict):
+                    continue
+                sym = str(qc.get("symbol") or "").strip()
+                if not sym:
+                    continue
+                row = {"symbol": sym}
+                try:
+                    if "change_pct" in qc:
+                        row["change_pct"] = qc.get("change_pct")
+                    tv = qc.get("trade_value")
+                    if tv is not None:
+                        row["trade_value"] = float(tv)
+                except Exception:
+                    pass
+                market_rows_fb.append(row)
+            for pos in (getattr(self, "ai_managed_rows", []) or [])[:50]:
+                if not isinstance(pos, dict):
+                    continue
+                psym = str(pos.get("symbol") or pos.get("market") or "").strip()
+                if not psym:
+                    continue
+                prow = {"symbol": psym}
+                for key in (
+                    "pnl_pct",
+                    "profit_pct",
+                    "unrealized_pnl_pct",
+                    "change_pct",
+                    "change_rate",
+                ):
+                    if pos.get(key) is None:
+                        continue
+                    try:
+                        prow[key] = float(pos.get(key))
+                    except (TypeError, ValueError):
+                        pass
+                positions_fb.append(prow)
+        except Exception:
+            pass
+        try:
+            self._log.info(
+                "[AITS][BasicFallback] provider unavailable -> reco update with market_rows submitted=0"
+            )
+        except Exception:
+            pass
+        try:
+            basic_config = {}
+            try:
+                basic_config = self._collect_aits_basic_engine_settings()
+            except Exception:
+                basic_config = {}
+            payload = {
+                "use_basic_engine": True,
+                "basic_fallback": True,
+                "market_rows": market_rows_fb,
+                "positions": positions_fb,
+                "basic_config": basic_config,
+            }
+            if str(engine_mode or "").strip():
+                payload["engine_mode"] = str(engine_mode or "").strip()
+            if str(reason or "").strip():
+                payload["reason"] = str(reason or "").strip()[:300]
+            ai_reco.update(payload=payload, from_boot=True)
+        except Exception:
+            pass
+
+    def _build_aits_provider_reco_payload(
+        self,
+        provider: str,
+        model: str,
+        ai_raw_text: str,
+        context: dict | None = None,
+    ) -> dict:
+        text = str(ai_raw_text or "").strip()
+        ctx = context if isinstance(context, dict) else {}
+        rotation_d: dict = {}
+        try:
+            srot = text
+            if srot.startswith("```"):
+                lines = srot.split("\n")
+                if len(lines) >= 3 and lines[-1].strip() == "```":
+                    srot = "\n".join(lines[1:-1]).strip()
+                elif len(lines) >= 2:
+                    srot = "\n".join(lines[1:]).strip()
+                    if srot.endswith("```"):
+                        srot = srot[:-3].strip()
+            parsed_json = json.loads(srot)
+            if isinstance(parsed_json, dict) and isinstance(parsed_json.get("rotation"), dict):
+                rotation_d = parsed_json.get("rotation") or {}
+        except Exception:
+            pass
+
+        parsed = self._parse_aits_ai_response(text)
+        decision = str(parsed.get("decision") or "").strip()
+        reasons = parsed.get("reason") or []
+        if isinstance(reasons, str):
+            reasons = [reasons] if reasons else []
+
+        items: list[dict] = []
+        for qc in (ctx.get("quick_candidates") or [])[:12]:
+            if not isinstance(qc, dict):
+                continue
+            sym = str(qc.get("symbol") or "").strip()
+            if not sym:
+                continue
+            items.append(
+                {
+                    "symbol": sym,
+                    "title": str(qc.get("display_name") or sym).strip(),
+                }
+            )
+
+        reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[:2000]
+        provider_norm = str(provider or "").strip().lower()
+        engine_prefix = "gemini" if provider_norm == "gemini" else "gpt"
+        return {
+            "ok": True,
+            "source": provider_norm,
+            "fallback": False,
+            "items": items,
+            "decision_summary": decision[:500] if decision else "AITS 판단",
+            "reason_code": reason_code,
+            "raw_ai_response": text,
+            "ai_raw_text": text,
+            "rotation": rotation_d,
+            "actual_engine": f"{engine_prefix}-{str(model or '').strip()}",
+            "selected_engine": provider_norm,
+        }
+
+    def _start_aits_provider_refresh_worker(self, request_payload: dict) -> bool:
+        try:
+            worker = AITSProviderRefreshWorker(dict(request_payload or {}), self)
+            workers = getattr(self, "_aits_ai_refresh_workers", None)
+            if not isinstance(workers, list):
+                workers = []
+                self._aits_ai_refresh_workers = workers
+            workers.append(worker)
+            provider = str(request_payload.get("provider") or "unknown").strip().lower()
+            symbol = str(request_payload.get("symbol") or "unknown").strip()
+            try:
+                self._log.info(
+                    "[AITS][AIRefreshWorker] event=start provider=%s symbol=%s manual_refresh=True submitted=0",
+                    provider,
+                    symbol,
+                )
+            except Exception:
+                pass
+            worker.result_ready.connect(self._on_aits_provider_refresh_worker_result)
+            worker.finished.connect(lambda w=worker: self._cleanup_aits_provider_refresh_worker(w))
+            worker.start()
+            return True
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][AIRefreshWorker] event=start_failed provider=%s error_type=%s submitted=0",
+                    str((request_payload or {}).get("provider") or "unknown").strip().lower(),
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
+
+    def _cleanup_aits_provider_refresh_worker(self, worker) -> None:
+        try:
+            workers = getattr(self, "_aits_ai_refresh_workers", None)
+            if isinstance(workers, list) and worker in workers:
+                workers.remove(worker)
+        except Exception:
+            pass
+        try:
+            worker.deleteLater()
+        except Exception:
+            pass
+
+    def _on_aits_provider_refresh_worker_result(self, result: dict) -> None:
+        result = result if isinstance(result, dict) else {}
+        provider = str(result.get("provider") or "unknown").strip().lower()
+        symbol = str(result.get("symbol") or "unknown").strip()
+        ok = bool(result.get("ok"))
+        try:
+            latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
+            result_seq = int(result.get("seq") or 0)
+            if result_seq and result_seq < latest_seq:
+                self._log.info(
+                    "[AITS][AIRefreshWorker] event=stale_result_skip provider=%s symbol=%s seq=%s latest_seq=%s submitted=0",
+                    provider,
+                    symbol,
+                    result_seq,
+                    latest_seq,
+                )
+                try:
+                    self._aits_main_reco_inflight = False
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        try:
+            if ok:
+                reco_payload = self._build_aits_provider_reco_payload(
+                    provider,
+                    str(result.get("model") or ""),
+                    str(result.get("text") or ""),
+                    result.get("context") if isinstance(result.get("context"), dict) else {},
+                )
+                self._aits_last_ai_raw_response = str(result.get("text") or "")
+                try:
+                    self._aits_main_reco_latest_applied_seq = int(result.get("seq") or 0)
+                    self._aits_main_reco_latest_payload_fp = str(result.get("fingerprint") or "")
+                    self._aits_main_reco_last_completed_ts = time.time()
+                except Exception:
+                    pass
+                try:
+                    self._last_response_provider = provider
+                    self._gpt_status_stage = "ready"
+                except Exception:
+                    pass
+                try:
+                    if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
+                        label_provider = "Gemini" if provider == "gemini" else "GPT"
+                        status_text = f"AITS AI 상태: {label_provider} 응답 정상"
+                        self.lbl_aits_ai_engine_status.setText(status_text)
+                        self._apply_aits_ai_engine_status_line_style(status_text)
+                except Exception:
+                    pass
+                try:
+                    self._update_top_badge()
+                    self._update_engine_ui_ssot()
+                except Exception:
+                    pass
+                eventbus.publish("ai.reco.updated", reco_payload)
+                try:
+                    self._log.info(
+                        "[AITS][AIRefreshWorker] event=finish provider=%s ok=True elapsed_ms=%s submitted=0",
+                        provider,
+                        int(result.get("elapsed_ms") or 0),
+                    )
+                except Exception:
+                    pass
+                return
+
+            error_summary = str(result.get("error_summary") or "provider_failed").strip()
+            timed_out = bool(result.get("timed_out"))
+            try:
+                self._log.warning(
+                    "[AITS][AIRefreshWorker] event=failed provider=%s symbol=%s timed_out=%s error=%s elapsed_ms=%s submitted=0",
+                    provider,
+                    symbol,
+                    bool(timed_out),
+                    error_summary[:120],
+                    int(result.get("elapsed_ms") or 0),
+                )
+            except Exception:
+                pass
+            try:
+                self._set_managed_action_status(
+                    (
+                        "AI 분석 시간 초과 · 실제 주문은 실행되지 않았습니다."
+                        if timed_out
+                        else "AI 분석 실패 · 네트워크 또는 응답 상태를 확인하세요."
+                    ),
+                    "#b00020",
+                    symbol,
+                )
+            except Exception:
+                pass
+            try:
+                self.set_status_msg(
+                    (
+                        "AI 분석 시간 초과 · 기존 판단은 참고로 유지됩니다."
+                        if timed_out
+                        else "AI 분석 실패 · 기존 판단은 참고로 유지됩니다."
+                    ),
+                    "#b00020",
+                )
+            except Exception:
+                pass
+            self._publish_aits_basic_fallback_reco(provider, f"{provider} fallback: {error_summary[:160]}")
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][AIRefreshWorker] event=apply_failed provider=%s error_type=%s submitted=0",
+                    provider,
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            try:
+                self._publish_aits_basic_fallback_reco(provider, f"{provider} apply failed: {type(exc).__name__}")
+            except Exception:
+                pass
+        finally:
+            try:
+                self._aits_main_reco_inflight = False
+            except Exception:
+                pass
+
     def _get_aits_engine_ssot(self) -> str:
         """
         AITS/KMTS 공통 엔진 선택 SSOT.
@@ -36390,85 +36801,12 @@ class MainWindow(QMainWindow):
 
     def _call_aits_gemini_reco(self, prompt_text: str) -> dict:
         """
-        Gemini 메인 reco 호출.
-        반환:
-        {
-            "ok": bool,
-            "text": str,
-            "error": str,
-            "model": str,
-        }
+        Deprecated compatibility helper.
+
+        Gemini HTTP for explicit refresh is owned by AITSProviderRefreshWorker so
+        the Qt UI thread never waits on a provider timeout.
         """
-        import requests
-
-        api_key = ""
-        try:
-            api_key = str(getattr(self, "ed_gemini_key", None).text() or "").strip()
-        except Exception:
-            api_key = ""
-        if not api_key or (len(api_key) > 0 and api_key.startswith("•")):
-            return {"ok": False, "text": "", "error": "Gemini API 키 없음", "model": ""}
-
-        model_name = "gemini-1.5-flash"
-        try:
-            obj = getattr(self, "cmb_gemini_model", None)
-            if obj is not None and hasattr(obj, "currentText"):
-                v = str(obj.currentText() or "").strip().replace(" ", "")
-                if v:
-                    model_name = v
-        except Exception:
-            pass
-
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_name}:generateContent"
-        )
-        headers = {"Content-Type": "application/json"}
-        payload = {"contents": [{"parts": [{"text": prompt_text}]}]}
-
-        try:
-            resp = requests.post(
-                url, headers=headers, params={"key": api_key}, json=payload, timeout=90
-            )
-        except Exception as e:
-            return {"ok": False, "text": "", "error": f"Gemini 요청 실패: {e}", "model": model_name}
-
-        if resp.status_code != 200:
-            return {
-                "ok": False,
-                "text": "",
-                "error": f"Gemini HTTP {resp.status_code}: {(resp.text or '')[:300]}",
-                "model": model_name,
-            }
-
-        try:
-            body = resp.json()
-        except Exception:
-            return {"ok": False, "text": "", "error": "Gemini JSON 파싱 실패", "model": model_name}
-
-        text_out = ""
-        try:
-            candidates = body.get("candidates") or []
-            if candidates:
-                content = (candidates[0] or {}).get("content") or {}
-                parts = content.get("parts") or []
-                texts = []
-                for p in parts:
-                    if isinstance(p, dict) and p.get("text"):
-                        texts.append(str(p.get("text")))
-                text_out = "\n".join(texts).strip()
-        except Exception:
-            text_out = ""
-
-        if not text_out:
-            return {
-                "ok": False,
-                "text": "",
-                "error": "Gemini 응답 본문 비어 있음",
-                "model": model_name,
-            }
-
-        return {"ok": True, "text": text_out, "error": "", "model": model_name}
+        return {"ok": False, "text": "", "error": "Gemini refresh uses worker path", "model": ""}
 
     def _run_aits_main_gpt_reco_and_publish(self) -> None:
         """
@@ -36476,6 +36814,7 @@ class MainWindow(QMainWindow):
         app.services.ai_reco 는 raw 키를 보존하지 않으므로 eventbus 로만 전달한다.
         """
         now_ts = time.time()
+        provider_worker_started = False
 
         try:
             manual_request = bool(getattr(self, "_aits_main_reco_manual_request", False))
@@ -36658,13 +36997,22 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    self._aits_main_reco_inflight = True
-                    self._aits_main_reco_last_started_ts = now_ts
-                    self._aits_main_reco_request_seq = (
-                        int(getattr(self, "_aits_main_reco_request_seq", 0) or 0) + 1
-                    )
-                    current_seq = self._aits_main_reco_request_seq
-
+                    api_key = ""
+                    try:
+                        api_key = str(getattr(self, "ed_gemini_key", None).text() or "").strip()
+                    except Exception:
+                        api_key = ""
+                    if not api_key or api_key.startswith("•"):
+                        raise RuntimeError("Gemini API 키 없음")
+                    model_name = "gemini-1.5-flash"
+                    try:
+                        obj = getattr(self, "cmb_gemini_model", None)
+                        if obj is not None and hasattr(obj, "currentText"):
+                            v = str(obj.currentText() or "").strip().replace(" ", "")
+                            if v:
+                                model_name = v
+                    except Exception:
+                        pass
                     ctx = self._build_aits_ai_decision_context()
                     prompt_text = ""
                     try:
@@ -36678,133 +37026,36 @@ class MainWindow(QMainWindow):
                             prompt_text = str(ctx)
                     if not str(prompt_text).strip():
                         raise RuntimeError("Gemini용 프롬프트 생성 실패")
-
                     try:
                         current_fp = self._build_aits_reco_payload_fingerprint()
                     except Exception:
                         current_fp = ""
-
-                    gemini_ret = self._call_aits_gemini_reco(prompt_text)
-                    if not gemini_ret.get("ok"):
-                        raise RuntimeError(gemini_ret.get("error") or "Gemini reco 실패")
-
-                    ai_raw_text = str(gemini_ret.get("text") or "").strip()
-                    if not ai_raw_text:
-                        raise RuntimeError("Gemini 응답 텍스트 비어 있음")
-
-                    g_model = str(gemini_ret.get("model") or "gemini-1.5-flash").strip()
-
-                    self._aits_last_ai_raw_response = ai_raw_text
-
-                    rotation_d: dict = {}
-                    try:
-                        srot = str(ai_raw_text or "").strip()
-                        if srot.startswith("```"):
-                            lines = srot.split("\n")
-                            if len(lines) >= 3 and lines[-1].strip() == "```":
-                                srot = "\n".join(lines[1:-1]).strip()
-                            elif len(lines) >= 2:
-                                srot = "\n".join(lines[1:]).strip()
-                                if srot.endswith("```"):
-                                    srot = srot[:-3].strip()
-                        pj = json.loads(srot)
-                        if isinstance(pj, dict) and isinstance(pj.get("rotation"), dict):
-                            rotation_d = pj.get("rotation") or {}
-                    except Exception:
-                        pass
-
-                    pr = self._parse_aits_ai_response(ai_raw_text)
-                    decision = str(pr.get("decision") or "").strip()
-                    reasons = pr.get("reason") or []
-                    if isinstance(reasons, str):
-                        reasons = [reasons] if reasons else []
-
-                    items: list[dict] = []
-                    for qc in (ctx.get("quick_candidates") or [])[:12]:
-                        if not isinstance(qc, dict):
-                            continue
-                        sym = str(qc.get("symbol") or "").strip()
-                        if not sym:
-                            continue
-                        items.append(
-                            {
-                                "symbol": sym,
-                                "title": str(qc.get("display_name") or sym).strip(),
-                            }
-                        )
-
-                    reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[
-                        :2000
-                    ]
-
-                    reco_payload = {
-                        "ok": True,
-                        "source": "gemini",
-                        "fallback": False,
-                        "items": items,
-                        "decision_summary": decision[:500] if decision else "AITS 판단",
-                        "reason_code": reason_code,
-                        "raw_ai_response": ai_raw_text,
-                        "ai_raw_text": ai_raw_text,
-                        "rotation": rotation_d,
-                        "actual_engine": f"gemini-{g_model}",
-                        "selected_engine": "gemini",
+                    self._aits_main_reco_inflight = True
+                    self._aits_main_reco_last_started_ts = now_ts
+                    self._aits_main_reco_request_seq = (
+                        int(getattr(self, "_aits_main_reco_request_seq", 0) or 0) + 1
+                    )
+                    current_seq = int(self._aits_main_reco_request_seq)
+                    request_payload = {
+                        "provider": "gemini",
+                        "symbol": self._resolve_current_ai_snapshot_symbol(),
+                        "seq": current_seq,
+                        "fingerprint": current_fp,
+                        "context": ctx,
+                        "model": model_name,
+                        "url": (
+                            "https://generativelanguage.googleapis.com/v1beta/models/"
+                            f"{model_name}:generateContent"
+                        ),
+                        "headers": {"Content-Type": "application/json"},
+                        "params": {"key": api_key},
+                        "json": {"contents": [{"parts": [{"text": prompt_text}]}]},
+                        "timeout_sec": 90,
                     }
-
-                    try:
-                        latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
-                        if current_seq < latest_seq:
-                            return
-                    except Exception:
-                        pass
-
-                    try:
-                        self._aits_main_reco_latest_applied_seq = current_seq
-                        self._aits_main_reco_latest_payload_fp = current_fp
-                        self._aits_main_reco_last_completed_ts = time.time()
-                    except Exception:
-                        pass
-
-                    try:
-                        self._last_response_provider = "gemini"
-                    except Exception:
-                        pass
-
-                    try:
-                        self._gpt_status_stage = "ready"
-                    except Exception:
-                        pass
-
-                    try:
-                        if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
-                            self.lbl_aits_ai_engine_status.setText(
-                                "AITS AI 상태: Gemini 응답 정상"
-                            )
-                            self._apply_aits_ai_engine_status_line_style(
-                                "AITS AI 상태: Gemini 응답 정상"
-                            )
-                    except Exception:
-                        pass
-
-                    try:
-                        self._update_top_badge()
-                    except Exception:
-                        pass
-
-                    try:
-                        self._update_engine_ui_ssot()
-                    except Exception:
-                        pass
-
-                    eventbus.publish("ai.reco.updated", reco_payload)
-                    try:
-                        self._log.info(
-                            "[AITS-RECO-MAIN][Gemini] published ok=1 items=%s",
-                            len(items),
-                        )
-                    except Exception:
-                        pass
-                    return
+                    if self._start_aits_provider_refresh_worker(request_payload):
+                        provider_worker_started = True
+                        return
+                    raise RuntimeError("Gemini worker start failed")
 
                 except Exception as e:
                     try:
@@ -36834,41 +37085,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
 
-                    try:
-                        basic_payload = self._build_aits_basic_engine_payload_for_reco()
-                        try:
-                            basic_payload["basic_config"] = (
-                                self._collect_aits_basic_engine_settings()
-                            )
-                        except Exception:
-                            basic_payload["basic_config"] = {}
-                        basic_payload["engine_mode"] = "gemini"
-                        basic_payload["reason"] = f"Gemini fallback: {e}"
-                        ai_reco.update(
-                            payload=basic_payload,
-                            from_boot=True,
-                        )
-                    except Exception:
-                        try:
-                            _basic_cfg_ex = {}
-                            try:
-                                _basic_cfg_ex = self._collect_aits_basic_engine_settings()
-                            except Exception:
-                                _basic_cfg_ex = {}
-                            ai_reco.update(
-                                payload={
-                                    "use_basic_engine": True,
-                                    "basic_fallback": True,
-                                    "market_rows": [],
-                                    "positions": [],
-                                    "engine_mode": "gemini",
-                                    "basic_config": _basic_cfg_ex,
-                                    "reason": f"Gemini fallback: {e}",
-                                },
-                                from_boot=True,
-                            )
-                        except Exception:
-                            pass
+                    self._publish_aits_basic_fallback_reco("gemini", f"Gemini fallback: {e}")
                     return
 
             if prov != "gpt" and engine_mode == "gpt":
@@ -36922,8 +37139,6 @@ class MainWindow(QMainWindow):
                     {"role": "user", "content": self._build_aits_ai_decision_prompt()},
                 ]
 
-            import requests
-
             url = "https://api.openai.com/v1/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
             body = {
@@ -36931,109 +37146,24 @@ class MainWindow(QMainWindow):
                 "messages": messages,
                 "max_tokens": 1200,
             }
-            resp = requests.post(url, headers=headers, json=body, timeout=90)
-            if resp.status_code != 200:
-                try:
-                    self._log.warning(
-                        "[AITS-RECO-MAIN] http=%s", int(resp.status_code)
-                    )
-                except Exception:
-                    pass
-                _fallback_reco_update_basic_engine()
-                return
-
-            try:
-                rj = resp.json()
-            except Exception:
-                rj = {}
-            choices = rj.get("choices") or []
-            ai_raw_text = ""
-            if choices and isinstance(choices[0], dict):
-                delta = choices[0].get("message") or choices[0].get("delta") or {}
-                ai_raw_text = (delta.get("content") or "").strip()
-
-            if not str(ai_raw_text or "").strip():
-                _fallback_reco_update_basic_engine()
-                return
-
-            self._aits_last_ai_raw_response = ai_raw_text
-
-            rotation_d: dict = {}
-            try:
-                srot = str(ai_raw_text or "").strip()
-                if srot.startswith("```"):
-                    lines = srot.split("\n")
-                    if len(lines) >= 3 and lines[-1].strip() == "```":
-                        srot = "\n".join(lines[1:-1]).strip()
-                    elif len(lines) >= 2:
-                        srot = "\n".join(lines[1:]).strip()
-                        if srot.endswith("```"):
-                            srot = srot[:-3].strip()
-                pj = json.loads(srot)
-                if isinstance(pj, dict) and isinstance(pj.get("rotation"), dict):
-                    rotation_d = pj.get("rotation") or {}
-            except Exception:
-                pass
-
-            pr = self._parse_aits_ai_response(ai_raw_text)
-            decision = str(pr.get("decision") or "").strip()
-            reasons = pr.get("reason") or []
-            if isinstance(reasons, str):
-                reasons = [reasons] if reasons else []
-
             ctx = self._build_aits_ai_decision_context()
-            items: list[dict] = []
-            for qc in (ctx.get("quick_candidates") or [])[:12]:
-                if not isinstance(qc, dict):
-                    continue
-                sym = str(qc.get("symbol") or "").strip()
-                if not sym:
-                    continue
-                items.append(
-                    {
-                        "symbol": sym,
-                        "title": str(qc.get("display_name") or sym).strip(),
-                    }
-                )
-
-            reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[
-                :2000
-            ]
-
-            reco_payload = {
-                "ok": True,
-                "source": "gpt",
-                "fallback": False,
-                "items": items,
-                "decision_summary": decision[:500] if decision else "AITS 판단",
-                "reason_code": reason_code,
-                "raw_ai_response": ai_raw_text,
-                "ai_raw_text": ai_raw_text,
-                "rotation": rotation_d,
-                "actual_engine": f"gpt-{model}",
-                "selected_engine": "gpt",
+            request_payload = {
+                "provider": "gpt",
+                "symbol": self._resolve_current_ai_snapshot_symbol(),
+                "seq": current_seq,
+                "fingerprint": current_fp,
+                "context": ctx,
+                "model": model,
+                "url": url,
+                "headers": headers,
+                "json": body,
+                "timeout_sec": 90,
             }
-            reco_payload["source"] = "gpt"
-
-            try:
-                latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
-                if current_seq < latest_seq:
-                    return
-            except Exception:
-                pass
-
-            try:
-                self._aits_main_reco_latest_applied_seq = current_seq
-                self._aits_main_reco_latest_payload_fp = current_fp
-                self._aits_main_reco_last_completed_ts = time.time()
-            except Exception:
-                pass
-
-            eventbus.publish("ai.reco.updated", reco_payload)
-            try:
-                self._log.info("[AITS-RECO-MAIN] published ok=1 items=%s", len(items))
-            except Exception:
-                pass
+            if self._start_aits_provider_refresh_worker(request_payload):
+                provider_worker_started = True
+                return
+            _fallback_reco_update_basic_engine()
+            return
         except Exception:
             try:
                 _fallback_reco_update_basic_engine()
@@ -37045,7 +37175,8 @@ class MainWindow(QMainWindow):
                 pass
         finally:
             try:
-                self._aits_main_reco_inflight = False
+                if not provider_worker_started:
+                    self._aits_main_reco_inflight = False
             except Exception:
                 pass
 

@@ -868,3 +868,16 @@ Policy intent:
 - Freshness labels continue from the stored snapshot `generated_at` and are updated by the display-only freshness timer.
 - This work does not change Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
 - Live-refresh logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 57. AI-REFRESH-TIMEOUT-NONBLOCKING-FIX-01 Implementation Note
+
+`AI-REFRESH-TIMEOUT-NONBLOCKING-FIX-01` moves explicit GPT/Gemini analysis refresh HTTP requests out of the Qt UI thread.
+
+Policy intent:
+
+- GPT/Gemini/OpenAI provider HTTP calls remain allowed only after an explicit user `AI 분석 새로고침` request.
+- The provider worker performs only the HTTP request and returns a compact result; it must not read or mutate Qt widgets, Router state, Risk Guard policy, execution state, or order services.
+- UI updates, AI snapshot storage, Trade Log Shadow/Preview journal wiring, and open detail-chart live refresh continue on the main thread through the existing result-apply path.
+- Timeout or provider failure is shown as an analysis failure/reference-state message and must not be displayed as a successful AI judgement.
+- Status refresh, stale-label refresh, network recovery, candidate recovery, and detail-chart open still do not start GPT/Gemini/OpenAI calls.
+- Worker and failure logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
