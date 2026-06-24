@@ -705,7 +705,7 @@ class _AitsManagedStatusCell(QWidget):
                 pass
             lay.addWidget(s)
         try:
-            self.setFixedHeight(34)
+            self.setFixedHeight(46 if st else 34)
         except Exception:
             pass
 
@@ -8709,6 +8709,19 @@ class MainWindow(QMainWindow):
     def _refresh_ai_decision_freshness_labels_only(self, reason="timer"):
         """Refresh freshness labels only; does not call providers or redraw charts."""
         try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            for row in rows:
+                if isinstance(row, dict):
+                    self._sync_managed_pool_ai_review_sla_state(row, log=False)
+            try:
+                current_title = ""
+                tabs = getattr(self, "tabs", None)
+                if tabs is not None:
+                    current_title = str(tabs.tabText(tabs.currentIndex()) or "")
+                if current_title in ("AITS \uc885\ubaa9\uad00\ub9ac", "\uc6cc\uce58\ub9ac\uc2a4\ud2b8") and not getattr(self, "_ai_managed_table_refreshing", False):
+                    self._refresh_ai_managed_cell_widgets_only()
+            except Exception:
+                pass
             self._render_aits_ai_explanation()
             data = self._get_aits_final_explanation_payload()
             generated_at = data.get("generated_at") or data.get("ai_briefing_generated_at") or ""
@@ -16237,6 +16250,12 @@ class MainWindow(QMainWindow):
             "updated_at",
             "locked",
             "rotation_needed",
+            "last_ai_review_at",
+            "ai_briefing_generated_at",
+            "ai_briefing_provider",
+            "ai_briefing_engine",
+            "ai_briefing_engine_label",
+            "ai_briefing_model",
         )
         for key in keys:
             if key in row:
@@ -25647,6 +25666,90 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _build_managed_pool_ai_review_sla_state(self, row: dict | None) -> dict:
+        try:
+            row = row if isinstance(row, dict) else {}
+            symbol = self._normalize_market_symbol_for_ai_snapshot(row.get("symbol") or row.get("market") or row.get("code") or "")
+            generated_at = row.get("last_ai_review_at") or row.get("ai_briefing_generated_at") or row.get("decision_generated_at") or row.get("generated_at") or ""
+            if (not str(generated_at or "").strip()) and symbol:
+                cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None) or {}
+                snap = cache.get(symbol) if isinstance(cache, dict) else {}
+                if isinstance(snap, dict):
+                    generated_at = snap.get("generated_at") or snap.get("ai_briefing_generated_at") or ""
+            if not str(generated_at or "").strip():
+                return {
+                    "freshness_state": "missing",
+                    "label": "AI \uc5c6\uc74c \u00b7 \uc7ac\uac80\ud1a0",
+                    "tooltip": "Basic/LOCAL \uacc4\uc0b0 \uac10\uc2dc\ub294 \uacc4\uc18d \uc218\ud589 \uc911\uc785\ub2c8\ub2e4.",
+                    "generated_at": "",
+                    "age_sec": None,
+                    "symbol": symbol,
+                    "submitted": 0,
+                }
+            info = self._build_ai_decision_freshness_state(generated_at, source="managed_pool", symbol=symbol)
+            state = str(info.get("freshness_state") or "unknown")
+            age_label = str(info.get("age_label") or "").strip()
+            label = {
+                "fresh": "\ucd5c\uc2e0",
+                "reference": "\ucc38\uace0",
+                "stale": "\uc7ac\uac80\ud1a0",
+                "very_stale": "\uc0c8 \ubd84\uc11d \uad8c\uc7a5",
+            }.get(state, "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778")
+            if state in ("fresh", "reference", "stale") and age_label:
+                label = f"{label} \u00b7 {age_label}"
+            return {
+                "freshness_state": state,
+                "label": label,
+                "tooltip": str(info.get("warning_text") or "AI \ud310\ub2e8 \uc2e0\uc120\ub3c4\ub294 \ud45c\uc2dc \uae30\uc900\uc785\ub2c8\ub2e4."),
+                "generated_at": str(generated_at or "").strip(),
+                "age_sec": info.get("age_sec"),
+                "symbol": symbol,
+                "submitted": 0,
+            }
+        except Exception:
+            return {"freshness_state": "unknown", "label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778", "generated_at": "", "age_sec": None, "symbol": "", "submitted": 0}
+
+    def _sync_managed_pool_ai_review_sla_state(self, row: dict | None, *, log: bool = False) -> dict:
+        try:
+            info = self._build_managed_pool_ai_review_sla_state(row)
+            if isinstance(row, dict):
+                row["ai_review_freshness"] = info.get("freshness_state") or "unknown"
+                row["ai_review_label"] = info.get("label") or ""
+                row["ai_review_age_sec"] = info.get("age_sec")
+                if info.get("generated_at"):
+                    row["last_ai_review_at"] = info.get("generated_at")
+            if log:
+                self._log_managed_pool_ai_review_sla_state(info)
+            return info
+        except Exception:
+            return {"freshness_state": "unknown", "label": "\ud310\ub2e8 \uc2dc\uac01 \ud655\uc778", "submitted": 0}
+
+    def _log_managed_pool_ai_review_sla_state(self, info: dict | None) -> None:
+        try:
+            info = info if isinstance(info, dict) else {}
+            state = str(info.get("freshness_state") or "unknown")
+            age = info.get("age_sec")
+            bucket = "none" if age is None else int(float(age or 0) // 300)
+            key = (str(info.get("symbol") or ""), state, bucket)
+            now = time.time()
+            cache = getattr(self, "_managed_pool_ai_review_sla_log_cache", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._managed_pool_ai_review_sla_log_cache = cache
+            if now - float(cache.get(key) or 0.0) < 60:
+                return
+            cache[key] = now
+            event = "no_ai_review" if state == "missing" else "row_freshness"
+            logging.getLogger("aits").info(
+                "[AITS][ManagedPoolAIReviewSLA] event=%s symbol=%s freshness=%s age_sec=%s submitted=0 order_allowed=False real_order=False",
+                event,
+                str(info.get("symbol") or ""),
+                state,
+                age if age is not None else "none",
+            )
+        except Exception:
+            pass
+
     def _format_detail_chart_snapshot_source_label(self, value):
         try:
             raw = str(value or "").strip().lower()
@@ -32681,6 +32784,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 score = 0
             st_main, st_kind = self._managed_status_build04(row)
+            ai_review_sla = self._sync_managed_pool_ai_review_sla_state(row, log=True)
             wg_txt = self._format_managed_weight_goal_text(
                 self._format_ai_managed_position_weight_line(row),
                 self._get_managed_target_weight(row),
@@ -32801,9 +32905,13 @@ class MainWindow(QMainWindow):
             try:
                 st_cell = _AitsManagedStatusCell(
                     str(st_main or "—"),
-                    "",
+                    str(ai_review_sla.get("label") or ""),
                     str(st_kind or "watch"),
                 )
+                try:
+                    st_cell.setToolTip(str(ai_review_sla.get("tooltip") or ""))
+                except Exception:
+                    pass
                 t.setCellWidget(
                     i,
                     3,

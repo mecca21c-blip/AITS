@@ -881,3 +881,18 @@ Policy intent:
 - Timeout or provider failure is shown as an analysis failure/reference-state message and must not be displayed as a successful AI judgement.
 - Status refresh, stale-label refresh, network recovery, candidate recovery, and detail-chart open still do not start GPT/Gemini/OpenAI calls.
 - Worker and failure logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## 58. MANAGED-POOL-AI-REVIEW-SLA-FIX-01 Implementation Note
+
+`MANAGED-POOL-AI-REVIEW-SLA-FIX-01` makes per-managed-symbol AI review freshness visible in the managed pool list.
+
+Policy intent:
+
+- Explicit user AI analysis refresh still targets the currently selected symbol only.
+- All managed symbols continue to receive Basic/LOCAL calculation-based monitoring through managed-row score/status refresh.
+- Managed rows display compact AI review SLA labels derived from the per-symbol AI snapshot timestamp: fresh up to 10 minutes, reference up to 30 minutes, stale after 30 minutes, and very stale after 60 minutes.
+- Symbols without a stored AI snapshot show that AI review is missing/recheck-needed while Basic/LOCAL monitoring continues.
+- SLA label refresh is display-only and recalculates from stored timestamps; it must not call GPT, Gemini, OpenAI, or any provider.
+- Recheck-needed is an operational visibility label in this Goal, not a Router action change or order-blocking rule.
+- This work does not change Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
+- Managed-pool SLA logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
