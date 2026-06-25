@@ -9866,7 +9866,7 @@ class MainWindow(QMainWindow):
         self._chip_selected_engine = _AitsColorChip("#3B82F6", "Basic", "topChipTextBlue", left)
         h.addWidget(self._chip_selected_engine)
         h.addSpacing(12)
-        h.addWidget(_bar_lbl("실제 엔진"))
+        h.addWidget(_bar_lbl("적용 엔진"))
         self._chip_applied_engine = _AitsColorChip("#22C55E", "미적용", "topChipTextGreen", left)
         h.addWidget(self._chip_applied_engine)
         h.addSpacing(12)
@@ -13533,7 +13533,7 @@ class MainWindow(QMainWindow):
             pass
 
         self.lbl_aits_ops_summary = QLabel(
-            "선택 엔진: LOCAL | 실제 엔진: 미적용 | 연결 상태: 연결확인 필요"
+            "선택 엔진: LOCAL | 적용 엔진: 미적용 | 연결 상태: 연결확인 필요"
         )
         self.lbl_aits_ops_summary.setObjectName("aitsOpsSummary")
         self.lbl_aits_ops_summary.setProperty("topSubText", True)
@@ -23580,7 +23580,7 @@ class MainWindow(QMainWindow):
             summary = getattr(self, "lbl_aits_ops_summary", None)
             if summary is not None:
                 summary.setText(
-                    f"선택 엔진: {selected_text} | 실제 엔진: {applied_text} | 연결 상태: {status}"
+                    f"선택 엔진: {selected_text} | 적용 엔진: {applied_text} | 연결 상태: {status}"
                 )
             self._set_top_status_chip(
                 getattr(self, "_chip_selected_engine", None),
@@ -26961,6 +26961,36 @@ class MainWindow(QMainWindow):
             "decision_generated_at",
             "freshness",
             "freshness_label",
+            "decision_group_id",
+            "request_id",
+            "record_stage",
+            "record_stage_label",
+            "decision_stage_signature",
+            "contract_hash",
+            "source_event",
+            "decision_code",
+            "analysis_kind",
+            "provider_selected",
+            "provider_actual",
+            "analysis_classification",
+            "analysis_source_display",
+            "fallback_status_display",
+            "fallback_reason_code",
+            "fallback_reason_display",
+            "fallback_error_class",
+            "fallback_used",
+            "original_generation_engine",
+            "shadow_processing_method",
+            "model_invoked",
+            "invoked_model",
+            "ollama_invoked",
+            "ai_original_decision",
+            "aits_final_decision",
+            "change_detected",
+            "change_status",
+            "change_reason",
+            "review_mode",
+            "output_contract",
         )
         for key in keys:
             if key in row and row.get(key) is not None:
@@ -27217,8 +27247,37 @@ class MainWindow(QMainWindow):
                 next_action = str(next_raw or "").strip()
             provider = str(snapshot.get("provider") or payload.get("provider") or payload.get("selected_provider") or "").strip()
             provenance = self._resolve_ai_engine_provenance_for_journal(payload, snapshot, output_contract, record_stage)
-            engine_label = str(provenance.get("selected_engine") or snapshot.get("engine_label") or snapshot.get("engine") or payload.get("selected_engine") or "-").strip() or "-"
-            actual_engine = str(provenance.get("actual_engine") or snapshot.get("engine_display_label") or payload.get("actual_engine") or payload.get("generated_engine") or engine_label).strip() or "-"
+            analysis_semantics = {}
+            try:
+                from app.services.ai_output_contract import classify_ai_analysis_record
+
+                semantics_input = dict(payload)
+                semantics_input.update(
+                    {
+                        "output_contract": output_contract,
+                        "source": source,
+                        "record_stage": record_stage,
+                    }
+                )
+                analysis_semantics = classify_ai_analysis_record(semantics_input)
+            except Exception:
+                analysis_semantics = {}
+            engine_label = str(
+                analysis_semantics.get("selected_engine_display")
+                or provenance.get("selected_engine")
+                or snapshot.get("engine_label")
+                or snapshot.get("engine")
+                or payload.get("selected_engine")
+                or "-"
+            ).strip() or "-"
+            actual_engine = str(
+                analysis_semantics.get("actual_engine_display")
+                or provenance.get("actual_engine")
+                or snapshot.get("engine_display_label")
+                or payload.get("actual_engine")
+                or payload.get("generated_engine")
+                or engine_label
+            ).strip() or "-"
             generated_at_for_group = str(
                 payload.get("generated_at")
                 or payload.get("ai_briefing_generated_at")
@@ -27266,6 +27325,8 @@ class MainWindow(QMainWindow):
             change_reason = str(payload.get("change_reason") or payload.get("stage_change_reason") or "").strip()
             if not change_reason:
                 change_reason = "\ubcc0\uacbd \uc5c6\uc74c" if not change_detected else "\ud6c4\ucc98\ub9ac \ub2e8\uacc4\uc758 \uc0c1\uc138 \uc774\uc720\uac00 \uae30\ub85d\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4"
+            if str(analysis_semantics.get("record_type_display") or "").strip():
+                stage_label = str(analysis_semantics.get("record_type_display") or "").strip()
             record_type = "preview_decision" if record_stage == "ai_original" else "shadow_decision"
             decision_stage_signature = "|".join(
                 str(x or "")
@@ -27312,6 +27373,16 @@ class MainWindow(QMainWindow):
                 "change_status": "\ubcc0\uacbd \uc788\uc74c" if change_detected else "\ubcc0\uacbd \uc5c6\uc74c",
                 "change_reason": change_reason,
                 "review_mode": "AI \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+                "analysis_classification": analysis_semantics.get("analysis_classification") or "",
+                "analysis_source_display": analysis_semantics.get("analysis_source_display") or "",
+                "fallback_status_display": analysis_semantics.get("fallback_status_display") or "",
+                "fallback_reason_code": analysis_semantics.get("fallback_reason_code") or payload.get("fallback_reason_code") or "",
+                "fallback_reason_display": analysis_semantics.get("fallback_reason_display") or payload.get("fallback_reason_display") or "",
+                "fallback_error_class": payload.get("fallback_error_class") or "",
+                "fallback_used": bool(payload.get("fallback_used") or (output_contract or {}).get("fallback_used")),
+                "provider_selected": payload.get("provider_selected") or (output_contract or {}).get("provider_selected") or "",
+                "provider_actual": payload.get("provider_actual") or (output_contract or {}).get("provider_actual") or "",
+                "analysis_kind": payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "",
             }
             rows = getattr(self, "_trade_log_shadow_journal_rows", None)
             if not isinstance(rows, list):
@@ -27381,6 +27452,18 @@ class MainWindow(QMainWindow):
                     record.get("original_generation_engine") or "-",
                     record.get("shadow_processing_method") or "-",
                     bool(record.get("ollama_invoked")),
+                )
+            except Exception:
+                pass
+            try:
+                self._log.info(
+                    "[AITS][AIAnalysisSemantics] event=classified group_id=%s classification=%s provider_selected=%s provider_actual=%s fallback=%s fallback_reason=%s submitted=0 order_allowed=False real_order=False",
+                    decision_group_id,
+                    record.get("analysis_classification") or "unknown_safe",
+                    record.get("provider_selected") or "",
+                    record.get("provider_actual") or "",
+                    bool(record.get("fallback_used")),
+                    record.get("fallback_reason_code") or "",
                 )
             except Exception:
                 pass
@@ -37237,6 +37320,22 @@ class MainWindow(QMainWindow):
                 request_context.get("provider_selected") or engine_mode or "local"
             )
             provider_fallback = selected_provider in ("gpt", "gemini")
+            fallback_reason_meta = {}
+            if provider_fallback:
+                try:
+                    from app.services.ai_output_contract import resolve_ai_fallback_reason
+
+                    fallback_reason_meta = resolve_ai_fallback_reason(
+                        {
+                            "fallback_reason": str(reason or ""),
+                            "fallback_error_summary": str(reason or ""),
+                            "fallback_used": True,
+                            "provider_selected": selected_provider,
+                            "provider_actual": "local",
+                        }
+                    )
+                except Exception:
+                    fallback_reason_meta = {}
             payload = {
                 "use_basic_engine": True,
                 "basic_fallback": True,
@@ -37261,6 +37360,11 @@ class MainWindow(QMainWindow):
                 "ollama_invoked": False,
                 "fallback_used": provider_fallback,
                 "provider_fallback_confirmed": provider_fallback,
+                "fallback_reason": str(reason or "").strip()[:300],
+                "fallback_reason_code": fallback_reason_meta.get("fallback_reason_code") or "",
+                "fallback_reason_display": fallback_reason_meta.get("fallback_reason_display") or "",
+                "fallback_error_class": fallback_reason_meta.get("fallback_error_class") or "",
+                "fallback_error_summary": str(reason or "").strip()[:300],
             }
             if str(engine_mode or "").strip():
                 payload["engine_mode"] = str(engine_mode or "").strip()
@@ -47462,7 +47566,7 @@ class MainWindow(QMainWindow):
                             "엔진 준비 필요",
                             f"선택 엔진: {sel_disp}\n"
                             f"현재 상태: {st_disp}\n"
-                            f"실제 엔진: {act_disp}\n\n"
+                            f"적용 엔진: {act_disp}\n\n"
                             "선택 엔진이 준비 완료되기 전에는 자동매매를 시작할 수 없습니다.",
                         )
 

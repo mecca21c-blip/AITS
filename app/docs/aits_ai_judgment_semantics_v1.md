@@ -52,6 +52,17 @@ Engine provenance separates:
 
 LOCAL Basic calculation displays as `LOCAL 계산 기반`. A configured local model name such as `qwen2.5` is not displayed as the judgment engine unless `ollama_invoked=True` and `invoked_model` is recorded.
 
+## Analysis Source And Fallback Semantics
+
+Trade Log display separates LOCAL calculation records by provenance:
+
+- Automatic Basic/LOCAL monitoring is displayed as `AITS 모의판정`, with analysis source `자동 감시`, selected engine `자동 감시`, actual judgment engine `LOCAL 계산 기반`, and no fallback reason.
+- Manual LOCAL refresh is displayed as `AI 원판단`, with analysis source `사용자가 실행`, selected engine `LOCAL`, actual judgment engine `LOCAL 계산 기반`, and fallback status `아님`.
+- GPT/Gemini success is displayed as `AI 원판단`, with selected engine GPT/Gemini and actual judgment engine set to the invoked provider/model.
+- GPT/Gemini failure that produces a confirmed LOCAL calculation fallback is displayed as `안전 대체판정`, keeps the selected engine as GPT/Gemini, sets actual judgment engine to `LOCAL 계산 기반`, marks fallback as applied, and shows a sanitized Korean fallback reason.
+
+The header's applied-engine display is current setting/Preview state, not proof of the actual engine used by each historical judgment. Per-record actual generation engine remains owned by the canonical output contract and Shadow Journal metadata.
+
 ## Review Mode
 
 `재검토 필요` does not mean GPT/Gemini automatic reanalysis unless a provider reanalysis scheduler actually exists.

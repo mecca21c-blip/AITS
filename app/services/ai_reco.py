@@ -174,6 +174,11 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
                 "ollama_invoked",
                 "fallback_used",
                 "provider_fallback_confirmed",
+                "fallback_reason",
+                "fallback_reason_code",
+                "fallback_reason_display",
+                "fallback_error_class",
+                "fallback_error_summary",
                 "analysis_kind",
             ):
                 if k in payload:

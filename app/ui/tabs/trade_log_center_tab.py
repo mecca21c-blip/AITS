@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.services.ai_output_contract import classify_ai_analysis_record
+
 
 log = logging.getLogger(__name__)
 
@@ -50,8 +52,8 @@ class TradeLogCenterTab(QWidget):
         "상태",
         "가격",
         "금액",
-        "선택 엔진",
-        "사용 엔진",
+        "선택 AI 엔진",
+        "실제 판단 엔진",
     )
 
     def __init__(self, parent_window=None, parent=None):
@@ -371,8 +373,11 @@ class TradeLogCenterTab(QWidget):
             ("change_reason", "판단 변경 이유"),
             ("submitted", "주문 실행 여부"),
             ("freshness", "판단 신선도"),
-            ("selected_engine", "선택 엔진"),
+            ("analysis_source", "분석 출처"),
+            ("selected_engine", "선택 AI 엔진"),
             ("actual_engine", "실제 판단 생성 엔진"),
+            ("fallback_status", "대체 여부"),
+            ("fallback_reason", "대체 사유"),
             ("shadow_processing_method", "AITS 판정 방식"),
             ("review_mode", "재검토 방식"),
             ("basis", "판단 근거"),
@@ -984,8 +989,11 @@ class TradeLogCenterTab(QWidget):
             "change_reason": row.get("change_reason") if row else "-",
             "submitted": row.get("submitted") if row else "-",
             "freshness": freshness_text if row else "-",
+            "analysis_source": row.get("analysis_source_display") if row else "-",
             "selected_engine": row.get("selected_engine") if row else "-",
             "actual_engine": self._format_engine_provenance_display(row) if row else "-",
+            "fallback_status": row.get("fallback_status_display") if row else "-",
+            "fallback_reason": row.get("fallback_reason_display") if row else "-",
             "shadow_processing_method": row.get("shadow_processing_method") if row else "-",
             "review_mode": row.get("review_mode") if row else "-",
             "basis": basis,
@@ -1092,13 +1100,22 @@ class TradeLogCenterTab(QWidget):
         if warning_text:
             freshness_text = f"{freshness_text}\n{warning_text}"
         output_contract = row.get("output_contract") if isinstance(row.get("output_contract"), dict) else {}
+        try:
+            analysis_semantics = classify_ai_analysis_record(row)
+        except Exception:
+            analysis_semantics = {}
         actual_engine_display = self._format_engine_provenance_display(
             {
-                "actual_engine": row.get("actual_engine") or row.get("provider") or "-",
+                "actual_engine": analysis_semantics.get("actual_engine_display") or row.get("actual_engine") or row.get("provider") or "-",
                 "analysis_kind": row.get("analysis_kind") or output_contract.get("analysis_kind") or "",
                 "ollama_invoked": bool(row.get("ollama_invoked")),
             }
         )
+        if str(analysis_semantics.get("record_type_display") or "").strip():
+            type_label = str(analysis_semantics.get("record_type_display") or "").strip()
+        selected_engine_display = str(
+            analysis_semantics.get("selected_engine_display") or row.get("selected_engine") or "-"
+        ).strip() or "-"
         return {
             "category": category,
             "sort_ts": self._sort_timestamp(ts),
@@ -1109,8 +1126,13 @@ class TradeLogCenterTab(QWidget):
             "status": row.get("status_display") or row.get("status") or "\uc2e4\uc81c \uc8fc\ubb38 \uc5c6\uc74c",
             "price": row.get("price") or "-",
             "amount": row.get("amount") or "-",
-            "selected_engine": row.get("selected_engine") or "-",
+            "selected_engine": selected_engine_display,
             "actual_engine": actual_engine_display,
+            "analysis_source_display": analysis_semantics.get("analysis_source_display") or row.get("analysis_source_display") or "-",
+            "fallback_status_display": analysis_semantics.get("fallback_status_display") or row.get("fallback_status_display") or "-",
+            "fallback_reason_display": analysis_semantics.get("fallback_reason_display") or row.get("fallback_reason_display") or "",
+            "fallback_reason_code": analysis_semantics.get("fallback_reason_code") or row.get("fallback_reason_code") or "",
+            "analysis_classification": analysis_semantics.get("analysis_classification") or row.get("analysis_classification") or "",
             "original_generation_engine": row.get("original_generation_engine") or "",
             "shadow_processing_method": row.get("shadow_processing_method") or "",
             "model_invoked": bool(row.get("model_invoked")),

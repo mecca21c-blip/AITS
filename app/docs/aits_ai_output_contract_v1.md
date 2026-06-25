@@ -69,6 +69,8 @@ Provider fallback separates selected and actual provider. For example, GPT selec
 - `provider_selected=gpt`
 - `provider_actual=local`
 - `fallback_used=True`
+
+Fallback display metadata must include a sanitized reason code/display when the fallback is confirmed. Automatic LOCAL monitoring is not provider fallback: it remains `analysis_kind=local_calculation`, is displayed as automatic monitoring, and must not inherit GPT/Gemini selected-provider context without matching request-group proof.
 - `engine_label=LOCAL 계산 기반`
 
 ## Stage Metadata Boundary
