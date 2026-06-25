@@ -8574,6 +8574,24 @@ class MainWindow(QMainWindow):
                     or (base_payload or {}).get("actual_engine", "")
                     or ""
                 ).strip(),
+                "provider_selected": str(
+                    gpt.get("provider_selected", "")
+                    or (gpt_payload or {}).get("provider_selected", "")
+                    or (base_payload or {}).get("provider_selected", "")
+                    or ""
+                ).strip(),
+                "provider_actual": str(
+                    gpt.get("provider_actual", "")
+                    or (gpt_payload or {}).get("provider_actual", "")
+                    or (base_payload or {}).get("provider_actual", "")
+                    or ""
+                ).strip(),
+                "model": str(gpt.get("model", "") or (gpt_payload or {}).get("model", "") or "").strip(),
+                "invoked_model": str(gpt.get("invoked_model", "") or (gpt_payload or {}).get("invoked_model", "") or "").strip(),
+                "model_invoked": bool(gpt.get("model_invoked") or (gpt_payload or {}).get("model_invoked")),
+                "ollama_invoked": bool(gpt.get("ollama_invoked") or (gpt_payload or {}).get("ollama_invoked")),
+                "fallback_used": bool(gpt.get("fallback_used") or (gpt_payload or {}).get("fallback_used") or base.get("fallback_used") or (base_payload or {}).get("fallback_used")),
+                "analysis_kind": str(gpt.get("analysis_kind", "") or (gpt_payload or {}).get("analysis_kind", "") or (base_payload or {}).get("analysis_kind", "") or "").strip(),
             }
 
             return merged
@@ -8619,6 +8637,7 @@ class MainWindow(QMainWindow):
                 provider_selected = (
                     final_payload.get("selected_provider")
                     or final_payload.get("provider_selected")
+                    or request_context.get("provider_selected")
                     or getattr(self, "_selected_ai_provider", "")
                     or ""
                 )
@@ -8634,7 +8653,7 @@ class MainWindow(QMainWindow):
                     requested_symbol=requested_symbol,
                     provider_selected=provider_selected,
                     provider_actual=provider_actual,
-                    model=final_payload.get("model") or final_payload.get("selected_model") or "",
+                    model=final_payload.get("invoked_model") or final_payload.get("model") or final_payload.get("selected_model") or "",
                     source=final_payload.get("source") or "manual_refresh",
                 )
                 compat = contract_to_compat_payload(output_contract)
@@ -25855,6 +25874,7 @@ class MainWindow(QMainWindow):
     def _freeze_ai_refresh_request_context(self, target_info: dict, decision_group_id: str) -> dict:
         try:
             symbol = str((target_info or {}).get("symbol") or "").strip()
+            provider_ctx = self._resolve_ai_refresh_provider_context()
             row_obj = (target_info or {}).get("row") if isinstance(target_info, dict) else None
             row_snapshot = {}
             if isinstance(row_obj, dict):
@@ -25883,6 +25903,11 @@ class MainWindow(QMainWindow):
                 "target_row_index": int((target_info or {}).get("row_index") or -1),
                 "source": str((target_info or {}).get("source") or "managed_tab"),
                 "manual_refresh": True,
+                "provider_selected": provider_ctx.get("provider_selected") or "local",
+                "selected_provider": provider_ctx.get("provider_selected") or "local",
+                "selected_engine_label": provider_ctx.get("selected_engine_label") or "LOCAL",
+                "requested_model": provider_ctx.get("requested_model") or "",
+                "configured_model": provider_ctx.get("configured_model") or "",
                 "requested_at": time.time(),
                 "submitted": 0,
                 "order_allowed": False,
@@ -25893,6 +25918,71 @@ class MainWindow(QMainWindow):
             return ctx
         except Exception:
             return {}
+
+
+    def _normalize_ai_refresh_provider_code(self, provider: str = "") -> str:
+        try:
+            value = self._normalize_ai_provider_code(provider)
+        except Exception:
+            value = str(provider or "").strip().lower()
+        if value in ("openai", "gpt", "chatgpt"):
+            return "gpt"
+        if value in ("gemini", "google", "google_gemini"):
+            return "gemini"
+        if value in ("basic", "local", "local_ai", "base", "ollama"):
+            return "local"
+        return "local"
+
+    def _ai_refresh_provider_display_label(self, provider: str = "") -> str:
+        provider = self._normalize_ai_refresh_provider_code(provider)
+        if provider == "gpt":
+            return "GPT"
+        if provider == "gemini":
+            return "Gemini"
+        return "LOCAL"
+
+    def _resolve_ai_refresh_provider_context(self) -> dict:
+        try:
+            candidates = [
+                getattr(self, "_selected_ai_provider", ""),
+                getattr(self, "_ai_provider_box_active", ""),
+                getattr(self, "_applied_ai_provider", ""),
+            ]
+            try:
+                candidates.append(self._get_aits_engine_ssot())
+            except Exception:
+                pass
+            provider = "local"
+            for raw in candidates:
+                if not str(raw or "").strip():
+                    continue
+                normalized = self._normalize_ai_refresh_provider_code(raw)
+                if normalized:
+                    provider = normalized
+                    break
+            requested_model = ""
+            configured_model = ""
+            if provider in ("gpt", "gemini"):
+                try:
+                    requested_model = str(self._get_selected_ai_model(provider) or "").strip()
+                except Exception:
+                    requested_model = ""
+                configured_model = requested_model
+            return {
+                "provider_selected": provider,
+                "selected_provider": provider,
+                "selected_engine_label": self._ai_refresh_provider_display_label(provider),
+                "requested_model": requested_model,
+                "configured_model": configured_model,
+            }
+        except Exception:
+            return {
+                "provider_selected": "local",
+                "selected_provider": "local",
+                "selected_engine_label": "LOCAL",
+                "requested_model": "",
+                "configured_model": "",
+            }
 
     def _get_ai_refresh_request_context(self) -> dict:
         try:
@@ -26847,8 +26937,9 @@ class MainWindow(QMainWindow):
             actual_engine = str(snapshot.get("engine_display_label") or payload.get("actual_engine") or "\uc5d4\uc9c4 \ud655\uc778 \ud544\uc694").strip()
             original_engine = actual_engine
             shadow_method = "AITS \uc815\ucc45 \ud6c4\ucc98\ub9ac" if record_stage == "aits_shadow_final" else ""
+        selected_display = self._ai_refresh_provider_display_label(selected) if selected else "-"
         return {
-            "selected_engine": selected or "-",
+            "selected_engine": selected_display or "-",
             "actual_engine": actual_engine or "-",
             "original_generation_engine": original_engine or "-",
             "shadow_processing_method": shadow_method or "-",
@@ -36949,6 +37040,10 @@ class MainWindow(QMainWindow):
             target_symbol = self._normalize_market_symbol_for_ai_snapshot(
                 request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
             )
+            selected_provider = self._normalize_ai_refresh_provider_code(
+                request_context.get("provider_selected") or engine_mode or "local"
+            )
+            provider_fallback = selected_provider in ("gpt", "gemini")
             payload = {
                 "use_basic_engine": True,
                 "basic_fallback": True,
@@ -36959,6 +37054,19 @@ class MainWindow(QMainWindow):
                 "market_rows": market_rows_fb,
                 "positions": positions_fb,
                 "basic_config": basic_config,
+                "provider_selected": selected_provider,
+                "selected_provider": selected_provider,
+                "selected_engine": selected_provider,
+                "provider_actual": "local",
+                "actual_provider": "local",
+                "provider": "local",
+                "actual_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                "original_generation_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                "model": "",
+                "invoked_model": "",
+                "model_invoked": False,
+                "ollama_invoked": False,
+                "fallback_used": provider_fallback,
             }
             if str(engine_mode or "").strip():
                 payload["engine_mode"] = str(engine_mode or "").strip()
@@ -36968,8 +37076,8 @@ class MainWindow(QMainWindow):
             payload.setdefault("decision_group_id", group_id)
             payload.setdefault("request_id", group_id)
             payload.setdefault("record_stage", "ai_original")
-            payload.setdefault("analysis_kind", "local_calculation")
-            payload.setdefault("provider_selected", engine_mode or "basic")
+            payload.setdefault("analysis_kind", "provider_fallback" if provider_fallback else "local_calculation")
+            payload.setdefault("provider_selected", selected_provider)
             payload.setdefault("provider_actual", "local")
             payload.setdefault("model_invoked", False)
             payload.setdefault("ollama_invoked", False)
@@ -37027,8 +37135,14 @@ class MainWindow(QMainWindow):
             )
 
         reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[:2000]
-        provider_norm = str(provider or "").strip().lower()
+        provider_norm = self._normalize_ai_refresh_provider_code(provider)
+        if provider_norm == "local":
+            provider_norm = "gemini" if str(provider or "").strip().lower() == "gemini" else "gpt"
+        selected_provider = self._normalize_ai_refresh_provider_code(ctx.get("provider_selected") or provider_norm)
         engine_prefix = "gemini" if provider_norm == "gemini" else "gpt"
+        invoked_model = str(model or "").strip()
+        engine_display = "Gemini" if provider_norm == "gemini" else "GPT"
+        actual_engine_display = f"{engine_display} \u00b7 {invoked_model}" if invoked_model else engine_display
         return {
             "ok": True,
             "source": provider_norm,
@@ -37043,18 +37157,20 @@ class MainWindow(QMainWindow):
             "raw_ai_response": text,
             "ai_raw_text": text,
             "rotation": rotation_d,
-            "actual_engine": f"{engine_prefix}-{str(model or '').strip()}",
-            "selected_engine": provider_norm,
+            "actual_engine": actual_engine_display,
+            "selected_engine": selected_provider,
             "decision_group_id": str(ctx.get("decision_group_id") or ""),
             "request_id": str(ctx.get("request_id") or ctx.get("decision_group_id") or ""),
             "record_stage": "ai_original",
             "source_event": "ai.reco.updated",
-            "provider_selected": provider_norm,
+            "provider_selected": selected_provider,
             "provider_actual": provider_norm,
             "analysis_kind": "provider_ai",
-            "original_generation_engine": f"{engine_prefix}-{str(model or "").strip()}",
+            "original_generation_engine": actual_engine_display,
+            "model": invoked_model,
             "model_invoked": True,
-            "invoked_model": str(model or "").strip(),
+            "invoked_model": invoked_model,
+            "fallback_used": False,
             "ollama_invoked": False,
         }
 
@@ -37144,6 +37260,10 @@ class MainWindow(QMainWindow):
                     result_context.setdefault("requested_symbol", target_symbol)
                     result_context.setdefault("normalized_symbol", target_symbol)
                     self._ai_briefing_pending_snapshot_symbol = target_symbol
+                request_context = self._get_ai_refresh_request_context()
+                result_context.setdefault("provider_selected", request_context.get("provider_selected") or provider)
+                result_context.setdefault("selected_provider", request_context.get("provider_selected") or provider)
+                result_context.setdefault("requested_model", request_context.get("requested_model") or "")
                 reco_payload = self._build_aits_provider_reco_payload(
                     provider,
                     str(result.get("model") or ""),
@@ -37176,6 +37296,16 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 eventbus.publish("ai.reco.updated", reco_payload)
+                try:
+                    self._log.info(
+                        "[AITS][AIRefreshProviderContext] event=result_resolved group_id=%s provider_selected=%s provider_actual=%s invoked_model=%s fallback=False submitted=0",
+                        reco_payload.get("decision_group_id") or result_context.get("decision_group_id") or "",
+                        reco_payload.get("provider_selected") or result_context.get("provider_selected") or provider,
+                        reco_payload.get("provider_actual") or provider,
+                        reco_payload.get("invoked_model") or reco_payload.get("model") or "",
+                    )
+                except Exception:
+                    pass
                 try:
                     self._log.info(
                         "[AITS][AIRefreshWorker] event=finish provider=%s ok=True elapsed_ms=%s submitted=0",
@@ -37232,6 +37362,15 @@ class MainWindow(QMainWindow):
                 )
                 if failed_symbol:
                     self._ai_briefing_pending_snapshot_symbol = failed_symbol
+            except Exception:
+                pass
+            try:
+                req_ctx = self._get_ai_refresh_request_context()
+                self._log.info(
+                    "[AITS][AIRefreshProviderContext] event=fallback_resolved group_id=%s provider_selected=%s provider_actual=local fallback=True submitted=0",
+                    req_ctx.get("decision_group_id") or "",
+                    req_ctx.get("provider_selected") or provider,
+                )
             except Exception:
                 pass
             self._publish_aits_basic_fallback_reco(provider, f"{provider} fallback: {error_summary[:160]}")
@@ -37456,6 +37595,10 @@ class MainWindow(QMainWindow):
             request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
         )
         group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
+        selected_provider = self._normalize_ai_refresh_provider_code(
+            request_context.get("provider_selected") or "local"
+        )
+        provider_fallback = selected_provider in ("gpt", "gemini")
         return {
             "use_basic_engine": True,
             "basic_fallback": True,
@@ -37468,12 +37611,20 @@ class MainWindow(QMainWindow):
             "decision_group_id": group_id,
             "request_id": group_id,
             "record_stage": "ai_original",
-            "analysis_kind": "local_calculation",
-            "provider_selected": "basic",
+            "analysis_kind": "provider_fallback" if provider_fallback else "local_calculation",
+            "provider_selected": selected_provider,
+            "selected_provider": selected_provider,
+            "selected_engine": selected_provider,
             "provider_actual": "local",
+            "actual_provider": "local",
+            "provider": "local",
+            "actual_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
             "original_generation_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+            "model": "",
+            "invoked_model": "",
             "model_invoked": False,
             "ollama_invoked": False,
+            "fallback_used": provider_fallback,
         }
 
     def _collect_aits_basic_engine_settings(self) -> dict:
@@ -38139,13 +38290,42 @@ class MainWindow(QMainWindow):
                     _basic_cfg = self._collect_aits_basic_engine_settings()
                 except Exception:
                     _basic_cfg = {}
+                selected_provider_fb = self._normalize_ai_refresh_provider_code(
+                    request_context.get("provider_selected") or engine_mode or "local"
+                )
+                target_symbol_fb = self._normalize_market_symbol_for_ai_snapshot(
+                    request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
+                )
+                provider_fallback_fb = selected_provider_fb in ("gpt", "gemini")
+                group_id_fb = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol_fb, "manual_refresh")
                 ai_reco.update(
                     payload={
                         "use_basic_engine": True,
                         "basic_fallback": True,
+                        "symbol": target_symbol_fb,
+                        "market": target_symbol_fb,
+                        "target_symbol": target_symbol_fb,
+                        "requested_symbol": target_symbol_fb,
                         "market_rows": market_rows_fb,
                         "positions": positions_fb,
                         "basic_config": _basic_cfg,
+                        "decision_group_id": group_id_fb,
+                        "request_id": group_id_fb,
+                        "record_stage": "ai_original",
+                        "analysis_kind": "provider_fallback" if provider_fallback_fb else "local_calculation",
+                        "provider_selected": selected_provider_fb,
+                        "selected_provider": selected_provider_fb,
+                        "selected_engine": selected_provider_fb,
+                        "provider_actual": "local",
+                        "actual_provider": "local",
+                        "provider": "local",
+                        "actual_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                        "original_generation_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                        "model": "",
+                        "invoked_model": "",
+                        "model_invoked": False,
+                        "ollama_invoked": False,
+                        "fallback_used": provider_fallback_fb,
                     },
                     from_boot=True,
                 )
@@ -38162,6 +38342,13 @@ class MainWindow(QMainWindow):
                 engine_mode = self._get_aits_selected_engine_mode()
             except Exception:
                 engine_mode = "gpt"
+            frozen_provider = self._normalize_ai_refresh_provider_code(
+                request_context.get("provider_selected") or ""
+            ) if isinstance(request_context, dict) and request_context.get("provider_selected") else ""
+            if frozen_provider:
+                engine_mode = "basic" if frozen_provider == "local" else frozen_provider
+                if frozen_provider in ("gpt", "gemini"):
+                    prov = frozen_provider
 
             if engine_mode == "basic":
                 try:
@@ -38191,13 +38378,42 @@ class MainWindow(QMainWindow):
                             _basic_cfg_ex = self._collect_aits_basic_engine_settings()
                         except Exception:
                             _basic_cfg_ex = {}
+                        selected_provider_ex = self._normalize_ai_refresh_provider_code(
+                            request_context.get("provider_selected") or engine_mode or "local"
+                        )
+                        target_symbol_ex = self._normalize_market_symbol_for_ai_snapshot(
+                            request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
+                        )
+                        provider_fallback_ex = selected_provider_ex in ("gpt", "gemini")
+                        group_id_ex = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol_ex, "manual_refresh")
                         ai_reco.update(
                             payload={
                                 "use_basic_engine": True,
                                 "basic_fallback": True,
+                                "symbol": target_symbol_ex,
+                                "market": target_symbol_ex,
+                                "target_symbol": target_symbol_ex,
+                                "requested_symbol": target_symbol_ex,
                                 "market_rows": [],
                                 "positions": [],
                                 "basic_config": _basic_cfg_ex,
+                                "decision_group_id": group_id_ex,
+                                "request_id": group_id_ex,
+                                "record_stage": "ai_original",
+                                "analysis_kind": "provider_fallback" if provider_fallback_ex else "local_calculation",
+                                "provider_selected": selected_provider_ex,
+                                "selected_provider": selected_provider_ex,
+                                "selected_engine": selected_provider_ex,
+                                "provider_actual": "local",
+                                "actual_provider": "local",
+                                "provider": "local",
+                                "actual_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                                "original_generation_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                                "model": "",
+                                "invoked_model": "",
+                                "model_invoked": False,
+                                "ollama_invoked": False,
+                                "fallback_used": provider_fallback_ex,
                             },
                             from_boot=True,
                         )
@@ -38258,12 +38474,19 @@ class MainWindow(QMainWindow):
                     )
                     current_seq = int(self._aits_main_reco_request_seq)
                     group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
+                    selected_provider_req = self._normalize_ai_refresh_provider_code(
+                        request_context.get("provider_selected") or "gemini"
+                    )
+                    requested_model_req = str(request_context.get("requested_model") or model_name or "").strip()
                     try:
                         ctx["decision_group_id"] = group_id
                         ctx["request_id"] = group_id
                         ctx["target_symbol"] = target_symbol
                         ctx["requested_symbol"] = target_symbol
                         ctx["normalized_symbol"] = target_symbol
+                        ctx["provider_selected"] = selected_provider_req
+                        ctx["selected_provider"] = selected_provider_req
+                        ctx["requested_model"] = requested_model_req
                     except Exception:
                         pass
                     request_payload = {
@@ -38277,6 +38500,9 @@ class MainWindow(QMainWindow):
                         "fingerprint": current_fp,
                         "context": ctx,
                         "model": model_name,
+                        "provider_selected": selected_provider_req,
+                        "selected_provider": selected_provider_req,
+                        "requested_model": requested_model_req,
                         "url": (
                             "https://generativelanguage.googleapis.com/v1beta/models/"
                             f"{model_name}:generateContent"
@@ -38382,12 +38608,19 @@ class MainWindow(QMainWindow):
             }
             ctx = self._build_aits_ai_decision_context()
             group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
+            selected_provider_req = self._normalize_ai_refresh_provider_code(
+                request_context.get("provider_selected") or "gpt"
+            )
+            requested_model_req = str(request_context.get("requested_model") or model or "").strip()
             try:
                 ctx["decision_group_id"] = group_id
                 ctx["request_id"] = group_id
                 ctx["target_symbol"] = target_symbol
                 ctx["requested_symbol"] = target_symbol
                 ctx["normalized_symbol"] = target_symbol
+                ctx["provider_selected"] = selected_provider_req
+                ctx["selected_provider"] = selected_provider_req
+                ctx["requested_model"] = requested_model_req
             except Exception:
                 pass
             request_payload = {
@@ -38401,6 +38634,9 @@ class MainWindow(QMainWindow):
                 "fingerprint": current_fp,
                 "context": ctx,
                 "model": model,
+                "provider_selected": selected_provider_req,
+                "selected_provider": selected_provider_req,
+                "requested_model": requested_model_req,
                 "url": url,
                 "headers": headers,
                 "json": body,
@@ -47610,7 +47846,7 @@ class MainWindow(QMainWindow):
                 self._ai_briefing_pending_snapshot_symbol = selected_symbol
                 self._ai_briefing_last_snapshot_source = "manual_refresh"
                 self._aits_main_reco_manual_request = True
-                self._freeze_ai_refresh_request_context(target_info, group_id)
+                request_context = self._freeze_ai_refresh_request_context(target_info, group_id)
                 self._log.info(
                     "[AITS][AIJudgmentGroup] event=created group_id=%s symbol=%s source=manual_refresh submitted=0",
                     group_id,
@@ -47620,6 +47856,13 @@ class MainWindow(QMainWindow):
                     "[AITS][AIRefreshTarget] event=request_frozen group_id=%s symbol=%s submitted=0 order_allowed=False real_order=False",
                     group_id,
                     selected_symbol,
+                )
+                self._log.info(
+                    "[AITS][AIRefreshProviderContext] event=request_frozen group_id=%s symbol=%s provider_selected=%s requested_model=%s submitted=0",
+                    group_id,
+                    selected_symbol,
+                    request_context.get("provider_selected") or "local",
+                    request_context.get("requested_model") or "",
                 )
             except Exception:
                 pass

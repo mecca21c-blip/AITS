@@ -214,10 +214,22 @@ def normalize_ai_output_contract(
     if not selected:
         selected = actual or "local"
 
-    model_text = str(model or data.get("model") or data.get("selected_model") or data.get("actual_model") or "").strip()
-    if actual == "local" and re.search(r"gpt|gemini", model_text, flags=re.I):
-        warnings.append("provider_model_mismatch_removed")
+    invoked_model = str(data.get("invoked_model") or "").strip()
+    model_text = str(invoked_model or model or data.get("model") or data.get("selected_model") or data.get("actual_model") or "").strip()
+    ollama_invoked = bool(data.get("ollama_invoked"))
+    model_invoked = bool(data.get("model_invoked") or invoked_model or (actual in {"gpt", "gemini"} and model_text))
+    if actual == "local" and not ollama_invoked:
+        if model_text and re.search(r"gpt|gemini|qwen|llama|mistral", model_text, flags=re.I):
+            warnings.append("provider_model_mismatch_removed")
         model_text = ""
+        invoked_model = ""
+        model_invoked = False
+    elif actual == "local" and ollama_invoked and model_text:
+        invoked_model = model_text
+        model_invoked = True
+    elif actual in {"gpt", "gemini"} and model_text:
+        invoked_model = model_text
+        model_invoked = True
     engine_label = {"gpt": "GPT", "gemini": "Gemini", "local": "LOCAL 계산 기반"}.get(actual, "엔진 확인 필요")
     if actual in {"gpt", "gemini"} and model_text:
         engine_label = f"{engine_label} · {model_text}"
@@ -271,6 +283,9 @@ def normalize_ai_output_contract(
         "provider_selected": selected,
         "provider_actual": actual or "local",
         "model": model_text,
+        "invoked_model": invoked_model if model_invoked else "",
+        "model_invoked": bool(model_invoked),
+        "ollama_invoked": bool(ollama_invoked),
         "engine_label": engine_label,
         "analysis_kind": kind,
         "source": str(source or data.get("source") or ("local_basic" if actual == "local" else "manual_refresh")).strip(),
@@ -309,6 +324,13 @@ def contract_to_compat_payload(contract: dict[str, Any]) -> dict[str, Any]:
         "provider": c.get("provider_actual") or "local",
         "source": c.get("source") or "",
         "model": c.get("model") or "",
+        "invoked_model": c.get("invoked_model") or "",
+        "model_invoked": bool(c.get("model_invoked")),
+        "ollama_invoked": bool(c.get("ollama_invoked")),
+        "fallback_used": bool(c.get("fallback_used")),
+        "provider_selected": c.get("provider_selected") or "",
+        "provider_actual": c.get("provider_actual") or "",
+        "engine_label": c.get("engine_label") or "",
         "generated_at": c.get("generated_at") or "",
         "confidence": c.get("confidence"),
         "order_allowed": False,

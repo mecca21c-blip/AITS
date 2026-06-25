@@ -939,3 +939,19 @@ Policy intent:
 - Missing or invalid managed-row selection skips safely and does not start a provider call.
 - This work does not change provider call frequency, Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
 - Target-resolution logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## AI Refresh Provider Provenance
+
+`AI-REFRESH-PROVIDER-PROVENANCE-SYNC-FIX-01` fixes selected/actual engine provenance for explicit AI analysis refresh.
+
+Policy intent:
+
+- `provider_selected` is frozen once from the active engine selection at the click/request start moment.
+- `provider_actual` is resolved from the actual worker or LOCAL/Basic fallback result.
+- A later UI engine change must not rewrite the selected provider of an in-flight request.
+- GPT/Gemini success records keep the invoked provider and invoked model.
+- GPT/Gemini failure with Basic fallback keeps `provider_selected=gpt|gemini`, sets `provider_actual=local`, clears `invoked_model`, and marks `fallback_used=True`.
+- LOCAL Basic records use `provider_selected=local`, `provider_actual=local`, and display as `LOCAL 계산 기반`.
+- Configured model names and invoked model names remain separate; qwen/Ollama names are displayed only with actual invocation proof.
+- This policy does not change provider call frequency, automatic AI refresh rules, Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
+- Safety metadata remains `submitted=0`, `order_allowed=False`, and `real_order=False`.
