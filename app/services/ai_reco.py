@@ -150,6 +150,34 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
             for k in ("raw_ai_response", "rotation"):
                 if k in payload:
                     out[k] = payload[k]
+            for k in (
+                "symbol",
+                "market",
+                "target_symbol",
+                "requested_symbol",
+                "decision_group_id",
+                "request_id",
+                "manual_request_token",
+                "source_event",
+                "record_stage",
+                "provider_selected",
+                "selected_provider",
+                "selected_engine",
+                "provider_actual",
+                "actual_provider",
+                "provider",
+                "actual_engine",
+                "original_generation_engine",
+                "model",
+                "invoked_model",
+                "model_invoked",
+                "ollama_invoked",
+                "fallback_used",
+                "provider_fallback_confirmed",
+                "analysis_kind",
+            ):
+                if k in payload:
+                    out[k] = payload[k]
 
         use_basic = False
         market_rows: List[Dict[str, Any]] = []
@@ -185,8 +213,16 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
         contract = normalize_ai_output_contract(
             out,
             raw_response=out.get("raw_ai_response") or out,
-            provider_selected=out.get("selected_engine") or out.get("source") or "local",
-            provider_actual=out.get("actual_engine") or out.get("source") or "local",
+            provider_selected=out.get("provider_selected")
+            or out.get("selected_provider")
+            or out.get("selected_engine")
+            or out.get("source")
+            or "local",
+            provider_actual=out.get("provider_actual")
+            or out.get("actual_provider")
+            or out.get("provider")
+            or out.get("source")
+            or "local",
             source=out.get("source") or "local_basic",
             analysis_kind="local_calculation" if out.get("source") == "local" else "",
         )

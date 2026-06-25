@@ -1251,6 +1251,14 @@ class AITSProviderRefreshWorker(QThread):
             "submitted": 0,
             "order_allowed": False,
             "real_order": False,
+            "terminal": True,
+            "request_seq": int(self.request_payload.get("seq") or 0),
+            "target_symbol": str(self.request_payload.get("target_symbol") or self.request_payload.get("symbol") or "").strip(),
+            "provider_selected": str(self.request_payload.get("provider_selected") or self.request_payload.get("selected_provider") or provider or "").strip().lower(),
+            "provider_actual": "",
+            "requested_model": str(self.request_payload.get("requested_model") or self.request_payload.get("model") or ""),
+            "invoked_model": "",
+            "fallback_required": False,
         }
         try:
             import requests
@@ -1292,6 +1300,8 @@ class AITSProviderRefreshWorker(QThread):
                     return
                 result["ok"] = True
                 result["text"] = text_out
+                result["provider_actual"] = provider
+                result["invoked_model"] = str(result.get("model") or "")
                 return
 
             if provider == "gpt":
@@ -1320,6 +1330,8 @@ class AITSProviderRefreshWorker(QThread):
                     return
                 result["ok"] = True
                 result["text"] = ai_raw_text
+                result["provider_actual"] = provider
+                result["invoked_model"] = str(result.get("model") or "")
                 return
 
             result["error_summary"] = f"unsupported provider: {provider or 'unknown'}"
@@ -1330,6 +1342,17 @@ class AITSProviderRefreshWorker(QThread):
             result["error_summary"] = type(exc).__name__
         finally:
             result["elapsed_ms"] = int(max(0.0, (time.time() - started) * 1000.0))
+            result["fallback_required"] = bool(not result.get("ok"))
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AIRefreshWorker] event=result_emitted group_id=%s request_seq=%s provider_selected=%s ok=%s terminal=True submitted=0 order_allowed=False real_order=False",
+                    str(result.get("decision_group_id") or result.get("request_id") or ""),
+                    str(result.get("seq") or result.get("request_seq") or ""),
+                    str(result.get("provider_selected") or provider or ""),
+                    bool(result.get("ok")),
+                )
+            except Exception:
+                pass
             self.result_ready.emit(dict(result))
 
 
@@ -6329,7 +6352,7 @@ class AITSLargeChartDialog(QDialog):
                 return "GPT"
             if raw in ("gemini", "google") or raw.startswith("gemini"):
                 return "Gemini"
-            if raw in ("local", "local_ai", "basic", "ollama", "base"):
+            if raw in ("local", "local_ai", "basic", "ollama", "base") or raw.startswith("local") or "calculation" in raw:
                 return "LOCAL"
             return str(value or "").strip() or "engine_unknown"
         except Exception:
@@ -6483,6 +6506,15 @@ class AITSLargeChartDialog(QDialog):
                 except Exception:
                     model_raw = ""
             engine_norm = self._normalize_detail_chart_snapshot_engine(engine_raw or provider)
+            provider_actual_for_snapshot = str(
+                payload.get("provider_actual")
+                or payload.get("actual_provider")
+                or (output_contract or {}).get("provider_actual")
+                or provider
+                or ""
+            ).strip().lower()
+            if provider_actual_for_snapshot in ("local", "basic", "local_ai", "base"):
+                engine_norm = "LOCAL"
             analysis_kind = str(payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "").strip().lower()
             model_invoked = bool(payload.get("model_invoked") or (output_contract or {}).get("model_invoked"))
             ollama_invoked = bool(payload.get("ollama_invoked") or (output_contract or {}).get("ollama_invoked"))
@@ -9916,6 +9948,24 @@ class MainWindow(QMainWindow):
             if ai_refresh is not None:
                 ai_refresh.setMinimumHeight(30)
                 ai_refresh.setMaximumHeight(30)
+                try:
+                    ai_refresh.clicked.disconnect()
+                except Exception:
+                    pass
+                try:
+                    ai_refresh.clicked.connect(self._on_ai_analysis_refresh_button_clicked)
+                    logging.getLogger("aits").info(
+                        "[AITS][AIRefreshButton] event=wired owner=shell_status_row object_name=%s submitted=0",
+                        str(ai_refresh.objectName() or ""),
+                    )
+                except Exception as exc:
+                    try:
+                        logging.getLogger("aits").warning(
+                            "[AITS][AIRefreshButton] event=wire_failed owner=shell_status_row error_type=%s submitted=0",
+                            type(exc).__name__,
+                        )
+                    except Exception:
+                        pass
             if logb is not None:
                 logb.setMinimumHeight(30)
                 logb.setMaximumHeight(30)
@@ -14032,9 +14082,10 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QObject
         
         class ButtonEventFilter(QObject):
-            def __init__(self, log):
+            def __init__(self, log, owner=None):
                 super().__init__()
                 self._log = log
+                self._owner = owner
 
             def _name_of(self, obj):
                 try:
@@ -14071,13 +14122,24 @@ class MainWindow(QMainWindow):
                         except Exception:
                             inside = False
                         self._log.info(f"[BTN-EVENT] release name={name} pos={pos} inside={inside}")
+                        if name == "managed_ai_analysis_refresh" and inside:
+                            try:
+                                owner = getattr(self, "_owner", None)
+                                if owner is not None and hasattr(owner, "_on_ai_analysis_refresh_button_clicked"):
+                                    owner._on_ai_analysis_refresh_button_clicked(False)
+                                    return True
+                            except Exception as exc:
+                                try:
+                                    self._log.warning(f"[AITS][AIRefreshButton] event=filter_dispatch_failed error_type={type(exc).__name__} submitted=0")
+                                except Exception:
+                                    pass
                     except Exception:
                         self._log.info(f"[BTN-EVENT] release name={name}")
                 return False  # ✅ 이벤트 전파 유지
 
         # ✅ 반드시 설치: 클릭이 UI에 들어오는지부터 증거로 확인하기 위함
         try:
-            self._btn_event_filter = ButtonEventFilter(self._log)
+            self._btn_event_filter = ButtonEventFilter(self._log, self)
             self.btn_run_toggle.installEventFilter(self._btn_event_filter)
             self.btn_sellall.installEventFilter(self._btn_event_filter)
             self.btn_refresh.installEventFilter(self._btn_event_filter)
@@ -16332,8 +16394,12 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
+            try:
+                self.btn_ai_analysis_refresh.clicked.disconnect()
+            except Exception:
+                pass
             self.btn_ai_analysis_refresh.clicked.connect(
-                self._on_ai_analysis_refresh_clicked
+                self._on_ai_analysis_refresh_button_clicked
             )
         except Exception:
             pass
@@ -25875,6 +25941,8 @@ class MainWindow(QMainWindow):
         try:
             symbol = str((target_info or {}).get("symbol") or "").strip()
             provider_ctx = self._resolve_ai_refresh_provider_context()
+            request_seq = int(getattr(self, "_aits_ai_refresh_request_seq", 0) or 0) + 1
+            self._aits_ai_refresh_request_seq = request_seq
             row_obj = (target_info or {}).get("row") if isinstance(target_info, dict) else None
             row_snapshot = {}
             if isinstance(row_obj, dict):
@@ -25903,6 +25971,8 @@ class MainWindow(QMainWindow):
                 "target_row_index": int((target_info or {}).get("row_index") or -1),
                 "source": str((target_info or {}).get("source") or "managed_tab"),
                 "manual_refresh": True,
+                "manual_request_token": str(decision_group_id or f"manual-{request_seq}"),
+                "request_seq": request_seq,
                 "provider_selected": provider_ctx.get("provider_selected") or "local",
                 "selected_provider": provider_ctx.get("provider_selected") or "local",
                 "selected_engine_label": provider_ctx.get("selected_engine_label") or "LOCAL",
@@ -25943,10 +26013,17 @@ class MainWindow(QMainWindow):
 
     def _resolve_ai_refresh_provider_context(self) -> dict:
         try:
+            visible_provider = ""
+            try:
+                visible_provider = self._normalize_ai_provider_code(getattr(self, "_applied_ai_provider", "") or "")
+                if visible_provider == "basic":
+                    visible_provider = "local"
+            except Exception:
+                visible_provider = ""
             candidates = [
-                getattr(self, "_selected_ai_provider", ""),
-                getattr(self, "_ai_provider_box_active", ""),
                 getattr(self, "_applied_ai_provider", ""),
+                getattr(self, "_ai_provider_box_active", ""),
+                getattr(self, "_selected_ai_provider", ""),
             ]
             try:
                 candidates.append(self._get_aits_engine_ssot())
@@ -25968,6 +26045,15 @@ class MainWindow(QMainWindow):
                 except Exception:
                     requested_model = ""
                 configured_model = requested_model
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AIRefreshProviderContext] event=resolved provider_selected=%s visible_provider=%s candidates=%s submitted=0",
+                    provider,
+                    visible_provider or "unknown",
+                    ",".join(str(x or "") for x in candidates[:4]),
+                )
+            except Exception:
+                pass
             return {
                 "provider_selected": provider,
                 "selected_provider": provider,
@@ -25990,6 +26076,104 @@ class MainWindow(QMainWindow):
             return dict(ctx) if isinstance(ctx, dict) else {}
         except Exception:
             return {}
+
+    def _ai_reco_payload_matches_active_manual_request(self, payload: dict) -> tuple[bool, str]:
+        try:
+            payload = payload if isinstance(payload, dict) else {}
+            ctx = self._get_ai_refresh_request_context()
+            if not ctx:
+                return False, "missing_context"
+            ctx_group = str(ctx.get("decision_group_id") or ctx.get("request_id") or "").strip()
+            payload_group = str(payload.get("decision_group_id") or payload.get("request_id") or "").strip()
+            ctx_symbol = self._normalize_market_symbol_for_ai_snapshot(ctx.get("target_symbol") or ctx.get("requested_symbol") or "")
+            payload_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                payload.get("target_symbol") or payload.get("requested_symbol") or payload.get("symbol") or payload.get("market") or ""
+            )
+            ctx_provider = self._normalize_ai_refresh_provider_code(ctx.get("provider_selected") or "")
+            payload_selected = self._normalize_ai_refresh_provider_code(
+                payload.get("provider_selected") or payload.get("selected_provider") or payload.get("selected_engine") or ""
+            )
+            payload_actual = self._normalize_ai_refresh_provider_code(
+                payload.get("provider_actual") or payload.get("actual_provider") or payload.get("provider") or payload.get("source") or ""
+            )
+            group_ok = bool(ctx_group and payload_group and ctx_group == payload_group)
+            symbol_ok = bool(ctx_symbol and payload_symbol and ctx_symbol == payload_symbol)
+            selected_ok = bool(
+                payload_selected
+                and payload_selected == ctx_provider
+                and payload_actual == ctx_provider
+            )
+            if (
+                ctx_provider in ("gpt", "gemini")
+                and payload_actual == "local"
+                and bool(getattr(self, "_aits_main_reco_inflight", False))
+            ):
+                return False, "provider_worker_inflight"
+            fallback_reason = str(
+                payload.get("reason")
+                or payload.get("error_summary")
+                or payload.get("failure_reason")
+                or ""
+            ).strip().lower()
+            fallback_reason_ok = any(
+                token in fallback_reason
+                for token in ("fallback", "timeout", "watchdog", "failed", "failure")
+            )
+            fallback_source_ok = str(payload.get("source_event") or "").strip() == "provider_fallback"
+            fallback_ok = bool(
+                ctx_provider in ("gpt", "gemini")
+                and payload_actual == "local"
+                and bool(payload.get("provider_fallback_confirmed"))
+                and bool(payload.get("fallback_used") or payload.get("basic_fallback"))
+                and group_ok
+                and symbol_ok
+            )
+            local_manual_ok = bool(ctx_provider == "local" and payload_actual == "local" and group_ok and symbol_ok)
+            provider_ok = bool(selected_ok or fallback_ok or local_manual_ok)
+            if group_ok and symbol_ok and provider_ok:
+                return True, "matched"
+            return False, (
+                f"group_ok={group_ok};symbol_ok={symbol_ok};provider_ok={provider_ok};"
+                f"ctx_provider={ctx_provider};payload_selected={payload_selected};payload_actual={payload_actual};"
+                f"fallback_confirmed={bool(payload.get('provider_fallback_confirmed'))};"
+                f"source_event={str(payload.get('source_event') or '')};reason={fallback_reason[:80]}"
+            )
+        except Exception as exc:
+            return False, f"guard_error:{type(exc).__name__}"
+
+
+    def _on_ai_analysis_refresh_button_clicked(self, checked=False) -> None:
+        """Qt clicked(bool) wrapper for the visible managed-tab AI refresh button."""
+        try:
+            target_info = self._resolve_ai_refresh_target_symbol(None, None, "managed_tab")
+            symbol = str((target_info or {}).get("symbol") or "").strip()
+            provider_ctx = self._resolve_ai_refresh_provider_context()
+            btn = getattr(self, "btn_ai_analysis_refresh", None)
+            try:
+                self._log.info(
+                    "[AITS][AIRefreshButton] event=clicked object_name=%s visible=%s enabled=%s provider_ui=%s provider_ssot=%s target_symbol=%s submitted=0 order_allowed=False real_order=False",
+                    str(btn.objectName() or "") if btn is not None and hasattr(btn, "objectName") else "unknown",
+                    bool(btn.isVisible()) if btn is not None and hasattr(btn, "isVisible") else False,
+                    bool(btn.isEnabled()) if btn is not None and hasattr(btn, "isEnabled") else False,
+                    str(provider_ctx.get("selected_engine_label") or "").strip() or "unknown",
+                    str(provider_ctx.get("provider_selected") or "").strip() or "unknown",
+                    symbol or "unknown",
+                )
+            except Exception:
+                pass
+            self._on_ai_analysis_refresh_clicked(
+                target_symbol=symbol or None,
+                target_row=(target_info or {}).get("row") if isinstance(target_info, dict) else None,
+                source="managed_tab",
+            )
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][AIRefreshButton] event=click_failed error_type=%s submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
 
     def _current_managed_ui_symbol_for_ai_refresh(self) -> str:
         try:
@@ -26030,7 +26214,7 @@ class MainWindow(QMainWindow):
                 return "GPT"
             if raw in ("gemini", "google") or raw.startswith("gemini"):
                 return "Gemini"
-            if raw in ("local", "local_ai", "basic", "ollama", "base"):
+            if raw in ("local", "local_ai", "basic", "ollama", "base") or raw.startswith("local") or "calculation" in raw:
                 return "LOCAL"
             return str(value or "").strip() or "engine_unknown"
         except Exception:
@@ -27339,6 +27523,15 @@ class MainWindow(QMainWindow):
                 except Exception:
                     model_raw = ""
             engine_norm = self._normalize_detail_chart_snapshot_engine(engine_raw or provider)
+            provider_actual_for_snapshot = str(
+                payload.get("provider_actual")
+                or payload.get("actual_provider")
+                or (output_contract or {}).get("provider_actual")
+                or provider
+                or ""
+            ).strip().lower()
+            if provider_actual_for_snapshot in ("local", "basic", "local_ai", "base"):
+                engine_norm = "LOCAL"
             analysis_kind = str(payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "").strip().lower()
             model_invoked = bool(payload.get("model_invoked") or (output_contract or {}).get("model_invoked"))
             ollama_invoked = bool(payload.get("ollama_invoked") or (output_contract or {}).get("ollama_invoked"))
@@ -37067,6 +37260,7 @@ class MainWindow(QMainWindow):
                 "model_invoked": False,
                 "ollama_invoked": False,
                 "fallback_used": provider_fallback,
+                "provider_fallback_confirmed": provider_fallback,
             }
             if str(engine_mode or "").strip():
                 payload["engine_mode"] = str(engine_mode or "").strip()
@@ -37075,13 +37269,47 @@ class MainWindow(QMainWindow):
             group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id(payload, {}, target_symbol, "manual_refresh")
             payload.setdefault("decision_group_id", group_id)
             payload.setdefault("request_id", group_id)
+            payload.setdefault("manual_request_token", request_context.get("manual_request_token") or group_id)
+            payload.setdefault("source_event", "provider_fallback")
             payload.setdefault("record_stage", "ai_original")
             payload.setdefault("analysis_kind", "provider_fallback" if provider_fallback else "local_calculation")
             payload.setdefault("provider_selected", selected_provider)
             payload.setdefault("provider_actual", "local")
             payload.setdefault("model_invoked", False)
             payload.setdefault("ollama_invoked", False)
-            ai_reco.update(payload=payload, from_boot=True)
+            try:
+                self._log.info(
+                    "[AITS][AIRefreshWorker] event=fallback_publish group_id=%s provider_selected=%s provider_actual=local confirmed=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    str(payload.get("decision_group_id") or ""),
+                    str(selected_provider or "local"),
+                    bool(payload.get("provider_fallback_confirmed")),
+                    str(payload.get("reason") or "")[:120],
+                )
+            except Exception:
+                pass
+            fallback_group_id = str(payload.get("decision_group_id") or payload.get("request_id") or "")
+            try:
+                if fallback_group_id:
+                    self._aits_provider_refresh_event_applied_group_id = ""
+            except Exception:
+                pass
+            fallback_out = ai_reco.update(payload=payload, from_boot=True)
+            try:
+                if fallback_group_id and str(getattr(self, "_aits_provider_refresh_event_applied_group_id", "") or "") != fallback_group_id:
+                    logging.getLogger("aits").warning(
+                        "[AITS][AIRefreshWorker] event=fallback_apply_missing group_id=%s action=direct_apply submitted=0 order_allowed=False real_order=False",
+                        fallback_group_id,
+                    )
+                    self._on_ai_reco_updated(fallback_out if isinstance(fallback_out, dict) else payload)
+            except Exception as exc:
+                try:
+                    logging.getLogger("aits").warning(
+                        "[AITS][AIRefreshWorker] event=fallback_direct_apply_failed group_id=%s error_type=%s submitted=0 order_allowed=False real_order=False",
+                        fallback_group_id,
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
         except Exception:
             pass
 
@@ -37185,7 +37413,7 @@ class MainWindow(QMainWindow):
             provider = str(request_payload.get("provider") or "unknown").strip().lower()
             symbol = str(request_payload.get("symbol") or "unknown").strip()
             try:
-                self._log.info(
+                logging.getLogger("aits").info(
                     "[AITS][AIRefreshWorker] event=start provider=%s symbol=%s manual_refresh=True submitted=0",
                     provider,
                     symbol,
@@ -37195,10 +37423,19 @@ class MainWindow(QMainWindow):
             worker.result_ready.connect(self._on_aits_provider_refresh_worker_result)
             worker.finished.connect(lambda w=worker: self._cleanup_aits_provider_refresh_worker(w))
             worker.start()
+            try:
+                timeout_sec = int(request_payload.get("timeout_sec") or 90)
+                seq = int(request_payload.get("seq") or 0)
+                QTimer.singleShot(
+                    max(5000, timeout_sec * 1000 + 5000),
+                    lambda s=seq, p=provider, y=symbol: self._on_aits_provider_refresh_worker_watchdog(s, p, y),
+                )
+            except Exception:
+                pass
             return True
         except Exception as exc:
             try:
-                self._log.warning(
+                logging.getLogger("aits").warning(
                     "[AITS][AIRefreshWorker] event=start_failed provider=%s error_type=%s submitted=0",
                     str((request_payload or {}).get("provider") or "unknown").strip().lower(),
                     type(exc).__name__,
@@ -37219,14 +37456,92 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+
+    def _on_aits_provider_refresh_worker_watchdog(self, seq: int, provider: str, symbol: str) -> None:
+        try:
+            seq = int(seq or 0)
+        except Exception:
+            seq = 0
+        try:
+            latest_applied = int(getattr(self, "_aits_main_reco_latest_applied_seq", 0) or 0)
+            latest_requested = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
+            inflight = bool(getattr(self, "_aits_main_reco_inflight", False))
+            ctx = self._get_ai_refresh_request_context()
+            ctx_group = str(ctx.get("decision_group_id") or ctx.get("request_id") or "").strip()
+            completed_group = str(getattr(self, "_aits_provider_refresh_completed_group_id", "") or "").strip()
+            if not seq or latest_requested != seq or (ctx_group and completed_group == ctx_group):
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][AIRefreshWorker] event=watchdog_skip provider=%s symbol=%s seq=%s latest_requested=%s latest_applied=%s inflight=%s completed_group=%s ctx_group=%s submitted=0",
+                        str(provider or "unknown"),
+                        str(symbol or "unknown"),
+                        seq,
+                        latest_requested,
+                        latest_applied,
+                        bool(inflight),
+                        completed_group,
+                        ctx_group,
+                    )
+                except Exception:
+                    pass
+                return
+            timed_out = getattr(self, "_aits_provider_refresh_timed_out_seqs", None)
+            if not isinstance(timed_out, set):
+                timed_out = set()
+                self._aits_provider_refresh_timed_out_seqs = timed_out
+            timed_out.add(seq)
+            self._aits_main_reco_inflight = False
+            self._log.warning(
+                "[AITS][AIRefreshWorker] event=watchdog_timeout provider=%s symbol=%s seq=%s submitted=0 order_allowed=False real_order=False",
+                str(provider or "unknown"),
+                str(symbol or "unknown"),
+                seq,
+            )
+            self._publish_aits_basic_fallback_reco(
+                str(provider or "gpt"),
+                "provider_worker_watchdog_timeout",
+            )
+            try:
+                self._aits_main_reco_latest_applied_seq = seq
+                self._aits_main_reco_last_completed_ts = time.time()
+                self._aits_provider_refresh_completed_group_id = ctx_group
+            except Exception:
+                pass
+        except Exception:
+            pass
+
     def _on_aits_provider_refresh_worker_result(self, result: dict) -> None:
         result = result if isinstance(result, dict) else {}
         provider = str(result.get("provider") or "unknown").strip().lower()
         symbol = str(result.get("symbol") or "unknown").strip()
         ok = bool(result.get("ok"))
         try:
+            logging.getLogger("aits").info(
+                "[AITS][AIRefreshWorker] event=result_slot_enter group_id=%s request_seq=%s provider_selected=%s provider_actual=%s ok=%s submitted=0 order_allowed=False real_order=False",
+                str(result.get("decision_group_id") or result.get("request_id") or ""),
+                str(result.get("seq") or result.get("request_seq") or ""),
+                str(result.get("provider_selected") or provider or ""),
+                str(result.get("provider_actual") or result.get("provider") or ""),
+                bool(ok),
+            )
+        except Exception:
+            pass
+        try:
             latest_seq = int(getattr(self, "_aits_main_reco_request_seq", 0) or 0)
             result_seq = int(result.get("seq") or 0)
+            timed_out = getattr(self, "_aits_provider_refresh_timed_out_seqs", set())
+            if result_seq and isinstance(timed_out, set) and result_seq in timed_out:
+                logging.getLogger("aits").info(
+                    "[AITS][AIRefreshWorker] event=late_result_skip provider=%s symbol=%s seq=%s reason=watchdog_timeout submitted=0",
+                    provider,
+                    symbol,
+                    result_seq,
+                )
+                try:
+                    self._aits_main_reco_inflight = False
+                except Exception:
+                    pass
+                return
             if result_seq and result_seq < latest_seq:
                 self._log.info(
                     "[AITS][AIRefreshWorker] event=stale_result_skip provider=%s symbol=%s seq=%s latest_seq=%s submitted=0",
@@ -37272,9 +37587,7 @@ class MainWindow(QMainWindow):
                 )
                 self._aits_last_ai_raw_response = str(result.get("text") or "")
                 try:
-                    self._aits_main_reco_latest_applied_seq = int(result.get("seq") or 0)
                     self._aits_main_reco_latest_payload_fp = str(result.get("fingerprint") or "")
-                    self._aits_main_reco_last_completed_ts = time.time()
                 except Exception:
                     pass
                 try:
@@ -37295,10 +37608,52 @@ class MainWindow(QMainWindow):
                     self._update_engine_ui_ssot()
                 except Exception:
                     pass
+                publish_group_id = str(reco_payload.get("decision_group_id") or result_context.get("decision_group_id") or "")
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][AIRefreshWorker] event=canonical_publish group_id=%s symbol=%s submitted=0 order_allowed=False real_order=False",
+                        publish_group_id,
+                        str(reco_payload.get("target_symbol") or reco_payload.get("symbol") or target_symbol or ""),
+                    )
+                except Exception:
+                    pass
+                try:
+                    if publish_group_id:
+                        self._aits_provider_refresh_event_applied_group_id = ""
+                except Exception:
+                    pass
                 eventbus.publish("ai.reco.updated", reco_payload)
                 try:
-                    self._log.info(
-                        "[AITS][AIRefreshProviderContext] event=result_resolved group_id=%s provider_selected=%s provider_actual=%s invoked_model=%s fallback=False submitted=0",
+                    if publish_group_id and str(getattr(self, "_aits_provider_refresh_event_applied_group_id", "") or "") != publish_group_id:
+                        logging.getLogger("aits").warning(
+                            "[AITS][AIRefreshWorker] event=event_apply_missing group_id=%s action=direct_apply submitted=0 order_allowed=False real_order=False",
+                            publish_group_id,
+                        )
+                        self._on_ai_reco_updated(reco_payload)
+                except Exception as exc:
+                    try:
+                        logging.getLogger("aits").warning(
+                            "[AITS][AIRefreshWorker] event=direct_apply_failed group_id=%s error_type=%s submitted=0 order_allowed=False real_order=False",
+                            publish_group_id,
+                            type(exc).__name__,
+                        )
+                    except Exception:
+                        pass
+                try:
+                    if publish_group_id and str(getattr(self, "_aits_provider_refresh_event_applied_group_id", "") or "") == publish_group_id:
+                        self._aits_main_reco_latest_applied_seq = int(result.get("seq") or 0)
+                        self._aits_main_reco_last_completed_ts = time.time()
+                        self._aits_provider_refresh_completed_group_id = publish_group_id
+                    else:
+                        logging.getLogger("aits").warning(
+                            "[AITS][AIRefreshWorker] event=event_apply_unconfirmed group_id=%s submitted=0 order_allowed=False real_order=False",
+                            publish_group_id,
+                        )
+                except Exception:
+                    pass
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][AIRefreshWorker] event=result_resolved group_id=%s provider_selected=%s provider_actual=%s invoked_model=%s fallback=False submitted=0",
                         reco_payload.get("decision_group_id") or result_context.get("decision_group_id") or "",
                         reco_payload.get("provider_selected") or result_context.get("provider_selected") or provider,
                         reco_payload.get("provider_actual") or provider,
@@ -37373,7 +37728,18 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+            try:
+                self._aits_main_reco_inflight = False
+            except Exception:
+                pass
             self._publish_aits_basic_fallback_reco(provider, f"{provider} fallback: {error_summary[:160]}")
+            try:
+                self._aits_main_reco_latest_applied_seq = int(result.get("seq") or 0)
+                self._aits_main_reco_last_completed_ts = time.time()
+                req_ctx_done = self._get_ai_refresh_request_context()
+                self._aits_provider_refresh_completed_group_id = str(req_ctx_done.get("decision_group_id") or req_ctx_done.get("request_id") or "")
+            except Exception:
+                pass
         except Exception as exc:
             try:
                 self._log.warning(
@@ -38312,6 +38678,8 @@ class MainWindow(QMainWindow):
                         "decision_group_id": group_id_fb,
                         "request_id": group_id_fb,
                         "record_stage": "ai_original",
+                        "manual_request_token": request_context.get("manual_request_token") or group_id_fb,
+                        "source_event": "provider_fallback",
                         "analysis_kind": "provider_fallback" if provider_fallback_fb else "local_calculation",
                         "provider_selected": selected_provider_fb,
                         "selected_provider": selected_provider_fb,
@@ -38349,6 +38717,14 @@ class MainWindow(QMainWindow):
                 engine_mode = "basic" if frozen_provider == "local" else frozen_provider
                 if frozen_provider in ("gpt", "gemini"):
                     prov = frozen_provider
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AIRefreshDispatch] event=provider_branch branch=%s group_id=%s submitted=0 order_allowed=False real_order=False",
+                    "local_basic" if engine_mode == "basic" else str(engine_mode or "unknown"),
+                    str((request_context or {}).get("decision_group_id") or ""),
+                )
+            except Exception:
+                pass
 
             if engine_mode == "basic":
                 try:
@@ -38367,6 +38743,44 @@ class MainWindow(QMainWindow):
                         )
                     except Exception:
                         basic_payload["basic_config"] = {}
+                    try:
+                        selected_provider_basic = self._normalize_ai_refresh_provider_code(
+                            request_context.get("provider_selected") or engine_mode or "local"
+                        )
+                        target_symbol_basic = self._normalize_market_symbol_for_ai_snapshot(
+                            request_context.get("target_symbol") or request_context.get("requested_symbol") or target_symbol or ""
+                        )
+                        group_id_basic = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol_basic, "manual_refresh")
+                        provider_fallback_basic = selected_provider_basic in ("gpt", "gemini")
+                        basic_payload.update(
+                            {
+                                "symbol": target_symbol_basic,
+                                "market": target_symbol_basic,
+                                "target_symbol": target_symbol_basic,
+                                "requested_symbol": target_symbol_basic,
+                                "decision_group_id": group_id_basic,
+                                "request_id": group_id_basic,
+                                "manual_request_token": request_context.get("manual_request_token") or group_id_basic,
+                                "record_stage": "ai_original",
+                                "source_event": "manual_refresh",
+                                "analysis_kind": "provider_fallback" if provider_fallback_basic else "local_calculation",
+                                "provider_selected": selected_provider_basic,
+                                "selected_provider": selected_provider_basic,
+                                "selected_engine": selected_provider_basic,
+                                "provider_actual": "local",
+                                "actual_provider": "local",
+                                "provider": "local",
+                                "actual_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                                "original_generation_engine": "LOCAL \uacc4\uc0b0 \uae30\ubc18",
+                                "model": "",
+                                "invoked_model": "",
+                                "model_invoked": False,
+                                "ollama_invoked": False,
+                                "fallback_used": provider_fallback_basic,
+                            }
+                        )
+                    except Exception:
+                        pass
                     ai_reco.update(
                         payload=basic_payload,
                         from_boot=True,
@@ -38400,6 +38814,8 @@ class MainWindow(QMainWindow):
                                 "decision_group_id": group_id_ex,
                                 "request_id": group_id_ex,
                                 "record_stage": "ai_original",
+                                "manual_request_token": request_context.get("manual_request_token") or group_id_ex,
+                                "source_event": "provider_fallback",
                                 "analysis_kind": "provider_fallback" if provider_fallback_ex else "local_calculation",
                                 "provider_selected": selected_provider_ex,
                                 "selected_provider": selected_provider_ex,
@@ -45604,6 +46020,26 @@ class MainWindow(QMainWindow):
 
             _raw = _payload
             _pl = (_raw.get("advice") if isinstance(_raw, dict) and "advice" in _raw else _raw) or {}
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AIRefreshApply] event=event_received group_id=%s symbol=%s provider_selected=%s provider_actual=%s submitted=0 order_allowed=False real_order=False",
+                    str((_pl or {}).get("decision_group_id") or (_pl or {}).get("request_id") or ""),
+                    str((_pl or {}).get("target_symbol") or (_pl or {}).get("requested_symbol") or (_pl or {}).get("symbol") or ""),
+                    str((_pl or {}).get("provider_selected") or (_pl or {}).get("selected_provider") or ""),
+                    str((_pl or {}).get("provider_actual") or (_pl or {}).get("actual_provider") or (_pl or {}).get("provider") or (_pl or {}).get("source") or ""),
+                )
+            except Exception:
+                pass
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][AIRecoManualGuard] event=entry pending=%s payload_provider=%s payload_source=%s group_id=%s submitted=0",
+                    bool(getattr(self, "_ai_briefing_pending_manual_request", False)),
+                    str((_pl or {}).get("provider_actual") or (_pl or {}).get("actual_provider") or (_pl or {}).get("provider") or ""),
+                    str((_pl or {}).get("source") or ""),
+                    str((_pl or {}).get("decision_group_id") or (_pl or {}).get("request_id") or ""),
+                )
+            except Exception:
+                pass
 
             try:
                 raw_text_probe = str(
@@ -45687,7 +46123,23 @@ class MainWindow(QMainWindow):
                 )
             parsed = self._parse_aits_ai_response(ai_raw_text)
             try:
-                manual_generation = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
+                manual_pending = bool(getattr(self, "_ai_briefing_pending_manual_request", False))
+                manual_generation = False
+                manual_guard_reason = "not_pending"
+                if manual_pending:
+                    manual_generation, manual_guard_reason = self._ai_reco_payload_matches_active_manual_request(_pl if isinstance(_pl, dict) else {})
+                    if not manual_generation:
+                        try:
+                            ctx = self._get_ai_refresh_request_context()
+                            logging.getLogger("aits").info(
+                                "[AITS][AIRecoManualGuard] event=sidechannel_skip payload_provider=%s active_provider=%s reason=%s manual_recorded=False submitted=0 order_allowed=False real_order=False",
+                                str((_pl or {}).get("provider_actual") or (_pl or {}).get("actual_provider") or (_pl or {}).get("provider") or (_pl or {}).get("source") or "unknown"),
+                                str(ctx.get("provider_selected") or "unknown"),
+                                str(manual_guard_reason or "mismatch")[:180],
+                            )
+                        except Exception:
+                            pass
+                        return
                 request_symbol = ""
                 self._remember_ai_briefing_engine_meta(_pl, force=manual_generation)
                 try:
@@ -45727,6 +46179,22 @@ class MainWindow(QMainWindow):
                         payload=_pl,
                         parsed=parsed,
                     )
+                    try:
+                        applied_group_id = str((_pl or {}).get("decision_group_id") or (_pl or {}).get("request_id") or "")
+                        if applied_group_id:
+                            self._aits_provider_refresh_event_applied_group_id = applied_group_id
+                        logging.getLogger("aits").info(
+                            "[AITS][AIRefreshApply] event=snapshot_recorded group_id=%s symbol=%s submitted=0 order_allowed=False real_order=False",
+                            applied_group_id,
+                            request_symbol or getattr(self, "_ai_briefing_pending_snapshot_symbol", "") or "",
+                        )
+                        logging.getLogger("aits").info(
+                            "[AITS][AIRefreshApply] event=journal_recorded group_id=%s stage=%s submitted=0 order_allowed=False real_order=False",
+                            applied_group_id,
+                            str((_pl or {}).get("record_stage") or ""),
+                        )
+                    except Exception:
+                        pass
                     try:
                         classification = "manual_refresh_only" if source == "manual_refresh" else "runtime_auto_generated"
                         self._log.info(
@@ -47863,6 +48331,12 @@ class MainWindow(QMainWindow):
                     selected_symbol,
                     request_context.get("provider_selected") or "local",
                     request_context.get("requested_model") or "",
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][AIRefreshDispatch] event=handler_enter provider_selected=%s symbol=%s group_id=%s submitted=0 order_allowed=False real_order=False",
+                    request_context.get("provider_selected") or "local",
+                    selected_symbol,
+                    group_id,
                 )
             except Exception:
                 pass

@@ -955,3 +955,19 @@ Policy intent:
 - Configured model names and invoked model names remain separate; qwen/Ollama names are displayed only with actual invocation proof.
 - This policy does not change provider call frequency, automatic AI refresh rules, Router action, Risk Guard policy, order submission, execution behavior, or actual trade storage.
 - Safety metadata remains `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
+## AI Refresh Worker Result Delivery
+
+`AI-REFRESH-WORKER-RESULT-DELIVERY-RUNTIME-FIX-01` makes the explicit GPT/Gemini refresh worker terminal path observable and recoverable.
+
+Policy intent:
+
+- A visible managed-tab `AI analysis refresh` click freezes the request group, target symbol, selected provider, and safety metadata before worker dispatch.
+- GPT/Gemini workers emit exactly one compact terminal result for success, failure, or timeout; raw prompts, API keys, full HTTP bodies, account payloads, and order payloads are not logged.
+- The main-thread result slot records `result_slot_enter`, then either publishes a provider success payload or a confirmed LOCAL calculation fallback for the same request group.
+- A request is completed only after canonical publish reaches the `ai.reco.updated` apply path and snapshot/journal proof is recorded.
+- If the event bus does not synchronously apply the payload, the same canonical payload is applied directly once; same-stage journal dedupe remains the duplicate guard.
+- Watchdog completion uses the current request group terminal/apply state, not unrelated runtime LOCAL updates or global counters.
+- Unrelated LOCAL/Basic side-channel payloads cannot consume or complete an active GPT/Gemini manual request.
+- This work does not add automatic GPT/Gemini calls, change provider call frequency, promote Ollama, or touch Router, Risk Guard, execution, order submission, or actual trade storage.
+- Worker delivery logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
