@@ -958,10 +958,10 @@ class TradeLogCenterTab(QWidget):
 
     def _build_provider_call_proof_display(self, row: dict[str, Any] | None) -> dict[str, str]:
         row = row if isinstance(row, dict) else {}
-        attempted = bool(row.get("provider_call_attempted"))
         success = bool(row.get("provider_success"))
         status = row.get("http_status")
         error_code = str(row.get("error_code") or row.get("error_type") or "").strip()
+        attempted = bool(row.get("provider_call_attempted") or status or error_code)
         if not attempted:
             response_status = "외부 API 호출 없음"
         elif success:

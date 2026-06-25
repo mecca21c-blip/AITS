@@ -1272,7 +1272,8 @@ class AITSProviderRefreshWorker(QThread):
             "provider_request_sent_at": "",
             "provider_endpoint_type": "",
             "model_display_name": str(self.request_payload.get("model_display_name") or self.request_payload.get("model") or ""),
-            "model_requested": str(self.request_payload.get("model") or self.request_payload.get("requested_model") or ""),
+            "model_api_id": str(self.request_payload.get("model_api_id") or self.request_payload.get("model_requested") or self.request_payload.get("model") or self.request_payload.get("requested_model") or ""),
+            "model_requested": str(self.request_payload.get("model_requested") or self.request_payload.get("model_api_id") or self.request_payload.get("model") or self.request_payload.get("requested_model") or ""),
             "model_returned": "",
             "http_status": None,
             "response_id": "",
@@ -1283,6 +1284,8 @@ class AITSProviderRefreshWorker(QThread):
             "provider_success": False,
             "error_type": "",
             "error_code": "",
+            "error_param": "",
+            "error_message": "",
         }
         try:
             import requests
@@ -1290,6 +1293,9 @@ class AITSProviderRefreshWorker(QThread):
 
             timeout_sec = int(self.request_payload.get("timeout_sec") or 90)
             if provider == "gemini":
+                result["provider_call_attempted"] = True
+                result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+                result["provider_endpoint_type"] = "gemini_generate_content"
                 resp = requests.post(
                     str(self.request_payload.get("url") or ""),
                     headers=dict(self.request_payload.get("headers") or {}),
@@ -1300,6 +1306,29 @@ class AITSProviderRefreshWorker(QThread):
                 result["status_code"] = int(getattr(resp, "status_code", 0) or 0)
                 if resp.status_code != 200:
                     result["error_summary"] = f"Gemini HTTP {resp.status_code}"
+                    result["http_status"] = int(getattr(resp, "status_code", 0) or 0)
+                    result["error_type"] = "http_error"
+                    result["error_code"] = f"http_{resp.status_code}"
+                    try:
+                        err_body = resp.json()
+                        err = err_body.get("error") if isinstance(err_body, dict) else {}
+                        if isinstance(err, dict):
+                            gemini_status = str(err.get("status") or err.get("type") or "").strip()
+                            gemini_code = str(err.get("code") or "").strip()
+                            result["error_type"] = gemini_status or result["error_type"]
+                            result["error_code"] = gemini_status or gemini_code or result["error_code"]
+                            result["error_message"] = str(err.get("message") or "").strip()[:240]
+                    except Exception:
+                        pass
+                    try:
+                        logging.getLogger("aits").warning(
+                            "[AITS][ProviderConnectionTruth] event=request_failed provider=gemini http_status=%s error_code=%s error_param=%s submitted=0 order_allowed=False real_order=False",
+                            result.get("http_status"),
+                            str(result.get("error_code") or result.get("error_type") or "")[:80],
+                            str(result.get("error_param") or "")[:80],
+                        )
+                    except Exception:
+                        pass
                     return
                 try:
                     body = resp.json()
@@ -1367,14 +1396,26 @@ class AITSProviderRefreshWorker(QThread):
                         if isinstance(err, dict):
                             result["error_type"] = str(err.get("type") or result["error_type"] or "").strip()
                             result["error_code"] = str(err.get("code") or result["error_code"] or "").strip()
+                            result["error_param"] = str(err.get("param") or "").strip()
+                            result["error_message"] = str(err.get("message") or "").strip()[:240]
                     except Exception:
                         pass
                     try:
                         logging.getLogger("aits").warning(
-                            "[AITS][OpenAIProviderProof] event=response_failed group_id=%s http_status=%s error_code=%s submitted=0 order_allowed=False real_order=False",
+                            "[AITS][OpenAIProviderProof] event=response_failed group_id=%s http_status=%s error_code=%s error_param=%s submitted=0 order_allowed=False real_order=False",
                             str(result.get("decision_group_id") or result.get("request_id") or ""),
                             result.get("http_status"),
                             str(result.get("error_code") or result.get("error_type") or ""),
+                            str(result.get("error_param") or "")[:80],
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        logging.getLogger("aits").warning(
+                            "[AITS][ProviderConnectionTruth] event=request_failed provider=openai http_status=%s error_code=%s error_param=%s submitted=0 order_allowed=False real_order=False",
+                            result.get("http_status"),
+                            str(result.get("error_code") or result.get("error_type") or "")[:80],
+                            str(result.get("error_param") or "")[:80],
                         )
                     except Exception:
                         pass
@@ -1440,10 +1481,11 @@ class AITSProviderRefreshWorker(QThread):
             if provider == "gpt" and bool(result.get("provider_call_attempted")) and not bool(result.get("ok")):
                 try:
                     logging.getLogger("aits").warning(
-                        "[AITS][OpenAIProviderProof] event=response_failed group_id=%s http_status=%s error_code=%s submitted=0 order_allowed=False real_order=False",
+                        "[AITS][OpenAIProviderProof] event=response_failed group_id=%s http_status=%s error_code=%s error_param=%s submitted=0 order_allowed=False real_order=False",
                         str(result.get("decision_group_id") or result.get("request_id") or ""),
                         result.get("http_status") if result.get("http_status") is not None else "",
                         str(result.get("error_code") or result.get("error_type") or result.get("error_summary") or "")[:80],
+                        str(result.get("error_param") or "")[:80],
                     )
                 except Exception:
                     pass
@@ -16839,7 +16881,7 @@ class MainWindow(QMainWindow):
                 provider = str(self._get_save_ai_provider(getattr(self, "_settings", None)) or provider).strip()
         except Exception:
             pass
-        openai_model = _model_combo_value("ed_openai_model", openai_model or "gpt-5.5-instant")
+        openai_model = _model_combo_value("ed_openai_model", openai_model or "chat-latest")
         gemini_model = _model_combo_value("cmb_gemini_model", gemini_model or "gemini-2.5-flash")
 
         window_geometry = {}
@@ -23205,10 +23247,29 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _openai_model_display_name(self, model_id: str = "") -> str:
+        model_id = str(model_id or "").strip()
+        if model_id in ("chat-latest", "gpt-5.5-instant"):
+            return "GPT-5.5 Instant"
+        return model_id or "GPT-5.5 Instant"
+
+    def _normalize_openai_api_model_id(self, model_id: str = "", *, log: bool = False) -> str:
+        raw = str(model_id or "").strip()
+        if raw in ("", "gpt-5.5-instant"):
+            if log and raw == "gpt-5.5-instant":
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][OpenAIModelConfig] event=legacy_model_normalized display=GPT-5.5 Instant old_api_id=gpt-5.5-instant new_api_id=chat-latest submitted=0"
+                    )
+                except Exception:
+                    pass
+            return "chat-latest"
+        return raw
+
     def _openai_model_items(self):
         return [
             ("최신 고급 · GPT-5.5 — 최고 성능 판단", "gpt-5.5"),
-            ("최신 고속 · GPT-5.5 Instant — 빠른 판단", "gpt-5.5-instant"),
+            ("최신 고속 · GPT-5.5 Instant — 빠른 판단", "chat-latest"),
             ("최신 균형 · GPT-5.4 — 고급 분석", "gpt-5.4"),
             ("경량 고속 · GPT-5.3 Instant — 빠른 응답", "gpt-5.3-instant"),
             ("추론형 · o4-mini — 비용 효율 추론", "o4-mini"),
@@ -23245,6 +23306,14 @@ class MainWindow(QMainWindow):
     def _set_combo_current_model_id(self, combo, model_id: str, default_model: str):
         try:
             target = (model_id or default_model or "").strip()
+            if target == "gpt-5.5-instant":
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][OpenAIModelConfig] event=legacy_model_normalized display=GPT-5.5 Instant old_api_id=gpt-5.5-instant new_api_id=chat-latest submitted=0"
+                    )
+                except Exception:
+                    pass
+                target = "chat-latest"
             idx = -1
             for i in range(combo.count()):
                 data = str(combo.itemData(i) or "").strip()
@@ -23286,7 +23355,7 @@ class MainWindow(QMainWindow):
         p = self._normalize_ai_provider_code(provider or getattr(self, "_selected_ai_provider", "basic"))
         try:
             if p == "gpt" and hasattr(self, "ed_openai_model"):
-                return self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+                return self._current_model_id(self.ed_openai_model, "chat-latest")
             if p == "gemini" and hasattr(self, "cmb_gemini_model"):
                 return self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash")
             if hasattr(self, "cmb_local_model"):
@@ -23294,7 +23363,7 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         if p == "gpt":
-            return "gpt-5.5-instant"
+            return "chat-latest"
         if p == "gemini":
             return "gemini-2.5-flash"
         return "qwen2.5"
@@ -23385,35 +23454,15 @@ class MainWindow(QMainWindow):
 
     def _status_badge_color(self, status: str) -> str:
         s = str(status or "").strip()
-        if s in (
-            "API ?? ???",
-        ):
+        if not s:
+            return "#94A3B8"
+        if any(token in s for token in ('생성 응답 확인됨', 'API 응답 확인됨', '인증 확인됨', '정상연결')):
             return "#16a34a"
-        if s in (
-            "API ?? ??",
-            "?? ??",
-            "?? ?? ??",
-            "?? ?? ??",
-            "?? ?? ??",
-        ):
+        if any(token in s for token in ('실패', '응답 시간 초과', '인증 실패', '사용 한도 초과', '모델 사용 불가', '요청 형식 오류', 'API 호출 실패')):
             return "#dc2626"
-        if s in (
-            "? ??? ? ?? ???",
-            "???? ??",
-        ):
+        if any(token in s for token in ('연결확인 필요', '키 설정됨 · 응답 미확인', '호출 미확인', '키 설정됨 · 호출 미확인', '미확인')):
             return "#d97706"
-        if s in (
-            "API ?? ?",
-            "???",
-        ):
-            return "#2563eb"
-        if s in ("정상", "확인됨", "정상연결", "API 응답 확인됨"):
-            return "#16a34a"
-        if s in ("실패", "연결실패"):
-            return "#dc2626"
-        if s in ("테스트 필요", "연결확인 필요", "키 설정됨 · 호출 미확인"):
-            return "#d97706"
-        if s in ("확인중", "연결중"):
+        if any(token in s for token in ('확인중', '연결중')):
             return "#2563eb"
         return "#94A3B8"
 
@@ -23491,7 +23540,7 @@ class MainWindow(QMainWindow):
                     guard_result="provider_changed",
                 )
                 return
-            status = "API 응답 확인됨"
+            status = '인증 확인됨 · 생성 응답 미확인'
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = status
             self._last_ai_connection_source = (key_source or "").strip()
@@ -23518,13 +23567,16 @@ class MainWindow(QMainWindow):
             self._applied_ai_provider = selected_provider
             self._applied_ai_model = selected_model
             self._applied_ai_is_preview = True
-            if selected_provider == getattr(self, "_last_ai_connection_provider", ""):
-                self._ai_connection_status = (
-                    getattr(self, "_last_ai_connection_status", "") or "연결확인 필요"
-                )
+            last_provider = self._normalize_ai_provider_code(getattr(self, "_last_ai_connection_provider", ""))
+            last_status = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+            last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
+            if selected_provider == "basic":
+                self._ai_connection_status = "LOCAL"
+            elif selected_provider == last_provider and last_source == "manual_generation" and last_status:
+                self._ai_connection_status = last_status
             else:
-                self._ai_connection_status = "연결확인 필요"
-                self._ai_engine_last_checked_text = "미확인"
+                self._ai_connection_status = '키 설정됨 · 응답 미확인'
+                self._ai_engine_last_checked_text = '미확인'
             self._trace_provider_state(
                 "apply_saved_preview",
                 normalized_provider=selected_provider,
@@ -23655,6 +23707,11 @@ class MainWindow(QMainWindow):
                 getattr(self, "_applied_ai_provider", "")
             ) if getattr(self, "_applied_ai_provider", "") else ""
             applied_model = (getattr(self, "_applied_ai_model", "") or "").strip()
+            applied_model_display = (
+                self._openai_model_display_name(applied_model)
+                if applied_provider == "gpt"
+                else applied_model
+            )
             applied_is_preview = bool(getattr(self, "_applied_ai_is_preview", False))
             external_preview_active = bool(
                 applied_is_preview
@@ -23694,11 +23751,11 @@ class MainWindow(QMainWindow):
                 card_model_text = "내부 엔진"
             else:
                 applied_text = (
-                    f"{applied_provider_text} · {applied_model}"
-                    if applied_provider and applied_model
+                    f"{applied_provider_text} · {applied_model_display}"
+                    if applied_provider and applied_model_display
                     else applied_provider_text
                 )
-                card_model_text = applied_model if applied_provider and applied_model else "-"
+                card_model_text = applied_model_display if applied_provider and applied_model_display else "-"
             card_color_provider = applied_provider or selected_provider or "basic"
             last_checked_text = (
                 getattr(self, "_ai_engine_last_checked_text", "") or "미확인"
@@ -26171,6 +26228,12 @@ class MainWindow(QMainWindow):
                 except Exception:
                     requested_model = ""
                 configured_model = requested_model
+                if provider == "gpt":
+                    model_display_name = self._openai_model_display_name(requested_model)
+                    requested_model = self._normalize_openai_api_model_id(requested_model, log=True)
+                    configured_model = requested_model
+                else:
+                    model_display_name = requested_model
             try:
                 logging.getLogger("aits").info(
                     "[AITS][AIRefreshProviderContext] event=resolved provider_selected=%s visible_provider=%s candidates=%s submitted=0",
@@ -26186,6 +26249,8 @@ class MainWindow(QMainWindow):
                 "selected_engine_label": self._ai_refresh_provider_display_label(provider),
                 "requested_model": requested_model,
                 "configured_model": configured_model,
+                "model_api_id": requested_model,
+                "model_display_name": model_display_name,
             }
         except Exception:
             return {
@@ -27109,6 +27174,7 @@ class MainWindow(QMainWindow):
             "provider_request_sent_at",
             "provider_endpoint_type",
             "model_display_name",
+            "model_api_id",
             "model_requested",
             "model_returned",
             "http_status",
@@ -27522,11 +27588,13 @@ class MainWindow(QMainWindow):
                 "fallback_reason_display": analysis_semantics.get("fallback_reason_display") or payload.get("fallback_reason_display") or "",
                 "fallback_error_class": payload.get("fallback_error_class") or "",
                 "fallback_used": bool(payload.get("fallback_used") or (output_contract or {}).get("fallback_used")),
+                "provider_fallback_confirmed": bool(payload.get("provider_fallback_confirmed") or (output_contract or {}).get("provider_fallback_confirmed")),
                 "provider_call_attempted": bool(payload.get("provider_call_attempted") or (output_contract or {}).get("provider_call_attempted")),
                 "provider_request_sent_at": payload.get("provider_request_sent_at") or (output_contract or {}).get("provider_request_sent_at") or "",
                 "provider_endpoint_type": payload.get("provider_endpoint_type") or (output_contract or {}).get("provider_endpoint_type") or "",
                 "model_display_name": payload.get("model_display_name") or (output_contract or {}).get("model_display_name") or "",
-                "model_requested": payload.get("model_requested") or (output_contract or {}).get("model_requested") or "",
+                "model_api_id": payload.get("model_api_id") or (output_contract or {}).get("model_api_id") or payload.get("model_requested") or (output_contract or {}).get("model_requested") or "",
+                "model_requested": payload.get("model_requested") or (output_contract or {}).get("model_requested") or payload.get("model_api_id") or (output_contract or {}).get("model_api_id") or "",
                 "model_returned": payload.get("model_returned") or (output_contract or {}).get("model_returned") or "",
                 "http_status": payload.get("http_status") if payload.get("http_status") is not None else (output_contract or {}).get("http_status"),
                 "response_id": payload.get("response_id") or (output_contract or {}).get("response_id") or "",
@@ -37531,7 +37599,8 @@ class MainWindow(QMainWindow):
                 "provider_request_sent_at": str(provider_result.get("provider_request_sent_at") or ""),
                 "provider_endpoint_type": str(provider_result.get("provider_endpoint_type") or ""),
                 "model_display_name": str(provider_result.get("model_display_name") or provider_result.get("model") or ""),
-                "model_requested": str(provider_result.get("model_requested") or provider_result.get("requested_model") or provider_result.get("model") or ""),
+                "model_api_id": str(provider_result.get("model_api_id") or provider_result.get("model_requested") or provider_result.get("requested_model") or provider_result.get("model") or ""),
+                "model_requested": str(provider_result.get("model_requested") or provider_result.get("model_api_id") or provider_result.get("requested_model") or provider_result.get("model") or ""),
                 "model_returned": str(provider_result.get("model_returned") or ""),
                 "http_status": provider_result.get("http_status") if provider_result.get("http_status") is not None else provider_result.get("status_code"),
                 "response_id": str(provider_result.get("response_id") or ""),
@@ -37543,6 +37612,8 @@ class MainWindow(QMainWindow):
                 "provider_success": False,
                 "error_type": str(provider_result.get("error_type") or ""),
                 "error_code": str(provider_result.get("error_code") or ""),
+                "error_param": str(provider_result.get("error_param") or ""),
+                "error_message": str(provider_result.get("error_message") or ""),
             }
             if str(engine_mode or "").strip():
                 payload["engine_mode"] = str(engine_mode or "").strip()
@@ -37685,8 +37756,9 @@ class MainWindow(QMainWindow):
             "provider_call_attempted": bool(ctx.get("provider_call_attempted")),
             "provider_request_sent_at": str(ctx.get("provider_request_sent_at") or ""),
             "provider_endpoint_type": str(ctx.get("provider_endpoint_type") or ""),
-            "model_display_name": str(ctx.get("model_display_name") or model or ""),
-            "model_requested": str(ctx.get("model_requested") or ctx.get("requested_model") or model or ""),
+            "model_display_name": str(ctx.get("model_display_name") or self._openai_model_display_name(ctx.get("model_requested") or ctx.get("requested_model") or model or "") if provider == "gpt" else ctx.get("model_display_name") or model or ""),
+            "model_api_id": str(ctx.get("model_api_id") or ctx.get("model_requested") or ctx.get("requested_model") or model or ""),
+            "model_requested": str(ctx.get("model_requested") or ctx.get("model_api_id") or ctx.get("requested_model") or model or ""),
             "model_returned": str(ctx.get("model_returned") or invoked_model or ""),
             "http_status": ctx.get("http_status"),
             "response_id": str(ctx.get("response_id") or ""),
@@ -37811,20 +37883,33 @@ class MainWindow(QMainWindow):
     def _provider_failure_connection_status_from_result(self, result: dict) -> str:
         result = result if isinstance(result, dict) else {}
         code = str(result.get("error_code") or result.get("error_type") or "").strip().lower()
-        summary = str(result.get("error_summary") or "").strip().lower()
+        summary = str(result.get("error_summary") or result.get("error_message") or "").strip().lower()
         try:
             http_status = int(result.get("http_status") or result.get("status_code") or 0)
         except Exception:
             http_status = 0
         if bool(result.get("timed_out")) or code in ("timeout", "timeouterror") or "timeout" in summary:
-            return "?? ?? ??"
-        if http_status in (401, 403) or any(token in code for token in ("auth", "permission", "unauthorized", "forbidden")):
-            return "?? ??"
+            return '응답 시간 초과'
+        if http_status in (401, 403) or any(token in code for token in ("auth", "permission", "unauthorized", "forbidden", "permission_denied")):
+            return '인증 실패'
         if http_status == 429 or any(token in code for token in ("quota", "rate_limit", "resource_exhausted")):
-            return "?? ?? ??"
+            return '사용 한도 초과'
+        if code == "unsupported_parameter":
+            param = str(result.get("error_param") or "").strip()
+            return f"요청 형식 오류 · 지원되지 않는 파라미터: {param}" if param else '요청 형식 오류 · 지원되지 않는 파라미터'
+        if http_status == 400 or any(token in code for token in ("invalid_argument", "invalid argument")):
+            return '요청 형식 오류'
         if http_status == 404 or any(token in code for token in ("model_not_found", "model_unavailable", "not_found")):
-            return "?? ?? ??"
-        return "API ?? ??"
+            return '모델 사용 불가'
+        if "failed_precondition" in code:
+            return '지역/결제 조건 확인 필요'
+        if any(token in code for token in ("cancelled", "deadline_exceeded")):
+            return '요청 취소 또는 시간 초과'
+        if http_status in (500, 503) or any(token in code for token in ("internal", "unavailable", "overloaded")):
+            return '서비스 혼잡'
+        if any(token in code or token in summary for token in ("network", "connection", "connect", "dns", "ssl")):
+            return '네트워크 연결 실패'
+        return 'API 호출 실패'
 
     def _mark_provider_generation_failure_status(self, result: dict) -> None:
         try:
@@ -37836,7 +37921,7 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_status = status
             self._last_ai_connection_source = "manual_generation"
             self._ai_connection_status = status
-            self._ai_engine_last_checked_text = "?? ?"
+            self._ai_engine_last_checked_text = '방금 전'
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -37915,6 +38000,7 @@ class MainWindow(QMainWindow):
                     "provider_request_sent_at",
                     "provider_endpoint_type",
                     "model_display_name",
+                    "model_api_id",
                     "model_requested",
                     "model_returned",
                     "http_status",
@@ -37927,6 +38013,8 @@ class MainWindow(QMainWindow):
                     "provider_success",
                     "error_type",
                     "error_code",
+                    "error_param",
+                    "error_message",
                 ):
                     if proof_key in result:
                         result_context.setdefault(proof_key, result.get(proof_key))
@@ -37944,6 +38032,15 @@ class MainWindow(QMainWindow):
                 try:
                     self._last_response_provider = provider
                     self._gpt_status_stage = "ready"
+                except Exception:
+                    pass
+                try:
+                    if provider in ("gpt", "gemini"):
+                        self._last_ai_connection_provider = provider
+                        self._last_ai_connection_status = '생성 응답 확인됨'
+                        self._last_ai_connection_source = "manual_generation"
+                        self._ai_connection_status = self._last_ai_connection_status
+                        self._ai_engine_last_checked_text = '방금 전'
                 except Exception:
                     pass
                 try:
@@ -39255,6 +39352,9 @@ class MainWindow(QMainWindow):
                         ctx["provider_selected"] = selected_provider_req
                         ctx["selected_provider"] = selected_provider_req
                         ctx["requested_model"] = requested_model_req
+                        ctx["model_api_id"] = requested_model_req
+                        ctx["model_requested"] = requested_model_req
+                        ctx["model_display_name"] = requested_model_req
                     except Exception:
                         pass
                     request_payload = {
@@ -39271,6 +39371,9 @@ class MainWindow(QMainWindow):
                         "provider_selected": selected_provider_req,
                         "selected_provider": selected_provider_req,
                         "requested_model": requested_model_req,
+                        "model_requested": requested_model_req,
+                        "model_api_id": requested_model_req,
+                        "model_display_name": requested_model_req,
                         "url": (
                             "https://generativelanguage.googleapis.com/v1beta/models/"
                             f"{model_name}:generateContent"
@@ -39339,9 +39442,11 @@ class MainWindow(QMainWindow):
                 if custom_model:
                     model = custom_model
             if not model and hasattr(self, "ed_openai_model"):
-                model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+                model = self._current_model_id(self.ed_openai_model, "chat-latest")
+            model_display_name = self._openai_model_display_name(model)
+            model = self._normalize_openai_api_model_id(model, log=True)
             if not model:
-                model = "gpt-5.5-instant"
+                model = "chat-latest"
 
             self._aits_main_reco_inflight = True
             self._aits_main_reco_last_started_ts = now_ts
@@ -39372,14 +39477,18 @@ class MainWindow(QMainWindow):
             body = {
                 "model": model,
                 "messages": messages,
-                "max_tokens": 1200,
             }
+            if model == "chat-latest":
+                body["max_completion_tokens"] = 1200
+            else:
+                body["max_tokens"] = 1200
             ctx = self._build_aits_ai_decision_context()
             group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
             selected_provider_req = self._normalize_ai_refresh_provider_code(
                 request_context.get("provider_selected") or "gpt"
             )
-            requested_model_req = str(request_context.get("requested_model") or model or "").strip()
+            requested_model_req = self._normalize_openai_api_model_id(str(request_context.get("requested_model") or model or "").strip(), log=True)
+            model_display_name_req = str(request_context.get("model_display_name") or model_display_name or self._openai_model_display_name(requested_model_req) or "").strip()
             try:
                 ctx["decision_group_id"] = group_id
                 ctx["request_id"] = group_id
@@ -39389,6 +39498,9 @@ class MainWindow(QMainWindow):
                 ctx["provider_selected"] = selected_provider_req
                 ctx["selected_provider"] = selected_provider_req
                 ctx["requested_model"] = requested_model_req
+                ctx["model_api_id"] = requested_model_req
+                ctx["model_requested"] = requested_model_req
+                ctx["model_display_name"] = model_display_name_req
             except Exception:
                 pass
             request_payload = {
@@ -39405,6 +39517,9 @@ class MainWindow(QMainWindow):
                 "provider_selected": selected_provider_req,
                 "selected_provider": selected_provider_req,
                 "requested_model": requested_model_req,
+                "model_requested": requested_model_req,
+                "model_api_id": requested_model_req,
+                "model_display_name": model_display_name_req,
                 "url": url,
                 "headers": headers,
                 "json": body,
@@ -41645,7 +41760,7 @@ class MainWindow(QMainWindow):
                 "desc": "최고 성능 판단"
             },
             {
-                "id": "gpt-5.5-instant",
+                "id": "chat-latest",
                 "label": "최신 고속 · GPT-5.5 Instant — 빠른 판단",
                 "desc": "빠른 판단"
             },
@@ -41673,7 +41788,7 @@ class MainWindow(QMainWindow):
         
         self.ed_openai_model = QComboBox()
         self._fill_model_combo(self.ed_openai_model, self._openai_model_items())
-        self._set_combo_current_model_id(self.ed_openai_model, "gpt-5.5-instant", "gpt-5.5-instant")
+        self._set_combo_current_model_id(self.ed_openai_model, "chat-latest", "chat-latest")
 
         self.ed_gemini_key = QLineEdit()
         self.ed_gemini_key.setEchoMode(QLineEdit.Password)
@@ -41722,7 +41837,9 @@ class MainWindow(QMainWindow):
                 if current_id:
                     model_info = next((m for m in self.KMTS_GPT_MODELS if m["id"] == current_id), None)
                     if model_info:
-                        self.lbl_gpt_model_desc.setText(model_info["desc"])
+                        self.lbl_gpt_model_desc.setText(
+                            f"{model_info['desc']}\nAPI 모델 ID: {current_id}"
+                        )
                     else:
                         self.lbl_gpt_model_desc.setText("")
                 else:
@@ -43016,7 +43133,7 @@ class MainWindow(QMainWindow):
             pass
         _prev_openai_model = ""
         try:
-            _prev_openai_model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+            _prev_openai_model = self._current_model_id(self.ed_openai_model, "chat-latest")
         except Exception:
             pass
         _prev_gemini_key = ""
@@ -43039,7 +43156,7 @@ class MainWindow(QMainWindow):
         self.cmb_openai_model_new = QComboBox()
         self._fill_model_combo(self.cmb_openai_model_new, self._openai_model_items())
         self._set_combo_current_model_id(
-            self.cmb_openai_model_new, _prev_openai_model, "gpt-5.5-instant"
+            self.cmb_openai_model_new, _prev_openai_model, "chat-latest"
         )
         self.ed_openai_key = self.ed_openai_key_new
         self.ed_openai_model = self.cmb_openai_model_new
@@ -43432,12 +43549,12 @@ class MainWindow(QMainWindow):
 
         _prev_openai_text = ""
         try:
-            _prev_openai_text = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+            _prev_openai_text = self._current_model_id(self.ed_openai_model, "chat-latest")
         except Exception:
             pass
         self._fill_model_combo(self.ed_openai_model, self._openai_model_items())
         self._set_combo_current_model_id(
-            self.ed_openai_model, _prev_openai_text, "gpt-5.5-instant"
+            self.ed_openai_model, _prev_openai_text, "chat-latest"
         )
 
         _openai_form = QFormLayout()
@@ -44044,9 +44161,9 @@ class MainWindow(QMainWindow):
                     pass
                 # ✅ GPT 모델 로드: 저장된 모델이 드롭다운에 있으면 선택, 없으면 기본값
                 if hasattr(self, "ed_openai_model"):
-                    openai_model = st_dict.get("ai_openai_model", "gpt-5.5-instant") or "gpt-5.5-instant"
+                    openai_model = st_dict.get("ai_openai_model", "chat-latest") or "chat-latest"
                     self._set_combo_current_model_id(
-                        self.ed_openai_model, openai_model, "gpt-5.5-instant"
+                        self.ed_openai_model, openai_model, "chat-latest"
                     )
                     if hasattr(self, "cb_custom_model"):
                         self.cb_custom_model.setChecked(False)
@@ -45192,7 +45309,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "ed_openai_model"):
                 patch["strategy"]["ai_openai_model"] = self._get_effective_ai_model_for_save(
                     "openai",
-                    self._current_model_id(self.ed_openai_model, "gpt-5.5-instant"),
+                    self._current_model_id(self.ed_openai_model, "chat-latest"),
                 )
             if hasattr(self, "cmb_gemini_model"):
                 patch["strategy"]["ai_gemini_model"] = self._get_effective_ai_model_for_save(
@@ -45203,7 +45320,7 @@ class MainWindow(QMainWindow):
                 "ai_provider": patch["strategy"].get("ai_provider", ui_ai_provider),
                 "ai_openai_api_key": patch["strategy"].get("ai_openai_api_key", ""),
                 "ai_gemini_api_key": patch["strategy"].get("ai_gemini_api_key", ""),
-                "ai_openai_model": patch["strategy"].get("ai_openai_model", "gpt-5.5-instant"),
+                "ai_openai_model": patch["strategy"].get("ai_openai_model", "chat-latest"),
                 "ai_gemini_model": patch["strategy"].get("ai_gemini_model", "gemini-2.5-flash"),
             }
 
@@ -45221,13 +45338,13 @@ class MainWindow(QMainWindow):
                 if hasattr(self, "ed_openai_model"):
                     model_to_save = self._get_effective_ai_model_for_save(
                         "openai",
-                        self._current_model_id(self.ed_openai_model, "gpt-5.5-instant"),
+                        self._current_model_id(self.ed_openai_model, "chat-latest"),
                     )
                 
                 if model_to_save:
                     patch["strategy"]["ai_openai_model"] = model_to_save
                 else:
-                    patch["strategy"]["ai_openai_model"] = "gpt-5.5-instant"  # 최종 폴백
+                    patch["strategy"]["ai_openai_model"] = "chat-latest"  # 최종 폴백
                 # GPT 선택 시 LOCAL 필드는 patch에 넣지 않음 (base 유지)
                 patch["strategy"].pop("ai_local_url", None)
                 patch["strategy"].pop("ai_local_model", None)
@@ -45252,7 +45369,7 @@ class MainWindow(QMainWindow):
             common_ai_fields["ai_provider"] = patch["strategy"].get("ai_provider", ui_ai_provider)
             common_ai_fields["ai_openai_api_key"] = patch["strategy"].get("ai_openai_api_key", common_ai_fields.get("ai_openai_api_key", ""))
             common_ai_fields["ai_gemini_api_key"] = patch["strategy"].get("ai_gemini_api_key", common_ai_fields.get("ai_gemini_api_key", ""))
-            common_ai_fields["ai_openai_model"] = patch["strategy"].get("ai_openai_model", common_ai_fields.get("ai_openai_model", "gpt-5.5-instant"))
+            common_ai_fields["ai_openai_model"] = patch["strategy"].get("ai_openai_model", common_ai_fields.get("ai_openai_model", "chat-latest"))
             common_ai_fields["ai_gemini_model"] = patch["strategy"].get("ai_gemini_model", common_ai_fields.get("ai_gemini_model", "gemini-2.5-flash"))
 
             # patch["strategy"]["ai_provider"]가 UI와 다르면 경고
@@ -46697,9 +46814,9 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         out("[1/2] API Key 입력 확인 OK")
         self._log.info("[GPT-TEST] key_present")
-        openai_model = "gpt-5.5-instant"
+        openai_model = "chat-latest"
         if hasattr(self, "ed_openai_model"):
-            openai_model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+            openai_model = self._current_model_id(self.ed_openai_model, "chat-latest")
 
         try:
             from openai import OpenAI
@@ -46771,9 +46888,9 @@ class MainWindow(QMainWindow):
             if custom_model:
                 model = custom_model
         if not model and hasattr(self, "ed_openai_model"):
-            model = self._current_model_id(self.ed_openai_model, "gpt-5.5-instant")
+            model = self._current_model_id(self.ed_openai_model, "chat-latest")
         if not model:
-            model = "gpt-5.5-instant"
+            model = "chat-latest"
 
         out(f"[1/3] API Key 로드 OK (len={key_len}), model={model}")
 

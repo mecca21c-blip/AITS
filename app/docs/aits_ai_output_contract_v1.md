@@ -136,3 +136,12 @@ Snapshot and Shadow Journal rows may include `output_contract` while retaining l
 ## Trading Safety
 
 This contract does not change trading strategy, Router action, Execution, Order, or RiskGuard behavior. All outputs remain `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
+## OpenAI Model Identity
+
+`model_display_name`, `model_api_id`, `model_requested`, `model_returned`, and `invoked_model` are separate fields. For the GPT fast preset, the user-facing display name is `GPT-5.5 Instant`, while the current OpenAI API request alias is `chat-latest`. Legacy `gpt-5.5-instant` values are normalized before request dispatch and must not be sent as an API model id. A GPT success record still requires HTTP success, parse success, response/request proof, usage metadata when provided by the API, and `provider_success=True`.
+
+
+## Provider Error Proof
+
+Provider error proof fields include `error_type`, `error_code`, `error_param`, and `error_message`. Gemini adapters preserve Google `error.status` as the primary error code when available so UI, snapshot, and Journal displays can show a specific failure class instead of generic API failure. These fields are proof metadata only and do not change order safety; outputs remain `submitted=0`, `order_allowed=False`, and `real_order=False`.

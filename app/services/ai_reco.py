@@ -184,6 +184,7 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
                 "provider_request_sent_at",
                 "provider_endpoint_type",
                 "model_display_name",
+                "model_api_id",
                 "model_requested",
                 "model_returned",
                 "http_status",
@@ -196,6 +197,8 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
                 "provider_success",
                 "error_type",
                 "error_code",
+                "error_param",
+                "error_message",
             ):
                 if k in payload:
                     out[k] = payload[k]

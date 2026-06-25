@@ -308,7 +308,8 @@ def normalize_ai_output_contract(
         "provider_request_sent_at": str(data.get("provider_request_sent_at") or "").strip(),
         "provider_endpoint_type": str(data.get("provider_endpoint_type") or "").strip(),
         "model_display_name": str(data.get("model_display_name") or "").strip(),
-        "model_requested": str(data.get("model_requested") or data.get("requested_model") or "").strip(),
+        "model_api_id": str(data.get("model_api_id") or data.get("model_requested") or data.get("requested_model") or "").strip(),
+        "model_requested": str(data.get("model_requested") or data.get("model_api_id") or data.get("requested_model") or "").strip(),
         "model_returned": str(data.get("model_returned") or "").strip(),
         "http_status": data.get("http_status") if data.get("http_status") is not None else data.get("status_code"),
         "response_id": str(data.get("response_id") or "").strip(),
@@ -320,6 +321,8 @@ def normalize_ai_output_contract(
         "provider_success": bool(_truthy(data.get("provider_success"))),
         "error_type": str(data.get("error_type") or "").strip(),
         "error_code": str(data.get("error_code") or "").strip(),
+        "error_param": str(data.get("error_param") or "").strip(),
+        "error_message": str(data.get("error_message") or "").strip(),
         "warnings": warnings,
         "safety": {
             "is_order_signal": False,
@@ -342,6 +345,7 @@ def contract_to_compat_payload(contract: dict[str, Any]) -> dict[str, Any]:
             "provider_request_sent_at",
             "provider_endpoint_type",
             "model_display_name",
+            "model_api_id",
             "model_requested",
             "model_returned",
             "http_status",
@@ -354,6 +358,8 @@ def contract_to_compat_payload(contract: dict[str, Any]) -> dict[str, Any]:
             "provider_success",
             "error_type",
             "error_code",
+            "error_param",
+            "error_message",
         )
         if key in c
     }
@@ -433,6 +439,8 @@ def resolve_ai_fallback_reason(metadata: dict[str, Any] | None = None) -> dict[s
             "error",
             "error_type",
             "error_code",
+            "error_param",
+            "error_message",
             "http_status",
             "reason",
             "reason_code",
@@ -444,30 +452,41 @@ def resolve_ai_fallback_reason(metadata: dict[str, Any] | None = None) -> dict[s
     code = existing_code or "provider_failed"
     if any(token in low for token in ("timeout", "timed out", "deadline", "watchdog")):
         code = "timeout"
-        display = "AI 응답 시간이 초과되어 LOCAL 계산 기반으로 대체했습니다."
+        display = 'AI 응답 시간이 초과되어 LOCAL 계산 기반으로 대체했습니다.'
     elif any(token in low for token in ("429", "quota", "resource_exhausted", "resource exhausted", "limit")):
         code = "quota_exceeded"
-        display = "AI 사용 한도를 초과해 LOCAL 계산 기반으로 대체했습니다."
-    elif any(token in low for token in ("401", "403", "auth", "permission", "unauthorized", "forbidden")):
+        display = 'AI 사용 한도를 초과해 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("401", "403", "auth", "permission", "unauthorized", "forbidden", "permission_denied")):
         code = "auth_failed"
-        display = "AI 인증 또는 권한 문제로 LOCAL 계산 기반으로 대체했습니다."
+        display = 'AI 인증 또는 권한 문제로 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("unsupported_parameter", "unsupported parameter")):
+        code = "unsupported_parameter"
+        display = 'AI 요청 형식에 지원되지 않는 파라미터가 있어 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("invalid_argument", "invalid argument", "http 400", " 400 ")):
+        code = "invalid_request"
+        display = 'AI 요청 형식이 유효하지 않아 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("failed_precondition", "failed precondition", "billing", "region")):
+        code = "region_or_billing_required"
+        display = '지역 또는 결제 조건 확인이 필요해 LOCAL 계산 기반으로 대체했습니다.'
     elif any(token in low for token in ("404", "not_found", "not found", "model_not_found", "model unavailable")):
         code = "model_unavailable"
-        display = "선택한 AI 모델을 사용할 수 없어 LOCAL 계산 기반으로 대체했습니다."
-    elif any(token in low for token in ("parse", "invalid_json", "invalid json", "malformed")):
+        display = '선택한 AI 모델을 사용할 수 없어 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("parse", "invalid_json", "invalid json", "malformed", "empty_response")):
         code = "response_parse_failed"
-        display = "AI 응답을 안전하게 해석하지 못해 LOCAL 계산 기반으로 대체했습니다."
-    elif any(token in low for token in ("connection", "connect", "network", "unavailable", "dns", "ssl", "http 5")):
+        display = 'AI 응답을 안전하게 해석하지 못해 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("503", "500", "internal", "unavailable", "overloaded")):
+        code = "overloaded"
+        display = 'AI 서비스가 혼잡하거나 일시적으로 중단되어 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("connection", "connect", "network", "dns", "ssl")):
         code = "connection_failed"
-        display = "AI 서비스 연결에 실패해 LOCAL 계산 기반으로 대체했습니다."
+        display = 'AI 서비스 연결에 실패해 LOCAL 계산 기반으로 대체했습니다.'
     else:
-        display = existing_display or "AI 응답을 받지 못해 LOCAL 계산 기반으로 안전하게 대체했습니다."
+        display = existing_display or 'AI 응답을 받지 못해 LOCAL 계산 기반으로 대체했습니다.'
     return {
         "fallback_reason_code": code,
         "fallback_reason_display": display,
         "fallback_error_class": str(data.get("fallback_error_class") or code).strip(),
     }
-
 
 def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     data = metadata if isinstance(metadata, dict) else {}
@@ -483,12 +502,22 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
         or contract.get("provider_actual")
         or data.get("actual_provider")
         or data.get("provider")
+        or data.get("actual_engine")
         or data.get("source")
     )
     source_event = str(data.get("source_event") or contract.get("source") or data.get("source") or "").strip().lower()
     analysis_kind = str(data.get("analysis_kind") or contract.get("analysis_kind") or "").strip().lower()
-    fallback_used = bool(_truthy(data.get("fallback_used")) or _truthy(contract.get("fallback_used")))
-    fallback_confirmed = bool(_truthy(data.get("provider_fallback_confirmed")) or analysis_kind == "provider_fallback")
+    fallback_used = bool(
+        _truthy(data.get("fallback_used"))
+        or _truthy(contract.get("fallback_used"))
+        or _truthy(data.get("basic_fallback"))
+    )
+    fallback_confirmed = bool(
+        _truthy(data.get("provider_fallback_confirmed"))
+        or _truthy(contract.get("provider_fallback_confirmed"))
+        or analysis_kind == "provider_fallback"
+        or source_event == "provider_fallback"
+    )
     provider_call_attempted = bool(
         _truthy(data.get("provider_call_attempted"))
         or _truthy(contract.get("provider_call_attempted"))
@@ -517,7 +546,7 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
         and fallback_used
         and fallback_confirmed
         and manual_source
-        and provider_call_attempted
+        and (provider_call_attempted or fallback_confirmed)
     )
     if provider_fallback:
         classification = "provider_fallback"

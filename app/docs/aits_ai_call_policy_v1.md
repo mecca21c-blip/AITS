@@ -985,3 +985,29 @@ Policy intent:
 - Dashboard cross-check reports should include KST/UTC request time, endpoint type, requested model id, HTTP status, masked response/request id, and token usage when available.
 - This policy does not add automatic OpenAI calls and does not change Router, Risk Guard, Execution, Order, or actual trade storage.
 - Safety metadata remains `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
+## OpenAI Model ID Compatibility
+
+`OPENAI-MODEL-ID-COMPATIBILITY-FIX-01` separates the GPT preset display name from the actual OpenAI API model id.
+
+Policy intent:
+
+- `GPT-5.5 Instant` is the user-facing model display name.
+- `chat-latest` is the current API request alias used for that preset.
+- Legacy `gpt-5.5-instant` settings are normalized to `chat-latest` before dispatch and logged as `OpenAIModelConfig legacy_model_normalized`.
+- `model_display_name`, `model_api_id`, `model_requested`, `model_returned`, and `invoked_model` remain distinct.
+- The response `model` value is preserved as runtime proof but is not automatically written back as the saved setting.
+- A successful GPT judgment still requires actual provider call proof; failed calls continue to use LOCAL calculation fallback with `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
+
+## Provider Connection Truth Error Diagnostics
+
+`AI-PROVIDER-CONNECTION-TRUTH-ERROR-DIAGNOSTICS-01` separates configured keys, authentication checks, and generation response proof.
+
+Policy intent:
+
+- A stored OpenAI or Gemini key is not displayed as a successful generation connection.
+- Startup/auth checks may show `?? ??? ? ?? ?? ???`; only a successful explicit generation response may show `?? ?? ???`.
+- Gemini `error.status` is mapped before falling back to generic HTTP status: `INVALID_ARGUMENT` -> ?? ?? ??, `FAILED_PRECONDITION` -> ??/?? ?? ?? ??, `PERMISSION_DENIED` -> ?? ??, `NOT_FOUND` -> ?? ?? ??, `RESOURCE_EXHAUSTED` -> ?? ?? ??, `UNAVAILABLE` -> ??? ??, and `DEADLINE_EXCEEDED` -> ?? ?? ??.
+- Provider failures can still publish LOCAL calculation fallback, but the record remains an external AI failure with `provider_selected` preserved and `provider_actual=local`.
+- No automatic generation calls are added. Router, Risk Guard, Execution, Order, and actual trade storage remain unchanged.
