@@ -56,10 +56,11 @@ LOCAL Basic calculation displays as `LOCAL 계산 기반`. A configured local mo
 
 Trade Log display separates LOCAL calculation records by provenance:
 
-- Automatic Basic/LOCAL monitoring is displayed as `AITS 모의판정`, with analysis source `자동 감시`, selected engine `자동 감시`, actual judgment engine `LOCAL 계산 기반`, and no fallback reason.
-- Manual LOCAL refresh is displayed as `AI 원판단`, with analysis source `사용자가 실행`, selected engine `LOCAL`, actual judgment engine `LOCAL 계산 기반`, and fallback status `아님`.
-- GPT/Gemini success is displayed as `AI 원판단`, with selected engine GPT/Gemini and actual judgment engine set to the invoked provider/model.
-- GPT/Gemini failure that produces a confirmed LOCAL calculation fallback is displayed as `안전 대체판정`, keeps the selected engine as GPT/Gemini, sets actual judgment engine to `LOCAL 계산 기반`, marks fallback as applied, and shows a sanitized Korean fallback reason.
+- Automatic Basic/LOCAL monitoring is displayed as `자동 감시`, with analysis source `자동 감시`, selected engine `자동 감시`, actual judgment engine `LOCAL 계산 기반`, and no fallback reason.
+- Manual LOCAL refresh is displayed as `사용자 LOCAL 분석`, with analysis source `사용자가 실행`, selected engine `LOCAL`, actual judgment engine `LOCAL 계산 기반`, and fallback status `아님`.
+- GPT/Gemini success is displayed as `외부 AI 분석 성공` only when runtime proof shows an attempted provider call, successful HTTP/parse result, response/request identifier, and provider success metadata.
+- GPT/Gemini failure that produces a confirmed LOCAL calculation fallback is displayed as `외부 AI 실패 · LOCAL 대체`, keeps the selected engine as GPT/Gemini, sets actual judgment engine to `LOCAL 계산 기반`, marks fallback as applied, and shows a sanitized Korean fallback reason.
+- Previous GPT/Gemini rows without provider call proof are displayed as `호출 증거 없는 이전 기록`; the actual judgment engine is not confirmed from the historical label alone.
 
 The header's applied-engine display is current setting/Preview state, not proof of the actual engine used by each historical judgment. Per-record actual generation engine remains owned by the canonical output contract and Shadow Journal metadata.
 

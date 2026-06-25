@@ -304,6 +304,22 @@ def normalize_ai_output_contract(
         "fallback_reason_code": fallback_reason.get("fallback_reason_code") or "",
         "fallback_reason_display": fallback_reason.get("fallback_reason_display") or "",
         "fallback_error_class": fallback_reason.get("fallback_error_class") or "",
+        "provider_call_attempted": bool(_truthy(data.get("provider_call_attempted"))),
+        "provider_request_sent_at": str(data.get("provider_request_sent_at") or "").strip(),
+        "provider_endpoint_type": str(data.get("provider_endpoint_type") or "").strip(),
+        "model_display_name": str(data.get("model_display_name") or "").strip(),
+        "model_requested": str(data.get("model_requested") or data.get("requested_model") or "").strip(),
+        "model_returned": str(data.get("model_returned") or "").strip(),
+        "http_status": data.get("http_status") if data.get("http_status") is not None else data.get("status_code"),
+        "response_id": str(data.get("response_id") or "").strip(),
+        "provider_request_id": str(data.get("provider_request_id") or "").strip(),
+        "usage_input_tokens": data.get("usage_input_tokens"),
+        "usage_output_tokens": data.get("usage_output_tokens"),
+        "usage_total_tokens": data.get("usage_total_tokens"),
+        "elapsed_ms": data.get("elapsed_ms"),
+        "provider_success": bool(_truthy(data.get("provider_success"))),
+        "error_type": str(data.get("error_type") or "").strip(),
+        "error_code": str(data.get("error_code") or "").strip(),
         "warnings": warnings,
         "safety": {
             "is_order_signal": False,
@@ -319,6 +335,28 @@ def normalize_ai_output_contract(
 
 def contract_to_compat_payload(contract: dict[str, Any]) -> dict[str, Any]:
     c = dict(contract or {})
+    proof_fields = {
+        key: c.get(key)
+        for key in (
+            "provider_call_attempted",
+            "provider_request_sent_at",
+            "provider_endpoint_type",
+            "model_display_name",
+            "model_requested",
+            "model_returned",
+            "http_status",
+            "response_id",
+            "provider_request_id",
+            "usage_input_tokens",
+            "usage_output_tokens",
+            "usage_total_tokens",
+            "elapsed_ms",
+            "provider_success",
+            "error_type",
+            "error_code",
+        )
+        if key in c
+    }
     return {
         "output_contract": c,
         "decision": c.get("decision_display") or "데이터 확인 필요",
@@ -343,6 +381,7 @@ def contract_to_compat_payload(contract: dict[str, Any]) -> dict[str, Any]:
         "order_allowed": False,
         "submitted": 0,
         "real_order": False,
+        **proof_fields,
     }
 
 
@@ -392,6 +431,9 @@ def resolve_ai_fallback_reason(metadata: dict[str, Any] | None = None) -> dict[s
             "fallback_error_summary",
             "error_summary",
             "error",
+            "error_type",
+            "error_code",
+            "http_status",
             "reason",
             "reason_code",
             "status",
@@ -447,6 +489,21 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
     analysis_kind = str(data.get("analysis_kind") or contract.get("analysis_kind") or "").strip().lower()
     fallback_used = bool(_truthy(data.get("fallback_used")) or _truthy(contract.get("fallback_used")))
     fallback_confirmed = bool(_truthy(data.get("provider_fallback_confirmed")) or analysis_kind == "provider_fallback")
+    provider_call_attempted = bool(
+        _truthy(data.get("provider_call_attempted"))
+        or _truthy(contract.get("provider_call_attempted"))
+    )
+    provider_success = bool(
+        _truthy(data.get("provider_success"))
+        or _truthy(contract.get("provider_success"))
+    )
+    provider_response_id = str(
+        data.get("response_id")
+        or contract.get("response_id")
+        or data.get("provider_request_id")
+        or contract.get("provider_request_id")
+        or ""
+    ).strip()
     manual_source = source_event in {
         "manual_refresh",
         "detail_chart_manual_refresh",
@@ -460,13 +517,24 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
         and fallback_used
         and fallback_confirmed
         and manual_source
+        and provider_call_attempted
     )
     if provider_fallback:
         classification = "provider_fallback"
     elif manual_source and selected == "local" and actual == "local":
         classification = "manual_local_analysis"
-    elif manual_source and selected in {"gpt", "gemini"} and actual in {"gpt", "gemini"} and not fallback_used:
+    elif (
+        manual_source
+        and selected in {"gpt", "gemini"}
+        and actual in {"gpt", "gemini"}
+        and not fallback_used
+        and provider_call_attempted
+        and provider_success
+        and bool(provider_response_id)
+    ):
         classification = "manual_provider_success"
+    elif manual_source and selected in {"gpt", "gemini"} and actual in {"gpt", "gemini"}:
+        classification = "unverified_provider_record"
     elif actual == "local" and analysis_kind == "local_calculation":
         classification = "automatic_local_monitor"
     elif str(data.get("record_stage") or "").strip() == "aits_shadow_final" and not manual_source:
@@ -480,7 +548,7 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
         reason = resolve_ai_fallback_reason({**data, **contract})
         return {
             "analysis_classification": classification,
-            "record_type_display": "안전 대체판정",
+            "record_type_display": "외부 AI 실패 · LOCAL 대체",
             "analysis_source_display": "사용자가 실행",
             "selected_engine_display": provider_display_label(selected),
             "actual_engine_display": "LOCAL 계산 기반",
@@ -493,7 +561,7 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
     if classification == "automatic_local_monitor":
         return {
             "analysis_classification": classification,
-            "record_type_display": "AITS 모의판정",
+            "record_type_display": "자동 감시",
             "analysis_source_display": "자동 감시",
             "selected_engine_display": "자동 감시",
             "actual_engine_display": "LOCAL 계산 기반",
@@ -506,7 +574,7 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
     if classification == "manual_local_analysis":
         return {
             "analysis_classification": classification,
-            "record_type_display": "AI 원판단",
+            "record_type_display": "사용자 LOCAL 분석",
             "analysis_source_display": "사용자가 실행",
             "selected_engine_display": "LOCAL",
             "actual_engine_display": "LOCAL 계산 기반",
@@ -523,7 +591,7 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
             engine = f"{engine} · {model}"
         return {
             "analysis_classification": classification,
-            "record_type_display": "AI 원판단",
+            "record_type_display": "외부 AI 분석 성공",
             "analysis_source_display": "사용자가 실행",
             "selected_engine_display": provider_display_label(selected),
             "actual_engine_display": engine,
@@ -533,9 +601,22 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
             "is_provider_fallback": False,
             "is_automatic_monitor": False,
         }
+    if classification == "unverified_provider_record":
+        return {
+            "analysis_classification": classification,
+            "record_type_display": "호출 증거 없는 이전 기록",
+            "analysis_source_display": "이전 기록",
+            "selected_engine_display": provider_display_label(selected),
+            "actual_engine_display": "확인 불가",
+            "fallback_status_display": "확인 불가",
+            "fallback_reason_code": "",
+            "fallback_reason_display": "이전 기록에는 외부 AI 호출 증거가 저장되어 있지 않습니다.",
+            "is_provider_fallback": False,
+            "is_automatic_monitor": False,
+        }
     return {
         "analysis_classification": classification,
-        "record_type_display": "이전 AI 판단 기록" if classification == "restored_legacy" else "AI 판단 기록",
+        "record_type_display": "호출 증거 없는 이전 기록" if classification == "restored_legacy" else "AI 판단 기록",
         "analysis_source_display": "이전 기록" if classification == "restored_legacy" else "출처 확인 필요",
         "selected_engine_display": data.get("selected_engine") or provider_display_label(selected) or "-",
         "actual_engine_display": data.get("actual_engine") or provider_display_label(actual) or "-",

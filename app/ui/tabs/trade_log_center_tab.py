@@ -378,6 +378,9 @@ class TradeLogCenterTab(QWidget):
             ("actual_engine", "실제 판단 생성 엔진"),
             ("fallback_status", "대체 여부"),
             ("fallback_reason", "대체 사유"),
+            ("api_response_status", "API 응답"),
+            ("api_usage", "사용 토큰"),
+            ("api_response_id", "응답 식별자"),
             ("shadow_processing_method", "AITS 판정 방식"),
             ("review_mode", "재검토 방식"),
             ("basis", "판단 근거"),
@@ -945,6 +948,42 @@ class TradeLogCenterTab(QWidget):
         except Exception:
             return "-"
 
+    def _mask_provider_id_for_display(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return "-"
+        if len(text) <= 12:
+            return text
+        return f"{text[:8]}…{text[-4:]}"
+
+    def _build_provider_call_proof_display(self, row: dict[str, Any] | None) -> dict[str, str]:
+        row = row if isinstance(row, dict) else {}
+        attempted = bool(row.get("provider_call_attempted"))
+        success = bool(row.get("provider_success"))
+        status = row.get("http_status")
+        error_code = str(row.get("error_code") or row.get("error_type") or "").strip()
+        if not attempted:
+            response_status = "외부 API 호출 없음"
+        elif success:
+            response_status = "확인됨"
+        elif status:
+            response_status = f"실패 · HTTP {status}"
+        else:
+            response_status = f"실패 · {error_code}" if error_code else "실패"
+        usage_in = row.get("usage_input_tokens")
+        usage_out = row.get("usage_output_tokens")
+        usage_total = row.get("usage_total_tokens")
+        if usage_in is None and usage_out is None and usage_total is None:
+            usage_text = "-"
+        else:
+            usage_text = f"입력 {usage_in or 0} / 출력 {usage_out or 0} / 합계 {usage_total or 0}"
+        proof_id = row.get("response_id") or row.get("provider_request_id") or ""
+        return {
+            "api_response_status": response_status,
+            "api_usage": usage_text,
+            "api_response_id": self._mask_provider_id_for_display(proof_id),
+        }
+
     def _set_detail(self, row: dict[str, Any] | None) -> None:
         is_empty = row is None
         self.detail_placeholder.setVisible(is_empty)
@@ -979,6 +1018,7 @@ class TradeLogCenterTab(QWidget):
         warning_text = str(freshness.get("warning_text") or "").strip()
         if warning_text:
             freshness_text = f"{freshness_text}\n{warning_text}"
+        api_proof_display = self._build_provider_call_proof_display(row)
         values = {
             "type": row.get("type") if row else "-",
             "symbol": row.get("symbol") if row else "-",
@@ -994,6 +1034,9 @@ class TradeLogCenterTab(QWidget):
             "actual_engine": self._format_engine_provenance_display(row) if row else "-",
             "fallback_status": row.get("fallback_status_display") if row else "-",
             "fallback_reason": row.get("fallback_reason_display") if row else "-",
+            "api_response_status": api_proof_display.get("api_response_status") if row else "-",
+            "api_usage": api_proof_display.get("api_usage") if row else "-",
+            "api_response_id": api_proof_display.get("api_response_id") if row else "-",
             "shadow_processing_method": row.get("shadow_processing_method") if row else "-",
             "review_mode": row.get("review_mode") if row else "-",
             "basis": basis,
@@ -1116,6 +1159,7 @@ class TradeLogCenterTab(QWidget):
         selected_engine_display = str(
             analysis_semantics.get("selected_engine_display") or row.get("selected_engine") or "-"
         ).strip() or "-"
+        api_proof_display = self._build_provider_call_proof_display(row)
         return {
             "category": category,
             "sort_ts": self._sort_timestamp(ts),
@@ -1133,6 +1177,19 @@ class TradeLogCenterTab(QWidget):
             "fallback_reason_display": analysis_semantics.get("fallback_reason_display") or row.get("fallback_reason_display") or "",
             "fallback_reason_code": analysis_semantics.get("fallback_reason_code") or row.get("fallback_reason_code") or "",
             "analysis_classification": analysis_semantics.get("analysis_classification") or row.get("analysis_classification") or "",
+            "api_response_status": api_proof_display.get("api_response_status") or "-",
+            "api_usage": api_proof_display.get("api_usage") or "-",
+            "api_response_id": api_proof_display.get("api_response_id") or "-",
+            "provider_call_attempted": bool(row.get("provider_call_attempted")),
+            "provider_success": bool(row.get("provider_success")),
+            "http_status": row.get("http_status"),
+            "response_id": row.get("response_id") or "",
+            "provider_request_id": row.get("provider_request_id") or "",
+            "usage_input_tokens": row.get("usage_input_tokens"),
+            "usage_output_tokens": row.get("usage_output_tokens"),
+            "usage_total_tokens": row.get("usage_total_tokens"),
+            "error_type": row.get("error_type") or "",
+            "error_code": row.get("error_code") or "",
             "original_generation_engine": row.get("original_generation_engine") or "",
             "shadow_processing_method": row.get("shadow_processing_method") or "",
             "model_invoked": bool(row.get("model_invoked")),

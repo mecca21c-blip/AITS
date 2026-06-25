@@ -180,6 +180,22 @@ def update(payload: Any = None, from_boot: bool = False) -> Dict[str, Any]:
                 "fallback_error_class",
                 "fallback_error_summary",
                 "analysis_kind",
+                "provider_call_attempted",
+                "provider_request_sent_at",
+                "provider_endpoint_type",
+                "model_display_name",
+                "model_requested",
+                "model_returned",
+                "http_status",
+                "response_id",
+                "provider_request_id",
+                "usage_input_tokens",
+                "usage_output_tokens",
+                "usage_total_tokens",
+                "elapsed_ms",
+                "provider_success",
+                "error_type",
+                "error_code",
             ):
                 if k in payload:
                     out[k] = payload[k]

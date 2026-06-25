@@ -1231,6 +1231,15 @@ class AITSProviderRefreshWorker(QThread):
         super().__init__(parent)
         self.request_payload = dict(request_payload or {})
 
+    @staticmethod
+    def _mask_provider_proof_id(value) -> str:
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        if len(text) <= 12:
+            return text
+        return f"{text[:8]}…{text[-4:]}"
+
     def run(self):
         started = time.time()
         provider = str(self.request_payload.get("provider") or "").strip().lower()
@@ -1259,6 +1268,21 @@ class AITSProviderRefreshWorker(QThread):
             "requested_model": str(self.request_payload.get("requested_model") or self.request_payload.get("model") or ""),
             "invoked_model": "",
             "fallback_required": False,
+            "provider_call_attempted": False,
+            "provider_request_sent_at": "",
+            "provider_endpoint_type": "",
+            "model_display_name": str(self.request_payload.get("model_display_name") or self.request_payload.get("model") or ""),
+            "model_requested": str(self.request_payload.get("model") or self.request_payload.get("requested_model") or ""),
+            "model_returned": "",
+            "http_status": None,
+            "response_id": "",
+            "provider_request_id": "",
+            "usage_input_tokens": None,
+            "usage_output_tokens": None,
+            "usage_total_tokens": None,
+            "provider_success": False,
+            "error_type": "",
+            "error_code": "",
         }
         try:
             import requests
@@ -1305,6 +1329,17 @@ class AITSProviderRefreshWorker(QThread):
                 return
 
             if provider == "gpt":
+                result["provider_call_attempted"] = True
+                result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+                result["provider_endpoint_type"] = "chat_completions"
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][OpenAIProviderProof] event=request_attempt group_id=%s endpoint=chat_completions model_requested=%s submitted=0 order_allowed=False real_order=False",
+                        str(result.get("decision_group_id") or result.get("request_id") or ""),
+                        str(result.get("model_requested") or result.get("model") or ""),
+                    )
+                except Exception:
+                    pass
                 resp = requests.post(
                     str(self.request_payload.get("url") or ""),
                     headers=dict(self.request_payload.get("headers") or {}),
@@ -1312,14 +1347,53 @@ class AITSProviderRefreshWorker(QThread):
                     timeout=timeout_sec,
                 )
                 result["status_code"] = int(getattr(resp, "status_code", 0) or 0)
+                result["http_status"] = result["status_code"]
+                try:
+                    result["provider_request_id"] = str(
+                        resp.headers.get("x-request-id")
+                        or resp.headers.get("X-Request-ID")
+                        or resp.headers.get("openai-request-id")
+                        or ""
+                    ).strip()
+                except Exception:
+                    result["provider_request_id"] = ""
                 if resp.status_code != 200:
                     result["error_summary"] = f"OpenAI HTTP {resp.status_code}"
+                    result["error_type"] = "http_error"
+                    result["error_code"] = f"http_{resp.status_code}"
+                    try:
+                        err_body = resp.json()
+                        err = err_body.get("error") if isinstance(err_body, dict) else {}
+                        if isinstance(err, dict):
+                            result["error_type"] = str(err.get("type") or result["error_type"] or "").strip()
+                            result["error_code"] = str(err.get("code") or result["error_code"] or "").strip()
+                    except Exception:
+                        pass
+                    try:
+                        logging.getLogger("aits").warning(
+                            "[AITS][OpenAIProviderProof] event=response_failed group_id=%s http_status=%s error_code=%s submitted=0 order_allowed=False real_order=False",
+                            str(result.get("decision_group_id") or result.get("request_id") or ""),
+                            result.get("http_status"),
+                            str(result.get("error_code") or result.get("error_type") or ""),
+                        )
+                    except Exception:
+                        pass
                     return
                 try:
                     body = resp.json()
                 except Exception:
                     result["error_summary"] = "OpenAI JSON parsing failed"
+                    result["error_type"] = "parse_error"
+                    result["error_code"] = "invalid_json"
                     return
+                if isinstance(body, dict):
+                    result["response_id"] = str(body.get("id") or "").strip()
+                    result["model_returned"] = str(body.get("model") or "").strip()
+                    usage = body.get("usage") or {}
+                    if isinstance(usage, dict):
+                        result["usage_input_tokens"] = usage.get("input_tokens") or usage.get("prompt_tokens")
+                        result["usage_output_tokens"] = usage.get("output_tokens") or usage.get("completion_tokens")
+                        result["usage_total_tokens"] = usage.get("total_tokens")
                 choices = body.get("choices") or []
                 ai_raw_text = ""
                 if choices and isinstance(choices[0], dict):
@@ -1327,22 +1401,52 @@ class AITSProviderRefreshWorker(QThread):
                     ai_raw_text = (delta.get("content") or "").strip()
                 if not ai_raw_text:
                     result["error_summary"] = "OpenAI response body empty"
+                    result["error_type"] = "parse_error"
+                    result["error_code"] = "empty_response"
                     return
                 result["ok"] = True
                 result["text"] = ai_raw_text
                 result["provider_actual"] = provider
-                result["invoked_model"] = str(result.get("model") or "")
+                result["invoked_model"] = str(result.get("model_returned") or result.get("model") or "")
+                result["provider_success"] = True
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][OpenAIProviderProof] event=response_success group_id=%s http_status=%s response_id=%s request_id=%s usage_input_tokens=%s usage_output_tokens=%s usage_total_tokens=%s submitted=0 order_allowed=False real_order=False",
+                        str(result.get("decision_group_id") or result.get("request_id") or ""),
+                        result.get("http_status"),
+                        self._mask_provider_proof_id(result.get("response_id")),
+                        self._mask_provider_proof_id(result.get("provider_request_id")),
+                        result.get("usage_input_tokens"),
+                        result.get("usage_output_tokens"),
+                        result.get("usage_total_tokens"),
+                    )
+                except Exception:
+                    pass
                 return
 
             result["error_summary"] = f"unsupported provider: {provider or 'unknown'}"
         except Timeout:
             result["timed_out"] = True
             result["error_summary"] = "timeout"
+            result["error_type"] = "timeout"
+            result["error_code"] = "timeout"
         except Exception as exc:
             result["error_summary"] = type(exc).__name__
+            result["error_type"] = type(exc).__name__
+            result["error_code"] = type(exc).__name__
         finally:
             result["elapsed_ms"] = int(max(0.0, (time.time() - started) * 1000.0))
             result["fallback_required"] = bool(not result.get("ok"))
+            if provider == "gpt" and bool(result.get("provider_call_attempted")) and not bool(result.get("ok")):
+                try:
+                    logging.getLogger("aits").warning(
+                        "[AITS][OpenAIProviderProof] event=response_failed group_id=%s http_status=%s error_code=%s submitted=0 order_allowed=False real_order=False",
+                        str(result.get("decision_group_id") or result.get("request_id") or ""),
+                        result.get("http_status") if result.get("http_status") is not None else "",
+                        str(result.get("error_code") or result.get("error_type") or result.get("error_summary") or "")[:80],
+                    )
+                except Exception:
+                    pass
             try:
                 logging.getLogger("aits").info(
                     "[AITS][AIRefreshWorker] event=result_emitted group_id=%s request_seq=%s provider_selected=%s ok=%s terminal=True submitted=0 order_allowed=False real_order=False",
@@ -23281,11 +23385,33 @@ class MainWindow(QMainWindow):
 
     def _status_badge_color(self, status: str) -> str:
         s = str(status or "").strip()
-        if s in ("정상", "확인됨", "정상연결"):
+        if s in (
+            "API ?? ???",
+        ):
+            return "#16a34a"
+        if s in (
+            "API ?? ??",
+            "?? ??",
+            "?? ?? ??",
+            "?? ?? ??",
+            "?? ?? ??",
+        ):
+            return "#dc2626"
+        if s in (
+            "? ??? ? ?? ???",
+            "???? ??",
+        ):
+            return "#d97706"
+        if s in (
+            "API ?? ?",
+            "???",
+        ):
+            return "#2563eb"
+        if s in ("정상", "확인됨", "정상연결", "API 응답 확인됨"):
             return "#16a34a"
         if s in ("실패", "연결실패"):
             return "#dc2626"
-        if s in ("테스트 필요", "연결확인 필요"):
+        if s in ("테스트 필요", "연결확인 필요", "키 설정됨 · 호출 미확인"):
             return "#d97706"
         if s in ("확인중", "연결중"):
             return "#2563eb"
@@ -23327,8 +23453,8 @@ class MainWindow(QMainWindow):
     def _set_ai_test_status(self, status: str):
         try:
             raw_status = (status or "").strip()
-            if raw_status in ("확인됨", "정상", "정상연결"):
-                display_status = "정상연결"
+            if raw_status in ("확인됨", "정상", "정상연결", "API 응답 확인됨"):
+                display_status = "API 응답 확인됨"
             elif raw_status in ("확인중", "연결 확인 중", "연결중"):
                 display_status = "연결중"
             elif raw_status in ("실패", "연결 실패", "연결실패"):
@@ -23365,7 +23491,7 @@ class MainWindow(QMainWindow):
                     guard_result="provider_changed",
                 )
                 return
-            status = "정상연결"
+            status = "API 응답 확인됨"
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = status
             self._last_ai_connection_source = (key_source or "").strip()
@@ -23439,7 +23565,7 @@ class MainWindow(QMainWindow):
             return
         if not start_connection:
             self._last_ai_connection_provider = normalized_provider
-            self._last_ai_connection_status = "연결확인 필요"
+            self._last_ai_connection_status = "키 설정됨 · 호출 미확인"
             self._last_ai_connection_source = key_source
             self._ai_connection_status = self._last_ai_connection_status
             self._render_ai_engine_state()
@@ -23708,7 +23834,7 @@ class MainWindow(QMainWindow):
                 return
             text = f"{connection} {state}".strip()
             if "성공" in text or "확인됨" in text or "정상" in text:
-                self._ai_connection_status = "정상연결"
+                self._ai_connection_status = "API 응답 확인됨"
                 self._ai_engine_last_checked_text = "방금 전"
             elif "실패" in text or "없음" in text or "필요" in text and "설치" in text:
                 self._ai_connection_status = "연결실패"
@@ -26979,6 +27105,22 @@ class MainWindow(QMainWindow):
             "fallback_reason_display",
             "fallback_error_class",
             "fallback_used",
+            "provider_call_attempted",
+            "provider_request_sent_at",
+            "provider_endpoint_type",
+            "model_display_name",
+            "model_requested",
+            "model_returned",
+            "http_status",
+            "response_id",
+            "provider_request_id",
+            "usage_input_tokens",
+            "usage_output_tokens",
+            "usage_total_tokens",
+            "elapsed_ms",
+            "provider_success",
+            "error_type",
+            "error_code",
             "original_generation_engine",
             "shadow_processing_method",
             "model_invoked",
@@ -27380,6 +27522,22 @@ class MainWindow(QMainWindow):
                 "fallback_reason_display": analysis_semantics.get("fallback_reason_display") or payload.get("fallback_reason_display") or "",
                 "fallback_error_class": payload.get("fallback_error_class") or "",
                 "fallback_used": bool(payload.get("fallback_used") or (output_contract or {}).get("fallback_used")),
+                "provider_call_attempted": bool(payload.get("provider_call_attempted") or (output_contract or {}).get("provider_call_attempted")),
+                "provider_request_sent_at": payload.get("provider_request_sent_at") or (output_contract or {}).get("provider_request_sent_at") or "",
+                "provider_endpoint_type": payload.get("provider_endpoint_type") or (output_contract or {}).get("provider_endpoint_type") or "",
+                "model_display_name": payload.get("model_display_name") or (output_contract or {}).get("model_display_name") or "",
+                "model_requested": payload.get("model_requested") or (output_contract or {}).get("model_requested") or "",
+                "model_returned": payload.get("model_returned") or (output_contract or {}).get("model_returned") or "",
+                "http_status": payload.get("http_status") if payload.get("http_status") is not None else (output_contract or {}).get("http_status"),
+                "response_id": payload.get("response_id") or (output_contract or {}).get("response_id") or "",
+                "provider_request_id": payload.get("provider_request_id") or (output_contract or {}).get("provider_request_id") or "",
+                "usage_input_tokens": payload.get("usage_input_tokens") if payload.get("usage_input_tokens") is not None else (output_contract or {}).get("usage_input_tokens"),
+                "usage_output_tokens": payload.get("usage_output_tokens") if payload.get("usage_output_tokens") is not None else (output_contract or {}).get("usage_output_tokens"),
+                "usage_total_tokens": payload.get("usage_total_tokens") if payload.get("usage_total_tokens") is not None else (output_contract or {}).get("usage_total_tokens"),
+                "elapsed_ms": payload.get("elapsed_ms") if payload.get("elapsed_ms") is not None else (output_contract or {}).get("elapsed_ms"),
+                "provider_success": bool(payload.get("provider_success") or (output_contract or {}).get("provider_success")),
+                "error_type": payload.get("error_type") or (output_contract or {}).get("error_type") or "",
+                "error_code": payload.get("error_code") or (output_contract or {}).get("error_code") or "",
                 "provider_selected": payload.get("provider_selected") or (output_contract or {}).get("provider_selected") or "",
                 "provider_actual": payload.get("provider_actual") or (output_contract or {}).get("provider_actual") or "",
                 "analysis_kind": payload.get("analysis_kind") or (output_contract or {}).get("analysis_kind") or "",
@@ -37256,7 +37414,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             return False, type(exc).__name__
 
-    def _publish_aits_basic_fallback_reco(self, engine_mode="", reason=""):
+    def _publish_aits_basic_fallback_reco(self, engine_mode="", reason="", provider_result=None):
         market_rows_fb = []
         positions_fb = []
         try:
@@ -37313,8 +37471,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 basic_config = {}
             request_context = self._get_ai_refresh_request_context()
+            provider_result = provider_result if isinstance(provider_result, dict) else {}
             target_symbol = self._normalize_market_symbol_for_ai_snapshot(
-                request_context.get("target_symbol") or request_context.get("requested_symbol") or ""
+                request_context.get("target_symbol") or request_context.get("requested_symbol") or provider_result.get("target_symbol") or provider_result.get("symbol") or ""
             )
             selected_provider = self._normalize_ai_refresh_provider_code(
                 request_context.get("provider_selected") or engine_mode or "local"
@@ -37327,8 +37486,11 @@ class MainWindow(QMainWindow):
 
                     fallback_reason_meta = resolve_ai_fallback_reason(
                         {
-                            "fallback_reason": str(reason or ""),
-                            "fallback_error_summary": str(reason or ""),
+                            "fallback_reason": str(reason or provider_result.get("error_summary") or ""),
+                            "fallback_error_summary": str(reason or provider_result.get("error_summary") or ""),
+                            "error_type": provider_result.get("error_type") or "",
+                            "error_code": provider_result.get("error_code") or "",
+                            "http_status": provider_result.get("http_status") if provider_result.get("http_status") is not None else provider_result.get("status_code"),
                             "fallback_used": True,
                             "provider_selected": selected_provider,
                             "provider_actual": "local",
@@ -37364,7 +37526,23 @@ class MainWindow(QMainWindow):
                 "fallback_reason_code": fallback_reason_meta.get("fallback_reason_code") or "",
                 "fallback_reason_display": fallback_reason_meta.get("fallback_reason_display") or "",
                 "fallback_error_class": fallback_reason_meta.get("fallback_error_class") or "",
-                "fallback_error_summary": str(reason or "").strip()[:300],
+                "fallback_error_summary": str(reason or provider_result.get("error_summary") or "").strip()[:300],
+                "provider_call_attempted": bool(provider_result.get("provider_call_attempted")),
+                "provider_request_sent_at": str(provider_result.get("provider_request_sent_at") or ""),
+                "provider_endpoint_type": str(provider_result.get("provider_endpoint_type") or ""),
+                "model_display_name": str(provider_result.get("model_display_name") or provider_result.get("model") or ""),
+                "model_requested": str(provider_result.get("model_requested") or provider_result.get("requested_model") or provider_result.get("model") or ""),
+                "model_returned": str(provider_result.get("model_returned") or ""),
+                "http_status": provider_result.get("http_status") if provider_result.get("http_status") is not None else provider_result.get("status_code"),
+                "response_id": str(provider_result.get("response_id") or ""),
+                "provider_request_id": str(provider_result.get("provider_request_id") or ""),
+                "usage_input_tokens": provider_result.get("usage_input_tokens"),
+                "usage_output_tokens": provider_result.get("usage_output_tokens"),
+                "usage_total_tokens": provider_result.get("usage_total_tokens"),
+                "elapsed_ms": provider_result.get("elapsed_ms"),
+                "provider_success": False,
+                "error_type": str(provider_result.get("error_type") or ""),
+                "error_code": str(provider_result.get("error_code") or ""),
             }
             if str(engine_mode or "").strip():
                 payload["engine_mode"] = str(engine_mode or "").strip()
@@ -37504,6 +37682,22 @@ class MainWindow(QMainWindow):
             "invoked_model": invoked_model,
             "fallback_used": False,
             "ollama_invoked": False,
+            "provider_call_attempted": bool(ctx.get("provider_call_attempted")),
+            "provider_request_sent_at": str(ctx.get("provider_request_sent_at") or ""),
+            "provider_endpoint_type": str(ctx.get("provider_endpoint_type") or ""),
+            "model_display_name": str(ctx.get("model_display_name") or model or ""),
+            "model_requested": str(ctx.get("model_requested") or ctx.get("requested_model") or model or ""),
+            "model_returned": str(ctx.get("model_returned") or invoked_model or ""),
+            "http_status": ctx.get("http_status"),
+            "response_id": str(ctx.get("response_id") or ""),
+            "provider_request_id": str(ctx.get("provider_request_id") or ""),
+            "usage_input_tokens": ctx.get("usage_input_tokens"),
+            "usage_output_tokens": ctx.get("usage_output_tokens"),
+            "usage_total_tokens": ctx.get("usage_total_tokens"),
+            "elapsed_ms": ctx.get("elapsed_ms"),
+            "provider_success": bool(ctx.get("provider_success")),
+            "error_type": str(ctx.get("error_type") or ""),
+            "error_code": str(ctx.get("error_code") or ""),
         }
 
     def _start_aits_provider_refresh_worker(self, request_payload: dict) -> bool:
@@ -37614,6 +37808,39 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _provider_failure_connection_status_from_result(self, result: dict) -> str:
+        result = result if isinstance(result, dict) else {}
+        code = str(result.get("error_code") or result.get("error_type") or "").strip().lower()
+        summary = str(result.get("error_summary") or "").strip().lower()
+        try:
+            http_status = int(result.get("http_status") or result.get("status_code") or 0)
+        except Exception:
+            http_status = 0
+        if bool(result.get("timed_out")) or code in ("timeout", "timeouterror") or "timeout" in summary:
+            return "?? ?? ??"
+        if http_status in (401, 403) or any(token in code for token in ("auth", "permission", "unauthorized", "forbidden")):
+            return "?? ??"
+        if http_status == 429 or any(token in code for token in ("quota", "rate_limit", "resource_exhausted")):
+            return "?? ?? ??"
+        if http_status == 404 or any(token in code for token in ("model_not_found", "model_unavailable", "not_found")):
+            return "?? ?? ??"
+        return "API ?? ??"
+
+    def _mark_provider_generation_failure_status(self, result: dict) -> None:
+        try:
+            provider = self._normalize_ai_provider_code(str((result or {}).get("provider") or ""))
+            if provider not in ("gpt", "gemini"):
+                return
+            status = self._provider_failure_connection_status_from_result(result)
+            self._last_ai_connection_provider = provider
+            self._last_ai_connection_status = status
+            self._last_ai_connection_source = "manual_generation"
+            self._ai_connection_status = status
+            self._ai_engine_last_checked_text = "?? ?"
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
     def _on_aits_provider_refresh_worker_result(self, result: dict) -> None:
         result = result if isinstance(result, dict) else {}
         provider = str(result.get("provider") or "unknown").strip().lower()
@@ -37683,9 +37910,29 @@ class MainWindow(QMainWindow):
                 result_context.setdefault("provider_selected", request_context.get("provider_selected") or provider)
                 result_context.setdefault("selected_provider", request_context.get("provider_selected") or provider)
                 result_context.setdefault("requested_model", request_context.get("requested_model") or "")
+                for proof_key in (
+                    "provider_call_attempted",
+                    "provider_request_sent_at",
+                    "provider_endpoint_type",
+                    "model_display_name",
+                    "model_requested",
+                    "model_returned",
+                    "http_status",
+                    "response_id",
+                    "provider_request_id",
+                    "usage_input_tokens",
+                    "usage_output_tokens",
+                    "usage_total_tokens",
+                    "elapsed_ms",
+                    "provider_success",
+                    "error_type",
+                    "error_code",
+                ):
+                    if proof_key in result:
+                        result_context.setdefault(proof_key, result.get(proof_key))
                 reco_payload = self._build_aits_provider_reco_payload(
                     provider,
-                    str(result.get("model") or ""),
+                    str(result.get("invoked_model") or result.get("model") or ""),
                     str(result.get("text") or ""),
                     result_context,
                 )
@@ -37811,6 +38058,7 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+            self._mark_provider_generation_failure_status(result)
             try:
                 failed_ctx = result.get("context") if isinstance(result.get("context"), dict) else {}
                 failed_symbol = self._normalize_market_symbol_for_ai_snapshot(
@@ -37836,7 +38084,7 @@ class MainWindow(QMainWindow):
                 self._aits_main_reco_inflight = False
             except Exception:
                 pass
-            self._publish_aits_basic_fallback_reco(provider, f"{provider} fallback: {error_summary[:160]}")
+            self._publish_aits_basic_fallback_reco(provider, f"{provider} fallback: {error_summary[:160]}", result)
             try:
                 self._aits_main_reco_latest_applied_seq = int(result.get("seq") or 0)
                 self._aits_main_reco_last_completed_ts = time.time()
@@ -44638,7 +44886,7 @@ class MainWindow(QMainWindow):
                 )
                 return
             if status == "success":
-                self._set_ai_key_status_label(provider, "정상연결")
+                self._set_ai_key_status_label(provider, "API 응답 확인됨")
                 self._record_ai_connection_result(
                     provider,
                     key_source,
@@ -44648,7 +44896,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.information(
                         self,
                         f"{self._ai_provider_label(normalized_provider)} API 연결 확인",
-                        f"{self._ai_provider_label(normalized_provider)} API 정상연결 · {model_name}",
+                        f"{self._ai_provider_label(normalized_provider)} API API 응답 확인됨 · {model_name}",
                     )
                 return
             self._set_ai_key_status_label(provider, "연결실패")
@@ -46464,11 +46712,11 @@ class MainWindow(QMainWindow):
                 self._pending_verified_openai_key = api_key
                 self._pending_verified_openai_model = openai_model
             self._force_ai_key_status_visible(
-                "openai", "OpenAI: 정상연결", "#15803d"
+                "openai", "OpenAI: API 응답 확인됨", "#15803d"
             )
-            self._set_ai_key_status_label("openai", "정상연결")
+            self._set_ai_key_status_label("openai", "API 응답 확인됨")
             self._set_ai_engine_card_test_status(
-                "openai", "정상연결", "정상연결"
+                "openai", "API 응답 확인됨", "API 응답 확인됨"
             )
             set_header("🟢 READY")
             out("[2/2] OpenAI 연결 정상")
@@ -46479,7 +46727,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "GPT API 연결 확인",
-                f"OpenAI API 정상연결 · {openai_model}\n"
+                f"OpenAI API API 응답 확인됨 · {openai_model}\n"
                 "저장/적용하려면 하단 저장 버튼을 누르세요.\n"
                 "이 테스트는 주문 연결이나 운용 시작을 의미하지 않습니다.",
             )
@@ -46839,9 +47087,9 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 if hasattr(self, "lbl_aits_ai_engine_status") and self.lbl_aits_ai_engine_status is not None:
-                    self.lbl_aits_ai_engine_status.setText("AITS AI 상태: 정상연결")
+                    self.lbl_aits_ai_engine_status.setText("AITS AI 상태: API 응답 확인됨")
                     self._apply_aits_ai_engine_status_line_style(
-                        "AITS AI 상태: 정상연결"
+                        "AITS AI 상태: API 응답 확인됨"
                     )
             except Exception:
                 pass
@@ -46851,14 +47099,14 @@ class MainWindow(QMainWindow):
                 self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#1565c0;")
             self._force_ai_key_status_visible(
                 "gemini",
-                f"Gemini: 정상연결 · {success_model}",
+                f"Gemini: API 응답 확인됨 · {success_model}",
                 "#15803d",
             )
             self._set_ai_key_status_label(
-                "gemini", "정상연결"
+                "gemini", "API 응답 확인됨"
             )
             self._set_ai_engine_card_test_status(
-                "gemini", "정상연결", "정상연결", success_model
+                "gemini", "API 응답 확인됨", "정상연결", success_model
             )
             self._set_ai_test_status("확인됨")
             self._record_ai_connection_result("gemini", key_source)
@@ -46866,7 +47114,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Gemini API 연결 확인",
-                f"Gemini API 정상연결 · {success_model}\n"
+                f"Gemini API API 응답 확인됨 · {success_model}\n"
                 "저장/적용하려면 하단 저장 버튼을 누르세요.\n"
                 "이 테스트는 주문 연결이나 운용 시작을 의미하지 않습니다.",
             )

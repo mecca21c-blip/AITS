@@ -71,6 +71,33 @@ Provider fallback separates selected and actual provider. For example, GPT selec
 - `fallback_used=True`
 
 Fallback display metadata must include a sanitized reason code/display when the fallback is confirmed. Automatic LOCAL monitoring is not provider fallback: it remains `analysis_kind=local_calculation`, is displayed as automatic monitoring, and must not inherit GPT/Gemini selected-provider context without matching request-group proof.
+
+## Provider Call Proof
+
+External provider success requires runtime proof, not just a selected or configured engine.
+
+For OpenAI/GPT and Gemini records, the contract may preserve compact proof metadata:
+
+- `provider_call_attempted`
+- `provider_request_sent_at`
+- `provider_endpoint_type`
+- `model_display_name`
+- `model_requested`
+- `model_returned`
+- `http_status`
+- `response_id`
+- `provider_request_id`
+- `usage_input_tokens`
+- `usage_output_tokens`
+- `usage_total_tokens`
+- `elapsed_ms`
+- `provider_success`
+- `error_type`
+- `error_code`
+
+API keys, prompts, raw provider responses, account payloads, and order payloads are never stored in this proof metadata.
+
+An external AI analysis success record requires `provider_call_attempted=True`, HTTP success, parse success, `provider_success=True`, and a response/request identifier. Legacy rows that only say GPT/Gemini without proof are displayed as unverified previous records rather than confirmed actual GPT/Gemini judgments.
 - `engine_label=LOCAL 계산 기반`
 
 ## Stage Metadata Boundary

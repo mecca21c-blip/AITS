@@ -971,3 +971,17 @@ Policy intent:
 - Unrelated LOCAL/Basic side-channel payloads cannot consume or complete an active GPT/Gemini manual request.
 - This work does not add automatic GPT/Gemini calls, change provider call frequency, promote Ollama, or touch Router, Risk Guard, execution, order submission, or actual trade storage.
 - Worker delivery logs include `order_allowed=False`, `real_order=False`, and `submitted=0`.
+
+## OpenAI Provider Call Truth And Usage Proof
+
+`OPENAI-PROVIDER-CALL-TRUTH-AND-USAGE-PROOF-01` separates configured GPT state from actual OpenAI generation proof.
+
+Policy intent:
+
+- Stored keys and Preview/applied engine state are not evidence of an external AI judgment.
+- Connection status may show `키 설정됨 · 호출 미확인`, `API 호출 중`, `API 응답 확인됨`, or failure classes; it must not claim a successful judgment from key presence alone.
+- A GPT judgment can be displayed as `외부 AI 분석 성공` only when the explicit manual refresh worker records a provider call attempt, HTTP success, parsed response, response/request id, and provider success metadata.
+- GPT failure with LOCAL fallback is displayed as `외부 AI 실패 · LOCAL 대체`, keeps `provider_selected=gpt`, sets `provider_actual=local`, and stores sanitized failure reason metadata.
+- Dashboard cross-check reports should include KST/UTC request time, endpoint type, requested model id, HTTP status, masked response/request id, and token usage when available.
+- This policy does not add automatic OpenAI calls and does not change Router, Risk Guard, Execution, Order, or actual trade storage.
+- Safety metadata remains `submitted=0`, `order_allowed=False`, and `real_order=False`.
