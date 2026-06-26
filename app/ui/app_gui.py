@@ -10042,10 +10042,12 @@ class MainWindow(QMainWindow):
 
         h.addWidget(_bar_lbl("선택 엔진"))
         self._chip_selected_engine = _AitsColorChip("#3B82F6", "Basic", "topChipTextBlue", left)
+        self._chip_selected_engine.setObjectName("lbl_selected_ai_engine")
         h.addWidget(self._chip_selected_engine)
         h.addSpacing(12)
         h.addWidget(_bar_lbl("적용 엔진"))
         self._chip_applied_engine = _AitsColorChip("#22C55E", "미적용", "topChipTextGreen", left)
+        self._chip_applied_engine.setObjectName("lbl_applied_ai_engine")
         h.addWidget(self._chip_applied_engine)
         h.addSpacing(12)
         h.addWidget(_bar_lbl("연결 상태"))
@@ -11205,6 +11207,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self, state, root_dir=None, data_dir=None):
         super().__init__()
+        self.setObjectName("main_window_aits")
         _aits_init_t0 = self._aits_perf_log("MainWindow.__init__.start")
         self.state = state
         self._root_dir = root_dir
@@ -13187,6 +13190,7 @@ class MainWindow(QMainWindow):
             pass
         self.lbl_power_title = QLabel("AITS OFF", self.stop_box)
         self.lbl_power_title.setObjectName("powerTitle")
+        self.lbl_power_title.setProperty("smokeObjectName", "lbl_aits_power_state")
         self.lbl_power_title.setProperty("headerToggleMain", True)
         self.lbl_power_title.setProperty("headerState", "off")
         try:
@@ -13198,6 +13202,7 @@ class MainWindow(QMainWindow):
         self.lbl_power_title.setStyleSheet("")
         self.lbl_power_sub = QLabel("Shadow · 주문 없음", self.stop_box)
         self.lbl_power_sub.setObjectName("powerSub")
+        self.lbl_power_sub.setProperty("smokeObjectName", "lbl_aits_safety_state")
         self.lbl_power_sub.setProperty("headerToggleSub", True)
         self.lbl_power_sub.setProperty("headerState", "off")
         try:
@@ -13698,6 +13703,7 @@ class MainWindow(QMainWindow):
 
         # SSOT용 상태 텍스트(요약 줄은 lbl_aits_ops_summary로 이동 — 레이아웃에는 숨김)
         self.lbl_aits_ai_engine_status = QLabel("AITS AI 상태: 시장 확인 중")
+        self.lbl_aits_ai_engine_status.setObjectName("lbl_provider_connection_state")
         try:
             self._apply_aits_ai_engine_status_line_style("AITS AI 상태: 시장 확인 중")
         except Exception:
@@ -14197,10 +14203,12 @@ class MainWindow(QMainWindow):
         # 통합 새로고침
         self.btn_refresh = QPushButton("상태 새로고침")
         self.btn_refresh.setObjectName("managed_state_refresh")
+        self.btn_refresh.setProperty("smokeObjectName", "btn_ai_status_refresh")
         self.btn_managed_state_refresh = self.btn_refresh
         self.btn_refresh.setToolTip("Watchlist·투자현황·수익률·요약 정보를 다시 불러옵니다")
         self.btn_ai_analysis_refresh = QPushButton("AI 분석 새로고침")
         self.btn_ai_analysis_refresh.setObjectName("managed_ai_analysis_refresh")
+        self.btn_ai_analysis_refresh.setProperty("smokeObjectName", "btn_ai_analysis_refresh")
         self.btn_managed_ai_analysis_refresh = self.btn_ai_analysis_refresh
         self.btn_ai_analysis_refresh.setToolTip(
             "현재 선택된 AI 엔진으로 브리핑/근거/다음행동을 다시 생성합니다. "
@@ -14596,6 +14604,7 @@ class MainWindow(QMainWindow):
         self.tbl_ai_managed = QTableWidget(0, 5)
         try:
             self.tbl_ai_managed.setObjectName("tblAiManaged")
+            self.tbl_ai_managed.setProperty("smokeObjectName", "tbl_ai_managed")
             self.tbl_ai_managed.setProperty("managedTable", True)
             self.tbl_ai_managed.setProperty("managedRankTable", True)
         except Exception:
@@ -16405,6 +16414,17 @@ class MainWindow(QMainWindow):
             self.btn_nav_strategy,
             self.btn_nav_settings,
         ]
+        for _nav_widget, _nav_smoke_name in (
+            (self.btn_nav_watchlist, "tab_aits_managed"),
+            (self.btn_nav_trades, "tab_trade_log"),
+            (self.btn_nav_portfolio, "tab_investment"),
+            (self.btn_nav_strategy, "tab_ai_policy_center"),
+            (self.btn_nav_settings, "tab_common_settings"),
+        ):
+            try:
+                _nav_widget.setProperty("smokeObjectName", _nav_smoke_name)
+            except Exception:
+                pass
         for _i, _b in enumerate(self._bottom_nav_buttons):
             _nav_left_ly.addWidget(_b, 0)
             if _i < len(self._bottom_nav_buttons) - 1:
@@ -41818,6 +41838,7 @@ class MainWindow(QMainWindow):
         # API/기타 — PATCH 1-7: Upbit/시세 행은 상단 3카드 중 Upbit 카드로 이동
         # 저장/테스트 버튼은 인스턴스 재사용 가능하도록 getattr 사용
         self.btn_save = getattr(self, "btn_save", QPushButton("저장"))
+        self.btn_save.setProperty("smokeObjectName", "btn_trade_log_save")
         if not self.btn_save.text().strip():
             self.btn_save.setText("저장")
             self._log.info('[SAVE-UI] btn_save_text="저장" (fixed)')
@@ -41889,6 +41910,7 @@ class MainWindow(QMainWindow):
 
         # (레거시) 상단 공통 엔진 UI는 숨김 유지 — 엔진 설정은 하단 3박스에서만 수행
         self.cmb_ai_engine = QComboBox()
+        self.cmb_ai_engine.setObjectName("cmb_ai_provider")
         self.cmb_ai_engine.addItems(["OpenAI", "Gemini", "LOCAL"])
         self.cmb_ai_engine.setCurrentText("LOCAL")
         self.cmb_ai_model = QComboBox()

@@ -292,9 +292,11 @@ class TradeLogCenterTab(QWidget):
         layout.addStretch(1)
 
         self.btn_refresh = QPushButton("새로고침")
+        self.btn_refresh.setObjectName("btn_trade_log_refresh")
         self.btn_refresh.setProperty("actionButton", True)
         self.btn_refresh.clicked.connect(self.refresh)
         self.btn_export = QPushButton("CSV 내보내기")
+        self.btn_export.setObjectName("btn_trade_log_export")
         self.btn_export.setProperty("actionButton", True)
         self.btn_export.clicked.connect(self.export_csv)
         layout.addWidget(self.btn_refresh)
@@ -324,6 +326,7 @@ class TradeLogCenterTab(QWidget):
         self.empty_label.hide()
 
         self.tbl_records = QTableWidget(0, len(self.COLUMNS))
+        self.tbl_records.setObjectName("tbl_trade_log")
         self.tbl_records.setHorizontalHeaderLabels(list(self.COLUMNS))
         self.tbl_records.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.tbl_records.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -347,6 +350,7 @@ class TradeLogCenterTab(QWidget):
 
     def _build_detail_card(self) -> QFrame:
         card = self._card()
+        card.setObjectName("pnl_trade_log_detail")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(14, 12, 14, 14)
         layout.setSpacing(8)
