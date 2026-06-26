@@ -1314,6 +1314,7 @@ class AITSProviderRefreshWorker(QThread):
                     timeout=timeout_sec,
                 )
                 result["status_code"] = int(getattr(resp, "status_code", 0) or 0)
+                result["http_status"] = int(getattr(resp, "status_code", 0) or 0)
                 if resp.status_code != 200:
                     result["error_summary"] = f"Gemini HTTP {resp.status_code}"
                     result["http_status"] = int(getattr(resp, "status_code", 0) or 0)
