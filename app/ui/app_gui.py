@@ -1286,6 +1286,11 @@ class AITSProviderRefreshWorker(QThread):
             "error_code": "",
             "error_param": "",
             "error_message": "",
+            "error_details_summary": "",
+            "payload_summary": self.request_payload.get("payload_summary") or {},
+            "key_source": str(self.request_payload.get("key_source") or ""),
+            "masked_blocked": bool(self.request_payload.get("masked_blocked")),
+            "key_configured": bool(self.request_payload.get("key_configured")),
         }
         try:
             import requests
@@ -1296,6 +1301,11 @@ class AITSProviderRefreshWorker(QThread):
                 result["provider_call_attempted"] = True
                 result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
                 result["provider_endpoint_type"] = "gemini_generate_content"
+                try:
+                    ps = result.get("payload_summary") if isinstance(result.get("payload_summary"), dict) else {}
+                    logging.getLogger("aits").info("[AITS][GeminiPayloadProof] event=request_summary group_id=%s model=%s top_keys=%s contents_count=%s parts_count=%s text_chars=%s generation_config_keys=%s control_chars=%s non_bmp_chars=%s openai_only_keys=%s prompt_hash=%s submitted=0 order_allowed=False real_order=False", str(result.get("decision_group_id") or result.get("request_id") or ""), str(result.get("model_requested") or result.get("model") or "")[:80], ",".join([str(x) for x in (ps.get("top_keys") or [])])[:120], ps.get("contents_count"), ps.get("parts_count"), ps.get("text_chars"), ",".join([str(x) for x in (ps.get("generation_config_keys") or [])])[:120], ps.get("control_chars"), ps.get("non_bmp_chars"), ",".join([str(x) for x in (ps.get("openai_only_keys") or [])])[:120], str(ps.get("prompt_hash") or "")[:24])
+                except Exception:
+                    pass
                 resp = requests.post(
                     str(self.request_payload.get("url") or ""),
                     headers=dict(self.request_payload.get("headers") or {}),
@@ -1318,15 +1328,26 @@ class AITSProviderRefreshWorker(QThread):
                             result["error_type"] = gemini_status or result["error_type"]
                             result["error_code"] = gemini_status or gemini_code or result["error_code"]
                             result["error_message"] = str(err.get("message") or "").strip()[:240]
+                            safe_msg_low = str(result.get("error_message") or "").lower()
+                            if any(token in safe_msg_low for token in ("api key not valid", "invalid api key", "api_key_invalid", "api key is invalid")):
+                                result["error_type"] = "auth_failed"
+                                result["error_code"] = "key_invalid"
+                                result["error_param"] = "api_key"
+                            details = err.get("details")
+                            if isinstance(details, list):
+                                safe_details = []
+                                for item in details[:3]:
+                                    if isinstance(item, dict):
+                                        safe_details.append(",".join([str(k)[:40] for k in item.keys() if str(k).lower() not in {"prompt", "text", "contents"}]))
+                                result["error_details_summary"] = ";".join([x for x in safe_details if x])[:240]
                     except Exception:
                         pass
                     try:
-                        logging.getLogger("aits").warning(
-                            "[AITS][ProviderConnectionTruth] event=request_failed provider=gemini http_status=%s error_code=%s error_param=%s submitted=0 order_allowed=False real_order=False",
-                            result.get("http_status"),
-                            str(result.get("error_code") or result.get("error_type") or "")[:80],
-                            str(result.get("error_param") or "")[:80],
-                        )
+                        logging.getLogger("aits").warning("[AITS][ProviderConnectionTruth] event=request_failed provider=gemini http_status=%s error_code=%s error_param=%s submitted=0 order_allowed=False real_order=False", result.get("http_status"), str(result.get("error_code") or result.get("error_type") or "")[:80], str(result.get("error_param") or "")[:80])
+                    except Exception:
+                        pass
+                    try:
+                        logging.getLogger("aits").warning("[AITS][GeminiErrorProof] event=response_failed group_id=%s http_status=%s google_status=%s safe_message=%s details_count=%s details_summary=%s submitted=0 order_allowed=False real_order=False", str(result.get("decision_group_id") or result.get("request_id") or ""), result.get("http_status"), str(result.get("error_code") or result.get("error_type") or "")[:80], str(result.get("error_message") or "")[:180], 0, str(result.get("error_details_summary") or "")[:180])
                     except Exception:
                         pass
                     return
@@ -1335,6 +1356,15 @@ class AITSProviderRefreshWorker(QThread):
                 except Exception:
                     result["error_summary"] = "Gemini JSON parsing failed"
                     return
+                try:
+                    result["model_returned"] = str(body.get("modelVersion") or result.get("model_requested") or result.get("model") or "").strip()
+                    usage = body.get("usageMetadata") if isinstance(body, dict) else {}
+                    if isinstance(usage, dict):
+                        result["usage_input_tokens"] = usage.get("promptTokenCount")
+                        result["usage_output_tokens"] = usage.get("candidatesTokenCount")
+                        result["usage_total_tokens"] = usage.get("totalTokenCount")
+                except Exception:
+                    pass
                 text_out = ""
                 try:
                     candidates = body.get("candidates") or []
@@ -1354,7 +1384,8 @@ class AITSProviderRefreshWorker(QThread):
                 result["ok"] = True
                 result["text"] = text_out
                 result["provider_actual"] = provider
-                result["invoked_model"] = str(result.get("model") or "")
+                result["invoked_model"] = str(result.get("model_returned") or result.get("model") or "")
+                result["provider_success"] = True
                 return
 
             if provider == "gpt":
@@ -23278,12 +23309,7 @@ class MainWindow(QMainWindow):
 
     def _gemini_model_items(self):
         return [
-            ("무료 기본 · Gemini 1.5 Flash — 빠른 응답", "gemini-1.5-flash"),
-            ("무료 최신 · Gemini 3 Flash — 최신 Flash 계열", "gemini-3-flash"),
-            ("유료 기본 · Gemini 1.5 Pro — 긴 문서·코드", "gemini-1.5-pro"),
-            ("유료 상위 · Gemini 3.1 Pro — 복잡한 추론", "gemini-3.1-pro"),
-            ("유료 상위 · Gemini 3.1 Flash-Lite — 저비용 고속", "gemini-3.1-flash-lite"),
-            ("안정 fallback · Gemini 2.5 Flash — 연결 검증 완료", "gemini-2.5-flash"),
+            ("Gemini 2.5 Flash — 권장", "gemini-2.5-flash"),
         ]
 
     def _fill_model_combo(self, combo, items):
@@ -23303,6 +23329,50 @@ class MainWindow(QMainWindow):
         except Exception:
             return default_model
 
+    def _resolve_gemini_model_request_config(self, raw_model: str = "", log_normalize: bool = False) -> dict:
+        raw = str(raw_model or "").strip()
+        source = "explicit" if raw else "combo"
+        if not raw:
+            try:
+                obj = getattr(self, "cmb_gemini_model", None)
+                if obj is not None:
+                    data = str(obj.currentData() or "").strip()
+                    text = str(obj.currentText() or "").strip()
+                    raw = data or text
+                    source = "combo_itemData" if data else "combo_text"
+            except Exception:
+                raw = ""
+        normalized_from = ""
+        candidate = raw.strip().replace(" ", "")
+        if candidate.startswith("models/"):
+            candidate = candidate.split("/", 1)[1]
+        lower = candidate.lower()
+        legacy_or_invalid = (
+            not lower
+            or lower in ("gemini-1.5-flash", "gemini1.5flash", "gemini-1.5-pro", "gemini1.5pro")
+            or "1.5" in lower
+            or lower != "gemini-2.5-flash"
+        )
+        if legacy_or_invalid:
+            normalized_from = candidate or raw
+            candidate = "gemini-2.5-flash"
+            if log_normalize:
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][GeminiModelConfig] event=legacy_model_normalized old_model=%s new_model=gemini-2.5-flash submitted=0 order_allowed=False real_order=False",
+                        str(normalized_from or "")[:80],
+                    )
+                except Exception:
+                    pass
+        return {
+            "model_display_name": "Gemini 2.5 Flash",
+            "model_api_id": "gemini-2.5-flash",
+            "model_requested": "gemini-2.5-flash",
+            "model_source": source,
+            "normalized_from": normalized_from,
+            "is_legacy_normalized": bool(normalized_from),
+        }
+
     def _set_combo_current_model_id(self, combo, model_id: str, default_model: str):
         try:
             target = (model_id or default_model or "").strip()
@@ -23314,6 +23384,11 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
                 target = "chat-latest"
+            if default_model == "gemini-2.5-flash":
+                try:
+                    target = self._resolve_gemini_model_request_config(target, log_normalize=True).get("model_requested") or "gemini-2.5-flash"
+                except Exception:
+                    target = "gemini-2.5-flash"
             idx = -1
             for i in range(combo.count()):
                 data = str(combo.itemData(i) or "").strip()
@@ -23357,7 +23432,7 @@ class MainWindow(QMainWindow):
             if p == "gpt" and hasattr(self, "ed_openai_model"):
                 return self._current_model_id(self.ed_openai_model, "chat-latest")
             if p == "gemini" and hasattr(self, "cmb_gemini_model"):
-                return self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash")
+                return self._resolve_gemini_model_request_config(log_normalize=True).get("model_requested") or "gemini-2.5-flash"
             if hasattr(self, "cmb_local_model"):
                 return (self.cmb_local_model.currentText() or "qwen2.5").strip() or "qwen2.5"
         except Exception:
@@ -36983,6 +37058,67 @@ class MainWindow(QMainWindow):
         except Exception:
             return {"top_candidate": None, "has_better": False}
 
+    def _build_aits_gemini_compact_decision_prompt(self, context: dict | None = None) -> str:
+        ctx = context if isinstance(context, dict) else {}
+        target_symbol = str(ctx.get("target_symbol") or ctx.get("requested_symbol") or ctx.get("symbol") or "").strip()
+        provider = str(ctx.get("provider_selected") or ctx.get("selected_provider") or "gemini").strip()
+        def _fmt(value, default="-"):
+            text = str(value if value is not None else "").strip()
+            return text if text else default
+        keys = ("price", "current_price", "change_rate", "volume", "trade_price", "trading_value", "aits_score", "freshness", "review_status", "rsi", "macd", "holding_qty", "holding_value", "manual_hold", "decision_hint")
+        facts = []
+        for key in keys:
+            if key in ctx and ctx.get(key) not in (None, ""):
+                facts.append(f"- {key}: {_fmt(ctx.get(key))}")
+        if not facts:
+            market = ctx.get("market_snapshot") if isinstance(ctx.get("market_snapshot"), dict) else {}
+            for key in ("price", "change_rate", "volume", "trading_value", "rsi", "macd"):
+                if market.get(key) not in (None, ""):
+                    facts.append(f"- {key}: {_fmt(market.get(key))}")
+        facts_text = "\n".join(facts[:18]) if facts else "- available_data: limited"
+        return (
+            "AITS Gemini compact analysis.\n"
+            f"Target symbol: {_fmt(target_symbol)}\n"
+            f"Selected provider: {_fmt(provider)}\n"
+            "Safety: This is observe-only analysis. Do not place, submit, buy, sell, liquidate, or route orders.\n"
+            "Facts:\n"
+            f"{facts_text}\n"
+            "Return exactly one JSON object with keys: decision, confidence, summary, basis, reason, next_observation.\n"
+            "Allowed decision values: entry_review, observe, hold, reduce, exit_review.\n"
+        )
+
+    def _build_gemini_payload_summary(self, body: dict | None, prompt_text: str = "") -> dict:
+        body = body if isinstance(body, dict) else {}
+        contents = body.get("contents") if isinstance(body.get("contents"), list) else []
+        parts_count = 0
+        for item in contents:
+            if isinstance(item, dict) and isinstance(item.get("parts"), list):
+                parts_count += len(item.get("parts") or [])
+        generation_config = body.get("generationConfig") if isinstance(body.get("generationConfig"), dict) else {}
+        prompt = str(prompt_text or "")
+        openai_only = []
+        for key in ("messages", "max_tokens", "max_completion_tokens", "response_format", "tools", "function_call", "seed", "presence_penalty", "frequency_penalty", "stop", "stream", "n", "logprobs", "top_logprobs"):
+            if key in body or key in generation_config:
+                openai_only.append(key)
+        control_chars = sum(1 for ch in prompt if (ord(ch) < 32 and ch not in "\n\r\t"))
+        non_bmp_chars = sum(1 for ch in prompt if ord(ch) > 0xFFFF)
+        try:
+            import hashlib
+            prompt_hash = hashlib.sha256(prompt.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        except Exception:
+            prompt_hash = ""
+        return {
+            "top_keys": sorted([str(k) for k in body.keys()]),
+            "contents_count": len(contents),
+            "parts_count": parts_count,
+            "text_chars": len(prompt),
+            "generation_config_keys": sorted([str(k) for k in generation_config.keys()]),
+            "control_chars": control_chars,
+            "non_bmp_chars": non_bmp_chars,
+            "openai_only_keys": openai_only,
+            "prompt_hash": prompt_hash,
+        }
+
     def _build_aits_ai_decision_context(self):
         try:
             quick_candidates = self._build_quick_candidate_contexts()
@@ -37890,6 +38026,8 @@ class MainWindow(QMainWindow):
             http_status = 0
         if bool(result.get("timed_out")) or code in ("timeout", "timeouterror") or "timeout" in summary:
             return '응답 시간 초과'
+        if any(token in summary for token in ("api key not valid", "invalid api key", "api_key_invalid")) or "key_invalid" in code:
+            return 'API 키 오류'
         if http_status in (401, 403) or any(token in code for token in ("auth", "permission", "unauthorized", "forbidden", "permission_denied")):
             return '인증 실패'
         if http_status == 429 or any(token in code for token in ("quota", "rate_limit", "resource_exhausted")):
@@ -39299,26 +39437,37 @@ class MainWindow(QMainWindow):
                     pass
 
                 try:
-                    api_key = ""
+                    api_key, api_key_source, api_key_ui_masked = self._resolve_ai_generation_secret("gemini")
+                    if not api_key:
+                        try:
+                            logging.getLogger("aits").warning("[AITS][GeminiKeySource] event=blocked_masked_key source=%s provider_call_attempted=False submitted=0 order_allowed=False real_order=False", "ui_masked_text" if api_key_ui_masked else str(api_key_source or "missing"))
+                        except Exception:
+                            pass
+                        try:
+                            self._last_ai_connection_status = "키 확인 필요"
+                            self._ai_connection_status = "키 확인 필요"
+                            self._render_ai_engine_state()
+                        except Exception:
+                            pass
+                        raise RuntimeError("Gemini API 키 확인 필요")
                     try:
-                        api_key = str(getattr(self, "ed_gemini_key", None).text() or "").strip()
-                    except Exception:
-                        api_key = ""
-                    if not api_key or api_key.startswith("•"):
-                        raise RuntimeError("Gemini API 키 없음")
-                    model_name = "gemini-1.5-flash"
-                    try:
-                        obj = getattr(self, "cmb_gemini_model", None)
-                        if obj is not None and hasattr(obj, "currentText"):
-                            v = str(obj.currentText() or "").strip().replace(" ", "")
-                            if v:
-                                model_name = v
+                        logging.getLogger("aits").info("[AITS][GeminiKeySource] event=resolved source=%s masked_blocked=False key_present=True submitted=0 order_allowed=False real_order=False", str(api_key_source or "unknown")[:40])
                     except Exception:
                         pass
+                    model_cfg = self._resolve_gemini_model_request_config(
+                        request_context.get("model_requested")
+                        or request_context.get("model_api_id")
+                        or request_context.get("requested_model")
+                        or "",
+                        log_normalize=True,
+                    )
+                    model_name = str(model_cfg.get("model_requested") or "gemini-2.5-flash").strip()
+                    model_display_name = str(model_cfg.get("model_display_name") or "Gemini 2.5 Flash").strip()
+                    model_normalized_from = str(model_cfg.get("normalized_from") or "").strip()
                     ctx = self._build_aits_ai_decision_context()
                     prompt_text = ""
                     try:
-                        prompt_text = (self._build_aits_ai_decision_prompt() or "").strip()
+                        prompt_text = (self._build_aits_gemini_compact_decision_prompt(ctx) or "").strip()
                     except Exception:
                         prompt_text = ""
                     if not prompt_text:
@@ -39342,7 +39491,18 @@ class MainWindow(QMainWindow):
                     selected_provider_req = self._normalize_ai_refresh_provider_code(
                         request_context.get("provider_selected") or "gemini"
                     )
-                    requested_model_req = str(request_context.get("requested_model") or model_name or "").strip()
+                    requested_model_req = model_name
+                    try:
+                        logging.getLogger("aits").info(
+                            "[AITS][GeminiModelConfig] event=request_model_frozen group_id=%s model_requested=%s display=%s normalized_from=%s source=%s submitted=0 order_allowed=False real_order=False",
+                            str(group_id or "")[:80],
+                            requested_model_req,
+                            model_display_name,
+                            str(model_normalized_from or "")[:80],
+                            str(model_cfg.get("model_source") or "")[:40],
+                        )
+                    except Exception:
+                        pass
                     try:
                         ctx["decision_group_id"] = group_id
                         ctx["request_id"] = group_id
@@ -39354,7 +39514,8 @@ class MainWindow(QMainWindow):
                         ctx["requested_model"] = requested_model_req
                         ctx["model_api_id"] = requested_model_req
                         ctx["model_requested"] = requested_model_req
-                        ctx["model_display_name"] = requested_model_req
+                        ctx["model_display_name"] = model_display_name
+                        ctx["normalized_from"] = model_normalized_from
                     except Exception:
                         pass
                     request_payload = {
@@ -39373,14 +39534,20 @@ class MainWindow(QMainWindow):
                         "requested_model": requested_model_req,
                         "model_requested": requested_model_req,
                         "model_api_id": requested_model_req,
-                        "model_display_name": requested_model_req,
+                        "model_display_name": model_display_name,
+                        "normalized_from": model_normalized_from,
+                        "model_source": str(model_cfg.get("model_source") or ""),
                         "url": (
                             "https://generativelanguage.googleapis.com/v1beta/models/"
                             f"{model_name}:generateContent"
                         ),
                         "headers": {"Content-Type": "application/json"},
                         "params": {"key": api_key},
-                        "json": {"contents": [{"parts": [{"text": prompt_text}]}]},
+                        "json": {"contents": [{"parts": [{"text": prompt_text}]}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024}},
+                        "payload_summary": self._build_gemini_payload_summary({"contents": [{"parts": [{"text": prompt_text}]}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024}}, prompt_text),
+                        "key_source": api_key_source,
+                        "masked_blocked": False,
+                        "key_configured": True,
                         "timeout_sec": 90,
                     }
                     if self._start_aits_provider_refresh_worker(request_payload):
@@ -44621,11 +44788,39 @@ class MainWindow(QMainWindow):
         try:
             text = str(value or "").strip()
             if not text:
-                return False
-            mask_chars = set("*•●")
-            return len(text) >= 4 and all(ch in mask_chars for ch in text)
+                return True
+            lowered = text.lower()
+            if any(token in lowered for token in ("masked", "hidden", "api key ??", "? ???", "???")):
+                return True
+            if "..." in text or "?" in text:
+                if any(ch in text for ch in ("?", "?", "*")):
+                    return True
+            mask_chars = set("*??")
+            mask_count = sum(1 for ch in text if ch in mask_chars)
+            if mask_count >= 3 and (mask_count == len(text) or mask_count / max(len(text), 1) >= 0.5):
+                return True
+            if len(text) < 8:
+                return True
+            return False
         except Exception:
             return False
+
+    def _resolve_ai_generation_secret(self, provider: str) -> tuple[str, str, bool]:
+        provider = self._normalize_saved_ai_provider(provider)
+        edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
+        ui_value = ""
+        try:
+            ui_value = str(edit.text() or "").strip() if edit is not None else ""
+        except Exception:
+            ui_value = ""
+        ui_masked = bool(ui_value and self._is_masked_ai_secret_text(ui_value))
+        stored = self._get_stored_ai_secret(provider)
+        if stored and not self._is_masked_ai_secret_text(stored):
+            return stored, "stored_secret", ui_masked
+        pending = self._get_pending_verified_ai_secret(provider)
+        if pending and not self._is_masked_ai_secret_text(pending):
+            return pending, "pending_verified", ui_masked
+        return "", "masked_blocked" if ui_masked else "missing", ui_masked
 
     def _get_stored_ai_secret(self, provider: str) -> str:
         """Return only the persisted secrets.json value, never an env fallback."""
@@ -44704,7 +44899,11 @@ class MainWindow(QMainWindow):
         if str(getattr(self, pending_key_name, "") or "").strip():
             pending_model = str(getattr(self, pending_model_name, "") or "").strip()
             if pending_model:
+                if provider == "gemini":
+                    return self._resolve_gemini_model_request_config(pending_model, log_normalize=True).get("model_requested") or "gemini-2.5-flash"
                 return pending_model
+        if provider == "gemini":
+            return self._resolve_gemini_model_request_config(current_model, log_normalize=True).get("model_requested") or "gemini-2.5-flash"
         return str(current_model or "").strip()
 
     def _set_ai_secret_input_masked(self, provider: str, key_present: bool) -> None:
@@ -47141,11 +47340,8 @@ class MainWindow(QMainWindow):
         if hasattr(self, "lbl_gemini_test_status") and self.lbl_gemini_test_status is not None:
             self.lbl_gemini_test_status.setText("🟡 READY TO TEST")
             self.lbl_gemini_test_status.setStyleSheet("font-size: 11px; color:#b26a00;")
-        model_id = "gemini-2.5-flash"
-        if hasattr(self, "cmb_gemini_model"):
-            model_id = self._current_model_id(self.cmb_gemini_model, "gemini-2.5-flash").replace(" ", "")
-        if not model_id:
-            model_id = "gemini-2.5-flash"
+        model_cfg = self._resolve_gemini_model_request_config(log_normalize=True)
+        model_id = str(model_cfg.get("model_requested") or "gemini-2.5-flash").strip()
 
         try:
             self._set_ai_key_status_label("gemini", "연결중")

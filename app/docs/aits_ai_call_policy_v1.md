@@ -1009,5 +1009,15 @@ Policy intent:
 - A stored OpenAI or Gemini key is not displayed as a successful generation connection.
 - Startup/auth checks may show `?? ??? ? ?? ?? ???`; only a successful explicit generation response may show `?? ?? ???`.
 - Gemini `error.status` is mapped before falling back to generic HTTP status: `INVALID_ARGUMENT` -> ?? ?? ??, `FAILED_PRECONDITION` -> ??/?? ?? ?? ??, `PERMISSION_DENIED` -> ?? ??, `NOT_FOUND` -> ?? ?? ??, `RESOURCE_EXHAUSTED` -> ?? ?? ??, `UNAVAILABLE` -> ??? ??, and `DEADLINE_EXCEEDED` -> ?? ?? ??.
+- Gemini explicit refresh uses the combo item data/model id as `model_requested`; display labels are never sent as the API model path.
+- Gemini explicit refresh uses the shared Gemini model resolver for UI combo itemData, saved config, request context, connection checks, and worker endpoint.
+- Legacy Gemini request IDs such as `gemini-1.5-flash`, `models/gemini-1.5-flash`, display-only labels, or blank values are normalized to `gemini-2.5-flash` before a generation request is built.
+- Gemini display name (`Gemini 2.5 Flash`) and API model ID (`gemini-2.5-flash`) remain distinct; the worker endpoint uses only the frozen `model_requested`.
+- Gemini GenerateContent requests use the Google schema `contents[].parts[].text` and keep OpenAI-only parameters out of the Gemini body.
+- Gemini explicit AI refresh uses a compact Gemini-only prompt and minimal REST body: `contents[].parts[].text` plus `generationConfig.temperature/maxOutputTokens`; JSON mime/schema, safety settings, system instructions, and OpenAI response-format fields are not sent by default.
+- Gemini requests log only redacted payload metadata such as top-level keys, part counts, text length, control-character counts, and a short prompt hash. Prompt text, API keys, account data, and raw response bodies are never logged.
+- Gemini failures preserve safe `error.message` and limited `error.details` metadata for diagnostics while keeping LOCAL fallback and `provider_selected=gemini`.
+- Gemini explicit refresh must resolve API keys from stored/effective secrets, never from masked UI text. Mask patterns such as `●`, `•`, `*`, `...`, `…`, and placeholder text are blocked before dispatch.
+- Gemini `API key not valid` responses are classified as key/auth failures before generic `INVALID_ARGUMENT` request-format handling.
 - Provider failures can still publish LOCAL calculation fallback, but the record remains an external AI failure with `provider_selected` preserved and `provider_actual=local`.
 - No automatic generation calls are added. Router, Risk Guard, Execution, Order, and actual trade storage remain unchanged.

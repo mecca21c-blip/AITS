@@ -450,7 +450,19 @@ def resolve_ai_fallback_reason(metadata: dict[str, Any] | None = None) -> dict[s
     ).strip()
     low = raw.lower()
     code = existing_code or "provider_failed"
-    if any(token in low for token in ("timeout", "timed out", "deadline", "watchdog")):
+    if any(
+        token in low
+        for token in (
+            "api key not valid",
+            "invalid api key",
+            "api_key_invalid",
+            "api key is invalid",
+            "key_invalid",
+        )
+    ):
+        code = "key_invalid"
+        display = 'Gemini API 키가 유효하지 않아 LOCAL 계산 기반으로 대체했습니다.'
+    elif any(token in low for token in ("timeout", "timed out", "deadline", "watchdog")):
         code = "timeout"
         display = 'AI 응답 시간이 초과되어 LOCAL 계산 기반으로 대체했습니다.'
     elif any(token in low for token in ("429", "quota", "resource_exhausted", "resource exhausted", "limit")):
@@ -533,6 +545,33 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
         or contract.get("provider_request_id")
         or ""
     ).strip()
+    http_status = data.get("http_status") or contract.get("http_status")
+    try:
+        http_status_int = int(http_status or 0)
+    except Exception:
+        http_status_int = 0
+    model_proof = str(
+        data.get("model_returned")
+        or contract.get("model_returned")
+        or data.get("invoked_model")
+        or contract.get("invoked_model")
+        or data.get("model_requested")
+        or contract.get("model_requested")
+        or data.get("model")
+        or contract.get("model")
+        or ""
+    ).strip()
+    gemini_success_proof = bool(
+        actual == "gemini"
+        and provider_success
+        and (
+            provider_response_id
+            or (200 <= http_status_int < 300)
+            or model_proof
+            or data.get("usage_total_tokens") is not None
+            or contract.get("usage_total_tokens") is not None
+        )
+    )
     manual_source = source_event in {
         "manual_refresh",
         "detail_chart_manual_refresh",
@@ -559,7 +598,7 @@ def classify_ai_analysis_record(metadata: dict[str, Any] | None = None) -> dict[
         and not fallback_used
         and provider_call_attempted
         and provider_success
-        and bool(provider_response_id)
+        and (bool(provider_response_id) or gemini_success_proof)
     ):
         classification = "manual_provider_success"
     elif manual_source and selected in {"gpt", "gemini"} and actual in {"gpt", "gemini"}:
