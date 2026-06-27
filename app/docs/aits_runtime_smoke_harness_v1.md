@@ -14,6 +14,7 @@ production startup.
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-read
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 ```
 
 Reports are written to:
@@ -38,6 +39,9 @@ printed to stdout.
   navigation selectors. It does not click `AI 분석 새로고침`.
 - `provider-smoke`: reserved for a later explicit runtime-smoke Goal. It is
   blocked unless `--allow-provider-calls` is supplied.
+- `save-probe`: switches to the trade-log context, verifies the footer save
+  selector, calls the trade-log persistence handler directly, and records
+  save proof without clicking AI refresh or making provider calls.
 
 ## Safety Rules
 
@@ -129,6 +133,41 @@ python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8')); prin
 
 Report validation must not require provider calls. Use `dry-read`,
 `dry-navigation`, or provider-smoke `--no-click` for schema checks.
+
+## Save-Probe
+
+Use this mode before persistence/restart smoke:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
+```
+
+The probe verifies `btn_trade_log_save`, navigates to the trade-log context, and
+then calls the same trade-log save handler used by the footer save dispatcher.
+It intentionally avoids the modal success message that can block automation when
+the button is clicked directly.
+
+Save-probe report fields include:
+
+- `save_button_found`
+- `save_handler_entered`
+- `save_completed`
+- `save_elapsed_ms`
+- `save_log_start_delta`
+- `save_log_finish_delta`
+- `trade_log_row_count_before`
+- `trade_log_row_count_after`
+- `latest_row_before`
+- `latest_row_after`
+- `journal_before`
+- `journal_after`
+- `provider_call_delta`
+- `external_cost_call_delta`
+
+PASS requires the save handler to return within 10 seconds, a finish log to be
+observed, no provider-call delta, unchanged latest trade-log row semantics, and
+no order-risk markers. A direct button-click path may show a success
+`QMessageBox`; that is a UI feedback path, not a persistence requirement.
 
 ## Trading Boundary
 

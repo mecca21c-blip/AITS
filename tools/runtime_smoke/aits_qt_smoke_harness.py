@@ -259,6 +259,9 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
         "trade_log_stage": active_text.count("[AITS][TradeLogDecisionStage]"),
         "trade_log_shadow_journal": active_text.count("[AITS][TradeLogShadowJournal]"),
         "ai_refresh_apply_journal": active_text.count("[AITS][AIRefreshApply] event=journal_recorded"),
+        "trade_log_save_start": active_text.count("[AITS][TradeLogSave] event=start"),
+        "trade_log_save_finish": active_text.count("[AITS][TradeLogSave] event=finish"),
+        "trade_log_save_failed": active_text.count("[AITS][TradeLogSave] event=failed"),
     }
     result["marker_counts"] = marker_counts
     result["external_cost_call_markers"] = (
@@ -458,6 +461,39 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "managed_row_count": _table_row_count(managed_table),
         "trade_log_row_count": _table_row_count(trade_log_table),
         "latest_trade_log_row": _table_row_text(trade_log_table, 0),
+    }
+
+
+def _latest_journal_summary(window: Any) -> dict[str, Any]:
+    getter = getattr(window, "_get_trade_log_shadow_journal_rows", None)
+    rows: list[dict[str, Any]] = []
+    if callable(getter):
+        try:
+            rows = [row for row in list(getter(limit=5) or []) if isinstance(row, dict)]
+        except Exception:
+            rows = []
+    latest = rows[0] if rows else {}
+    wanted = (
+        "time",
+        "symbol",
+        "decision_group_id",
+        "record_stage",
+        "record_stage_label",
+        "analysis_classification",
+        "provider_selected",
+        "provider_actual",
+        "fallback_used",
+        "fallback_reason_code",
+        "fallback_reason_display",
+        "http_status",
+        "error_code",
+        "usage_input_tokens",
+        "usage_output_tokens",
+        "usage_total_tokens",
+    )
+    return {
+        "journal_rows_sample_count": len(rows),
+        "latest_journal": {key: latest.get(key, "") for key in wanted},
     }
 
 
@@ -887,6 +923,130 @@ def _run_provider_smoke(
         report["pass_status"] = "pass"
 
 
+def _run_save_probe(
+    app: Any,
+    window: Any,
+    widgets: dict[str, Any],
+    paths: dict[str, str],
+    report: dict[str, Any],
+    *,
+    timeout_sec: float,
+    started_epoch: float,
+) -> None:
+    report.update(
+        {
+            "save_clicked": False,
+            "save_handler_entered": False,
+            "save_completed": False,
+            "save_elapsed_ms": None,
+            "save_messagebox_seen": False,
+            "save_messagebox_text": "",
+            "save_error": "",
+            "pass_status": "pending",
+            "fail_reason": "",
+        }
+    )
+    trade_tab_widget = widgets.get("trade_log_tab")
+    if trade_tab_widget is not None:
+        _safe_click(trade_tab_widget)
+        _pump_events(app, 0.8)
+
+    trade_log_table = widgets.get("trade_log_table")
+    if trade_log_table is None:
+        trade_log_table = getattr(getattr(window, "tab_trades", None), "tbl_records", None)
+    try:
+        tab = getattr(window, "tab_trades", None)
+        if tab is not None and hasattr(tab, "refresh"):
+            tab.refresh()
+    except Exception:
+        pass
+    _pump_events(app, 0.5)
+
+    before_collect = _collect(window, widgets)
+    before_journal = _latest_journal_summary(window)
+    before_log = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+    report.update(
+        {
+            "trade_log_row_count_before": before_collect.get("trade_log_row_count"),
+            "latest_row_before": before_collect.get("latest_trade_log_row", ""),
+            "journal_before": before_journal,
+            "provider_call_count_before": before_log.get("provider_call_markers", 0),
+            "external_cost_call_count_before": before_log.get("external_cost_call_markers", 0),
+        }
+    )
+
+    save_button = widgets.get("trade_log_save") or getattr(window, "btn_nav_save", None)
+    report["save_button_found"] = save_button is not None
+    try:
+        report["save_button_enabled"] = bool(save_button.isEnabled()) if save_button is not None else False
+    except Exception:
+        report["save_button_enabled"] = None
+
+    safety_text = f"{before_collect.get('aits_power_state','')} {before_collect.get('aits_safety_state','')}"
+    if any(token in safety_text for token in ("AITS ON", "Live", "?ㅺ굅??")):
+        report["pass_status"] = "no_go"
+        report["fail_reason"] = "unsafe_aits_state_before_save"
+        return
+
+    handler = getattr(window, "_save_trade_log_center_state", None)
+    if not callable(handler):
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "save_handler_missing"
+        return
+
+    started = time.time()
+    try:
+        report["save_handler_entered"] = True
+        ok = bool(handler(reason="qt_smoke_save_probe"))
+        report["save_completed"] = ok
+    except Exception as exc:
+        report["save_error"] = type(exc).__name__
+        report["save_completed"] = False
+    report["save_elapsed_ms"] = int((time.time() - started) * 1000)
+    _pump_events(app, min(max(float(timeout_sec), 1.0), 3.0))
+
+    after_collect = _collect(window, widgets)
+    after_journal = _latest_journal_summary(window)
+    after_log = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+    report.update(
+        {
+            "trade_log_row_count_after": after_collect.get("trade_log_row_count"),
+            "latest_row_after": after_collect.get("latest_trade_log_row", ""),
+            "journal_after": after_journal,
+            "provider_call_count_after": after_log.get("provider_call_markers", 0),
+            "external_cost_call_count_after": after_log.get("external_cost_call_markers", 0),
+            "provider_call_delta": _marker_delta(after_log, before_log, "provider_call_markers"),
+            "external_cost_call_delta": _marker_delta(after_log, before_log, "external_cost_call_markers"),
+            "save_log_start_delta": _marker_count_delta(after_log, before_log, "trade_log_save_start"),
+            "save_log_finish_delta": _marker_count_delta(after_log, before_log, "trade_log_save_finish"),
+            "save_log_failed_delta": _marker_count_delta(after_log, before_log, "trade_log_save_failed"),
+            "log_tail_after_save": after_log,
+        }
+    )
+
+    fail_reasons: list[str] = []
+    if not report.get("save_completed"):
+        fail_reasons.append("save_handler_returned_false")
+    if int(report.get("save_elapsed_ms") or 0) > 10_000:
+        fail_reasons.append("save_elapsed_over_10s")
+    if report.get("provider_call_delta") != 0 or report.get("external_cost_call_delta") != 0:
+        fail_reasons.append("provider_call_detected")
+    if report.get("save_log_finish_delta", 0) < 1:
+        fail_reasons.append("save_finish_log_missing")
+    if report.get("trade_log_row_count_after") != report.get("trade_log_row_count_before"):
+        fail_reasons.append("trade_log_row_count_changed")
+    if report.get("latest_row_after") != report.get("latest_row_before"):
+        fail_reasons.append("latest_row_changed")
+    if after_log.get("risk_hits"):
+        fail_reasons.append("order_risk_detected")
+
+    if fail_reasons:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = ",".join(fail_reasons)
+    else:
+        report["pass_status"] = "pass"
+
+
 def run_harness(
     mode: str,
     output_dir: Path,
@@ -937,6 +1097,8 @@ def run_harness(
             widget = getattr(window, "tbl_ai_managed", None)
         if widget is None and key == "trade_log_table":
             widget = getattr(getattr(window, "tab_trades", None), "tbl_records", None)
+        if widget is None and key == "trade_log_save":
+            widget = getattr(window, "btn_nav_save", None)
         widgets[key] = widget
         if widget is None:
             missing.append(key)
@@ -962,6 +1124,16 @@ def run_harness(
             no_click=no_click,
             started_epoch=started_epoch,
         )
+    elif mode == "save-probe":
+        _run_save_probe(
+            app,
+            window,
+            widgets,
+            paths,
+            report,
+            timeout_sec=timeout_sec,
+            started_epoch=started_epoch,
+        )
 
     report.update(_collect(window, widgets))
     report["missing_widgets"] = missing
@@ -971,7 +1143,7 @@ def run_harness(
     report["log_tail"] = _read_log_tail(Path(paths["log_dir"]), started_epoch)
     if report["log_tail"].get("risk_hits"):
         report["order_risk_detected"] = True
-    if mode == "provider-smoke" and report.get("pass_status") in {"fail", "no_go"}:
+    if mode in {"provider-smoke", "save-probe"} and report.get("pass_status") in {"fail", "no_go"}:
         report["status"] = report.get("pass_status")
     elif not allow_provider_calls and report.get("provider_call_blocked"):
         report["status"] = "fail"
@@ -997,7 +1169,7 @@ def run_harness(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AITS Qt objectName runtime smoke harness")
-    parser.add_argument("--mode", choices=("dry-read", "dry-navigation", "provider-smoke"), default="dry-read")
+    parser.add_argument("--mode", choices=("dry-read", "dry-navigation", "provider-smoke", "save-probe"), default="dry-read")
     parser.add_argument("--allow-provider-calls", action="store_true")
     parser.add_argument("--provider", choices=("local", "gpt", "gemini"))
     parser.add_argument("--max-provider-calls", type=int, default=1)

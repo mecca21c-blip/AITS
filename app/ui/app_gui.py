@@ -27805,7 +27805,17 @@ class MainWindow(QMainWindow):
                 pass
 
     def _save_trade_log_center_state(self, reason: str = "trade_log_center_state_save") -> bool:
+        started_at = time.time()
+        journal_rows: list[dict] = []
+        proof_log = logging.getLogger("aits")
         try:
+            try:
+                proof_log.info(
+                    "[AITS][TradeLogSave] event=start reason=%s submitted=0 order_allowed=False real_order=False",
+                    reason,
+                )
+            except Exception:
+                pass
             try:
                 self._restore_trade_log_shadow_journal_from_settings()
             except Exception:
@@ -27834,16 +27844,22 @@ class MainWindow(QMainWindow):
                     pass
                 try:
                     preview_count = sum(1 for row in journal_rows if row.get("category") == "preview")
-                    self._log.info(
+                    proof_log.info(
                         "[AITS][TradeLogShadowJournalPersistence] event=save rows=%s preview=%s actual_trade=0 submitted=0",
                         len(journal_rows),
                         preview_count,
                     )
+                    proof_log.info(
+                        "[AITS][TradeLogSave] event=finish reason=%s rows=%s elapsed_ms=%s submitted=0 order_allowed=False real_order=False",
+                        reason,
+                        len(journal_rows),
+                        int((time.time() - started_at) * 1000),
+                    )
                     if column_widths:
-                        self._log.info(
-                            "[AITS][TradeLogCenterLayout] event=save_column_widths columns=%s submitted=0",
-                            len(column_widths),
-                        )
+                            proof_log.info(
+                                "[AITS][TradeLogCenterLayout] event=save_column_widths columns=%s submitted=0",
+                                len(column_widths),
+                            )
                 except Exception:
                     pass
                 try:
@@ -27853,9 +27869,15 @@ class MainWindow(QMainWindow):
             return ok
         except Exception as exc:
             try:
-                self._log.warning(
+                proof_log.warning(
                     "[AITS][TradeLogShadowJournalPersistence] event=save_failed reason=%s submitted=0",
                     type(exc).__name__,
+                )
+                proof_log.warning(
+                    "[AITS][TradeLogSave] event=failed reason=%s rows=%s elapsed_ms=%s submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                    len(journal_rows),
+                    int((time.time() - started_at) * 1000),
                 )
             except Exception:
                 pass
@@ -41838,7 +41860,7 @@ class MainWindow(QMainWindow):
         # API/기타 — PATCH 1-7: Upbit/시세 행은 상단 3카드 중 Upbit 카드로 이동
         # 저장/테스트 버튼은 인스턴스 재사용 가능하도록 getattr 사용
         self.btn_save = getattr(self, "btn_save", QPushButton("저장"))
-        self.btn_save.setProperty("smokeObjectName", "btn_trade_log_save")
+        self.btn_save.setProperty("smokeObjectName", "btn_common_settings_save")
         if not self.btn_save.text().strip():
             self.btn_save.setText("저장")
             self._log.info('[SAVE-UI] btn_save_text="저장" (fixed)')
@@ -44547,11 +44569,18 @@ class MainWindow(QMainWindow):
                 and isinstance(_us, dict)
                 and set(_us.keys()) == {"investment_tab_layout_state"}
             )
+            _trade_log_manual_save = str(reason or "") in {
+                "trade_log_center_footer_save",
+                "trade_log_center_tab_save",
+                "trade_log_center_state_save",
+                "qt_smoke_save_probe",
+            }
             _ui_autosave_exempt = (
                 _splitter_only_ui
                 or _overview_only_ui
                 or _session_restore_only_ui
                 or _investment_layout_only_ui
+                or _trade_log_manual_save
             )
             
             # 부팅 후 10초간 모든 저장 차단 (splitter / overview UI 자동 저장은 예외)
