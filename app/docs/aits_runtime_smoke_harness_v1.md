@@ -22,6 +22,13 @@ Reports are written to:
 data/runtime_smoke_reports/runtime_smoke_report_YYYYMMDD_HHMMSS.json
 ```
 
+Reports are UTF-8 JSON without a BOM. The harness normalizes report values to
+JSON-safe primitives before writing: strings keep Korean and UI symbols, unsafe
+control characters and invalid surrogate code points are replaced or removed,
+paths are stored as strings, non-finite floats become `null`, and unknown
+objects are reduced to safe `repr(...)` text. The same sanitized report is
+printed to stdout.
+
 ## Modes
 
 - `dry-read`: creates the real Qt main window in a guarded harness process,
@@ -98,6 +105,30 @@ Safety behavior:
 - Reports include provider branch delta, external cost-provider request delta,
   selected symbol, latest decision group id, snapshot/Journal proof flags,
   latest trade-log row, detail excerpt, duplicate detection, and order-risk flags.
+
+`--no-click` may be used without `--allow-provider-calls` to validate the
+provider-smoke report schema while network guards remain installed:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-smoke --provider local --no-click
+```
+
+## Report JSON Validation
+
+PowerShell:
+
+```powershell
+Get-Content -Raw -Encoding UTF8 data/runtime_smoke_reports/runtime_smoke_report_YYYYMMDD_HHMMSS.json | ConvertFrom-Json
+```
+
+Python:
+
+```powershell
+python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8')); print('OK')" data/runtime_smoke_reports/runtime_smoke_report_YYYYMMDD_HHMMSS.json
+```
+
+Report validation must not require provider calls. Use `dry-read`,
+`dry-navigation`, or provider-smoke `--no-click` for schema checks.
 
 ## Trading Boundary
 

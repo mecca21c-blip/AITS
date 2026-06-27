@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -76,6 +77,76 @@ def _safe_text(widget: Any) -> str:
         return " | ".join(parts)
     except Exception:
         return ""
+
+
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _sanitize_report_text(value: str, *, max_chars: int = 20_000) -> str:
+    """Return text that is safe to persist in UTF-8 JSON reports."""
+
+    text = _ANSI_ESCAPE_RE.sub("", str(value))
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    cleaned: list[str] = []
+    for ch in text:
+        code = ord(ch)
+        if ch in ("\n", "\t"):
+            cleaned.append(ch)
+            continue
+        if code == 0:
+            continue
+        if code < 32 or 0xD800 <= code <= 0xDFFF:
+            cleaned.append("\ufffd")
+            continue
+        cleaned.append(ch)
+    safe = "".join(cleaned)
+    if len(safe) > max_chars:
+        return safe[: max_chars - 20] + "\n...[truncated]"
+    return safe
+
+
+def _json_safe_value(value: Any) -> Any:
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return _sanitize_report_text(value)
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, dict):
+        safe_dict: dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = _sanitize_report_text(str(key), max_chars=500)
+            safe_dict[safe_key] = _json_safe_value(item)
+        return safe_dict
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_value(item) for item in value]
+    if isinstance(value, set):
+        return [_json_safe_value(item) for item in sorted(value, key=lambda item: str(item))]
+    if isinstance(value, bytes):
+        return _sanitize_report_text(value.decode("utf-8", errors="replace"))
+    return _sanitize_report_text(repr(value))
+
+
+def _json_report_text(report: dict[str, Any]) -> str:
+    safe_report = _json_safe_value(report)
+    return json.dumps(safe_report, ensure_ascii=False, indent=2, allow_nan=False)
+
+
+def _write_json_report(report: dict[str, Any], path: Path) -> dict[str, Any]:
+    safe_report = _json_safe_value(report)
+    with path.open("w", encoding="utf-8", newline="\n") as handle:
+        json.dump(safe_report, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        handle.write("\n")
+        handle.flush()
+    return safe_report
 
 
 def _find_by_property(root: Any, value: str) -> Any:
@@ -832,6 +903,7 @@ def run_harness(
     started_epoch = time.time()
     report: dict[str, Any] = {
         "schema": "aits_qt_smoke_harness.v1",
+        "schema_version": 1,
         "mode": mode,
         "started_at": _now_iso(),
         "provider_calls_allowed": bool(allow_provider_calls),
@@ -839,9 +911,9 @@ def run_harness(
         "provider_call_blocked": False,
         "warnings": [],
     }
-    if mode == "provider-smoke" and not allow_provider_calls:
+    if mode == "provider-smoke" and not allow_provider_calls and not no_click:
         report["status"] = "blocked"
-        report["warnings"].append("provider-smoke requires --allow-provider-calls")
+        report["warnings"].append("provider-smoke requires --allow-provider-calls unless --no-click is used")
         return report
     if mode == "provider-smoke" and not provider:
         report["status"] = "blocked"
@@ -920,8 +992,7 @@ def run_harness(
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     path = output_dir / f"runtime_smoke_report_{stamp}.json"
     report["report_path"] = str(path)
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    return report
+    return _write_json_report(report, path)
 
 
 def main() -> int:
@@ -957,7 +1028,7 @@ def main() -> int:
         fail_on_provider_call_over_limit=args.fail_on_provider_call_over_limit,
         no_click=args.no_click,
     )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1
 
 
