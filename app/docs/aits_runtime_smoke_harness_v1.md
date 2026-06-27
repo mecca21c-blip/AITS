@@ -73,6 +73,32 @@ The harness does not add automatic GPT, Gemini, OpenAI, Gemini, Ollama, or
 other external AI calls. Provider runtime smoke must be run only by a later Goal
 that explicitly permits the exact provider and call count.
 
+## Provider-Smoke CLI
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-smoke --allow-provider-calls --provider local --max-provider-calls 1
+```
+
+Arguments:
+
+- `--provider local|gpt|gemini`: required for provider-smoke.
+- `--max-provider-calls N`: defaults to `1`; values greater than one are blocked.
+- `--target-symbol KRW-...`: optional managed-row target.
+- `--timeout-sec N`: maximum wait for snapshot and Journal proof.
+- `--wait-after-click-sec N`: initial event-pump delay after the single click.
+- `--no-click`: select provider and target only; do not click AI refresh.
+
+Safety behavior:
+
+- Provider-smoke refuses to run without `--allow-provider-calls` and `--provider`.
+- Provider-smoke performs at most one AI refresh click.
+- LOCAL provider-smoke expects zero external OpenAI/Gemini request markers.
+- GPT and Gemini provider-smoke must be run only by a Goal that explicitly allows
+  the exact provider and call count.
+- Reports include provider branch delta, external cost-provider request delta,
+  selected symbol, latest decision group id, snapshot/Journal proof flags,
+  latest trade-log row, detail excerpt, duplicate detection, and order-risk flags.
+
 ## Trading Boundary
 
 The harness does not modify Router, Execution, Order, RiskGuard, repository, or
