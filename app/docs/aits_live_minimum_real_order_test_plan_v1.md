@@ -112,6 +112,37 @@ without placing, cancelling, selling, or retrying any order.
 The first live order is reconciled as a single real order with one trade and no
 additional order-side action from the reconciliation Goal.
 
+## 2026-06-29 Final Live Order Audit Result
+
+Goal `AITS-LIVE-ORDER-POST-TRADE-FINAL-AUDIT-01` rechecked the live-order
+lifecycle and reconciliation reports, then performed a fresh dry-read and
+read-only order reconciliation query for the same order uuid.
+
+- final audit status: GO
+- dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_051153_165897.json`
+- reconciliation recheck report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_051206_771216.json`
+- order uuid: `06f08c3a-2bd3-4888-a7e6-2402623cb63e`
+- latest state: `cancel`
+- executed_volume: `0.00005542`
+- paid_fee: `2.49974681`
+- locked: `0.50663319`
+- KRW balance: `113188.38509874`
+- BTC balance: `0.00005542`
+- delta vs first post-order report: `0`
+- `OrderService.place_order` called during final audit: false
+- cancel called: false
+- sell called: false
+- repeat order attempted: false
+- unlock consumed: true
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+
+The final audit does not authorize another live order. Before any later live
+order, add explicit state-handling policy for partially filled orders that end
+with exchange state `cancel`, strengthen read-only reconciliation automation,
+and prove relock plus duplicate-lock persistence after restart.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

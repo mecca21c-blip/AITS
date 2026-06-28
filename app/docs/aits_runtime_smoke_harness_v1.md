@@ -79,6 +79,9 @@ printed to stdout.
   order lookup and account balance lookup only. It does not place, cancel, sell,
   or retry orders. The first reconciliation report was
   `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_050259_116145.json`.
+  The final audit recheck used
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_051206_771216.json`
+  and again confirmed zero place/cancel/sell/retry calls.
 
 ## Safety Rules
 
