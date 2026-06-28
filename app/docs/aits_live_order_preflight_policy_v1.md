@@ -10,6 +10,11 @@ any required condition is missing.
 This version is a locked proof layer only. It does not submit orders and it
 does not unlock live mode.
 
+`app/services/live_order_unlock.py` defines the one-shot unlock contract used
+as an input to this preflight. A valid unlock may set
+`allowed_for_preflight=true`, but it still does not set `order_allowed=true` and
+does not submit an order.
+
 ## Owner
 
 - Policy owner: `app/services/live_order_preflight.py`
@@ -30,6 +35,9 @@ does not unlock live mode.
 - `execution_mode`
 - `aits_enabled`
 - `live_order_unlock`
+- `one_shot_unlock_valid`
+- `one_shot_unlock_id`
+- `one_shot_unlock_consumed`
 - `user_confirm_token`
 - `risk_guard_checked`
 - `risk_allowed`
@@ -51,6 +59,7 @@ does not unlock live mode.
 
 - `locked`
 - `allowed`
+- `allowed_for_preflight`
 - `blocked_reason`
 - `severity`
 - `required_conditions`
@@ -62,13 +71,16 @@ does not unlock live mode.
 - `request_id`
 - `timestamp`
 
-For this proof version, every result keeps:
+Runtime order fields always keep:
 
-- `locked`: `true`
 - `allowed`: `false`
 - `submitted`: `0`
 - `order_allowed`: `false`
 - `real_order`: `false`
+
+When a later one-shot unlock fixture satisfies every preflight input,
+`locked=false` and `allowed_for_preflight=true` may appear. That is still not
+order permission.
 
 ## Required Conditions
 
@@ -77,6 +89,7 @@ The preflight checks:
 - execution mode is live
 - AITS is enabled
 - explicit live-order unlock exists
+- one-shot unlock contract is valid and not consumed
 - user confirmation token exists
 - RiskGuard checked the candidate
 - RiskGuard policy passed the candidate
@@ -95,7 +108,8 @@ The preflight checks:
 - price is valid
 
 If all individual checks are supplied, this proof version still remains locked
-until a later explicit live-unlock Goal changes the policy.
+unless the one-shot unlock contract is valid. Even then, the result is only
+`allowed_for_preflight=true`; actual order fields remain locked.
 
 ## Locked Fixtures
 
@@ -125,7 +139,7 @@ preflight is locked or if preflight evaluation itself raises.
 
 A later high-risk Goal must explicitly define a one-shot real-order test with:
 
-- explicit live unlock
+- explicit one-shot live unlock
 - user confirmation
 - minimum order only
 - hard order cap

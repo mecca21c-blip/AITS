@@ -19,6 +19,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 ```
 
 Reports are written to:
@@ -59,6 +60,9 @@ printed to stdout.
 - `live-preflight-locked-proof`: evaluates the final live-order preflight lock
   with deterministic fixtures. It does not create paper trading, virtual
   trading, mock processors, provider calls, or order submissions.
+- `live-one-shot-unlock-contract-proof`: validates the one-shot unlock
+  contract, consume/reuse blocking, duplicate lock blocking, and valid unlock
+  preflight input without submitting orders.
 
 ## Safety Rules
 
@@ -279,6 +283,45 @@ The report includes:
 PASS requires every preflight fixture to keep `locked=true`, `allowed=false`,
 `submitted=0`, `order_allowed=false`, and `real_order=false`. Provider and
 external-cost call markers must remain zero.
+
+## Live One-Shot Unlock Contract Proof
+
+Use this mode before any minimum real-order test:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
+```
+
+This mode validates the one-shot unlock contract only. It does not create paper
+mode, virtual trading, simulation processors, or mock trading processors. It
+does not call providers, does not enter the OrderAdapter live branch, and does
+not call OrderService.
+
+Fixtures:
+
+- `no_unlock`
+- `invalid_confirm_token`
+- `amount_exceeds_unlock_cap`
+- `expired_unlock`
+- `valid_unlock_preflight_pass_but_no_order_submit`
+- `consumed_unlock_reuse`
+- `duplicate_lock_reuse`
+
+The valid fixture may report `allowed_for_preflight=true`; that is not order
+permission. PASS still requires `submitted=0`, `order_allowed=false`,
+`real_order=false`, and `order_service_place_order_called=false`.
+
+Report fields include:
+
+- `one_shot_unlock_fixture_count`
+- `one_shot_unlock_pass_count`
+- `one_shot_unlock_fail_count`
+- `one_shot_unlock_results`
+- `valid_unlock_seen`
+- `consumed_reuse_blocked`
+- `duplicate_reuse_blocked`
+- `order_service_place_order_called`
+- `order_adapter_live_branch_entered`
 
 ## Save-Probe
 

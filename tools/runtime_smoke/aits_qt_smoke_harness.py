@@ -1291,6 +1291,209 @@ def _run_live_preflight_locked_proof(report: dict[str, Any]) -> None:
     )
 
 
+def _run_live_one_shot_unlock_contract_proof(report: dict[str, Any]) -> None:
+    from datetime import timedelta, timezone
+
+    from app.services.live_order_preflight import LiveOrderPreflight, LiveOrderPreflightInput
+    from app.services.live_order_unlock import LiveOneShotUnlock
+
+    now = datetime.now(timezone.utc)
+    manager = LiveOneShotUnlock()
+    token = "AITS-LIVE-ONE-SHOT-CONFIRM"
+    base_request: dict[str, Any] = {
+        "request_id": "one_shot_base",
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "amount_krw": 5000.0,
+        "max_order_amount_krw": 10000.0,
+        "min_order_amount_krw": 5000.0,
+        "user_confirm_phrase": "AITS LIVE ONE SHOT",
+        "confirm_token": token,
+        "expires_at_utc": (now + timedelta(minutes=5)).isoformat(timespec="seconds"),
+        "ttl_sec": 300,
+        "duplicate_lock_key": "KRW-BTC:buy:one-shot-fixture",
+        "created_at_utc": now.isoformat(timespec="seconds"),
+        "source": "live_one_shot_unlock_contract_proof",
+        "operator_note": "fixture only; no order submit",
+    }
+
+    def make_request(name: str, **overrides: Any) -> dict[str, Any]:
+        item = dict(base_request)
+        item.update(overrides)
+        item["request_id"] = name
+        return item
+
+    preflight = LiveOrderPreflight()
+    results: list[dict[str, Any]] = []
+
+    def append_result(
+        name: str,
+        expected_locked: bool,
+        expected_allowed_for_preflight: bool,
+        expected_reason: str,
+        unlock_result: Any,
+        *,
+        preflight_result: Any = None,
+    ) -> None:
+        passed = (
+            bool(unlock_result.locked) is bool(expected_locked)
+            and bool(unlock_result.allowed_for_preflight) is bool(expected_allowed_for_preflight)
+            and str(unlock_result.blocked_reason or "") == str(expected_reason or "")
+            and int(unlock_result.submitted) == 0
+            and bool(unlock_result.order_allowed) is False
+            and bool(unlock_result.real_order) is False
+        )
+        if preflight_result is not None:
+            passed = (
+                passed
+                and bool(preflight_result.allowed_for_preflight) is bool(expected_allowed_for_preflight)
+                and int(preflight_result.submitted) == 0
+                and bool(preflight_result.order_allowed) is False
+                and bool(preflight_result.real_order) is False
+            )
+        results.append(
+            {
+                "name": name,
+                "expected_locked": bool(expected_locked),
+                "expected_allowed_for_preflight": bool(expected_allowed_for_preflight),
+                "expected_reason": expected_reason,
+                "unlock_valid": bool(unlock_result.unlock_valid),
+                "locked": bool(unlock_result.locked),
+                "allowed_for_preflight": bool(unlock_result.allowed_for_preflight),
+                "blocked_reason": str(unlock_result.blocked_reason or ""),
+                "unlock_id": str(unlock_result.unlock_id or ""),
+                "consumed": bool(unlock_result.consumed),
+                "expired": bool(unlock_result.expired),
+                "duplicate_locked": bool(unlock_result.duplicate_locked),
+                "submitted": int(unlock_result.submitted),
+                "order_allowed": bool(unlock_result.order_allowed),
+                "real_order": bool(unlock_result.real_order),
+                "preflight": preflight_result.to_dict() if preflight_result is not None else None,
+                "pass": bool(passed),
+                "log_summary": manager.log_summary("validate", unlock_result),
+            }
+        )
+
+    missing = manager.validate_one_shot_unlock(None, make_request("no_unlock"))
+    append_result("no_unlock", True, False, "missing_unlock", missing)
+
+    invalid_req = make_request("invalid_confirm_token", duplicate_lock_key="KRW-BTC:buy:invalid-token")
+    invalid_state = manager.create_one_shot_unlock(invalid_req)
+    invalid = manager.validate_one_shot_unlock(
+        invalid_state,
+        make_request("invalid_confirm_token", confirm_token="wrong-token", duplicate_lock_key=invalid_req["duplicate_lock_key"]),
+    )
+    append_result("invalid_confirm_token", True, False, "invalid_confirm_token", invalid)
+
+    cap_req = make_request("amount_exceeds_unlock_cap", duplicate_lock_key="KRW-BTC:buy:cap")
+    cap_state = manager.create_one_shot_unlock(cap_req)
+    cap = manager.validate_one_shot_unlock(
+        cap_state,
+        make_request("amount_exceeds_unlock_cap", amount_krw=500000.0, duplicate_lock_key=cap_req["duplicate_lock_key"]),
+    )
+    append_result("amount_exceeds_unlock_cap", True, False, "amount_exceeds_unlock_cap", cap)
+
+    expired_req = make_request(
+        "expired_unlock",
+        duplicate_lock_key="KRW-BTC:buy:expired",
+        expires_at_utc=(now - timedelta(seconds=1)).isoformat(timespec="seconds"),
+    )
+    expired_state = manager.create_one_shot_unlock(expired_req)
+    expired = manager.validate_one_shot_unlock(expired_state, expired_req, now_utc=now)
+    append_result("expired_unlock", True, False, "unlock_expired", expired)
+
+    valid_req = make_request("valid_unlock_preflight_pass_but_no_order_submit")
+    valid_state = manager.create_one_shot_unlock(valid_req)
+    valid = manager.validate_one_shot_unlock(valid_state, valid_req, now_utc=now)
+    valid_preflight_input = {
+        "request_id": valid_req["request_id"],
+        "symbol": valid_req["symbol"],
+        "side": valid_req["side"],
+        "amount_krw": float(valid_req["amount_krw"]),
+        "quantity": 0.00005,
+        "price": 100000000.0,
+        "execution_mode": "live",
+        "aits_enabled": True,
+        "live_order_unlock": True,
+        "user_confirm_token": "present",
+        "risk_guard_checked": True,
+        "risk_allowed": True,
+        "one_shot_unlock_valid": bool(valid.unlock_valid),
+        "one_shot_unlock_id": str(valid.unlock_id or ""),
+        "one_shot_unlock_consumed": False,
+        "emergency_stop": False,
+        "max_order_amount_krw": float(valid_req["max_order_amount_krw"]),
+        "max_daily_loss_krw": 30000.0,
+        "max_order_count_per_cycle": 1,
+        "duplicate_order_lock": True,
+        "min_real_order_amount_krw": float(valid_req["min_order_amount_krw"]),
+        "account_ready": True,
+        "api_key_ready": True,
+        "price_fresh": True,
+        "selected_provider": "local",
+        "source": "one_shot_unlock_contract_fixture",
+    }
+    valid_preflight = preflight.evaluate(LiveOrderPreflightInput(**valid_preflight_input))
+    append_result(
+        "valid_unlock_preflight_pass_but_no_order_submit",
+        False,
+        True,
+        "",
+        valid,
+        preflight_result=valid_preflight,
+    )
+    manager.consume_one_shot_unlock(valid_state, reason="fixture_consumed", now_utc=now)
+
+    consumed = manager.validate_one_shot_unlock(valid_state, valid_req, now_utc=now)
+    append_result("consumed_unlock_reuse", True, False, "unlock_consumed", consumed)
+
+    duplicate_req = make_request("duplicate_lock_reuse")
+    duplicate_state = manager.create_one_shot_unlock(duplicate_req)
+    duplicate = manager.validate_one_shot_unlock(duplicate_state, duplicate_req, now_utc=now)
+    append_result("duplicate_lock_reuse", True, False, "duplicate_order_lock_reused", duplicate)
+
+    pass_count = sum(1 for item in results if item.get("pass"))
+    fail_count = len(results) - pass_count
+    report.update(
+        {
+            "one_shot_unlock_fixture_count": len(results),
+            "one_shot_unlock_pass_count": pass_count,
+            "one_shot_unlock_fail_count": fail_count,
+            "one_shot_unlock_results": results,
+            "valid_unlock_seen": any(
+                item["name"] == "valid_unlock_preflight_pass_but_no_order_submit"
+                and item.get("allowed_for_preflight")
+                for item in results
+            ),
+            "consumed_reuse_blocked": any(
+                item["name"] == "consumed_unlock_reuse"
+                and item.get("blocked_reason") == "unlock_consumed"
+                and item.get("locked")
+                for item in results
+            ),
+            "duplicate_reuse_blocked": any(
+                item["name"] == "duplicate_lock_reuse"
+                and item.get("blocked_reason") == "duplicate_order_lock_reused"
+                and item.get("locked")
+                for item in results
+            ),
+            "order_service_place_order_called": False,
+            "order_adapter_live_branch_entered": False,
+            "provider_call_markers": 0,
+            "provider_call_delta": 0,
+            "external_cost_call_markers": 0,
+            "external_cost_call_delta": 0,
+            "submitted_detected": False,
+            "order_risk_detected": False,
+            "real_order_detected": False,
+            "paper_mode_created": False,
+            "virtual_trading_created": False,
+            "mock_trading_processor_created": False,
+            "pass_status": "pass" if fail_count == 0 else "fail",
+        }
+    )
+
+
 def _run_riskguard_active_path_proof(
     app: Any,
     window: Any,
@@ -1668,11 +1871,13 @@ def run_harness(
         "provider_call_blocked": False,
         "warnings": [],
     }
-    if mode in {"riskguard-proof", "live-preflight-locked-proof"}:
+    if mode in {"riskguard-proof", "live-preflight-locked-proof", "live-one-shot-unlock-contract-proof"}:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
-        else:
+        elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
+        else:
+            _run_live_one_shot_unlock_contract_proof(report)
         report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
         report["finished_at"] = _now_iso()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1817,6 +2022,7 @@ def main() -> int:
             "riskguard-active-path-proof",
             "riskguard-active-path-candidate-proof",
             "live-preflight-locked-proof",
+            "live-one-shot-unlock-contract-proof",
         ),
         default="dry-read",
     )

@@ -23,6 +23,9 @@ class LiveOrderPreflightInput:
     user_confirm_token: str = ""
     risk_guard_checked: bool = False
     risk_allowed: bool = False
+    one_shot_unlock_valid: bool = False
+    one_shot_unlock_id: str = ""
+    one_shot_unlock_consumed: bool = False
     emergency_stop: bool = False
     max_order_amount_krw: float = 0.0
     max_daily_loss_krw: float = 0.0
@@ -40,6 +43,7 @@ class LiveOrderPreflightInput:
 class LiveOrderPreflightResult:
     locked: bool = True
     allowed: bool = False
+    allowed_for_preflight: bool = False
     blocked_reason: str = ""
     severity: str = "critical"
     required_conditions: List[str] = field(default_factory=list)
@@ -59,9 +63,8 @@ class LiveOrderPreflight:
     """Final lock before any real order call.
 
     This evaluator is intentionally pure. It does not call providers, brokers,
-    repositories, UI objects, or order services. In this proof stage every
-    result remains locked even if the supplied fixture satisfies individual
-    policy checks.
+    repositories, UI objects, or order services. Passing this evaluator only
+    means the preflight contract is satisfied; real order fields remain locked.
     """
 
     REQUIRED_CONDITIONS = [
@@ -71,6 +74,7 @@ class LiveOrderPreflight:
         "user_confirm_token",
         "risk_guard_checked",
         "risk_allowed",
+        "one_shot_unlock_valid",
         "emergency_stop_off",
         "max_order_amount_krw",
         "max_daily_loss_krw",
@@ -94,12 +98,18 @@ class LiveOrderPreflight:
             blocked_reason = "max_order_amount_exceeded"
             if blocked_reason not in missing:
                 missing.append(blocked_reason)
+        if not missing:
+            blocked_reason = ""
+        locked = bool(missing)
 
         return LiveOrderPreflightResult(
-            locked=True,
+            locked=locked,
             allowed=False,
+            allowed_for_preflight=not locked,
             blocked_reason=blocked_reason,
-            severity="critical" if blocked_reason in {"emergency_stop_active", "live_order_preflight_locked"} else "error",
+            severity="info" if not locked else (
+                "critical" if blocked_reason in {"emergency_stop_active", "live_order_preflight_locked"} else "error"
+            ),
             required_conditions=list(self.REQUIRED_CONDITIONS),
             missing_conditions=missing,
             submitted=0,
@@ -116,7 +126,7 @@ class LiveOrderPreflight:
             "[AITS][LiveOrderPreflight] "
             f"event=evaluate request_id={item.request_id or '-'} "
             f"symbol={item.symbol or '-'} side={item.side or '-'} "
-            f"locked={bool(result.locked)} allowed=False "
+            f"locked={bool(result.locked)} allowed_for_preflight={bool(result.allowed_for_preflight)} "
             f"blocked_reason={result.blocked_reason or '-'} "
             "submitted=0 order_allowed=False real_order=False "
             f"execution_mode={result.execution_mode or 'disabled'}"
@@ -143,6 +153,10 @@ class LiveOrderPreflight:
             missing.append("risk_guard_not_allowed")
         if bool(item.emergency_stop):
             missing.append("emergency_stop_active")
+        if bool(item.one_shot_unlock_consumed):
+            missing.append("one_shot_unlock_consumed")
+        if not bool(item.one_shot_unlock_valid):
+            missing.append("one_shot_unlock_invalid")
         if _safe_float(item.max_order_amount_krw) <= 0:
             missing.append("max_order_amount_missing")
         if _safe_float(item.max_daily_loss_krw) <= 0:
@@ -199,9 +213,13 @@ def build_preflight_input_from_order_request(
         price=_safe_float(order_request.get("price")),
         execution_mode=str(execution_mode or "disabled"),
         aits_enabled=False,
-        live_order_unlock=False,
+        live_order_unlock=bool(risk.get("live_order_unlock", False)),
+        user_confirm_token=str(risk.get("user_confirm_token") or ""),
         risk_guard_checked=bool(risk.get("risk_guard_checked", False)),
         risk_allowed=bool(risk.get("risk_allowed", False)),
+        one_shot_unlock_valid=bool(risk.get("one_shot_unlock_valid", False)),
+        one_shot_unlock_id=str(risk.get("one_shot_unlock_id") or ""),
+        one_shot_unlock_consumed=bool(risk.get("one_shot_unlock_consumed", False)),
         emergency_stop=False,
         max_order_amount_krw=_safe_float(risk.get("max_order_amount_krw")),
         max_daily_loss_krw=0.0,
