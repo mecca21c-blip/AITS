@@ -48,6 +48,37 @@ stopped before order submission because available KRW was below the confirmed
 Next real-order attempt must not reuse this result as approval. It requires a
 fresh confirm phrase, sufficient KRW, and the same one-shot proof chain.
 
+## 2026-06-29 Funded Retry Result
+
+Goal `AITS-LIVE-MINIMUM-REAL-ORDER-TEST-RETRY-WITH-FUNDED-KRW-01` completed
+the one-shot minimum real-order path after KRW funding.
+
+- report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_045413_391177.json`
+- result: `pass`
+- target: `KRW-BTC` buy `5000` KRW
+- hard cap: `6000` KRW
+- Upbit key/account readiness: true
+- available KRW before order: `118190.37846555`
+- ticker price at preflight: `90186000`
+- RiskGuard: passed
+- One-Shot Unlock: valid before order, consumed after order
+- LiveOrderPreflight: passed
+- `OrderService.place_order` call count: `1`
+- order HTTP status: `201`
+- order uuid: `06f08c3a-2bd3-4888-a7e6-2402623cb63e`
+- order response state: `wait`
+- submitted count: `1`
+- real order: true
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+- KRW after check: `113188.38509874`
+- BTC after check: `0.00005542`
+- retry/reorder: not performed
+
+The runtime returned to a locked contract state after the one-shot attempt.
+Any additional real order requires a new Goal and a fresh confirm phrase.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

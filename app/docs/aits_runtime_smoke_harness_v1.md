@@ -69,6 +69,10 @@ printed to stdout.
   readiness, KRW balance, ticker freshness, RiskGuard, One-Shot Unlock, and
   LiveOrderPreflight before reaching the single allowed order-service call.
   If any pre-order condition fails, it stops without submitting an order.
+  The 2026-06-29 funded retry produced report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_045413_391177.json`
+  with one `KRW-BTC` buy request, HTTP `201`, submitted count `1`, immediate
+  unlock consumption, relock, duplicate lock, and repeat-order block proof.
 
 ## Safety Rules
 
