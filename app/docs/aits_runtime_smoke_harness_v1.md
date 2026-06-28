@@ -97,6 +97,15 @@ printed to stdout.
   `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064935_630819.json`;
   no place/cancel/sell/retry, provider external generation, or order-risk marker
   appeared during the passive window.
+  The read-only reconciliation hardening report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_081228_882109.json`
+  adds `raw_order_state`, `normalized_order_state`,
+  `normalized_order_action`, `reconciliation_reason`, structured
+  `balance_reconciliation`, explicit place/cancel/sell/retry call counts, and
+  `no_retry_enforced`. For the first order uuid it reports raw state `cancel`,
+  normalized state `partially_filled_cancelled_remainder`, reconciliation
+  status `reconciled`, zero balance delta, relock true, duplicate lock true,
+  repeat block true, and zero place/cancel/sell/retry calls.
 
 ## Safety Rules
 

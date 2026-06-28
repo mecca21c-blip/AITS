@@ -226,6 +226,36 @@ The 60 minute passive proof did not create another unlock and did not place,
 cancel, sell, or retry an order. Review queue logging remained periodic, and no
 Journal or Snapshot order-stage burst was observed.
 
+## 2026-06-29 Read-Only Reconciliation Hardening
+
+Goal `AITS-LIVE-READONLY-ORDER-RECONCILIATION-HARDENING-01` strengthened the
+post-trade reconciliation harness without placing, cancelling, selling, or
+retrying an order.
+
+- hardened reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_081228_882109.json`
+- dry-read regression report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_081249_122037.json`
+- order uuid: `06f08c3a-2bd3-4888-a7e6-2402623cb63e`
+- raw order state: `cancel`
+- normalized order state: `partially_filled_cancelled_remainder`
+- normalized action: `treat_filled_quantity_as_executed_no_retry`
+- reconciliation status: `reconciled`
+- reconciliation reason: `read_only_query_balance_and_lock_proof_ok`
+- executed_volume: `0.00005542`
+- paid_fee: `2.49974681`
+- locked: `0.50663319`
+- KRW balance: `113188.38509874`
+- BTC balance: `0.00005542`
+- balance delta KRW: `0`
+- balance delta BTC: `0`
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+- place/cancel/sell/retry calls: `0`
+
+The strengthened schema separates exchange raw state from AITS normalized
+state and keeps reconciliation strictly read-only. It is evidence for audit and
+operator review only; it does not authorize another live order.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

@@ -1890,6 +1890,62 @@ def _run_live_minimum_real_order_test(report: dict[str, Any], *, confirm_phrase:
         )
 
 
+def _normalize_live_order_state(
+    *,
+    raw_state: str,
+    executed_volume: Any,
+    query_success: bool,
+    balance_consistent: bool,
+) -> tuple[str, str, str]:
+    if not query_success:
+        return (
+            "query_failed_no_retry",
+            "no_retry_read_only_query_or_manual_exchange_review",
+            "query_failed",
+        )
+    if not balance_consistent:
+        return (
+            "unknown_requires_manual_review",
+            "stop_no_order_manual_balance_review",
+            "balance_mismatch",
+        )
+
+    state = str(raw_state or "").strip().lower()
+    executed_text = str(executed_volume or "").strip()
+    executed_present = executed_text != ""
+    executed = _safe_float(executed_text, 0.0)
+
+    if state == "wait":
+        if executed_present and executed > 0:
+            return (
+                "partial_execution_waiting_remainder",
+                "no_retry_no_cancel_reconcile_later",
+                "wait_with_executed_volume",
+            )
+        return ("submitted_waiting", "no_retry_query_later_only", "wait_no_executed_volume")
+    if state == "done":
+        if executed_present and executed > 0:
+            return ("fully_filled", "reconcile_balances_no_retry", "done_with_executed_volume")
+        return (
+            "unknown_requires_manual_review",
+            "stop_no_order_manual_exchange_review",
+            "done_without_executed_volume",
+        )
+    if state == "cancel":
+        if executed_present and executed > 0:
+            return (
+                "partially_filled_cancelled_remainder",
+                "treat_filled_quantity_as_executed_no_retry",
+                "cancel_with_executed_volume",
+            )
+        return ("cancelled_no_fill", "no_retry_without_new_explicit_goal", "cancel_no_executed_volume")
+    return (
+        "unknown_requires_manual_review",
+        "stop_no_order_manual_exchange_review",
+        "unknown_raw_state",
+    )
+
+
 def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_uuid: str) -> None:
     from app.services.order_service import OrderService
     from app.utils.prefs import init_prefs, load_settings
@@ -1906,9 +1962,14 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
             "order_query_success": False,
             "order_service_place_order_called": False,
             "order_service_place_order_call_count": 0,
+            "place_order_call_count": 0,
             "cancel_order_called": False,
+            "cancel_call_count": 0,
             "sell_order_called": False,
+            "sell_call_count": 0,
             "repeat_order_attempted": False,
+            "retry_call_count": 0,
+            "no_retry_enforced": True,
             "provider_call_markers": 0,
             "external_cost_call_markers": 0,
             "unlock_consumed": False,
@@ -1955,8 +2016,10 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
         order_lookup = service.fetch_order(safe_uuid)
         report["order_query_called"] = True
         report["order_query_success"] = bool(order_lookup.get("success", False))
+        report["query_status"] = "success" if report["order_query_success"] else "failed"
         report["order_query_http_status"] = int(order_lookup.get("http_status") or 0)
         report["order_state"] = str(order_lookup.get("state") or "")
+        report["raw_order_state"] = report["order_state"]
         order_payload = order_lookup.get("response_sanitized", {})
         if not isinstance(order_payload, dict):
             order_payload = {}
@@ -1965,6 +2028,7 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
         report["side"] = str(order_payload.get("side") or order_lookup.get("side") or "")
         report["ord_type"] = str(order_payload.get("ord_type") or order_lookup.get("ord_type") or "")
         report["price"] = str(order_payload.get("price") or "")
+        report["requested_price_krw"] = _safe_float(report.get("price"), 0.0)
         report["executed_volume"] = str(order_payload.get("executed_volume") or "")
         report["remaining_volume"] = str(order_payload.get("remaining_volume") or "")
         report["paid_fee"] = str(order_payload.get("paid_fee") or "")
@@ -1990,6 +2054,8 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
                     btc_locked = _safe_float(row.get("locked"), 0.0)
         report["krw_balance"] = krw_balance
         report["btc_balance"] = btc_balance
+        report["asset_balance"] = btc_balance
+        report["asset_currency"] = "BTC"
         report["krw_locked"] = krw_locked
         report["btc_locked"] = btc_locked
         report["krw_delta_vs_first_after"] = (
@@ -2002,6 +2068,35 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
             if "btc_balance_after" in previous
             else None
         )
+        report["balance_delta_krw"] = report["krw_delta_vs_first_after"]
+        report["balance_delta_asset"] = report["btc_delta_vs_first_after"]
+        krw_delta = report.get("krw_delta_vs_first_after")
+        asset_delta = report.get("btc_delta_vs_first_after")
+        balance_consistent = (
+            (krw_delta is None or abs(_safe_float(krw_delta, 0.0)) <= 0.000001)
+            and (asset_delta is None or abs(_safe_float(asset_delta, 0.0)) <= 0.00000001)
+        )
+        report["balance_reconciliation"] = {
+            "krw_balance": krw_balance,
+            "asset_currency": "BTC",
+            "asset_balance": btc_balance,
+            "krw_locked": krw_locked,
+            "asset_locked": btc_locked,
+            "previous_krw_balance_after": previous.get("krw_balance_after"),
+            "previous_asset_balance_after": previous.get("btc_balance_after"),
+            "balance_delta_krw": report["balance_delta_krw"],
+            "balance_delta_asset": report["balance_delta_asset"],
+            "consistent": balance_consistent,
+        }
+        normalized_state, normalized_action, normalized_reason = _normalize_live_order_state(
+            raw_state=report["raw_order_state"],
+            executed_volume=report["executed_volume"],
+            query_success=bool(report["order_query_success"]),
+            balance_consistent=balance_consistent,
+        )
+        report["normalized_order_state"] = normalized_state
+        report["normalized_order_action"] = normalized_action
+        report["normalized_order_reason"] = normalized_reason
 
         clear_state = str(report.get("order_state") or "").lower() in {"done", "wait", "cancel"}
         no_extra_order = not bool(report.get("order_service_place_order_called"))
@@ -2018,8 +2113,19 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
         )
         report["reconciliation_status"] = (
             "reconciled"
-            if report["order_query_success"] and clear_state and no_extra_order and no_forbidden and lock_ok
+            if report["order_query_success"]
+            and clear_state
+            and no_extra_order
+            and no_forbidden
+            and lock_ok
+            and balance_consistent
+            and report["normalized_order_state"] != "unknown_requires_manual_review"
             else "partial"
+        )
+        report["reconciliation_reason"] = (
+            "read_only_query_balance_and_lock_proof_ok"
+            if report["reconciliation_status"] == "reconciled"
+            else "read_only_reconciliation_incomplete"
         )
         if report["reconciliation_status"] == "reconciled":
             report.update({"status": "pass", "pass_status": "pass", "report_status": "pass"})

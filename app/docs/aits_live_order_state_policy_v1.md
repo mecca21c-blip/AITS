@@ -125,6 +125,35 @@ A reconciled order record should include:
 If balances disagree with executed volume or fee beyond known exchange rounding
 behavior, classify the order as `unknown_requires_manual_review`.
 
+## Harness Classification Fields
+
+The `live-order-post-trade-reconciliation` harness mode records both the raw
+exchange fields and the AITS classification fields. The hardened report schema
+includes:
+
+- `raw_order_state`
+- `normalized_order_state`
+- `normalized_order_action`
+- `normalized_order_reason`
+- `query_status`
+- `reconciliation_status`
+- `reconciliation_reason`
+- `balance_reconciliation`
+- `balance_delta_krw`
+- `balance_delta_asset`
+- `place_order_call_count`
+- `cancel_call_count`
+- `sell_call_count`
+- `retry_call_count`
+- `no_retry_enforced`
+
+For the first live order, hardened report
+`C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_081228_882109.json`
+classified raw state `cancel` with executed volume `0.00005542` as
+`partially_filled_cancelled_remainder`. Balance reconciliation was consistent,
+KRW and BTC deltas versus the first post-order report were zero, and
+place/cancel/sell/retry counts were all zero.
+
 ## No-Retry Principle
 
 All normalized states preserve the no-retry rule. AITS must not place a new
