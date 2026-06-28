@@ -14196,8 +14196,12 @@ class MainWindow(QMainWindow):
 
         # 전량매도
         self.btn_sellall = QPushButton("전량매도")
+        self.btn_sellall.setObjectName("btn_manual_sell_all")
+        self.btn_sellall.setProperty("smokeObjectName", "btn_manual_sell_all")
+        self.btn_sellall.setProperty("manualOrderButton", True)
+        self.btn_sellall.setEnabled(False)
         self.btn_sellall.setToolTip(
-            "고위험 비상 기능 · 현재 숨김. 노출 전 별도 승인과 이중 확인이 필요합니다."
+            "수동 전량매도는 현재 비활성화되어 있습니다. Shadow 모드에서는 실제 주문이 실행되지 않습니다."
         )
         self.btn_sellall.clicked.connect(self.on_sell_all)  # P0-D2: 버튼 연결 확인
         # 통합 새로고침
@@ -41733,7 +41737,29 @@ class MainWindow(QMainWindow):
 
 
 
+    def _block_manual_order_ui(self, source: str = "manual_order") -> bool:
+        reason = "manual_order_disabled"
+        try:
+            self._log.warning(
+                "[AITS][ManualOrderGuard] event=blocked source=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                str(source or "manual_order")[:80],
+                reason,
+            )
+        except Exception:
+            pass
+        try:
+            self.set_status_msg(
+                "수동 주문은 현재 비활성화되어 있습니다 · Shadow 모드에서는 실제 주문 없음",
+                "#b45309",
+            )
+        except Exception:
+            pass
+        return True
+
+
     def _on_sell_clicked(self):
+        if self._block_manual_order_ui("manual_sell_button"):
+            return
         sender = self.sender()
         m = sender.property("market")
         vol = float(sender.property("volume") or 0.0)
@@ -48839,6 +48865,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "내보내기 실패", str(e))
 
     def on_sell_all(self):
+            if self._block_manual_order_ui("panic_sell_all_button"):
+                return
             """P0-[4]: 전량매도(비상버튼) - SSOT 사용, 즉시 실행, [PANIC-SELL] 로그"""
             ret = QMessageBox.question(
                 self, "전량매도", "보유 전량을 시장가로 매도할까요?",

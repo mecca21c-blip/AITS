@@ -77,6 +77,7 @@ Core selectors include:
 - `tbl_trade_log`
 - `pnl_trade_log_detail`
 - `btn_trade_log_save`
+- `btn_manual_sell_all`
 
 ## Provider Calls
 
@@ -168,6 +169,18 @@ PASS requires the save handler to return within 10 seconds, a finish log to be
 observed, no provider-call delta, unchanged latest trade-log row semantics, and
 no order-risk markers. A direct button-click path may show a success
 `QMessageBox`; that is a UI feedback path, not a persistence requirement.
+
+## Manual Order UI Safety
+
+The harness reports manual high-risk order controls without clicking them.
+`manual_order_buttons` includes found/visible/enabled state for selectors such
+as `btn_manual_sell_all`. Any visible and enabled manual order button is treated
+as an order-risk condition in dry-read and dry-navigation reports.
+
+Manual sell, panic sell, liquidation, and emergency order controls must remain
+disabled in Shadow/AITS OFF mode. Unlocking manual order UI requires a separate
+high-risk Goal with RiskGuard, ExecutionBridge, OrderAdapter, and user
+confirmation proof. The smoke harness must not click these controls.
 
 ## Trading Boundary
 

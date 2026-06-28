@@ -24,8 +24,11 @@ RISK_KEYWORDS = (
     "real_order=True",
     "place_order",
     "create_order",
+    "sell_market",
+    "market_order",
     "buy_market_order",
     "sell_market_order",
+    "PANIC-SELL",
     "OrderAdapter",
     "ExecutionBridge",
     "RiskGuard",
@@ -50,6 +53,7 @@ CORE_WIDGETS = {
     "trade_log_table": ("object", "tbl_trade_log"),
     "trade_log_detail": ("object", "pnl_trade_log_detail"),
     "trade_log_save": ("property", "btn_trade_log_save"),
+    "manual_sell_all_button": ("property", "btn_manual_sell_all"),
 }
 
 
@@ -450,6 +454,20 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
     if trade_log_table is None:
         trade_tab = getattr(window, "tab_trades", None)
         trade_log_table = getattr(trade_tab, "tbl_records", None)
+    manual_order_buttons: list[dict[str, Any]] = []
+    for key in ("manual_sell_all_button",):
+        widget = widgets.get(key)
+        manual_order_buttons.append(
+            {
+                "key": key,
+                "found": widget is not None,
+                "object_name": str(widget.objectName() or "") if widget is not None and hasattr(widget, "objectName") else "",
+                "text": _safe_text(widget),
+                "tooltip": str(widget.toolTip() or "") if widget is not None and hasattr(widget, "toolTip") else "",
+                "visible": bool(widget.isVisible()) if widget is not None and hasattr(widget, "isVisible") else False,
+                "enabled": bool(widget.isEnabled()) if widget is not None and hasattr(widget, "isEnabled") else False,
+            }
+        )
     return {
         "window_title": str(window.windowTitle() or ""),
         "current_tab": current_tab,
@@ -461,6 +479,11 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "managed_row_count": _table_row_count(managed_table),
         "trade_log_row_count": _table_row_count(trade_log_table),
         "latest_trade_log_row": _table_row_text(trade_log_table, 0),
+        "manual_order_buttons": manual_order_buttons,
+        "manual_order_button_risk": any(
+            bool(item.get("found")) and bool(item.get("visible")) and bool(item.get("enabled"))
+            for item in manual_order_buttons
+        ),
     }
 
 
@@ -1140,6 +1163,8 @@ def run_harness(
     safety_text = f"{report.get('aits_power_state','')} {report.get('aits_safety_state','')}"
     report["submitted_detected"] = False
     report["order_risk_detected"] = any(token in safety_text for token in ("AITS ON", "Live", "실거래"))
+    if report.get("manual_order_button_risk"):
+        report["order_risk_detected"] = True
     report["log_tail"] = _read_log_tail(Path(paths["log_dir"]), started_epoch)
     if report["log_tail"].get("risk_hits"):
         report["order_risk_detected"] = True
