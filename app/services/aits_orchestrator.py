@@ -1589,6 +1589,7 @@ class AITSOrchestrator:
         metadata = {
             "risk_guard_checked": True,
             "risk_guard_version": "v1",
+            "risk_proof_fixture": str(context.get("proof_fixture") or ""),
             "risk_allowed": bool(result_dict.get("risk_allowed", False)),
             "risk_blocked_reason": str(result_dict.get("blocked_reason") or ""),
             "risk_severity": str(result_dict.get("severity") or ""),
@@ -1616,6 +1617,8 @@ class AITSOrchestrator:
                 "event": "evaluate",
                 "source": source,
                 "request_id": str(context.get("request_id") or ""),
+                "proof_mode": bool(context.get("proof_mode", False)),
+                "fixture": str(context.get("proof_fixture") or ""),
                 "symbol": str(getattr(action, "symbol", "") or ""),
                 "side": str(getattr(action, "action_type", "") or ""),
                 "risk_allowed": bool(metadata["risk_allowed"]),
@@ -1649,6 +1652,8 @@ class AITSOrchestrator:
                 continue
         cash = self._safe_float(getattr(summary, "cash_balance", 0.0), 0.0)
         portfolio_value = self._safe_float(getattr(summary, "total_equity", 0.0), 0.0)
+        proof_fixture = str(getattr(action, "risk_guard_proof_fixture", "") or "").strip()
+        proof_request_id = str(getattr(action, "risk_guard_request_id", "") or "").strip()
         return {
             "symbol": symbol,
             "price": price,
@@ -1663,7 +1668,10 @@ class AITSOrchestrator:
             "emergency_stop": bool(self.paused or getattr(getattr(rs, "control", None).pause_logic, "pause_requested", False)),
             "execution_mode": str(getattr(self, "execution_mode", "disabled") or "disabled"),
             "dry_run": True,
-            "request_id": f"cycle-{getattr(getattr(rs, 'meta', None), 'cycle_id', 0)}:{symbol or '-'}:{getattr(action, 'action_type', '') or '-'}",
+            "request_id": proof_request_id
+            or f"cycle-{getattr(getattr(rs, 'meta', None), 'cycle_id', 0)}:{symbol or '-'}:{getattr(action, 'action_type', '') or '-'}",
+            "proof_mode": bool(getattr(action, "risk_guard_proof_mode", False)),
+            "proof_fixture": proof_fixture,
         }
 
     def _read_risk_guard_price_no_fetch(self, symbol: str) -> float:
@@ -1704,6 +1712,8 @@ class AITSOrchestrator:
             "[AITS][RiskGuardActivePath] "
             f"event={safe.get('event', '')} "
             f"request_id={safe.get('request_id', '-')} "
+            f"proof_mode={bool(safe.get('proof_mode', False))} "
+            f"fixture={safe.get('fixture', '') or '-'} "
             f"symbol={safe.get('symbol', '-')} "
             f"side={safe.get('side', '-')} "
             f"risk_allowed={bool(safe.get('risk_allowed', False))} "

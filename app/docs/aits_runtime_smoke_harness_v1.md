@@ -206,6 +206,39 @@ The report includes:
 The mode must keep provider call markers at zero and must keep `submitted=0`,
 `order_allowed=False`, and `real_order=False`.
 
+## RiskGuard Active Path Candidate Fixture Proof
+
+Use this mode when the active path is wired but the live app state does not
+produce an execution candidate:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
+```
+
+The mode injects deterministic dry-run `ActionItem` fixtures into the app
+execution path, calls the same RiskGuard integration helper used by the
+orchestrator, and verifies `ExecutionBridge` metadata passthrough. It does not
+click AI refresh, call providers, call OrderAdapter, or submit orders.
+
+Required fixtures:
+
+- `allowed_small_buy_path`
+- `blocked_max_order_path`
+
+The report includes:
+
+- `riskguard_active_path_candidate_fixture_count`
+- `riskguard_active_path_candidate_pass_count`
+- `riskguard_active_path_candidate_results`
+- `actionitem_metadata_seen`
+- `execution_bridge_metadata_seen`
+- `order_adapter_called`
+- `order_adapter_execution_mode`
+
+PASS requires `risk_allowed` to match each fixture, `ActionItem` and
+`ExecutionBridge` metadata to be present, provider call markers to remain zero,
+and `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
 ## Save-Probe
 
 Use this mode before persistence/restart smoke:

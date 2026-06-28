@@ -14,6 +14,7 @@ This policy is a pre-live safety layer. Passing RiskGuard means only
 - Implementation: `app/services/risk_guard.py`
 - Proof harness: `tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof`
 - Active dry-run integration: `AITSOrchestrator._apply_risk_guard_to_execution_plan`
+- Active candidate fixture proof: `tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof`
 - Live integration: not enabled in this policy version
 
 ## Input Schema
@@ -122,6 +123,23 @@ Runtime proof log:
 The harness mode `riskguard-active-path-proof` runs one guarded orchestrator
 cycle with provider POSTs blocked and records the latest RiskGuard active path
 events. It does not click AI refresh and does not enable live execution.
+
+## Active Path Candidate Fixture Proof
+
+The harness mode `riskguard-active-path-candidate-proof` injects deterministic
+dry-run candidates into the app execution path without clicking AI refresh,
+calling providers, calling OrderAdapter, or submitting orders.
+
+Fixtures:
+
+- `allowed_small_buy_path`: should attach `risk_allowed=True` metadata.
+- `blocked_max_order_path`: should attach `risk_allowed=False` and
+  `risk_blocked_reason=max_order_amount_exceeded`.
+
+The proof verifies both the `ActionItem.risk_guard` metadata and the
+`ExecutionBridge` dry-run `BridgeAction.risk_guard` passthrough. Even for the
+allowed fixture, `order_allowed=False`, `submitted=0`, and `real_order=False`
+must remain unchanged.
 
 ## Live Unlock Gates
 

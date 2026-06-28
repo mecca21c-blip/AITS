@@ -1290,6 +1290,241 @@ def _run_riskguard_active_path_proof(
         report["fail_reason"] = "no_candidate"
 
 
+def _run_riskguard_active_path_candidate_proof(
+    app: Any,
+    window: Any,
+    paths: dict[str, str],
+    report: dict[str, Any],
+    *,
+    started_epoch: float,
+) -> None:
+    try:
+        import logging
+
+        from app.core.aits_state import ActionItem, ExecutionPlan
+        from app.services.aits_orchestrator import AITSOrchestrator
+        from app.services.execution_bridge import ExecutionBridge
+    except Exception as exc:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = f"import_failed:{type(exc).__name__}"
+        return
+
+    logger = logging.getLogger("aits")
+    orch = AITSOrchestrator(logger=logger, run_mode="qt_smoke_harness")
+    try:
+        orch.initialize()
+    except Exception as exc:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = f"orchestrator_init_failed:{type(exc).__name__}"
+        return
+
+    try:
+        if hasattr(orch, "get_execution_mode"):
+            mode_before = str(orch.get_execution_mode() or "")
+        else:
+            mode_before = str(getattr(orch, "execution_mode", "") or "")
+        report["order_adapter_execution_mode"] = mode_before or "disabled"
+        if mode_before and mode_before != "disabled":
+            report["pass_status"] = "no_go"
+            report["fail_reason"] = f"unsafe_execution_mode:{mode_before}"
+            return
+    except Exception:
+        report["order_adapter_execution_mode"] = "disabled"
+
+    fixtures = [
+        {
+            "name": "allowed_small_buy_path",
+            "expected_risk_allowed": True,
+            "amount_krw": 5000.0,
+            "max_order_amount_krw": 10000.0,
+        },
+        {
+            "name": "blocked_max_order_path",
+            "expected_risk_allowed": False,
+            "amount_krw": 500000.0,
+            "max_order_amount_krw": 10000.0,
+            "expected_blocked_reason": "max_order_amount_exceeded",
+        },
+    ]
+    results: list[dict[str, Any]] = []
+    pass_count = 0
+    fail_count = 0
+
+    for idx, item in enumerate(fixtures, start=1):
+        name = str(item["name"])
+        rs = orch.last_runtime_state
+        try:
+            rs.meta.cycle_id = 9000 + idx
+            rs.market.snapshot.btc_price = 100000000.0
+            rs.portfolio.summary.cash_balance = 100000.0
+            rs.portfolio.summary.total_equity = 1000000.0
+            rs.portfolio.summary.realized_pnl = 0.0
+            rs.control.pause_logic.pause_requested = False
+        except Exception:
+            pass
+
+        action = ActionItem(
+            symbol="KRW-BTC",
+            action_type="buy",
+            amount_krw=float(item["amount_krw"]),
+            priority=1,
+            source_module="riskguard_active_path_fixture",
+            source_provider="local",
+            reason=f"RiskGuard active path fixture {name}",
+        )
+        setattr(action, "risk_guard_proof_mode", True)
+        setattr(action, "risk_guard_proof_fixture", name)
+        setattr(action, "risk_guard_request_id", name)
+
+        plan = ExecutionPlan(approved_actions=[action], blocked_actions=[], execution_mode="normal")
+        try:
+            orch.last_runtime_state.execution.plan = plan
+            old_builder = orch._build_risk_guard_context
+
+            def _fixture_context(candidate_action: Any, *, _old: Any = old_builder, _item: dict[str, Any] = item) -> dict[str, Any]:
+                context = dict(_old(candidate_action))
+                context.update(
+                    {
+                        "price": 100000000.0,
+                        "stale_price": False,
+                        "cash_available_krw": 100000.0,
+                        "portfolio_value_krw": 1000000.0,
+                        "holdings_value_krw": 0.0,
+                        "daily_realized_pnl_krw": 0.0,
+                        "daily_loss_limit_krw": 30000.0,
+                        "max_order_amount_krw": float(_item["max_order_amount_krw"]),
+                        "max_position_value_krw": 200000.0,
+                        "emergency_stop": False,
+                        "execution_mode": "disabled",
+                        "dry_run": True,
+                        "request_id": str(_item["name"]),
+                        "proof_mode": True,
+                        "proof_fixture": str(_item["name"]),
+                    }
+                )
+                return context
+
+            orch._build_risk_guard_context = _fixture_context  # type: ignore[method-assign]
+            try:
+                orch._apply_risk_guard_to_execution_plan(plan)
+            finally:
+                orch._build_risk_guard_context = old_builder  # type: ignore[method-assign]
+
+            bridge = ExecutionBridge(logger=logger).build_from_runtime_state(orch.last_runtime_state)
+            bridge_actions = list(getattr(bridge, "actions", []) or [])
+            bridge_match = next(
+                (
+                    ba
+                    for ba in bridge_actions
+                    if str(getattr(ba, "symbol", "")) == "KRW-BTC"
+                    and str((getattr(ba, "risk_guard", {}) or {}).get("risk_proof_fixture", "")) == name
+                ),
+                None,
+            )
+            metadata = dict(getattr(action, "risk_guard", {}) or {})
+            bridge_metadata = dict(getattr(bridge_match, "risk_guard", {}) or {}) if bridge_match is not None else {}
+            actual_allowed = bool(metadata.get("risk_allowed", False))
+            expected_allowed = bool(item["expected_risk_allowed"])
+            blocked_reason = str(metadata.get("risk_blocked_reason") or "")
+            expected_reason = str(item.get("expected_blocked_reason") or "")
+            passed = (
+                bool(metadata.get("risk_guard_checked", False))
+                and bool(bridge_metadata.get("risk_guard_checked", False))
+                and actual_allowed == expected_allowed
+                and (not expected_reason or blocked_reason == expected_reason)
+                and int(metadata.get("submitted", 0) or 0) == 0
+                and bool(metadata.get("order_allowed", False)) is False
+                and bool(metadata.get("real_order", False)) is False
+                and bool(metadata.get("dry_run", False)) is True
+                and bool(bridge_metadata.get("order_allowed", False)) is False
+                and bool(bridge_metadata.get("real_order", False)) is False
+            )
+            if passed:
+                pass_count += 1
+            else:
+                fail_count += 1
+            results.append(
+                {
+                    "name": name,
+                    "expected_risk_allowed": expected_allowed,
+                    "actual_risk_allowed": actual_allowed,
+                    "risk_blocked_reason": blocked_reason,
+                    "actionitem_metadata_seen": bool(metadata.get("risk_guard_checked", False)),
+                    "execution_bridge_metadata_seen": bool(bridge_metadata.get("risk_guard_checked", False)),
+                    "bridge_blocked": bool(getattr(bridge_match, "blocked", False)) if bridge_match is not None else None,
+                    "bridge_action_found": bridge_match is not None,
+                    "submitted": int(metadata.get("submitted", 0) or 0),
+                    "order_allowed": bool(metadata.get("order_allowed", False)),
+                    "real_order": bool(metadata.get("real_order", False)),
+                    "dry_run": bool(metadata.get("dry_run", False)),
+                    "pass": bool(passed),
+                    "actionitem_risk_guard": metadata,
+                    "execution_bridge_risk_guard": bridge_metadata,
+                }
+            )
+        except Exception as exc:
+            fail_count += 1
+            results.append(
+                {
+                    "name": name,
+                    "pass": False,
+                    "error": type(exc).__name__,
+                    "submitted": 0,
+                    "order_allowed": False,
+                    "real_order": False,
+                    "dry_run": True,
+                }
+            )
+
+    _pump_events(app, 0.5)
+    log_tail = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+    report.update(
+        {
+            "riskguard_active_path_candidate_fixture_count": len(results),
+            "riskguard_active_path_candidate_pass_count": pass_count,
+            "riskguard_active_path_candidate_fail_count": fail_count,
+            "riskguard_active_path_candidate_results": results,
+            "actionitem_metadata_seen": all(bool(r.get("actionitem_metadata_seen")) for r in results),
+            "execution_bridge_metadata_seen": all(bool(r.get("execution_bridge_metadata_seen")) for r in results),
+            "order_adapter_called": False,
+            "provider_call_markers": int(log_tail.get("provider_call_markers") or 0),
+            "external_cost_call_markers": int(log_tail.get("external_cost_call_markers") or 0),
+            "external_cost_call_delta": int(log_tail.get("external_cost_call_markers") or 0),
+            "riskguard_active_path_log_markers": int(
+                (log_tail.get("marker_counts") or {}).get("riskguard_active_path") or 0
+            ),
+            "submitted_detected": False,
+            "order_risk_detected": bool(log_tail.get("risk_hits")),
+            "real_order_detected": False,
+            "log_tail_after_riskguard_candidate_fixture": log_tail,
+        }
+    )
+
+    fail_reasons: list[str] = []
+    if fail_count:
+        fail_reasons.append("fixture_mismatch")
+    if report["provider_call_markers"] != 0:
+        fail_reasons.append("provider_call_marker_detected")
+    if report["external_cost_call_markers"] != 0:
+        fail_reasons.append("external_cost_call_detected")
+    if report["order_risk_detected"]:
+        fail_reasons.append("order_risk_detected")
+    if report["riskguard_active_path_log_markers"] < len(fixtures):
+        fail_reasons.append("riskguard_log_marker_missing")
+    for result in results:
+        if int(result.get("submitted", 0) or 0) != 0:
+            fail_reasons.append("submitted_not_zero")
+        if bool(result.get("order_allowed", False)):
+            fail_reasons.append("order_allowed_true")
+        if bool(result.get("real_order", False)):
+            fail_reasons.append("real_order_true")
+    if fail_reasons:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = ",".join(sorted(set(fail_reasons)))
+    else:
+        report["pass_status"] = "pass"
+
+
 def run_harness(
     mode: str,
     output_dir: Path,
@@ -1369,6 +1604,14 @@ def run_harness(
             report,
             started_epoch=started_epoch,
         )
+    elif mode == "riskguard-active-path-candidate-proof":
+        _run_riskguard_active_path_candidate_proof(
+            app,
+            window,
+            paths,
+            report,
+            started_epoch=started_epoch,
+        )
     elif mode == "provider-smoke":
         _run_provider_smoke(
             app,
@@ -1406,10 +1649,17 @@ def run_harness(
     report["log_tail"] = _read_log_tail(Path(paths["log_dir"]), started_epoch)
     if report["log_tail"].get("risk_hits"):
         report["order_risk_detected"] = True
-    if mode in {"provider-smoke", "save-probe", "riskguard-active-path-proof"} and report.get("pass_status") in {"fail", "no_go"}:
+    if mode in {
+        "provider-smoke",
+        "save-probe",
+        "riskguard-active-path-proof",
+        "riskguard-active-path-candidate-proof",
+    } and report.get("pass_status") in {"fail", "no_go"}:
         report["status"] = report.get("pass_status")
     elif mode == "riskguard-active-path-proof" and report.get("pass_status") == "partial":
         report["status"] = "partial"
+    elif mode == "riskguard-active-path-candidate-proof" and report.get("pass_status") == "pass":
+        report["status"] = "pass"
     elif not allow_provider_calls and report.get("provider_call_blocked"):
         report["status"] = "fail"
     elif report["order_risk_detected"]:
@@ -1443,6 +1693,7 @@ def main() -> int:
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
+            "riskguard-active-path-candidate-proof",
         ),
         default="dry-read",
     )
