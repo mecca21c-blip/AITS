@@ -1070,6 +1070,109 @@ def _run_save_probe(
         report["pass_status"] = "pass"
 
 
+def _riskguard_fixtures() -> list[dict[str, Any]]:
+    base = {
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "requested_amount_krw": 5000.0,
+        "price": 100000000.0,
+        "quantity": 0.0,
+        "source_provider": "local",
+        "confidence": 0.72,
+        "action": "buy",
+        "holdings_value_krw": 0.0,
+        "cash_available_krw": 100000.0,
+        "portfolio_value_krw": 1000000.0,
+        "daily_realized_pnl_krw": 0.0,
+        "daily_loss_limit_krw": 50000.0,
+        "max_order_amount_krw": 10000.0,
+        "max_position_value_krw": 30000.0,
+        "emergency_stop": False,
+        "stale_price": False,
+        "execution_mode": "disabled",
+        "dry_run": True,
+    }
+
+    def fixture(name: str, expected_allowed: bool, **overrides: Any) -> dict[str, Any]:
+        candidate = dict(base)
+        candidate.update(overrides)
+        candidate["request_id"] = name
+        return {
+            "name": name,
+            "expected_allowed": bool(expected_allowed),
+            "candidate": candidate,
+        }
+
+    return [
+        fixture("allowed_small_buy", True),
+        fixture("blocked_max_order", False, requested_amount_krw=25000.0),
+        fixture("blocked_position_limit", False, holdings_value_krw=26000.0, requested_amount_krw=5000.0),
+        fixture("blocked_daily_loss", False, daily_realized_pnl_krw=-50000.0),
+        fixture("blocked_emergency_stop", False, emergency_stop=True),
+        fixture("blocked_invalid_symbol", False, symbol="BTC"),
+        fixture("blocked_stale_price", False, stale_price=True),
+    ]
+
+
+def _run_riskguard_proof(report: dict[str, Any]) -> None:
+    from app.services.risk_guard import RiskGuard
+
+    guard = RiskGuard()
+    results: list[dict[str, Any]] = []
+    pass_count = 0
+    fail_count = 0
+
+    for item in _riskguard_fixtures():
+        candidate = item["candidate"]
+        result = guard.evaluate_order_candidate(candidate)
+        result_dict = result.to_dict()
+        passed = (
+            bool(result.allowed) == bool(item["expected_allowed"])
+            and int(result.submitted) == 0
+            and bool(result.order_allowed) is False
+            and bool(result.real_order) is False
+            and bool(result.dry_run) is True
+        )
+        if passed:
+            pass_count += 1
+        else:
+            fail_count += 1
+        results.append(
+            {
+                "name": item["name"],
+                "expected_allowed": item["expected_allowed"],
+                "actual_allowed": bool(result.allowed),
+                "risk_allowed": bool(result.risk_allowed),
+                "blocked_reason": result.blocked_reason,
+                "severity": result.severity,
+                "submitted": int(result.submitted),
+                "order_allowed": bool(result.order_allowed),
+                "real_order": bool(result.real_order),
+                "dry_run": bool(result.dry_run),
+                "pass": bool(passed),
+                "result": result_dict,
+                "log_summary": guard.log_summary(result, candidate),
+            }
+        )
+
+    report.update(
+        {
+            "riskguard_fixture_count": len(results),
+            "riskguard_pass_count": pass_count,
+            "riskguard_fail_count": fail_count,
+            "riskguard_results": results,
+            "provider_call_markers": 0,
+            "provider_call_delta": 0,
+            "external_cost_call_markers": 0,
+            "external_cost_call_delta": 0,
+            "submitted_detected": False,
+            "order_risk_detected": False,
+            "real_order_detected": False,
+            "pass_status": "pass" if fail_count == 0 else "fail",
+        }
+    )
+
+
 def run_harness(
     mode: str,
     output_dir: Path,
@@ -1094,6 +1197,16 @@ def run_harness(
         "provider_call_blocked": False,
         "warnings": [],
     }
+    if mode == "riskguard-proof":
+        _run_riskguard_proof(report)
+        report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
+        report["finished_at"] = _now_iso()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = output_dir / f"runtime_smoke_report_{stamp}.json"
+        report["report_path"] = str(path)
+        return _write_json_report(report, path)
+
     if mode == "provider-smoke" and not allow_provider_calls and not no_click:
         report["status"] = "blocked"
         report["warnings"].append("provider-smoke requires --allow-provider-calls unless --no-click is used")
@@ -1194,7 +1307,11 @@ def run_harness(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="AITS Qt objectName runtime smoke harness")
-    parser.add_argument("--mode", choices=("dry-read", "dry-navigation", "provider-smoke", "save-probe"), default="dry-read")
+    parser.add_argument(
+        "--mode",
+        choices=("dry-read", "dry-navigation", "provider-smoke", "save-probe", "riskguard-proof"),
+        default="dry-read",
+    )
     parser.add_argument("--allow-provider-calls", action="store_true")
     parser.add_argument("--provider", choices=("local", "gpt", "gemini"))
     parser.add_argument("--max-provider-calls", type=int, default=1)

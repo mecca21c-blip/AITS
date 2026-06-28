@@ -1,0 +1,234 @@
+from __future__ import annotations
+
+from dataclasses import asdict, dataclass, field
+import re
+from typing import Any, Dict, List, Optional
+
+
+_SYMBOL_RE = re.compile(r"^[A-Z]{2,10}-[A-Z0-9]{2,20}$")
+
+
+@dataclass
+class RiskGuardInput:
+    symbol: str = ""
+    side: str = ""
+    requested_amount_krw: float = 0.0
+    price: float = 0.0
+    quantity: float = 0.0
+    source_provider: str = ""
+    confidence: float = 0.0
+    action: str = ""
+    holdings_value_krw: float = 0.0
+    cash_available_krw: float = 0.0
+    portfolio_value_krw: float = 0.0
+    daily_realized_pnl_krw: float = 0.0
+    daily_loss_limit_krw: float = 0.0
+    max_order_amount_krw: float = 0.0
+    max_position_value_krw: float = 0.0
+    emergency_stop: bool = False
+    stale_price: bool = False
+    execution_mode: str = "disabled"
+    dry_run: bool = True
+    request_id: str = ""
+
+
+@dataclass
+class RiskGuardCheck:
+    name: str
+    passed: bool
+    reason: str = ""
+
+
+@dataclass
+class RiskGuardResult:
+    allowed: bool = False
+    risk_allowed: bool = False
+    blocked_reason: str = ""
+    severity: str = "info"
+    max_allowed_amount_krw: float = 0.0
+    requires_confirm: bool = False
+    submitted: int = 0
+    order_allowed: bool = False
+    real_order: bool = False
+    dry_run: bool = True
+    checks: List[RiskGuardCheck] = field(default_factory=list)
+    request_id: str = ""
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = asdict(self)
+        data["checks"] = [asdict(check) for check in self.checks]
+        return data
+
+
+class RiskGuard:
+    """Dry-run order-candidate policy guard.
+
+    This class is intentionally pure: it does not call providers, order
+    services, brokers, repositories, or UI objects. `allowed=True` only means a
+    dry-run candidate passed policy checks; real order fields remain locked.
+    """
+
+    def evaluate_order_candidate(self, candidate: RiskGuardInput | Dict[str, Any]) -> RiskGuardResult:
+        data = self._coerce_input(candidate)
+        checks: List[RiskGuardCheck] = []
+
+        def add_check(name: str, passed: bool, reason: str = "") -> None:
+            checks.append(RiskGuardCheck(name=name, passed=bool(passed), reason=str(reason or "")))
+
+        symbol = str(data.symbol or "").strip().upper()
+        side = str(data.side or data.action or "").strip().lower()
+        amount = self._safe_float(data.requested_amount_krw)
+        price = self._safe_float(data.price)
+        holdings = self._safe_float(data.holdings_value_krw)
+        cash = self._safe_float(data.cash_available_krw)
+        pnl = self._safe_float(data.daily_realized_pnl_krw)
+        loss_limit = abs(self._safe_float(data.daily_loss_limit_krw))
+        max_order = self._safe_float(data.max_order_amount_krw)
+        max_position = self._safe_float(data.max_position_value_krw)
+
+        failure = self._first_failure(
+            data=data,
+            symbol=symbol,
+            side=side,
+            amount=amount,
+            price=price,
+            holdings=holdings,
+            cash=cash,
+            pnl=pnl,
+            loss_limit=loss_limit,
+            max_order=max_order,
+            max_position=max_position,
+            add_check=add_check,
+        )
+
+        if failure is None:
+            max_allowed = min(value for value in (max_order, max_position - holdings, cash) if value > 0)
+            return RiskGuardResult(
+                allowed=True,
+                risk_allowed=True,
+                blocked_reason="",
+                severity="info",
+                max_allowed_amount_krw=max_allowed,
+                requires_confirm=True,
+                submitted=0,
+                order_allowed=False,
+                real_order=False,
+                dry_run=True,
+                checks=checks,
+                request_id=str(data.request_id or ""),
+            )
+
+        reason, severity = failure
+        return RiskGuardResult(
+            allowed=False,
+            risk_allowed=False,
+            blocked_reason=reason,
+            severity=severity,
+            max_allowed_amount_krw=0.0,
+            requires_confirm=False,
+            submitted=0,
+            order_allowed=False,
+            real_order=False,
+            dry_run=True,
+            checks=checks,
+            request_id=str(data.request_id or ""),
+        )
+
+    def log_summary(self, result: RiskGuardResult, candidate: RiskGuardInput | Dict[str, Any]) -> str:
+        data = self._coerce_input(candidate)
+        return (
+            "[AITS][RiskGuard] "
+            f"event=evaluate request_id={data.request_id or '-'} "
+            f"symbol={data.symbol or '-'} side={data.side or data.action or '-'} "
+            f"allowed={bool(result.allowed)} risk_allowed={bool(result.risk_allowed)} "
+            f"blocked_reason={result.blocked_reason or '-'} submitted=0 "
+            "order_allowed=False real_order=False dry_run=True"
+        )
+
+    def _first_failure(
+        self,
+        *,
+        data: RiskGuardInput,
+        symbol: str,
+        side: str,
+        amount: float,
+        price: float,
+        holdings: float,
+        cash: float,
+        pnl: float,
+        loss_limit: float,
+        max_order: float,
+        max_position: float,
+        add_check: Any,
+    ) -> Optional[tuple[str, str]]:
+        if data.emergency_stop:
+            add_check("emergency_stop", False, "emergency_stop_active")
+            return "emergency_stop_active", "critical"
+        add_check("emergency_stop", True)
+
+        if not _SYMBOL_RE.match(symbol):
+            add_check("symbol", False, "invalid_symbol")
+            return "invalid_symbol", "error"
+        add_check("symbol", True)
+
+        if side not in {"buy", "sell"}:
+            add_check("side", False, "invalid_side")
+            return "invalid_side", "error"
+        add_check("side", True)
+
+        if amount <= 0:
+            add_check("amount", False, "invalid_amount")
+            return "invalid_amount", "error"
+        add_check("amount", True)
+
+        if price <= 0:
+            add_check("price", False, "missing_or_invalid_price")
+            return "missing_or_invalid_price", "error"
+        add_check("price", True)
+
+        if data.stale_price:
+            add_check("freshness", False, "stale_price")
+            return "stale_price", "warning"
+        add_check("freshness", True)
+
+        if max_order > 0 and amount > max_order:
+            add_check("max_order_amount", False, "max_order_amount_exceeded")
+            return "max_order_amount_exceeded", "warning"
+        add_check("max_order_amount", True)
+
+        if max_position > 0 and holdings + amount > max_position:
+            add_check("position_limit", False, "max_position_value_exceeded")
+            return "max_position_value_exceeded", "warning"
+        add_check("position_limit", True)
+
+        if loss_limit > 0 and pnl <= -loss_limit:
+            add_check("daily_loss_limit", False, "daily_loss_limit_exceeded")
+            return "daily_loss_limit_exceeded", "critical"
+        add_check("daily_loss_limit", True)
+
+        if side == "buy" and cash < amount:
+            add_check("cash_available", False, "insufficient_cash")
+            return "insufficient_cash", "warning"
+        add_check("cash_available", True)
+
+        return None
+
+    def _coerce_input(self, candidate: RiskGuardInput | Dict[str, Any]) -> RiskGuardInput:
+        if isinstance(candidate, RiskGuardInput):
+            return candidate
+        if isinstance(candidate, dict):
+            fields = RiskGuardInput.__dataclass_fields__
+            return RiskGuardInput(**{key: candidate.get(key) for key in fields if key in candidate})
+        return RiskGuardInput()
+
+    def _safe_float(self, value: Any) -> float:
+        try:
+            if value is None:
+                return 0.0
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+
+def evaluate_order_candidate(candidate: RiskGuardInput | Dict[str, Any]) -> RiskGuardResult:
+    return RiskGuard().evaluate_order_candidate(candidate)

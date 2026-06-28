@@ -15,6 +15,7 @@ production startup.
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-read
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 ```
 
 Reports are written to:
@@ -42,6 +43,9 @@ printed to stdout.
 - `save-probe`: switches to the trade-log context, verifies the footer save
   selector, calls the trade-log persistence handler directly, and records
   save proof without clicking AI refresh or making provider calls.
+- `riskguard-proof`: runs synthetic dry-run order-candidate fixtures against
+  `app/services/risk_guard.py`. It does not create provider calls, click AI
+  refresh, submit orders, or require a Qt window.
 
 ## Safety Rules
 
@@ -134,6 +138,40 @@ python -c "import json,sys; json.load(open(sys.argv[1], encoding='utf-8')); prin
 
 Report validation must not require provider calls. Use `dry-read`,
 `dry-navigation`, or provider-smoke `--no-click` for schema checks.
+
+## RiskGuard-Proof
+
+Use this mode before any dry-run or small-money execution work:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
+```
+
+The mode validates seven synthetic candidates:
+
+- `allowed_small_buy`
+- `blocked_max_order`
+- `blocked_position_limit`
+- `blocked_daily_loss`
+- `blocked_emergency_stop`
+- `blocked_invalid_symbol`
+- `blocked_stale_price`
+
+The report includes:
+
+- `riskguard_fixture_count`
+- `riskguard_pass_count`
+- `riskguard_fail_count`
+- `riskguard_results`
+- `provider_call_markers`
+- `external_cost_call_delta`
+- `submitted_detected`
+- `order_risk_detected`
+- `real_order_detected`
+
+RiskGuard uses `risk_allowed=True` for a dry-run policy pass. It keeps
+`submitted=0`, `order_allowed=False`, and `real_order=False` for both allowed
+and blocked fixtures. A passing RiskGuard fixture is not live-order permission.
 
 ## Save-Probe
 
