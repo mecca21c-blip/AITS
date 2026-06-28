@@ -16,6 +16,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-read
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
 ```
 
 Reports are written to:
@@ -46,6 +47,10 @@ printed to stdout.
 - `riskguard-proof`: runs synthetic dry-run order-candidate fixtures against
   `app/services/risk_guard.py`. It does not create provider calls, click AI
   refresh, submit orders, or require a Qt window.
+- `riskguard-active-path-proof`: creates the real Qt window, runs one guarded
+  orchestrator cycle without clicking AI refresh, and verifies that
+  `RiskGuardActivePath` metadata/log proof is produced before the disabled
+  order adapter boundary.
 
 ## Safety Rules
 
@@ -172,6 +177,34 @@ The report includes:
 RiskGuard uses `risk_allowed=True` for a dry-run policy pass. It keeps
 `submitted=0`, `order_allowed=False`, and `real_order=False` for both allowed
 and blocked fixtures. A passing RiskGuard fixture is not live-order permission.
+
+## RiskGuard Active Path Proof
+
+Use this mode after RiskGuard integration changes:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
+```
+
+The mode keeps network/provider guards installed, builds the real UI, then runs
+one orchestrator dry-run cycle. It expects one of two safe outcomes:
+
+- `pass`: a runtime candidate was evaluated and RiskGuard metadata was attached.
+- `partial`: no execution candidate existed, but a `no_candidate` active-path
+  proof was emitted.
+
+The report includes:
+
+- `riskguard_active_path_checked`
+- `riskguard_active_path_events`
+- `latest_riskguard_event`
+- `riskguard_candidate_seen`
+- `risk_allowed`
+- `risk_blocked_reason`
+- `riskguard_active_path_log_markers`
+
+The mode must keep provider call markers at zero and must keep `submitted=0`,
+`order_allowed=False`, and `real_order=False`.
 
 ## Save-Probe
 

@@ -13,6 +13,7 @@ This policy is a pre-live safety layer. Passing RiskGuard means only
 
 - Implementation: `app/services/risk_guard.py`
 - Proof harness: `tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof`
+- Active dry-run integration: `AITSOrchestrator._apply_risk_guard_to_execution_plan`
 - Live integration: not enabled in this policy version
 
 ## Input Schema
@@ -89,11 +90,43 @@ The proof harness validates seven synthetic candidates:
 Every fixture must preserve `submitted=0`, `order_allowed=False`,
 `real_order=False`, and `dry_run=True`.
 
+## Active Path Integration
+
+The active app path is:
+
+```text
+AI/DecisionRouter judgment
+-> ExecutionPlan approved_actions / blocked_actions
+-> RiskGuard.evaluate_order_candidate
+-> risk_guard metadata on the ActionItem
+-> ExecutionBridge dry_run BridgeAction metadata
+-> OrderAdapter disabled
+-> submitted=0
+```
+
+RiskGuard runs after the execution plan is built and before the
+ExecutionBridge. If a candidate is policy-blocked, it is moved to
+`blocked_actions` while preserving `submitted=0`, `order_allowed=False`, and
+`real_order=False`.
+
+When no candidate exists, the active path emits a `no_candidate` proof event.
+That means the guard is wired and ready, but the current runtime cycle did not
+produce an executable candidate.
+
+Runtime proof log:
+
+```text
+[AITS][RiskGuardActivePath] event=evaluate ... submitted=0 order_allowed=False real_order=False dry_run=True
+```
+
+The harness mode `riskguard-active-path-proof` runs one guarded orchestrator
+cycle with provider POSTs blocked and records the latest RiskGuard active path
+events. It does not click AI refresh and does not enable live execution.
+
 ## Live Unlock Gates
 
 Before small-money or live execution, AITS still needs:
 
-- Active path integration before `OrderAdapter`.
 - Runtime log proof that RiskGuard evaluated each candidate.
 - User confirmation proof.
 - Per-order amount cap proof.

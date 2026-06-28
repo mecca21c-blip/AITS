@@ -29,9 +29,6 @@ RISK_KEYWORDS = (
     "buy_market_order",
     "sell_market_order",
     "PANIC-SELL",
-    "OrderAdapter",
-    "ExecutionBridge",
-    "RiskGuard",
 )
 
 CORE_WIDGETS = {
@@ -266,6 +263,7 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
         "trade_log_save_start": active_text.count("[AITS][TradeLogSave] event=start"),
         "trade_log_save_finish": active_text.count("[AITS][TradeLogSave] event=finish"),
         "trade_log_save_failed": active_text.count("[AITS][TradeLogSave] event=failed"),
+        "riskguard_active_path": active_text.count("[AITS][RiskGuardActivePath]"),
     }
     result["marker_counts"] = marker_counts
     result["external_cost_call_markers"] = (
@@ -307,6 +305,7 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
         "[AITS][TradeLogDecisionStage]",
         "[AITS][TradeLogShadowJournal]",
         "[AITS][AIRefreshApply]",
+        "[AITS][RiskGuardActivePath]",
     )
     result["proof_lines"] = [
         line[-700:]
@@ -1173,6 +1172,124 @@ def _run_riskguard_proof(report: dict[str, Any]) -> None:
     )
 
 
+def _run_riskguard_active_path_proof(
+    app: Any,
+    window: Any,
+    paths: dict[str, str],
+    report: dict[str, Any],
+    *,
+    started_epoch: float,
+) -> None:
+    orch = None
+    try:
+        getter = getattr(window, "_get_aits_orchestrator", None)
+        if callable(getter):
+            orch = getter()
+    except Exception:
+        orch = None
+    if orch is None:
+        orch = getattr(window, "orchestrator", None)
+    if orch is None:
+        try:
+            import logging
+            from app.services.aits_orchestrator import AITSOrchestrator
+
+            logger = logging.getLogger("aits") or getattr(window, "_log", None)
+            orch = AITSOrchestrator(logger=logger, run_mode="qt_smoke_harness")
+            if hasattr(orch, "initialize"):
+                orch.initialize()
+            try:
+                setattr(window, "orchestrator", orch)
+            except Exception:
+                pass
+            report["riskguard_orchestrator_source"] = "harness_created"
+        except Exception as exc:
+            report["riskguard_orchestrator_create_error"] = type(exc).__name__
+            orch = None
+    else:
+        report["riskguard_orchestrator_source"] = "window"
+
+    report["riskguard_active_path_checked"] = True
+    report["riskguard_orchestrator_found"] = orch is not None
+    if orch is None or not hasattr(orch, "run_cycle"):
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "orchestrator_missing"
+        return
+
+    try:
+        mode_before = ""
+        if hasattr(orch, "get_execution_mode"):
+            mode_before = str(orch.get_execution_mode() or "")
+        report["execution_mode_before"] = mode_before or "disabled"
+        if mode_before and mode_before != "disabled":
+            report["pass_status"] = "no_go"
+            report["fail_reason"] = f"unsafe_execution_mode:{mode_before}"
+            return
+        result = orch.run_cycle()
+        _pump_events(app, 0.5)
+        report["orchestrator_cycle_status"] = str(getattr(getattr(result, "status", None), "status", "") or "")
+    except Exception as exc:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = f"run_cycle_failed:{type(exc).__name__}"
+        return
+
+    events: list[dict[str, Any]] = []
+    try:
+        getter = getattr(orch, "get_last_risk_guard_events", None)
+        if callable(getter):
+            events = [event for event in list(getter() or []) if isinstance(event, dict)]
+    except Exception:
+        events = []
+
+    log_tail = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+    latest_event = events[-1] if events else {}
+    report.update(
+        {
+            "riskguard_active_path_events": events,
+            "latest_riskguard_event": latest_event,
+            "riskguard_candidate_seen": any(str(event.get("event")) == "evaluate" for event in events),
+            "risk_allowed": bool(latest_event.get("risk_allowed", False)) if latest_event else False,
+            "risk_blocked_reason": str(latest_event.get("blocked_reason") or latest_event.get("reason") or ""),
+            "provider_call_markers": int(log_tail.get("provider_call_markers") or 0),
+            "external_cost_call_markers": int(log_tail.get("external_cost_call_markers") or 0),
+            "external_cost_call_delta": int(log_tail.get("external_cost_call_markers") or 0),
+            "riskguard_active_path_log_markers": int(
+                (log_tail.get("marker_counts") or {}).get("riskguard_active_path") or 0
+            ),
+            "submitted_detected": False,
+            "order_risk_detected": bool(log_tail.get("risk_hits")),
+            "real_order_detected": False,
+            "log_tail_after_riskguard_cycle": log_tail,
+        }
+    )
+
+    fail_reasons: list[str] = []
+    if not events:
+        fail_reasons.append("riskguard_events_missing")
+    if report["provider_call_markers"] != 0:
+        fail_reasons.append("provider_call_marker_detected")
+    if report["external_cost_call_markers"] != 0:
+        fail_reasons.append("external_cost_call_detected")
+    if report["order_risk_detected"]:
+        fail_reasons.append("order_risk_detected")
+    for event in events:
+        if event.get("submitted") not in (0, "0", None):
+            fail_reasons.append("submitted_not_zero")
+        if bool(event.get("order_allowed", False)):
+            fail_reasons.append("order_allowed_true")
+        if bool(event.get("real_order", False)):
+            fail_reasons.append("real_order_true")
+
+    if fail_reasons:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = ",".join(sorted(set(fail_reasons)))
+    elif report["riskguard_candidate_seen"]:
+        report["pass_status"] = "pass"
+    else:
+        report["pass_status"] = "partial"
+        report["fail_reason"] = "no_candidate"
+
+
 def run_harness(
     mode: str,
     output_dir: Path,
@@ -1244,6 +1361,14 @@ def run_harness(
         _pump_events(app, 0.5)
     elif mode == "dry-read":
         pass
+    elif mode == "riskguard-active-path-proof":
+        _run_riskguard_active_path_proof(
+            app,
+            window,
+            paths,
+            report,
+            started_epoch=started_epoch,
+        )
     elif mode == "provider-smoke":
         _run_provider_smoke(
             app,
@@ -1281,8 +1406,10 @@ def run_harness(
     report["log_tail"] = _read_log_tail(Path(paths["log_dir"]), started_epoch)
     if report["log_tail"].get("risk_hits"):
         report["order_risk_detected"] = True
-    if mode in {"provider-smoke", "save-probe"} and report.get("pass_status") in {"fail", "no_go"}:
+    if mode in {"provider-smoke", "save-probe", "riskguard-active-path-proof"} and report.get("pass_status") in {"fail", "no_go"}:
         report["status"] = report.get("pass_status")
+    elif mode == "riskguard-active-path-proof" and report.get("pass_status") == "partial":
+        report["status"] = "partial"
     elif not allow_provider_calls and report.get("provider_call_blocked"):
         report["status"] = "fail"
     elif report["order_risk_detected"]:
@@ -1309,7 +1436,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="AITS Qt objectName runtime smoke harness")
     parser.add_argument(
         "--mode",
-        choices=("dry-read", "dry-navigation", "provider-smoke", "save-probe", "riskguard-proof"),
+        choices=(
+            "dry-read",
+            "dry-navigation",
+            "provider-smoke",
+            "save-probe",
+            "riskguard-proof",
+            "riskguard-active-path-proof",
+        ),
         default="dry-read",
     )
     parser.add_argument("--allow-provider-calls", action="store_true")

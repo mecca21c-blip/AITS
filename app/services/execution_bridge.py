@@ -21,6 +21,7 @@ class BridgeAction:
     source_module: str = ""
     source_provider: str = ""
     blocked: bool = False
+    risk_guard: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -244,6 +245,11 @@ class ExecutionBridge:
             if sp is None and isinstance(action, dict):
                 sp = action.get("source_provider", "")
             sp_s = str(sp if sp is not None else "")
+            rg = getattr(action, "risk_guard", None)
+            if rg is None and isinstance(action, dict):
+                rg = action.get("risk_guard", {})
+            if not isinstance(rg, dict):
+                rg = {}
 
             return BridgeAction(
                 action_type=at_s,
@@ -254,6 +260,7 @@ class ExecutionBridge:
                 source_module=sm_s,
                 source_provider=sp_s,
                 blocked=blocked,
+                risk_guard=dict(rg),
             )
         except Exception:
             return BridgeAction(action_type="wait", symbol="", blocked=blocked)

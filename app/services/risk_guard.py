@@ -232,3 +232,60 @@ class RiskGuard:
 
 def evaluate_order_candidate(candidate: RiskGuardInput | Dict[str, Any]) -> RiskGuardResult:
     return RiskGuard().evaluate_order_candidate(candidate)
+
+
+def build_risk_guard_input_from_action(action: Any, context: Optional[Dict[str, Any]] = None) -> RiskGuardInput:
+    ctx = dict(context or {})
+    action_type = _read_value(action, "action_type", "action")
+    side = str(action_type or "").strip().lower()
+    if side == "reduce":
+        side = "sell"
+    return RiskGuardInput(
+        symbol=str(_read_value(action, "symbol") or ctx.get("symbol") or ""),
+        side=side,
+        requested_amount_krw=_safe_float_value(
+            _read_value(action, "amount_krw", "requested_amount_krw"),
+            ctx.get("requested_amount_krw", 0.0),
+        ),
+        price=_safe_float_value(ctx.get("price"), 0.0),
+        quantity=_safe_float_value(ctx.get("quantity"), 0.0),
+        source_provider=str(_read_value(action, "source_provider") or ctx.get("source_provider") or ""),
+        confidence=_safe_float_value(_read_value(action, "confidence"), ctx.get("confidence", 0.0)),
+        action=str(action_type or ""),
+        holdings_value_krw=_safe_float_value(ctx.get("holdings_value_krw"), 0.0),
+        cash_available_krw=_safe_float_value(ctx.get("cash_available_krw"), 0.0),
+        portfolio_value_krw=_safe_float_value(ctx.get("portfolio_value_krw"), 0.0),
+        daily_realized_pnl_krw=_safe_float_value(ctx.get("daily_realized_pnl_krw"), 0.0),
+        daily_loss_limit_krw=_safe_float_value(ctx.get("daily_loss_limit_krw"), 0.0),
+        max_order_amount_krw=_safe_float_value(ctx.get("max_order_amount_krw"), 0.0),
+        max_position_value_krw=_safe_float_value(ctx.get("max_position_value_krw"), 0.0),
+        emergency_stop=bool(ctx.get("emergency_stop", False)),
+        stale_price=bool(ctx.get("stale_price", False)),
+        execution_mode=str(ctx.get("execution_mode") or "disabled"),
+        dry_run=True,
+        request_id=str(ctx.get("request_id") or ""),
+    )
+
+
+def _read_value(obj: Any, *names: str) -> Any:
+    for name in names:
+        try:
+            if isinstance(obj, dict) and name in obj:
+                return obj.get(name)
+            if hasattr(obj, name):
+                return getattr(obj, name)
+        except Exception:
+            continue
+    return None
+
+
+def _safe_float_value(value: Any, default: Any = 0.0) -> float:
+    try:
+        if value is None:
+            return float(default or 0.0)
+        return float(value)
+    except (TypeError, ValueError):
+        try:
+            return float(default or 0.0)
+        except (TypeError, ValueError):
+            return 0.0

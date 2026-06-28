@@ -49,6 +49,11 @@ try:
     from app.services.order_adapter import AITSOrderAdapter
 except Exception:
     AITSOrderAdapter = None
+try:
+    from app.services.risk_guard import RiskGuard, build_risk_guard_input_from_action
+except Exception:
+    RiskGuard = None
+    build_risk_guard_input_from_action = None
 
 
 def _fetch_upbit_price_once(symbol: str) -> tuple[float | None, str]:
@@ -306,6 +311,7 @@ class AITSOrchestrator:
         self.last_error: str = ""
         self.current_user_controls: Dict[str, Any] = {}
         self.last_bridge_result: Optional[Any] = None
+        self.last_risk_guard_events: List[Dict[str, Any]] = []
         _oa_cls = AITSOrderAdapter
         if _oa_cls is None:
             from app.services.order_adapter import AITSOrderAdapter as _oa_cls
@@ -317,6 +323,7 @@ class AITSOrchestrator:
         )
         self.last_order_adapter_result: Optional[Any] = None
         self.execution_mode: str = "disabled"
+        self.risk_guard = RiskGuard() if RiskGuard is not None else None
 
         self.module_pack_resolver = ModulePackResolver(
             pack_definitions=DEFAULT_MODULE_PACK_DEFINITIONS,
@@ -355,6 +362,7 @@ class AITSOrchestrator:
             )
             self.last_runtime_state = state
             self.last_bridge_result = None
+            self.last_risk_guard_events = []
             self.last_order_adapter_result = None
             self.order_adapter.set_execution_mode(self.execution_mode)
             try:
@@ -570,6 +578,12 @@ class AITSOrchestrator:
 
     def get_last_order_adapter_result(self) -> Optional[Any]:
         return self.last_order_adapter_result
+
+    def get_last_risk_guard_events(self) -> List[Dict[str, Any]]:
+        try:
+            return list(self.last_risk_guard_events or [])
+        except Exception:
+            return []
 
     def set_execution_mode(self, execution_mode: str) -> None:
         self.execution_mode = str(execution_mode or "").strip() or "disabled"
@@ -1504,7 +1518,199 @@ class AITSOrchestrator:
                         self._record_decision_router_shadow_signal(sig, "*")
         except Exception:
             pass
+        self._apply_risk_guard_to_execution_plan(plan)
         self._log_decision_router_dryrun_compare(plan)
+
+    def _apply_risk_guard_to_execution_plan(self, plan: Any) -> None:
+        try:
+            guard = getattr(self, "risk_guard", None)
+            if guard is None or build_risk_guard_input_from_action is None:
+                self._record_risk_guard_event(
+                    {
+                        "event": "unavailable",
+                        "reason": "risk_guard_unavailable",
+                        "submitted": 0,
+                        "order_allowed": False,
+                        "real_order": False,
+                        "dry_run": True,
+                        "execution_mode": str(getattr(self, "execution_mode", "disabled") or "disabled"),
+                    }
+                )
+                return
+
+            approved_raw = list(getattr(plan, "approved_actions", None) or [])
+            blocked_raw = list(getattr(plan, "blocked_actions", None) or [])
+            if not approved_raw and not blocked_raw:
+                self._record_risk_guard_event(
+                    {
+                        "event": "no_candidate",
+                        "reason": "no_execution_candidate",
+                        "submitted": 0,
+                        "order_allowed": False,
+                        "real_order": False,
+                        "dry_run": True,
+                        "execution_mode": str(getattr(self, "execution_mode", "disabled") or "disabled"),
+                    }
+                )
+                return
+
+            kept_approved = []
+            risk_blocked = list(blocked_raw)
+            for action in approved_raw:
+                result = self._evaluate_risk_guard_action(action, guard, source="approved")
+                if bool(getattr(result, "risk_allowed", False)):
+                    kept_approved.append(action)
+                else:
+                    risk_blocked.append(action)
+
+            for action in blocked_raw:
+                self._evaluate_risk_guard_action(action, guard, source="blocked")
+
+            plan.approved_actions = kept_approved
+            plan.blocked_actions = risk_blocked
+        except Exception as exc:
+            self._record_risk_guard_event(
+                {
+                    "event": "failed",
+                    "reason": f"exception:{type(exc).__name__}",
+                    "submitted": 0,
+                    "order_allowed": False,
+                    "real_order": False,
+                    "dry_run": True,
+                    "execution_mode": str(getattr(self, "execution_mode", "disabled") or "disabled"),
+                }
+            )
+
+    def _evaluate_risk_guard_action(self, action: Any, guard: Any, *, source: str) -> Any:
+        context = self._build_risk_guard_context(action)
+        rg_input = build_risk_guard_input_from_action(action, context)
+        result = guard.evaluate_order_candidate(rg_input)
+        result_dict = result.to_dict() if hasattr(result, "to_dict") else {}
+        metadata = {
+            "risk_guard_checked": True,
+            "risk_guard_version": "v1",
+            "risk_allowed": bool(result_dict.get("risk_allowed", False)),
+            "risk_blocked_reason": str(result_dict.get("blocked_reason") or ""),
+            "risk_severity": str(result_dict.get("severity") or ""),
+            "risk_requires_confirm": bool(result_dict.get("requires_confirm", False)),
+            "risk_checks_summary": [
+                {
+                    "name": str(check.get("name", "")),
+                    "passed": bool(check.get("passed", False)),
+                    "reason": str(check.get("reason", "")),
+                }
+                for check in list(result_dict.get("checks") or [])[:12]
+                if isinstance(check, dict)
+            ],
+            "submitted": 0,
+            "order_allowed": False,
+            "real_order": False,
+            "dry_run": True,
+        }
+        try:
+            setattr(action, "risk_guard", metadata)
+        except Exception:
+            pass
+        self._record_risk_guard_event(
+            {
+                "event": "evaluate",
+                "source": source,
+                "request_id": str(context.get("request_id") or ""),
+                "symbol": str(getattr(action, "symbol", "") or ""),
+                "side": str(getattr(action, "action_type", "") or ""),
+                "risk_allowed": bool(metadata["risk_allowed"]),
+                "blocked_reason": metadata["risk_blocked_reason"],
+                "severity": metadata["risk_severity"],
+                "submitted": 0,
+                "order_allowed": False,
+                "real_order": False,
+                "dry_run": True,
+                "execution_mode": str(getattr(self, "execution_mode", "disabled") or "disabled"),
+            }
+        )
+        return result
+
+    def _build_risk_guard_context(self, action: Any) -> Dict[str, Any]:
+        rs = self.last_runtime_state
+        symbol = str(getattr(action, "symbol", "") or "").strip()
+        price = self._read_risk_guard_price_no_fetch(symbol)
+        portfolio = getattr(rs, "portfolio", None)
+        summary = getattr(portfolio, "summary", None)
+        holdings_value = 0.0
+        for pos in list(getattr(portfolio, "positions", None) or []):
+            try:
+                if str(getattr(pos, "symbol", "") or "").strip() != symbol:
+                    continue
+                qty = self._safe_float(getattr(pos, "qty", 0.0), 0.0)
+                cur = self._safe_float(getattr(pos, "current_price", 0.0), 0.0)
+                avg = self._safe_float(getattr(pos, "avg_price", 0.0), 0.0)
+                holdings_value += qty * (cur if cur > 0 else avg)
+            except Exception:
+                continue
+        cash = self._safe_float(getattr(summary, "cash_balance", 0.0), 0.0)
+        portfolio_value = self._safe_float(getattr(summary, "total_equity", 0.0), 0.0)
+        return {
+            "symbol": symbol,
+            "price": price,
+            "stale_price": price <= 0.0,
+            "cash_available_krw": cash,
+            "portfolio_value_krw": portfolio_value,
+            "holdings_value_krw": holdings_value,
+            "daily_realized_pnl_krw": self._safe_float(getattr(summary, "realized_pnl", 0.0), 0.0),
+            "daily_loss_limit_krw": 50_000.0,
+            "max_order_amount_krw": 10_000.0,
+            "max_position_value_krw": 30_000.0,
+            "emergency_stop": bool(self.paused or getattr(getattr(rs, "control", None).pause_logic, "pause_requested", False)),
+            "execution_mode": str(getattr(self, "execution_mode", "disabled") or "disabled"),
+            "dry_run": True,
+            "request_id": f"cycle-{getattr(getattr(rs, 'meta', None), 'cycle_id', 0)}:{symbol or '-'}:{getattr(action, 'action_type', '') or '-'}",
+        }
+
+    def _read_risk_guard_price_no_fetch(self, symbol: str) -> float:
+        try:
+            sym = str(symbol or "").strip()
+            if not sym or sym == "*":
+                return 0.0
+            rs = self.last_runtime_state
+            if sym == "KRW-BTC":
+                snap = getattr(getattr(rs, "market", None), "snapshot", None)
+                price = self._safe_float(getattr(snap, "btc_price", 0.0), 0.0)
+                if price > 0.0:
+                    return price
+            portfolio = getattr(rs, "portfolio", None)
+            for pos in list(getattr(portfolio, "positions", None) or []):
+                if str(getattr(pos, "symbol", "") or "").strip() != sym:
+                    continue
+                price = self._safe_float(getattr(pos, "current_price", 0.0), 0.0)
+                if price > 0.0:
+                    return price
+        except Exception:
+            return 0.0
+        return 0.0
+
+    def _record_risk_guard_event(self, event: Dict[str, Any]) -> None:
+        safe = dict(event or {})
+        safe["submitted"] = 0
+        safe["order_allowed"] = False
+        safe["real_order"] = False
+        safe["dry_run"] = True
+        try:
+            events = list(getattr(self, "last_risk_guard_events", None) or [])
+            events.append(safe)
+            self.last_risk_guard_events = events[-20:]
+        except Exception:
+            pass
+        self._safe_log_info(
+            "[AITS][RiskGuardActivePath] "
+            f"event={safe.get('event', '')} "
+            f"request_id={safe.get('request_id', '-')} "
+            f"symbol={safe.get('symbol', '-')} "
+            f"side={safe.get('side', '-')} "
+            f"risk_allowed={bool(safe.get('risk_allowed', False))} "
+            f"blocked_reason={safe.get('blocked_reason') or safe.get('reason') or '-'} "
+            "submitted=0 order_allowed=False real_order=False dry_run=True "
+            f"execution_mode={safe.get('execution_mode', 'disabled')}"
+        )
 
     def _record_decision_router_shadow_signal(self, signal: Dict[str, Any], symbol: str) -> None:
         try:
