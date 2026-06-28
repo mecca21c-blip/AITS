@@ -127,3 +127,9 @@ A later `AITS-LIVE-MINIMUM-REAL-ORDER-TEST-01` Goal must separately approve a
 single minimum-size real order with explicit unlock, user confirmation, hard
 cap, duplicate lock, emergency stop off, RiskGuard active proof, and immediate
 relock after one use.
+
+Before that Goal can run, `app/docs/aits_live_minimum_real_order_test_plan_v1.md`
+must be current. The review document defines the only planned candidate
+(`KRW-BTC` buy with a small KRW hard cap), the confirmation phrase pattern, the
+duplicate lock key shape, failure handling, and the rule that an unknown or
+failed attempt still consumes the one-shot unlock.

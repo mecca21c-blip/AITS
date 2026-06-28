@@ -149,3 +149,14 @@ A later high-risk Goal must explicitly define a one-shot real-order test with:
 - RiskGuard active proof
 
 Until then, live preflight is a locked proof gate only.
+
+## Minimum Real Order Preflight Review
+
+Before any future minimum real-order Goal, the operator must complete
+`app/docs/aits_live_minimum_real_order_test_plan_v1.md`. That review fixes the
+single allowed candidate scope, hard cap, confirmation phrase policy, duplicate
+lock policy, emergency-stop check, failure handling, and immediate relock rule.
+
+If the review is stale, incomplete, or contradicted by runtime proof, the
+minimum real-order Goal must stop before unlock and before any order service
+boundary is reached.

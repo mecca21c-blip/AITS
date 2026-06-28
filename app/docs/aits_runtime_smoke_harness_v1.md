@@ -323,6 +323,29 @@ Report fields include:
 - `order_service_place_order_called`
 - `order_adapter_live_branch_entered`
 
+## Minimum Real Order Preflight Review
+
+Before any future minimum real-order attempt, run and record:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-read
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
+```
+
+The review plan lives at
+`app/docs/aits_live_minimum_real_order_test_plan_v1.md`. It does not run an
+order; it defines the single allowed future candidate, the hard cap, the
+one-shot confirmation phrase, duplicate lock, failure handling, and immediate
+relock policy.
+
+Any provider call marker, order-risk marker, `submitted=1`,
+`order_allowed=true`, or `real_order=true` before the future real-order Goal is
+NO-GO.
+
 ## Save-Probe
 
 Use this mode before persistence/restart smoke:
