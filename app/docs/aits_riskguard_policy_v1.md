@@ -9,13 +9,17 @@ orders, calls providers, calls brokers, writes to repositories, or changes UI.
 This policy is a pre-live safety layer. Passing RiskGuard means only
 `risk_allowed=True`; it does not mean real trading is enabled.
 
+Live-order readiness is evaluated later by
+`app/services/live_order_preflight.py`. RiskGuard policy pass is only an input
+to that final lock; it is not permission to call an order service.
+
 ## Owner
 
 - Implementation: `app/services/risk_guard.py`
 - Proof harness: `tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof`
 - Active dry-run integration: `AITSOrchestrator._apply_risk_guard_to_execution_plan`
 - Active candidate fixture proof: `tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof`
-- Live integration: not enabled in this policy version
+- Live integration: still locked by `app/services/live_order_preflight.py`
 
 ## Input Schema
 

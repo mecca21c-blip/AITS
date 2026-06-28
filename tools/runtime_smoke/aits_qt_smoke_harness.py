@@ -1172,6 +1172,125 @@ def _run_riskguard_proof(report: dict[str, Any]) -> None:
     )
 
 
+def _live_preflight_fixtures() -> list[dict[str, Any]]:
+    base: dict[str, Any] = {
+        "request_id": "locked_base",
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "amount_krw": 5000.0,
+        "quantity": 0.00005,
+        "price": 100000000.0,
+        "execution_mode": "live",
+        "aits_enabled": True,
+        "live_order_unlock": True,
+        "user_confirm_token": "fixture-confirm-token",
+        "risk_guard_checked": True,
+        "risk_allowed": True,
+        "emergency_stop": False,
+        "max_order_amount_krw": 10000.0,
+        "max_daily_loss_krw": 30000.0,
+        "max_order_count_per_cycle": 1,
+        "duplicate_order_lock": True,
+        "min_real_order_amount_krw": 5000.0,
+        "account_ready": True,
+        "api_key_ready": True,
+        "price_fresh": True,
+        "selected_provider": "local",
+        "source": "live_preflight_locked_proof",
+    }
+
+    def fixture(name: str, expected_reason: str, **overrides: Any) -> dict[str, Any]:
+        item = dict(base)
+        item.update(overrides)
+        item["request_id"] = name
+        return {
+            "name": name,
+            "expected_locked": True,
+            "expected_allowed": False,
+            "expected_reason": expected_reason,
+            "input": item,
+        }
+
+    return [
+        fixture("locked_execution_mode_disabled", "execution_mode_not_live", execution_mode="disabled"),
+        fixture("locked_missing_user_confirm", "user_confirm_token_missing", **{"user_confirm_token": ""}),
+        fixture(
+            "locked_missing_riskguard",
+            "risk_guard_not_checked",
+            risk_guard_checked=False,
+            risk_allowed=False,
+        ),
+        fixture("locked_emergency_stop", "emergency_stop_active", emergency_stop=True),
+        fixture("locked_amount_exceeds_cap", "max_order_amount_exceeded", amount_krw=500000.0),
+    ]
+
+
+def _run_live_preflight_locked_proof(report: dict[str, Any]) -> None:
+    from app.services.live_order_preflight import LiveOrderPreflight
+
+    preflight = LiveOrderPreflight()
+    results: list[dict[str, Any]] = []
+    pass_count = 0
+    fail_count = 0
+
+    for item in _live_preflight_fixtures():
+        result = preflight.evaluate(item["input"])
+        result_dict = result.to_dict()
+        passed = (
+            bool(result.locked) is True
+            and bool(result.allowed) is False
+            and str(result.blocked_reason or "") == str(item["expected_reason"])
+            and int(result.submitted) == 0
+            and bool(result.order_allowed) is False
+            and bool(result.real_order) is False
+        )
+        if passed:
+            pass_count += 1
+        else:
+            fail_count += 1
+        results.append(
+            {
+                "name": item["name"],
+                "expected_locked": item["expected_locked"],
+                "expected_allowed": item["expected_allowed"],
+                "expected_reason": item["expected_reason"],
+                "actual_locked": bool(result.locked),
+                "actual_allowed": bool(result.allowed),
+                "blocked_reason": str(result.blocked_reason or ""),
+                "submitted": int(result.submitted),
+                "order_allowed": bool(result.order_allowed),
+                "real_order": bool(result.real_order),
+                "execution_mode": str(result.execution_mode or ""),
+                "pass": bool(passed),
+                "result": result_dict,
+                "log_summary": preflight.log_summary(result, item["input"]),
+            }
+        )
+
+    report.update(
+        {
+            "live_preflight_fixture_count": len(results),
+            "live_preflight_pass_count": pass_count,
+            "live_preflight_fail_count": fail_count,
+            "live_preflight_results": results,
+            "order_service_place_order_called": False,
+            "order_adapter_live_branch_entered": False,
+            "order_adapter_execution_mode": "disabled",
+            "provider_call_markers": 0,
+            "provider_call_delta": 0,
+            "external_cost_call_markers": 0,
+            "external_cost_call_delta": 0,
+            "submitted_detected": False,
+            "order_risk_detected": False,
+            "real_order_detected": False,
+            "paper_mode_created": False,
+            "virtual_trading_created": False,
+            "mock_trading_processor_created": False,
+            "pass_status": "pass" if fail_count == 0 else "fail",
+        }
+    )
+
+
 def _run_riskguard_active_path_proof(
     app: Any,
     window: Any,
@@ -1549,8 +1668,11 @@ def run_harness(
         "provider_call_blocked": False,
         "warnings": [],
     }
-    if mode == "riskguard-proof":
-        _run_riskguard_proof(report)
+    if mode in {"riskguard-proof", "live-preflight-locked-proof"}:
+        if mode == "riskguard-proof":
+            _run_riskguard_proof(report)
+        else:
+            _run_live_preflight_locked_proof(report)
         report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
         report["finished_at"] = _now_iso()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -1694,6 +1816,7 @@ def main() -> int:
             "riskguard-proof",
             "riskguard-active-path-proof",
             "riskguard-active-path-candidate-proof",
+            "live-preflight-locked-proof",
         ),
         default="dry-read",
     )

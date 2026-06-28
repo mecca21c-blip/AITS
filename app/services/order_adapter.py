@@ -18,6 +18,7 @@ class OrderRequestCandidate:
     reason: str = ""
     source_module: str = ""
     source_provider: str = ""
+    risk_guard: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -128,6 +129,7 @@ class AITSOrderAdapter:
                     reason=reason,
                     source_module=str(getattr(ba, "source_module", "") or ""),
                     source_provider=str(getattr(ba, "source_provider", "") or ""),
+                    risk_guard=dict(getattr(ba, "risk_guard", {}) or {}),
                 )
                 result.candidates.append(candidate)
 
@@ -300,6 +302,44 @@ class AITSOrderAdapter:
                                 "volume": c.quantity,
                                 "order_type": "market",
                             }
+                            try:
+                                from app.services.live_order_preflight import (
+                                    LiveOrderPreflight,
+                                    build_preflight_input_from_order_request,
+                                )
+
+                                preflight_input = build_preflight_input_from_order_request(
+                                    order_request,
+                                    request_id=str(getattr(c, "reason", "") or symbol or ""),
+                                    execution_mode=self.execution_mode,
+                                    risk_guard=dict(getattr(c, "risk_guard", {}) or {}),
+                                )
+                                preflight = LiveOrderPreflight()
+                                preflight_result = preflight.evaluate(preflight_input)
+                                self._safe_log_info(preflight.log_summary(preflight_result, preflight_input))
+                                if preflight_result.locked or not preflight_result.allowed:
+                                    result.failed_orders.append(
+                                        self._make_record(
+                                            action_type=c.action_type,
+                                            symbol=symbol or "",
+                                            status="blocked",
+                                            reason=f"live_preflight_locked:{preflight_result.blocked_reason}",
+                                            detail_ko="live 주문 직전 안전문이 잠겨 있어 실제 주문 함수에 도달하지 않았습니다.",
+                                        )
+                                    )
+                                    continue
+                            except Exception as preflight_exc:
+                                self._safe_log_error(f"live preflight failed closed: {preflight_exc}")
+                                result.failed_orders.append(
+                                    self._make_record(
+                                        action_type=c.action_type,
+                                        symbol=symbol or "",
+                                        status="blocked",
+                                        reason="live_preflight_failed_closed",
+                                        detail_ko="live 주문 직전 안전문 확인 중 오류가 발생해 실제 주문 함수에 도달하지 않았습니다.",
+                                    )
+                                )
+                                continue
                             decision_val = ""
                             next_action_val = ""
                             rotation_needed = False
@@ -534,6 +574,7 @@ class AITSOrderAdapter:
                 source_provider=str(
                     getattr(action, "source_provider", "") if action is not None else ""
                 ),
+                risk_guard=dict(getattr(action, "risk_guard", {}) or {}),
             )
         except Exception:
             return BridgeAction()

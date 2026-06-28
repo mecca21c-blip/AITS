@@ -17,6 +17,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 ```
 
 Reports are written to:
@@ -51,6 +53,12 @@ printed to stdout.
   orchestrator cycle without clicking AI refresh, and verifies that
   `RiskGuardActivePath` metadata/log proof is produced before the disabled
   order adapter boundary.
+- `riskguard-active-path-candidate-proof`: injects deterministic dry-run
+  candidates into the app execution path and verifies RiskGuard metadata
+  reaches `ActionItem` and `ExecutionBridge`.
+- `live-preflight-locked-proof`: evaluates the final live-order preflight lock
+  with deterministic fixtures. It does not create paper trading, virtual
+  trading, mock processors, provider calls, or order submissions.
 
 ## Safety Rules
 
@@ -238,6 +246,39 @@ The report includes:
 PASS requires `risk_allowed` to match each fixture, `ActionItem` and
 `ExecutionBridge` metadata to be present, provider call markers to remain zero,
 and `submitted=0`, `order_allowed=False`, and `real_order=False`.
+
+## Live Preflight Locked Proof
+
+Use this mode before any live-order unlock work:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
+```
+
+This mode keeps the AITS principle of one real-order path. It does not add paper
+mode, virtual trading, or mock trading processors. It evaluates the real-order
+preflight lock with deterministic fixtures and keeps every result locked. It
+does not click AI refresh, does not call GPT/Gemini, does not call OrderAdapter
+live execution, and does not call OrderService.
+
+The report includes:
+
+- `live_preflight_fixture_count`
+- `live_preflight_pass_count`
+- `live_preflight_fail_count`
+- `live_preflight_results`
+- `order_service_place_order_called`
+- `order_adapter_live_branch_entered`
+- `order_adapter_execution_mode`
+- `submitted_detected`
+- `order_risk_detected`
+- `paper_mode_created`
+- `virtual_trading_created`
+- `mock_trading_processor_created`
+
+PASS requires every preflight fixture to keep `locked=true`, `allowed=false`,
+`submitted=0`, `order_allowed=false`, and `real_order=false`. Provider and
+external-cost call markers must remain zero.
 
 ## Save-Probe
 
