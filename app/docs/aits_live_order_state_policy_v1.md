@@ -141,3 +141,19 @@ Before another real order, AITS must:
 - prove post-order read-only reconciliation still works
 - require a new explicit Goal and user confirmation phrase
 - run fresh RiskGuard, LiveOrderPreflight, and One-Shot Unlock checks
+
+## Restart Persistence Proof
+
+Goal `AITS-LIVE-LOCK-PERSISTENCE-RESTART-PROOF-01` satisfied the restart proof
+requirement for the first live order.
+
+- restart dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052941_859748.json`
+- restart reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052957_387433.json`
+- normalized state: `partially_filled_cancelled_remainder`
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+- additional order, cancel, sell, and retry calls: false
+
+This proof does not authorize another live order. It only confirms that the
+first live order remains classified, reconciled, and locked after restart.

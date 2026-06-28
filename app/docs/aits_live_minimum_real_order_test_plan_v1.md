@@ -161,6 +161,33 @@ This classification means the filled quantity is treated as a real execution,
 while any unfilled remainder is treated as cancelled or released by the
 exchange. It is not a failed-order retry signal.
 
+## 2026-06-29 Lock Persistence Restart Proof
+
+Goal `AITS-LIVE-LOCK-PERSISTENCE-RESTART-PROOF-01` checked whether the
+post-live safety state survived a fresh app initialization after the first live
+order and reconciliation.
+
+- baseline dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052854_981633.json`
+- baseline reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052914_809635.json`
+- restart dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052941_859748.json`
+- restart reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052957_387433.json`
+- post-restart AITS state: `AITS OFF`
+- post-restart safety state: `Shadow · 주문 없음`
+- order uuid retained: `06f08c3a-2bd3-4888-a7e6-2402623cb63e`
+- normalized order state retained by policy: `partially_filled_cancelled_remainder`
+- reconciliation status: `reconciled`
+- unlock consumed: true
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+- `OrderService.place_order` called during proof: false
+- cancel called: false
+- sell called: false
+- repeat order attempted: false
+
+The proof used dry-read and read-only order reconciliation only. It did not
+create another unlock and did not place, cancel, sell, or retry an order.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

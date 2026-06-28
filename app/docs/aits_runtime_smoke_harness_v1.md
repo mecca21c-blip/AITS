@@ -86,6 +86,11 @@ printed to stdout.
   `app/docs/aits_live_order_state_policy_v1.md`; the first live order is
   classified as `partially_filled_cancelled_remainder`, not as a simple failed
   cancellation.
+  Restart persistence proof later used dry-read report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052941_859748.json`
+  and reconciliation report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052957_387433.json`;
+  relock, duplicate lock, and repeat-order blocking remained true.
 
 ## Safety Rules
 
