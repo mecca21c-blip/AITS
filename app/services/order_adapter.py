@@ -209,6 +209,22 @@ class AITSOrderAdapter:
                     print(f"[AITS][OrderAdapter] blocked_live_order | blocked={result.blocked_orders[-1] if result.blocked_orders else {}}")
                     continue
 
+                if (
+                    self.execution_mode == "live"
+                    and at == "buy"
+                    and self._safe_float(c.amount_krw, 0.0) > 6000.0
+                ):
+                    result.blocked_orders.append(
+                        self._make_record(
+                            action_type=at,
+                            symbol=sym,
+                            status="blocked",
+                            reason="live_minimum_test_hard_cap_exceeded",
+                            detail_ko="live 최소 실주문 테스트 하드캡을 초과해 차단했습니다.",
+                        )
+                    )
+                    continue
+
                 if at == "reduce" and self.execution_mode == "live" and not self.allow_reduce_live:
                     result.blocked_orders.append(
                         self._make_record(
@@ -289,6 +305,23 @@ class AITSOrderAdapter:
                         "live 모드가 선택되었지만 실제 주문 연결 전 단계이므로 제출하지 않았습니다."
                     )
                 else:
+                    if len(valid_candidates) > 1:
+                        for c in valid_candidates:
+                            result.failed_orders.append(
+                                self._make_record(
+                                    action_type=c.action_type,
+                                    symbol=c.symbol,
+                                    status="blocked",
+                                    reason="live_one_shot_multiple_candidates_blocked",
+                                    detail_ko="live 최소 실주문 테스트는 후보 1개만 허용합니다.",
+                                )
+                            )
+                        result.summary_ko = "live 최소 실주문 테스트 후보가 2개 이상이라 주문을 차단했습니다."
+                        result.submitted_count = len(result.submitted_orders)
+                        result.blocked_count = len(result.blocked_orders)
+                        result.failed_count = len(result.failed_orders)
+                        result.skipped_count = len(result.skipped_orders)
+                        return result
                     for c in valid_candidates:
                         symbol = c.symbol
                         try:
@@ -296,11 +329,16 @@ class AITSOrderAdapter:
                             if 0 < amount_krw < 5000:
                                 amount_krw = 5000.0
                             order_request = {
+                                "request_id": str(getattr(c, "reason", "") or symbol or ""),
                                 "symbol": symbol,
                                 "side": c.order_side,
                                 "amount_krw": amount_krw,
                                 "volume": c.quantity,
+                                "price": self._safe_float((getattr(c, "risk_guard", {}) or {}).get("price"), 0.0),
                                 "order_type": "market",
+                                "live_minimum_real_order_test": bool(
+                                    (getattr(c, "risk_guard", {}) or {}).get("live_minimum_real_order_test", False)
+                                ),
                             }
                             try:
                                 from app.services.live_order_preflight import (

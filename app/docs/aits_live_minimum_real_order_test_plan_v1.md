@@ -15,7 +15,8 @@ hard cap, duplicate lock, and immediate relock.
 
 - OrderAdapter default execution mode remains `disabled`.
 - ExecutionBridge remains dry-run by default.
-- OrderService real order submission is not enabled by this review.
+- OrderService real order submission is limited to the explicit one-shot
+  minimum real-order test path.
 - RiskGuard exists and has synthetic plus active-path fixture proof.
 - LiveOrderPreflight exists and is connected before the order service boundary.
 - One-Shot Unlock exists as a contract input to preflight.
@@ -25,6 +26,27 @@ hard cap, duplicate lock, and immediate relock.
 The current system is not live-order ready by default. The next Goal must open
 only the minimum required live path and must close it immediately after one
 attempt.
+
+## 2026-06-28 Minimum Real Order Attempt Result
+
+Goal `AITS-LIVE-MINIMUM-REAL-ORDER-TEST-01` reached account/key readiness and
+stopped before order submission because available KRW was below the confirmed
+5000 KRW order amount.
+
+- report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260628_224116_517539.json`
+- result: `partial`
+- failure reason: `insufficient_krw_balance`
+- target: `KRW-BTC` buy `5000` KRW
+- hard cap: `6000` KRW
+- Upbit key/account readiness: true
+- available KRW at check time: `225.99230448`
+- `OrderService.place_order` called: false
+- submitted count: `0`
+- real order: false
+- retry/reorder: not performed
+
+Next real-order attempt must not reuse this result as approval. It requires a
+fresh confirm phrase, sufficient KRW, and the same one-shot proof chain.
 
 ## Minimum Real Order Scope
 

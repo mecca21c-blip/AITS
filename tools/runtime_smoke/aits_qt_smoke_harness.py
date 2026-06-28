@@ -7,9 +7,12 @@ import os
 import re
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import requests
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -56,6 +59,15 @@ CORE_WIDGETS = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
 
 
 def _safe_text(widget: Any) -> str:
@@ -1494,6 +1506,390 @@ def _run_live_one_shot_unlock_contract_proof(report: dict[str, Any]) -> None:
     )
 
 
+class _LiveMinimumOrderServiceCapture:
+    def __init__(self, service: Any) -> None:
+        self.service = service
+        self.call_count = 0
+        self.last_response: dict[str, Any] | None = None
+
+    def place_order(self, order_request: dict[str, Any]) -> dict[str, Any]:
+        self.call_count += 1
+        if self.call_count > 1:
+            self.last_response = {
+                "success": False,
+                "error": "live_minimum_order_call_limit_exceeded",
+                "real_order": False,
+                "submitted": False,
+            }
+            return dict(self.last_response)
+        response = self.service.place_order(order_request)
+        self.last_response = dict(response or {}) if isinstance(response, dict) else {
+            "success": False,
+            "error": "invalid_order_service_response",
+            "real_order": False,
+            "submitted": False,
+        }
+        return dict(self.last_response)
+
+
+def _run_live_minimum_real_order_test(report: dict[str, Any], *, confirm_phrase: str) -> None:
+    from datetime import timedelta, timezone
+
+    from app.core.aits_state import ActionItem
+    from app.services.aits_orchestrator import ExecutionRequest
+    from app.services.execution_bridge import ExecutionBridge
+    from app.services.live_order_preflight import LiveOrderPreflight, LiveOrderPreflightInput
+    from app.services.live_order_unlock import LiveOneShotUnlock
+    from app.services.order_adapter import AITSOrderAdapter
+    from app.services.order_service import OrderService
+    from app.services.risk_guard import RiskGuard
+    from app.utils.prefs import init_prefs, load_settings
+
+    expected_phrase = "AITS_REAL_ORDER_ONCE_KRW_BTC_BUY_5000_CONFIRM"
+    symbol = "KRW-BTC"
+    side = "buy"
+    amount_krw = 5000.0
+    hard_cap_krw = 6000.0
+    request_id = f"live_minimum_{uuid.uuid4().hex[:16]}"
+    duplicate_lock_key = f"{symbol}:{side}:{request_id}"
+    now = datetime.now(timezone.utc)
+
+    report.update(
+        {
+            "confirm_phrase_valid": confirm_phrase == expected_phrase,
+            "target_symbol": symbol,
+            "target_side": side,
+            "target_amount_krw": amount_krw,
+            "hard_cap_krw": hard_cap_krw,
+            "order_service_place_order_called": False,
+            "order_service_place_order_call_count": 0,
+            "submitted_count": 0,
+            "real_order": False,
+            "unlock_consumed": False,
+            "relocked": True,
+            "duplicate_lock_set": False,
+            "repeat_order_blocked": False,
+            "final_order_allowed": False,
+            "final_real_order": False,
+            "provider_call_markers": 0,
+            "provider_call_delta": 0,
+            "external_cost_call_markers": 0,
+            "external_cost_call_delta": 0,
+        }
+    )
+    if confirm_phrase != expected_phrase:
+        report.update(
+            {
+                "status": "blocked",
+                "pass_status": "blocked",
+                "fail_reason": "사용자 명시 승인 phrase 없음",
+                "report_status": "blocked",
+            }
+        )
+        return
+
+    def stop_partial(reason: str) -> None:
+        report.update(
+            {
+                "status": "partial",
+                "pass_status": "partial",
+                "fail_reason": reason,
+                "report_status": "partial",
+            }
+        )
+
+    try:
+        init_prefs(str(ROOT), str(ROOT / "data"))
+        settings = load_settings()
+        order_service = OrderService()
+        order_service.set_settings(settings)
+        access_key, secret_key = order_service._extract_upbit_keys()
+        account_ready = bool(access_key and secret_key and len(access_key) >= 10 and len(secret_key) >= 10)
+        report["upbit_key_ready"] = account_ready
+        if not account_ready:
+            stop_partial("upbit_key_not_ready")
+            return
+
+        accounts = order_service.fetch_accounts()
+        krw_balance = 0.0
+        btc_balance = 0.0
+        if isinstance(accounts, list):
+            for row in accounts:
+                if not isinstance(row, dict):
+                    continue
+                currency = str(row.get("currency") or "").upper()
+                if currency == "KRW":
+                    krw_balance = _safe_float(row.get("balance"), 0.0)
+                elif currency == "BTC":
+                    btc_balance = _safe_float(row.get("balance"), 0.0)
+        report["account_ready"] = True
+        report["krw_balance_available"] = krw_balance
+        report["btc_balance_before"] = btc_balance
+        if krw_balance < amount_krw:
+            stop_partial("insufficient_krw_balance")
+            return
+
+        ticker = requests.get(
+            "https://api.upbit.com/v1/ticker",
+            params={"markets": symbol},
+            timeout=5,
+        )
+        report["ticker_http_status"] = int(getattr(ticker, "status_code", 0) or 0)
+        if not ticker.ok:
+            stop_partial(f"ticker_http_{ticker.status_code}")
+            return
+        ticker_payload = ticker.json()
+        item = ticker_payload[0] if isinstance(ticker_payload, list) and ticker_payload else {}
+        price = _safe_float((item or {}).get("trade_price"), 0.0)
+        report["price_fresh"] = price > 0
+        report["target_price"] = price
+        if price <= 0:
+            stop_partial("price_not_fresh")
+            return
+
+        quantity = amount_krw / price
+        risk_input = {
+            "symbol": symbol,
+            "side": side,
+            "requested_amount_krw": amount_krw,
+            "price": price,
+            "quantity": quantity,
+            "source_provider": "manual",
+            "confidence": 1.0,
+            "action": "buy",
+            "holdings_value_krw": btc_balance * price,
+            "cash_available_krw": krw_balance,
+            "portfolio_value_krw": krw_balance + (btc_balance * price),
+            "daily_realized_pnl_krw": 0.0,
+            "daily_loss_limit_krw": 30000.0,
+            "max_order_amount_krw": hard_cap_krw,
+            "max_position_value_krw": 200000.0,
+            "emergency_stop": False,
+            "stale_price": False,
+            "execution_mode": "live",
+            "dry_run": True,
+            "request_id": request_id,
+        }
+        risk_guard = RiskGuard()
+        risk_result = risk_guard.evaluate_order_candidate(risk_input)
+        report["riskguard_result"] = risk_result.to_dict()
+        if not bool(risk_result.risk_allowed):
+            stop_partial(f"riskguard_blocked:{risk_result.blocked_reason or 'unknown'}")
+            return
+
+        unlock_manager = LiveOneShotUnlock()
+        unlock_request = {
+            "request_id": request_id,
+            "symbol": symbol,
+            "side": side,
+            "amount_krw": amount_krw,
+            "max_order_amount_krw": hard_cap_krw,
+            "min_order_amount_krw": amount_krw,
+            "user_confirm_phrase": expected_phrase,
+            "confirm_token": expected_phrase,
+            "expires_at_utc": (now + timedelta(seconds=120)).isoformat(timespec="seconds"),
+            "ttl_sec": 120,
+            "duplicate_lock_key": duplicate_lock_key,
+            "created_at_utc": now.isoformat(timespec="seconds"),
+            "source": "live_minimum_real_order_test",
+            "operator_note": "one shot live order test",
+        }
+        unlock_state = unlock_manager.create_one_shot_unlock(unlock_request)
+        unlock_result = unlock_manager.validate_one_shot_unlock(unlock_state, unlock_request, now_utc=now)
+        report["unlock_result_before"] = unlock_result.to_dict()
+        report["duplicate_lock_empty"] = not unlock_manager.is_duplicate_locked(duplicate_lock_key)
+        if unlock_result.locked or not unlock_result.allowed_for_preflight:
+            stop_partial(f"unlock_invalid:{unlock_result.blocked_reason or 'unknown'}")
+            return
+
+        risk_metadata = risk_result.to_dict()
+        risk_metadata.update(
+            {
+                "risk_guard_checked": True,
+                "risk_allowed": True,
+                "price": price,
+                "quantity": quantity,
+                "source_provider": "manual",
+                "aits_enabled": True,
+                "live_order_unlock": True,
+                "user_confirm_token": "confirmed",
+                "one_shot_unlock_valid": True,
+                "one_shot_unlock_id": str(unlock_result.unlock_id or ""),
+                "one_shot_unlock_consumed": False,
+                "emergency_stop": False,
+                "max_order_amount_krw": hard_cap_krw,
+                "max_daily_loss_krw": 30000.0,
+                "max_order_count_per_cycle": 1,
+                "duplicate_order_lock": True,
+                "duplicate_lock_key": duplicate_lock_key,
+                "min_real_order_amount_krw": amount_krw,
+                "account_ready": True,
+                "api_key_ready": True,
+                "price_fresh": True,
+                "live_minimum_real_order_test": True,
+            }
+        )
+        preflight_input = LiveOrderPreflightInput(
+            request_id=request_id,
+            symbol=symbol,
+            side=side,
+            amount_krw=amount_krw,
+            quantity=quantity,
+            price=price,
+            execution_mode="live",
+            aits_enabled=True,
+            live_order_unlock=True,
+            user_confirm_token="confirmed",
+            risk_guard_checked=True,
+            risk_allowed=True,
+            one_shot_unlock_valid=True,
+            one_shot_unlock_id=str(unlock_result.unlock_id or ""),
+            one_shot_unlock_consumed=False,
+            emergency_stop=False,
+            max_order_amount_krw=hard_cap_krw,
+            max_daily_loss_krw=30000.0,
+            max_order_count_per_cycle=1,
+            duplicate_order_lock=True,
+            min_real_order_amount_krw=amount_krw,
+            account_ready=True,
+            api_key_ready=True,
+            price_fresh=True,
+            selected_provider="manual",
+            source="live_minimum_real_order_test",
+        )
+        preflight = LiveOrderPreflight()
+        preflight_result = preflight.evaluate(preflight_input)
+        report["preflight_result"] = preflight_result.to_dict()
+        if preflight_result.locked or not preflight_result.allowed:
+            stop_partial(f"preflight_locked:{preflight_result.blocked_reason or 'unknown'}")
+            return
+
+        action = ActionItem(
+            symbol=symbol,
+            action_type="buy",
+            amount_krw=amount_krw,
+            priority=1,
+            source_module="live_minimum_real_order_test",
+            source_provider="manual",
+            reason=request_id,
+        )
+        setattr(action, "risk_guard", risk_metadata)
+        bridge = ExecutionBridge().build_from_execution_request(
+            ExecutionRequest(
+                actions=[action],
+                priority=1,
+                source="live_minimum_real_order_test",
+                decision_trace_id=request_id,
+                dry_run=False,
+                request_summary="live minimum real order one-shot test",
+            )
+        )
+        report["order_adapter_live_path_entered"] = bool(bridge.actions)
+        report["execution_bridge_action_count"] = int(getattr(bridge, "action_count", 0) or 0)
+        report["execution_bridge_metadata_seen"] = bool(
+            bridge.actions and getattr(bridge.actions[0], "risk_guard", None)
+        )
+
+        capture = _LiveMinimumOrderServiceCapture(order_service)
+        adapter = AITSOrderAdapter(execution_mode="live", min_order_krw=amount_krw)
+        adapter_result = adapter.execute(bridge, order_service=capture)
+        order_response = capture.last_response or {}
+        report["order_service_place_order_called"] = capture.call_count > 0
+        report["order_service_place_order_call_count"] = capture.call_count
+        report["order_adapter_result"] = {
+            "submitted_count": int(getattr(adapter_result, "submitted_count", 0) or 0),
+            "failed_count": int(getattr(adapter_result, "failed_count", 0) or 0),
+            "blocked_count": int(getattr(adapter_result, "blocked_count", 0) or 0),
+            "skipped_count": int(getattr(adapter_result, "skipped_count", 0) or 0),
+            "summary_ko": str(getattr(adapter_result, "summary_ko", "") or ""),
+        }
+        report["order_response_sanitized"] = order_response.get("response_sanitized", {})
+        report["order_uuid"] = str(order_response.get("uuid") or order_response.get("order_id") or "")
+        report["order_state"] = str(order_response.get("state") or "")
+        report["order_http_status"] = int(order_response.get("http_status") or 0)
+        report["order_error"] = str(order_response.get("error") or "")
+        report["unknown_state"] = bool(order_response.get("unknown_state", False))
+        report["submitted_count"] = 1 if bool(order_response.get("submitted")) else 0
+        report["real_order"] = bool(order_response.get("real_order", False))
+
+        consumed_state = unlock_manager.consume_one_shot_unlock(
+            unlock_state,
+            reason="live_minimum_real_order_test_consumed",
+            now_utc=datetime.now(timezone.utc),
+        )
+        consumed_check = unlock_manager.validate_one_shot_unlock(
+            consumed_state,
+            unlock_request,
+            now_utc=datetime.now(timezone.utc),
+        )
+        duplicate_state = unlock_manager.create_one_shot_unlock(
+            dict(unlock_request, request_id=f"{request_id}_duplicate")
+        )
+        duplicate_check = unlock_manager.validate_one_shot_unlock(
+            duplicate_state,
+            dict(unlock_request, request_id=f"{request_id}_duplicate"),
+            now_utc=datetime.now(timezone.utc),
+        )
+        report["unlock_consumed"] = bool(consumed_state.consumed)
+        report["relocked"] = bool(consumed_check.locked)
+        report["duplicate_lock_set"] = bool(unlock_manager.is_duplicate_locked(duplicate_lock_key))
+        report["repeat_order_blocked"] = bool(
+            duplicate_check.locked and duplicate_check.blocked_reason == "duplicate_order_lock_reused"
+        )
+        report["unlock_result_after"] = consumed_check.to_dict()
+        report["duplicate_reuse_result"] = duplicate_check.to_dict()
+        report["final_order_allowed"] = False
+        report["final_real_order"] = False
+
+        try:
+            post_accounts = order_service.fetch_accounts()
+            post_krw = 0.0
+            post_btc = 0.0
+            if isinstance(post_accounts, list):
+                for row in post_accounts:
+                    if not isinstance(row, dict):
+                        continue
+                    currency = str(row.get("currency") or "").upper()
+                    if currency == "KRW":
+                        post_krw = _safe_float(row.get("balance"), 0.0)
+                    elif currency == "BTC":
+                        post_btc = _safe_float(row.get("balance"), 0.0)
+            report["krw_balance_after"] = post_krw
+            report["btc_balance_after"] = post_btc
+        except Exception as exc:
+            report.setdefault("warnings", []).append(f"post_order_balance_check_failed:{type(exc).__name__}")
+
+        passed = (
+            capture.call_count == 1
+            and report["submitted_count"] == 1
+            and report["real_order"] is True
+            and bool(report["unlock_consumed"])
+            and bool(report["relocked"])
+            and bool(report["duplicate_lock_set"])
+            and bool(report["repeat_order_blocked"])
+        )
+        if passed:
+            report.update({"status": "pass", "pass_status": "pass", "report_status": "pass"})
+        else:
+            report.update(
+                {
+                    "status": "partial" if capture.call_count <= 1 else "fail",
+                    "pass_status": "partial" if capture.call_count <= 1 else "fail",
+                    "report_status": "partial" if capture.call_count <= 1 else "fail",
+                    "fail_reason": str(order_response.get("error") or "order_not_submitted"),
+                }
+            )
+    except Exception as exc:
+        report.update(
+            {
+                "status": "fail",
+                "pass_status": "fail",
+                "report_status": "fail",
+                "fail_reason": f"live_minimum_exception:{type(exc).__name__}",
+            }
+        )
+
+
 def _run_riskguard_active_path_proof(
     app: Any,
     window: Any,
@@ -1859,6 +2255,7 @@ def run_harness(
     wait_after_click_sec: float = 5.0,
     fail_on_provider_call_over_limit: bool = True,
     no_click: bool = False,
+    confirm_phrase: str = "",
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -1871,14 +2268,22 @@ def run_harness(
         "provider_call_blocked": False,
         "warnings": [],
     }
-    if mode in {"riskguard-proof", "live-preflight-locked-proof", "live-one-shot-unlock-contract-proof"}:
+    if mode in {
+        "riskguard-proof",
+        "live-preflight-locked-proof",
+        "live-one-shot-unlock-contract-proof",
+        "live-minimum-real-order-test",
+    }:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
         elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
-        else:
+        elif mode == "live-one-shot-unlock-contract-proof":
             _run_live_one_shot_unlock_contract_proof(report)
-        report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
+        else:
+            _run_live_minimum_real_order_test(report, confirm_phrase=confirm_phrase)
+        if "status" not in report:
+            report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
         report["finished_at"] = _now_iso()
         output_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -2023,6 +2428,7 @@ def main() -> int:
             "riskguard-active-path-candidate-proof",
             "live-preflight-locked-proof",
             "live-one-shot-unlock-contract-proof",
+            "live-minimum-real-order-test",
         ),
         default="dry-read",
     )
@@ -2043,6 +2449,7 @@ def main() -> int:
         help="Select provider/target only; do not click AI analysis refresh.",
     )
     parser.add_argument("--output-dir", default=str(ROOT / "data" / "runtime_smoke_reports"))
+    parser.add_argument("--confirm-phrase", default="")
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -2055,6 +2462,7 @@ def main() -> int:
         wait_after_click_sec=args.wait_after_click_sec,
         fail_on_provider_call_over_limit=args.fail_on_provider_call_over_limit,
         no_click=args.no_click,
+        confirm_phrase=args.confirm_phrase,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

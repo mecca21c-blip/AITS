@@ -20,6 +20,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
 ```
 
 Reports are written to:
@@ -63,6 +64,11 @@ printed to stdout.
 - `live-one-shot-unlock-contract-proof`: validates the one-shot unlock
   contract, consume/reuse blocking, duplicate lock blocking, and valid unlock
   preflight input without submitting orders.
+- `live-minimum-real-order-test`: high-risk one-shot KRW-BTC buy test mode.
+  It refuses to run without the exact confirm phrase, checks Upbit account/key
+  readiness, KRW balance, ticker freshness, RiskGuard, One-Shot Unlock, and
+  LiveOrderPreflight before reaching the single allowed order-service call.
+  If any pre-order condition fails, it stops without submitting an order.
 
 ## Safety Rules
 
@@ -72,6 +78,9 @@ printed to stdout.
 - Order-related UI or service calls are not part of the harness.
 - Any report containing `AITS ON`, `Live`, `submitted=1`,
   `order_allowed=True`, `real_order=True`, or order bridge keywords is NO-GO.
+  The only exception is the explicit `live-minimum-real-order-test` report,
+  where `real_order=True` and `submitted_count=1` may appear only for the one
+  sanctioned KRW-BTC buy response.
 
 ## Stable Selectors
 
