@@ -91,6 +91,12 @@ printed to stdout.
   and reconciliation report
   `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_052957_387433.json`;
   relock, duplicate lock, and repeat-order blocking remained true.
+  The 60 minute post-order passive proof used final dry-read report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064924_106372.json`
+  and final reconciliation report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064935_630819.json`;
+  no place/cancel/sell/retry, provider external generation, or order-risk marker
+  appeared during the passive window.
 
 ## Safety Rules
 

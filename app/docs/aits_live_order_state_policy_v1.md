@@ -157,3 +157,22 @@ requirement for the first live order.
 
 This proof does not authorize another live order. It only confirms that the
 first live order remains classified, reconciled, and locked after restart.
+
+## Passive Runtime Proof
+
+Goal `AITS-LIVE-POST-ORDER-60MIN-PASSIVE-PROOF-01` satisfied the first
+post-order passive runtime proof.
+
+- passive window: `2026-06-29 05:47:49 KST` to `2026-06-29 06:49:03 KST`
+- final dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064924_106372.json`
+- final reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064935_630819.json`
+- normalized state: `partially_filled_cancelled_remainder`
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+- additional order, cancel, sell, retry, unlock reuse, and provider external
+  generation calls: false
+
+This proof confirms that the normalized state and lock interpretation remained
+stable through one hour of passive runtime. It still does not authorize another
+live order.

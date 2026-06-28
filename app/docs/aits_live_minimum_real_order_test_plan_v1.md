@@ -188,6 +188,44 @@ order and reconciliation.
 The proof used dry-read and read-only order reconciliation only. It did not
 create another unlock and did not place, cancel, sell, or retry an order.
 
+## 2026-06-29 Post-Order 60 Minute Passive Proof
+
+Goal `AITS-LIVE-POST-ORDER-60MIN-PASSIVE-PROOF-01` kept the production app in a
+passive state for 60 minutes after the first live order, reconciliation, state
+policy, and restart-lock proof.
+
+- passive app parent PID: `19196`
+- passive app child PID: `11384`
+- passive start: `2026-06-29 05:47:49 KST`
+- passive 15 minute check: `2026-06-29 06:03:22 KST`
+- passive 30 minute check: `2026-06-29 06:18:35 KST`
+- passive 45 minute check: `2026-06-29 06:33:49 KST`
+- passive 60 minute check: `2026-06-29 06:49:03 KST`
+- baseline dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_054655_438514.json`
+- baseline reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_054738_679398.json`
+- final dry-read report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064924_106372.json`
+- final reconciliation report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_064935_630819.json`
+- crash/freeze: false
+- extra `place_order` calls: `0`
+- cancel calls: `0`
+- sell calls: `0`
+- retry calls: `0`
+- new `real_order=True`: `0`
+- `order_allowed=True`: `0`
+- `live_order_unlock=True`: `0`
+- provider external generation calls: `0`
+- Traceback/ERROR/CRITICAL: `0`
+- `AISnapshotStore`: `2`
+- `TradeLogDecisionStage`: `0`
+- `ManagedPoolAIReviewQueue`: `65`
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+
+The 60 minute passive proof did not create another unlock and did not place,
+cancel, sell, or retry an order. Review queue logging remained periodic, and no
+Journal or Snapshot order-stage burst was observed.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:
