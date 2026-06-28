@@ -143,6 +143,24 @@ order, add explicit state-handling policy for partially filled orders that end
 with exchange state `cancel`, strengthen read-only reconciliation automation,
 and prove relock plus duplicate-lock persistence after restart.
 
+## Live Order State Handling Policy
+
+The state policy is defined in
+`app/docs/aits_live_order_state_policy_v1.md`.
+
+The first live order is classified with separate raw and normalized states:
+
+- raw initial state: `wait`
+- raw latest state: `cancel`
+- normalized order state: `partially_filled_cancelled_remainder`
+- reason: `executed_volume=0.00005542`, `paid_fee=2.49974681`, and BTC balance
+  reconciliation prove that a fill occurred before the exchange returned the
+  latest `cancel` state.
+
+This classification means the filled quantity is treated as a real execution,
+while any unfilled remainder is treated as cancelled or released by the
+exchange. It is not a failed-order retry signal.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

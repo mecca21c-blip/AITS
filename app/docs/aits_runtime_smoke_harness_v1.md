@@ -82,6 +82,10 @@ printed to stdout.
   The final audit recheck used
   `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_051206_771216.json`
   and again confirmed zero place/cancel/sell/retry calls.
+  Interpret raw exchange state using
+  `app/docs/aits_live_order_state_policy_v1.md`; the first live order is
+  classified as `partially_filled_cancelled_remainder`, not as a simple failed
+  cancellation.
 
 ## Safety Rules
 
