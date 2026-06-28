@@ -75,6 +75,67 @@ class OrderService:
         )
         return rows if isinstance(rows, list) else list(default_rows)
 
+    def fetch_order(self, order_uuid: str) -> dict:
+        """Read-only Upbit order status lookup by UUID."""
+        safe_uuid = str(order_uuid or "").strip()
+        try:
+            print(f"[AITS][OrderService] fetch_order called | uuid={safe_uuid}")
+        except Exception:
+            pass
+
+        def _fail(error: str, **extra) -> dict:
+            out = {
+                "success": False,
+                "uuid": safe_uuid,
+                "error": error,
+                "real_order": False,
+                "submitted": False,
+            }
+            out.update(extra)
+            return out
+
+        try:
+            if not safe_uuid:
+                return _fail("missing_order_uuid")
+            ak, sk = self._extract_upbit_keys()
+            if not ak or not sk or len(ak) < 10 or len(sk) < 10:
+                return _fail("upbit_key_not_ready")
+            params = {"uuid": safe_uuid}
+            response = requests.get(
+                "https://api.upbit.com/v1/order",
+                params=params,
+                headers=self._make_auth_headers(params),
+                timeout=5,
+            )
+            try:
+                payload = response.json()
+            except Exception:
+                payload = {"text": str(response.text or "")[:500]}
+            sanitized = self._sanitize_order_response(payload)
+            http_status = int(getattr(response, "status_code", 0) or 0)
+            if 200 <= http_status < 300:
+                return {
+                    "success": True,
+                    "uuid": str(sanitized.get("uuid") or safe_uuid),
+                    "http_status": http_status,
+                    "state": str(sanitized.get("state") or ""),
+                    "market": str(sanitized.get("market") or ""),
+                    "side": str(sanitized.get("side") or ""),
+                    "ord_type": str(sanitized.get("ord_type") or ""),
+                    "response_sanitized": sanitized,
+                    "real_order": False,
+                    "submitted": False,
+                }
+            error = sanitized.get("error") if isinstance(sanitized.get("error"), dict) else {}
+            return _fail(
+                str(error.get("name") or sanitized.get("name") or f"http_{http_status}"),
+                http_status=http_status,
+                error_message=str(error.get("message") or sanitized.get("message") or "")[:300],
+                response_sanitized=sanitized,
+            )
+        except Exception as exc:
+            return _fail(f"order_query_exception:{type(exc).__name__}")
+
     def place_order(self, order_request: dict) -> dict:
         try:
             safe_symbol = str((order_request or {}).get("symbol") or "")

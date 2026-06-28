@@ -79,6 +79,39 @@ the one-shot minimum real-order path after KRW funding.
 The runtime returned to a locked contract state after the one-shot attempt.
 Any additional real order requires a new Goal and a fresh confirm phrase.
 
+## 2026-06-29 Post-Trade Reconciliation Result
+
+Goal `AITS-LIVE-ORDER-POST-TRADE-RECONCILIATION-01` queried the original order
+without placing, cancelling, selling, or retrying any order.
+
+- report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_050259_116145.json`
+- order uuid: `06f08c3a-2bd3-4888-a7e6-2402623cb63e`
+- query HTTP status: `200`
+- latest state: `cancel`
+- market: `KRW-BTC`
+- side: `bid`
+- ord_type: `price`
+- price: `5000`
+- executed_volume: `0.00005542`
+- trades_count: `1`
+- paid_fee: `2.49974681`
+- locked: `0.50663319`
+- KRW balance: `113188.38509874`
+- BTC balance: `0.00005542`
+- KRW delta vs first post-order report: `0`
+- BTC delta vs first post-order report: `0`
+- `OrderService.place_order` called during reconciliation: false
+- cancel called: false
+- sell called: false
+- repeat order attempted: false
+- unlock consumed: true
+- relocked: true
+- duplicate lock set: true
+- repeat order blocked: true
+
+The first live order is reconciled as a single real order with one trade and no
+additional order-side action from the reconciliation Goal.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

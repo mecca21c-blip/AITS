@@ -1890,6 +1890,159 @@ def _run_live_minimum_real_order_test(report: dict[str, Any], *, confirm_phrase:
         )
 
 
+def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_uuid: str) -> None:
+    from app.services.order_service import OrderService
+    from app.utils.prefs import init_prefs, load_settings
+
+    expected_uuid = "06f08c3a-2bd3-4888-a7e6-2402623cb63e"
+    previous_report_path = ROOT / "data" / "runtime_smoke_reports" / "runtime_smoke_report_20260629_045413_391177.json"
+    safe_uuid = str(order_uuid or "").strip()
+    report.update(
+        {
+            "order_uuid": safe_uuid,
+            "expected_order_uuid": expected_uuid,
+            "previous_report_path": str(previous_report_path),
+            "order_query_called": False,
+            "order_query_success": False,
+            "order_service_place_order_called": False,
+            "order_service_place_order_call_count": 0,
+            "cancel_order_called": False,
+            "sell_order_called": False,
+            "repeat_order_attempted": False,
+            "provider_call_markers": 0,
+            "external_cost_call_markers": 0,
+            "unlock_consumed": False,
+            "relocked": False,
+            "duplicate_lock_set": False,
+            "repeat_order_blocked": False,
+        }
+    )
+    if safe_uuid != expected_uuid:
+        report.update(
+            {
+                "status": "blocked",
+                "pass_status": "blocked",
+                "report_status": "blocked",
+                "fail_reason": "unexpected_order_uuid",
+            }
+        )
+        return
+
+    previous: dict[str, Any] = {}
+    try:
+        with previous_report_path.open("r", encoding="utf-8") as fh:
+            loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                previous = loaded
+    except Exception as exc:
+        report.setdefault("warnings", []).append(f"previous_report_read_failed:{type(exc).__name__}")
+    report["previous_order_state"] = str(previous.get("order_state") or "")
+    report["previous_submitted_count"] = int(previous.get("submitted_count") or 0)
+    report["previous_real_order"] = bool(previous.get("real_order", False))
+    report["previous_krw_balance_before"] = previous.get("krw_balance_available")
+    report["previous_krw_balance_after"] = previous.get("krw_balance_after")
+    report["previous_btc_balance_after"] = previous.get("btc_balance_after")
+    report["unlock_consumed"] = bool(previous.get("unlock_consumed", False))
+    report["relocked"] = bool(previous.get("relocked", False))
+    report["duplicate_lock_set"] = bool(previous.get("duplicate_lock_set", False))
+    report["repeat_order_blocked"] = bool(previous.get("repeat_order_blocked", False))
+
+    try:
+        init_prefs(str(ROOT), str(ROOT / "data"))
+        settings = load_settings()
+        service = OrderService()
+        service.set_settings(settings)
+        order_lookup = service.fetch_order(safe_uuid)
+        report["order_query_called"] = True
+        report["order_query_success"] = bool(order_lookup.get("success", False))
+        report["order_query_http_status"] = int(order_lookup.get("http_status") or 0)
+        report["order_state"] = str(order_lookup.get("state") or "")
+        order_payload = order_lookup.get("response_sanitized", {})
+        if not isinstance(order_payload, dict):
+            order_payload = {}
+        report["order_response_sanitized"] = order_payload
+        report["market"] = str(order_payload.get("market") or order_lookup.get("market") or "")
+        report["side"] = str(order_payload.get("side") or order_lookup.get("side") or "")
+        report["ord_type"] = str(order_payload.get("ord_type") or order_lookup.get("ord_type") or "")
+        report["price"] = str(order_payload.get("price") or "")
+        report["executed_volume"] = str(order_payload.get("executed_volume") or "")
+        report["remaining_volume"] = str(order_payload.get("remaining_volume") or "")
+        report["paid_fee"] = str(order_payload.get("paid_fee") or "")
+        report["locked"] = str(order_payload.get("locked") or "")
+        report["created_at"] = str(order_payload.get("created_at") or "")
+        report["trades_count"] = str(order_payload.get("trades_count") or "")
+
+        accounts = service.fetch_accounts()
+        krw_balance = 0.0
+        btc_balance = 0.0
+        krw_locked = 0.0
+        btc_locked = 0.0
+        if isinstance(accounts, list):
+            for row in accounts:
+                if not isinstance(row, dict):
+                    continue
+                currency = str(row.get("currency") or "").upper()
+                if currency == "KRW":
+                    krw_balance = _safe_float(row.get("balance"), 0.0)
+                    krw_locked = _safe_float(row.get("locked"), 0.0)
+                elif currency == "BTC":
+                    btc_balance = _safe_float(row.get("balance"), 0.0)
+                    btc_locked = _safe_float(row.get("locked"), 0.0)
+        report["krw_balance"] = krw_balance
+        report["btc_balance"] = btc_balance
+        report["krw_locked"] = krw_locked
+        report["btc_locked"] = btc_locked
+        report["krw_delta_vs_first_after"] = (
+            krw_balance - _safe_float(previous.get("krw_balance_after"), 0.0)
+            if "krw_balance_after" in previous
+            else None
+        )
+        report["btc_delta_vs_first_after"] = (
+            btc_balance - _safe_float(previous.get("btc_balance_after"), 0.0)
+            if "btc_balance_after" in previous
+            else None
+        )
+
+        clear_state = str(report.get("order_state") or "").lower() in {"done", "wait", "cancel"}
+        no_extra_order = not bool(report.get("order_service_place_order_called"))
+        no_forbidden = (
+            not bool(report.get("cancel_order_called"))
+            and not bool(report.get("sell_order_called"))
+            and not bool(report.get("repeat_order_attempted"))
+        )
+        lock_ok = (
+            bool(report.get("unlock_consumed"))
+            and bool(report.get("relocked"))
+            and bool(report.get("duplicate_lock_set"))
+            and bool(report.get("repeat_order_blocked"))
+        )
+        report["reconciliation_status"] = (
+            "reconciled"
+            if report["order_query_success"] and clear_state and no_extra_order and no_forbidden and lock_ok
+            else "partial"
+        )
+        if report["reconciliation_status"] == "reconciled":
+            report.update({"status": "pass", "pass_status": "pass", "report_status": "pass"})
+        else:
+            report.update(
+                {
+                    "status": "partial",
+                    "pass_status": "partial",
+                    "report_status": "partial",
+                    "fail_reason": str(order_lookup.get("error") or "reconciliation_incomplete"),
+                }
+            )
+    except Exception as exc:
+        report.update(
+            {
+                "status": "fail",
+                "pass_status": "fail",
+                "report_status": "fail",
+                "fail_reason": f"post_trade_reconciliation_exception:{type(exc).__name__}",
+            }
+        )
+
+
 def _run_riskguard_active_path_proof(
     app: Any,
     window: Any,
@@ -2256,6 +2409,7 @@ def run_harness(
     fail_on_provider_call_over_limit: bool = True,
     no_click: bool = False,
     confirm_phrase: str = "",
+    order_uuid: str = "",
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -2273,6 +2427,7 @@ def run_harness(
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
+        "live-order-post-trade-reconciliation",
     }:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
@@ -2280,8 +2435,10 @@ def run_harness(
             _run_live_preflight_locked_proof(report)
         elif mode == "live-one-shot-unlock-contract-proof":
             _run_live_one_shot_unlock_contract_proof(report)
-        else:
+        elif mode == "live-minimum-real-order-test":
             _run_live_minimum_real_order_test(report, confirm_phrase=confirm_phrase)
+        else:
+            _run_live_order_post_trade_reconciliation(report, order_uuid=order_uuid)
         if "status" not in report:
             report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
         report["finished_at"] = _now_iso()
@@ -2429,6 +2586,7 @@ def main() -> int:
             "live-preflight-locked-proof",
             "live-one-shot-unlock-contract-proof",
             "live-minimum-real-order-test",
+            "live-order-post-trade-reconciliation",
         ),
         default="dry-read",
     )
@@ -2450,6 +2608,7 @@ def main() -> int:
     )
     parser.add_argument("--output-dir", default=str(ROOT / "data" / "runtime_smoke_reports"))
     parser.add_argument("--confirm-phrase", default="")
+    parser.add_argument("--order-uuid", default="")
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -2463,6 +2622,7 @@ def main() -> int:
         fail_on_provider_call_over_limit=args.fail_on_provider_call_over_limit,
         no_click=args.no_click,
         confirm_phrase=args.confirm_phrase,
+        order_uuid=args.order_uuid,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

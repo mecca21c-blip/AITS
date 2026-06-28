@@ -21,6 +21,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-order-post-trade-reconciliation --order-uuid <order-uuid>
 ```
 
 Reports are written to:
@@ -73,6 +74,11 @@ printed to stdout.
   `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_045413_391177.json`
   with one `KRW-BTC` buy request, HTTP `201`, submitted count `1`, immediate
   unlock consumption, relock, duplicate lock, and repeat-order block proof.
+- `live-order-post-trade-reconciliation`: read-only order-status and balance
+  reconciliation for the single known live order uuid. It performs Upbit GET
+  order lookup and account balance lookup only. It does not place, cancel, sell,
+  or retry orders. The first reconciliation report was
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_050259_116145.json`.
 
 ## Safety Rules
 
