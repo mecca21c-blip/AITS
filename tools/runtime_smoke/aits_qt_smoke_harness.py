@@ -264,6 +264,12 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
         "external_cost_call_markers": 0,
         "marker_counts": {},
         "latest_group_id": "",
+        "latest_provider_http_status": "",
+        "latest_provider_response_id": "",
+        "latest_provider_request_id": "",
+        "latest_provider_usage_total_tokens": "",
+        "latest_provider_success_seen": False,
+        "latest_provider_failure_seen": False,
         "snapshot_recorded": False,
         "journal_recorded": False,
         "same_stage_duplicate_detected": False,
@@ -292,6 +298,8 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
     active_text = "\n".join(active_lines)
     marker_counts = {
         "openai_request_attempt": active_text.count("[AITS][OpenAIProviderProof] event=request_attempt"),
+        "openai_response_success": active_text.count("[AITS][OpenAIProviderProof] event=response_success"),
+        "openai_response_failed": active_text.count("[AITS][OpenAIProviderProof] event=response_failed"),
         "gemini_request_summary": active_text.count("[AITS][GeminiPayloadProof] event=request_summary"),
         "worker_start": active_text.count("[AITS][AIRefreshWorker] event=start"),
         "dispatch_provider_branch": active_text.count("[AITS][AIRefreshDispatch] event=provider_branch"),
@@ -329,6 +337,21 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
     groups = re.findall(r"group_id=([A-Za-z0-9_.:-]+)", active_text)
     if groups:
         result["latest_group_id"] = groups[-1]
+    success_lines = [line for line in active_lines if "[AITS][OpenAIProviderProof] event=response_success" in line]
+    failure_lines = [line for line in active_lines if "[AITS][OpenAIProviderProof] event=response_failed" in line]
+    result["latest_provider_success_seen"] = bool(success_lines)
+    result["latest_provider_failure_seen"] = bool(failure_lines)
+    if success_lines:
+        latest_success = success_lines[-1]
+        for field, pattern in (
+            ("latest_provider_http_status", r"http_status=([^ ]+)"),
+            ("latest_provider_response_id", r"response_id=([^ ]*)"),
+            ("latest_provider_request_id", r"request_id=([^ ]*)"),
+            ("latest_provider_usage_total_tokens", r"usage_total_tokens=([^ ]*)"),
+        ):
+            match = re.search(pattern, latest_success)
+            if match:
+                result[field] = match.group(1)
     proof_tokens = (
         "[AITS][AIRefreshButton]",
         "[AITS][AIRefreshTarget]",
@@ -852,7 +875,11 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
         "active_provider": getattr(window, "_ai_provider_box_active", ""),
         "connection_provider": getattr(window, "_last_ai_connection_provider", ""),
     }
-    return {key: _normalize_provider_for_report(value) for key, value in fields.items()}
+    snapshot = {key: _normalize_provider_for_report(value) for key, value in fields.items()}
+    snapshot["connection_status_text"] = str(getattr(window, "_ai_connection_status", "") or "")
+    snapshot["last_connection_status_text"] = str(getattr(window, "_last_ai_connection_status", "") or "")
+    snapshot["last_connection_source"] = str(getattr(window, "_last_ai_connection_source", "") or "")
+    return snapshot
 
 
 def _marker_delta(after: dict[str, Any], before: dict[str, Any], key: str) -> int:
@@ -1044,15 +1071,47 @@ def _run_provider_smoke(
     _pump_events(app, 0.3)
 
     after_collect = _collect(window, widgets)
+    after_journal = _latest_journal_summary(window)
+    after_provider_state = _provider_state_snapshot(window)
     external_delta = _marker_delta(after_log, before_log, "external_cost_call_markers")
     branch_delta = _marker_count_delta(after_log, before_log, "dispatch_provider_branch")
     worker_delta = _marker_count_delta(after_log, before_log, "worker_start")
     provider_generation_delta = branch_delta if provider == "local" else external_delta
+    latest_journal = (after_journal.get("latest_journal") or {}) if isinstance(after_journal, dict) else {}
+    generation_response_confirmed = bool(
+        after_log.get("latest_provider_success_seen")
+        or (provider == "local" and branch_delta > 0)
+        or (str(latest_journal.get("provider_actual") or "").strip().lower() in {provider, "openai" if provider == "gpt" else provider})
+    )
+    generation_status_text = str(after_provider_state.get("connection_status_text") or after_provider_state.get("last_connection_status_text") or "")
+    generation_response_confirmed_reason = ""
+    if after_log.get("latest_provider_success_seen"):
+        generation_response_confirmed_reason = "provider_response_success_log"
+    elif provider == "local" and branch_delta > 0:
+        generation_response_confirmed_reason = "local_provider_branch"
+    elif generation_response_confirmed:
+        generation_response_confirmed_reason = "latest_journal_provider_actual"
+    elif after_log.get("latest_provider_failure_seen"):
+        generation_response_confirmed_reason = "provider_response_failed_log"
+    else:
+        generation_response_confirmed_reason = "generation_response_not_observed"
     report.update(
         {
             "trade_log_row_count_after": after_collect.get("trade_log_row_count"),
             "latest_trade_row": after_collect.get("latest_trade_log_row", ""),
+            "latest_journal_after": after_journal,
+            "provider_state_after_generation": after_provider_state,
             "trade_detail_excerpt": _safe_text(widgets.get("trade_log_detail"))[:1800],
+            "generation_response_confirmed": generation_response_confirmed,
+            "generation_response_confirmed_reason": generation_response_confirmed_reason,
+            "generation_status_text": generation_status_text,
+            "ui_generation_status_text": generation_status_text,
+            "provider_selected": provider,
+            "provider_actual": str(latest_journal.get("provider_actual") or latest_journal.get("actual_provider") or after_provider_state.get("connection_provider") or ""),
+            "fallback_used": bool(latest_journal.get("fallback_used")),
+            "http_status": after_log.get("latest_provider_http_status", ""),
+            "response_id_present": bool(after_log.get("latest_provider_response_id")),
+            "token_usage_present": bool(after_log.get("latest_provider_usage_total_tokens")),
             "provider_call_count_after": after_log.get("provider_call_markers", 0),
             "external_cost_call_count_after": after_log.get("external_cost_call_markers", 0),
             "provider_call_marker_delta": _marker_delta(after_log, before_log, "provider_call_markers"),
@@ -1081,6 +1140,11 @@ def _run_provider_smoke(
             fail_reasons.append("no_order_text_missing")
     if not report.get("journal_recorded") and (report.get("trade_log_row_count_after") == before_rows):
         fail_reasons.append("journal_or_row_update_not_detected")
+    if provider in {"gpt", "gemini"}:
+        if not report.get("generation_response_confirmed"):
+            fail_reasons.append("generation_response_not_confirmed")
+        if report.get("generation_response_confirmed") and "미확인" in str(report.get("generation_status_text") or ""):
+            fail_reasons.append("generation_success_ui_stale_unconfirmed")
     if report.get("same_stage_duplicate"):
         fail_reasons.append("same_stage_duplicate_detected")
 

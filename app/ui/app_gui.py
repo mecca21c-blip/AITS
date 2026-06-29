@@ -23716,6 +23716,19 @@ class MainWindow(QMainWindow):
             self._render_ai_engine_state()
             return
         if not start_connection:
+            last_provider = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_connection_provider", "")
+            )
+            last_status = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+            last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
+            if (
+                normalized_provider == last_provider
+                and last_source == "manual_generation"
+                and last_status
+            ):
+                self._ai_connection_status = last_status
+                self._render_ai_engine_state()
+                return
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = "키 설정됨 · 호출 미확인"
             self._last_ai_connection_source = key_source

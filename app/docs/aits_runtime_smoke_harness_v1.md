@@ -47,8 +47,15 @@ printed to stdout.
   row text, and safety state. It does not click buttons.
 - `dry-navigation`: performs the same read and switches tabs through the bottom
   navigation selectors. It does not click `AI 분석 새로고침`.
-- `provider-smoke`: reserved for a later explicit runtime-smoke Goal. It is
-  blocked unless `--allow-provider-calls` is supplied.
+- `provider-smoke`: runs one explicit provider refresh only when
+  `--allow-provider-calls` is supplied. For GPT/Gemini it reports
+  `generation_response_confirmed`, `generation_response_confirmed_reason`,
+  `provider_selected`, `provider_actual`, `fallback_used`, `http_status`,
+  `response_id_present`, `token_usage_present`, and
+  `ui_generation_status_text`. A configured key or auth-ready state is not a
+  generation response proof; only a provider success log or equivalent
+  generation record may confirm the response. If GPT/Gemini fails and LOCAL is
+  used, the report keeps the selected provider and records the fallback reason.
 - `save-probe`: switches to the trade-log context, verifies the footer save
   selector, calls the trade-log persistence handler directly, and records
   save proof without clicking AI refresh or making provider calls.
