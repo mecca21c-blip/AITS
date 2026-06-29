@@ -23791,11 +23791,12 @@ class MainWindow(QMainWindow):
             getattr(self, "_last_ai_generation_token_usage_present", False)
         )
         proof_present = bool(response_id_present or token_usage_present)
+        active_engine = "local" if selected in ("basic", "local") else selected
         ready = False
         reason = "not_ready"
         if selected in ("basic", "local"):
             local_status = str(getattr(self, "_last_ai_connection_status", "") or "")
-            ready = any(token in local_status for token in ("LOCAL", "Basic", "ready", "Ready"))
+            ready = any(token in local_status for token in ("LOCAL", "Basic", "ready", "Ready", "연결됨"))
             reason = "local_ready" if ready else "local_not_ready"
         elif selected in ("gpt", "gemini"):
             if actual != selected:
@@ -23815,12 +23816,17 @@ class MainWindow(QMainWindow):
             else:
                 ready = True
                 reason = "fresh_generation_confirmed"
+                active_engine = selected
         else:
             reason = "unknown_provider"
+        if selected in ("gpt", "gemini") and fallback_used:
+            active_engine = "local"
         return {
             "engine_ready_for_run": bool(ready),
             "engine_ready_reason": reason if ready else "",
             "engine_not_ready_reason": "" if ready else reason,
+            "active_engine": active_engine or "",
+            "on_gate_expected_engine": active_engine or selected,
             "provider_selected": selected,
             "provider_actual": actual,
             "generation_response_confirmed": generation_confirmed,
@@ -23837,6 +23843,23 @@ class MainWindow(QMainWindow):
             return bool(self._build_ai_engine_readiness_state().get("engine_ready_for_run"))
         except Exception:
             return False
+
+    def _connection_state_simple(self) -> str:
+        try:
+            readiness = self._build_ai_engine_readiness_state()
+            if bool(readiness.get("engine_ready_for_run")):
+                return "연결됨"
+            reason = str(readiness.get("engine_not_ready_reason") or "")
+            if reason in (
+                "generation_not_fresh",
+                "generation_not_confirmed",
+                "generation_response_unconfirmed",
+                "local_not_ready",
+            ):
+                return "연결중"
+            return "연결오류"
+        except Exception:
+            return "연결오류"
 
     def _apply_saved_ai_preview(self, provider: str, model: str) -> None:
         try:
@@ -24041,22 +24064,13 @@ class MainWindow(QMainWindow):
                 normalized_provider=selected_provider,
                 external_preview_active=external_preview_active,
             )
-            status = (
-                getattr(self, "_ai_connection_status", "") or "연결확인 필요"
-            ).strip() or "연결확인 필요"
-            if local_display_active:
-                local_statuses = (
-                    "LOCAL 점검중",
-                    "내부 엔진 준비됨",
-                    "LOCAL 점검 필요",
-                )
-                status = status if status in local_statuses else "LOCAL 점검 필요"
+            status = self._connection_state_simple()
             selected_text = self._ai_provider_label(selected_provider)
             applied_provider_text = (
                 self._ai_provider_label(applied_provider) if applied_provider else "미적용"
             )
             if applied_provider and applied_is_preview:
-                applied_provider_text = f"{applied_provider_text} Preview"
+                applied_provider_text = applied_provider_text
             if local_display_active:
                 applied_text = "LOCAL"
                 card_model_text = "내부 엔진"
@@ -24135,11 +24149,7 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             if applied_lb is not None:
-                applied_lb.setText(
-                    "적용: Preview"
-                    if local_display_active or (applied_provider and applied_is_preview)
-                    else f"적용: {applied_provider_text}"
-                )
+                applied_lb.setText(f"적용: {applied_provider_text if applied_provider else '미적용'}")
                 applied_lb.setVisible(True)
                 try:
                     applied_lb.setStyleSheet(
@@ -38500,6 +38510,13 @@ class MainWindow(QMainWindow):
                         self._last_ai_generation_response_id_present = bool(result.get("response_id"))
                         self._last_ai_generation_token_usage_present = bool(result.get("usage_total_tokens"))
                         self._last_ai_generation_fallback_used = bool(result.get("fallback_used") or result.get("fallback_required"))
+                        if not self._last_ai_generation_fallback_used:
+                            self._active_ai_engine = provider
+                            self._last_response_provider = provider
+                            try:
+                                self._update_active_engine_label()
+                            except Exception:
+                                pass
                         logging.getLogger("aits").info(
                             "[AITS][ProviderGenerationLifecycle] event=confirmed request_id=%s provider=%s attempt_count=%s response_id_present=%s token_usage_present=%s submitted=0 order_allowed=False real_order=False",
                             generation_request_id,
@@ -38725,11 +38742,22 @@ class MainWindow(QMainWindow):
         - "basic"
         - ""
         """
-        try:
-            if str(getattr(self, "_last_response_provider", "") or "").strip().lower() == "gemini":
-                return "gemini"
-        except Exception:
-            pass
+        for attr_name in (
+            "_last_ai_generation_provider",
+            "_last_response_provider",
+            "_last_ai_provider",
+            "_last_aits_provider",
+        ):
+            try:
+                raw = str(getattr(self, attr_name, "") or "").strip().lower()
+                if raw in ("gemini", "google", "google_gemini"):
+                    return "gemini"
+                if raw in ("gpt", "openai", "chatgpt"):
+                    return "gpt"
+                if raw in ("basic", "local"):
+                    return "basic"
+            except Exception:
+                pass
 
         last = {}
         try:
@@ -38769,22 +38797,6 @@ class MainWindow(QMainWindow):
                 return "gpt"
             if sel in ("local", "basic"):
                 return "basic"
-
-        for attr_name in (
-            "_last_response_provider",
-            "_last_ai_provider",
-            "_last_aits_provider",
-        ):
-            try:
-                raw = str(getattr(self, attr_name, "") or "").strip().lower()
-                if raw in ("gemini",):
-                    return "gemini"
-                if raw in ("basic", "local"):
-                    return "basic"
-                if raw in ("gpt", "openai"):
-                    return "gpt"
-            except Exception:
-                pass
 
         return ""
 
@@ -48562,25 +48574,30 @@ class MainWindow(QMainWindow):
 
                         return
 
-                selected_provider = (getattr(self, "_ai_provider_box_active", "") or "").strip().lower()
-                if selected_provider not in ("gpt", "gemini", "local"):
-                    selected_provider = "local"
-                selected_active = "local" if selected_provider == "local" else selected_provider
-                current_active = (getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
+                try:
+                    readiness = self._build_ai_engine_readiness_state()
+                except Exception:
+                    readiness = {}
+                selected_provider = str(readiness.get("provider_selected") or self._get_aits_engine_ssot() or "basic").strip().lower()
+                selected_active = "local" if selected_provider in ("basic", "local") else selected_provider
+                current_active = str(readiness.get("active_engine") or getattr(self, "_active_ai_engine", "basic") or "basic").strip().lower()
                 if current_active == "basic":
                     current_active = "local"
+                if bool(readiness.get("engine_ready_for_run")) and selected_active in ("gpt", "gemini"):
+                    current_active = selected_active
                 if selected_active != current_active:
                     active_label = "LOCAL"
                     if current_active == "gpt":
-                        active_label = "OpenAI"
+                        active_label = "GPT"
                     elif current_active == "gemini":
-                        active_label = "Gemini"
+                        active_label = "GEMINI"
                     QMessageBox.warning(
                         self,
                         "실행 전 확인",
                         "선택한 AI 엔진이 아직 연결되지 않았습니다.\n"
                         f"현재는 Active Engine: {active_label} 기준으로 실행됩니다."
                     )
+
 
                 print(f"[AITS] managed symbols count={len(getattr(self, 'ai_managed_rows', []) or [])}")
                 if len(getattr(self, "ai_managed_rows", []) or []) <= 0:

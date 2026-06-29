@@ -101,3 +101,6 @@ selected, and stale previous responses are not ready for AITS ON. This readiness
 contract only removes the engine-preparation popup; it does not authorize an
 order. RiskGuard, LiveOrderPreflight, Unlock, duplicate lock, and guarded-window
 caps remain separate mandatory gates.
+
+See also `app/docs/aits_ai_engine_state_ssot_v1.md` for the selected/applied/
+actual/active engine SSOT and the simplified user-facing connection states.

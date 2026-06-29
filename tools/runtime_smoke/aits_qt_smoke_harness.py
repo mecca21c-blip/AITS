@@ -540,7 +540,8 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "aits_safety_state": _safe_text(widgets.get("safety_state")),
         "selected_engine_text": _safe_text(widgets.get("selected_engine")),
         "applied_engine_text": _safe_text(widgets.get("applied_engine")),
-        "connection_state_text": _safe_text(widgets.get("connection_state")),
+        "connection_state_text": str(window._connection_state_simple()) if hasattr(window, "_connection_state_simple") else _safe_text(widgets.get("connection_state")),
+        "connection_detail_text": _safe_text(widgets.get("connection_state")),
         "generation_request_id": str(getattr(window, "_last_ai_generation_request_id", "") or ""),
         "generation_status": str(getattr(window, "_last_ai_generation_status", "") or ""),
         "generation_status_text": str(getattr(window, "_last_ai_connection_status", "") or getattr(window, "_ai_connection_status", "") or ""),
@@ -553,6 +554,10 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "engine_ready_for_run": bool(readiness.get("engine_ready_for_run")),
         "engine_ready_reason": str(readiness.get("engine_ready_reason") or ""),
         "engine_not_ready_reason": str(readiness.get("engine_not_ready_reason") or ""),
+        "active_engine": str(readiness.get("active_engine") or getattr(window, "_active_ai_engine", "") or ""),
+        "on_gate_expected_engine": str(readiness.get("on_gate_expected_engine") or ""),
+        "connection_state_simple": str(window._connection_state_simple()) if hasattr(window, "_connection_state_simple") else "",
+        "strategy_ai_provider": _normalize_provider_for_report(getattr(getattr(getattr(window, "_settings", None), "strategy", None), "ai_provider", "")),
         "provider_selected": _normalize_provider_for_report(getattr(window, "_selected_ai_provider", "")),
         "provider_actual": _normalize_provider_for_report(getattr(window, "_last_response_provider", "")),
         "managed_row_count": _table_row_count(managed_table),
@@ -912,6 +917,12 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
     snapshot["engine_ready_for_run"] = bool(readiness.get("engine_ready_for_run"))
     snapshot["engine_ready_reason"] = str(readiness.get("engine_ready_reason") or "")
     snapshot["engine_not_ready_reason"] = str(readiness.get("engine_not_ready_reason") or "")
+    snapshot["active_engine"] = str(readiness.get("active_engine") or getattr(window, "_active_ai_engine", "") or "")
+    snapshot["on_gate_expected_engine"] = str(readiness.get("on_gate_expected_engine") or "")
+    try:
+        snapshot["connection_state_simple"] = str(window._connection_state_simple())
+    except Exception:
+        snapshot["connection_state_simple"] = ""
     return snapshot
 
 

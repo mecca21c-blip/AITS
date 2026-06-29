@@ -536,11 +536,17 @@ contract used by the UI gate:
 - `provider_selected`
 - `provider_actual`
 - `fallback_used`
+- `active_engine`
+- `on_gate_expected_engine`
+- `connection_state_simple`
+- `connection_detail_text`
 
 For GPT/Gemini, readiness requires a fresh confirmed generation response for
 the selected provider with response-id or token-usage proof and no LOCAL
 fallback. Auth-only, timeout, fallback, and stale preview states must remain
-not-ready. Engine readiness is not order permission.
+not-ready. Engine readiness is not order permission. `connection_state_text`
+uses the simplified user-facing state (`연결중`, `연결됨`, `연결오류`), while
+`connection_detail_text` may retain diagnostic context.
 
 ## Trading Boundary
 
