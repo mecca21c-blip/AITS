@@ -46,3 +46,10 @@ Observe-only reports should use explicit reasons:
 
 If the market candidate feed is empty, rotation cannot be evaluated beyond
 confirming that no soft rotation payload is active.
+
+## Feed Dependency
+
+Rotation observe-only proof depends on Basic top-market candidates. Use
+`top-markets-feed-proof` first when reports show `top_markets_empty`; a healthy
+feed should provide nonzero KRW market and top-market counts before rotation
+absence is interpreted as a strategy condition.

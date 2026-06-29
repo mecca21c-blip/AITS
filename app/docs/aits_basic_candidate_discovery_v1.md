@@ -21,6 +21,7 @@ an order signal.
 The scan depends on:
 
 - `get_top_markets_by_volume(limit=30)`
+- public Upbit market list and ticker reads
 - `market_all_rows`
 - `_market_display_rows`
 - current `ai_managed_rows`
@@ -28,6 +29,9 @@ The scan depends on:
 
 If top market data is empty, candidate discovery must report a concrete
 `no_candidate_reason`, such as `top_markets_empty` or `market_rows_empty`.
+The companion `top-markets-feed-proof` report separates public feed failures
+from Basic scoring filters by recording `market_count_raw`,
+`krw_market_count`, `ticker_count`, `top_markets_count`, and `empty_reason`.
 
 ## Output Schema
 
@@ -64,3 +68,20 @@ When no candidates exist, the reason is the important proof result.
 Interpretation: the Basic scoring/review path is present, but new market
 candidate discovery had no input rows. The next fix should focus on why
 `get_top_markets_by_volume` / ticker feed returns empty in the active runtime.
+
+## Top Markets Feed Proof
+
+`top-markets-feed-proof` is the read-only proof for this input layer. It may
+read public Upbit market/ticker endpoints, but it must not call provider APIs,
+account/order APIs, change Managed Pool rows, or create order activity.
+
+Expected healthy input proof:
+
+- `krw_market_count > 0`
+- `ticker_count > 0`
+- `top_markets_count > 0`
+- `empty_reason=""`
+
+If candidates are still zero after top markets are present, the reason should
+move from `top_markets_empty` to a scoring/filter reason, such as symbols
+already managed or Basic thresholds not met.

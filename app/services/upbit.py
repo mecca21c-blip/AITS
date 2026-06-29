@@ -13,6 +13,7 @@ import requests
 
 from app.services.market_feed import (
     get_markets as _mf_get_markets,
+    get_last_diagnostics as _mf_get_last_diagnostics,
     get_tickers as _mf_get_tickers,
     get_top_markets_by_volume as _mf_get_top_markets_by_volume,
 )
@@ -178,6 +179,14 @@ def get_top_markets_by_volume(*args, **kwargs):
             f"[AITS][upbit] top_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
         )
         return []
+
+
+def get_market_feed_diagnostics() -> Dict[str, Any]:
+    """Return the latest read-only market-feed diagnostic snapshot."""
+    try:
+        return dict(_mf_get_last_diagnostics() or {})
+    except Exception:
+        return {}
 
 
 def get_all_markets(*args, **kwargs):

@@ -18,6 +18,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode top-markets-feed-proof --max-markets 20
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-discovery-proof --observe-only --max-candidates 10
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
@@ -73,6 +75,18 @@ printed to stdout.
 - `riskguard-active-path-candidate-proof`: injects deterministic dry-run
   candidates into the app execution path and verifies RiskGuard metadata
   reaches `ActionItem` and `ExecutionBridge`.
+- `top-markets-feed-proof`: performs one read-only public Upbit market/ticker
+  diagnostic for Basic candidate input. It reports raw market count, KRW market
+  count, ticker count, detected volume/trade-value fields, filtered count, top
+  market count, sample top markets, and a concrete `empty_reason` when the feed
+  is empty. This mode allows only public market-data GET reads; provider POST,
+  orders, Managed Pool mutation, sell, cancel, and retry remain forbidden.
+- `basic-candidate-discovery-proof`: creates the Qt window and runs the Basic
+  candidate scan observe-only. It now uses the same public market-data read
+  boundary as `top-markets-feed-proof`, so `top_markets_empty` is not caused by
+  the dry-read network guard. Reports must keep
+  `managed_pool_mutation_performed=false`, `provider_external_call_count=0`,
+  and zero place/cancel/sell/retry calls.
 - `live-preflight-locked-proof`: evaluates the final live-order preflight lock
   with deterministic fixtures. It does not create paper trading, virtual
   trading, mock processors, provider calls, or order submissions.
@@ -146,6 +160,9 @@ printed to stdout.
 ## Safety Rules
 
 - Default modes block provider HTTP POST calls.
+- Public market feed proof modes may read Upbit public market/ticker endpoints
+  only. They must not call provider APIs, account/order APIs, or mutate Managed
+  Pool rows.
 - The harness skips startup provider verification inside the harness process.
 - `AI 분석 새로고침` is located but never clicked in dry modes.
 - Order-related UI or service calls are not part of the harness.

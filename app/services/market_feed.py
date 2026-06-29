@@ -70,6 +70,18 @@ _HTTP.headers.update({
 })
 
 _LOCK = threading.RLock()
+_LAST_DIAGNOSTICS: Dict[str, object] = {}
+
+
+def _set_last_diagnostics(**fields: object) -> None:
+    with _LOCK:
+        _LAST_DIAGNOSTICS.clear()
+        _LAST_DIAGNOSTICS.update(fields)
+
+
+def get_last_diagnostics() -> Dict[str, object]:
+    with _LOCK:
+        return dict(_LAST_DIAGNOSTICS)
 
 
 def _http_get(path: str, params: dict = None, timeout: float = _DEFAULT_TIMEOUT):
@@ -205,20 +217,78 @@ def get_top_markets_by_volume(limit: int = 20,
     - min_price: 현재가 하한 (너무 저가 토큰 제외용)
     - 반환: [(market, ticker_dict), ...] 거래대금 내림차순
     """
+    started = time.time()
     exclude_black = exclude_black or set()
-    mkts = [m for m in get_markets(quote=quote, ttl=ttl_markets) if m not in exclude_black]
-    # Python 3.8 미만 호환을 위해 월러스 연산자(:=) 사용 제거
-    ticks = get_tickers(mkts, ttl=ttl_ticks)
-    rows = []
-    for m, d in ticks.items():
-        tp = float(d.get("trade_price") or 0.0)
-        val24 = float(d.get("acc_trade_price_24h") or 0.0)
-        if tp < float(min_price):
-            continue
-        rows.append((m, d, val24))
+    diagnostics: Dict[str, object] = {
+        "market_feed_supported": True,
+        "market_list_called": False,
+        "market_list_success": False,
+        "market_count_raw": 0,
+        "krw_market_count": 0,
+        "ticker_called": False,
+        "ticker_success": False,
+        "ticker_count": 0,
+        "volume_field_detected": False,
+        "trade_value_field_detected": False,
+        "filtered_count": 0,
+        "top_markets_count": 0,
+        "empty_reason": "",
+        "exception_type": "",
+        "network_state": "unknown",
+        "cache_used": False,
+        "duration_ms": 0,
+    }
+    try:
+        diagnostics["market_list_called"] = True
+        raw_mkts = get_markets(quote=quote, ttl=ttl_markets)
+        diagnostics["market_list_success"] = True
+        diagnostics["market_count_raw"] = len(raw_mkts)
+        diagnostics["krw_market_count"] = len([m for m in raw_mkts if str(m).startswith(quote + "-")])
+        mkts = [m for m in raw_mkts if m not in exclude_black]
+        if not raw_mkts:
+            diagnostics["empty_reason"] = "market_list_empty"
 
-    rows.sort(key=lambda x: x[2], reverse=True)
-    top = [(m, d) for (m, d, _) in rows[:max(1, int(limit or 20))]]
+        diagnostics["ticker_called"] = bool(mkts)
+        ticks = get_tickers(mkts, ttl=ttl_ticks) if mkts else {}
+        diagnostics["ticker_success"] = bool(mkts)
+        diagnostics["ticker_count"] = len(ticks)
+        if mkts and not ticks:
+            diagnostics["empty_reason"] = "ticker_empty"
+
+        rows = []
+        for m, d in ticks.items():
+            tp = float(d.get("trade_price") or 0.0)
+            val24 = float(d.get("acc_trade_price_24h") or 0.0)
+            diagnostics["volume_field_detected"] = diagnostics["volume_field_detected"] or (
+                "acc_trade_volume_24h" in d
+            )
+            diagnostics["trade_value_field_detected"] = diagnostics["trade_value_field_detected"] or (
+                "acc_trade_price_24h" in d
+            )
+            if tp < float(min_price):
+                continue
+            rows.append((m, d, val24))
+
+        diagnostics["filtered_count"] = len(rows)
+        if ticks and not rows:
+            diagnostics["empty_reason"] = "filtered_out_by_min_price"
+
+        rows.sort(key=lambda x: x[2], reverse=True)
+        top = [(m, d) for (m, d, _) in rows[:max(1, int(limit or 20))]]
+        diagnostics["top_markets_count"] = len(top)
+        diagnostics["network_state"] = "ok" if top else "empty"
+        if top:
+            diagnostics["empty_reason"] = ""
+    except Exception as exc:
+        diagnostics["exception_type"] = type(exc).__name__
+        diagnostics["empty_reason"] = "exception"
+        diagnostics["network_state"] = "error"
+        diagnostics["duration_ms"] = int(round((time.time() - started) * 1000.0))
+        _set_last_diagnostics(**diagnostics)
+        raise
+    finally:
+        diagnostics["duration_ms"] = int(round((time.time() - started) * 1000.0))
+        _set_last_diagnostics(**diagnostics)
 
     # 이벤트 발행(선택)
     if eventbus and hasattr(eventbus, "publish"):

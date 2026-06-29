@@ -57,6 +57,11 @@ CORE_WIDGETS = {
     "manual_sell_all_button": ("property", "btn_manual_sell_all"),
 }
 
+PUBLIC_MARKET_READ_MODES = {
+    "top-markets-feed-proof",
+    "basic-candidate-discovery-proof",
+}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -448,6 +453,19 @@ def _install_network_guards(report: dict[str, Any]) -> None:
         report.setdefault("warnings", []).append(f"network_guard_install_failed:{type(exc).__name__}")
 
 
+def _install_provider_post_guard(report: dict[str, Any]) -> None:
+    try:
+        import requests
+
+        def _blocked_post(*args: Any, **kwargs: Any) -> Any:
+            report["provider_call_blocked"] = True
+            raise RuntimeError("AITS Qt smoke harness blocked provider POST in public market read mode")
+
+        requests.post = _blocked_post
+    except Exception as exc:
+        report.setdefault("warnings", []).append(f"provider_post_guard_install_failed:{type(exc).__name__}")
+
+
 def _patch_provider_verification(
     main_window_cls: Any,
     report: dict[str, Any],
@@ -830,6 +848,141 @@ def _run_basic_candidate_discovery_proof(
         }
     )
     report["pass_status"] = "pass" if scan_called and scan_success and not managed_mutation else "partial"
+
+
+def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20) -> None:
+    """Read public Upbit market/ticker feed once and explain empty results."""
+    started = time.time()
+    report.update(
+        {
+            "market_feed_supported": False,
+            "market_list_called": False,
+            "market_list_success": False,
+            "market_count_raw": 0,
+            "krw_market_count": 0,
+            "ticker_called": False,
+            "ticker_success": False,
+            "ticker_count": 0,
+            "volume_field_detected": False,
+            "trade_value_field_detected": False,
+            "filtered_count": 0,
+            "top_markets_count": 0,
+            "top_markets": [],
+            "empty_reason": "",
+            "exception_type": "",
+            "network_state": "unknown",
+            "cache_used": False,
+            "duration_ms": 0,
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "managed_pool_mutation_performed": False,
+        }
+    )
+    try:
+        from app.services import market_feed
+
+        report["market_feed_supported"] = True
+        report["market_list_called"] = True
+        markets = market_feed.get_markets(quote="KRW", ttl=0.0)
+        report["market_list_success"] = True
+        report["market_count_raw"] = len(markets)
+        krw_markets = [m for m in markets if str(m).startswith("KRW-")]
+        report["krw_market_count"] = len(krw_markets)
+        if not krw_markets:
+            report["empty_reason"] = "krw_market_list_empty"
+
+        sample_markets = krw_markets[: min(100, max(1, len(krw_markets)))]
+        report["ticker_called"] = bool(sample_markets)
+        tickers = market_feed.get_tickers(sample_markets, ttl=0.0) if sample_markets else {}
+        report["ticker_success"] = bool(sample_markets)
+        report["ticker_count"] = len(tickers)
+        if sample_markets and not tickers:
+            report["empty_reason"] = "ticker_empty"
+
+        rows = []
+        for market, row in tickers.items():
+            if not isinstance(row, dict):
+                continue
+            report["volume_field_detected"] = report["volume_field_detected"] or ("acc_trade_volume_24h" in row)
+            report["trade_value_field_detected"] = report["trade_value_field_detected"] or (
+                "acc_trade_price_24h" in row
+            )
+            trade_price = _safe_float(row.get("trade_price"), 0.0)
+            trade_value = _safe_float(row.get("acc_trade_price_24h"), 0.0)
+            if trade_price < 10.0:
+                continue
+            rows.append((market, row, trade_value))
+        rows.sort(key=lambda item: item[2], reverse=True)
+        report["filtered_count"] = len(rows)
+        if tickers and not rows:
+            report["empty_reason"] = "filtered_out_by_min_price"
+
+        top_raw = market_feed.get_top_markets_by_volume(
+            limit=max(1, int(max_markets or 20)),
+            quote="KRW",
+            ttl_markets=0.0,
+            ttl_ticks=0.0,
+        )
+        try:
+            diagnostics = market_feed.get_last_diagnostics()
+        except Exception:
+            diagnostics = {}
+        for key in (
+            "market_list_called",
+            "market_list_success",
+            "market_count_raw",
+            "krw_market_count",
+            "ticker_called",
+            "ticker_success",
+            "ticker_count",
+            "volume_field_detected",
+            "trade_value_field_detected",
+            "filtered_count",
+            "top_markets_count",
+            "empty_reason",
+            "exception_type",
+            "network_state",
+            "cache_used",
+        ):
+            if key in diagnostics:
+                report[key] = diagnostics[key]
+        top_items = []
+        for market, row in top_raw[: max(1, int(max_markets or 20))]:
+            row = row if isinstance(row, dict) else {}
+            top_items.append(
+                {
+                    "market": str(market),
+                    "trade_price": _safe_float(row.get("trade_price"), 0.0),
+                    "acc_trade_price_24h": _safe_float(row.get("acc_trade_price_24h"), 0.0),
+                    "signed_change_rate": _safe_float(row.get("signed_change_rate"), 0.0),
+                }
+            )
+        report["top_markets"] = top_items
+        report["top_markets_count"] = len(top_items)
+        if top_items:
+            report["empty_reason"] = ""
+            report["network_state"] = "ok"
+    except Exception as exc:
+        report["exception_type"] = type(exc).__name__
+        if not report.get("empty_reason"):
+            report["empty_reason"] = "exception"
+        report["network_state"] = "error"
+        report.setdefault("warnings", []).append(f"top_markets_feed_proof_failed:{type(exc).__name__}")
+    finally:
+        report["duration_ms"] = int(round((time.time() - started) * 1000.0))
+
+    krw_count = int(report.get("krw_market_count") or 0)
+    top_count = int(report.get("top_markets_count") or 0)
+    if krw_count > 0 and top_count > 0:
+        report["pass_status"] = "pass"
+    elif krw_count > 0:
+        report["pass_status"] = "partial"
+    else:
+        report["pass_status"] = "fail"
 
 
 def _widget_snapshot(widget: Any, *, key: str = "", source: str = "") -> dict[str, Any]:
@@ -4180,6 +4333,7 @@ def run_harness(
     incident_open: bool = True,
     max_smoke_duration_sec: int = 15,
     max_candidates: int = 10,
+    max_markets: int = 20,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -4194,6 +4348,7 @@ def run_harness(
     }
     if mode in {
         "riskguard-proof",
+        "top-markets-feed-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
@@ -4203,6 +4358,9 @@ def run_harness(
     }:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
+        elif mode == "top-markets-feed-proof":
+            _install_provider_post_guard(report)
+            _run_top_markets_feed_proof(report, max_markets=max_markets)
         elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
         elif mode == "live-one-shot-unlock-contract-proof":
@@ -4231,7 +4389,7 @@ def run_harness(
         else:
             _run_live_order_post_trade_reconciliation(report, order_uuid=order_uuid)
         if "status" not in report:
-            report["status"] = "pass" if report.get("pass_status") == "pass" else "fail"
+            report["status"] = report.get("pass_status") if report.get("pass_status") in {"pass", "partial"} else "fail"
         report["finished_at"] = _now_iso()
         output_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -4262,7 +4420,9 @@ def run_harness(
         path = output_dir / f"runtime_smoke_report_{stamp}.json"
         report["report_path"] = str(path)
         return _write_json_report(report, path)
-    if not allow_provider_calls and mode != "live-2h-guarded-window":
+    if not allow_provider_calls and mode in PUBLIC_MARKET_READ_MODES:
+        _install_provider_post_guard(report)
+    elif not allow_provider_calls and mode != "live-2h-guarded-window":
         _install_network_guards(report)
 
     if mode == "provider-startup-readiness-proof":
@@ -4392,6 +4552,7 @@ def run_harness(
         "provider-smoke",
         "provider-startup-readiness-proof",
         "real-app-startup-readiness-proof",
+        "top-markets-feed-proof",
         "save-probe",
         "riskguard-active-path-proof",
         "riskguard-active-path-candidate-proof",
@@ -4436,6 +4597,7 @@ def main() -> int:
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",
+            "top-markets-feed-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
@@ -4491,6 +4653,7 @@ def main() -> int:
     parser.add_argument("--max-smoke-duration-sec", type=int, default=15)
     parser.add_argument("--observe-only", action="store_true")
     parser.add_argument("--max-candidates", type=int, default=10)
+    parser.add_argument("--max-markets", type=int, default=20)
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -4516,6 +4679,7 @@ def main() -> int:
         incident_open=args.incident_open,
         max_smoke_duration_sec=args.max_smoke_duration_sec,
         max_candidates=args.max_candidates,
+        max_markets=args.max_markets,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1
