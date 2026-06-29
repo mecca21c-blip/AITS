@@ -582,3 +582,39 @@ preflight, and reports:
 PASS requires `connection_state_simple=연결됨`, fresh confirmed generation proof,
 matching active provider, no fallback, provider external calls within budget, and
 no order-risk markers.
+
+## Real App Startup Readiness Proof
+
+`real-app-startup-readiness-proof` verifies the actual app startup path instead
+of directly invoking the startup helper on an already constructed harness
+window:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode real-app-startup-readiness-proof --provider gpt --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
+```
+
+The mode launches `run.py` as a separate app process, removes
+`AITS_QT_SMOKE_HARNESS` from that child environment, observes
+`data/logs/aits.log`, and never clicks AITS ON or order controls. It reports:
+
+- `startup_readiness_scheduled`
+- `startup_readiness_skip_reason`
+- `startup_worker_started`
+- `startup_worker_result_seen`
+- `startup_ui_applied`
+- `connection_state_simple_after`
+- `generation_source`
+- `generation_status`
+- `generation_request_id`
+- `engine_ready_for_run`
+- `provider_call_count`
+- `provider_call_count_with_worker_markers`
+- `external_cost_call_count`
+- `provider_actual`
+- `fallback_used`
+
+PASS requires scheduled startup readiness, worker start/result, UI application
+to the connected state, one or fewer external provider calls, no fallback, and
+no order-risk markers. This mode exists because a helper-invocation proof can
+pass while the real `run.py` startup path still fails to schedule or apply the
+preflight.

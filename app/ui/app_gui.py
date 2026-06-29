@@ -23964,6 +23964,10 @@ class MainWindow(QMainWindow):
         self._run_ai_startup_connection_check_async(
             secret_provider, api_key=api_key, key_source=key_source
         )
+        self._schedule_startup_provider_readiness_preflight(
+            normalized_provider,
+            reason="provider_preview_start_connection",
+        )
 
     def _start_local_engine_self_check(self, reason: str = "provider_select") -> None:
         token = int(getattr(self, "_local_engine_check_token", 0)) + 1
@@ -38693,13 +38697,44 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 result_ctx = result.get("context") if isinstance(result.get("context"), dict) else {}
-                if str(result_ctx.get("source") or "").strip() == "startup_generation":
+                active_ctx = self._get_ai_refresh_request_context()
+                result_group_id = str(
+                    result.get("generation_request_id")
+                    or result.get("request_id")
+                    or result.get("decision_group_id")
+                    or result_ctx.get("request_id")
+                    or result_ctx.get("decision_group_id")
+                    or ""
+                )
+                active_group_id = str(
+                    active_ctx.get("request_id")
+                    or active_ctx.get("decision_group_id")
+                    or ""
+                )
+                startup_result = (
+                    bool(getattr(self, "_startup_provider_readiness_compact_generation", False))
+                    or str(result_ctx.get("source") or "").strip() == "startup_generation"
+                    or (
+                        bool(result_group_id)
+                        and result_group_id == active_group_id
+                        and str(active_ctx.get("source") or "").strip() == "startup_generation"
+                    )
+                )
+                if startup_result:
                     self._startup_provider_readiness_inflight = False
                     self._startup_provider_readiness_compact_generation = False
                     logging.getLogger("aits").info(
-                        "[AITS][StartupReadinessPreflight] event=finished provider=%s ok=%s submitted=0 order_allowed=False real_order=False",
+                        "[AITS][StartupReadinessPreflight] event=worker_result provider=%s ok=%s status=%s request_id=%s submitted=0 order_allowed=False real_order=False",
                         provider,
                         bool(ok),
+                        str(result.get("generation_status") or ("confirmed" if ok else "failed")),
+                        result_group_id,
+                    )
+                    logging.getLogger("aits").info(
+                        "[AITS][StartupReadinessPreflight] event=ui_applied provider=%s connection_state_simple=%s engine_ready_for_run=%s submitted=0 order_allowed=False real_order=False",
+                        provider,
+                        self._connection_state_simple() if hasattr(self, "_connection_state_simple") else "",
+                        bool(self._is_ai_engine_ready_for_run()) if hasattr(self, "_is_ai_engine_ready_for_run") else False,
                     )
             except Exception:
                 pass
@@ -45515,11 +45550,6 @@ class MainWindow(QMainWindow):
                     why,
                 )
                 return
-            checked = getattr(self, "_startup_provider_readiness_checked", None)
-            if not isinstance(checked, set):
-                checked = set()
-                self._startup_provider_readiness_checked = checked
-            checked.add(normalized_provider)
             self._startup_provider_readiness_inflight = True
             logging.getLogger("aits").info(
                 "[AITS][StartupReadinessPreflight] event=scheduled provider=%s reason=%s submitted=0 order_allowed=False real_order=False",
@@ -45581,14 +45611,25 @@ class MainWindow(QMainWindow):
                 str(reason or ""),
             )
             scheduled, schedule_reason = self._schedule_aits_main_gpt_reco(100)
-            if not scheduled:
-                self._startup_provider_readiness_inflight = False
-                self._startup_provider_readiness_compact_generation = False
+            if scheduled:
+                checked = getattr(self, "_startup_provider_readiness_checked", None)
+                if not isinstance(checked, set):
+                    checked = set()
+                    self._startup_provider_readiness_checked = checked
+                checked.add(normalized_provider)
                 logging.getLogger("aits").info(
-                    "[AITS][StartupReadinessPreflight] event=dispatch_blocked provider=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    "[AITS][StartupReadinessPreflight] event=worker_start provider=%s request_id=%s submitted=0 order_allowed=False real_order=False",
                     normalized_provider,
-                    str(schedule_reason or "blocked"),
+                    group_id,
                 )
+                return
+            self._startup_provider_readiness_inflight = False
+            self._startup_provider_readiness_compact_generation = False
+            logging.getLogger("aits").info(
+                "[AITS][StartupReadinessPreflight] event=dispatch_blocked provider=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                normalized_provider,
+                str(schedule_reason or "blocked"),
+            )
         except Exception as exc:
             try:
                 self._startup_provider_readiness_inflight = False
@@ -47283,6 +47324,33 @@ class MainWindow(QMainWindow):
                     str((_pl or {}).get("source") or ""),
                     str((_pl or {}).get("decision_group_id") or (_pl or {}).get("request_id") or ""),
                 )
+            except Exception:
+                pass
+
+            try:
+                payload_group_id = str((_pl or {}).get("decision_group_id") or (_pl or {}).get("request_id") or "").strip()
+                payload_provider = self._normalize_ai_provider_code(
+                    str(
+                        (_pl or {}).get("provider_actual")
+                        or (_pl or {}).get("actual_provider")
+                        or (_pl or {}).get("provider")
+                        or (_pl or {}).get("source")
+                        or ""
+                    )
+                )
+                selected_provider = self._normalize_ai_provider_code(self._get_aits_engine_ssot())
+                if (
+                    not payload_group_id
+                    and payload_provider in ("basic", "local")
+                    and selected_provider in ("gpt", "gemini")
+                    and bool(self._is_ai_engine_ready_for_run())
+                ):
+                    logging.getLogger("aits").info(
+                        "[AITS][StartupReadinessPreflight] event=local_sidechannel_skip provider=%s selected_provider=%s reason=external_provider_ready submitted=0 order_allowed=False real_order=False",
+                        payload_provider,
+                        selected_provider,
+                    )
+                    return
             except Exception:
                 pass
 

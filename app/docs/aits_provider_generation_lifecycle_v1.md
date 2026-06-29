@@ -124,3 +124,25 @@ state remains a clear non-ready failure/waiting state. Startup preflight is
 recorded with source `startup_generation` so it can be distinguished from user
 `manual_generation` refreshes and so trade-log/journal growth can be monitored
 for duplicate flooding.
+
+## Real App Startup Path
+
+The startup preflight must also run on the real `run.py -> MainWindow` path,
+not only in harness helper calls. Provider-preview application with
+`start_connection=True` schedules the bounded startup preflight after the saved
+provider/model/key state has been applied. The `startup_readiness_checked` guard
+is set only after the generation worker is actually dispatched, so an early
+timer or dispatch failure does not permanently suppress startup readiness.
+
+Structured logs distinguish each step:
+
+- `[AITS][StartupReadinessPreflight] event=scheduled`
+- `[AITS][StartupReadinessPreflight] event=skip reason=...`
+- `[AITS][StartupReadinessPreflight] event=worker_start`
+- `[AITS][StartupReadinessPreflight] event=worker_result`
+- `[AITS][StartupReadinessPreflight] event=ui_applied`
+
+If a fresh external-provider response has already made the engine run-ready,
+group-id-less LOCAL side-channel updates must not overwrite the GPT/Gemini
+connection state. Explicit fallback results with provider context are still
+recorded as fallback and are not treated as ready.

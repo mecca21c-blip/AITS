@@ -311,6 +311,12 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
         "trade_log_save_finish": active_text.count("[AITS][TradeLogSave] event=finish"),
         "trade_log_save_failed": active_text.count("[AITS][TradeLogSave] event=failed"),
         "riskguard_active_path": active_text.count("[AITS][RiskGuardActivePath]"),
+        "startup_readiness_scheduled": active_text.count("[AITS][StartupReadinessPreflight] event=scheduled"),
+        "startup_readiness_skip": active_text.count("[AITS][StartupReadinessPreflight] event=skip"),
+        "startup_readiness_worker_start": active_text.count("[AITS][StartupReadinessPreflight] event=worker_start"),
+        "startup_readiness_worker_result": active_text.count("[AITS][StartupReadinessPreflight] event=worker_result"),
+        "startup_readiness_ui_applied": active_text.count("[AITS][StartupReadinessPreflight] event=ui_applied"),
+        "startup_readiness_dispatch_blocked": active_text.count("[AITS][StartupReadinessPreflight] event=dispatch_blocked"),
     }
     result["marker_counts"] = marker_counts
     result["external_cost_call_markers"] = (
@@ -337,6 +343,40 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
     groups = re.findall(r"group_id=([A-Za-z0-9_.:-]+)", active_text)
     if groups:
         result["latest_group_id"] = groups[-1]
+    startup_lines = [
+        line for line in active_lines if "[AITS][StartupReadinessPreflight]" in line
+    ]
+    result["startup_readiness_lines"] = [line[-700:] for line in startup_lines][-30:]
+    result["startup_readiness_scheduled"] = marker_counts["startup_readiness_scheduled"] > 0
+    result["startup_readiness_skip_seen"] = marker_counts["startup_readiness_skip"] > 0
+    result["startup_readiness_worker_started"] = marker_counts["startup_readiness_worker_start"] > 0
+    result["startup_readiness_worker_result_seen"] = marker_counts["startup_readiness_worker_result"] > 0
+    result["startup_readiness_ui_applied"] = marker_counts["startup_readiness_ui_applied"] > 0
+    result["startup_readiness_dispatch_blocked"] = marker_counts["startup_readiness_dispatch_blocked"] > 0
+    skip_matches = re.findall(r"\[AITS\]\[StartupReadinessPreflight\] event=skip[^\n]*reason=([^ ]+)", active_text)
+    result["startup_readiness_skip_reason"] = skip_matches[-1] if skip_matches else ""
+    worker_result_lines = [
+        line for line in startup_lines if "event=worker_result" in line
+    ]
+    result["startup_worker_result"] = worker_result_lines[-1][-700:] if worker_result_lines else ""
+    ui_applied_lines = [
+        line for line in startup_lines if "event=ui_applied" in line
+    ]
+    result["startup_ui_applied_line"] = ui_applied_lines[-1][-700:] if ui_applied_lines else ""
+    if worker_result_lines:
+        status_match = re.search(r"status=([^ ]+)", worker_result_lines[-1])
+        if status_match:
+            result["startup_generation_status"] = status_match.group(1)
+        request_match = re.search(r"request_id=([^ ]+)", worker_result_lines[-1])
+        if request_match:
+            result["startup_generation_request_id"] = request_match.group(1)
+    if ui_applied_lines:
+        state_match = re.search(r"connection_state_simple=([^ ]+)", ui_applied_lines[-1])
+        if state_match:
+            result["startup_connection_state_simple"] = state_match.group(1)
+        ready_match = re.search(r"engine_ready_for_run=([^ ]+)", ui_applied_lines[-1])
+        if ready_match:
+            result["startup_engine_ready_for_run"] = ready_match.group(1)
     success_lines = [line for line in active_lines if "[AITS][OpenAIProviderProof] event=response_success" in line]
     failure_lines = [line for line in active_lines if "[AITS][OpenAIProviderProof] event=response_failed" in line]
     result["latest_provider_success_seen"] = bool(success_lines)
@@ -368,6 +408,7 @@ def _read_log_tail(log_dir: Path, started_at_epoch: float) -> dict[str, Any]:
         "[AITS][TradeLogShadowJournal]",
         "[AITS][AIRefreshApply]",
         "[AITS][RiskGuardActivePath]",
+        "[AITS][StartupReadinessPreflight]",
     )
     result["proof_lines"] = [
         line[-700:]
@@ -1357,6 +1398,147 @@ def _run_provider_startup_readiness_proof(
         report["fail_reason"] = ",".join(fail_reasons)
     else:
         report["pass_status"] = "pass"
+
+
+def _run_real_app_startup_readiness_proof(
+    report: dict[str, Any],
+    *,
+    provider: str,
+    max_provider_calls: int,
+    timeout_sec: float,
+    started_epoch: float,
+) -> None:
+    provider = (provider or "").strip().lower()
+    log_dir = ROOT / "data" / "logs"
+    report.update(
+        {
+            "provider": provider,
+            "max_provider_calls": max_provider_calls,
+            "timeout_sec": timeout_sec,
+            "real_app_process_started": False,
+            "real_app_startup_path": str(ROOT / "run.py"),
+            "pass_status": "pending",
+            "fail_reason": "",
+        }
+    )
+    if provider not in {"gpt", "gemini"}:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "external_provider_required"
+        return
+    if max_provider_calls < 1:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "max_provider_calls_must_be_positive"
+        return
+    if max_provider_calls > 1:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "real_app_startup_max_provider_calls_over_one_blocked"
+        return
+
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = env.get("QT_QPA_PLATFORM") or "offscreen"
+    env["AITS_DEV_LOGIN_BYPASS"] = "1"
+    env.pop("AITS_QT_SMOKE_HARNESS", None)
+    env.pop("AITS_STARTUP_READINESS_PREFLIGHT", None)
+
+    proc: subprocess.Popen[Any] | None = None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, str(ROOT / "run.py")],
+            cwd=str(ROOT),
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        report["real_app_process_started"] = True
+        report["real_app_process_id"] = proc.pid
+        deadline = time.time() + max(float(timeout_sec), 10.0)
+        latest_log: dict[str, Any] = {}
+        while time.time() < deadline:
+            time.sleep(1.0)
+            latest_log = _read_log_tail(log_dir, started_epoch)
+            if proc.poll() is not None:
+                report["real_app_process_exited_early"] = True
+                break
+            if latest_log.get("startup_readiness_ui_applied"):
+                break
+            if latest_log.get("startup_readiness_dispatch_blocked"):
+                break
+            if latest_log.get("startup_readiness_skip_seen") and not latest_log.get("startup_readiness_scheduled"):
+                break
+
+        final_log = _read_log_tail(log_dir, started_epoch)
+        external_calls = int(final_log.get("external_cost_call_markers") or 0)
+        provider_calls = int(final_log.get("provider_call_markers") or 0)
+        startup_ready_raw = str(final_log.get("startup_engine_ready_for_run") or "").strip().lower()
+        startup_status = str(final_log.get("startup_generation_status") or "")
+        report.update(
+            {
+                "log_tail_after_real_app_startup": final_log,
+                "startup_readiness_scheduled": bool(final_log.get("startup_readiness_scheduled")),
+                "startup_readiness_skip_reason": str(final_log.get("startup_readiness_skip_reason") or ""),
+                "startup_worker_started": bool(final_log.get("startup_readiness_worker_started")),
+                "startup_worker_result": str(final_log.get("startup_worker_result") or ""),
+                "startup_worker_result_seen": bool(final_log.get("startup_readiness_worker_result_seen")),
+                "startup_ui_applied": bool(final_log.get("startup_readiness_ui_applied")),
+                "connection_state_simple_after": str(final_log.get("startup_connection_state_simple") or ""),
+                "generation_source": "startup_generation" if bool(final_log.get("startup_readiness_worker_started")) else "",
+                "generation_status": startup_status,
+                "generation_request_id": str(final_log.get("startup_generation_request_id") or final_log.get("latest_group_id") or ""),
+                "engine_ready_for_run": startup_ready_raw in {"true", "1", "yes"},
+                "provider_call_count": external_calls,
+                "provider_call_count_with_worker_markers": provider_calls,
+                "external_cost_call_count": external_calls,
+                "provider_actual": provider if bool(final_log.get("latest_provider_success_seen")) else "",
+                "fallback_used": bool(final_log.get("latest_provider_failure_seen")) and not bool(final_log.get("latest_provider_success_seen")),
+                "latest_provider_http_status": str(final_log.get("latest_provider_http_status") or ""),
+                "latest_provider_response_id_present": bool(final_log.get("latest_provider_response_id")),
+                "latest_provider_usage_total_tokens_present": bool(final_log.get("latest_provider_usage_total_tokens")),
+                "order_risk_detected": bool(final_log.get("risk_hits")),
+            }
+        )
+
+        fail_reasons: list[str] = []
+        if proc.poll() is not None:
+            fail_reasons.append("real_app_process_exited_before_ready")
+        if external_calls > max_provider_calls:
+            fail_reasons.append("external_provider_call_over_limit")
+        if not report["startup_readiness_scheduled"]:
+            fail_reasons.append("startup_readiness_not_scheduled")
+        if not report["startup_worker_started"]:
+            fail_reasons.append("startup_worker_not_started")
+        if not report["startup_worker_result_seen"]:
+            fail_reasons.append("startup_worker_result_missing")
+        if not report["startup_ui_applied"]:
+            fail_reasons.append("startup_ui_not_applied")
+        if not report["engine_ready_for_run"]:
+            fail_reasons.append("engine_not_ready_after_real_app_startup")
+        if not final_log.get("latest_provider_success_seen"):
+            fail_reasons.append("provider_success_not_seen")
+        if report["fallback_used"]:
+            fail_reasons.append("fallback_used")
+        if report["order_risk_detected"]:
+            fail_reasons.append("order_risk_detected")
+        if fail_reasons:
+            report["pass_status"] = "fail"
+            report["fail_reason"] = ",".join(fail_reasons)
+        else:
+            report["pass_status"] = "pass"
+    except Exception as exc:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = f"real_app_startup_probe_error:{type(exc).__name__}"
+    finally:
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except Exception:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=5)
+                except Exception:
+                    report["real_app_process_stop_warning"] = "process_kill_failed"
+        if proc is not None:
+            report["real_app_process_exit_code"] = proc.poll()
 
 
 def _run_save_probe(
@@ -3836,14 +4018,29 @@ def run_harness(
         report["report_path"] = str(path)
         return _write_json_report(report, path)
 
-    if mode in {"provider-smoke", "provider-startup-readiness-proof"} and not allow_provider_calls and not no_click:
+    if mode in {"provider-smoke", "provider-startup-readiness-proof", "real-app-startup-readiness-proof"} and not allow_provider_calls and not no_click:
         report["status"] = "blocked"
         report["warnings"].append(f"{mode} requires --allow-provider-calls unless --no-click is used")
         return report
-    if mode in {"provider-smoke", "provider-startup-readiness-proof"} and not provider:
+    if mode in {"provider-smoke", "provider-startup-readiness-proof", "real-app-startup-readiness-proof"} and not provider:
         report["status"] = "blocked"
         report["warnings"].append(f"{mode} requires --provider local|gpt|gemini")
         return report
+    if mode == "real-app-startup-readiness-proof":
+        _run_real_app_startup_readiness_proof(
+            report,
+            provider=provider or "",
+            max_provider_calls=max_provider_calls,
+            timeout_sec=timeout_sec,
+            started_epoch=started_epoch,
+        )
+        report["status"] = "pass" if report.get("pass_status") == "pass" else report.get("pass_status", "fail")
+        report["finished_at"] = _now_iso()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = output_dir / f"runtime_smoke_report_{stamp}.json"
+        report["report_path"] = str(path)
+        return _write_json_report(report, path)
     if not allow_provider_calls and mode != "live-2h-guarded-window":
         _install_network_guards(report)
 
@@ -3965,6 +4162,7 @@ def run_harness(
     if mode in {
         "provider-smoke",
         "provider-startup-readiness-proof",
+        "real-app-startup-readiness-proof",
         "save-probe",
         "riskguard-active-path-proof",
         "riskguard-active-path-candidate-proof",
@@ -4008,6 +4206,7 @@ def main() -> int:
             "dry-navigation",
             "provider-smoke",
             "provider-startup-readiness-proof",
+            "real-app-startup-readiness-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",

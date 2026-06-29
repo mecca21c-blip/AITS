@@ -79,3 +79,17 @@ provider has already attempted startup readiness in the current session. This
 prevents app-start provider-call loops while preserving the SSOT: selected,
 applied, active engine, and ON gate all derive readiness from the same fresh
 provider-generation proof.
+
+## Real Startup Result Ownership
+
+The real app startup path must schedule readiness from provider-preview
+application after saved provider state is restored. Harness-only helper calls do
+not prove this path. The proof boundary is the `run.py` process emitting
+`StartupReadinessPreflight` scheduled, worker-start, worker-result, and
+ui-applied logs.
+
+When GPT/GEMINI is selected and a fresh confirmed response has made the engine
+ready, ungrouped LOCAL side-channel updates are ignored for connection-state
+ownership. LOCAL remains valid only when selected explicitly or when an
+explicit fallback result is recorded. This prevents a startup GPT success from
+being overwritten back to LOCAL by later calculation-layer events.
