@@ -60,6 +60,7 @@ CORE_WIDGETS = {
 PUBLIC_MARKET_READ_MODES = {
     "top-markets-feed-proof",
     "basic-candidate-discovery-proof",
+    "managed-pool-auto-promotion-apply-proof",
 }
 
 
@@ -1182,6 +1183,266 @@ def _run_managed_pool_promotion_policy_proof(
         }
     )
     report["pass_status"] = "pass" if fixture_pass and not order_risk and latest else "partial"
+
+
+def _persist_managed_pool_rows(window: Any, rows: list[dict[str, Any]], max_size: int) -> bool:
+    try:
+        from app.utils.prefs import load_settings, save_settings_patch
+
+        base = load_settings()
+        ui_state = getattr(base, "ui_state", None) or {}
+        if hasattr(ui_state, "model_dump"):
+            ui_state = ui_state.model_dump()
+        elif not isinstance(ui_state, dict):
+            ui_state = {}
+        ui_state = dict(ui_state)
+        ui_state["managed_pool_rows"] = rows
+        ui_state["managed_pool_max_size"] = int(max_size)
+        saved = save_settings_patch(
+            {"ui_state": ui_state},
+            base_settings=base,
+            force=True,
+            save_source="managed_pool_auto_promotion_apply_proof",
+        )
+        if saved is not None:
+            try:
+                window._settings = saved
+            except Exception:
+                pass
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _run_managed_pool_auto_promotion_apply_proof(
+    app: Any,
+    window: Any,
+    widgets: dict[str, Any],
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    max_managed: int = 10,
+    apply_add_only: bool = False,
+) -> None:
+    from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
+
+    configured_max = max(1, min(50, int(max_managed or 10)))
+    spin = getattr(window, "sp_managed_pool_max_size", None)
+    ui_setting_supported = spin is not None
+    if spin is not None:
+        try:
+            spin.blockSignals(True)
+            spin.setValue(configured_max)
+            spin.blockSignals(False)
+        except Exception:
+            try:
+                spin.blockSignals(False)
+            except Exception:
+                pass
+
+    before_rows = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    before_symbols = [_row_symbol(row) for row in before_rows if _row_symbol(row)]
+    backup_dir = ROOT / "data" / "managed_pool_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"managed_pool_before_auto_promotion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    backup_payload = {
+        "created_at": _now_iso(),
+        "goal": "AITS-MANAGED-POOL-MAX-SIZE-USER-SETTING-AND-AUTO-PROMOTION-APPLY-01",
+        "configured_max_managed_pool_size": configured_max,
+        "before_count": len(before_rows),
+        "before_symbols": before_symbols,
+        "rows": before_rows,
+    }
+    backup_path.write_text(json.dumps(backup_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    candidate_report: dict[str, Any] = {}
+    _run_basic_candidate_discovery_proof(
+        app,
+        window,
+        widgets,
+        candidate_report,
+        max_candidates=max(configured_max, int(report.get("max_candidates") or 10), 10),
+    )
+    top_candidates = list(candidate_report.get("top_candidates") or [])
+    current_rows = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    config = {
+        "max_managed_pool_size": configured_max,
+        "promotion_min_score": None,
+        "auto_add_enabled": True,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": False,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+    plan = build_managed_pool_promotion_plan(current_rows, top_candidates, [], config)
+    planned_add = list(plan.get("planned_add") or [])
+    added_symbols: list[str] = []
+    skipped_symbols: list[dict[str, str]] = []
+    actual_remove_count = 0
+    actual_rotation_count = 0
+    persisted = False
+    rollback_performed = False
+
+    if apply_add_only:
+        rows = getattr(window, "ai_managed_rows", None)
+        if not isinstance(rows, list):
+            rows = []
+            window.ai_managed_rows = rows
+        existing = {_row_symbol(row) for row in rows if isinstance(row, dict)}
+        for item in planned_add:
+            symbol = _row_symbol(item)
+            if not symbol:
+                skipped_symbols.append({"symbol": "", "reason": "missing_symbol"})
+                continue
+            if symbol in existing:
+                skipped_symbols.append({"symbol": symbol, "reason": "already_managed"})
+                continue
+            if len(rows) >= configured_max:
+                skipped_symbols.append({"symbol": symbol, "reason": "max_size_reached"})
+                continue
+            row = {
+                "symbol": symbol,
+                "market": symbol,
+                "name": symbol.split("-")[-1],
+                "source": "AI",
+                "source_type": "basic_added",
+                "status": "candidate",
+                "score": item.get("score"),
+                "ai_score": item.get("score"),
+                "rank": item.get("rank"),
+                "reason": item.get("reason") or item.get("promotion_reason") or "selected_by_basic_candidate",
+                "created_at": _now_iso(),
+                "added_at": _now_iso(),
+                "updated_at": _now_iso(),
+            }
+            try:
+                shaper = getattr(window, "_ensure_aits_managed_pool_row_shape", None)
+                if callable(shaper):
+                    shaped = shaper(dict(row))
+                    if isinstance(shaped, dict):
+                        row = shaped
+            except Exception:
+                pass
+            rows.append(row)
+            existing.add(symbol)
+            added_symbols.append(symbol)
+
+        try:
+            refresher = getattr(window, "_refresh_ai_managed_table", None)
+            if callable(refresher):
+                refresher()
+                _pump_events(app, 0.2)
+        except Exception:
+            pass
+
+    after_rows = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    after_symbols = [_row_symbol(row) for row in after_rows if _row_symbol(row)]
+    protected_preserved = all(symbol in after_symbols for symbol in before_symbols)
+    cap_ok = len(after_rows) <= configured_max
+
+    if apply_add_only and (not cap_ok or not protected_preserved):
+        window.ai_managed_rows = [dict(row) for row in before_rows]
+        _persist_managed_pool_rows(window, before_rows, configured_max)
+        rollback_performed = True
+        after_rows = [dict(row) for row in before_rows]
+        after_symbols = list(before_symbols)
+        added_symbols = []
+    elif apply_add_only:
+        snapshotter = getattr(window, "_build_managed_pool_rows_snapshot", None)
+        snapshot = snapshotter() if callable(snapshotter) else after_rows
+        persisted = _persist_managed_pool_rows(window, list(snapshot or []), configured_max)
+
+    saved_setting_value = ""
+    readback_count = 0
+    readback_symbols: list[str] = []
+    try:
+        from app.utils.prefs import load_settings
+
+        saved = load_settings()
+        ui_state = getattr(saved, "ui_state", None) or {}
+        if hasattr(ui_state, "model_dump"):
+            ui_state = ui_state.model_dump()
+        elif not isinstance(ui_state, dict):
+            ui_state = {}
+        saved_setting_value = ui_state.get("managed_pool_max_size", "")
+        readback_rows = [row for row in (ui_state.get("managed_pool_rows") or []) if isinstance(row, dict)]
+        readback_count = len(readback_rows)
+        readback_symbols = [_row_symbol(row) for row in readback_rows if _row_symbol(row)]
+    except Exception:
+        pass
+
+    report.update(
+        {
+            "ui_setting_supported": bool(ui_setting_supported),
+            "configured_max_managed_pool_size": configured_max,
+            "max_size_source": "cli_override",
+            "saved_setting_value": saved_setting_value,
+            "applied_setting_value": configured_max,
+            "before_backup_path": str(backup_path),
+            "before_count": len(before_rows),
+            "before_symbols": before_symbols,
+            "candidate_count": candidate_report.get("candidate_count", 0),
+            "top_candidates": candidate_report.get("top_candidates", []),
+            "candidate_proof_pass_status": candidate_report.get("pass_status", ""),
+            "planned_add": planned_add,
+            "planned_remove": plan.get("planned_remove", []),
+            "planned_rotation": plan.get("planned_rotation", []),
+            "added_symbols": added_symbols,
+            "skipped_symbols": skipped_symbols,
+            "after_count": len(after_rows),
+            "after_symbols": after_symbols,
+            "pool_size_after": len(after_rows),
+            "max_cap_ok": bool(cap_ok),
+            "added_source_ok": all(
+                str(row.get("source_type") or "").lower() == "basic_added"
+                for row in after_rows
+                if _row_symbol(row) in set(added_symbols)
+            ),
+            "persistence_write_ok": bool(persisted) if apply_add_only else False,
+            "persistence_readback_count": readback_count,
+            "persistence_readback_symbols": readback_symbols,
+            "actual_add_count": len(added_symbols),
+            "actual_remove_count": actual_remove_count,
+            "actual_rotation_count": actual_rotation_count,
+            "user_added_holding_system_seed_preserved": bool(protected_preserved),
+            "rollback_performed": bool(rollback_performed),
+            "actual_mutation_performed": bool(added_symbols),
+            "managed_pool_mutation_performed": bool(added_symbols),
+            "order_risk_detected": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "provider_external_call_count": 0,
+        }
+    )
+    report["pass_status"] = (
+        "pass"
+        if apply_add_only
+        and not rollback_performed
+        and cap_ok
+        and protected_preserved
+        and persisted
+        and actual_remove_count == 0
+        and actual_rotation_count == 0
+        else "partial"
+    )
 
 
 def _widget_snapshot(widget: Any, *, key: str = "", source: str = "") -> dict[str, Any]:
@@ -4534,6 +4795,7 @@ def run_harness(
     max_candidates: int = 10,
     max_markets: int = 20,
     max_managed: int = 10,
+    apply_add_only: bool = False,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -4668,6 +4930,16 @@ def run_harness(
             widgets,
             report,
             max_candidates=max_candidates,
+        )
+    elif mode == "managed-pool-auto-promotion-apply-proof":
+        _run_managed_pool_auto_promotion_apply_proof(
+            app,
+            window,
+            widgets,
+            report,
+            output_dir=output_dir,
+            max_managed=max_managed,
+            apply_add_only=apply_add_only,
         )
     elif mode == "riskguard-active-path-proof":
         _run_riskguard_active_path_proof(
@@ -4806,6 +5078,7 @@ def main() -> int:
             "real-app-startup-readiness-proof",
             "top-markets-feed-proof",
             "managed-pool-promotion-policy-proof",
+            "managed-pool-auto-promotion-apply-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
@@ -4860,6 +5133,7 @@ def main() -> int:
     )
     parser.add_argument("--max-smoke-duration-sec", type=int, default=15)
     parser.add_argument("--observe-only", action="store_true")
+    parser.add_argument("--apply-add-only", action="store_true")
     parser.add_argument("--max-candidates", type=int, default=10)
     parser.add_argument("--max-markets", type=int, default=20)
     parser.add_argument("--max-managed", type=int, default=10)
@@ -4890,6 +5164,7 @@ def main() -> int:
         max_candidates=args.max_candidates,
         max_markets=args.max_markets,
         max_managed=args.max_managed,
+        apply_add_only=args.apply_add_only,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

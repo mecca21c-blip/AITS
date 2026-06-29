@@ -21,6 +21,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode top-markets-feed-proof --max-markets 20
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-discovery-proof --observe-only --max-candidates 10
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
@@ -91,9 +92,16 @@ printed to stdout.
 - `managed-pool-promotion-policy-proof`: runs fixture coverage for the
   rank-based Basic promotion policy and, when available, applies the policy to
   the latest `basic-candidate-discovery-proof` report. It verifies max pool size
-  10, `user_added` protection, holding protection until liquidation,
+  from the supplied config, `user_added` protection, holding protection until liquidation,
   `basic_added` removal candidates, rotation intent creation, duplicate
   candidate ignoring, `actual_mutation_performed=false`, and zero order calls.
+- `managed-pool-auto-promotion-apply-proof`: creates the Qt window, reads the
+  Managed Pool max-size UI setting, optionally overrides it with
+  `--max-managed`, backs up current rows under `data/managed_pool_backups`, runs
+  Basic candidate discovery, and applies `planned_add` only when
+  `--apply-add-only` is present. It must report `actual_remove_count=0`,
+  `actual_rotation_count=0`, `provider_external_call_count=0`, zero
+  place/cancel/sell/retry calls, and `after_count <= configured_max_managed_pool_size`.
 - `live-preflight-locked-proof`: evaluates the final live-order preflight lock
   with deterministic fixtures. It does not create paper trading, virtual
   trading, mock processors, provider calls, or order submissions.
@@ -173,6 +181,10 @@ printed to stdout.
 - `managed-pool-promotion-policy-proof` is policy planning only. Rotation
   `sell_candidate` / `buy_candidate` fields are review intent, not order
   execution, and must always carry `actual_order=false`.
+- `managed-pool-auto-promotion-apply-proof --apply-add-only` is the only
+  harness mode that may persist Managed Pool additions in this policy family.
+  It must not remove existing rows, execute rotation, or exceed the configured
+  max. If cap or preservation checks fail, it rolls back to the backup rows.
 - The harness skips startup provider verification inside the harness process.
 - `AI 분석 새로고침` is located but never clicked in dry modes.
 - Order-related UI or service calls are not part of the harness.

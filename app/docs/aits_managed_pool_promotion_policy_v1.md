@@ -15,7 +15,7 @@ orders require a separate live-execution Goal.
 
 ## Config
 
-- `max_managed_pool_size`: `10`
+- `max_managed_pool_size`: user setting, default `10`
 - `promotion_min_score`: `None`
 - `auto_add_enabled`: `True`
 - `auto_remove_enabled`: `True`
@@ -29,6 +29,12 @@ orders require a separate live-execution Goal.
 Initial operation is rank-relative. Fixed score thresholds are intentionally
 left unset until more runtime data exists.
 
+The max size is no longer a hard-coded policy value. The Managed Pool footer
+owns the user-facing setting (`ui_state.managed_pool_max_size`) with default
+`10`, minimum `1`, and maximum `50`. Policy callers must pass this value into
+`ManagedPoolPromotionConfig`; `10` is only the fallback default when the setting
+is absent or invalid.
+
 ## Source Types
 
 - `user_added`: user-managed row, never auto-removed.
@@ -39,10 +45,14 @@ left unset until more runtime data exists.
 
 ## Promotion
 
-When the pool has fewer than 10 rows, Basic top candidates not already managed
-can be planned for addition in rank order. Planned rows use
+When the pool has fewer rows than the configured max, Basic top candidates not
+already managed can be planned for addition in rank order. Planned rows use
 `source_type=basic_added` and include score, rank, reason, trade value, and
 `actual_order=false`.
+
+The first actual apply path is add-only: it may persist `planned_add` rows up to
+the configured max, but it must not execute `planned_remove`, rotation, orders,
+sell, cancel, or retry.
 
 ## Removal
 
@@ -71,6 +81,7 @@ Use:
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 ```
 
 The proof covers auto-add, user protection, holding protection, max-10

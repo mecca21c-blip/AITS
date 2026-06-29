@@ -14916,39 +14916,47 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        def _managed_foot_card(_title: str):
-            _bx = QFrame()
-            try:
-                _bx.setProperty("managedSummaryItem", True)
-                _bx.setStyleSheet("")
-            except Exception:
-                pass
-            _vl = QVBoxLayout(_bx)
-            try:
-                _vl.setContentsMargins(12, 10, 12, 10)
-                _vl.setSpacing(4)
-            except Exception:
-                pass
-            _lt = QLabel(_title)
-            try:
-                _lt.setProperty("managedSummaryTitle", True)
-            except Exception:
-                pass
-            _lv = QLabel("—")
-            try:
-                _lv.setProperty("managedSummaryValue", True)
-            except Exception:
-                pass
-            _vl.addWidget(_lt)
-            _vl.addWidget(_lv)
-            return _bx, _lv
-
-        _bx_e, self._lbl_managed_foot_eval = _managed_foot_card("총 평가금액")
-        _bx_w, self._lbl_managed_foot_wsum = _managed_foot_card("총 비중")
-        _bx_c, self._lbl_managed_foot_cash = _managed_foot_card("현금 비중")
-        _mf_lay.addWidget(_bx_e, 1)
-        _mf_lay.addWidget(_bx_w, 1)
-        _mf_lay.addWidget(_bx_c, 1)
+        self._lbl_managed_foot_eval = None
+        self._lbl_managed_foot_wsum = None
+        self._lbl_managed_foot_cash = None
+        _max_size_value, _max_size_source = self._get_managed_pool_max_size_setting()
+        _max_box = QFrame()
+        try:
+            _max_box.setProperty("managedSummaryItem", True)
+            _max_box.setStyleSheet("")
+        except Exception:
+            pass
+        _max_lay = QHBoxLayout(_max_box)
+        try:
+            _max_lay.setContentsMargins(12, 10, 12, 10)
+            _max_lay.setSpacing(8)
+        except Exception:
+            pass
+        _max_label = QLabel("\ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218")
+        self.sp_managed_pool_max_size = QSpinBox()
+        try:
+            self.sp_managed_pool_max_size.setObjectName("sp_managed_pool_max_size")
+            self.sp_managed_pool_max_size.setProperty(
+                "smokeObjectName", "sp_managed_pool_max_size"
+            )
+            self.sp_managed_pool_max_size.setRange(1, 50)
+            self.sp_managed_pool_max_size.setValue(int(_max_size_value))
+            self.sp_managed_pool_max_size.setToolTip(
+                "\uc790\ub3d9 \ud6c4\ubcf4 \ud3b8\uc785 \uc2dc \uc720\uc9c0\ud560 \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9 \uc218\uc785\ub2c8\ub2e4."
+            )
+            self.sp_managed_pool_max_size.valueChanged.connect(
+                self._on_managed_pool_max_size_changed
+            )
+        except Exception:
+            pass
+        try:
+            self._managed_pool_max_size_source = _max_size_source
+        except Exception:
+            pass
+        _max_lay.addWidget(_max_label, 0)
+        _max_lay.addWidget(self.sp_managed_pool_max_size, 0)
+        _max_lay.addStretch(1)
+        _mf_lay.addWidget(_max_box, 1)
         try:
             self._frm_managed_footer.setParent(None)
         except Exception:
@@ -16832,6 +16840,64 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return {}
+
+    def _coerce_managed_pool_max_size(self, value, default: int = 10) -> int:
+        try:
+            num = int(float(str(value).replace(",", "").strip()))
+        except Exception:
+            num = int(default)
+        return max(1, min(50, int(num)))
+
+    def _get_managed_pool_max_size_setting(self) -> tuple[int, str]:
+        ui_state = self._get_ui_state_dict()
+        if "managed_pool_max_size" in ui_state:
+            return self._coerce_managed_pool_max_size(ui_state.get("managed_pool_max_size")), "ui_state"
+        basic = ui_state.get("basic_ai_settings")
+        if isinstance(basic, dict) and "managed_pool_max_size" in basic:
+            return self._coerce_managed_pool_max_size(basic.get("managed_pool_max_size")), "basic_ai_settings"
+        return 10, "default_fallback"
+
+    def _get_managed_pool_max_size_value(self) -> int:
+        spin = getattr(self, "sp_managed_pool_max_size", None)
+        try:
+            if spin is not None and hasattr(spin, "value"):
+                return self._coerce_managed_pool_max_size(spin.value())
+        except Exception:
+            pass
+        value, _source = self._get_managed_pool_max_size_setting()
+        return value
+
+    def _set_managed_pool_max_size_setting(
+        self, value, *, reason: str = "managed_pool_max_size_change"
+    ) -> bool:
+        max_size = self._coerce_managed_pool_max_size(value)
+        spin = getattr(self, "sp_managed_pool_max_size", None)
+        try:
+            if spin is not None and hasattr(spin, "value") and int(spin.value()) != max_size:
+                spin.blockSignals(True)
+                spin.setValue(max_size)
+                spin.blockSignals(False)
+        except Exception:
+            try:
+                if spin is not None:
+                    spin.blockSignals(False)
+            except Exception:
+                pass
+        ui_state = self._get_ui_state_dict()
+        ui_state["managed_pool_max_size"] = max_size
+        ok = bool(self._apply_settings_patch({"ui_state": ui_state}, reason=reason))
+        try:
+            self._log.info(
+                "[AITS][ManagedPoolMaxSize] event=save value=%s ok=%s submitted=0 order_allowed=False real_order=False",
+                int(max_size),
+                bool(ok),
+            )
+        except Exception:
+            pass
+        return ok
+
+    def _on_managed_pool_max_size_changed(self, value: int) -> None:
+        self._set_managed_pool_max_size_setting(value)
 
     def _normalize_managed_pool_symbol_for_persistence(self, value) -> str:
         try:
@@ -39291,6 +39357,7 @@ class MainWindow(QMainWindow):
             "risk_profile": _norm_risk_profile(risk_profile_kr),
             "selection_strength": _norm_level3(selection_strength_kr),
             "max_positions": _safe_int_from_widget(w_max_positions, 5),
+            "max_managed_pool_size": self._get_managed_pool_max_size_value(),
 
             "take_profit_pct": _safe_float_from_widget(w_take_profit_pct, 3.5),
             "stop_loss_pct": _safe_float_from_widget(w_stop_loss_pct, 1.5),
@@ -39416,6 +39483,9 @@ class MainWindow(QMainWindow):
             "risk_profile": _norm_risk(_risk_kr),
             "selection_strength": _norm_level3(_sel_kr),
             "max_positions": int(legacy.get("max_positions", 5) or 5),
+            "max_managed_pool_size": self._coerce_managed_pool_max_size(
+                legacy.get("managed_pool_max_size", 10)
+            ),
             "take_profit_pct": _tp,
             "stop_loss_pct": float(legacy.get("stop_loss_pct", 1.5) or 1.5),
             "max_hold_minutes": int(
@@ -39452,6 +39522,9 @@ class MainWindow(QMainWindow):
             "selection_strength": cfg.get("selection_strength", "medium"),
             "selection_strength_kr": (cfg.get("ui_labels_kr") or {}).get("종목 선별 강도", "보통"),
             "max_positions": cfg.get("max_positions", 5),
+            "managed_pool_max_size": cfg.get(
+                "max_managed_pool_size", self._get_managed_pool_max_size_value()
+            ),
             "take_profit_pct": cfg.get("take_profit_pct", 3.5),
             "stop_loss_pct": cfg.get("stop_loss_pct", 1.5),
             "max_hold_minutes": cfg.get("max_hold_minutes", 90),
@@ -44714,6 +44787,10 @@ class MainWindow(QMainWindow):
                             )
                         if "max_positions" in bas:
                             self.basic_ai_settings["max_positions"] = int(bas.get("max_positions") or 5)
+                        if "managed_pool_max_size" in bas:
+                            self.basic_ai_settings["managed_pool_max_size"] = self._coerce_managed_pool_max_size(
+                                bas.get("managed_pool_max_size")
+                            )
                         if "selection_strength" in bas and str(bas.get("selection_strength") or "").strip():
                             self.basic_ai_settings["selection_strength"] = str(
                                 bas["selection_strength"]
@@ -44755,6 +44832,19 @@ class MainWindow(QMainWindow):
                         if "max_new_entries" in bas:
                             self.basic_ai_settings["max_new_entries"] = int(bas.get("max_new_entries") or 2)
                         self._load_basic_ai_settings_to_ui()
+                        spin = getattr(self, "sp_managed_pool_max_size", None)
+                        if spin is not None:
+                            value, source = self._get_managed_pool_max_size_setting()
+                            try:
+                                spin.blockSignals(True)
+                                spin.setValue(int(value))
+                                spin.blockSignals(False)
+                                self._managed_pool_max_size_source = source
+                            except Exception:
+                                try:
+                                    spin.blockSignals(False)
+                                except Exception:
+                                    pass
                 except Exception:
                     pass
                 # GPT 박스: 키/모델 항상 로드. LOCAL이어도 키는 마스킹 표시만(비우지 않음).
@@ -46270,6 +46360,7 @@ class MainWindow(QMainWindow):
                     us_merged = {}
                 managed_rows = self._build_managed_pool_rows_snapshot()
                 us_merged["managed_pool_rows"] = managed_rows
+                us_merged["managed_pool_max_size"] = self._get_managed_pool_max_size_value()
                 patch["ui_state"] = us_merged
                 try:
                     user_added = sum(

@@ -90,6 +90,10 @@ already managed or Basic thresholds not met.
 
 Basic candidate promotion is defined in
 `app/services/managed_pool_promotion_policy.py`. The current policy is
-rank-based with `max_managed_pool_size=10` and no fixed score threshold. The
-Basic scan may feed top candidates into the promotion policy, but actual row
-mutation is not performed by the observe-only proof.
+rank-based with no fixed score threshold. `max_managed_pool_size` comes from
+the user setting in `ui_state.managed_pool_max_size`; `10` is only the default
+fallback. The Basic scan may feed top candidates into the promotion policy.
+
+`managed-pool-auto-promotion-apply-proof --apply-add-only` is the first actual
+mutation proof. It may add `basic_added` rows up to the configured max, but it
+must not remove rows, execute rotation, call providers, or create orders.
