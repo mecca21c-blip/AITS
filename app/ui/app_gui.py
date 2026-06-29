@@ -14896,7 +14896,7 @@ class MainWindow(QMainWindow):
             self._frm_managed_footer.setProperty(
                 "managedSummaryDockCandidate", True
             )
-            self._frm_managed_footer.setFixedHeight(78)
+            self._frm_managed_footer.setFixedHeight(132)
             self._frm_managed_footer.setSizePolicy(
                 QSizePolicy.Policy.Expanding,
                 QSizePolicy.Policy.Fixed,
@@ -14909,10 +14909,10 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._managed_summary_wrap = self._frm_managed_footer
-        _mf_lay = QHBoxLayout(self._frm_managed_footer)
+        _mf_lay = QVBoxLayout(self._frm_managed_footer)
         try:
             _mf_lay.setContentsMargins(0, 0, 0, 0)
-            _mf_lay.setSpacing(0)
+            _mf_lay.setSpacing(4)
         except Exception:
             pass
 
@@ -14928,7 +14928,7 @@ class MainWindow(QMainWindow):
             pass
         _max_lay = QHBoxLayout(_max_box)
         try:
-            _max_lay.setContentsMargins(12, 10, 12, 10)
+            _max_lay.setContentsMargins(12, 8, 12, 4)
             _max_lay.setSpacing(8)
         except Exception:
             pass
@@ -14971,7 +14971,7 @@ class MainWindow(QMainWindow):
         _max_lay.addWidget(self.sp_managed_pool_max_size, 0)
         _max_lay.addWidget(self.btn_apply_managed_pool_max_size, 0)
         _max_lay.addStretch(1)
-        _mf_lay.addWidget(_max_box, 1)
+        _mf_lay.addWidget(_max_box, 0)
         self.lbl_managed_pool_sync_result_title = QLabel("최근 적용 결과")
         self.lbl_managed_pool_sync_result_summary = QLabel("아직 바로적용 결과가 없습니다.")
         self.lbl_managed_pool_sync_result_detail = QLabel("")
@@ -14996,19 +14996,25 @@ class MainWindow(QMainWindow):
                 _sync_lbl.setSizePolicy(
                     QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
                 )
+            self.lbl_managed_pool_sync_result_title.setMinimumHeight(18)
+            self.lbl_managed_pool_sync_result_summary.setMinimumHeight(22)
+            self.lbl_managed_pool_sync_result_detail.setMinimumHeight(36)
+            self.lbl_managed_pool_sync_result_detail.setMaximumHeight(52)
         except Exception:
             pass
         _sync_result_box = QFrame()
         try:
             _sync_result_box.setObjectName("frm_managed_pool_sync_result")
             _sync_result_box.setProperty("managedSummaryItem", True)
+            _sync_result_box.setProperty("smokeObjectName", "frm_managed_pool_sync_result")
+            _sync_result_box.setMinimumHeight(72)
             _sync_result_box.setStyleSheet("")
         except Exception:
             pass
         _sync_result_lay = QVBoxLayout(_sync_result_box)
         try:
-            _sync_result_lay.setContentsMargins(12, 8, 12, 8)
-            _sync_result_lay.setSpacing(3)
+            _sync_result_lay.setContentsMargins(12, 4, 12, 8)
+            _sync_result_lay.setSpacing(2)
         except Exception:
             pass
         _sync_result_lay.addWidget(self.lbl_managed_pool_sync_result_title, 0)
