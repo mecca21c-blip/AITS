@@ -50,12 +50,16 @@ printed to stdout.
 - `provider-smoke`: runs one explicit provider refresh only when
   `--allow-provider-calls` is supplied. For GPT/Gemini it reports
   `generation_response_confirmed`, `generation_response_confirmed_reason`,
-  `provider_selected`, `provider_actual`, `fallback_used`, `http_status`,
-  `response_id_present`, `token_usage_present`, and
+  `generation_request_id`, `generation_status`, `generation_status_text`,
+  `generation_attempt_count`, `generation_max_attempts`,
+  `generation_retry_used`, `generation_fresh`, `generation_stale`,
+  `stale_reason`, `provider_selected`, `provider_actual`, `fallback_used`,
+  `http_status`, `response_id_present`, `token_usage_present`, and
   `ui_generation_status_text`. A configured key or auth-ready state is not a
   generation response proof; only a provider success log or equivalent
   generation record may confirm the response. If GPT/Gemini fails and LOCAL is
   used, the report keeps the selected provider and records the fallback reason.
+  Stale previous responses must not set `generation_response_confirmed=true`.
 - `save-probe`: switches to the trade-log context, verifies the footer save
   selector, calls the trade-log persistence handler directly, and records
   save proof without clicking AI refresh or making provider calls.
@@ -215,7 +219,9 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-smoke --allo
 Arguments:
 
 - `--provider local|gpt|gemini`: required for provider-smoke.
-- `--max-provider-calls N`: defaults to `1`; values greater than one are blocked.
+- `--max-provider-calls N`: defaults to `1`; values greater than three are
+  blocked. LOCAL still requires one call or fewer. GPT/Gemini may use `2` for
+  retry-lifecycle proof when the Goal explicitly allows it.
 - `--target-symbol KRW-...`: optional managed-row target.
 - `--timeout-sec N`: maximum wait for snapshot and Journal proof.
 - `--wait-after-click-sec N`: initial event-pump delay after the single click.
@@ -228,6 +234,9 @@ Safety behavior:
 - LOCAL provider-smoke expects zero external OpenAI/Gemini request markers.
 - GPT and Gemini provider-smoke must be run only by a Goal that explicitly allows
   the exact provider and call count.
+- GPT/Gemini provider-smoke maps `--max-provider-calls` to the generation retry
+  budget. `1` means no retry; `2` permits one provider-generation retry. This is
+  not an order retry and must not call order services.
 - Reports include provider branch delta, external cost-provider request delta,
   selected symbol, latest decision group id, snapshot/Journal proof flags,
   latest trade-log row, detail excerpt, duplicate detection, and order-risk flags.

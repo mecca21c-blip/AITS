@@ -1282,6 +1282,18 @@ class AITSProviderRefreshWorker(QThread):
             "usage_output_tokens": None,
             "usage_total_tokens": None,
             "provider_success": False,
+            "generation_request_id": str(self.request_payload.get("generation_request_id") or self.request_payload.get("request_id") or self.request_payload.get("decision_group_id") or ""),
+            "generation_status": "request_started",
+            "generation_status_text": "생성 요청 중",
+            "generation_attempt": 0,
+            "generation_attempt_count": 0,
+            "generation_max_attempts": max(1, int(self.request_payload.get("generation_max_attempts") or 1)),
+            "generation_retry_used": False,
+            "generation_fresh": False,
+            "generation_stale": False,
+            "stale_reason": "",
+            "generation_response_confirmed": False,
+            "generation_response_confirmed_reason": "",
             "error_type": "",
             "error_code": "",
             "error_param": "",
@@ -1393,26 +1405,73 @@ class AITSProviderRefreshWorker(QThread):
                 result["provider_call_attempted"] = True
                 result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
                 result["provider_endpoint_type"] = "chat_completions"
-                try:
-                    ps = result.get("payload_summary") if isinstance(result.get("payload_summary"), dict) else {}
-                    logging.getLogger("aits").info(
-                        "[AITS][OpenAIProviderProof] event=request_attempt group_id=%s endpoint=chat_completions model_requested=%s compact_smoke=%s messages_count=%s message_chars=%s output_token_cap=%s timeout_sec=%s submitted=0 order_allowed=False real_order=False",
-                        str(result.get("decision_group_id") or result.get("request_id") or ""),
-                        str(result.get("model_requested") or result.get("model") or ""),
-                        bool(ps.get("compact_provider_smoke")),
-                        ps.get("messages_count"),
-                        ps.get("message_chars"),
-                        ps.get("output_token_cap"),
-                        int(self.request_payload.get("timeout_sec") or 90),
-                    )
-                except Exception:
-                    pass
-                resp = requests.post(
-                    str(self.request_payload.get("url") or ""),
-                    headers=dict(self.request_payload.get("headers") or {}),
-                    json=self.request_payload.get("json") or {},
-                    timeout=timeout_sec,
-                )
+                max_attempts = max(1, int(result.get("generation_max_attempts") or 1))
+                retry_backoff_sec = max(0.0, float(self.request_payload.get("generation_retry_backoff_sec") or 0.0))
+                resp = None
+                for attempt in range(1, max_attempts + 1):
+                    result["generation_attempt"] = attempt
+                    result["generation_attempt_count"] = attempt
+                    result["generation_status"] = "waiting_response"
+                    result["generation_status_text"] = "생성 응답 대기 중" if attempt == 1 else f"생성 재시도 중 {attempt}/{max_attempts}"
+                    try:
+                        ps = result.get("payload_summary") if isinstance(result.get("payload_summary"), dict) else {}
+                        logging.getLogger("aits").info(
+                            "[AITS][ProviderGenerationLifecycle] event=request_started request_id=%s provider=gpt attempt=%s max_attempts=%s status=%s submitted=0 order_allowed=False real_order=False",
+                            str(result.get("generation_request_id") or result.get("decision_group_id") or result.get("request_id") or ""),
+                            attempt,
+                            max_attempts,
+                            str(result.get("generation_status") or ""),
+                        )
+                        logging.getLogger("aits").info(
+                            "[AITS][OpenAIProviderProof] event=request_attempt group_id=%s endpoint=chat_completions model_requested=%s compact_smoke=%s messages_count=%s message_chars=%s output_token_cap=%s timeout_sec=%s attempt=%s max_attempts=%s submitted=0 order_allowed=False real_order=False",
+                            str(result.get("decision_group_id") or result.get("request_id") or ""),
+                            str(result.get("model_requested") or result.get("model") or ""),
+                            bool(ps.get("compact_provider_smoke")),
+                            ps.get("messages_count"),
+                            ps.get("message_chars"),
+                            ps.get("output_token_cap"),
+                            int(self.request_payload.get("timeout_sec") or 90),
+                            attempt,
+                            max_attempts,
+                        )
+                    except Exception:
+                        pass
+                    try:
+                        resp = requests.post(
+                            str(self.request_payload.get("url") or ""),
+                            headers=dict(self.request_payload.get("headers") or {}),
+                            json=self.request_payload.get("json") or {},
+                            timeout=timeout_sec,
+                        )
+                        break
+                    except Timeout:
+                        result["timed_out"] = True
+                        result["error_summary"] = "timeout"
+                        result["error_type"] = "timeout"
+                        result["error_code"] = "timeout"
+                        result["generation_status"] = "failed_timeout"
+                        result["generation_status_text"] = "응답 시간 초과"
+                        if attempt < max_attempts:
+                            result["generation_retry_used"] = True
+                            result["generation_status"] = "retrying"
+                            result["generation_status_text"] = f"생성 재시도 중 {attempt + 1}/{max_attempts}"
+                            try:
+                                logging.getLogger("aits").warning(
+                                    "[AITS][ProviderGenerationLifecycle] event=retrying request_id=%s provider=gpt attempt=%s next_attempt=%s max_attempts=%s reason=timeout submitted=0 order_allowed=False real_order=False",
+                                    str(result.get("generation_request_id") or result.get("decision_group_id") or result.get("request_id") or ""),
+                                    attempt,
+                                    attempt + 1,
+                                    max_attempts,
+                                )
+                            except Exception:
+                                pass
+                            if retry_backoff_sec > 0:
+                                time.sleep(min(retry_backoff_sec, 10.0))
+                            continue
+                        resp = None
+                        break
+                if resp is None:
+                    return
                 result["status_code"] = int(getattr(resp, "status_code", 0) or 0)
                 result["http_status"] = result["status_code"]
                 try:
@@ -1426,6 +1485,8 @@ class AITSProviderRefreshWorker(QThread):
                     result["provider_request_id"] = ""
                 if resp.status_code != 200:
                     result["error_summary"] = f"OpenAI HTTP {resp.status_code}"
+                    result["generation_status"] = "failed_error"
+                    result["generation_status_text"] = "생성 실패"
                     result["error_type"] = "http_error"
                     result["error_code"] = f"http_{resp.status_code}"
                     try:
@@ -1462,6 +1523,8 @@ class AITSProviderRefreshWorker(QThread):
                     body = resp.json()
                 except Exception:
                     result["error_summary"] = "OpenAI JSON parsing failed"
+                    result["generation_status"] = "failed_error"
+                    result["generation_status_text"] = "생성 실패"
                     result["error_type"] = "parse_error"
                     result["error_code"] = "invalid_json"
                     return
@@ -1480,6 +1543,8 @@ class AITSProviderRefreshWorker(QThread):
                     ai_raw_text = (delta.get("content") or "").strip()
                 if not ai_raw_text:
                     result["error_summary"] = "OpenAI response body empty"
+                    result["generation_status"] = "failed_error"
+                    result["generation_status_text"] = "생성 실패"
                     result["error_type"] = "parse_error"
                     result["error_code"] = "empty_response"
                     return
@@ -1488,6 +1553,12 @@ class AITSProviderRefreshWorker(QThread):
                 result["provider_actual"] = provider
                 result["invoked_model"] = str(result.get("model_returned") or result.get("model") or "")
                 result["provider_success"] = True
+                result["generation_status"] = "confirmed"
+                result["generation_status_text"] = "생성 응답 확인됨"
+                result["generation_fresh"] = True
+                result["generation_stale"] = False
+                result["generation_response_confirmed"] = True
+                result["generation_response_confirmed_reason"] = "current_request_provider_response_success"
                 try:
                     logging.getLogger("aits").info(
                         "[AITS][OpenAIProviderProof] event=response_success group_id=%s http_status=%s response_id=%s request_id=%s usage_input_tokens=%s usage_output_tokens=%s usage_total_tokens=%s submitted=0 order_allowed=False real_order=False",
@@ -1509,11 +1580,16 @@ class AITSProviderRefreshWorker(QThread):
             result["error_summary"] = "timeout"
             result["error_type"] = "timeout"
             result["error_code"] = "timeout"
+            result["generation_status"] = "failed_timeout"
+            result["generation_status_text"] = "응답 시간 초과"
         except Exception as exc:
             result["error_summary"] = type(exc).__name__
             result["error_type"] = type(exc).__name__
             result["error_code"] = type(exc).__name__
         finally:
+            if not bool(result.get("ok")) and not str(result.get("generation_status") or "").strip():
+                result["generation_status"] = "failed_error"
+                result["generation_status_text"] = "생성 실패"
             result["elapsed_ms"] = int(max(0.0, (time.time() - started) * 1000.0))
             result["fallback_required"] = bool(not result.get("ok"))
             if provider == "gpt" and bool(result.get("provider_call_attempted")) and not bool(result.get("ok")):
@@ -23566,7 +23642,9 @@ class MainWindow(QMainWindow):
             return "#16a34a"
         if any(token in s for token in ('실패', '응답 시간 초과', '인증 실패', '사용 한도 초과', '모델 사용 불가', '요청 형식 오류', 'API 호출 실패')):
             return "#dc2626"
-        if any(token in s for token in ('연결확인 필요', '키 설정됨 · 응답 미확인', '호출 미확인', '키 설정됨 · 호출 미확인', '미확인')):
+        if any(token in s for token in ('생성 요청 중', '생성 응답 대기 중', '생성 재시도 중')):
+            return "#2563eb"
+        if any(token in s for token in ('연결확인 필요', '키 설정됨 · 응답 미확인', '호출 미확인', '키 설정됨 · 호출 미확인', '미확인', '생성 요청 대기', '기존 응답 참고', 'stale')):
             return "#d97706"
         if any(token in s for token in ('확인중', '연결중')):
             return "#2563eb"
@@ -23646,7 +23724,7 @@ class MainWindow(QMainWindow):
                     guard_result="provider_changed",
                 )
                 return
-            status = '인증 확인됨 · 생성 응답 미확인'
+            status = '인증 확인됨 · 생성 요청 대기'
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = status
             self._last_ai_connection_source = (key_source or "").strip()
@@ -23661,6 +23739,24 @@ class MainWindow(QMainWindow):
             self._render_ai_engine_state()
         except Exception:
             pass
+
+    def _is_ai_generation_fresh(self, provider: str = "", request_id: str = "") -> bool:
+        try:
+            completed_at = float(getattr(self, "_last_ai_generation_completed_at", 0.0) or 0.0)
+            if completed_at <= 0:
+                return False
+            ttl_sec = int(getattr(self, "_ai_generation_fresh_ttl_sec", 600) or 600)
+            if time.time() - completed_at > max(ttl_sec, 1):
+                return False
+            expected_provider = self._normalize_ai_provider_code(provider)
+            if expected_provider and expected_provider != self._normalize_ai_provider_code(getattr(self, "_last_ai_generation_provider", "")):
+                return False
+            expected_request = str(request_id or "").strip()
+            if expected_request and expected_request != str(getattr(self, "_last_ai_generation_request_id", "") or "").strip():
+                return False
+            return True
+        except Exception:
+            return False
 
     def _apply_saved_ai_preview(self, provider: str, model: str) -> None:
         try:
@@ -23678,11 +23774,15 @@ class MainWindow(QMainWindow):
             last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
             if selected_provider == "basic":
                 self._ai_connection_status = "LOCAL"
-            elif selected_provider == last_provider and last_source == "manual_generation" and last_status:
+            elif selected_provider == last_provider and last_source == "manual_generation" and last_status and self._is_ai_generation_fresh(selected_provider):
                 self._ai_connection_status = last_status
+            elif selected_provider == last_provider and last_source == "manual_generation" and last_status:
+                self._last_ai_connection_status = "기존 응답 참고 · stale"
+                self._last_ai_connection_source = "manual_generation_stale"
+                self._ai_connection_status = self._last_ai_connection_status
             else:
-                self._ai_connection_status = '키 설정됨 · 응답 미확인'
-                self._ai_engine_last_checked_text = '미확인'
+                self._ai_connection_status = '인증 확인됨 · 생성 요청 대기'
+                self._ai_engine_last_checked_text = '생성 요청 대기'
             self._trace_provider_state(
                 "apply_saved_preview",
                 normalized_provider=selected_provider,
@@ -23731,12 +23831,24 @@ class MainWindow(QMainWindow):
                 normalized_provider == last_provider
                 and last_source == "manual_generation"
                 and last_status
+                and self._is_ai_generation_fresh(normalized_provider)
             ):
                 self._ai_connection_status = last_status
                 self._render_ai_engine_state()
                 return
+            if (
+                normalized_provider == last_provider
+                and last_source == "manual_generation"
+                and last_status
+            ):
+                self._last_ai_connection_provider = normalized_provider
+                self._last_ai_connection_status = "기존 응답 참고 · stale"
+                self._last_ai_connection_source = "manual_generation_stale"
+                self._ai_connection_status = self._last_ai_connection_status
+                self._render_ai_engine_state()
+                return
             self._last_ai_connection_provider = normalized_provider
-            self._last_ai_connection_status = "키 설정됨 · 호출 미확인"
+            self._last_ai_connection_status = "인증 확인됨 · 생성 요청 대기"
             self._last_ai_connection_source = key_source
             self._ai_connection_status = self._last_ai_connection_status
             self._render_ai_engine_state()
@@ -37972,6 +38084,17 @@ class MainWindow(QMainWindow):
             "provider_success": bool(ctx.get("provider_success")),
             "error_type": str(ctx.get("error_type") or ""),
             "error_code": str(ctx.get("error_code") or ""),
+            "generation_request_id": str(ctx.get("generation_request_id") or ctx.get("request_id") or ctx.get("decision_group_id") or ""),
+            "generation_status": str(ctx.get("generation_status") or ""),
+            "generation_status_text": str(ctx.get("generation_status_text") or ""),
+            "generation_attempt_count": ctx.get("generation_attempt_count"),
+            "generation_max_attempts": ctx.get("generation_max_attempts"),
+            "generation_retry_used": bool(ctx.get("generation_retry_used")),
+            "generation_fresh": bool(ctx.get("generation_fresh")),
+            "generation_stale": bool(ctx.get("generation_stale")),
+            "stale_reason": str(ctx.get("stale_reason") or ""),
+            "generation_response_confirmed": bool(ctx.get("generation_response_confirmed")),
+            "generation_response_confirmed_reason": str(ctx.get("generation_response_confirmed_reason") or ""),
         }
 
     def _start_aits_provider_refresh_worker(self, request_payload: dict) -> bool:
@@ -38125,6 +38248,23 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_status = status
             self._last_ai_connection_source = "manual_generation"
             self._ai_connection_status = status
+            self._last_ai_generation_request_id = str((result or {}).get("generation_request_id") or (result or {}).get("request_id") or (result or {}).get("decision_group_id") or "")
+            self._last_ai_generation_provider = provider
+            self._last_ai_generation_status = str((result or {}).get("generation_status") or ("failed_timeout" if bool((result or {}).get("timed_out")) else "failed_error"))
+            self._last_ai_generation_completed_at = 0.0
+            self._last_ai_generation_fresh = False
+            self._last_ai_generation_stale = False
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][ProviderGenerationLifecycle] event=failed request_id=%s provider=%s status=%s attempt_count=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    self._last_ai_generation_request_id,
+                    provider,
+                    self._last_ai_generation_status,
+                    (result or {}).get("generation_attempt_count") or (result or {}).get("generation_attempt") or "",
+                    str((result or {}).get("error_code") or (result or {}).get("error_summary") or "")[:80],
+                )
+            except Exception:
+                pass
             self._ai_engine_last_checked_text = '방금 전'
             self._render_ai_engine_state()
         except Exception:
@@ -38219,6 +38359,17 @@ class MainWindow(QMainWindow):
                     "error_code",
                     "error_param",
                     "error_message",
+                    "generation_request_id",
+                    "generation_status",
+                    "generation_status_text",
+                    "generation_attempt_count",
+                    "generation_max_attempts",
+                    "generation_retry_used",
+                    "generation_fresh",
+                    "generation_stale",
+                    "stale_reason",
+                    "generation_response_confirmed",
+                    "generation_response_confirmed_reason",
                 ):
                     if proof_key in result:
                         result_context.setdefault(proof_key, result.get(proof_key))
@@ -38245,6 +38396,30 @@ class MainWindow(QMainWindow):
                         self._last_ai_connection_source = "manual_generation"
                         self._ai_connection_status = self._last_ai_connection_status
                         self._ai_engine_last_checked_text = '방금 전'
+                except Exception:
+                    pass
+                try:
+                    if provider in ("gpt", "gemini"):
+                        generation_request_id = str(result.get("generation_request_id") or result.get("request_id") or result.get("decision_group_id") or "")
+                        self._last_ai_connection_provider = provider
+                        self._last_ai_connection_status = str(result.get("generation_status_text") or "생성 응답 확인됨")
+                        self._last_ai_connection_source = "manual_generation"
+                        self._ai_connection_status = self._last_ai_connection_status
+                        self._ai_engine_last_checked_text = "방금 전"
+                        self._last_ai_generation_request_id = generation_request_id
+                        self._last_ai_generation_provider = provider
+                        self._last_ai_generation_status = str(result.get("generation_status") or "confirmed")
+                        self._last_ai_generation_completed_at = time.time()
+                        self._last_ai_generation_fresh = True
+                        self._last_ai_generation_stale = False
+                        logging.getLogger("aits").info(
+                            "[AITS][ProviderGenerationLifecycle] event=confirmed request_id=%s provider=%s attempt_count=%s response_id_present=%s token_usage_present=%s submitted=0 order_allowed=False real_order=False",
+                            generation_request_id,
+                            provider,
+                            result.get("generation_attempt_count") or result.get("generation_attempt") or "",
+                            bool(result.get("response_id")),
+                            bool(result.get("usage_total_tokens")),
+                        )
                 except Exception:
                     pass
                 try:
@@ -39740,6 +39915,33 @@ class MainWindow(QMainWindow):
             )
             requested_model_req = self._normalize_openai_api_model_id(str(request_context.get("requested_model") or model or "").strip(), log=True)
             model_display_name_req = str(request_context.get("model_display_name") or model_display_name or self._openai_model_display_name(requested_model_req) or "").strip()
+            generation_max_attempts = 2
+            if compact_provider_smoke:
+                try:
+                    generation_max_attempts = max(1, min(3, int(getattr(self, "_aits_provider_smoke_max_provider_calls", 1) or 1)))
+                except Exception:
+                    generation_max_attempts = 1
+            try:
+                self._last_ai_generation_request_id = str(group_id or "")
+                self._last_ai_generation_provider = "gpt"
+                self._last_ai_generation_status = "request_started"
+                self._last_ai_generation_completed_at = 0.0
+                self._last_ai_generation_fresh = False
+                self._last_ai_generation_stale = False
+                self._last_ai_connection_provider = "gpt"
+                self._last_ai_connection_status = "생성 요청 중"
+                self._last_ai_connection_source = "manual_generation"
+                self._ai_connection_status = self._last_ai_connection_status
+                self._ai_engine_last_checked_text = "생성 요청 중"
+                self._render_ai_engine_state()
+                logging.getLogger("aits").info(
+                    "[AITS][ProviderGenerationLifecycle] event=request_initialized request_id=%s provider=gpt max_attempts=%s compact_smoke=%s submitted=0 order_allowed=False real_order=False",
+                    str(group_id or ""),
+                    generation_max_attempts,
+                    bool(compact_provider_smoke),
+                )
+            except Exception:
+                pass
             try:
                 ctx["decision_group_id"] = group_id
                 ctx["request_id"] = group_id
@@ -39782,6 +39984,9 @@ class MainWindow(QMainWindow):
                     "output_token_cap": output_token_cap,
                 },
                 "timeout_sec": 45 if compact_provider_smoke else 90,
+                "generation_request_id": group_id,
+                "generation_max_attempts": generation_max_attempts,
+                "generation_retry_backoff_sec": 3 if generation_max_attempts > 1 else 0,
             }
             if self._start_aits_provider_refresh_worker(request_payload):
                 provider_worker_started = True

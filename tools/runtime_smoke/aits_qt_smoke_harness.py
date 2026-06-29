@@ -537,6 +537,13 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "selected_engine_text": _safe_text(widgets.get("selected_engine")),
         "applied_engine_text": _safe_text(widgets.get("applied_engine")),
         "connection_state_text": _safe_text(widgets.get("connection_state")),
+        "generation_request_id": str(getattr(window, "_last_ai_generation_request_id", "") or ""),
+        "generation_status": str(getattr(window, "_last_ai_generation_status", "") or ""),
+        "generation_status_text": str(getattr(window, "_last_ai_connection_status", "") or getattr(window, "_ai_connection_status", "") or ""),
+        "generation_fresh": bool(getattr(window, "_last_ai_generation_fresh", False)),
+        "generation_stale": bool(getattr(window, "_last_ai_generation_stale", False)),
+        "provider_selected": _normalize_provider_for_report(getattr(window, "_selected_ai_provider", "")),
+        "provider_actual": _normalize_provider_for_report(getattr(window, "_last_response_provider", "")),
         "managed_row_count": _table_row_count(managed_table),
         "trade_log_row_count": _table_row_count(trade_log_table),
         "latest_trade_log_row": _table_row_text(trade_log_table, 0),
@@ -879,6 +886,10 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
     snapshot["connection_status_text"] = str(getattr(window, "_ai_connection_status", "") or "")
     snapshot["last_connection_status_text"] = str(getattr(window, "_last_ai_connection_status", "") or "")
     snapshot["last_connection_source"] = str(getattr(window, "_last_ai_connection_source", "") or "")
+    snapshot["generation_request_id"] = str(getattr(window, "_last_ai_generation_request_id", "") or "")
+    snapshot["generation_status"] = str(getattr(window, "_last_ai_generation_status", "") or "")
+    snapshot["generation_fresh"] = bool(getattr(window, "_last_ai_generation_fresh", False))
+    snapshot["generation_stale"] = bool(getattr(window, "_last_ai_generation_stale", False))
     return snapshot
 
 
@@ -961,9 +972,13 @@ def _run_provider_smoke(
         report["pass_status"] = "fail"
         report["fail_reason"] = "max_provider_calls_must_be_positive"
         return
-    if max_provider_calls > 1:
+    if max_provider_calls > 3:
         report["pass_status"] = "fail"
-        report["fail_reason"] = "max_provider_calls_over_one_blocked"
+        report["fail_reason"] = "max_provider_calls_over_three_blocked"
+        return
+    if provider == "local" and max_provider_calls > 1:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "local_max_provider_calls_over_one_blocked"
         return
 
     before_collect = _collect(window, widgets)
@@ -974,6 +989,7 @@ def _run_provider_smoke(
 
     try:
         setattr(window, "_aits_provider_smoke_compact_generation", provider in {"gpt", "gemini"})
+        setattr(window, "_aits_provider_smoke_max_provider_calls", max_provider_calls)
     except Exception:
         pass
     if not _select_provider(window, provider, report):
@@ -1088,6 +1104,8 @@ def _run_provider_smoke(
         or (str(latest_journal.get("provider_actual") or "").strip().lower() in {provider, "openai" if provider == "gpt" else provider})
     )
     generation_status_text = str(after_provider_state.get("connection_status_text") or after_provider_state.get("last_connection_status_text") or "")
+    generation_status = str(after_provider_state.get("generation_status") or "")
+    generation_request_id = str(after_provider_state.get("generation_request_id") or after_log.get("latest_group_id") or "")
     generation_response_confirmed_reason = ""
     if after_log.get("latest_provider_success_seen"):
         generation_response_confirmed_reason = "provider_response_success_log"
@@ -1108,7 +1126,15 @@ def _run_provider_smoke(
             "trade_detail_excerpt": _safe_text(widgets.get("trade_log_detail"))[:1800],
             "generation_response_confirmed": generation_response_confirmed,
             "generation_response_confirmed_reason": generation_response_confirmed_reason,
+            "generation_request_id": generation_request_id,
+            "generation_status": generation_status or ("confirmed" if generation_response_confirmed else "failed_or_unobserved"),
             "generation_status_text": generation_status_text,
+            "generation_attempt_count": provider_generation_delta,
+            "generation_max_attempts": max_provider_calls,
+            "generation_retry_used": bool(provider_generation_delta > 1),
+            "generation_fresh": bool(after_provider_state.get("generation_fresh")) and bool(generation_response_confirmed),
+            "generation_stale": bool(after_provider_state.get("generation_stale")) or ("stale" in generation_status_text.lower()),
+            "stale_reason": "previous_response" if ("stale" in generation_status_text.lower()) else "",
             "ui_generation_status_text": generation_status_text,
             "provider_selected": provider,
             "provider_actual": str(latest_journal.get("provider_actual") or latest_journal.get("actual_provider") or after_provider_state.get("connection_provider") or ""),
@@ -1149,6 +1175,8 @@ def _run_provider_smoke(
             fail_reasons.append("generation_response_not_confirmed")
         if report.get("generation_response_confirmed") and "미확인" in str(report.get("generation_status_text") or ""):
             fail_reasons.append("generation_success_ui_stale_unconfirmed")
+        if report.get("generation_response_confirmed") and report.get("generation_stale"):
+            fail_reasons.append("generation_success_marked_stale")
     if report.get("same_stage_duplicate"):
         fail_reasons.append("same_stage_duplicate_detected")
 
