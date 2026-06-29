@@ -136,6 +136,43 @@ The later `AITS-LIVE-2H-GUARDED-TRADING-WINDOW-01` Goal must still perform
 fresh baseline checks before clicking AITS ON. This policy does not authorize
 the runtime window by itself.
 
+## Runtime Harness Mode
+
+The runtime harness mode is:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window --confirm-phrase AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM --duration-min 120 --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
+```
+
+Before the actual runtime Goal, the same mode must be proven with:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window --confirm-phrase AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM --duration-min 1 --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600 --dry-run-no-on
+```
+
+`--dry-run-no-on` is the safety gate for harness preparation. In that mode the
+harness may discover the AITS ON selector, run baseline proofs, run a short
+monitoring loop, create and open an incident smoke report, and write a final
+window report. It must not click AITS ON and must not place, cancel, sell, or
+retry an order.
+
+The AITS ON selector discovery currently prefers the `btn_run_toggle` attribute
+and `StopButton` objectName. Discovery is report-only until the later explicit
+runtime Goal removes `--dry-run-no-on`.
+
+Smoke reports are written under:
+
+- `data/runtime_smoke_reports/runtime_smoke_report_*.json`
+- `data/live_window_reports/aits_live_2h_guarded_window_report_smoke_*.json`
+- `data/live_window_reports/aits_live_2h_guarded_window_summary_smoke_*.md`
+- `data/live_incidents/aits_live_2h_guarded_window_incident_smoke_*.md`
+
+Required runtime smoke fields include `confirm_phrase_valid`,
+`aits_on_selector_found`, `aits_on_clicked=false`, `place_order_call_count=0`,
+`cancel_call_count=0`, `sell_call_count=0`, `retry_call_count=0`,
+`provider_external_call_count=0`, `baseline_status`, `monitoring_loop_status`,
+and `report_status`.
+
 ## Preflight Proof Result
 
 Goal `AITS-LIVE-2H-GUARDED-WINDOW-CONTRACT-PREFLIGHT-01` produced:
@@ -165,3 +202,24 @@ future guarded window, but still reported `submitted=0`,
 `order_allowed=false`, `real_order=false`, and `place_order_call_count=0`.
 The 12001 KRW, total cap, order count, interval, sell, cancel, and retry
 fixtures were blocked.
+
+## Runtime Harness Smoke Result
+
+Goal `AITS-LIVE-2H-GUARDED-WINDOW-RUNTIME-HARNESS-ENABLE-01` added the
+`live-2h-guarded-window` CLI mode and verified it in `--dry-run-no-on` mode.
+The smoke:
+
+- accepted the guarded-window confirmation phrase
+- validated the guarded-window config
+- found the AITS ON selector without clicking it
+- embedded read-only reconciliation, preflight, and order-path cap proofs
+- ran a short monitoring loop
+- generated and auto-opened a smoke incident markdown report
+- wrote a final smoke JSON report and markdown summary
+- reported zero AITS ON clicks and zero place/cancel/sell/retry calls
+
+First smoke report:
+`C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_103556_027624.json`
+
+Live-window smoke report:
+`C:\AITS\data\live_window_reports\aits_live_2h_guarded_window_report_smoke_20260629_103555_864057.json`

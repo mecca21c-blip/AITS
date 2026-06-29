@@ -286,6 +286,21 @@ total cap, maximum `2` orders, and minimum `600` seconds between orders. The
 mode is `live-2h-guarded-window-order-path-cap-proof` and it must report
 `place_order_call_count=0`.
 
+The runtime harness mode is now `live-2h-guarded-window`. Before any actual
+2 hour run, it must pass once with `--dry-run-no-on`; that smoke may discover
+the AITS ON selector and run baseline/monitor/incident/report wiring, but it
+must not click AITS ON and must not submit an order. The actual 2 hour Goal is
+the only place where `--dry-run-no-on` may be removed.
+
+Runtime harness smoke proof:
+
+- runtime smoke report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_103556_027624.json`
+- live-window smoke report: `C:\AITS\data\live_window_reports\aits_live_2h_guarded_window_report_smoke_20260629_103555_864057.json`
+- smoke incident report: `C:\AITS\data\live_incidents\aits_live_2h_guarded_window_incident_smoke_20260629_103555.md`
+- AITS ON clicked: false
+- place/cancel/sell/retry calls: `0`
+- provider external calls: `0`
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

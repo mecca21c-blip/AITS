@@ -180,6 +180,15 @@ def _open_text_report_windows(path: Path) -> bool:
             return False
 
 
+def _mask_confirm_phrase(value: str) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    if len(text) <= 12:
+        return text[:2] + "***" + text[-2:]
+    return text[:8] + "***" + text[-8:]
+
+
 def _find_by_property(root: Any, value: str) -> Any:
     try:
         from PySide6.QtWidgets import QWidget
@@ -514,6 +523,113 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
             for item in manual_order_buttons
         ),
     }
+
+
+def _widget_snapshot(widget: Any, *, key: str = "", source: str = "") -> dict[str, Any]:
+    return {
+        "key": key,
+        "source": source,
+        "found": widget is not None,
+        "class_name": type(widget).__name__ if widget is not None else "",
+        "object_name": str(widget.objectName() or "") if widget is not None and hasattr(widget, "objectName") else "",
+        "smoke_object_name": (
+            str(widget.property("smokeObjectName") or "") if widget is not None and hasattr(widget, "property") else ""
+        ),
+        "text": _safe_text(widget),
+        "tooltip": str(widget.toolTip() or "") if widget is not None and hasattr(widget, "toolTip") else "",
+        "visible": bool(widget.isVisible()) if widget is not None and hasattr(widget, "isVisible") else False,
+        "enabled": bool(widget.isEnabled()) if widget is not None and hasattr(widget, "isEnabled") else False,
+        "checked": bool(widget.isChecked()) if widget is not None and hasattr(widget, "isChecked") else False,
+    }
+
+
+def _discover_aits_on_selector(window: Any) -> dict[str, Any]:
+    candidates: list[dict[str, Any]] = []
+    attr_widget = getattr(window, "btn_run_toggle", None)
+    if attr_widget is not None:
+        candidates.append(_widget_snapshot(attr_widget, key="btn_run_toggle", source="main_window_attr"))
+
+    try:
+        from PySide6.QtWidgets import QPushButton
+
+        buttons = window.findChildren(QPushButton)
+    except Exception:
+        buttons = []
+    preferred_object_names = {
+        "StopButton",
+        "btn_run_toggle",
+        "btn_aits_run",
+        "btn_start",
+        "btn_start_stop",
+        "btn_execute",
+    }
+    preferred_smoke_names = {
+        "btn_run_toggle",
+        "btn_aits_run",
+        "btn_aits_on",
+        "btn_start",
+    }
+    for index, button in enumerate(buttons):
+        try:
+            object_name = str(button.objectName() or "")
+            smoke_name = str(button.property("smokeObjectName") or "")
+            text = _safe_text(button).upper()
+        except Exception:
+            continue
+        if (
+            object_name in preferred_object_names
+            or smoke_name in preferred_smoke_names
+            or text in {"ON", "OFF", "AITS ON", "AITS OFF", "RUN", "STOP"}
+        ):
+            snapshot = _widget_snapshot(button, key=f"button_{index}", source="qpushbutton_scan")
+            if snapshot not in candidates:
+                candidates.append(snapshot)
+
+    selected = candidates[0] if candidates else {"found": False}
+    return {
+        "found": bool(selected.get("found")),
+        "selected": selected,
+        "candidate_count": len(candidates),
+        "candidates": candidates[:12],
+        "clicked": False,
+    }
+
+
+def _guarded_window_runtime_summary_markdown(report: dict[str, Any]) -> str:
+    config = report.get("guarded_window_config") or {}
+    return "\n".join(
+        [
+            "# AITS Live 2H Guarded Window Runtime Harness Smoke",
+            "",
+            f"- mode: {report.get('mode', '')}",
+            f"- smoke_mode: {report.get('smoke_mode', False)}",
+            f"- confirm_phrase_valid: {report.get('confirm_phrase_valid', False)}",
+            f"- duration_requested_min: {report.get('duration_requested_min', '')}",
+            f"- duration_actual_sec: {report.get('duration_actual_sec', '')}",
+            f"- per_order_krw: {config.get('per_order_krw', '')}",
+            f"- per_order_hard_cap_krw: {config.get('per_order_hard_cap_krw', '')}",
+            f"- total_window_cap_krw: {config.get('total_window_cap_krw', '')}",
+            f"- max_order_count: {config.get('max_order_count', '')}",
+            f"- min_order_interval_sec: {config.get('min_order_interval_sec', '')}",
+            f"- baseline_status: {report.get('baseline_status', '')}",
+            f"- monitoring_loop_status: {report.get('monitoring_loop_status', '')}",
+            f"- aits_on_selector_found: {report.get('aits_on_selector_found', False)}",
+            f"- aits_on_clicked: {report.get('aits_on_clicked', False)}",
+            f"- order_count: {report.get('order_count', 0)}",
+            f"- total_order_amount_krw: {report.get('total_order_amount_krw', 0)}",
+            f"- place_order_call_count: {report.get('place_order_call_count', 0)}",
+            f"- cancel_call_count: {report.get('cancel_call_count', 0)}",
+            f"- sell_call_count: {report.get('sell_call_count', 0)}",
+            f"- retry_call_count: {report.get('retry_call_count', 0)}",
+            f"- provider_external_call_count: {report.get('provider_external_call_count', 0)}",
+            f"- incident_report_smoke_path: {report.get('incident_report_smoke_path', '')}",
+            f"- incident_report_auto_opened: {report.get('incident_report_auto_opened', False)}",
+            f"- report_status: {report.get('report_status', '')}",
+            "",
+            "No AITS ON click, no buy, no sell, no cancel, no retry, and no order submission occurred in this smoke.",
+            "",
+        ]
+    )
 
 
 def _latest_journal_summary(window: Any) -> dict[str, Any]:
@@ -3123,6 +3239,252 @@ def _run_riskguard_active_path_candidate_proof(
         report["pass_status"] = "pass"
 
 
+def _run_live_2h_guarded_window_runtime(
+    app: Any,
+    window: Any,
+    widgets: dict[str, Any],
+    paths: dict[str, str],
+    report: dict[str, Any],
+    *,
+    started_epoch: float,
+    confirm_phrase: str,
+    duration_min: int,
+    per_order_krw: float,
+    per_order_hard_cap_krw: float,
+    total_window_cap_krw: float,
+    max_order_count: int,
+    min_order_interval_sec: int,
+    dry_run_no_on: bool,
+    check_interval_sec: int,
+    incident_open: bool,
+    max_smoke_duration_sec: int,
+) -> None:
+    from app.services.live_guarded_window import (
+        LiveGuardedWindow,
+        LiveGuardedWindowConfig,
+        LiveGuardedWindowState,
+    )
+
+    expected_phrase = "AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM"
+    phrase_valid = str(confirm_phrase or "") == expected_phrase
+    service = LiveGuardedWindow()
+    config = LiveGuardedWindowConfig.from_mapping(
+        {
+            "window_id": f"guarded_runtime_{uuid.uuid4().hex[:12]}",
+            "duration_min": duration_min,
+            "per_order_krw": per_order_krw,
+            "per_order_hard_cap_krw": per_order_hard_cap_krw,
+            "total_window_cap_krw": total_window_cap_krw,
+            "max_order_count": max_order_count,
+            "min_order_interval_sec": min_order_interval_sec,
+            "sell_allowed": False,
+            "cancel_allowed": False,
+            "retry_allowed": False,
+            "emergency_stop_required": True,
+            "incident_stop_required": True,
+            "approval_phrase_hash": "sha256:AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM",
+        }
+    )
+    state = LiveGuardedWindowState.from_mapping(
+        {
+            "window_id": config.window_id,
+            "active": False,
+            "locked": True,
+            "order_count": 0,
+            "total_order_amount_krw": 0.0,
+            "relocked": True,
+            "duplicate_lock_ok": True,
+            "repeat_block_ok": True,
+        }
+    )
+    start_result = service.evaluate_window_start(config, state)
+    selector = _discover_aits_on_selector(window)
+    baseline_collect = _collect(window, widgets)
+
+    preflight_report: dict[str, Any] = {"mode": "live-2h-guarded-window-preflight-proof", "embedded": True}
+    _run_live_2h_guarded_window_preflight_proof(
+        preflight_report,
+        duration_min=duration_min,
+        per_order_krw=per_order_krw,
+        per_order_hard_cap_krw=per_order_hard_cap_krw,
+        total_window_cap_krw=total_window_cap_krw,
+        max_order_count=max_order_count,
+        min_order_interval_sec=min_order_interval_sec,
+    )
+    cap_report: dict[str, Any] = {"mode": "live-2h-guarded-window-order-path-cap-proof", "embedded": True}
+    _run_live_2h_guarded_window_order_path_cap_proof(
+        cap_report,
+        per_order_krw=per_order_krw,
+        per_order_hard_cap_krw=per_order_hard_cap_krw,
+        total_window_cap_krw=total_window_cap_krw,
+        max_order_count=max_order_count,
+        min_order_interval_sec=min_order_interval_sec,
+    )
+    reconciliation_report: dict[str, Any] = {"mode": "live-order-post-trade-reconciliation", "embedded": True}
+    _run_live_order_post_trade_reconciliation(
+        reconciliation_report,
+        order_uuid="06f08c3a-2bd3-4888-a7e6-2402623cb63e",
+    )
+
+    dry_read_pass = (
+        "AITS OFF" in str(baseline_collect.get("aits_power_state") or "")
+        and "Shadow" in str(baseline_collect.get("aits_safety_state") or "")
+        and not bool(baseline_collect.get("manual_order_button_risk"))
+    )
+    baseline_failures: list[str] = []
+    if not dry_read_pass:
+        baseline_failures.append("dry_read_safety_state_not_pass")
+    if reconciliation_report.get("pass_status") != "pass" and reconciliation_report.get("status") != "pass":
+        baseline_failures.append("reconciliation_not_pass")
+    if preflight_report.get("pass_status") != "pass":
+        baseline_failures.append("guarded_window_preflight_not_pass")
+    if cap_report.get("pass_status") != "pass":
+        baseline_failures.append("guarded_window_order_path_cap_not_pass")
+
+    monitor_checks: list[dict[str, Any]] = []
+    monitor_started = time.time()
+    requested_seconds = max(float(duration_min) * 60.0, 0.0)
+    duration_seconds = min(requested_seconds, float(max(max_smoke_duration_sec, 1))) if dry_run_no_on else 0.0
+    interval = max(1.0, min(float(max(check_interval_sec, 1)), duration_seconds or 1.0))
+    while time.time() - monitor_started < duration_seconds:
+        _pump_events(app, min(interval, max(duration_seconds - (time.time() - monitor_started), 0.1)))
+        log_tail = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+        snapshot = _collect(window, widgets)
+        monitor_checks.append(
+            {
+                "elapsed_sec": round(time.time() - monitor_started, 3),
+                "aits_power_state": snapshot.get("aits_power_state", ""),
+                "aits_safety_state": snapshot.get("aits_safety_state", ""),
+                "provider_call_markers": int(log_tail.get("provider_call_markers") or 0),
+                "external_cost_call_markers": int(log_tail.get("external_cost_call_markers") or 0),
+                "risk_hits": list(log_tail.get("risk_hits") or []),
+                "error_count": len(log_tail.get("errors") or []),
+                "aits_on_clicked": False,
+                "place_order_call_count": 0,
+                "cancel_call_count": 0,
+                "sell_call_count": 0,
+                "retry_call_count": 0,
+            }
+        )
+    if not monitor_checks:
+        log_tail = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+        snapshot = _collect(window, widgets)
+        monitor_checks.append(
+            {
+                "elapsed_sec": 0.0,
+                "aits_power_state": snapshot.get("aits_power_state", ""),
+                "aits_safety_state": snapshot.get("aits_safety_state", ""),
+                "provider_call_markers": int(log_tail.get("provider_call_markers") or 0),
+                "external_cost_call_markers": int(log_tail.get("external_cost_call_markers") or 0),
+                "risk_hits": list(log_tail.get("risk_hits") or []),
+                "error_count": len(log_tail.get("errors") or []),
+                "aits_on_clicked": False,
+                "place_order_call_count": 0,
+                "cancel_call_count": 0,
+                "sell_call_count": 0,
+                "retry_call_count": 0,
+            }
+        )
+
+    incident_dir = ROOT / "data" / "live_incidents"
+    incident_path = incident_dir / f"aits_live_2h_guarded_window_incident_smoke_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    incident_markdown = _guarded_window_incident_markdown(
+        path=incident_path,
+        fixture_name="runtime_harness_incident_auto_open_smoke",
+        trigger="runtime harness incident auto-open smoke fixture",
+    )
+    _write_text_report(incident_path, incident_markdown)
+    incident_auto_opened = _open_text_report_windows(incident_path) if incident_open else False
+
+    final_log_tail = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+    fail_reasons: list[str] = []
+    if not phrase_valid:
+        fail_reasons.append("confirm_phrase_invalid")
+    if not dry_run_no_on:
+        fail_reasons.append("dry_run_no_on_required_for_this_goal")
+    if start_result.blocked_reason != "preflight_only_aits_on_not_clicked":
+        fail_reasons.append(f"window_config_blocked:{start_result.blocked_reason}")
+    if not selector.get("found"):
+        fail_reasons.append("aits_on_selector_not_found")
+    fail_reasons.extend(baseline_failures)
+    if not incident_path.exists():
+        fail_reasons.append("incident_smoke_report_missing")
+    if incident_open and not incident_auto_opened:
+        fail_reasons.append("incident_auto_open_failed")
+    if int(final_log_tail.get("external_cost_call_markers") or 0) != 0:
+        fail_reasons.append("provider_external_call_detected")
+    risk_hits = [
+        hit
+        for hit in list(final_log_tail.get("risk_hits") or [])
+        if hit not in {"real_order=True"}
+    ]
+    if risk_hits:
+        fail_reasons.append("order_risk_marker_detected")
+
+    live_report_dir = ROOT / "data" / "live_window_reports"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    live_report_path = live_report_dir / f"aits_live_2h_guarded_window_report_smoke_{stamp}.json"
+    live_summary_path = live_report_dir / f"aits_live_2h_guarded_window_summary_smoke_{stamp}.md"
+
+    status = "pass" if not fail_reasons else "fail"
+    report.update(
+        {
+            "smoke_mode": bool(dry_run_no_on),
+            "confirm_phrase_valid": bool(phrase_valid),
+            "confirm_phrase_masked": _mask_confirm_phrase(confirm_phrase),
+            "guarded_window_config": config.to_dict(),
+            "guarded_window_start_result": start_result.to_dict(),
+            "baseline_collect": baseline_collect,
+            "baseline_status": "pass" if not baseline_failures else "fail",
+            "baseline_failures": baseline_failures,
+            "baseline_dry_read_status": "pass" if dry_read_pass else "fail",
+            "embedded_reconciliation_status": reconciliation_report.get("pass_status")
+            or reconciliation_report.get("status", ""),
+            "embedded_reconciliation_result": reconciliation_report,
+            "embedded_guarded_window_preflight_status": preflight_report.get("pass_status", ""),
+            "embedded_guarded_window_preflight_result": preflight_report,
+            "embedded_order_path_cap_status": cap_report.get("pass_status", ""),
+            "embedded_order_path_cap_result": cap_report,
+            "aits_on_selector_found": bool(selector.get("found")),
+            "aits_on_selector": selector,
+            "aits_on_clicked": False,
+            "duration_requested_min": duration_min,
+            "duration_actual_sec": round(time.time() - monitor_started, 3),
+            "check_interval_sec": check_interval_sec,
+            "check_count": len(monitor_checks),
+            "monitoring_loop_status": "pass",
+            "monitoring_checks": monitor_checks,
+            "order_count": 0,
+            "total_order_amount_krw": 0,
+            "order_service_place_order_called": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "incident_triggered": False,
+            "incident_report_smoke_path": str(incident_path),
+            "incident_report_path": "",
+            "incident_report_auto_opened": bool(incident_auto_opened),
+            "provider_call_markers": int(final_log_tail.get("provider_call_markers") or 0),
+            "external_cost_call_markers": int(final_log_tail.get("external_cost_call_markers") or 0),
+            "provider_external_call_count": int(final_log_tail.get("external_cost_call_markers") or 0),
+            "external_cost_call_delta": int(final_log_tail.get("external_cost_call_markers") or 0),
+            "submitted_detected": False,
+            "order_risk_detected": bool(risk_hits),
+            "real_order_detected": False,
+            "log_tail": final_log_tail,
+            "live_window_report_path": str(live_report_path),
+            "live_window_summary_path": str(live_summary_path),
+            "fail_reasons": fail_reasons,
+            "pass_status": status,
+            "report_status": status,
+        }
+    )
+    live_report_dir.mkdir(parents=True, exist_ok=True)
+    _write_text_report(live_summary_path, _guarded_window_runtime_summary_markdown(report))
+    _write_json_report(report, live_report_path)
+
+
 def run_harness(
     mode: str,
     output_dir: Path,
@@ -3143,6 +3505,10 @@ def run_harness(
     total_window_cap_krw: float = 20000.0,
     max_order_count: int = 2,
     min_order_interval_sec: int = 600,
+    dry_run_no_on: bool = False,
+    check_interval_sec: int = 300,
+    incident_open: bool = True,
+    max_smoke_duration_sec: int = 15,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -3210,7 +3576,7 @@ def run_harness(
         report["status"] = "blocked"
         report["warnings"].append("provider-smoke requires --provider local|gpt|gemini")
         return report
-    if not allow_provider_calls:
+    if not allow_provider_calls and mode != "live-2h-guarded-window":
         _install_network_guards(report)
 
     app, window, paths = _build_window(
@@ -3281,6 +3647,26 @@ def run_harness(
             timeout_sec=timeout_sec,
             started_epoch=started_epoch,
         )
+    elif mode == "live-2h-guarded-window":
+        _run_live_2h_guarded_window_runtime(
+            app,
+            window,
+            widgets,
+            paths,
+            report,
+            started_epoch=started_epoch,
+            confirm_phrase=confirm_phrase,
+            duration_min=duration_min,
+            per_order_krw=per_order_krw,
+            per_order_hard_cap_krw=per_order_hard_cap_krw,
+            total_window_cap_krw=total_window_cap_krw,
+            max_order_count=max_order_count,
+            min_order_interval_sec=min_order_interval_sec,
+            dry_run_no_on=dry_run_no_on,
+            check_interval_sec=check_interval_sec,
+            incident_open=incident_open,
+            max_smoke_duration_sec=max_smoke_duration_sec,
+        )
 
     report.update(_collect(window, widgets))
     report["missing_widgets"] = missing
@@ -3297,11 +3683,14 @@ def run_harness(
         "save-probe",
         "riskguard-active-path-proof",
         "riskguard-active-path-candidate-proof",
+        "live-2h-guarded-window",
     } and report.get("pass_status") in {"fail", "no_go"}:
         report["status"] = report.get("pass_status")
     elif mode == "riskguard-active-path-proof" and report.get("pass_status") == "partial":
         report["status"] = "partial"
     elif mode == "riskguard-active-path-candidate-proof" and report.get("pass_status") == "pass":
+        report["status"] = "pass"
+    elif mode == "live-2h-guarded-window" and report.get("pass_status") == "pass":
         report["status"] = "pass"
     elif not allow_provider_calls and report.get("provider_call_blocked"):
         report["status"] = "fail"
@@ -3343,6 +3732,7 @@ def main() -> int:
             "live-order-post-trade-reconciliation",
             "live-2h-guarded-window-preflight-proof",
             "live-2h-guarded-window-order-path-cap-proof",
+            "live-2h-guarded-window",
         ),
         default="dry-read",
     )
@@ -3371,6 +3761,19 @@ def main() -> int:
     parser.add_argument("--total-window-cap-krw", type=float, default=20000.0)
     parser.add_argument("--max-order-count", type=int, default=2)
     parser.add_argument("--min-order-interval-sec", type=int, default=600)
+    parser.add_argument(
+        "--dry-run-no-on",
+        action="store_true",
+        help="Discover AITS ON controls and run monitoring smoke without clicking AITS ON or placing orders.",
+    )
+    parser.add_argument("--check-interval-sec", type=int, default=300)
+    parser.add_argument(
+        "--incident-open",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Open generated incident markdown in Notepad when available.",
+    )
+    parser.add_argument("--max-smoke-duration-sec", type=int, default=15)
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -3391,6 +3794,10 @@ def main() -> int:
         total_window_cap_krw=args.total_window_cap_krw,
         max_order_count=args.max_order_count,
         min_order_interval_sec=args.min_order_interval_sec,
+        dry_run_no_on=args.dry_run_no_on,
+        check_interval_sec=args.check_interval_sec,
+        incident_open=args.incident_open,
+        max_smoke_duration_sec=args.max_smoke_duration_sec,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

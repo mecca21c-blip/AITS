@@ -24,6 +24,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-ord
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-order-post-trade-reconciliation --order-uuid <order-uuid>
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window-preflight-proof --duration-min 120 --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window-order-path-cap-proof --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window --confirm-phrase AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM --duration-min 1 --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600 --dry-run-no-on
 ```
 
 Reports are written to:
@@ -121,6 +122,15 @@ printed to stdout.
   interval across GuardedWindow, RiskGuard, One-Shot Unlock,
   LiveOrderPreflight, OrderAdapter metadata, and OrderService request scope.
   It does not click AITS ON and does not call `OrderService.place_order`.
+- `live-2h-guarded-window`: runtime harness mode for the later guarded-window
+  execution Goal. In `--dry-run-no-on` smoke mode it validates the confirm
+  phrase, guarded-window config, baseline dry-read state, read-only
+  reconciliation, guarded-window preflight proof, order-path cap proof, AITS ON
+  selector discovery, monitoring loop wiring, incident markdown creation and
+  Notepad auto-open, and final live-window report creation. It must report
+  `aits_on_clicked=false`, zero order/cancel/sell/retry calls, and zero
+  provider external calls. Removing `--dry-run-no-on` is allowed only in the
+  later explicit live-window Goal.
 
 ## Safety Rules
 
@@ -144,6 +154,14 @@ printed to stdout.
   The first cap-alignment report was
   `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_091912_905642.json`
   and passed all eight fixtures without an order call.
+- `live-2h-guarded-window --dry-run-no-on` must always report
+  `confirm_phrase_valid=true`, `aits_on_selector_found=true`,
+  `aits_on_clicked=false`, `place_order_call_count=0`, `cancel_call_count=0`,
+  `sell_call_count=0`, `retry_call_count=0`,
+  `provider_external_call_count=0`, and a smoke incident markdown path. It
+  writes the normal runtime smoke JSON plus
+  `data/live_window_reports/aits_live_2h_guarded_window_report_smoke_*.json`
+  and a matching markdown summary.
 
 ## Stable Selectors
 
@@ -171,6 +189,9 @@ Core selectors include:
 - `pnl_trade_log_detail`
 - `btn_trade_log_save`
 - `btn_manual_sell_all`
+- AITS run selector discovery prefers the `btn_run_toggle` attribute and the
+  `StopButton` objectName. Discovery is read-only unless a later live-window
+  Goal explicitly removes `--dry-run-no-on`.
 
 ## Provider Calls
 
