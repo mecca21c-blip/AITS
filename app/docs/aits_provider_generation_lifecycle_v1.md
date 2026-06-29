@@ -82,3 +82,22 @@ Provider-smoke reports should include:
 
 Provider generation retry must never call order services, toggle AITS ON,
 enable live mode, or submit/cancel/sell/retry orders.
+
+## Engine Ready For Run Contract
+
+AITS ON may treat an external provider as engine-ready only when the same
+generation lifecycle proof is fresh and current:
+
+- `provider_selected` is `gpt` or `gemini`.
+- `provider_actual` matches the selected provider.
+- `generation_status` is `confirmed`.
+- `generation_response_confirmed=true`.
+- `generation_fresh=true` and `generation_stale=false`.
+- `fallback_used=false`.
+- `response_id_present=true` or `token_usage_present=true`.
+
+Key/auth-only state, waiting state, timeout, LOCAL fallback while GPT/Gemini is
+selected, and stale previous responses are not ready for AITS ON. This readiness
+contract only removes the engine-preparation popup; it does not authorize an
+order. RiskGuard, LiveOrderPreflight, Unlock, duplicate lock, and guarded-window
+caps remain separate mandatory gates.

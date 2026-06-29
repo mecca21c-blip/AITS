@@ -520,6 +520,28 @@ disabled in Shadow/AITS OFF mode. Unlocking manual order UI requires a separate
 high-risk Goal with RiskGuard, ExecutionBridge, OrderAdapter, and user
 confirmation proof. The smoke harness must not click these controls.
 
+## Engine Readiness Fields
+
+Dry-read and provider-smoke reports include the AITS ON engine-readiness
+contract used by the UI gate:
+
+- `engine_ready_for_run`
+- `engine_ready_reason`
+- `engine_not_ready_reason`
+- `generation_response_confirmed`
+- `generation_fresh`
+- `generation_stale`
+- `response_id_present`
+- `token_usage_present`
+- `provider_selected`
+- `provider_actual`
+- `fallback_used`
+
+For GPT/Gemini, readiness requires a fresh confirmed generation response for
+the selected provider with response-id or token-usage proof and no LOCAL
+fallback. Auth-only, timeout, fallback, and stale preview states must remain
+not-ready. Engine readiness is not order permission.
+
 ## Trading Boundary
 
 The harness does not modify Router, Execution, Order, RiskGuard, repository, or

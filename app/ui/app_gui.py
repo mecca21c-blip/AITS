@@ -23758,6 +23758,86 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
+    def _build_ai_engine_readiness_state(self) -> dict:
+        try:
+            selected = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+        except Exception:
+            selected = "basic"
+        try:
+            actual = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_generation_provider", "")
+                or getattr(self, "_last_ai_connection_provider", "")
+                or getattr(self, "_last_response_provider", "")
+            )
+        except Exception:
+            actual = ""
+        generation_status = str(
+            getattr(self, "_last_ai_generation_status", "") or ""
+        ).strip()
+        generation_confirmed = bool(
+            getattr(self, "_last_ai_generation_response_confirmed", False)
+        )
+        generation_fresh = bool(
+            getattr(self, "_last_ai_generation_fresh", False)
+        ) and self._is_ai_generation_fresh(selected)
+        generation_stale = bool(getattr(self, "_last_ai_generation_stale", False))
+        fallback_used = bool(getattr(self, "_last_ai_generation_fallback_used", False))
+        response_id_present = bool(
+            getattr(self, "_last_ai_generation_response_id_present", False)
+        )
+        token_usage_present = bool(
+            getattr(self, "_last_ai_generation_token_usage_present", False)
+        )
+        proof_present = bool(response_id_present or token_usage_present)
+        ready = False
+        reason = "not_ready"
+        if selected in ("basic", "local"):
+            local_status = str(getattr(self, "_last_ai_connection_status", "") or "")
+            ready = any(token in local_status for token in ("LOCAL", "Basic", "ready", "Ready"))
+            reason = "local_ready" if ready else "local_not_ready"
+        elif selected in ("gpt", "gemini"):
+            if actual != selected:
+                reason = "provider_actual_mismatch"
+            elif fallback_used:
+                reason = "fallback_used"
+            elif generation_stale:
+                reason = "generation_stale"
+            elif not generation_fresh:
+                reason = "generation_not_fresh"
+            elif generation_status != "confirmed":
+                reason = "generation_not_confirmed"
+            elif not generation_confirmed:
+                reason = "generation_response_unconfirmed"
+            elif not proof_present:
+                reason = "generation_response_proof_missing"
+            else:
+                ready = True
+                reason = "fresh_generation_confirmed"
+        else:
+            reason = "unknown_provider"
+        return {
+            "engine_ready_for_run": bool(ready),
+            "engine_ready_reason": reason if ready else "",
+            "engine_not_ready_reason": "" if ready else reason,
+            "provider_selected": selected,
+            "provider_actual": actual,
+            "generation_response_confirmed": generation_confirmed,
+            "generation_fresh": generation_fresh,
+            "generation_stale": generation_stale,
+            "generation_status": generation_status,
+            "fallback_used": fallback_used,
+            "response_id_present": response_id_present,
+            "token_usage_present": token_usage_present,
+        }
+
+    def _is_ai_engine_ready_for_run(self) -> bool:
+        try:
+            return bool(self._build_ai_engine_readiness_state().get("engine_ready_for_run"))
+        except Exception:
+            return False
+
     def _apply_saved_ai_preview(self, provider: str, model: str) -> None:
         try:
             selected_provider = self._normalize_ai_provider_code(provider)
@@ -38254,6 +38334,10 @@ class MainWindow(QMainWindow):
             self._last_ai_generation_completed_at = 0.0
             self._last_ai_generation_fresh = False
             self._last_ai_generation_stale = False
+            self._last_ai_generation_response_confirmed = False
+            self._last_ai_generation_response_id_present = False
+            self._last_ai_generation_token_usage_present = False
+            self._last_ai_generation_fallback_used = True
             try:
                 logging.getLogger("aits").warning(
                     "[AITS][ProviderGenerationLifecycle] event=failed request_id=%s provider=%s status=%s attempt_count=%s reason=%s submitted=0 order_allowed=False real_order=False",
@@ -38412,6 +38496,10 @@ class MainWindow(QMainWindow):
                         self._last_ai_generation_completed_at = time.time()
                         self._last_ai_generation_fresh = True
                         self._last_ai_generation_stale = False
+                        self._last_ai_generation_response_confirmed = bool(result.get("generation_response_confirmed", True))
+                        self._last_ai_generation_response_id_present = bool(result.get("response_id"))
+                        self._last_ai_generation_token_usage_present = bool(result.get("usage_total_tokens"))
+                        self._last_ai_generation_fallback_used = bool(result.get("fallback_used") or result.get("fallback_required"))
                         logging.getLogger("aits").info(
                             "[AITS][ProviderGenerationLifecycle] event=confirmed request_id=%s provider=%s attempt_count=%s response_id_present=%s token_usage_present=%s submitted=0 order_allowed=False real_order=False",
                             generation_request_id,
@@ -39928,6 +40016,10 @@ class MainWindow(QMainWindow):
                 self._last_ai_generation_completed_at = 0.0
                 self._last_ai_generation_fresh = False
                 self._last_ai_generation_stale = False
+                self._last_ai_generation_response_confirmed = False
+                self._last_ai_generation_response_id_present = False
+                self._last_ai_generation_token_usage_present = False
+                self._last_ai_generation_fallback_used = False
                 self._last_ai_connection_provider = "gpt"
                 self._last_ai_connection_status = "생성 요청 중"
                 self._last_ai_connection_source = "manual_generation"
@@ -48422,10 +48514,12 @@ class MainWindow(QMainWindow):
                     pass
 
                 if selected != "BASIC":
-                    ready = False
-                    chk = status_txt.lower()
-                    if ("준비" in status_txt) or ("정상" in status_txt) or ("ready" in chk):
-                        ready = True
+                    readiness = {}
+                    try:
+                        readiness = self._build_ai_engine_readiness_state()
+                    except Exception:
+                        readiness = {}
+                    ready = bool(readiness.get("engine_ready_for_run"))
 
                     if not ready:
                         sel_key = str(self._get_aits_engine_ssot() or "basic").strip().lower()

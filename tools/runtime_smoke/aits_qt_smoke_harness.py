@@ -529,6 +529,10 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
                 "enabled": bool(widget.isEnabled()) if widget is not None and hasattr(widget, "isEnabled") else False,
             }
         )
+    try:
+        readiness = window._build_ai_engine_readiness_state()
+    except Exception:
+        readiness = {}
     return {
         "window_title": str(window.windowTitle() or ""),
         "current_tab": current_tab,
@@ -542,6 +546,13 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "generation_status_text": str(getattr(window, "_last_ai_connection_status", "") or getattr(window, "_ai_connection_status", "") or ""),
         "generation_fresh": bool(getattr(window, "_last_ai_generation_fresh", False)),
         "generation_stale": bool(getattr(window, "_last_ai_generation_stale", False)),
+        "generation_response_confirmed": bool(getattr(window, "_last_ai_generation_response_confirmed", False)),
+        "response_id_present": bool(getattr(window, "_last_ai_generation_response_id_present", False)),
+        "token_usage_present": bool(getattr(window, "_last_ai_generation_token_usage_present", False)),
+        "fallback_used": bool(getattr(window, "_last_ai_generation_fallback_used", False)),
+        "engine_ready_for_run": bool(readiness.get("engine_ready_for_run")),
+        "engine_ready_reason": str(readiness.get("engine_ready_reason") or ""),
+        "engine_not_ready_reason": str(readiness.get("engine_not_ready_reason") or ""),
         "provider_selected": _normalize_provider_for_report(getattr(window, "_selected_ai_provider", "")),
         "provider_actual": _normalize_provider_for_report(getattr(window, "_last_response_provider", "")),
         "managed_row_count": _table_row_count(managed_table),
@@ -890,6 +901,17 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
     snapshot["generation_status"] = str(getattr(window, "_last_ai_generation_status", "") or "")
     snapshot["generation_fresh"] = bool(getattr(window, "_last_ai_generation_fresh", False))
     snapshot["generation_stale"] = bool(getattr(window, "_last_ai_generation_stale", False))
+    snapshot["generation_response_confirmed"] = bool(getattr(window, "_last_ai_generation_response_confirmed", False))
+    snapshot["response_id_present"] = bool(getattr(window, "_last_ai_generation_response_id_present", False))
+    snapshot["token_usage_present"] = bool(getattr(window, "_last_ai_generation_token_usage_present", False))
+    snapshot["fallback_used"] = bool(getattr(window, "_last_ai_generation_fallback_used", False))
+    try:
+        readiness = window._build_ai_engine_readiness_state()
+    except Exception:
+        readiness = {}
+    snapshot["engine_ready_for_run"] = bool(readiness.get("engine_ready_for_run"))
+    snapshot["engine_ready_reason"] = str(readiness.get("engine_ready_reason") or "")
+    snapshot["engine_not_ready_reason"] = str(readiness.get("engine_not_ready_reason") or "")
     return snapshot
 
 
