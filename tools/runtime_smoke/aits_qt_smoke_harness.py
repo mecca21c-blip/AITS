@@ -5,6 +5,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -160,6 +161,23 @@ def _write_json_report(report: dict[str, Any], path: Path) -> dict[str, Any]:
         handle.write("\n")
         handle.flush()
     return safe_report
+
+
+def _write_text_report(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_sanitize_report_text(text), encoding="utf-8", newline="\n")
+
+
+def _open_text_report_windows(path: Path) -> bool:
+    try:
+        subprocess.Popen(["notepad.exe", str(path)])
+        return True
+    except Exception:
+        try:
+            subprocess.Popen(["cmd", "/c", "start", "", str(path)], shell=False)
+            return True
+        except Exception:
+            return False
 
 
 def _find_by_property(root: Any, value: str) -> Any:
@@ -2149,6 +2167,326 @@ def _run_live_order_post_trade_reconciliation(report: dict[str, Any], *, order_u
         )
 
 
+def _guarded_window_incident_markdown(*, path: Path, fixture_name: str, trigger: str) -> str:
+    return "\n".join(
+        [
+            "# AITS Live Guarded Window Smoke Incident",
+            "",
+            "## 1. Goal",
+            "",
+            "`AITS-LIVE-2H-GUARDED-WINDOW-CONTRACT-PREFLIGHT-01`",
+            "",
+            "## 2. Incident Time",
+            "",
+            _now_iso(),
+            "",
+            "## 3. Elapsed Time",
+            "",
+            "Preflight fixture smoke only. AITS ON was not clicked.",
+            "",
+            "## 4. Severity",
+            "",
+            "LOW",
+            "",
+            "## 5. Trigger Condition",
+            "",
+            trigger,
+            "",
+            "## 6. Immediate Stop",
+            "",
+            "Yes. This is a smoke incident report for auto-open proof.",
+            "",
+            "## 7. AITS ON/OFF State",
+            "",
+            "AITS OFF / not clicked in this fixture.",
+            "",
+            "## 8. Order Occurred",
+            "",
+            "No.",
+            "",
+            "## 9. Order Count",
+            "",
+            "0",
+            "",
+            "## 10. Total Order Amount",
+            "",
+            "0 KRW",
+            "",
+            "## 11. Last Order UUID",
+            "",
+            "None for this fixture.",
+            "",
+            "## 12. Last Raw Order State",
+            "",
+            "N/A",
+            "",
+            "## 13. Last Normalized Order State",
+            "",
+            "N/A",
+            "",
+            "## 14. KRW Balance",
+            "",
+            "Not queried by the smoke incident fixture.",
+            "",
+            "## 15. BTC Balance",
+            "",
+            "Not queried by the smoke incident fixture.",
+            "",
+            "## 16. Relock State",
+            "",
+            "Expected true.",
+            "",
+            "## 17. Duplicate Lock State",
+            "",
+            "Expected true.",
+            "",
+            "## 18. Repeat Block State",
+            "",
+            "Expected true.",
+            "",
+            "## 19. Provider Call Count",
+            "",
+            "0",
+            "",
+            "## 20. Log Excerpt",
+            "",
+            f"fixture={fixture_name}",
+            "",
+            "## 21. Report Path",
+            "",
+            str(path),
+            "",
+            "## 22. Suspected Cause",
+            "",
+            "Smoke fixture only.",
+            "",
+            "## 23. Next Fix Goal",
+            "",
+            "None for smoke fixture.",
+            "",
+            "## 24. Safety Confirmation",
+            "",
+            "No reorder. No buy. No sell. No cancel. No retry.",
+            "",
+        ]
+    )
+
+
+def _run_live_2h_guarded_window_preflight_proof(
+    report: dict[str, Any],
+    *,
+    duration_min: int,
+    per_order_krw: float,
+    per_order_hard_cap_krw: float,
+    total_window_cap_krw: float,
+    max_order_count: int,
+    min_order_interval_sec: int,
+) -> None:
+    from app.services.live_guarded_window import (
+        LiveGuardedWindow,
+        LiveGuardedWindowConfig,
+        LiveGuardedWindowState,
+    )
+
+    service = LiveGuardedWindow()
+    config = LiveGuardedWindowConfig.from_mapping(
+        {
+            "window_id": f"guarded_preflight_{uuid.uuid4().hex[:12]}",
+            "duration_min": duration_min,
+            "per_order_krw": per_order_krw,
+            "per_order_hard_cap_krw": per_order_hard_cap_krw,
+            "total_window_cap_krw": total_window_cap_krw,
+            "max_order_count": max_order_count,
+            "min_order_interval_sec": min_order_interval_sec,
+            "sell_allowed": False,
+            "cancel_allowed": False,
+            "retry_allowed": False,
+            "emergency_stop_required": True,
+            "incident_stop_required": True,
+            "approval_phrase_hash": "sha256:AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM",
+        }
+    )
+    base_state = LiveGuardedWindowState.from_mapping(
+        {
+            "window_id": config.window_id,
+            "active": False,
+            "locked": True,
+            "order_count": 0,
+            "total_order_amount_krw": 0.0,
+            "relocked": True,
+            "duplicate_lock_ok": True,
+            "repeat_block_ok": True,
+        }
+    )
+
+    fixtures: list[dict[str, Any]] = [
+        {
+            "name": "valid_window_contract_locked_no_on",
+            "kind": "start",
+            "expected_reason": "preflight_only_aits_on_not_clicked",
+        },
+        {
+            "name": "blocked_per_order_cap_exceeded",
+            "kind": "order",
+            "candidate": {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_hard_cap_krw + 1},
+            "expected_reason": "per_order_cap_exceeded",
+        },
+        {
+            "name": "blocked_total_cap_exceeded",
+            "kind": "order",
+            "state": {"order_count": 1, "total_order_amount_krw": total_window_cap_krw - 1000},
+            "candidate": {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_krw},
+            "expected_reason": "total_window_cap_exceeded",
+        },
+        {
+            "name": "blocked_max_order_count_exceeded",
+            "kind": "order",
+            "state": {"order_count": max_order_count, "total_order_amount_krw": per_order_krw * max_order_count},
+            "candidate": {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_krw},
+            "expected_reason": "max_order_count_exceeded",
+        },
+        {
+            "name": "blocked_min_interval_violation",
+            "kind": "order",
+            "state": {"order_count": 1, "total_order_amount_krw": per_order_krw},
+            "candidate": {
+                "symbol": "KRW-BTC",
+                "side": "buy",
+                "amount_krw": per_order_krw,
+                "elapsed_since_last_order_sec": min_order_interval_sec - 1,
+            },
+            "expected_reason": "min_order_interval_violation",
+        },
+        {
+            "name": "blocked_sell_attempt",
+            "kind": "order",
+            "candidate": {"symbol": "KRW-BTC", "side": "sell", "amount_krw": per_order_krw},
+            "expected_reason": "sell_attempt_blocked",
+        },
+        {
+            "name": "blocked_unknown_state_retry",
+            "kind": "order",
+            "candidate": {
+                "symbol": "KRW-BTC",
+                "side": "buy",
+                "amount_krw": per_order_krw,
+                "retry_attempt": True,
+                "normalized_order_state": "unknown_requires_manual_review",
+            },
+            "expected_reason": "unknown_state_retry_blocked",
+        },
+    ]
+
+    results: list[dict[str, Any]] = []
+    for item in fixtures:
+        state_data = dict(base_state.to_dict())
+        state_data.update(item.get("state") or {})
+        state = LiveGuardedWindowState.from_mapping(state_data)
+        if item["kind"] == "start":
+            result = service.evaluate_window_start(config, state)
+        else:
+            result = service.evaluate_order_attempt(config, state, item.get("candidate") or {})
+        passed = (
+            result.blocked_reason == item["expected_reason"]
+            and result.locked
+            and not result.allowed_to_start
+            and result.submitted == 0
+            and not result.order_allowed
+            and not result.real_order
+            and result.place_order_call_count == 0
+            and result.cancel_call_count == 0
+            and result.sell_call_count == 0
+            and result.retry_call_count == 0
+        )
+        results.append(
+            {
+                "name": item["name"],
+                "expected_reason": item["expected_reason"],
+                "blocked_reason": result.blocked_reason,
+                "locked": result.locked,
+                "allowed_to_start": result.allowed_to_start,
+                "incident_required": result.incident_required,
+                "submitted": result.submitted,
+                "order_allowed": result.order_allowed,
+                "real_order": result.real_order,
+                "place_order_call_count": result.place_order_call_count,
+                "cancel_call_count": result.cancel_call_count,
+                "sell_call_count": result.sell_call_count,
+                "retry_call_count": result.retry_call_count,
+                "pass": bool(passed),
+                "result": result.to_dict(),
+            }
+        )
+
+    incident_dir = ROOT / "data" / "live_incidents"
+    incident_path = incident_dir / f"aits_live_2h_guarded_window_incident_smoke_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    incident_markdown = _guarded_window_incident_markdown(
+        path=incident_path,
+        fixture_name="incident_report_auto_open_smoke",
+        trigger="incident report auto-open smoke fixture",
+    )
+    _write_text_report(incident_path, incident_markdown)
+    auto_opened = _open_text_report_windows(incident_path)
+    incident_record = service.record_incident(
+        goal="AITS-LIVE-2H-GUARDED-WINDOW-CONTRACT-PREFLIGHT-01",
+        trigger_condition="incident_report_auto_open_smoke",
+        severity="LOW",
+        report_path=str(incident_path),
+    )
+    smoke_pass = incident_path.exists() and bool(auto_opened)
+    results.append(
+        {
+            "name": "incident_report_auto_open_smoke",
+            "expected_reason": "incident_report_created_and_opened",
+            "blocked_reason": "incident_report_created_and_opened" if smoke_pass else "incident_report_smoke_failed",
+            "locked": True,
+            "allowed_to_start": False,
+            "incident_required": True,
+            "submitted": 0,
+            "order_allowed": False,
+            "real_order": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "incident_record": incident_record,
+            "pass": bool(smoke_pass),
+        }
+    )
+
+    pass_count = sum(1 for item in results if item.get("pass"))
+    fail_count = len(results) - pass_count
+    report.update(
+        {
+            "guarded_window_config": config.to_dict(),
+            "guarded_window_fixture_count": len(results),
+            "guarded_window_pass_count": pass_count,
+            "guarded_window_fail_count": fail_count,
+            "guarded_window_results": results,
+            "allowed_to_start": False,
+            "aits_on_clicked": False,
+            "order_service_place_order_called": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "incident_report_smoke_path": str(incident_path),
+            "incident_report_auto_opened": bool(auto_opened),
+            "provider_call_markers": 0,
+            "external_cost_call_markers": 0,
+            "external_cost_call_delta": 0,
+            "submitted_detected": False,
+            "order_risk_detected": False,
+            "real_order_detected": False,
+            "paper_mode_created": False,
+            "virtual_trading_created": False,
+            "mock_trading_processor_created": False,
+            "pass_status": "pass" if fail_count == 0 else "fail",
+            "report_status": "pass" if fail_count == 0 else "fail",
+        }
+    )
+
+
 def _run_riskguard_active_path_proof(
     app: Any,
     window: Any,
@@ -2516,6 +2854,12 @@ def run_harness(
     no_click: bool = False,
     confirm_phrase: str = "",
     order_uuid: str = "",
+    duration_min: int = 120,
+    per_order_krw: float = 10000.0,
+    per_order_hard_cap_krw: float = 12000.0,
+    total_window_cap_krw: float = 20000.0,
+    max_order_count: int = 2,
+    min_order_interval_sec: int = 600,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -2534,6 +2878,7 @@ def run_harness(
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
         "live-order-post-trade-reconciliation",
+        "live-2h-guarded-window-preflight-proof",
     }:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
@@ -2543,6 +2888,16 @@ def run_harness(
             _run_live_one_shot_unlock_contract_proof(report)
         elif mode == "live-minimum-real-order-test":
             _run_live_minimum_real_order_test(report, confirm_phrase=confirm_phrase)
+        elif mode == "live-2h-guarded-window-preflight-proof":
+            _run_live_2h_guarded_window_preflight_proof(
+                report,
+                duration_min=duration_min,
+                per_order_krw=per_order_krw,
+                per_order_hard_cap_krw=per_order_hard_cap_krw,
+                total_window_cap_krw=total_window_cap_krw,
+                max_order_count=max_order_count,
+                min_order_interval_sec=min_order_interval_sec,
+            )
         else:
             _run_live_order_post_trade_reconciliation(report, order_uuid=order_uuid)
         if "status" not in report:
@@ -2693,6 +3048,7 @@ def main() -> int:
             "live-one-shot-unlock-contract-proof",
             "live-minimum-real-order-test",
             "live-order-post-trade-reconciliation",
+            "live-2h-guarded-window-preflight-proof",
         ),
         default="dry-read",
     )
@@ -2715,6 +3071,12 @@ def main() -> int:
     parser.add_argument("--output-dir", default=str(ROOT / "data" / "runtime_smoke_reports"))
     parser.add_argument("--confirm-phrase", default="")
     parser.add_argument("--order-uuid", default="")
+    parser.add_argument("--duration-min", type=int, default=120)
+    parser.add_argument("--per-order-krw", type=float, default=10000.0)
+    parser.add_argument("--per-order-hard-cap-krw", type=float, default=12000.0)
+    parser.add_argument("--total-window-cap-krw", type=float, default=20000.0)
+    parser.add_argument("--max-order-count", type=int, default=2)
+    parser.add_argument("--min-order-interval-sec", type=int, default=600)
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -2729,6 +3091,12 @@ def main() -> int:
         no_click=args.no_click,
         confirm_phrase=args.confirm_phrase,
         order_uuid=args.order_uuid,
+        duration_min=args.duration_min,
+        per_order_krw=args.per_order_krw,
+        per_order_hard_cap_krw=args.per_order_hard_cap_krw,
+        total_window_cap_krw=args.total_window_cap_krw,
+        max_order_count=args.max_order_count,
+        min_order_interval_sec=args.min_order_interval_sec,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

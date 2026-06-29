@@ -168,6 +168,7 @@ Before another real order, AITS must:
 - keep the previous order classified and reconciled
 - prove relock and duplicate-lock persistence after restart
 - prove post-order read-only reconciliation still works
+- prove the guarded-window contract when entering a multi-order runtime window
 - require a new explicit Goal and user confirmation phrase
 - run fresh RiskGuard, LiveOrderPreflight, and One-Shot Unlock checks
 

@@ -22,6 +22,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-order-post-trade-reconciliation --order-uuid <order-uuid>
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window-preflight-proof --duration-min 120 --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
 ```
 
 Reports are written to:
@@ -106,6 +107,13 @@ printed to stdout.
   normalized state `partially_filled_cancelled_remainder`, reconciliation
   status `reconciled`, zero balance delta, relock true, duplicate lock true,
   repeat block true, and zero place/cancel/sell/retry calls.
+- `live-2h-guarded-window-preflight-proof`: evaluates the future 2 hour live
+  guarded window contract without clicking AITS ON and without placing,
+  cancelling, selling, or retrying orders. It verifies the 120 minute duration,
+  10000 KRW per-order amount, 12000 KRW per-order hard cap, 20000 KRW total
+  cap, max order count 2, 600 second interval, sell/cancel/retry disabled
+  policy, and incident-stop behavior. It also creates and opens a smoke
+  incident markdown report.
 
 ## Safety Rules
 
@@ -118,6 +126,9 @@ printed to stdout.
   The only exception is the explicit `live-minimum-real-order-test` report,
   where `real_order=True` and `submitted_count=1` may appear only for the one
   sanctioned KRW-BTC buy response.
+- `live-2h-guarded-window-preflight-proof` must always report
+  `aits_on_clicked=false`, `place_order_call_count=0`, `cancel_call_count=0`,
+  `sell_call_count=0`, and `retry_call_count=0`.
 
 ## Stable Selectors
 

@@ -256,6 +256,28 @@ The strengthened schema separates exchange raw state from AITS normalized
 state and keeps reconciliation strictly read-only. It is evidence for audit and
 operator review only; it does not authorize another live order.
 
+## 2 Hour Guarded Window Contract Preparation
+
+The first attempt to start `AITS-LIVE-2H-GUARDED-TRADING-WINDOW-01` stopped
+before AITS ON because the existing live order path was still scoped to the
+one-shot 5000 KRW minimum-order test. A 2 hour guarded window needs a separate
+contract for:
+
+- `10000` KRW per order
+- `12000` KRW per-order hard cap
+- `20000` KRW total window cap
+- maximum `2` orders
+- minimum `600` seconds between orders
+- sell disabled
+- cancel disabled
+- retry disabled
+- incident-stop and auto-open report behavior
+
+The contract policy is documented in
+`app/docs/aits_live_guarded_window_policy_v1.md`. The proof mode is
+`live-2h-guarded-window-preflight-proof`. It is preparation only: it must not
+click AITS ON and must not place, cancel, sell, or retry an order.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:
