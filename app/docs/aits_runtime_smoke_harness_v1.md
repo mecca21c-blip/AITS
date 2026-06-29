@@ -618,3 +618,39 @@ to the connected state, one or fewer external provider calls, no fallback, and
 no order-risk markers. This mode exists because a helper-invocation proof can
 pass while the real `run.py` startup path still fails to schedule or apply the
 preflight.
+
+## Basic Candidate Discovery Proof
+
+`basic-candidate-discovery-proof` is an observe-only proof for the Basic Engine
+candidate discovery path:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-discovery-proof --observe-only --max-candidates 10
+```
+
+The mode does not click AITS ON, does not call providers, does not place orders,
+and does not mutate the Managed Pool. It observes the active scanner owner
+(`MainWindow._load_market_explorer_initial_data`), the Basic score helper
+(`MainWindow._calc_basic_ai_score`), current `managed_pool_rows`, and the current
+soft rotation payload. The report includes:
+
+- `basic_candidate_scan_called`
+- `basic_candidate_scan_success`
+- `market_data_ready`
+- `market_count`
+- `top_markets_count`
+- `candidate_count`
+- `top_candidates`
+- `no_candidate_reason`
+- `managed_pool_symbols_before`
+- `managed_pool_symbols_after`
+- `would_add`
+- `would_keep`
+- `would_remove`
+- `would_rotate`
+- `managed_pool_mutation_performed`
+
+`would_add`, `would_remove`, and `would_rotate` are only proof fields. A PASS
+requires the scan owner to run, Managed Pool mutation to remain false, provider
+external calls to remain zero, and order-risk counters to remain zero. If
+candidate count is zero, `no_candidate_reason` is the primary result.

@@ -612,6 +612,226 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_symbol_text(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    if not text:
+        return ""
+    if "-" not in text and text != "KRW":
+        return f"KRW-{text}"
+    return text
+
+
+def _row_symbol(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return _normalize_symbol_text(
+        row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker") or ""
+    )
+
+
+def _compact_candidate_row(row: dict[str, Any], *, rank: int | None = None) -> dict[str, Any]:
+    out = {
+        "symbol": _row_symbol(row),
+        "rank": rank,
+        "score": row.get("ai_score", row.get("score")),
+        "reason": row.get("reason") or row.get("reason_summary") or row.get("status") or "",
+        "source": row.get("source_type") or row.get("source") or "basic",
+        "change_rate": row.get("change_rate", row.get("change_pct", row.get("signed_change_rate"))),
+        "trade_value": row.get("trade_value", row.get("volume_krw", row.get("acc_trade_price_24h"))),
+    }
+    try:
+        score = out.get("score")
+        if isinstance(score, str) and score.strip():
+            out["score"] = float(score)
+    except Exception:
+        pass
+    return out
+
+
+def _run_basic_candidate_discovery_proof(
+    app: Any,
+    window: Any,
+    widgets: dict[str, Any],
+    report: dict[str, Any],
+    *,
+    max_candidates: int = 10,
+) -> None:
+    """Observe the Basic candidate/managed-pool path without mutating rows."""
+
+    before_rows = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    before_symbols = [_row_symbol(row) for row in before_rows if _row_symbol(row)]
+    scan_called = False
+    scan_success = False
+    scan_error = ""
+    started = time.time()
+    try:
+        loader = getattr(window, "_load_market_explorer_initial_data", None)
+        if callable(loader):
+            scan_called = True
+            loader()
+            _pump_events(app, 0.4)
+            scan_success = True
+        else:
+            scan_error = "missing__load_market_explorer_initial_data"
+    except Exception as exc:
+        scan_error = f"{type(exc).__name__}:{str(exc)[:120]}"
+    duration_ms = int(round((time.time() - started) * 1000.0))
+
+    market_rows = [
+        dict(row)
+        for row in (
+            getattr(window, "market_all_rows", None)
+            or getattr(window, "_market_all_rows", None)
+            or []
+        )
+        if isinstance(row, dict)
+    ]
+    display_rows = [
+        dict(row)
+        for row in (getattr(window, "_market_display_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    scan_rows = display_rows or market_rows
+    managed_rows_after = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    after_symbols = [_row_symbol(row) for row in managed_rows_after if _row_symbol(row)]
+    managed_symbols = set(after_symbols)
+
+    scored: list[dict[str, Any]] = []
+    score_fn = getattr(window, "_calc_basic_ai_score", None)
+    for raw in scan_rows:
+        symbol = _row_symbol(raw)
+        if not symbol:
+            continue
+        enriched = dict(raw)
+        try:
+            if callable(score_fn):
+                score_info = score_fn(enriched)
+                if isinstance(score_info, dict):
+                    enriched["ai_score"] = score_info.get("score")
+                    enriched["reason_summary"] = score_info.get("reason_summary") or ",".join(
+                        str(x) for x in (score_info.get("reasons") or [])[:4]
+                    )
+                    enriched["score_state"] = score_info.get("score_state")
+        except Exception as exc:
+            enriched["ai_score"] = None
+            enriched["reason_summary"] = f"score_failed:{type(exc).__name__}"
+        scored.append(enriched)
+
+    def _score_key(item: dict[str, Any]) -> tuple[float, float]:
+        score = _safe_float(item.get("ai_score", item.get("score")), -1.0)
+        trade_value = _safe_float(
+            item.get("trade_value", item.get("volume_krw", item.get("acc_trade_price_24h"))),
+            0.0,
+        )
+        return (score, trade_value)
+
+    scored.sort(key=_score_key, reverse=True)
+    top_candidates = [
+        _compact_candidate_row(row, rank=idx + 1)
+        for idx, row in enumerate(scored[: max(0, int(max_candidates))])
+    ]
+    would_add = [
+        row for row in top_candidates if row.get("symbol") and row.get("symbol") not in managed_symbols
+    ]
+    would_keep = [
+        _compact_candidate_row(row, rank=idx + 1)
+        for idx, row in enumerate(managed_rows_after)
+        if _row_symbol(row)
+    ]
+
+    rotation_payload = {}
+    try:
+        rotation_payload = dict(getattr(window, "_aits_last_rotation_payload", {}) or {})
+    except Exception:
+        rotation_payload = {}
+    would_rotate: list[dict[str, Any]] = []
+    no_rotation_reason = "rotation_soft_payload_empty"
+    if rotation_payload.get("needed"):
+        would_rotate.append(
+            {
+                "from_symbol": rotation_payload.get("from_symbol") or rotation_payload.get("out_symbol") or "",
+                "to_symbol": rotation_payload.get("to_symbol") or rotation_payload.get("in_symbol") or "",
+                "reason": rotation_payload.get("why") or rotation_payload.get("reason") or "",
+                "source": "basic_decision_engine_soft_signal",
+            }
+        )
+        no_rotation_reason = ""
+    elif not scored:
+        no_rotation_reason = "no_candidates_for_rotation"
+
+    no_candidate_reason = ""
+    if not scan_rows:
+        stale_reason = str(getattr(window, "_candidate_feed_stale_reason", "") or "")
+        if stale_reason:
+            no_candidate_reason = stale_reason
+        elif bool(report.get("provider_call_blocked")):
+            no_candidate_reason = "dry_network_guard_returned_empty"
+        else:
+            no_candidate_reason = "top_markets_empty"
+    elif not scored:
+        no_candidate_reason = "candidate_rows_without_symbols"
+
+    managed_mutation = before_symbols != after_symbols
+    try:
+        log = getattr(window, "_log", None)
+        if log is not None:
+            log.info(
+                "[AITS][BasicCandidateScan] event=finish observe_only=True candidate_count=%s no_candidate_reason=%s managed_pool_mutation=%s submitted=0 order_allowed=False real_order=False",
+                len(scored),
+                no_candidate_reason or "-",
+                managed_mutation,
+            )
+            log.info(
+                "[AITS][ManagedPoolPromotion] event=observe_only would_add=%s would_keep=%s would_remove=0 would_rotate=%s submitted=0 order_allowed=False real_order=False",
+                len(would_add),
+                len(would_keep),
+                len(would_rotate),
+            )
+    except Exception:
+        pass
+
+    report.update(
+        {
+            "basic_candidate_scan_supported": callable(getattr(window, "_load_market_explorer_initial_data", None)),
+            "basic_candidate_scan_called": scan_called,
+            "basic_candidate_scan_success": scan_success,
+            "basic_candidate_scan_error": scan_error,
+            "scan_duration_ms": duration_ms,
+            "market_data_ready": bool(scan_rows),
+            "market_count": len(market_rows),
+            "top_markets_count": len(display_rows),
+            "candidate_count": len(scored),
+            "top_candidates": top_candidates,
+            "no_candidate_reason": no_candidate_reason,
+            "managed_pool_row_count_before": len(before_rows),
+            "managed_pool_symbols_before": before_symbols,
+            "managed_pool_row_count_after": len(managed_rows_after),
+            "managed_pool_symbols_after": after_symbols,
+            "would_add": would_add,
+            "would_keep": would_keep,
+            "would_remove": [],
+            "would_rotate": would_rotate,
+            "rotation_candidate_count": len(would_rotate),
+            "no_rotation_reason": no_rotation_reason,
+            "managed_pool_mutation_performed": managed_mutation,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "provider_external_call_count": 0,
+        }
+    )
+    report["pass_status"] = "pass" if scan_called and scan_success and not managed_mutation else "partial"
+
+
 def _widget_snapshot(widget: Any, *, key: str = "", source: str = "") -> dict[str, Any]:
     return {
         "key": key,
@@ -3959,6 +4179,7 @@ def run_harness(
     check_interval_sec: int = 300,
     incident_open: bool = True,
     max_smoke_duration_sec: int = 15,
+    max_candidates: int = 10,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -4073,6 +4294,14 @@ def run_harness(
         _pump_events(app, 0.5)
     elif mode == "dry-read":
         pass
+    elif mode == "basic-candidate-discovery-proof":
+        _run_basic_candidate_discovery_proof(
+            app,
+            window,
+            widgets,
+            report,
+            max_candidates=max_candidates,
+        )
     elif mode == "riskguard-active-path-proof":
         _run_riskguard_active_path_proof(
             app,
@@ -4211,6 +4440,7 @@ def main() -> int:
             "riskguard-proof",
             "riskguard-active-path-proof",
             "riskguard-active-path-candidate-proof",
+            "basic-candidate-discovery-proof",
             "live-preflight-locked-proof",
             "live-one-shot-unlock-contract-proof",
             "live-minimum-real-order-test",
@@ -4259,6 +4489,8 @@ def main() -> int:
         help="Open generated incident markdown in Notepad when available.",
     )
     parser.add_argument("--max-smoke-duration-sec", type=int, default=15)
+    parser.add_argument("--observe-only", action="store_true")
+    parser.add_argument("--max-candidates", type=int, default=10)
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -4283,6 +4515,7 @@ def main() -> int:
         check_interval_sec=args.check_interval_sec,
         incident_open=args.incident_open,
         max_smoke_duration_sec=args.max_smoke_duration_sec,
+        max_candidates=args.max_candidates,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1
