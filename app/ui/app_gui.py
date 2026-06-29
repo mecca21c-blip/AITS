@@ -14953,8 +14953,23 @@ class MainWindow(QMainWindow):
             self._managed_pool_max_size_source = _max_size_source
         except Exception:
             pass
+        self.btn_apply_managed_pool_max_size = QPushButton("\ubc14\ub85c\uc801\uc6a9")
+        try:
+            self.btn_apply_managed_pool_max_size.setObjectName("btn_apply_managed_pool_max_size")
+            self.btn_apply_managed_pool_max_size.setProperty(
+                "smokeObjectName", "btn_apply_managed_pool_max_size"
+            )
+            self.btn_apply_managed_pool_max_size.setToolTip(
+                "\ud604\uc7ac \uc124\uc815\ud55c \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 \ub9de\ucdb0 \uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\uc744 \uc815\ub9ac\ud569\ub2c8\ub2e4. \ub9e4\ub9e4\ubcf4\ub958/\uc0ac\uc6a9\uc790\ucd94\uac00/\ubcf4\uc720\uc885\ubaa9\uc740 \uc81c\uc678\ub429\ub2c8\ub2e4."
+            )
+            self.btn_apply_managed_pool_max_size.clicked.connect(
+                self._on_apply_managed_pool_max_size_clicked
+            )
+        except Exception:
+            pass
         _max_lay.addWidget(_max_label, 0)
         _max_lay.addWidget(self.sp_managed_pool_max_size, 0)
+        _max_lay.addWidget(self.btn_apply_managed_pool_max_size, 0)
         _max_lay.addStretch(1)
         _mf_lay.addWidget(_max_box, 1)
         try:
@@ -16899,6 +16914,253 @@ class MainWindow(QMainWindow):
     def _on_managed_pool_max_size_changed(self, value: int) -> None:
         self._set_managed_pool_max_size_setting(value)
 
+    def _create_managed_pool_rows_backup(
+        self,
+        *,
+        prefix: str = "managed_pool_before_apply_button_trim",
+        max_size: int | None = None,
+    ) -> str:
+        try:
+            from datetime import datetime
+            import json
+            from pathlib import Path
+
+            backup_dir = Path("data") / "managed_pool_backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            path = backup_dir / f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            payload = {
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+                "goal": "AITS-MANAGED-POOL-MAX-SIZE-APPLY-BUTTON-TRIM-01",
+                "configured_max_managed_pool_size": max_size,
+                "before_count": len(self._build_managed_pool_rows_snapshot()),
+                "rows": self._build_managed_pool_rows_snapshot(),
+            }
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            return str(path)
+        except Exception as exc:
+            try:
+                self._log.warning("[AITS][ManagedPoolTrim] event=backup_failed error=%s", exc)
+            except Exception:
+                pass
+        return ""
+
+    def _persist_managed_pool_rows_after_trim(self, rows: list[dict], max_size: int) -> bool:
+        ui_state = self._get_ui_state_dict()
+        ui_state["managed_pool_rows"] = rows
+        ui_state["managed_pool_max_size"] = int(max_size)
+        ok = bool(
+            self._apply_settings_patch(
+                {"ui_state": ui_state},
+                reason="managed_pool_max_size_apply_button_trim",
+            )
+        )
+        if ok:
+            return True
+        try:
+            from app.utils.prefs import load_settings, save_settings_patch
+
+            base = load_settings()
+            saved = save_settings_patch(
+                {"ui_state": ui_state},
+                base_settings=base,
+                force=True,
+                save_source="managed_pool_max_size_apply_button_trim",
+            )
+            if saved is not None:
+                self._settings = saved
+                return True
+        except Exception as exc:
+            try:
+                self._log.warning("[AITS][ManagedPoolTrim] event=persist_failed error=%s", exc)
+            except Exception:
+                pass
+        return False
+
+    def _apply_managed_pool_max_size_trim(
+        self,
+        *,
+        confirm: bool = True,
+        max_size_override: int | None = None,
+        backup_prefix: str = "managed_pool_before_apply_button_trim",
+    ) -> dict:
+        from app.services.managed_pool_promotion_policy import build_managed_pool_trim_plan
+
+        max_size = self._coerce_managed_pool_max_size(
+            max_size_override if max_size_override is not None else self._get_managed_pool_max_size_value()
+        )
+        if max_size_override is not None:
+            self._set_managed_pool_max_size_setting(
+                max_size,
+                reason="managed_pool_max_size_apply_button_override",
+            )
+        before_rows = self._build_managed_pool_rows_snapshot()
+        before_symbols = [str(row.get("symbol") or "").strip() for row in before_rows]
+        backup_path = self._create_managed_pool_rows_backup(
+            prefix=backup_prefix,
+            max_size=max_size,
+        )
+        plan = build_managed_pool_trim_plan(before_rows, max_size, [], None)
+        planned_remove = list(plan.get("planned_remove") or [])
+        planned_remove_symbols = {
+            str(item.get("symbol") or "").strip()
+            for item in planned_remove
+            if str(item.get("symbol") or "").strip()
+        }
+        protected_symbols = {
+            str(item.get("symbol") or "").strip()
+            for item in (plan.get("protected_rows") or [])
+            if str(item.get("symbol") or "").strip()
+        }
+        result = {
+            "apply_button_supported": True,
+            "configured_max_managed_pool_size": max_size,
+            "before_count": len(before_rows),
+            "before_symbols": before_symbols,
+            "before_backup_path": backup_path,
+            "protected_rows": list(plan.get("protected_rows") or []),
+            "removable_rows": list(plan.get("removable_rows") or []),
+            "planned_remove": planned_remove,
+            "actual_removed": [],
+            "actual_remove_count": 0,
+            "actual_rotation_count": 0,
+            "protected_overflow": bool(plan.get("protected_overflow")),
+            "protected_overflow_reason": str(plan.get("protected_overflow_reason") or ""),
+            "persistence_saved": False,
+            "readback_verified": False,
+            "rollback_performed": False,
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+        }
+        try:
+            self._log.info(
+                "[AITS][ManagedPoolMaxSizeApply] event=clicked configured_max=%s before_count=%s submitted=0 order_allowed=False real_order=False",
+                int(max_size),
+                len(before_rows),
+            )
+            self._log.info(
+                "[AITS][ManagedPoolTrim] event=planned configured_max=%s before_count=%s excess=%s planned_remove=%s protected_overflow=%s submitted=0 order_allowed=False real_order=False",
+                int(max_size),
+                len(before_rows),
+                int(plan.get("excess_count") or 0),
+                sorted(planned_remove_symbols),
+                bool(plan.get("protected_overflow")),
+            )
+        except Exception:
+            pass
+        if not backup_path:
+            result["error"] = "backup_failed"
+            return result
+        if planned_remove_symbols & protected_symbols or bool(plan.get("protected_violation")):
+            result["error"] = "protected_row_in_trim_plan"
+            return result
+        if not planned_remove_symbols:
+            result["after_count"] = len(before_rows)
+            result["after_symbols"] = before_symbols
+            result["persistence_saved"] = True
+            result["readback_verified"] = len(before_rows) <= max_size or bool(plan.get("protected_overflow"))
+            return result
+        if confirm:
+            message = (
+                "\ubcf4\ud638 \ub300\uc0c1\uc744 \uc81c\uc678\ud558\uace0 "
+                "\uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\uc744 \ucd5c\ub300 "
+                "\uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 \ub9de\uac8c \uc815\ub9ac\ud569\ub2c8\ub2e4. "
+                "\uc9c4\ud589\ud560\uae4c\uc694?"
+            )
+            try:
+                answer = QMessageBox.question(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
+                    message,
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer != QMessageBox.Yes:
+                    result["cancelled"] = True
+                    return result
+            except Exception:
+                result["error"] = "confirmation_failed"
+                return result
+
+        after_rows = [
+            dict(row)
+            for row in before_rows
+            if str(row.get("symbol") or "").strip() not in planned_remove_symbols
+        ]
+        after_symbols = [str(row.get("symbol") or "").strip() for row in after_rows]
+        if len(after_rows) > max_size and not bool(plan.get("protected_overflow")):
+            result["error"] = "after_count_over_max_without_protected_overflow"
+            return result
+        self.ai_managed_rows = [dict(row) for row in after_rows]
+        try:
+            refresher = getattr(self, "_refresh_ai_managed_table", None)
+            if callable(refresher):
+                refresher()
+        except Exception:
+            pass
+        persisted = self._persist_managed_pool_rows_after_trim(after_rows, max_size)
+        if not persisted:
+            self.ai_managed_rows = [dict(row) for row in before_rows]
+            try:
+                refresher = getattr(self, "_refresh_ai_managed_table", None)
+                if callable(refresher):
+                    refresher()
+            except Exception:
+                pass
+            result["rollback_performed"] = True
+            result["error"] = "persist_failed"
+            return result
+        readback = self._build_managed_pool_rows_snapshot()
+        readback_symbols = [str(row.get("symbol") or "").strip() for row in readback]
+        result.update(
+            {
+                "actual_removed": sorted(planned_remove_symbols),
+                "actual_remove_count": len(planned_remove_symbols),
+                "after_count": len(readback),
+                "after_symbols": readback_symbols,
+                "persistence_saved": True,
+                "readback_verified": readback_symbols == after_symbols,
+            }
+        )
+        try:
+            self._log.info(
+                "[AITS][ManagedPoolTrim] event=applied configured_max=%s after_count=%s removed=%s protected=%s protected_overflow=%s submitted=0 order_allowed=False real_order=False",
+                int(max_size),
+                len(readback),
+                sorted(planned_remove_symbols),
+                sorted(protected_symbols),
+                bool(plan.get("protected_overflow")),
+            )
+        except Exception:
+            pass
+        return result
+
+    def _on_apply_managed_pool_max_size_clicked(self) -> None:
+        result = self._apply_managed_pool_max_size_trim(confirm=True)
+        try:
+            if result.get("cancelled"):
+                return
+            if result.get("error"):
+                QMessageBox.warning(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
+                    f"\uc815\ub9ac\ub97c \uc644\ub8cc\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: {result.get('error')}",
+                )
+                return
+            if result.get("protected_overflow"):
+                QMessageBox.information(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
+                    "\ubcf4\ud638 \ub300\uc0c1\uc774 \ub9ce\uc544 \uc124\uc815\uac12 \uc774\ud558\ub85c \uc904\uc774\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4. \ubcf4\ud638 \uc885\ubaa9\uc740 \uc720\uc9c0\ub429\ub2c8\ub2e4.",
+                )
+            else:
+                QMessageBox.information(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
+                    f"\uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9 {int(result.get('actual_remove_count') or 0)}\uac1c\ub97c \uc815\ub9ac\ud588\uc2b5\ub2c8\ub2e4.",
+                )
+        except Exception:
+            pass
+
     def _normalize_managed_pool_symbol_for_persistence(self, value) -> str:
         try:
             raw = str(value or "").strip()
@@ -16936,6 +17198,13 @@ class MainWindow(QMainWindow):
             "next_action",
             "manual_hold",
             "user_trade_hold",
+            "trade_hold",
+            "hold",
+            "holding",
+            "qty",
+            "quantity",
+            "balance",
+            "value_krw",
             "hold_source",
             "hold_reason",
             "_ai_status_before_pause",

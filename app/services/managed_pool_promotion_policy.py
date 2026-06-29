@@ -78,7 +78,17 @@ def _is_system_seed(row: dict[str, Any]) -> bool:
 
 
 def _is_manual_hold(row: dict[str, Any]) -> bool:
-    return bool(row.get("manual_hold") or row.get("user_trade_hold") or row.get("locked"))
+    status = _text(row.get("status") or row.get("state") or row.get("trade_status"))
+    status_norm = status.lower()
+    return bool(
+        row.get("manual_hold")
+        or row.get("user_trade_hold")
+        or row.get("trade_hold")
+        or row.get("hold")
+        or row.get("locked")
+        or status in {"매매보류", "보류"}
+        or status_norm in {"trade_hold", "manual_hold", "hold", "paused", "blocked"}
+    )
 
 
 def _holding_symbols(holdings: list[dict[str, Any]] | None) -> set[str]:
@@ -100,6 +110,55 @@ def _is_holding(row: dict[str, Any], holding_symbols: set[str]) -> bool:
     qty = _float(row.get("qty", row.get("quantity", row.get("balance"))), 0.0)
     value = _float(row.get("value_krw", row.get("holding_value", row.get("amount_krw"))), 0.0)
     return symbol in holding_symbols or bool(row.get("holding")) or status == "holding" or qty > 0.0 or value > 0.0
+
+
+def _rank(row: dict[str, Any], default: int = 999999) -> int:
+    try:
+        value = row.get("rank", row.get("priority_rank", row.get("candidate_rank")))
+        if value is None:
+            return int(default)
+        return int(float(str(value).replace(",", "").strip()))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _added_at_text(row: dict[str, Any]) -> str:
+    return _text(row.get("added_at") or row.get("created_at") or row.get("updated_at"))
+
+
+def _protected_reasons(
+    row: dict[str, Any],
+    holding_set: set[str],
+    cfg: ManagedPoolPromotionConfig,
+) -> list[str]:
+    reasons: list[str] = []
+    if cfg.protect_user_added and _is_user_added(row):
+        reasons.append("user_added")
+    if cfg.protect_holdings_until_liquidated and _is_holding(row, holding_set):
+        reasons.append("holding_until_liquidated")
+    if _is_manual_hold(row):
+        reasons.append("trade_hold")
+    if cfg.protect_system_seed_initially and _is_system_seed(row):
+        reasons.append("system_seed")
+    return reasons
+
+
+def _compact_pool_row(row: dict[str, Any], *, reasons: list[str] | None = None) -> dict[str, Any]:
+    compact = {
+        "symbol": _row_symbol(row),
+        "score": _score(row, 0.0),
+        "rank": _rank(row),
+        "source_type": _source_type(row) or "unknown",
+    }
+    if reasons is not None:
+        compact["reasons"] = list(reasons)
+    return compact
+
+
+def _trim_remove_sort_key(row: dict[str, Any]) -> tuple[float, int, str, str]:
+    rank = _rank(row)
+    rank_key = -rank if rank < 999999 else 0
+    return (_score(row, 0.0), rank_key, _added_at_text(row), _row_symbol(row))
 
 
 def _compact_candidate(row: dict[str, Any], *, rank: int) -> dict[str, Any]:
@@ -164,15 +223,7 @@ def build_managed_pool_promotion_plan(
     keep: list[dict[str, Any]] = []
     for row in rows:
         symbol = _row_symbol(row)
-        reasons: list[str] = []
-        if cfg.protect_user_added and _is_user_added(row):
-            reasons.append("user_added")
-        if cfg.protect_holdings_until_liquidated and _is_holding(row, holding_set):
-            reasons.append("holding_until_liquidated")
-        if _is_manual_hold(row):
-            reasons.append("manual_hold")
-        if cfg.protect_system_seed_initially and _is_system_seed(row):
-            reasons.append("system_seed")
+        reasons = _protected_reasons(row, holding_set, cfg)
         if reasons:
             protected_rows.append({"symbol": symbol, "reasons": reasons})
         elif _is_basic_added(row):
@@ -291,8 +342,89 @@ def build_managed_pool_promotion_plan(
     }
 
 
+def build_managed_pool_trim_plan(
+    current_rows: list[dict[str, Any]] | None,
+    configured_max_size: int,
+    holdings: list[dict[str, Any]] | None = None,
+    config: ManagedPoolPromotionConfig | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a protected max-size trim plan without mutating Managed Pool rows."""
+
+    cfg = config if isinstance(config, ManagedPoolPromotionConfig) else ManagedPoolPromotionConfig(**(config or {}))
+    max_size = max(1, min(50, int(configured_max_size or cfg.max_managed_pool_size or MAX_MANAGED_POOL_SIZE)))
+    holding_set = _holding_symbols(holdings)
+
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in current_rows or []:
+        if not isinstance(row, dict):
+            continue
+        symbol = _row_symbol(row)
+        if not symbol or symbol in seen:
+            continue
+        clean = dict(row)
+        clean["symbol"] = symbol
+        clean.setdefault("market", symbol)
+        rows.append(clean)
+        seen.add(symbol)
+
+    protected_rows: list[dict[str, Any]] = []
+    removable_rows: list[dict[str, Any]] = []
+    keep_rows: list[dict[str, Any]] = []
+    for row in rows:
+        reasons = _protected_reasons(row, holding_set, cfg)
+        if reasons:
+            protected_rows.append(_compact_pool_row(row, reasons=reasons))
+        elif _is_basic_added(row):
+            removable_rows.append(row)
+        keep_rows.append(_compact_pool_row(row))
+
+    before_count = len(rows)
+    excess_count = max(0, before_count - max_size)
+    planned_remove_rows = sorted(removable_rows, key=_trim_remove_sort_key)[:excess_count]
+    planned_remove: list[dict[str, Any]] = []
+    for row in planned_remove_rows:
+        planned_remove.append(
+            {
+                **_compact_pool_row(row),
+                "remove_reason": "max_size_apply_low_priority_basic_added",
+                "actual_order": False,
+            }
+        )
+
+    planned_symbols = {item.get("symbol") for item in planned_remove}
+    protected_symbols = {item.get("symbol") for item in protected_rows}
+    after_count_expected = before_count - len(planned_remove)
+    protected_overflow = after_count_expected > max_size
+    protected_overflow_reason = ""
+    if protected_overflow:
+        protected_overflow_reason = "protected_rows_exceed_max_or_not_enough_removable"
+
+    return {
+        "trim_supported": True,
+        "max_managed_pool_size": max_size,
+        "before_count": before_count,
+        "trim_required": before_count > max_size,
+        "excess_count": excess_count,
+        "protected_rows": protected_rows,
+        "removable_rows": [_compact_pool_row(row) for row in sorted(removable_rows, key=_trim_remove_sort_key)],
+        "planned_keep": keep_rows,
+        "planned_remove": planned_remove,
+        "actual_remove_count": 0,
+        "actual_rotation_count": 0,
+        "after_count_expected": after_count_expected,
+        "protected_overflow": bool(protected_overflow),
+        "protected_overflow_reason": protected_overflow_reason,
+        "protected_violation": bool(planned_symbols & protected_symbols),
+        "managed_pool_mutation_performed": False,
+        "actual_order": False,
+        "order_execution_enabled": False,
+    }
+
+
 __all__ = [
     "MAX_MANAGED_POOL_SIZE",
     "ManagedPoolPromotionConfig",
     "build_managed_pool_promotion_plan",
+    "build_managed_pool_trim_plan",
 ]

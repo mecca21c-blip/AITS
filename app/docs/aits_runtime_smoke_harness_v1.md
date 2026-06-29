@@ -22,6 +22,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode top-markets-feed-proo
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-discovery-proof --observe-only --max-candidates 10
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
@@ -102,6 +104,17 @@ printed to stdout.
   `--apply-add-only` is present. It must report `actual_remove_count=0`,
   `actual_rotation_count=0`, `provider_external_call_count=0`, zero
   place/cancel/sell/retry calls, and `after_count <= configured_max_managed_pool_size`.
+- `managed-pool-max-size-apply-button-proof`: runs a fixture proof for the
+  Managed Pool footer `바로적용` trim policy. It simulates reducing the max size
+  from `--from-max` to `--to-max`, verifies only unprotected `basic_added` rows
+  are removed, preserves user-added, trade-hold, holding, and protected seed
+  rows, and performs no real Managed Pool mutation or order calls.
+- `managed-pool-max-size-apply-button-actual-proof`: creates the Qt window and
+  invokes the same max-size trim helper as the `바로적용` button when
+  `--apply-trim` is present. It backs up current rows, persists the trim,
+  verifies readback, reports `protected_overflow` when protected rows prevent
+  reaching the target, and must keep provider calls, rotation execution, and
+  order calls at zero.
 - `live-preflight-locked-proof`: evaluates the final live-order preflight lock
   with deterministic fixtures. It does not create paper trading, virtual
   trading, mock processors, provider calls, or order submissions.

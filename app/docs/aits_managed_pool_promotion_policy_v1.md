@@ -54,12 +54,22 @@ The first actual apply path is add-only: it may persist `planned_add` rows up to
 the configured max, but it must not execute `planned_remove`, rotation, orders,
 sell, cancel, or retry.
 
+Changing `max_managed_pool_size` only saves the setting. It does not trim rows.
+The Managed Pool footer has a separate `바로적용` button that applies the current
+max size to already-managed rows. That button may remove only unprotected
+`basic_added` rows and never calls any order path.
+
 ## Removal
 
 Only non-protected `basic_added` rows are removable. `user_added`,
 `holding`, `manual_hold`, and protected `system_seed` rows are not removal
 targets. If the pool is full, a higher-ranked new candidate may create a
 replacement plan against the weakest removable `basic_added` row.
+
+The max-size apply trim uses this priority for removable `basic_added` rows:
+lowest score first, then worse rank, then older `added_at`, then symbol for
+determinism. If protected rows make it impossible to reach the configured max,
+the plan reports `protected_overflow=true` and keeps protected rows.
 
 ## Rotation
 
@@ -82,8 +92,12 @@ Use:
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
 ```
 
 The proof covers auto-add, user protection, holding protection, max-10
 enforcement, low-rank `basic_added` removal candidates, rotation pair creation,
 no-rotation when candidate score is lower, and duplicate candidate ignoring.
+The apply-button proof additionally covers protected trim behavior and verifies
+that `user_added`, trade-hold, holding, and `system_seed` rows are preserved.
