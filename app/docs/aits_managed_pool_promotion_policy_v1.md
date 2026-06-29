@@ -1,0 +1,78 @@
+# AITS Managed Pool Promotion Policy v1
+
+Purpose: define Basic candidate promotion, removal protection, and rotation
+intent planning without executing trades.
+
+## Scope
+
+This policy is planning only. It may produce `planned_add`, `planned_remove`,
+and `planned_rotation`, but it must not mutate user Managed Pool rows or call
+buy, sell, cancel, retry, RiskGuard, Preflight, OrderAdapter, OrderService, or
+ExecutionBridge.
+
+Actual Managed Pool mutation requires a later explicit apply Goal. Actual
+orders require a separate live-execution Goal.
+
+## Config
+
+- `max_managed_pool_size`: `10`
+- `promotion_min_score`: `None`
+- `auto_add_enabled`: `True`
+- `auto_remove_enabled`: `True`
+- `protect_user_added`: `True`
+- `protect_holdings_until_liquidated`: `True`
+- `protect_system_seed_initially`: `True`
+- `rotation_enabled`: `True`
+- `rotation_min_score_gap`: `0.0`
+- `order_execution_enabled`: `False`
+
+Initial operation is rank-relative. Fixed score thresholds are intentionally
+left unset until more runtime data exists.
+
+## Source Types
+
+- `user_added`: user-managed row, never auto-removed.
+- `basic_added`: Basic auto-promotion row, removable when rank/score falls.
+- `system_seed`: initial seed rows such as `KRW-BTC`, `KRW-ETH`, `KRW-XRP`,
+  protected in the initial policy.
+- `holding`: live holding, protected until liquidation is confirmed.
+
+## Promotion
+
+When the pool has fewer than 10 rows, Basic top candidates not already managed
+can be planned for addition in rank order. Planned rows use
+`source_type=basic_added` and include score, rank, reason, trade value, and
+`actual_order=false`.
+
+## Removal
+
+Only non-protected `basic_added` rows are removable. `user_added`,
+`holding`, `manual_hold`, and protected `system_seed` rows are not removal
+targets. If the pool is full, a higher-ranked new candidate may create a
+replacement plan against the weakest removable `basic_added` row.
+
+## Rotation
+
+Rotation is opportunity-cost detection, not execution. If a new candidate score
+is higher than a holding score, the plan may emit:
+
+- `rotate_out`
+- `rotate_in`
+- `sell_candidate=true`
+- `buy_candidate=true`
+- `actual_order=false`
+
+Example: holding score 60 and candidate score 70 produces a rotation pair, but
+the holding remains in Managed Pool until liquidation is confirmed.
+
+## Proof
+
+Use:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
+```
+
+The proof covers auto-add, user protection, holding protection, max-10
+enforcement, low-rank `basic_added` removal candidates, rotation pair creation,
+no-rotation when candidate score is lower, and duplicate candidate ignoring.

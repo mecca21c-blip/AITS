@@ -53,3 +53,12 @@ Rotation observe-only proof depends on Basic top-market candidates. Use
 `top-markets-feed-proof` first when reports show `top_markets_empty`; a healthy
 feed should provide nonzero KRW market and top-market counts before rotation
 absence is interpreted as a strategy condition.
+
+## Promotion Policy Integration
+
+`managed_pool_promotion_policy.py` may emit rotation pairs when a new Basic
+candidate score is above a holding score. A pair marks the holding as
+`rotate_out` / `sell_candidate` and the new symbol as `rotate_in` /
+`buy_candidate`, but `actual_order=false` is mandatory. The holding remains in
+Managed Pool until liquidation is confirmed by a later live execution and
+reconciliation Goal.

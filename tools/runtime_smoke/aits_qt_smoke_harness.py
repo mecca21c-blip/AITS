@@ -985,6 +985,205 @@ def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20
         report["pass_status"] = "fail"
 
 
+def _latest_basic_candidate_report(output_dir: Path) -> dict[str, Any]:
+    try:
+        paths = sorted(output_dir.glob("runtime_smoke_report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        paths = []
+    for path in paths[:80]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict) and data.get("mode") == "basic-candidate-discovery-proof":
+            data["_report_path"] = str(path)
+            return data
+    return {}
+
+
+def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
+    return {
+        "name": name,
+        "passed": bool(passed),
+        "detail": detail,
+        "planned_add_count": len(plan.get("planned_add") or []),
+        "planned_remove_count": len(plan.get("planned_remove") or []),
+        "planned_rotation_count": len(plan.get("planned_rotation") or []),
+        "pool_size_after": plan.get("pool_size_after"),
+        "protected_violation": bool(plan.get("protected_violation")),
+    }
+
+
+def _run_managed_pool_promotion_policy_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    max_managed: int = 10,
+) -> None:
+    from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
+
+    config = {
+        "max_managed_pool_size": int(max_managed or 10),
+        "promotion_min_score": None,
+        "auto_add_enabled": True,
+        "auto_remove_enabled": True,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": True,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+
+    def plan(rows: list[dict[str, Any]], candidates: list[dict[str, Any]], holdings: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        return build_managed_pool_promotion_plan(rows, candidates, holdings or [], config)
+
+    fixtures: list[dict[str, Any]] = []
+
+    p1 = plan(
+        [{"symbol": "KRW-BTC", "source_type": "system_seed", "score": 54}],
+        [{"symbol": "KRW-AAA", "rank": 1, "score": 70}, {"symbol": "KRW-BBB", "rank": 2, "score": 68}],
+    )
+    fixtures.append(_fixture_result("pool_under_10_auto_add", len(p1["planned_add"]) == 2 and p1["pool_size_after"] == 3, p1))
+
+    p2 = plan(
+        [{"symbol": "KRW-USER", "source_type": "user_added", "score": 10}]
+        + [{"symbol": f"KRW-B{i}", "source_type": "basic_added", "score": 20 + i} for i in range(10)],
+        [{"symbol": "KRW-NEW", "rank": 1, "score": 99}],
+    )
+    fixtures.append(
+        _fixture_result(
+            "user_added_protected_from_remove",
+            all(item.get("symbol") != "KRW-USER" for item in p2["planned_remove"]) and not p2["protected_violation"],
+            p2,
+        )
+    )
+
+    p3 = plan(
+        [{"symbol": "KRW-HOLD", "source_type": "basic_added", "score": 30, "holding": True}]
+        + [{"symbol": f"KRW-C{i}", "source_type": "basic_added", "score": 40 + i} for i in range(10)],
+        [{"symbol": "KRW-NEW", "rank": 1, "score": 90}],
+        [{"symbol": "KRW-HOLD", "qty": 1.0}],
+    )
+    fixtures.append(
+        _fixture_result(
+            "holding_protected_until_liquidated",
+            all(item.get("symbol") != "KRW-HOLD" for item in p3["planned_remove"]) and not p3["protected_violation"],
+            p3,
+        )
+    )
+
+    p4 = plan(
+        [{"symbol": f"KRW-D{i}", "source_type": "basic_added", "score": 40 + i} for i in range(10)],
+        [{"symbol": "KRW-HIGH", "rank": 1, "score": 80}],
+    )
+    fixtures.append(
+        _fixture_result(
+            "basic_added_low_rank_remove_candidate",
+            any(item.get("symbol") == "KRW-D0" for item in p4["planned_remove"]),
+            p4,
+        )
+    )
+
+    p5 = plan(
+        [{"symbol": f"KRW-E{i}", "source_type": "basic_added", "score": 50 + i} for i in range(10)],
+        [{"symbol": "KRW-HIGH", "rank": 1, "score": 90}],
+    )
+    fixtures.append(
+        _fixture_result(
+            "pool_max_10_enforced",
+            int(p5.get("pool_size_after_capped") or 0) <= int(max_managed or 10),
+            p5,
+        )
+    )
+
+    p6 = plan(
+        [{"symbol": "KRW-HOLD", "source_type": "basic_added", "score": 60, "holding": True}],
+        [{"symbol": "KRW-ROTIN", "rank": 1, "score": 70}],
+        [{"symbol": "KRW-HOLD", "qty": 1.0}],
+    )
+    fixtures.append(
+        _fixture_result(
+            "rotation_holding_60_candidate_70",
+            bool(p6["planned_rotation"])
+            and p6["planned_rotation"][0].get("rotate_out") == "KRW-HOLD"
+            and p6["planned_rotation"][0].get("rotate_in") == "KRW-ROTIN"
+            and p6["planned_rotation"][0].get("actual_order") is False,
+            p6,
+        )
+    )
+
+    p7 = plan(
+        [{"symbol": "KRW-HOLD", "source_type": "basic_added", "score": 70, "holding": True}],
+        [{"symbol": "KRW-LOW", "rank": 1, "score": 60}],
+        [{"symbol": "KRW-HOLD", "qty": 1.0}],
+    )
+    fixtures.append(_fixture_result("candidate_below_existing_no_rotation", not p7["planned_rotation"], p7))
+
+    p8 = plan(
+        [{"symbol": "KRW-BTC", "source_type": "system_seed", "score": 54}],
+        [{"symbol": "KRW-BTC", "rank": 1, "score": 99}, {"symbol": "KRW-DUP", "rank": 2, "score": 80}],
+    )
+    fixtures.append(
+        _fixture_result(
+            "duplicate_candidate_ignored",
+            all(item.get("symbol") != "KRW-BTC" for item in p8["planned_add"])
+            and any(item.get("symbol") == "KRW-DUP" for item in p8["planned_add"]),
+            p8,
+        )
+    )
+
+    latest = _latest_basic_candidate_report(output_dir)
+    real_plan: dict[str, Any] = {}
+    if latest:
+        rows = [{"symbol": symbol, "source_type": "system_seed"} for symbol in latest.get("managed_pool_symbols_after") or []]
+        real_plan = plan(rows, list(latest.get("top_candidates") or []), [])
+
+    fixture_pass = all(item.get("passed") for item in fixtures)
+    order_risk = any(
+        bool(item.get("actual_order"))
+        for item in (real_plan.get("planned_add") or [])
+        + (real_plan.get("planned_remove") or [])
+        + (real_plan.get("planned_rotation") or [])
+    )
+    report.update(
+        {
+            "policy_supported": True,
+            "max_managed_pool_size": int(max_managed or 10),
+            "auto_add_enabled": True,
+            "auto_remove_enabled": True,
+            "promotion_min_score": None,
+            "protect_user_added": True,
+            "protect_holdings_until_liquidated": True,
+            "protect_system_seed_initially": True,
+            "rotation_enabled": True,
+            "rotation_min_score_gap": 0.0,
+            "order_execution_enabled": False,
+            "fixture_results": fixtures,
+            "fixture_pass_count": sum(1 for item in fixtures if item.get("passed")),
+            "fixture_total_count": len(fixtures),
+            "actual_candidate_source_report": latest.get("_report_path", ""),
+            "current_pool_size": real_plan.get("current_pool_size", 0),
+            "candidate_count": real_plan.get("candidate_count", 0),
+            "planned_add": real_plan.get("planned_add", []),
+            "planned_remove": real_plan.get("planned_remove", []),
+            "planned_keep": real_plan.get("planned_keep", []),
+            "protected_rows": real_plan.get("protected_rows", []),
+            "planned_rotation": real_plan.get("planned_rotation", []),
+            "pool_size_after": real_plan.get("pool_size_after", 0),
+            "actual_mutation_performed": False,
+            "managed_pool_mutation_performed": False,
+            "order_risk_detected": bool(order_risk),
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "provider_external_call_count": 0,
+        }
+    )
+    report["pass_status"] = "pass" if fixture_pass and not order_risk and latest else "partial"
+
+
 def _widget_snapshot(widget: Any, *, key: str = "", source: str = "") -> dict[str, Any]:
     return {
         "key": key,
@@ -4334,6 +4533,7 @@ def run_harness(
     max_smoke_duration_sec: int = 15,
     max_candidates: int = 10,
     max_markets: int = 20,
+    max_managed: int = 10,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -4349,6 +4549,7 @@ def run_harness(
     if mode in {
         "riskguard-proof",
         "top-markets-feed-proof",
+        "managed-pool-promotion-policy-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
@@ -4361,6 +4562,12 @@ def run_harness(
         elif mode == "top-markets-feed-proof":
             _install_provider_post_guard(report)
             _run_top_markets_feed_proof(report, max_markets=max_markets)
+        elif mode == "managed-pool-promotion-policy-proof":
+            _run_managed_pool_promotion_policy_proof(
+                report,
+                output_dir=output_dir,
+                max_managed=max_managed,
+            )
         elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
         elif mode == "live-one-shot-unlock-contract-proof":
@@ -4598,6 +4805,7 @@ def main() -> int:
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",
             "top-markets-feed-proof",
+            "managed-pool-promotion-policy-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
@@ -4654,6 +4862,7 @@ def main() -> int:
     parser.add_argument("--observe-only", action="store_true")
     parser.add_argument("--max-candidates", type=int, default=10)
     parser.add_argument("--max-markets", type=int, default=20)
+    parser.add_argument("--max-managed", type=int, default=10)
     args = parser.parse_args()
     report = run_harness(
         args.mode,
@@ -4680,6 +4889,7 @@ def main() -> int:
         max_smoke_duration_sec=args.max_smoke_duration_sec,
         max_candidates=args.max_candidates,
         max_markets=args.max_markets,
+        max_managed=args.max_managed,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

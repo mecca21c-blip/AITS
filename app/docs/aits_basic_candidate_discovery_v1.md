@@ -85,3 +85,11 @@ Expected healthy input proof:
 If candidates are still zero after top markets are present, the reason should
 move from `top_markets_empty` to a scoring/filter reason, such as symbols
 already managed or Basic thresholds not met.
+
+## Promotion Boundary
+
+Basic candidate promotion is defined in
+`app/services/managed_pool_promotion_policy.py`. The current policy is
+rank-based with `max_managed_pool_size=10` and no fixed score threshold. The
+Basic scan may feed top candidates into the promotion policy, but actual row
+mutation is not performed by the observe-only proof.

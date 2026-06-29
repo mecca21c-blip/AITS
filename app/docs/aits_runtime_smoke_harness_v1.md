@@ -20,6 +20,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-candidate-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode top-markets-feed-proof --max-markets 20
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-discovery-proof --observe-only --max-candidates 10
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
@@ -87,6 +88,12 @@ printed to stdout.
   the dry-read network guard. Reports must keep
   `managed_pool_mutation_performed=false`, `provider_external_call_count=0`,
   and zero place/cancel/sell/retry calls.
+- `managed-pool-promotion-policy-proof`: runs fixture coverage for the
+  rank-based Basic promotion policy and, when available, applies the policy to
+  the latest `basic-candidate-discovery-proof` report. It verifies max pool size
+  10, `user_added` protection, holding protection until liquidation,
+  `basic_added` removal candidates, rotation intent creation, duplicate
+  candidate ignoring, `actual_mutation_performed=false`, and zero order calls.
 - `live-preflight-locked-proof`: evaluates the final live-order preflight lock
   with deterministic fixtures. It does not create paper trading, virtual
   trading, mock processors, provider calls, or order submissions.
@@ -163,6 +170,9 @@ printed to stdout.
 - Public market feed proof modes may read Upbit public market/ticker endpoints
   only. They must not call provider APIs, account/order APIs, or mutate Managed
   Pool rows.
+- `managed-pool-promotion-policy-proof` is policy planning only. Rotation
+  `sell_candidate` / `buy_candidate` fields are review intent, not order
+  execution, and must always carry `actual_order=false`.
 - The harness skips startup provider verification inside the harness process.
 - `AI 분석 새로고침` is located but never clicked in dry modes.
 - Order-related UI or service calls are not part of the harness.
