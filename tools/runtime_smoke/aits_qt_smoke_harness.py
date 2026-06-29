@@ -2487,6 +2487,289 @@ def _run_live_2h_guarded_window_preflight_proof(
     )
 
 
+def _run_live_2h_guarded_window_order_path_cap_proof(
+    report: dict[str, Any],
+    *,
+    per_order_krw: float,
+    per_order_hard_cap_krw: float,
+    total_window_cap_krw: float,
+    max_order_count: int,
+    min_order_interval_sec: int,
+) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.services.live_guarded_window import (
+        LiveGuardedWindow,
+        LiveGuardedWindowConfig,
+        LiveGuardedWindowState,
+    )
+    from app.services.live_order_preflight import LiveOrderPreflight, LiveOrderPreflightInput
+    from app.services.live_order_unlock import LiveOneShotUnlock
+    from app.services.risk_guard import RiskGuard
+
+    service = LiveGuardedWindow()
+    risk_guard = RiskGuard()
+    preflight = LiveOrderPreflight()
+    unlock_manager = LiveOneShotUnlock()
+    now = datetime.now(timezone.utc)
+    config = LiveGuardedWindowConfig.from_mapping(
+        {
+            "window_id": f"guarded_order_path_{uuid.uuid4().hex[:12]}",
+            "duration_min": 120,
+            "per_order_krw": per_order_krw,
+            "per_order_hard_cap_krw": per_order_hard_cap_krw,
+            "total_window_cap_krw": total_window_cap_krw,
+            "max_order_count": max_order_count,
+            "min_order_interval_sec": min_order_interval_sec,
+            "sell_allowed": False,
+            "cancel_allowed": False,
+            "retry_allowed": False,
+            "emergency_stop_required": True,
+            "incident_stop_required": True,
+            "approval_phrase_hash": "sha256:AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM",
+        }
+    )
+    base_state = LiveGuardedWindowState.from_mapping(
+        {
+            "window_id": config.window_id,
+            "active": False,
+            "locked": True,
+            "order_count": 0,
+            "total_order_amount_krw": 0.0,
+            "relocked": True,
+            "duplicate_lock_ok": True,
+            "repeat_block_ok": True,
+        }
+    )
+
+    def guarded_candidate(name: str, candidate: dict[str, Any], expected_reason: str, state: dict[str, Any] | None = None) -> dict[str, Any]:
+        state_data = dict(base_state.to_dict())
+        state_data.update(state or {})
+        result = service.evaluate_order_attempt(
+            config,
+            LiveGuardedWindowState.from_mapping(state_data),
+            candidate,
+        )
+        passed = (
+            result.blocked_reason == expected_reason
+            and result.locked
+            and not result.order_allowed
+            and not result.real_order
+            and result.submitted == 0
+            and result.place_order_call_count == 0
+            and result.cancel_call_count == 0
+            and result.sell_call_count == 0
+            and result.retry_call_count == 0
+        )
+        return {
+            "name": name,
+            "expected_reason": expected_reason,
+            "blocked_reason": result.blocked_reason,
+            "pass": bool(passed),
+            "result": result.to_dict(),
+        }
+
+    allowed_request_id = "guarded_allowed_10000_buy"
+    allowed_candidate = {
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "amount_krw": per_order_krw,
+        "price": 100000000.0,
+        "quantity": per_order_krw / 100000000.0,
+    }
+    allowed_window = service.evaluate_order_attempt(config, base_state, allowed_candidate)
+    risk_input = {
+        "request_id": allowed_request_id,
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "requested_amount_krw": per_order_krw,
+        "price": 100000000.0,
+        "quantity": per_order_krw / 100000000.0,
+        "source_provider": "local",
+        "confidence": 0.75,
+        "action": "buy",
+        "holdings_value_krw": 0.0,
+        "cash_available_krw": total_window_cap_krw,
+        "portfolio_value_krw": 1000000.0,
+        "daily_realized_pnl_krw": 0.0,
+        "daily_loss_limit_krw": 30000.0,
+        "max_order_amount_krw": per_order_hard_cap_krw,
+        "max_position_value_krw": total_window_cap_krw,
+        "emergency_stop": False,
+        "stale_price": False,
+        "execution_mode": "live",
+        "dry_run": True,
+    }
+    risk_result = risk_guard.evaluate_order_candidate(risk_input)
+    unlock_request = {
+        "request_id": allowed_request_id,
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "amount_krw": per_order_krw,
+        "max_order_amount_krw": per_order_hard_cap_krw,
+        "min_order_amount_krw": per_order_krw,
+        "user_confirm_phrase": "AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM",
+        "confirm_token": "AITS_LIVE_2H_GUARDED_WINDOW_KRW_BTC_10000_MAX2_CONFIRM",
+        "ttl_sec": 300,
+        "expires_at_utc": (now + timedelta(seconds=300)).isoformat(timespec="seconds"),
+        "duplicate_lock_key": "guarded-window-KRW-BTC-buy-10000-proof",
+        "created_at_utc": now.isoformat(timespec="seconds"),
+        "source": "live_2h_guarded_window_order_path_cap_proof",
+    }
+    unlock_state = unlock_manager.create_one_shot_unlock(unlock_request)
+    unlock_result = unlock_manager.validate_one_shot_unlock(unlock_state, unlock_request, now_utc=now)
+    preflight_input = LiveOrderPreflightInput(
+        request_id=allowed_request_id,
+        symbol="KRW-BTC",
+        side="buy",
+        amount_krw=per_order_krw,
+        quantity=per_order_krw / 100000000.0,
+        price=100000000.0,
+        execution_mode="live",
+        aits_enabled=True,
+        live_order_unlock=True,
+        user_confirm_token="masked-proof-token",
+        risk_guard_checked=True,
+        risk_allowed=bool(risk_result.risk_allowed),
+        one_shot_unlock_valid=bool(unlock_result.unlock_valid),
+        one_shot_unlock_id=str(unlock_result.unlock_id or ""),
+        one_shot_unlock_consumed=False,
+        emergency_stop=False,
+        max_order_amount_krw=per_order_hard_cap_krw,
+        max_daily_loss_krw=30000.0,
+        max_order_count_per_cycle=1,
+        duplicate_order_lock=True,
+        min_real_order_amount_krw=per_order_krw,
+        account_ready=True,
+        api_key_ready=True,
+        price_fresh=True,
+        selected_provider="local",
+        source="live_2h_guarded_window_order_path_cap_proof",
+    )
+    preflight_result = preflight.evaluate(preflight_input)
+    order_request_metadata = {
+        "symbol": "KRW-BTC",
+        "side": "buy",
+        "amount_krw": per_order_krw,
+        "order_type": "market",
+        "live_minimum_real_order_test": False,
+        "live_guarded_window_order": True,
+        "guarded_window_per_order_krw": per_order_krw,
+        "guarded_window_per_order_hard_cap_krw": per_order_hard_cap_krw,
+        "guarded_window_total_cap_krw": total_window_cap_krw,
+        "guarded_window_max_order_count": max_order_count,
+        "guarded_window_min_order_interval_sec": min_order_interval_sec,
+    }
+    allowed_pass = (
+        allowed_window.blocked_reason == "preflight_only_order_not_submitted"
+        and bool(risk_result.risk_allowed)
+        and bool(unlock_result.allowed_for_preflight)
+        and bool(preflight_result.allowed_for_preflight)
+        and not bool(preflight_result.order_allowed)
+        and not bool(preflight_result.real_order)
+        and preflight_result.submitted == 0
+        and order_request_metadata["amount_krw"] == per_order_krw
+        and order_request_metadata["guarded_window_per_order_hard_cap_krw"] == per_order_hard_cap_krw
+    )
+    results: list[dict[str, Any]] = [
+        {
+            "name": "allowed_10000_buy_within_window_policy",
+            "expected_reason": "preflight_only_order_not_submitted",
+            "blocked_reason": allowed_window.blocked_reason,
+            "risk_allowed": bool(risk_result.risk_allowed),
+            "unlock_allowed_for_preflight": bool(unlock_result.allowed_for_preflight),
+            "preflight_allowed_for_preflight": bool(preflight_result.allowed_for_preflight),
+            "order_allowed": False,
+            "real_order": False,
+            "submitted": 0,
+            "pass": bool(allowed_pass),
+            "guarded_window_result": allowed_window.to_dict(),
+            "riskguard_result": risk_result.to_dict(),
+            "unlock_result": unlock_result.to_dict(),
+            "preflight_result": preflight_result.to_dict(),
+            "order_request_metadata": order_request_metadata,
+        },
+        guarded_candidate(
+            "blocked_per_order_hard_cap_12001",
+            {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_hard_cap_krw + 1},
+            "per_order_cap_exceeded",
+        ),
+        guarded_candidate(
+            "blocked_total_window_cap_30000",
+            {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_krw},
+            "total_window_cap_exceeded",
+            state={"order_count": 1, "total_order_amount_krw": total_window_cap_krw},
+        ),
+        guarded_candidate(
+            "blocked_max_order_count_3",
+            {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_krw},
+            "max_order_count_exceeded",
+            state={"order_count": max_order_count, "total_order_amount_krw": per_order_krw},
+        ),
+        guarded_candidate(
+            "blocked_min_interval_300sec",
+            {
+                "symbol": "KRW-BTC",
+                "side": "buy",
+                "amount_krw": per_order_krw,
+                "elapsed_since_last_order_sec": 300,
+            },
+            "min_order_interval_violation",
+            state={"order_count": 1, "total_order_amount_krw": per_order_krw},
+        ),
+        guarded_candidate(
+            "blocked_sell_attempt",
+            {"symbol": "KRW-BTC", "side": "sell", "amount_krw": per_order_krw},
+            "sell_attempt_blocked",
+        ),
+        guarded_candidate(
+            "blocked_cancel_attempt",
+            {"symbol": "KRW-BTC", "side": "buy", "amount_krw": per_order_krw, "cancel_attempt": True},
+            "cancel_attempt_blocked",
+        ),
+        guarded_candidate(
+            "blocked_retry_attempt",
+            {
+                "symbol": "KRW-BTC",
+                "side": "buy",
+                "amount_krw": per_order_krw,
+                "retry_attempt": True,
+                "normalized_order_state": "query_failed_no_retry",
+            },
+            "unknown_state_retry_blocked",
+        ),
+    ]
+    pass_count = sum(1 for item in results if item.get("pass"))
+    fail_count = len(results) - pass_count
+    report.update(
+        {
+            "guarded_window_order_path_config": config.to_dict(),
+            "guarded_window_order_path_fixture_count": len(results),
+            "guarded_window_order_path_pass_count": pass_count,
+            "guarded_window_order_path_fail_count": fail_count,
+            "guarded_window_order_path_results": results,
+            "allowed_10000_policy_passed": bool(allowed_pass),
+            "aits_on_clicked": False,
+            "order_service_place_order_called": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "provider_call_markers": 0,
+            "external_cost_call_markers": 0,
+            "external_cost_call_delta": 0,
+            "submitted_detected": False,
+            "order_risk_detected": False,
+            "real_order_detected": False,
+            "paper_mode_created": False,
+            "virtual_trading_created": False,
+            "mock_trading_processor_created": False,
+            "pass_status": "pass" if fail_count == 0 else "fail",
+            "report_status": "pass" if fail_count == 0 else "fail",
+        }
+    )
+
+
 def _run_riskguard_active_path_proof(
     app: Any,
     window: Any,
@@ -2879,6 +3162,7 @@ def run_harness(
         "live-minimum-real-order-test",
         "live-order-post-trade-reconciliation",
         "live-2h-guarded-window-preflight-proof",
+        "live-2h-guarded-window-order-path-cap-proof",
     }:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
@@ -2892,6 +3176,15 @@ def run_harness(
             _run_live_2h_guarded_window_preflight_proof(
                 report,
                 duration_min=duration_min,
+                per_order_krw=per_order_krw,
+                per_order_hard_cap_krw=per_order_hard_cap_krw,
+                total_window_cap_krw=total_window_cap_krw,
+                max_order_count=max_order_count,
+                min_order_interval_sec=min_order_interval_sec,
+            )
+        elif mode == "live-2h-guarded-window-order-path-cap-proof":
+            _run_live_2h_guarded_window_order_path_cap_proof(
+                report,
                 per_order_krw=per_order_krw,
                 per_order_hard_cap_krw=per_order_hard_cap_krw,
                 total_window_cap_krw=total_window_cap_krw,
@@ -3049,6 +3342,7 @@ def main() -> int:
             "live-minimum-real-order-test",
             "live-order-post-trade-reconciliation",
             "live-2h-guarded-window-preflight-proof",
+            "live-2h-guarded-window-order-path-cap-proof",
         ),
         default="dry-read",
     )

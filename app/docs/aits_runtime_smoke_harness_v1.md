@@ -23,6 +23,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-order-post-trade-reconciliation --order-uuid <order-uuid>
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window-preflight-proof --duration-min 120 --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window-order-path-cap-proof --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
 ```
 
 Reports are written to:
@@ -114,6 +115,12 @@ printed to stdout.
   cap, max order count 2, 600 second interval, sell/cancel/retry disabled
   policy, and incident-stop behavior. It also creates and opens a smoke
   incident markdown report.
+- `live-2h-guarded-window-order-path-cap-proof`: verifies that the future
+  guarded-window order path uses the same 10000 KRW order unit, 12000 KRW
+  per-order hard cap, 20000 KRW total cap, max order count 2, and 600 second
+  interval across GuardedWindow, RiskGuard, One-Shot Unlock,
+  LiveOrderPreflight, OrderAdapter metadata, and OrderService request scope.
+  It does not click AITS ON and does not call `OrderService.place_order`.
 
 ## Safety Rules
 
@@ -129,6 +136,14 @@ printed to stdout.
 - `live-2h-guarded-window-preflight-proof` must always report
   `aits_on_clicked=false`, `place_order_call_count=0`, `cancel_call_count=0`,
   `sell_call_count=0`, and `retry_call_count=0`.
+- `live-2h-guarded-window-order-path-cap-proof` must always report
+  `allowed_10000_policy_passed=true`, `aits_on_clicked=false`,
+  `place_order_call_count=0`, `cancel_call_count=0`, `sell_call_count=0`, and
+  `retry_call_count=0`. The 5000 KRW amount remains historical evidence for
+  the first one-shot order only; it is not the guarded-window order unit.
+  The first cap-alignment report was
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_091912_905642.json`
+  and passed all eight fixtures without an order call.
 
 ## Stable Selectors
 

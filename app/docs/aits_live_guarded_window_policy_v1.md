@@ -97,6 +97,39 @@ Required fixtures:
 - `blocked_unknown_state_retry`
 - `incident_report_auto_open_smoke`
 
+## Order Path Cap Proof
+
+Before the 2 hour runtime window, the live order path must be aligned with the
+same guarded-window limits. The 5000 KRW one-shot order remains historical
+evidence from the first live test. The guarded-window path uses:
+
+- order unit: `10000` KRW
+- per-order hard cap: `12000` KRW
+- total window cap: `20000` KRW
+- maximum order count: `2`
+- minimum order interval: `600` seconds
+
+The proof mode is:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-2h-guarded-window-order-path-cap-proof --per-order-krw 10000 --per-order-hard-cap-krw 12000 --total-window-cap-krw 20000 --max-order-count 2 --min-order-interval-sec 600
+```
+
+Required fixtures:
+
+- `allowed_10000_buy_within_window_policy`
+- `blocked_per_order_hard_cap_12001`
+- `blocked_total_window_cap_30000`
+- `blocked_max_order_count_3`
+- `blocked_min_interval_300sec`
+- `blocked_sell_attempt`
+- `blocked_cancel_attempt`
+- `blocked_retry_attempt`
+
+The allowed fixture is policy proof only. It must still report
+`order_allowed=false`, `real_order=false`, `submitted=0`, and
+`place_order_call_count=0`.
+
 ## Future Runtime Window
 
 The later `AITS-LIVE-2H-GUARDED-TRADING-WINDOW-01` Goal must still perform
@@ -115,3 +148,20 @@ Goal `AITS-LIVE-2H-GUARDED-WINDOW-CONTRACT-PREFLIGHT-01` produced:
 The proof passed all eight fixtures, did not click AITS ON, did not call
 `place_order`, and did not call cancel, sell, retry, provider, paper, virtual,
 or mock trading paths.
+
+## Order Path Cap Proof Result
+
+Goal `AITS-LIVE-2H-GUARDED-WINDOW-ORDER-PATH-CAP-ENABLE-01` aligned the live
+order request boundary with the guarded-window policy:
+
+- order path cap report: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_091912_905642.json`
+- guarded-window preflight recheck: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_091924_836839.json`
+- dry-read recheck: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_091942_915646.json`
+- reconciliation recheck: `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_091942_303291.json`
+
+The cap proof passed all eight fixtures. The 10000 KRW buy candidate passed
+GuardedWindow/RiskGuard/One-Shot Unlock/LiveOrderPreflight policy checks for a
+future guarded window, but still reported `submitted=0`,
+`order_allowed=false`, `real_order=false`, and `place_order_call_count=0`.
+The 12001 KRW, total cap, order count, interval, sell, cancel, and retry
+fixtures were blocked.

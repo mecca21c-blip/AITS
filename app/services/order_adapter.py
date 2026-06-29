@@ -6,6 +6,14 @@ from typing import Any, Dict, List, Optional
 from app.services.execution_bridge import BridgeAction, BridgeResult
 
 
+MINIMUM_REAL_ORDER_HARD_CAP_KRW = 6000.0
+GUARDED_WINDOW_ORDER_AMOUNT_KRW = 10000.0
+GUARDED_WINDOW_ORDER_HARD_CAP_KRW = 12000.0
+GUARDED_WINDOW_TOTAL_CAP_KRW = 20000.0
+GUARDED_WINDOW_MAX_ORDER_COUNT = 2
+GUARDED_WINDOW_MIN_INTERVAL_SEC = 600
+
+
 @dataclass
 class OrderRequestCandidate:
     action_type: str = ""
@@ -212,14 +220,14 @@ class AITSOrderAdapter:
                 if (
                     self.execution_mode == "live"
                     and at == "buy"
-                    and self._safe_float(c.amount_krw, 0.0) > 6000.0
+                    and self._safe_float(c.amount_krw, 0.0) > self._live_hard_cap_krw(c)
                 ):
                     result.blocked_orders.append(
                         self._make_record(
                             action_type=at,
                             symbol=sym,
                             status="blocked",
-                            reason="live_minimum_test_hard_cap_exceeded",
+                            reason=self._live_hard_cap_reason(c),
                             detail_ko="live 최소 실주문 테스트 하드캡을 초과해 차단했습니다.",
                         )
                     )
@@ -325,6 +333,7 @@ class AITSOrderAdapter:
                     for c in valid_candidates:
                         symbol = c.symbol
                         try:
+                            risk_meta = dict(getattr(c, "risk_guard", {}) or {})
                             amount_krw = float(getattr(c, "amount_krw", 0.0) or 0.0)
                             if 0 < amount_krw < 5000:
                                 amount_krw = 5000.0
@@ -337,7 +346,34 @@ class AITSOrderAdapter:
                                 "price": self._safe_float((getattr(c, "risk_guard", {}) or {}).get("price"), 0.0),
                                 "order_type": "market",
                                 "live_minimum_real_order_test": bool(
-                                    (getattr(c, "risk_guard", {}) or {}).get("live_minimum_real_order_test", False)
+                                    risk_meta.get("live_minimum_real_order_test", False)
+                                ),
+                                "live_guarded_window_order": bool(
+                                    risk_meta.get("live_guarded_window_order", False)
+                                ),
+                                "guarded_window_per_order_krw": self._safe_float(
+                                    risk_meta.get("guarded_window_per_order_krw"),
+                                    GUARDED_WINDOW_ORDER_AMOUNT_KRW,
+                                ),
+                                "guarded_window_per_order_hard_cap_krw": self._safe_float(
+                                    risk_meta.get("guarded_window_per_order_hard_cap_krw"),
+                                    GUARDED_WINDOW_ORDER_HARD_CAP_KRW,
+                                ),
+                                "guarded_window_total_cap_krw": self._safe_float(
+                                    risk_meta.get("guarded_window_total_cap_krw"),
+                                    GUARDED_WINDOW_TOTAL_CAP_KRW,
+                                ),
+                                "guarded_window_max_order_count": int(
+                                    self._safe_float(
+                                        risk_meta.get("guarded_window_max_order_count"),
+                                        GUARDED_WINDOW_MAX_ORDER_COUNT,
+                                    )
+                                ),
+                                "guarded_window_min_order_interval_sec": int(
+                                    self._safe_float(
+                                        risk_meta.get("guarded_window_min_order_interval_sec"),
+                                        GUARDED_WINDOW_MIN_INTERVAL_SEC,
+                                    )
                                 ),
                             }
                             try:
@@ -579,6 +615,21 @@ class AITSOrderAdapter:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    def _live_hard_cap_krw(self, candidate: OrderRequestCandidate) -> float:
+        risk_meta = dict(getattr(candidate, "risk_guard", {}) or {})
+        if bool(risk_meta.get("live_guarded_window_order", False)):
+            return self._safe_float(
+                risk_meta.get("guarded_window_per_order_hard_cap_krw"),
+                GUARDED_WINDOW_ORDER_HARD_CAP_KRW,
+            )
+        return MINIMUM_REAL_ORDER_HARD_CAP_KRW
+
+    def _live_hard_cap_reason(self, candidate: OrderRequestCandidate) -> str:
+        risk_meta = dict(getattr(candidate, "risk_guard", {}) or {})
+        if bool(risk_meta.get("live_guarded_window_order", False)):
+            return "guarded_window_hard_cap_exceeded"
+        return "live_minimum_test_hard_cap_exceeded"
 
     def _is_valid_mode(self, mode: str) -> bool:
         return str(mode or "").strip().lower() in ("disabled", "dry_run", "live")

@@ -194,6 +194,8 @@ class LiveGuardedWindow:
             return self._result(cfg, st, "invalid_order_amount", severity="error", incident_required=True)
         if amount > cfg.per_order_hard_cap_krw:
             return self._result(cfg, st, "per_order_cap_exceeded", severity="critical", incident_required=True)
+        if abs(amount - cfg.per_order_krw) > 0.0001:
+            return self._result(cfg, st, "per_order_amount_mismatch", severity="critical", incident_required=True)
         if st.order_count >= cfg.max_order_count:
             return self._result(cfg, st, "max_order_count_exceeded", severity="critical", incident_required=True)
         if st.total_order_amount_krw + amount > cfg.total_window_cap_krw:

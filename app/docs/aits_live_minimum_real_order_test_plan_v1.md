@@ -278,6 +278,14 @@ The contract policy is documented in
 `live-2h-guarded-window-preflight-proof`. It is preparation only: it must not
 click AITS ON and must not place, cancel, sell, or retry an order.
 
+The guarded-window order path cap proof extends that preparation to the live
+request boundary without submitting an order. The 5000 KRW amount below belongs
+only to the completed one-shot minimum real-order test. The guarded-window
+order unit is `10000` KRW, with a `12000` KRW per-order hard cap, `20000` KRW
+total cap, maximum `2` orders, and minimum `600` seconds between orders. The
+mode is `live-2h-guarded-window-order-path-cap-proof` and it must report
+`place_order_call_count=0`.
+
 ## Minimum Real Order Scope
 
 The later real-order Goal is limited to one candidate:

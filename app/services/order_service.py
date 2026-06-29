@@ -1,7 +1,10 @@
 """Order execution interface.
 
-The only live path currently supported is the explicit AITS minimum real-order
-test: KRW-BTC market buy for 5,000 KRW with a 6,000 KRW hard cap.
+Live order support is deliberately narrow:
+- the completed minimum real-order test: KRW-BTC market buy for 5,000 KRW
+  with a 6,000 KRW hard cap;
+- the future guarded-window path: KRW-BTC market buy for 10,000 KRW with a
+  12,000 KRW hard cap.
 """
 
 from __future__ import annotations
@@ -15,6 +18,15 @@ from urllib.parse import unquote, urlencode
 
 import jwt
 import requests
+
+
+MINIMUM_REAL_ORDER_AMOUNT_KRW = 5000.0
+MINIMUM_REAL_ORDER_HARD_CAP_KRW = 6000.0
+GUARDED_WINDOW_ORDER_AMOUNT_KRW = 10000.0
+GUARDED_WINDOW_ORDER_HARD_CAP_KRW = 12000.0
+GUARDED_WINDOW_TOTAL_CAP_KRW = 20000.0
+GUARDED_WINDOW_MAX_ORDER_COUNT = 2
+GUARDED_WINDOW_MIN_INTERVAL_SEC = 600
 
 
 class OrderService:
@@ -170,19 +182,56 @@ class OrderService:
             amount_krw = _safe_float(order_request.get("amount_krw"))
             order_type = str(order_request.get("order_type") or "market").strip().lower()
             request_id = str(order_request.get("request_id") or uuid.uuid4().hex)
+            is_minimum_test = bool(order_request.get("live_minimum_real_order_test", False))
+            is_guarded_window = bool(order_request.get("live_guarded_window_order", False))
 
-            if not bool(order_request.get("live_minimum_real_order_test", False)):
-                return _fail("live_minimum_real_order_test_flag_missing")
+            if not is_minimum_test and not is_guarded_window:
+                return _fail("live_order_scope_flag_missing")
             if symbol != "KRW-BTC":
                 return _fail("unsupported_live_symbol")
             if side != "buy":
                 return _fail("unsupported_live_side")
             if order_type != "market":
                 return _fail("unsupported_live_order_type")
-            if abs(amount_krw - 5000.0) > 0.0001:
-                return _fail("unsupported_live_amount")
-            if amount_krw > 6000.0:
-                return _fail("hard_cap_exceeded")
+            if is_minimum_test:
+                if abs(amount_krw - MINIMUM_REAL_ORDER_AMOUNT_KRW) > 0.0001:
+                    return _fail("unsupported_live_amount")
+                if amount_krw > MINIMUM_REAL_ORDER_HARD_CAP_KRW:
+                    return _fail("hard_cap_exceeded")
+            if is_guarded_window:
+                expected_amount = _safe_float(
+                    order_request.get("guarded_window_per_order_krw"),
+                    GUARDED_WINDOW_ORDER_AMOUNT_KRW,
+                )
+                hard_cap = _safe_float(
+                    order_request.get("guarded_window_per_order_hard_cap_krw"),
+                    GUARDED_WINDOW_ORDER_HARD_CAP_KRW,
+                )
+                total_cap = _safe_float(
+                    order_request.get("guarded_window_total_cap_krw"),
+                    GUARDED_WINDOW_TOTAL_CAP_KRW,
+                )
+                max_count = int(
+                    _safe_float(order_request.get("guarded_window_max_order_count"), GUARDED_WINDOW_MAX_ORDER_COUNT)
+                )
+                min_interval = int(
+                    _safe_float(
+                        order_request.get("guarded_window_min_order_interval_sec"),
+                        GUARDED_WINDOW_MIN_INTERVAL_SEC,
+                    )
+                )
+                if abs(expected_amount - GUARDED_WINDOW_ORDER_AMOUNT_KRW) > 0.0001:
+                    return _fail("guarded_window_per_order_policy_invalid")
+                if abs(amount_krw - expected_amount) > 0.0001:
+                    return _fail("unsupported_guarded_window_amount")
+                if hard_cap > GUARDED_WINDOW_ORDER_HARD_CAP_KRW or amount_krw > hard_cap:
+                    return _fail("guarded_window_hard_cap_exceeded")
+                if total_cap > GUARDED_WINDOW_TOTAL_CAP_KRW:
+                    return _fail("guarded_window_total_cap_policy_invalid")
+                if max_count > GUARDED_WINDOW_MAX_ORDER_COUNT:
+                    return _fail("guarded_window_max_order_count_policy_invalid")
+                if min_interval < GUARDED_WINDOW_MIN_INTERVAL_SEC:
+                    return _fail("guarded_window_min_interval_policy_invalid")
 
             ak, sk = self._extract_upbit_keys()
             if not ak or not sk or len(ak) < 10 or len(sk) < 10:
@@ -376,11 +425,13 @@ class OrderService:
         return out
 
 
-def _safe_float(value: Any) -> float:
+def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
+        if value is None:
+            return float(default)
         return float(value)
     except (TypeError, ValueError):
-        return 0.0
+        return float(default)
 
 
 svc_order = OrderService()
