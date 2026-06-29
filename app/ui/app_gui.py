@@ -23877,9 +23877,9 @@ class MainWindow(QMainWindow):
             last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
             if selected_provider == "basic":
                 self._ai_connection_status = "LOCAL"
-            elif selected_provider == last_provider and last_source == "manual_generation" and last_status and self._is_ai_generation_fresh(selected_provider):
+            elif selected_provider == last_provider and last_source in ("manual_generation", "startup_generation") and last_status and self._is_ai_generation_fresh(selected_provider):
                 self._ai_connection_status = last_status
-            elif selected_provider == last_provider and last_source == "manual_generation" and last_status:
+            elif selected_provider == last_provider and last_source in ("manual_generation", "startup_generation") and last_status:
                 self._last_ai_connection_status = "기존 응답 참고 · stale"
                 self._last_ai_connection_source = "manual_generation_stale"
                 self._ai_connection_status = self._last_ai_connection_status
@@ -23932,7 +23932,7 @@ class MainWindow(QMainWindow):
             last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
             if (
                 normalized_provider == last_provider
-                and last_source == "manual_generation"
+                and last_source in ("manual_generation", "startup_generation")
                 and last_status
                 and self._is_ai_generation_fresh(normalized_provider)
             ):
@@ -23941,7 +23941,7 @@ class MainWindow(QMainWindow):
                 return
             if (
                 normalized_provider == last_provider
-                and last_source == "manual_generation"
+                and last_source in ("manual_generation", "startup_generation")
                 and last_status
             ):
                 self._last_ai_connection_provider = normalized_provider
@@ -38336,7 +38336,7 @@ class MainWindow(QMainWindow):
             status = self._provider_failure_connection_status_from_result(result)
             self._last_ai_connection_provider = provider
             self._last_ai_connection_status = status
-            self._last_ai_connection_source = "manual_generation"
+            self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else (str(((result or {}).get("context") or {}).get("source") or "manual_generation") if isinstance((result or {}).get("context"), dict) else "manual_generation"))
             self._ai_connection_status = status
             self._last_ai_generation_request_id = str((result or {}).get("generation_request_id") or (result or {}).get("request_id") or (result or {}).get("decision_group_id") or "")
             self._last_ai_generation_provider = provider
@@ -38487,7 +38487,7 @@ class MainWindow(QMainWindow):
                     if provider in ("gpt", "gemini"):
                         self._last_ai_connection_provider = provider
                         self._last_ai_connection_status = '생성 응답 확인됨'
-                        self._last_ai_connection_source = "manual_generation"
+                        self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(result_context.get("source") or "manual_generation"))
                         self._ai_connection_status = self._last_ai_connection_status
                         self._ai_engine_last_checked_text = '방금 전'
                 except Exception:
@@ -38497,7 +38497,7 @@ class MainWindow(QMainWindow):
                         generation_request_id = str(result.get("generation_request_id") or result.get("request_id") or result.get("decision_group_id") or "")
                         self._last_ai_connection_provider = provider
                         self._last_ai_connection_status = str(result.get("generation_status_text") or "생성 응답 확인됨")
-                        self._last_ai_connection_source = "manual_generation"
+                        self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(result_context.get("source") or "manual_generation"))
                         self._ai_connection_status = self._last_ai_connection_status
                         self._ai_engine_last_checked_text = "방금 전"
                         self._last_ai_generation_request_id = generation_request_id
@@ -38689,6 +38689,18 @@ class MainWindow(QMainWindow):
         finally:
             try:
                 self._aits_main_reco_inflight = False
+            except Exception:
+                pass
+            try:
+                result_ctx = result.get("context") if isinstance(result.get("context"), dict) else {}
+                if str(result_ctx.get("source") or "").strip() == "startup_generation":
+                    self._startup_provider_readiness_inflight = False
+                    self._startup_provider_readiness_compact_generation = False
+                    logging.getLogger("aits").info(
+                        "[AITS][StartupReadinessPreflight] event=finished provider=%s ok=%s submitted=0 order_allowed=False real_order=False",
+                        provider,
+                        bool(ok),
+                    )
             except Exception:
                 pass
 
@@ -39973,7 +39985,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 current_fp = ""
 
-            compact_provider_smoke = bool(getattr(self, "_aits_provider_smoke_compact_generation", False))
+            compact_provider_smoke = bool(getattr(self, "_aits_provider_smoke_compact_generation", False) or getattr(self, "_startup_provider_readiness_compact_generation", False))
             if compact_provider_smoke:
                 messages = [
                     {
@@ -40034,7 +40046,7 @@ class MainWindow(QMainWindow):
                 self._last_ai_generation_fallback_used = False
                 self._last_ai_connection_provider = "gpt"
                 self._last_ai_connection_status = "생성 요청 중"
-                self._last_ai_connection_source = "manual_generation"
+                self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(request_context.get("source") or "manual_generation"))
                 self._ai_connection_status = self._last_ai_connection_status
                 self._ai_engine_last_checked_text = "생성 요청 중"
                 self._render_ai_engine_state()
@@ -45460,6 +45472,135 @@ class MainWindow(QMainWindow):
                 pass
             return False
 
+
+    def _should_run_startup_provider_readiness_preflight(self, provider: str) -> tuple[bool, str]:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            if normalized_provider not in ("gpt", "gemini"):
+                return False, "provider_not_external"
+            if os.environ.get("AITS_QT_SMOKE_HARNESS") == "1" and os.environ.get("AITS_STARTUP_READINESS_PREFLIGHT") != "1":
+                return False, "harness_provider_calls_disabled"
+            if bool(getattr(getattr(self, "state", None), "is_running", False)):
+                return False, "aits_running"
+            if bool(getattr(self, "_startup_provider_readiness_inflight", False)):
+                return False, "startup_readiness_inflight"
+            checked = getattr(self, "_startup_provider_readiness_checked", None)
+            if not isinstance(checked, set):
+                checked = set()
+                self._startup_provider_readiness_checked = checked
+            if normalized_provider in checked:
+                return False, "startup_readiness_already_checked"
+            readiness = self._build_ai_engine_readiness_state()
+            if (
+                bool(readiness.get("engine_ready_for_run"))
+                and bool(readiness.get("generation_fresh"))
+                and not bool(readiness.get("generation_stale"))
+            ):
+                return False, "fresh_generation_proof_exists"
+            secret_provider = "openai" if normalized_provider == "gpt" else "gemini"
+            if not self._get_stored_ai_secret(secret_provider):
+                return False, "missing_provider_secret"
+            return True, "needs_startup_generation"
+        except Exception as exc:
+            return False, f"guard_error:{type(exc).__name__}"
+
+    def _schedule_startup_provider_readiness_preflight(self, provider: str, reason: str = "startup_connection_success") -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            allowed, why = self._should_run_startup_provider_readiness_preflight(normalized_provider)
+            if not allowed:
+                logging.getLogger("aits").info(
+                    "[AITS][StartupReadinessPreflight] event=skip provider=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    normalized_provider,
+                    why,
+                )
+                return
+            checked = getattr(self, "_startup_provider_readiness_checked", None)
+            if not isinstance(checked, set):
+                checked = set()
+                self._startup_provider_readiness_checked = checked
+            checked.add(normalized_provider)
+            self._startup_provider_readiness_inflight = True
+            logging.getLogger("aits").info(
+                "[AITS][StartupReadinessPreflight] event=scheduled provider=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                normalized_provider,
+                str(reason or ""),
+            )
+            QTimer.singleShot(
+                750,
+                lambda p=normalized_provider, r=reason: self._run_startup_provider_readiness_preflight(p, r),
+            )
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][StartupReadinessPreflight] event=schedule_failed provider=%s error_type=%s submitted=0 order_allowed=False real_order=False",
+                    str(provider or ""),
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
+    def _run_startup_provider_readiness_preflight(self, provider: str, reason: str = "startup_connection_success") -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            if normalized_provider not in ("gpt", "gemini"):
+                self._startup_provider_readiness_inflight = False
+                return
+            if bool(getattr(getattr(self, "state", None), "is_running", False)):
+                self._startup_provider_readiness_inflight = False
+                logging.getLogger("aits").info(
+                    "[AITS][StartupReadinessPreflight] event=run_skip provider=%s reason=aits_running submitted=0 order_allowed=False real_order=False",
+                    normalized_provider,
+                )
+                return
+            target_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                getattr(self, "_ai_briefing_pending_snapshot_symbol", "")
+                or getattr(self, "_aits_selected_managed_symbol", "")
+                or "KRW-BTC"
+            )
+            group_id = self._build_ai_judgment_group_id(target_symbol, "startup_generation")
+            target_info = {"symbol": target_symbol, "source": "startup_generation", "row_index": -1}
+            ctx = self._freeze_ai_refresh_request_context(target_info, group_id)
+            ctx["manual_refresh"] = False
+            ctx["source"] = "startup_generation"
+            ctx["startup_generation"] = True
+            ctx["provider_selected"] = normalized_provider
+            ctx["selected_provider"] = normalized_provider
+            self._aits_ai_refresh_request_context = ctx
+            self._ai_briefing_pending_snapshot_symbol = target_symbol
+            self._ai_briefing_last_snapshot_source = "startup_generation"
+            self._aits_main_reco_manual_request = False
+            self._startup_provider_readiness_compact_generation = True
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_source = "startup_generation"
+            logging.getLogger("aits").info(
+                "[AITS][StartupReadinessPreflight] event=dispatch provider=%s symbol=%s group_id=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                normalized_provider,
+                target_symbol,
+                group_id,
+                str(reason or ""),
+            )
+            scheduled, schedule_reason = self._schedule_aits_main_gpt_reco(100)
+            if not scheduled:
+                self._startup_provider_readiness_inflight = False
+                self._startup_provider_readiness_compact_generation = False
+                logging.getLogger("aits").info(
+                    "[AITS][StartupReadinessPreflight] event=dispatch_blocked provider=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    normalized_provider,
+                    str(schedule_reason or "blocked"),
+                )
+        except Exception as exc:
+            try:
+                self._startup_provider_readiness_inflight = False
+                self._startup_provider_readiness_compact_generation = False
+                logging.getLogger("aits").warning(
+                    "[AITS][StartupReadinessPreflight] event=dispatch_failed provider=%s error_type=%s submitted=0 order_allowed=False real_order=False",
+                    str(provider or ""),
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
     def _run_ai_startup_connection_check_async(
         self,
         provider: str,
@@ -45639,6 +45780,11 @@ class MainWindow(QMainWindow):
                     key_source,
                     connection_token=connection_token,
                 )
+                if connection_mode != "manual":
+                    self._schedule_startup_provider_readiness_preflight(
+                        normalized_provider,
+                        reason=f"{connection_mode}_connection_success",
+                    )
                 if connection_mode == "manual":
                     QMessageBox.information(
                         self,

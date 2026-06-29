@@ -104,3 +104,23 @@ caps remain separate mandatory gates.
 
 See also `app/docs/aits_ai_engine_state_ssot_v1.md` for the selected/applied/
 actual/active engine SSOT and the simplified user-facing connection states.
+
+## Startup Readiness Preflight
+
+On app startup or provider-preview application, GPT/Gemini may start in `연결중`
+after key/API ping succeeds but before a generation response exists. That state
+is not run-ready.
+
+If the selected provider is GPT/Gemini, AITS is OFF, no provider generation is
+already in flight, and there is no fresh generation proof, the UI may schedule
+one lightweight `startup_generation` preflight. The preflight uses the provider
+generation lifecycle, assigns a request id, uses compact payload limits, and is
+bounded by the provider-call budget. It must not toggle AITS ON, route a trading
+decision, or call order services.
+
+If a fresh generation proof already exists, startup preflight is skipped. If the
+preflight succeeds, `connection_state_simple` becomes `연결됨`; if it fails, the
+state remains a clear non-ready failure/waiting state. Startup preflight is
+recorded with source `startup_generation` so it can be distinguished from user
+`manual_generation` refreshes and so trade-log/journal growth can be monitored
+for duplicate flooding.

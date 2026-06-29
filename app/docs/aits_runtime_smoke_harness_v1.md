@@ -553,3 +553,32 @@ uses the simplified user-facing state (`연결중`, `연결됨`, `연결오류`)
 The harness does not modify Router, Execution, Order, RiskGuard, repository, or
 trade DB behavior. Runtime safety remains observe-only with `submitted=0`,
 `order_allowed=False`, and `real_order=False`.
+
+## Provider Startup Readiness Proof
+
+`provider-startup-readiness-proof` verifies the startup/provider-apply readiness
+path without clicking AITS ON and without orders:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-startup-readiness-proof --provider gpt --allow-provider-calls --max-provider-calls 1 --target-symbol KRW-BTC --timeout-sec 90
+```
+
+The mode enables `AITS_STARTUP_READINESS_PREFLIGHT=1` for the harness session,
+keeps ordinary dry-read provider calls blocked, waits for the `startup_generation`
+preflight, and reports:
+
+- `startup_readiness_preflight_attempted`
+- `generation_source`
+- `generation_request_id`
+- `generation_status`
+- `connection_state_simple`
+- `engine_ready_for_run`
+- `active_engine`
+- `provider_actual`
+- `fallback_used`
+- `external_cost_call_count`
+- `provider_call_count_with_worker_markers`
+
+PASS requires `connection_state_simple=연결됨`, fresh confirmed generation proof,
+matching active provider, no fallback, provider external calls within budget, and
+no order-risk markers.

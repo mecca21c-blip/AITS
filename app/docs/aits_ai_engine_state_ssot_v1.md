@@ -66,3 +66,16 @@ Not ready:
 ON gate readiness is not order permission. RiskGuard, LiveOrderPreflight,
 Unlock, duplicate lock, and guarded-window caps remain mandatory separate gates.
 
+
+## Startup Readiness Ownership
+
+Startup/provider-apply readiness may move GPT/GEMINI from `연결중` to `연결됨`
+only through a bounded `startup_generation` proof. API-key presence and model-list
+ping alone are not enough for ON-gate readiness.
+
+The startup preflight is skipped when fresh proof already exists, when AITS is
+running, when a provider generation is already in flight, or when the same
+provider has already attempted startup readiness in the current session. This
+prevents app-start provider-call loops while preserving the SSOT: selected,
+applied, active engine, and ON gate all derive readiness from the same fresh
+provider-generation proof.

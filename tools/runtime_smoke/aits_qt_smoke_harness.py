@@ -1220,6 +1220,145 @@ def _run_provider_smoke(
         report["pass_status"] = "pass"
 
 
+
+def _run_provider_startup_readiness_proof(
+    app: Any,
+    window: Any,
+    widgets: dict[str, Any],
+    paths: dict[str, str],
+    report: dict[str, Any],
+    *,
+    provider: str,
+    max_provider_calls: int,
+    target_symbol: str | None,
+    timeout_sec: float,
+    started_epoch: float,
+) -> None:
+    provider = (provider or "").strip().lower()
+    report.update(
+        {
+            "provider": provider,
+            "target_symbol": target_symbol or "KRW-BTC",
+            "max_provider_calls": max_provider_calls,
+            "timeout_sec": timeout_sec,
+            "startup_readiness_preflight_attempted": False,
+            "startup_readiness_preflight_source": "startup_generation",
+            "pass_status": "pending",
+            "fail_reason": "",
+        }
+    )
+    if provider not in {"gpt", "gemini"}:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "external_provider_required"
+        return
+    if max_provider_calls < 1:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "max_provider_calls_must_be_positive"
+        return
+    if max_provider_calls > 2:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = "max_provider_calls_over_two_blocked"
+        return
+
+    try:
+        setattr(window, "_aits_provider_smoke_max_provider_calls", max_provider_calls)
+    except Exception:
+        pass
+
+    before = _collect(window, widgets)
+    report["state_before_startup_readiness"] = before
+    safety_text = f"{before.get('aits_power_state','')} {before.get('aits_safety_state','')}"
+    if any(token in safety_text for token in ("AITS ON", "Live", "???")):
+        report["pass_status"] = "no_go"
+        report["fail_reason"] = "unsafe_aits_state_before_startup_readiness"
+        return
+
+    if _normalize_provider_for_report(before.get("provider_selected")) != provider:
+        if not _select_provider(window, provider, report):
+            report["pass_status"] = "fail"
+            report["fail_reason"] = "provider_select_failed"
+            return
+
+    managed_table = widgets.get("managed_table") or getattr(window, "tbl_ai_managed", None)
+    _select_managed_row(managed_table, target_symbol or "KRW-BTC", report, window)
+    try:
+        if hasattr(window, "_schedule_startup_provider_readiness_preflight"):
+            window._schedule_startup_provider_readiness_preflight(
+                provider,
+                reason="harness_startup_readiness_proof",
+            )
+            report["startup_readiness_preflight_invoked_by_harness"] = True
+    except Exception as exc:
+        report["startup_readiness_preflight_invoke_error"] = type(exc).__name__
+
+    deadline = time.time() + max(float(timeout_sec), 5.0)
+    latest_log: dict[str, Any] = {}
+    while time.time() < deadline:
+        _pump_events(app, 0.4)
+        latest_log = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+        state = _provider_state_snapshot(window)
+        source = str(state.get("last_connection_source") or "")
+        report["startup_readiness_preflight_attempted"] = bool(
+            source == "startup_generation"
+            or "StartupReadinessPreflight" in "\n".join(latest_log.get("proof_lines") or [])
+            or "startup_generation" in "\n".join(latest_log.get("proof_lines") or [])
+        )
+        if bool(state.get("engine_ready_for_run")) and str(state.get("connection_state_simple") or "") == "???":
+            break
+        if state.get("connection_state_simple") == "????" and latest_log.get("latest_provider_failure_seen"):
+            break
+
+    after = _collect(window, widgets)
+    after_state = _provider_state_snapshot(window)
+    after_log = _read_log_tail(Path(paths["log_dir"]), started_epoch)
+    external_calls = int(after_log.get("external_cost_call_markers") or 0)
+    provider_calls = int(after_log.get("provider_call_markers") or 0)
+    report.update(
+        {
+            "state_after_startup_readiness": after,
+            "provider_state_after_startup_readiness": after_state,
+            "log_tail_after_startup_readiness": after_log,
+            "connection_state_simple": str(after.get("connection_state_simple") or after_state.get("connection_state_simple") or ""),
+            "generation_request_id": str(after.get("generation_request_id") or after_state.get("generation_request_id") or after_log.get("latest_group_id") or ""),
+            "generation_status": str(after.get("generation_status") or after_state.get("generation_status") or ""),
+            "generation_source": str(after_state.get("last_connection_source") or ""),
+            "generation_response_confirmed": bool(after.get("generation_response_confirmed") or after_state.get("generation_response_confirmed")),
+            "generation_fresh": bool(after.get("generation_fresh") or after_state.get("generation_fresh")),
+            "generation_stale": bool(after.get("generation_stale") or after_state.get("generation_stale")),
+            "engine_ready_for_run": bool(after.get("engine_ready_for_run") or after_state.get("engine_ready_for_run")),
+            "active_engine": str(after.get("active_engine") or after_state.get("active_engine") or ""),
+            "provider_actual": str(after.get("provider_actual") or after_state.get("connection_provider") or ""),
+            "fallback_used": bool(after.get("fallback_used") or after_state.get("fallback_used")),
+            "provider_call_count": provider_calls,
+            "external_cost_call_count": external_calls,
+            "provider_call_count_with_worker_markers": provider_calls,
+            "trade_log_row_count_after": after.get("trade_log_row_count"),
+            "latest_trade_row": after.get("latest_trade_log_row", ""),
+        }
+    )
+
+    fail_reasons: list[str] = []
+    if external_calls > max_provider_calls:
+        fail_reasons.append("external_provider_call_over_limit")
+    if not report.get("engine_ready_for_run"):
+        fail_reasons.append("engine_not_ready_after_startup_preflight")
+    if provider not in str(report.get("active_engine") or "").lower():
+        fail_reasons.append("active_engine_not_provider")
+    if report.get("fallback_used"):
+        fail_reasons.append("fallback_used")
+    if not report.get("generation_response_confirmed"):
+        fail_reasons.append("generation_response_not_confirmed")
+    if report.get("generation_stale"):
+        fail_reasons.append("generation_marked_stale")
+    if not report.get("startup_readiness_preflight_attempted") and external_calls > 0:
+        report["startup_readiness_preflight_attempted"] = True
+    if fail_reasons:
+        report["pass_status"] = "fail"
+        report["fail_reason"] = ",".join(fail_reasons)
+    else:
+        report["pass_status"] = "pass"
+
+
 def _run_save_probe(
     app: Any,
     window: Any,
@@ -3697,20 +3836,23 @@ def run_harness(
         report["report_path"] = str(path)
         return _write_json_report(report, path)
 
-    if mode == "provider-smoke" and not allow_provider_calls and not no_click:
+    if mode in {"provider-smoke", "provider-startup-readiness-proof"} and not allow_provider_calls and not no_click:
         report["status"] = "blocked"
-        report["warnings"].append("provider-smoke requires --allow-provider-calls unless --no-click is used")
+        report["warnings"].append(f"{mode} requires --allow-provider-calls unless --no-click is used")
         return report
-    if mode == "provider-smoke" and not provider:
+    if mode in {"provider-smoke", "provider-startup-readiness-proof"} and not provider:
         report["status"] = "blocked"
-        report["warnings"].append("provider-smoke requires --provider local|gpt|gemini")
+        report["warnings"].append(f"{mode} requires --provider local|gpt|gemini")
         return report
     if not allow_provider_calls and mode != "live-2h-guarded-window":
         _install_network_guards(report)
 
+    if mode == "provider-startup-readiness-proof":
+        os.environ["AITS_STARTUP_READINESS_PREFLIGHT"] = "1"
+
     app, window, paths = _build_window(
         report,
-        skip_ai_reco_updates=(mode != "provider-smoke"),
+        skip_ai_reco_updates=(mode not in {"provider-smoke", "provider-startup-readiness-proof"}),
         skip_startup_restore=(mode == "provider-smoke"),
     )
     _pump_events(app, 1.2)
@@ -3766,6 +3908,19 @@ def run_harness(
             no_click=no_click,
             started_epoch=started_epoch,
         )
+    elif mode == "provider-startup-readiness-proof":
+        _run_provider_startup_readiness_proof(
+            app,
+            window,
+            widgets,
+            paths,
+            report,
+            provider=provider or "",
+            max_provider_calls=max_provider_calls,
+            target_symbol=target_symbol,
+            timeout_sec=timeout_sec,
+            started_epoch=started_epoch,
+        )
     elif mode == "save-probe":
         _run_save_probe(
             app,
@@ -3809,6 +3964,7 @@ def run_harness(
         report["order_risk_detected"] = True
     if mode in {
         "provider-smoke",
+        "provider-startup-readiness-proof",
         "save-probe",
         "riskguard-active-path-proof",
         "riskguard-active-path-candidate-proof",
@@ -3851,6 +4007,7 @@ def main() -> int:
             "dry-read",
             "dry-navigation",
             "provider-smoke",
+            "provider-startup-readiness-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
