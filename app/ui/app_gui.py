@@ -14960,7 +14960,7 @@ class MainWindow(QMainWindow):
                 "smokeObjectName", "btn_apply_managed_pool_max_size"
             )
             self.btn_apply_managed_pool_max_size.setToolTip(
-                "\ud604\uc7ac \uc124\uc815\ud55c \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 \ub9de\ucdb0 \uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\uc744 \uc815\ub9ac\ud569\ub2c8\ub2e4. \ub9e4\ub9e4\ubcf4\ub958/\uc0ac\uc6a9\uc790\ucd94\uac00/\ubcf4\uc720\uc885\ubaa9\uc740 \uc81c\uc678\ub429\ub2c8\ub2e4."
+                "\ud604\uc7ac \uc124\uc815\ud55c \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 \ub9de\ucdb0 \uc790\ub3d9 \ud6c4\ubcf4\ub97c \ud3b8\uc785\ud558\uac70\ub098 \uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\uc744 \uc815\ub9ac\ud569\ub2c8\ub2e4. \ub9e4\ub9e4\ubcf4\ub958/\uc0ac\uc6a9\uc790\ucd94\uac00/\ubcf4\uc720\uc885\ubaa9\uc740 \uc81c\uc678\ub429\ub2c8\ub2e4."
             )
             self.btn_apply_managed_pool_max_size.clicked.connect(
                 self._on_apply_managed_pool_max_size_clicked
@@ -14972,6 +14972,49 @@ class MainWindow(QMainWindow):
         _max_lay.addWidget(self.btn_apply_managed_pool_max_size, 0)
         _max_lay.addStretch(1)
         _mf_lay.addWidget(_max_box, 1)
+        self.lbl_managed_pool_sync_result_title = QLabel("최근 적용 결과")
+        self.lbl_managed_pool_sync_result_summary = QLabel("아직 바로적용 결과가 없습니다.")
+        self.lbl_managed_pool_sync_result_detail = QLabel("")
+        try:
+            self.lbl_managed_pool_sync_result_title.setObjectName(
+                "lbl_managed_pool_sync_result_title"
+            )
+            self.lbl_managed_pool_sync_result_summary.setObjectName(
+                "lbl_managed_pool_sync_result_summary"
+            )
+            self.lbl_managed_pool_sync_result_detail.setObjectName(
+                "lbl_managed_pool_sync_result_detail"
+            )
+            for _sync_lbl in (
+                self.lbl_managed_pool_sync_result_title,
+                self.lbl_managed_pool_sync_result_summary,
+                self.lbl_managed_pool_sync_result_detail,
+            ):
+                _sync_lbl.setProperty("managedSub", True)
+                _sync_lbl.setWordWrap(True)
+                _sync_lbl.setStyleSheet("background: transparent; border: none;")
+                _sync_lbl.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+        except Exception:
+            pass
+        _sync_result_box = QFrame()
+        try:
+            _sync_result_box.setObjectName("frm_managed_pool_sync_result")
+            _sync_result_box.setProperty("managedSummaryItem", True)
+            _sync_result_box.setStyleSheet("")
+        except Exception:
+            pass
+        _sync_result_lay = QVBoxLayout(_sync_result_box)
+        try:
+            _sync_result_lay.setContentsMargins(12, 8, 12, 8)
+            _sync_result_lay.setSpacing(3)
+        except Exception:
+            pass
+        _sync_result_lay.addWidget(self.lbl_managed_pool_sync_result_title, 0)
+        _sync_result_lay.addWidget(self.lbl_managed_pool_sync_result_summary, 0)
+        _sync_result_lay.addWidget(self.lbl_managed_pool_sync_result_detail, 0)
+        _mf_lay.addWidget(_sync_result_box, 1)
         try:
             self._frm_managed_footer.setParent(None)
         except Exception:
@@ -17091,6 +17134,202 @@ class MainWindow(QMainWindow):
             pass
         return row
 
+
+    def _managed_pool_sync_reason_text(self, reason: str) -> str:
+        key = str(reason or "").strip()
+        labels = {
+            "selected_by_basic_candidate": "자동 후보 점수 상위",
+            "pool_has_free_slot": "최대 관리종목수 여유",
+            "replace_lower_basic_added": "기존 자동 편입 종목보다 우선순위 높음",
+            "higher_rank_candidate_replacement": "더 높은 순위 후보 발생",
+            "max_size_apply_low_priority_basic_added": "최대 관리종목수 초과로 자동 편입 종목 중 우선순위 낮음",
+            "pool_size_over_max_low_rank_basic_added": "관리종목 수 초과로 우선순위 낮음",
+            "user_added": "사용자 추가",
+            "holding_until_liquidated": "보유중",
+            "trade_hold": "매매보류",
+            "system_seed": "기본 보호 종목",
+            "manual_hold": "매매보류",
+        }
+        return labels.get(key, key or "사유 미기록")
+
+    def _managed_pool_sync_symbol_line(self, item: dict, *, include_reason: bool = True) -> str:
+        symbol = str(item.get("symbol") or item.get("market") or "").strip()
+        score = item.get("score") or item.get("ai_score")
+        rank = item.get("rank")
+        parts = [symbol or "-" ]
+        meta = []
+        if rank not in (None, ""):
+            meta.append(f"순위 {rank}")
+        if score not in (None, ""):
+            meta.append(f"점수 {score}")
+        if meta:
+            parts.append(f"({', '.join(meta)})")
+        if include_reason:
+            reason = (
+                item.get("display_reason")
+                or item.get("promotion_reason")
+                or item.get("remove_reason")
+                or item.get("reason")
+            )
+            if reason:
+                parts.append(f"- {self._managed_pool_sync_reason_text(str(reason))}")
+        return " ".join(parts).strip()
+
+    def _managed_pool_sync_compact_item(self, item: dict, *, reason_key: str = "reason") -> dict:
+        if not isinstance(item, dict):
+            return {}
+        reason = item.get(reason_key) or item.get("promotion_reason") or item.get("remove_reason") or item.get("reason")
+        compact = {
+            "symbol": str(item.get("symbol") or item.get("market") or "").strip(),
+            "score": item.get("score") or item.get("ai_score"),
+            "rank": item.get("rank"),
+            "reason": str(reason or "").strip(),
+            "reason_text": self._managed_pool_sync_reason_text(str(reason or "")),
+            "source": str(item.get("source") or item.get("source_type") or "basic_added").strip(),
+        }
+        return {k: v for k, v in compact.items() if v not in (None, "")}
+
+    def _build_managed_pool_sync_explain_payload(self, result: dict) -> dict:
+        before_count = int(result.get("before_count") or 0)
+        after_count = int(result.get("after_count") if result.get("after_count") is not None else before_count)
+        configured_max = int(result.get("configured_max_managed_pool_size") or 0)
+        actual_added = {str(sym or "").strip() for sym in (result.get("actual_added") or [])}
+        actual_removed = {str(sym or "").strip() for sym in (result.get("actual_removed") or [])}
+        added = []
+        for item in result.get("planned_add") or []:
+            symbol = str(item.get("symbol") or item.get("market") or "").strip()
+            if symbol in actual_added:
+                added.append(self._managed_pool_sync_compact_item(item, reason_key="promotion_reason"))
+        removed = []
+        for item in result.get("planned_remove") or []:
+            symbol = str(item.get("symbol") or item.get("market") or "").strip()
+            if symbol in actual_removed:
+                removed.append(self._managed_pool_sync_compact_item(item, reason_key="remove_reason"))
+        protected = []
+        for item in result.get("protected_rows") or []:
+            if not isinstance(item, dict):
+                continue
+            reasons = item.get("reasons") or []
+            if not isinstance(reasons, list):
+                reasons = [reasons]
+            reason_texts = [self._managed_pool_sync_reason_text(str(reason)) for reason in reasons if str(reason or "").strip()]
+            protected.append(
+                {
+                    "symbol": str(item.get("symbol") or "").strip(),
+                    "reason": ", ".join(str(reason) for reason in reasons if str(reason or "").strip()),
+                    "reason_text": ", ".join(reason_texts) if reason_texts else "보호 대상",
+                    "source": str(item.get("source") or item.get("source_type") or "").strip(),
+                }
+            )
+        skipped = []
+        if result.get("message_key") == "add_no_candidates":
+            skipped.append(
+                {
+                    "symbol": "",
+                    "reason": str(result.get("no_candidate_reason") or "no_candidates"),
+                    "reason_text": "추가할 자동 후보가 없습니다. 시장 후보 입력 또는 점수 조건을 확인하세요.",
+                }
+            )
+        branch = str(result.get("branch") or "noop")
+        if result.get("protected_overflow"):
+            branch = "protected_overflow"
+        elif result.get("message_key") == "add_no_candidates":
+            branch = "no_candidates"
+        added_count = len(added)
+        removed_count = len(removed)
+        protected_count = len(protected)
+        if branch == "protected_overflow":
+            message = "보호 대상 때문에 설정값 이하로 줄일 수 없습니다."
+        elif added_count:
+            message = f"자동 후보 {added_count}개를 관리종목에 편입했습니다."
+        elif removed_count:
+            message = f"자동 편입 종목 {removed_count}개를 정리했습니다."
+        elif branch == "no_candidates":
+            message = "추가할 자동 후보가 없습니다. 시장 후보 입력 또는 점수 조건을 확인하세요."
+        else:
+            message = "현재 관리종목 수가 최대 관리종목수와 일치합니다."
+        summary = f"자동 후보 {added_count}개 편입 · 정리 {removed_count}개 · 보호 {protected_count}개"
+        detail_parts = []
+        if added:
+            detail_parts.append("편입: " + ", ".join(self._managed_pool_sync_symbol_line(item) for item in added[:5]))
+        if removed:
+            detail_parts.append("정리: " + ", ".join(self._managed_pool_sync_symbol_line(item) for item in removed[:5]))
+        if protected:
+            detail_parts.append("보호: " + ", ".join(f"{item.get('symbol')}({item.get('reason_text')})" for item in protected[:5]))
+        if skipped and not detail_parts:
+            detail_parts.append(skipped[0].get("reason_text") or "추가할 자동 후보가 없습니다.")
+        detail = " | ".join(part for part in detail_parts if part)
+        return {
+            "schema": "managed_pool_sync_explain_v1",
+            "event_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "configured_max": configured_max,
+            "before_count": before_count,
+            "after_count": after_count,
+            "branch": branch,
+            "added_count": added_count,
+            "removed_count": removed_count,
+            "protected_count": protected_count,
+            "skipped_count": len(skipped),
+            "added": added,
+            "removed": removed,
+            "protected": protected,
+            "skipped": skipped,
+            "summary": summary,
+            "detail": detail,
+            "message": message,
+            "order_execution": False,
+            "rotation_execution": False,
+        }
+
+    def _update_managed_pool_sync_result_ui(self, explain: dict) -> None:
+        try:
+            title = getattr(self, "lbl_managed_pool_sync_result_title", None)
+            summary = getattr(self, "lbl_managed_pool_sync_result_summary", None)
+            detail = getattr(self, "lbl_managed_pool_sync_result_detail", None)
+            if title is not None:
+                title.setText("최근 적용 결과")
+            if summary is not None:
+                summary.setText(str(explain.get("summary") or explain.get("message") or ""))
+            if detail is not None:
+                detail_text = str(explain.get("detail") or explain.get("message") or "")
+                detail.setText(detail_text)
+                detail.setToolTip(detail_text)
+        except Exception:
+            pass
+
+    def _finalize_managed_pool_sync_result(self, result: dict) -> dict:
+        try:
+            explain = self._build_managed_pool_sync_explain_payload(result)
+            result["explain_payload"] = explain
+            result["explain_schema"] = explain.get("schema")
+            result["explain_message"] = explain.get("message")
+            result["explain_added"] = explain.get("added") or []
+            result["explain_removed"] = explain.get("removed") or []
+            result["explain_protected"] = explain.get("protected") or []
+            result["explain_skipped"] = explain.get("skipped") or []
+            result["ui_summary_text"] = explain.get("summary") or ""
+            result["ui_detail_text"] = explain.get("detail") or ""
+            result["journal_written"] = True
+            result["journal_text"] = explain.get("message") or ""
+            self._last_managed_pool_sync_explain_payload = explain
+            self._update_managed_pool_sync_result_ui(explain)
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolSyncExplain] branch=%s configured_max=%s before=%s after=%s added=%s removed=%s protected=%s order_execution=False rotation_execution=False submitted=0 order_allowed=False real_order=False",
+                    explain.get("branch"),
+                    explain.get("configured_max"),
+                    explain.get("before_count"),
+                    explain.get("after_count"),
+                    [item.get("symbol") for item in explain.get("added") or []],
+                    [item.get("symbol") for item in explain.get("removed") or []],
+                    [item.get("symbol") for item in explain.get("protected") or []],
+                )
+            except Exception:
+                pass
+        except Exception as exc:
+            result.setdefault("explain_error", type(exc).__name__)
+        return result
+
     def _apply_managed_pool_max_size_sync(
         self,
         *,
@@ -17145,9 +17384,13 @@ class MainWindow(QMainWindow):
             "provider_external_call_count": 0,
             "message_key": "noop",
         }
+
+        def _finish_result() -> dict:
+            return self._finalize_managed_pool_sync_result(result)
+
         if not backup_path:
             result["error"] = "backup_failed"
-            return result
+            return _finish_result()
         try:
             self._log.info(
                 "[AITS][ManagedPoolMaxSizeApply] event=clicked configured_max=%s before_count=%s branch=%s submitted=0 order_allowed=False real_order=False",
@@ -17168,7 +17411,7 @@ class MainWindow(QMainWindow):
                     "message_key": "noop_equal",
                 }
             )
-            return result
+            return _finish_result()
 
         after_rows = [dict(row) for row in before_rows]
         if branch == "trim":
@@ -17195,7 +17438,7 @@ class MainWindow(QMainWindow):
             )
             if planned_remove_symbols & protected_symbols or bool(plan.get("protected_violation")):
                 result["error"] = "protected_row_in_trim_plan"
-                return result
+                return _finish_result()
             if not planned_remove_symbols:
                 result.update(
                     {
@@ -17206,7 +17449,7 @@ class MainWindow(QMainWindow):
                         "message_key": "protected_overflow" if plan.get("protected_overflow") else "noop_no_removable",
                     }
                 )
-                return result
+                return _finish_result()
             if confirm:
                 message = (
                     "\ubcf4\ud638 \ub300\uc0c1\uc744 \uc81c\uc678\ud558\uace0 "
@@ -17223,7 +17466,7 @@ class MainWindow(QMainWindow):
                 )
                 if answer != QMessageBox.Yes:
                     result["cancelled"] = True
-                    return result
+                    return _finish_result()
             after_rows = [
                 dict(row)
                 for row in before_rows
@@ -17249,7 +17492,7 @@ class MainWindow(QMainWindow):
                         "message_key": "add_no_candidates",
                     }
                 )
-                return result
+                return _finish_result()
             config = {
                 "max_managed_pool_size": max_size,
                 "promotion_min_score": None,
@@ -17275,7 +17518,7 @@ class MainWindow(QMainWindow):
                         "message_key": "add_no_candidates",
                     }
                 )
-                return result
+                return _finish_result()
             if confirm:
                 message = (
                     "\uc790\ub3d9 \ud6c4\ubcf4\ub97c \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 "
@@ -17290,7 +17533,7 @@ class MainWindow(QMainWindow):
                 )
                 if answer != QMessageBox.Yes:
                     result["cancelled"] = True
-                    return result
+                    return _finish_result()
             existing = {str(row.get("symbol") or "").strip() for row in after_rows}
             actual_added = []
             for item in planned_add:
@@ -17321,12 +17564,12 @@ class MainWindow(QMainWindow):
                         "readback_verified": True,
                     }
                 )
-                return result
+                return _finish_result()
 
         after_symbols = [str(row.get("symbol") or "").strip() for row in after_rows]
         if len(after_rows) > max_size and not bool(result.get("protected_overflow")):
             result["error"] = "after_count_over_max_without_protected_overflow"
-            return result
+            return _finish_result()
         self.ai_managed_rows = [dict(row) for row in after_rows]
         try:
             refresher = getattr(self, "_refresh_ai_managed_table", None)
@@ -17345,7 +17588,7 @@ class MainWindow(QMainWindow):
                 pass
             result["rollback_performed"] = True
             result["error"] = "persist_failed"
-            return result
+            return _finish_result()
         readback = self._build_managed_pool_rows_snapshot()
         readback_symbols = [str(row.get("symbol") or "").strip() for row in readback]
         result.update(
@@ -17371,7 +17614,7 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        return result
+        return _finish_result()
 
     def _apply_managed_pool_max_size_trim(self, **kwargs) -> dict:
         return self._apply_managed_pool_max_size_sync(**kwargs)
@@ -17381,45 +17624,24 @@ class MainWindow(QMainWindow):
         try:
             if result.get("cancelled"):
                 return
+            explain = result.get("explain_payload") or {}
+            message = str(explain.get("message") or "")
+            detail = str(explain.get("detail") or "")
+            if detail:
+                message = f"{message}\n\n{detail}"
             if result.get("error"):
                 QMessageBox.warning(
                     self,
-                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
-                    f"\ubc14\ub85c\uc801\uc6a9\uc744 \uc644\ub8cc\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: {result.get('error')}",
+                    "관리종목 바로적용",
+                    f"바로적용을 완료하지 못했습니다: {result.get('error')}",
                 )
                 return
-            if result.get("protected_overflow"):
-                QMessageBox.information(
-                    self,
-                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
-                    "\ubcf4\ud638 \ub300\uc0c1 \ub54c\ubb38\uc5d0 \uc124\uc815\uac12 \uc774\ud558\ub85c \uc904\uc77c \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
-                )
-                return
-            if int(result.get("actual_add_count") or 0) > 0:
-                QMessageBox.information(
-                    self,
-                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
-                    f"\uc790\ub3d9 \ud6c4\ubcf4 {int(result.get('actual_add_count') or 0)}\uac1c\ub97c \uad00\ub9ac\uc885\ubaa9\uc5d0 \ud3b8\uc785\ud588\uc2b5\ub2c8\ub2e4.",
-                )
-                return
-            if int(result.get("actual_remove_count") or 0) > 0:
-                QMessageBox.information(
-                    self,
-                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
-                    f"\uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9 {int(result.get('actual_remove_count') or 0)}\uac1c\ub97c \uc815\ub9ac\ud588\uc2b5\ub2c8\ub2e4.",
-                )
-                return
-            if result.get("message_key") == "add_no_candidates":
-                QMessageBox.information(
-                    self,
-                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
-                    "\ucd94\uac00\ud560 \uc790\ub3d9 \ud6c4\ubcf4\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.",
-                )
-                return
+            if not message:
+                message = "현재 관리종목 수가 최대 관리종목수와 일치합니다."
             QMessageBox.information(
                 self,
-                "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
-                "\ud604\uc7ac \uad00\ub9ac\uc885\ubaa9 \uc218\uac00 \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc640 \uc77c\uce58\ud569\ub2c8\ub2e4.",
+                "관리종목 바로적용",
+                message,
             )
         except Exception:
             pass

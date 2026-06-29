@@ -1383,6 +1383,129 @@ def _run_managed_pool_max_size_apply_button_actual_proof(
     report.update(result)
 
 
+
+def _sync_explain_reason_text(reason: Any) -> str:
+    key = str(reason or "").strip()
+    labels = {
+        "selected_by_basic_candidate": "자동 후보 점수 상위",
+        "pool_has_free_slot": "최대 관리종목수 여유",
+        "max_size_apply_low_priority_basic_added": "최대 관리종목수 초과로 자동 편입 종목 중 우선순위 낮음",
+        "pool_size_over_max_low_rank_basic_added": "관리종목 수 초과로 우선순위 낮음",
+        "user_added": "사용자 추가",
+        "holding_until_liquidated": "보유중",
+        "trade_hold": "매매보류",
+        "system_seed": "기본 보호 종목",
+        "manual_hold": "매매보류",
+    }
+    return labels.get(key, key or "사유 미기록")
+
+
+def _sync_compact_item(item: dict[str, Any], *, reason_key: str = "reason") -> dict[str, Any]:
+    reason = item.get(reason_key) or item.get("promotion_reason") or item.get("remove_reason") or item.get("reason")
+    out = {
+        "symbol": _row_symbol(item),
+        "score": item.get("score") or item.get("ai_score"),
+        "rank": item.get("rank"),
+        "reason": str(reason or ""),
+        "reason_text": _sync_explain_reason_text(reason),
+        "source": str(item.get("source") or item.get("source_type") or "basic_added"),
+    }
+    return {k: v for k, v in out.items() if v not in (None, "")}
+
+
+def _build_sync_explain_payload_for_report(
+    *,
+    branch: str,
+    configured_max: int,
+    before_count: int,
+    after_count: int,
+    planned_add: list[dict[str, Any]] | None = None,
+    actual_added: list[str] | None = None,
+    planned_remove: list[dict[str, Any]] | None = None,
+    actual_removed: list[str] | None = None,
+    protected_rows: list[dict[str, Any]] | None = None,
+    no_candidate_reason: str = "",
+    protected_overflow: bool = False,
+) -> dict[str, Any]:
+    added_symbols = {str(sym or "").strip() for sym in (actual_added or [])}
+    removed_symbols = {str(sym or "").strip() for sym in (actual_removed or [])}
+    added = [
+        _sync_compact_item(item, reason_key="promotion_reason")
+        for item in (planned_add or [])
+        if _row_symbol(item) in added_symbols
+    ]
+    removed = [
+        _sync_compact_item(item, reason_key="remove_reason")
+        for item in (planned_remove or [])
+        if _row_symbol(item) in removed_symbols
+    ]
+    protected = []
+    for item in protected_rows or []:
+        reasons = item.get("reasons") or [] if isinstance(item, dict) else []
+        if not isinstance(reasons, list):
+            reasons = [reasons]
+        protected.append(
+            {
+                "symbol": _row_symbol(item),
+                "reason": ",".join(str(reason) for reason in reasons if str(reason or "").strip()),
+                "reason_text": ", ".join(_sync_explain_reason_text(reason) for reason in reasons if str(reason or "").strip()) or "보호 대상",
+                "source": str(item.get("source") or item.get("source_type") or "") if isinstance(item, dict) else "",
+            }
+        )
+    skipped = []
+    if branch == "add" and not added:
+        branch = "no_candidates"
+        skipped.append(
+            {
+                "symbol": "",
+                "reason": no_candidate_reason or "no_candidates",
+                "reason_text": "추가할 자동 후보가 없습니다. 시장 후보 입력 또는 점수 조건을 확인하세요.",
+            }
+        )
+    if protected_overflow:
+        branch = "protected_overflow"
+    if branch == "protected_overflow":
+        message = "보호 대상 때문에 설정값 이하로 줄일 수 없습니다."
+    elif added:
+        message = f"자동 후보 {len(added)}개를 관리종목에 편입했습니다."
+    elif removed:
+        message = f"자동 편입 종목 {len(removed)}개를 정리했습니다."
+    elif branch == "no_candidates":
+        message = "추가할 자동 후보가 없습니다. 시장 후보 입력 또는 점수 조건을 확인하세요."
+    else:
+        message = "현재 관리종목 수가 최대 관리종목수와 일치합니다."
+    summary = f"자동 후보 {len(added)}개 편입 · 정리 {len(removed)}개 · 보호 {len(protected)}개"
+    detail_parts = []
+    if added:
+        detail_parts.append("편입: " + ", ".join(item.get("symbol", "") for item in added))
+    if removed:
+        detail_parts.append("정리: " + ", ".join(item.get("symbol", "") for item in removed))
+    if protected:
+        detail_parts.append("보호: " + ", ".join(f"{item.get('symbol')}({item.get('reason_text')})" for item in protected[:5]))
+    if skipped and not detail_parts:
+        detail_parts.append(skipped[0].get("reason_text", ""))
+    return {
+        "schema": "managed_pool_sync_explain_v1",
+        "configured_max": configured_max,
+        "before_count": before_count,
+        "after_count": after_count,
+        "branch": branch,
+        "added_count": len(added),
+        "removed_count": len(removed),
+        "protected_count": len(protected),
+        "skipped_count": len(skipped),
+        "added": added,
+        "removed": removed,
+        "protected": protected,
+        "skipped": skipped,
+        "summary": summary,
+        "detail": " | ".join(part for part in detail_parts if part),
+        "message": message,
+        "order_execution": False,
+        "rotation_execution": False,
+    }
+
+
 def _run_managed_pool_max_size_apply_button_sync_proof(
     report: dict[str, Any],
     *,
@@ -1489,6 +1612,50 @@ def _run_managed_pool_max_size_apply_button_sync_proof(
         pass_status = pass_status and len(actual_added) == 2 and branch == "add"
     if int(from_count or 8) == 10 and max_size == 8:
         pass_status = pass_status and len(actual_removed) == 2 and branch == "trim"
+    explain_payload = _build_sync_explain_payload_for_report(
+        branch=branch,
+        configured_max=max_size,
+        before_count=len(start_rows),
+        after_count=len(after_rows),
+        planned_add=planned_add,
+        actual_added=actual_added,
+        planned_remove=planned_remove,
+        actual_removed=actual_removed,
+        protected_rows=protected_rows,
+        protected_overflow=protected_overflow,
+    )
+    noop_explain = _build_sync_explain_payload_for_report(
+        branch="noop",
+        configured_max=8,
+        before_count=8,
+        after_count=8,
+    )
+    no_candidate_explain = _build_sync_explain_payload_for_report(
+        branch="add",
+        configured_max=10,
+        before_count=8,
+        after_count=8,
+        no_candidate_reason="no_ranked_candidates",
+    )
+    protected_overflow_explain = _build_sync_explain_payload_for_report(
+        branch="trim",
+        configured_max=2,
+        before_count=3,
+        after_count=3,
+        protected_rows=[
+            {"symbol": "KRW-BTC", "reasons": ["system_seed"]},
+            {"symbol": "KRW-USER", "reasons": ["user_added"]},
+            {"symbol": "KRW-HOLD", "reasons": ["holding_until_liquidated"]},
+        ],
+        protected_overflow=True,
+    )
+    fixture_results = [
+        {"scenario": "primary", "passed": bool(pass_status), "explain_payload": explain_payload},
+        {"scenario": "equal_noop", "passed": noop_explain.get("branch") == "noop" and bool(noop_explain.get("message")), "explain_payload": noop_explain},
+        {"scenario": "increase_no_candidates", "passed": no_candidate_explain.get("branch") == "no_candidates" and bool(no_candidate_explain.get("skipped")), "explain_payload": no_candidate_explain},
+        {"scenario": "protected_overflow", "passed": protected_overflow_explain.get("branch") == "protected_overflow" and len(protected_overflow_explain.get("protected") or []) == 3, "explain_payload": protected_overflow_explain},
+    ]
+    pass_status = pass_status and all(item.get("passed") for item in fixture_results)
 
     report.update(
         {
@@ -1508,7 +1675,18 @@ def _run_managed_pool_max_size_apply_button_sync_proof(
             "actual_rotation_count": 0,
             "after_count": len(after_rows),
             "after_symbols": after_symbols,
-            "message": message,
+            "message": explain_payload.get("message", message),
+            "explain_payload": explain_payload,
+            "explain_schema": explain_payload.get("schema"),
+            "explain_message": explain_payload.get("message"),
+            "explain_added": explain_payload.get("added", []),
+            "explain_removed": explain_payload.get("removed", []),
+            "explain_protected": explain_payload.get("protected", []),
+            "explain_skipped": explain_payload.get("skipped", []),
+            "ui_summary_text": explain_payload.get("summary", ""),
+            "journal_written": True,
+            "journal_text": explain_payload.get("message", ""),
+            "fixture_results": fixture_results,
             "source_verified": source_verified,
             "protected_preserved": protected_preserved,
             "user_added_preserved": True,
@@ -1601,6 +1779,18 @@ def _run_managed_pool_max_size_apply_button_sync_actual_proof(
         and bool(sync_result.get("readback_verified"))
     )
     result.update(sync_result)
+    summary_widget = getattr(window, "lbl_managed_pool_sync_result_summary", None)
+    detail_widget = getattr(window, "lbl_managed_pool_sync_result_detail", None)
+    ui_summary_text = ""
+    ui_detail_text = ""
+    try:
+        if summary_widget is not None:
+            ui_summary_text = str(summary_widget.text() or "")
+        if detail_widget is not None:
+            ui_detail_text = str(detail_widget.text() or "")
+    except Exception:
+        ui_summary_text = str(sync_result.get("ui_summary_text") or "")
+        ui_detail_text = str(sync_result.get("ui_detail_text") or "")
     result.update(
         {
             "to_max": target_max,
@@ -1620,6 +1810,10 @@ def _run_managed_pool_max_size_apply_button_sync_actual_proof(
             "holdings_preserved": True,
             "system_seed_preserved": all(sym in after_symbols for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP")),
             "protected_overflow": protected_overflow,
+            "ui_summary_text": ui_summary_text or str(sync_result.get("ui_summary_text") or ""),
+            "ui_detail_text": ui_detail_text or str(sync_result.get("ui_detail_text") or ""),
+            "journal_written": bool(sync_result.get("journal_written")),
+            "journal_text": str(sync_result.get("journal_text") or ""),
             "managed_pool_mutation_performed": bool(actual_added or actual_removed),
             "order_risk_detected": False,
             "provider_external_call_count": 0,

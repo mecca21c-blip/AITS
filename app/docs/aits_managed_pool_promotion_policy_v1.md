@@ -110,3 +110,21 @@ no-rotation when candidate score is lower, and duplicate candidate ignoring.
 The apply-button proof covers both sync branches: increasing max adds Basic
 candidates, decreasing max trims only unprotected `basic_added` rows, equal
 counts no-op, and protected rows are preserved.
+
+## Explainable Sync UX
+
+Every max-size sync apply produces a JSON-safe `managed_pool_sync_explain_v1`
+payload. The same payload drives the popup message, the Managed Pool footer
+summary, the harness report, and one `[AITS][ManagedPoolSyncExplain]` log line.
+
+The payload records:
+
+- `added`: symbol, score, rank, source, and add reason.
+- `removed`: symbol, score, rank, source, and trim reason.
+- `protected`: symbol and protection reason such as `user_added`,
+  `trade_hold`, `holding_until_liquidated`, or `system_seed`.
+- `skipped`: no-candidate or no-op explanation.
+- `message`, `summary`, and `detail` for user-facing display.
+
+This UX layer is explanatory only. It does not change promotion, trim,
+rotation, or order-execution policy.

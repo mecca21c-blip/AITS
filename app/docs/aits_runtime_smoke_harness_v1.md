@@ -719,3 +719,24 @@ soft rotation payload. The report includes:
 requires the scan owner to run, Managed Pool mutation to remain false, provider
 external calls to remain zero, and order-risk counters to remain zero. If
 candidate count is zero, `no_candidate_reason` is the primary result.
+
+## Managed Pool Sync Explain Proof
+
+`managed-pool-max-size-apply-button-sync-proof` and
+`managed-pool-max-size-apply-button-sync-actual-proof` include explainable UX
+fields for the max-size `바로적용` action:
+
+- `explain_payload`
+- `explain_schema`
+- `explain_message`
+- `explain_added`
+- `explain_removed`
+- `explain_protected`
+- `explain_skipped`
+- `ui_summary_text`
+- `journal_written`
+- `journal_text`
+
+The fixture proof covers add, trim, no-op, no-candidate, and protected-overflow
+message paths. PASS requires the explain payload to remain JSON-safe and order
+risk to remain false.

@@ -104,3 +104,13 @@ Basic candidate scan and add-only promotion path. If the pool is above the max,
 it removes only unprotected `basic_added` rows. User-added, trade-hold, holding,
 and protected seed rows are preserved. If protected rows exceed the configured
 max, the trim reports `protected_overflow` instead of deleting protected rows.
+
+## Explainable Apply Result
+
+When the max-size `바로적용` button adds Basic candidates, the UI and harness now
+show why each symbol was selected. The explain payload includes Basic score,
+rank, source, and selection reason. If no candidates are available, the payload
+uses the no-candidate reason instead of reporting a silent no-op.
+
+This keeps candidate discovery observable without presenting Basic calculation
+output as an order signal.
