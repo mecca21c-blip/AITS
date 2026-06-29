@@ -972,6 +972,10 @@ def _run_provider_smoke(
     report["connection_state_before"] = before_collect.get("connection_state_text", "")
     report["provider_state_before"] = _provider_state_snapshot(window)
 
+    try:
+        setattr(window, "_aits_provider_smoke_compact_generation", provider in {"gpt", "gemini"})
+    except Exception:
+        pass
     if not _select_provider(window, provider, report):
         report["pass_status"] = "fail"
         report["fail_reason"] = "provider_select_failed"

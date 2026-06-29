@@ -231,6 +231,24 @@ Safety behavior:
 - Reports include provider branch delta, external cost-provider request delta,
   selected symbol, latest decision group id, snapshot/Journal proof flags,
   latest trade-log row, detail excerpt, duplicate detection, and order-risk flags.
+- GPT/Gemini provider-smoke uses a compact generation payload only for this
+  explicit smoke mode. The normal runtime provider path is unchanged. For GPT,
+  the compact smoke request records `compact_smoke=true`, `messages_count`,
+  `message_chars`, `output_token_cap`, and `timeout_sec` in
+  `[AITS][OpenAIProviderProof] event=request_attempt`. The timeout owner is the
+  HTTP provider request; the Qt worker watchdog remains later than that request
+  timeout. A successful GPT smoke requires HTTP success, response id presence,
+  token usage presence, `provider_actual=gpt`, `fallback_used=false`, and
+  `generation_response_confirmed=true`.
+- GPT timeout handling must distinguish request timeout from stale generation
+  state. Timeout failures should keep the selected provider, record fallback
+  reason clearly, and show timeout status instead of reverting to a generic
+  unconfirmed response label. The 2026-06-29 timeout root fix verified GPT
+  provider-smoke with report
+  `C:\AITS\data\runtime_smoke_reports\runtime_smoke_report_20260629_134523_490619.json`:
+  `http_status=200`, response id present, token usage present,
+  `provider_selected=gpt`, `provider_actual=gpt`, `fallback_used=false`,
+  `generation_response_confirmed=true`, and UI status `생성 응답 확인됨`.
 
 `--no-click` may be used without `--allow-provider-calls` to validate the
 provider-smoke report schema while network guards remain installed:

@@ -1394,10 +1394,16 @@ class AITSProviderRefreshWorker(QThread):
                 result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
                 result["provider_endpoint_type"] = "chat_completions"
                 try:
+                    ps = result.get("payload_summary") if isinstance(result.get("payload_summary"), dict) else {}
                     logging.getLogger("aits").info(
-                        "[AITS][OpenAIProviderProof] event=request_attempt group_id=%s endpoint=chat_completions model_requested=%s submitted=0 order_allowed=False real_order=False",
+                        "[AITS][OpenAIProviderProof] event=request_attempt group_id=%s endpoint=chat_completions model_requested=%s compact_smoke=%s messages_count=%s message_chars=%s output_token_cap=%s timeout_sec=%s submitted=0 order_allowed=False real_order=False",
                         str(result.get("decision_group_id") or result.get("request_id") or ""),
                         str(result.get("model_requested") or result.get("model") or ""),
+                        bool(ps.get("compact_provider_smoke")),
+                        ps.get("messages_count"),
+                        ps.get("message_chars"),
+                        ps.get("output_token_cap"),
+                        int(self.request_payload.get("timeout_sec") or 90),
                     )
                 except Exception:
                     pass
@@ -39692,12 +39698,29 @@ class MainWindow(QMainWindow):
             except Exception:
                 current_fp = ""
 
-            try:
-                messages = self._build_aits_ai_messages()
-            except Exception:
+            compact_provider_smoke = bool(getattr(self, "_aits_provider_smoke_compact_generation", False))
+            if compact_provider_smoke:
                 messages = [
-                    {"role": "user", "content": self._build_aits_ai_decision_prompt()},
+                    {
+                        "role": "system",
+                        "content": "You are verifying an AITS GPT provider connection. Return one compact JSON object only.",
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Provider smoke for {target_symbol or 'KRW-BTC'}. "
+                            "Return {\"decision\":\"observe\",\"summary\":\"provider generation confirmed\"}. "
+                            "Do not include trading instructions. Do not place or imply orders."
+                        ),
+                    },
                 ]
+            else:
+                try:
+                    messages = self._build_aits_ai_messages()
+                except Exception:
+                    messages = [
+                        {"role": "user", "content": self._build_aits_ai_decision_prompt()},
+                    ]
 
             url = "https://api.openai.com/v1/chat/completions"
             headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -39705,10 +39728,11 @@ class MainWindow(QMainWindow):
                 "model": model,
                 "messages": messages,
             }
+            output_token_cap = 120 if compact_provider_smoke else 1200
             if model == "chat-latest":
-                body["max_completion_tokens"] = 1200
+                body["max_completion_tokens"] = output_token_cap
             else:
-                body["max_tokens"] = 1200
+                body["max_tokens"] = output_token_cap
             ctx = self._build_aits_ai_decision_context()
             group_id = request_context.get("decision_group_id") or self._resolve_ai_judgment_group_id({}, {}, target_symbol, "manual_refresh")
             selected_provider_req = self._normalize_ai_refresh_provider_code(
@@ -39750,7 +39774,14 @@ class MainWindow(QMainWindow):
                 "url": url,
                 "headers": headers,
                 "json": body,
-                "timeout_sec": 90,
+                "payload_summary": {
+                    "compact_provider_smoke": compact_provider_smoke,
+                    "top_keys": sorted([str(k) for k in body.keys()]),
+                    "messages_count": len(messages),
+                    "message_chars": sum(len(str((m or {}).get("content") or "")) for m in messages if isinstance(m, dict)),
+                    "output_token_cap": output_token_cap,
+                },
+                "timeout_sec": 45 if compact_provider_smoke else 90,
             }
             if self._start_aits_provider_refresh_worker(request_payload):
                 provider_worker_started = True
