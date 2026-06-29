@@ -48317,7 +48317,6 @@ class MainWindow(QMainWindow):
                         self._log.warning(f"[PREFLIGHT] check failed: {preflight_msg}")
                         # 사용자에게 알림 (선택적 - 경고만 표시하고 진행 가능)
                         try:
-                            from PySide6.QtWidgets import QMessageBox
                             QMessageBox.warning(self, "실행 전 점검", preflight_msg)
                         except Exception:
                             pass
