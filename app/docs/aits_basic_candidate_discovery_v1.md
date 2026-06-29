@@ -98,8 +98,9 @@ fallback. The Basic scan may feed top candidates into the promotion policy.
 mutation proof. It may add `basic_added` rows up to the configured max, but it
 must not remove rows, execute rotation, call providers, or create orders.
 
-Reducing the max size is intentionally not automatic. The Managed Pool footer
-`바로적용` button owns max-size trim. It removes only unprotected `basic_added`
-rows and preserves user-added, trade-hold, holding, and protected seed rows. If
-protected rows exceed the configured max, the trim reports `protected_overflow`
-instead of deleting protected rows.
+Changing the max size is intentionally not automatic. The Managed Pool footer
+`바로적용` button owns max-size sync. If the pool is below the max, it runs the
+Basic candidate scan and add-only promotion path. If the pool is above the max,
+it removes only unprotected `basic_added` rows. User-added, trade-hold, holding,
+and protected seed rows are preserved. If protected rows exceed the configured
+max, the trim reports `protected_overflow` instead of deleting protected rows.

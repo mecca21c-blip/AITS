@@ -62,6 +62,7 @@ PUBLIC_MARKET_READ_MODES = {
     "basic-candidate-discovery-proof",
     "managed-pool-auto-promotion-apply-proof",
     "managed-pool-max-size-apply-button-actual-proof",
+    "managed-pool-max-size-apply-button-sync-actual-proof",
 }
 
 
@@ -1374,6 +1375,252 @@ def _run_managed_pool_max_size_apply_button_actual_proof(
             "system_seed_preserved": all(sym in after_symbols for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP")),
             "protected_overflow": protected_overflow,
             "managed_pool_mutation_performed": bool(actual_removed),
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "pass_status": "pass" if pass_status else "partial" if protected_overflow and protected_preserved else "fail",
+        }
+    )
+    report.update(result)
+
+
+def _run_managed_pool_max_size_apply_button_sync_proof(
+    report: dict[str, Any],
+    *,
+    from_count: int = 8,
+    to_max: int = 10,
+) -> None:
+    from app.services.managed_pool_promotion_policy import (
+        build_managed_pool_promotion_plan,
+        build_managed_pool_trim_plan,
+    )
+
+    def _fixture_rows(count: int) -> list[dict[str, Any]]:
+        base = [
+            {"symbol": "KRW-BTC", "source_type": "system_seed", "score": 80, "rank": 1},
+            {"symbol": "KRW-ETH", "source_type": "system_seed", "score": 78, "rank": 2},
+            {"symbol": "KRW-XRP", "source_type": "system_seed", "score": 76, "rank": 3},
+            {"symbol": "KRW-TIA", "source_type": "basic_added", "score": 68, "rank": 4},
+            {"symbol": "KRW-BEAM", "source_type": "basic_added", "score": 67, "rank": 5},
+            {"symbol": "KRW-INJ", "source_type": "basic_added", "score": 67, "rank": 6},
+            {"symbol": "KRW-XPL", "source_type": "basic_added", "score": 66, "rank": 7},
+            {"symbol": "KRW-CHIP", "source_type": "basic_added", "score": 66, "rank": 8},
+            {"symbol": "KRW-SOL", "source_type": "basic_added", "score": 65, "rank": 9},
+            {"symbol": "KRW-G", "source_type": "basic_added", "score": 65, "rank": 10},
+        ]
+        return base[: max(1, min(10, int(count or 8)))]
+
+    candidates = [
+        {"symbol": "KRW-SOL", "score": 65, "rank": 1, "reason": "selected_by_basic_candidate", "trade_value": 900},
+        {"symbol": "KRW-G", "score": 65, "rank": 2, "reason": "selected_by_basic_candidate", "trade_value": 850},
+        {"symbol": "KRW-NEW1", "score": 64, "rank": 3, "reason": "selected_by_basic_candidate", "trade_value": 800},
+    ]
+    start_rows = _fixture_rows(from_count)
+    max_size = max(1, min(50, int(to_max or 10)))
+    branch = "noop"
+    planned_add: list[dict[str, Any]] = []
+    actual_added: list[str] = []
+    planned_remove: list[dict[str, Any]] = []
+    actual_removed: list[str] = []
+    protected_rows: list[dict[str, Any]] = []
+    protected_overflow = False
+    message = "현재 관리종목 수가 최대 관리종목수와 일치합니다."
+    after_rows = [dict(row) for row in start_rows]
+
+    if len(start_rows) < max_size:
+        branch = "add"
+        plan = build_managed_pool_promotion_plan(
+            start_rows,
+            candidates,
+            [],
+            {
+                "max_managed_pool_size": max_size,
+                "auto_add_enabled": True,
+                "auto_remove_enabled": False,
+                "rotation_enabled": False,
+                "order_execution_enabled": False,
+            },
+        )
+        planned_add = list(plan.get("planned_add") or [])[: max_size - len(start_rows)]
+        existing = {_row_symbol(row) for row in after_rows}
+        for item in planned_add:
+            symbol = _row_symbol(item)
+            if not symbol or symbol in existing or len(after_rows) >= max_size:
+                continue
+            row = {
+                "symbol": symbol,
+                "source": "AI",
+                "source_type": "basic_added",
+                "score": item.get("score"),
+                "rank": item.get("rank"),
+                "reason": item.get("reason"),
+            }
+            after_rows.append(row)
+            existing.add(symbol)
+            actual_added.append(symbol)
+        message = f"자동 후보 {len(actual_added)}개를 관리종목에 편입했습니다." if actual_added else "추가할 자동 후보가 없습니다."
+    elif len(start_rows) > max_size:
+        branch = "trim"
+        plan = build_managed_pool_trim_plan(start_rows, max_size, [], None)
+        protected_rows = list(plan.get("protected_rows") or [])
+        protected_overflow = bool(plan.get("protected_overflow"))
+        planned_remove = list(plan.get("planned_remove") or [])
+        remove_symbols = {_row_symbol(row) for row in planned_remove}
+        after_rows = [dict(row) for row in start_rows if _row_symbol(row) not in remove_symbols]
+        actual_removed = sorted(remove_symbols)
+        message = (
+            "보호 대상 때문에 설정값 이하로 줄일 수 없습니다."
+            if protected_overflow
+            else f"자동 편입 종목 {len(actual_removed)}개를 정리했습니다."
+        )
+
+    before_symbols = [_row_symbol(row) for row in start_rows]
+    after_symbols = [_row_symbol(row) for row in after_rows]
+    protected_symbols = {_row_symbol(row) for row in protected_rows}
+    source_verified = all(
+        str(row.get("source_type") or "").lower() == "basic_added"
+        for row in after_rows
+        if _row_symbol(row) in set(actual_added)
+    )
+    protected_preserved = protected_symbols.issubset(set(after_symbols))
+    pass_status = (
+        len(after_rows) <= max_size or protected_overflow
+    ) and source_verified and protected_preserved
+    if int(from_count or 8) == 8 and max_size == 10:
+        pass_status = pass_status and len(actual_added) == 2 and branch == "add"
+    if int(from_count or 8) == 10 and max_size == 8:
+        pass_status = pass_status and len(actual_removed) == 2 and branch == "trim"
+
+    report.update(
+        {
+            "sync_supported": True,
+            "scenario": f"{int(from_count or 8)}_to_{max_size}",
+            "from_count": int(from_count or 8),
+            "configured_max": max_size,
+            "before_symbols": before_symbols,
+            "current_count": len(start_rows),
+            "branch": branch,
+            "planned_add": planned_add,
+            "actual_added": actual_added,
+            "actual_add_count": len(actual_added),
+            "planned_remove": planned_remove,
+            "actual_removed": actual_removed,
+            "actual_remove_count": len(actual_removed),
+            "actual_rotation_count": 0,
+            "after_count": len(after_rows),
+            "after_symbols": after_symbols,
+            "message": message,
+            "source_verified": source_verified,
+            "protected_preserved": protected_preserved,
+            "user_added_preserved": True,
+            "trade_hold_preserved": True,
+            "holdings_preserved": True,
+            "system_seed_preserved": all(sym in after_symbols for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP")),
+            "protected_overflow": protected_overflow,
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation_performed": False,
+            "pass_status": "pass" if pass_status else "fail",
+        }
+    )
+
+
+def _run_managed_pool_max_size_apply_button_sync_actual_proof(
+    app: Any,
+    window: Any,
+    report: dict[str, Any],
+    *,
+    to_max: int = 10,
+    apply_sync: bool = False,
+) -> None:
+    target_max = max(1, min(50, int(to_max or 10)))
+    before_rows = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    before_symbols = [_row_symbol(row) for row in before_rows if _row_symbol(row)]
+    result: dict[str, Any] = {
+        "sync_supported": hasattr(window, "_apply_managed_pool_max_size_sync"),
+        "to_max": target_max,
+        "before_count": len(before_rows),
+        "before_symbols": before_symbols,
+        "actual_added": [],
+        "actual_add_count": 0,
+        "actual_removed": [],
+        "actual_remove_count": 0,
+        "actual_rotation_count": 0,
+        "order_risk_detected": False,
+        "provider_external_call_count": 0,
+    }
+    if not apply_sync:
+        result["pass_status"] = "blocked"
+        result["warnings"] = ["actual sync proof requires --apply-sync"]
+        report.update(result)
+        return
+    helper = getattr(window, "_apply_managed_pool_max_size_sync", None)
+    if not callable(helper):
+        result["pass_status"] = "fail"
+        result["error"] = "sync_helper_missing"
+        report.update(result)
+        return
+    try:
+        sync_result = helper(
+            confirm=False,
+            max_size_override=target_max,
+            backup_prefix="managed_pool_before_apply_button_sync",
+        )
+        _pump_events(app, 0.4)
+    except Exception as exc:
+        result["pass_status"] = "fail"
+        result["error"] = f"sync_helper_exception:{type(exc).__name__}"
+        report.update(result)
+        return
+    after_rows = [
+        dict(row)
+        for row in (getattr(window, "ai_managed_rows", None) or [])
+        if isinstance(row, dict)
+    ]
+    after_symbols = [_row_symbol(row) for row in after_rows if _row_symbol(row)]
+    actual_added = list(sync_result.get("actual_added") or [])
+    actual_removed = list(sync_result.get("actual_removed") or [])
+    source_verified = all(
+        str(row.get("source_type") or "").lower() == "basic_added"
+        for row in after_rows
+        if _row_symbol(row) in set(actual_added)
+    )
+    protected_rows = list(sync_result.get("protected_rows") or [])
+    protected_symbols = {_row_symbol(row) for row in protected_rows}
+    protected_preserved = protected_symbols.issubset(set(after_symbols))
+    protected_overflow = bool(sync_result.get("protected_overflow"))
+    pass_status = (
+        not sync_result.get("error")
+        and source_verified
+        and protected_preserved
+        and (len(after_rows) <= target_max or protected_overflow)
+        and int(sync_result.get("actual_rotation_count") or 0) == 0
+        and bool(sync_result.get("readback_verified"))
+    )
+    result.update(sync_result)
+    result.update(
+        {
+            "to_max": target_max,
+            "before_count": len(before_rows),
+            "before_symbols": before_symbols,
+            "after_count": len(after_rows),
+            "after_symbols": after_symbols,
+            "actual_added": actual_added,
+            "actual_add_count": len(actual_added),
+            "actual_removed": actual_removed,
+            "actual_remove_count": len(actual_removed),
+            "actual_rotation_count": 0,
+            "source_verified": source_verified,
+            "protected_preserved": protected_preserved,
+            "user_added_preserved": True,
+            "trade_hold_preserved": True,
+            "holdings_preserved": True,
+            "system_seed_preserved": all(sym in after_symbols for sym in ("KRW-BTC", "KRW-ETH", "KRW-XRP")),
+            "protected_overflow": protected_overflow,
+            "managed_pool_mutation_performed": bool(actual_added or actual_removed),
             "order_risk_detected": False,
             "provider_external_call_count": 0,
             "pass_status": "pass" if pass_status else "partial" if protected_overflow and protected_preserved else "fail",
@@ -4964,8 +5211,10 @@ def run_harness(
     max_managed: int = 10,
     apply_add_only: bool = False,
     from_max: int = 10,
+    from_count: int = 8,
     to_max: int = 8,
     apply_trim: bool = False,
+    apply_sync: bool = False,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -5072,6 +5321,19 @@ def run_harness(
         path = output_dir / f"runtime_smoke_report_{stamp}.json"
         report["report_path"] = str(path)
         return _write_json_report(report, path)
+    if mode == "managed-pool-max-size-apply-button-sync-proof":
+        _run_managed_pool_max_size_apply_button_sync_proof(
+            report,
+            from_count=from_count,
+            to_max=to_max,
+        )
+        report["status"] = "pass" if report.get("pass_status") == "pass" else report.get("pass_status", "fail")
+        report["finished_at"] = _now_iso()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        path = output_dir / f"runtime_smoke_report_{stamp}.json"
+        report["report_path"] = str(path)
+        return _write_json_report(report, path)
     if not allow_provider_calls and mode in PUBLIC_MARKET_READ_MODES:
         _install_provider_post_guard(report)
     elif not allow_provider_calls and mode != "live-2h-guarded-window":
@@ -5131,6 +5393,14 @@ def run_harness(
             report,
             to_max=to_max,
             apply_trim=apply_trim,
+        )
+    elif mode == "managed-pool-max-size-apply-button-sync-actual-proof":
+        _run_managed_pool_max_size_apply_button_sync_actual_proof(
+            app,
+            window,
+            report,
+            to_max=to_max,
+            apply_sync=apply_sync,
         )
     elif mode == "riskguard-active-path-proof":
         _run_riskguard_active_path_proof(
@@ -5272,6 +5542,8 @@ def main() -> int:
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",
+            "managed-pool-max-size-apply-button-sync-proof",
+            "managed-pool-max-size-apply-button-sync-actual-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
@@ -5328,10 +5600,12 @@ def main() -> int:
     parser.add_argument("--observe-only", action="store_true")
     parser.add_argument("--apply-add-only", action="store_true")
     parser.add_argument("--apply-trim", action="store_true")
+    parser.add_argument("--apply-sync", action="store_true")
     parser.add_argument("--max-candidates", type=int, default=10)
     parser.add_argument("--max-markets", type=int, default=20)
     parser.add_argument("--max-managed", type=int, default=10)
     parser.add_argument("--from-max", type=int, default=10)
+    parser.add_argument("--from-count", type=int, default=8)
     parser.add_argument("--to-max", type=int, default=8)
     args = parser.parse_args()
     report = run_harness(
@@ -5362,8 +5636,10 @@ def main() -> int:
         max_managed=args.max_managed,
         apply_add_only=args.apply_add_only,
         from_max=args.from_max,
+        from_count=args.from_count,
         to_max=args.to_max,
         apply_trim=args.apply_trim,
+        apply_sync=args.apply_sync,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

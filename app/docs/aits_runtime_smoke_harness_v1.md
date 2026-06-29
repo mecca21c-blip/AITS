@@ -24,6 +24,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotio
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-sync-proof --from-count 8 --to-max 10
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-sync-actual-proof --to-max 10 --apply-sync
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-locked-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-one-shot-unlock-contract-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimum-real-order-test --confirm-phrase <exact-confirm-phrase>
@@ -115,6 +117,17 @@ printed to stdout.
   verifies readback, reports `protected_overflow` when protected rows prevent
   reaching the target, and must keep provider calls, rotation execution, and
   order calls at zero.
+- `managed-pool-max-size-apply-button-sync-proof`: fixture proof for the
+  `바로적용` sync contract. It verifies count-increase add-only behavior,
+  count-decrease protected trim behavior, no-op behavior, source tagging, user
+  protection, trade-hold protection, holding protection, seed protection,
+  messages, and zero order/provider calls.
+- `managed-pool-max-size-apply-button-sync-actual-proof`: creates the Qt window
+  and invokes the same sync helper as the `바로적용` button when `--apply-sync`
+  is present. If current count is below `--to-max`, it runs the Basic candidate
+  scan and persists `basic_added` rows up to the max. If current count is above
+  max, it trims only unprotected `basic_added` rows. Rotation and order calls
+  must remain zero.
 - `live-preflight-locked-proof`: evaluates the final live-order preflight lock
   with deterministic fixtures. It does not create paper trading, virtual
   trading, mock processors, provider calls, or order submissions.

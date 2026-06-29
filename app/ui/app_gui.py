@@ -16976,14 +16976,133 @@ class MainWindow(QMainWindow):
                 pass
         return False
 
-    def _apply_managed_pool_max_size_trim(
+    def _collect_basic_candidates_for_managed_pool_sync(self, *, max_candidates: int = 50) -> tuple[list[dict], str]:
+        try:
+            loader = getattr(self, "_load_market_explorer_initial_data", None)
+            if callable(loader):
+                loader()
+        except Exception as exc:
+            return [], f"candidate_scan_failed:{type(exc).__name__}"
+        market_rows = [
+            dict(row)
+            for row in (
+                getattr(self, "_market_display_rows", None)
+                or getattr(self, "market_all_rows", None)
+                or getattr(self, "_market_all_rows", None)
+                or []
+            )
+            if isinstance(row, dict)
+        ]
+        if not market_rows:
+            reason = str(getattr(self, "_candidate_feed_stale_reason", "") or "top_markets_empty")
+            return [], reason
+        scored = []
+        score_fn = getattr(self, "_calc_basic_ai_score", None)
+        for idx, row in enumerate(market_rows):
+            symbol = self._normalize_managed_pool_symbol_for_persistence(
+                row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker")
+            )
+            if not symbol:
+                continue
+            item = dict(row)
+            item["symbol"] = symbol
+            try:
+                if callable(score_fn):
+                    score_info = score_fn(dict(item))
+                    if isinstance(score_info, dict):
+                        item["score"] = score_info.get("score")
+                        item["ai_score"] = score_info.get("score")
+                        item["reason"] = score_info.get("reason_summary") or ",".join(
+                            str(part) for part in (score_info.get("reasons") or [])[:4]
+                        )
+            except Exception as exc:
+                item["reason"] = f"score_failed:{type(exc).__name__}"
+            item.setdefault("rank", idx + 1)
+            item.setdefault("source", "basic")
+            scored.append(item)
+
+        def _score_key(item: dict) -> tuple[float, float]:
+            try:
+                score = float(item.get("ai_score", item.get("score")) or -1.0)
+            except Exception:
+                score = -1.0
+            try:
+                trade_value = float(
+                    item.get("trade_value")
+                    or item.get("volume_krw")
+                    or item.get("acc_trade_price_24h")
+                    or 0.0
+                )
+            except Exception:
+                trade_value = 0.0
+            return score, trade_value
+
+        scored.sort(key=_score_key, reverse=True)
+        candidates = []
+        seen = set()
+        for idx, item in enumerate(scored[: max(0, int(max_candidates or 50))]):
+            symbol = self._normalize_managed_pool_symbol_for_persistence(item.get("symbol"))
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            candidates.append(
+                {
+                    "symbol": symbol,
+                    "market": symbol,
+                    "rank": idx + 1,
+                    "score": item.get("ai_score", item.get("score")),
+                    "reason": item.get("reason") or item.get("reason_summary") or "selected_by_basic_candidate",
+                    "source": "basic",
+                    "change_rate": item.get("change_rate") or item.get("change_pct") or item.get("signed_change_rate") or 0.0,
+                    "trade_value": item.get("trade_value") or item.get("volume_krw") or item.get("acc_trade_price_24h") or 0.0,
+                }
+            )
+        if not candidates:
+            return [], "candidate_rows_without_symbols"
+        return candidates, ""
+
+    def _build_basic_added_managed_pool_row(self, item: dict) -> dict:
+        from datetime import datetime
+
+        symbol = self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+        now = datetime.now().isoformat(timespec="seconds")
+        row = {
+            "symbol": symbol,
+            "market": symbol,
+            "name": symbol.split("-")[-1] if symbol else "",
+            "source": "AI",
+            "source_type": "basic_added",
+            "status": "candidate",
+            "score": item.get("score"),
+            "ai_score": item.get("score"),
+            "rank": item.get("rank"),
+            "reason": item.get("reason") or item.get("promotion_reason") or "selected_by_basic_candidate",
+            "created_at": now,
+            "added_at": now,
+            "updated_at": now,
+        }
+        try:
+            shaper = getattr(self, "_ensure_aits_managed_pool_row_shape", None)
+            if callable(shaper):
+                shaped = shaper(dict(row))
+                if isinstance(shaped, dict):
+                    row = shaped
+        except Exception:
+            pass
+        return row
+
+    def _apply_managed_pool_max_size_sync(
         self,
         *,
         confirm: bool = True,
         max_size_override: int | None = None,
-        backup_prefix: str = "managed_pool_before_apply_button_trim",
+        backup_prefix: str = "managed_pool_before_apply_button_sync",
+        candidate_override: list[dict] | None = None,
     ) -> dict:
-        from app.services.managed_pool_promotion_policy import build_managed_pool_trim_plan
+        from app.services.managed_pool_promotion_policy import (
+            build_managed_pool_promotion_plan,
+            build_managed_pool_trim_plan,
+        )
 
         max_size = self._coerce_managed_pool_max_size(
             max_size_override if max_size_override is not None else self._get_managed_pool_max_size_value()
@@ -16995,78 +17114,106 @@ class MainWindow(QMainWindow):
             )
         before_rows = self._build_managed_pool_rows_snapshot()
         before_symbols = [str(row.get("symbol") or "").strip() for row in before_rows]
-        backup_path = self._create_managed_pool_rows_backup(
-            prefix=backup_prefix,
-            max_size=max_size,
-        )
-        plan = build_managed_pool_trim_plan(before_rows, max_size, [], None)
-        planned_remove = list(plan.get("planned_remove") or [])
-        planned_remove_symbols = {
-            str(item.get("symbol") or "").strip()
-            for item in planned_remove
-            if str(item.get("symbol") or "").strip()
-        }
-        protected_symbols = {
-            str(item.get("symbol") or "").strip()
-            for item in (plan.get("protected_rows") or [])
-            if str(item.get("symbol") or "").strip()
-        }
+        backup_path = self._create_managed_pool_rows_backup(prefix=backup_prefix, max_size=max_size)
+        branch = "noop"
+        if len(before_rows) > max_size:
+            branch = "trim"
+        elif len(before_rows) < max_size:
+            branch = "add"
         result = {
+            "sync_supported": True,
             "apply_button_supported": True,
+            "branch": branch,
             "configured_max_managed_pool_size": max_size,
             "before_count": len(before_rows),
             "before_symbols": before_symbols,
             "before_backup_path": backup_path,
-            "protected_rows": list(plan.get("protected_rows") or []),
-            "removable_rows": list(plan.get("removable_rows") or []),
-            "planned_remove": planned_remove,
+            "planned_add": [],
+            "actual_added": [],
+            "actual_add_count": 0,
+            "planned_remove": [],
             "actual_removed": [],
             "actual_remove_count": 0,
             "actual_rotation_count": 0,
-            "protected_overflow": bool(plan.get("protected_overflow")),
-            "protected_overflow_reason": str(plan.get("protected_overflow_reason") or ""),
+            "protected_rows": [],
+            "protected_overflow": False,
+            "protected_overflow_reason": "",
             "persistence_saved": False,
             "readback_verified": False,
             "rollback_performed": False,
             "order_risk_detected": False,
             "provider_external_call_count": 0,
+            "message_key": "noop",
         }
-        try:
-            self._log.info(
-                "[AITS][ManagedPoolMaxSizeApply] event=clicked configured_max=%s before_count=%s submitted=0 order_allowed=False real_order=False",
-                int(max_size),
-                len(before_rows),
-            )
-            self._log.info(
-                "[AITS][ManagedPoolTrim] event=planned configured_max=%s before_count=%s excess=%s planned_remove=%s protected_overflow=%s submitted=0 order_allowed=False real_order=False",
-                int(max_size),
-                len(before_rows),
-                int(plan.get("excess_count") or 0),
-                sorted(planned_remove_symbols),
-                bool(plan.get("protected_overflow")),
-            )
-        except Exception:
-            pass
         if not backup_path:
             result["error"] = "backup_failed"
             return result
-        if planned_remove_symbols & protected_symbols or bool(plan.get("protected_violation")):
-            result["error"] = "protected_row_in_trim_plan"
-            return result
-        if not planned_remove_symbols:
-            result["after_count"] = len(before_rows)
-            result["after_symbols"] = before_symbols
-            result["persistence_saved"] = True
-            result["readback_verified"] = len(before_rows) <= max_size or bool(plan.get("protected_overflow"))
-            return result
-        if confirm:
-            message = (
-                "\ubcf4\ud638 \ub300\uc0c1\uc744 \uc81c\uc678\ud558\uace0 "
-                "\uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\uc744 \ucd5c\ub300 "
-                "\uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 \ub9de\uac8c \uc815\ub9ac\ud569\ub2c8\ub2e4. "
-                "\uc9c4\ud589\ud560\uae4c\uc694?"
+        try:
+            self._log.info(
+                "[AITS][ManagedPoolMaxSizeApply] event=clicked configured_max=%s before_count=%s branch=%s submitted=0 order_allowed=False real_order=False",
+                int(max_size),
+                len(before_rows),
+                branch,
             )
-            try:
+        except Exception:
+            pass
+
+        if branch == "noop":
+            result.update(
+                {
+                    "after_count": len(before_rows),
+                    "after_symbols": before_symbols,
+                    "persistence_saved": True,
+                    "readback_verified": True,
+                    "message_key": "noop_equal",
+                }
+            )
+            return result
+
+        after_rows = [dict(row) for row in before_rows]
+        if branch == "trim":
+            plan = build_managed_pool_trim_plan(before_rows, max_size, [], None)
+            planned_remove = list(plan.get("planned_remove") or [])
+            planned_remove_symbols = {
+                str(item.get("symbol") or "").strip()
+                for item in planned_remove
+                if str(item.get("symbol") or "").strip()
+            }
+            protected_symbols = {
+                str(item.get("symbol") or "").strip()
+                for item in (plan.get("protected_rows") or [])
+                if str(item.get("symbol") or "").strip()
+            }
+            result.update(
+                {
+                    "protected_rows": list(plan.get("protected_rows") or []),
+                    "removable_rows": list(plan.get("removable_rows") or []),
+                    "planned_remove": planned_remove,
+                    "protected_overflow": bool(plan.get("protected_overflow")),
+                    "protected_overflow_reason": str(plan.get("protected_overflow_reason") or ""),
+                }
+            )
+            if planned_remove_symbols & protected_symbols or bool(plan.get("protected_violation")):
+                result["error"] = "protected_row_in_trim_plan"
+                return result
+            if not planned_remove_symbols:
+                result.update(
+                    {
+                        "after_count": len(before_rows),
+                        "after_symbols": before_symbols,
+                        "persistence_saved": True,
+                        "readback_verified": bool(plan.get("protected_overflow")),
+                        "message_key": "protected_overflow" if plan.get("protected_overflow") else "noop_no_removable",
+                    }
+                )
+                return result
+            if confirm:
+                message = (
+                    "\ubcf4\ud638 \ub300\uc0c1\uc744 \uc81c\uc678\ud558\uace0 "
+                    "\uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\uc744 \ucd5c\ub300 "
+                    "\uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 \ub9de\uac8c \uc815\ub9ac\ud569\ub2c8\ub2e4. "
+                    "\uc9c4\ud589\ud560\uae4c\uc694?"
+                )
                 answer = QMessageBox.question(
                     self,
                     "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
@@ -17077,17 +17224,107 @@ class MainWindow(QMainWindow):
                 if answer != QMessageBox.Yes:
                     result["cancelled"] = True
                     return result
-            except Exception:
-                result["error"] = "confirmation_failed"
+            after_rows = [
+                dict(row)
+                for row in before_rows
+                if str(row.get("symbol") or "").strip() not in planned_remove_symbols
+            ]
+            result["message_key"] = "trim_applied"
+
+        elif branch == "add":
+            slots = max(0, max_size - len(before_rows))
+            candidates = list(candidate_override or [])
+            no_candidate_reason = ""
+            if candidate_override is None:
+                candidates, no_candidate_reason = self._collect_basic_candidates_for_managed_pool_sync(max_candidates=max_size + 20)
+            result["candidate_count"] = len(candidates)
+            result["no_candidate_reason"] = no_candidate_reason
+            if not candidates:
+                result.update(
+                    {
+                        "after_count": len(before_rows),
+                        "after_symbols": before_symbols,
+                        "persistence_saved": True,
+                        "readback_verified": True,
+                        "message_key": "add_no_candidates",
+                    }
+                )
+                return result
+            config = {
+                "max_managed_pool_size": max_size,
+                "promotion_min_score": None,
+                "auto_add_enabled": True,
+                "auto_remove_enabled": False,
+                "protect_user_added": True,
+                "protect_holdings_until_liquidated": True,
+                "protect_system_seed_initially": True,
+                "rotation_enabled": False,
+                "rotation_min_score_gap": 0.0,
+                "order_execution_enabled": False,
+            }
+            plan = build_managed_pool_promotion_plan(before_rows, candidates, [], config)
+            planned_add = list(plan.get("planned_add") or [])[:slots]
+            result["planned_add"] = planned_add
+            if not planned_add:
+                result.update(
+                    {
+                        "after_count": len(before_rows),
+                        "after_symbols": before_symbols,
+                        "persistence_saved": True,
+                        "readback_verified": True,
+                        "message_key": "add_no_candidates",
+                    }
+                )
+                return result
+            if confirm:
+                message = (
+                    "\uc790\ub3d9 \ud6c4\ubcf4\ub97c \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc5d0 "
+                    "\ub9de\uac8c \ud3b8\uc785\ud569\ub2c8\ub2e4. \uc9c4\ud589\ud560\uae4c\uc694?"
+                )
+                answer = QMessageBox.question(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \ud3b8\uc785",
+                    message,
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if answer != QMessageBox.Yes:
+                    result["cancelled"] = True
+                    return result
+            existing = {str(row.get("symbol") or "").strip() for row in after_rows}
+            actual_added = []
+            for item in planned_add:
+                if len(after_rows) >= max_size:
+                    break
+                symbol = self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+                if not symbol or symbol in existing:
+                    continue
+                row = self._build_basic_added_managed_pool_row(item)
+                if not row.get("symbol"):
+                    continue
+                after_rows.append(row)
+                existing.add(symbol)
+                actual_added.append(symbol)
+            result.update(
+                {
+                    "actual_added": actual_added,
+                    "actual_add_count": len(actual_added),
+                    "message_key": "add_applied" if actual_added else "add_no_candidates",
+                }
+            )
+            if not actual_added:
+                result.update(
+                    {
+                        "after_count": len(before_rows),
+                        "after_symbols": before_symbols,
+                        "persistence_saved": True,
+                        "readback_verified": True,
+                    }
+                )
                 return result
 
-        after_rows = [
-            dict(row)
-            for row in before_rows
-            if str(row.get("symbol") or "").strip() not in planned_remove_symbols
-        ]
         after_symbols = [str(row.get("symbol") or "").strip() for row in after_rows]
-        if len(after_rows) > max_size and not bool(plan.get("protected_overflow")):
+        if len(after_rows) > max_size and not bool(result.get("protected_overflow")):
             result["error"] = "after_count_over_max_without_protected_overflow"
             return result
         self.ai_managed_rows = [dict(row) for row in after_rows]
@@ -17113,51 +17350,77 @@ class MainWindow(QMainWindow):
         readback_symbols = [str(row.get("symbol") or "").strip() for row in readback]
         result.update(
             {
-                "actual_removed": sorted(planned_remove_symbols),
-                "actual_remove_count": len(planned_remove_symbols),
                 "after_count": len(readback),
                 "after_symbols": readback_symbols,
+                "actual_removed": [sym for sym in before_symbols if sym not in readback_symbols],
+                "actual_remove_count": len([sym for sym in before_symbols if sym not in readback_symbols]),
                 "persistence_saved": True,
                 "readback_verified": readback_symbols == after_symbols,
             }
         )
         try:
             self._log.info(
-                "[AITS][ManagedPoolTrim] event=applied configured_max=%s after_count=%s removed=%s protected=%s protected_overflow=%s submitted=0 order_allowed=False real_order=False",
+                "[AITS][ManagedPoolSync] event=applied configured_max=%s branch=%s before_count=%s after_count=%s added=%s removed=%s protected_overflow=%s submitted=0 order_allowed=False real_order=False",
                 int(max_size),
+                branch,
+                len(before_rows),
                 len(readback),
-                sorted(planned_remove_symbols),
-                sorted(protected_symbols),
-                bool(plan.get("protected_overflow")),
+                result.get("actual_added") or [],
+                result.get("actual_removed") or [],
+                bool(result.get("protected_overflow")),
             )
         except Exception:
             pass
         return result
 
+    def _apply_managed_pool_max_size_trim(self, **kwargs) -> dict:
+        return self._apply_managed_pool_max_size_sync(**kwargs)
+
     def _on_apply_managed_pool_max_size_clicked(self) -> None:
-        result = self._apply_managed_pool_max_size_trim(confirm=True)
+        result = self._apply_managed_pool_max_size_sync(confirm=True)
         try:
             if result.get("cancelled"):
                 return
             if result.get("error"):
                 QMessageBox.warning(
                     self,
-                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
-                    f"\uc815\ub9ac\ub97c \uc644\ub8cc\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: {result.get('error')}",
+                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
+                    f"\ubc14\ub85c\uc801\uc6a9\uc744 \uc644\ub8cc\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4: {result.get('error')}",
                 )
                 return
             if result.get("protected_overflow"):
                 QMessageBox.information(
                     self,
-                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
-                    "\ubcf4\ud638 \ub300\uc0c1\uc774 \ub9ce\uc544 \uc124\uc815\uac12 \uc774\ud558\ub85c \uc904\uc774\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4. \ubcf4\ud638 \uc885\ubaa9\uc740 \uc720\uc9c0\ub429\ub2c8\ub2e4.",
+                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
+                    "\ubcf4\ud638 \ub300\uc0c1 \ub54c\ubb38\uc5d0 \uc124\uc815\uac12 \uc774\ud558\ub85c \uc904\uc77c \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.",
                 )
-            else:
+                return
+            if int(result.get("actual_add_count") or 0) > 0:
                 QMessageBox.information(
                     self,
-                    "\uad00\ub9ac\uc885\ubaa9 \uc815\ub9ac",
+                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
+                    f"\uc790\ub3d9 \ud6c4\ubcf4 {int(result.get('actual_add_count') or 0)}\uac1c\ub97c \uad00\ub9ac\uc885\ubaa9\uc5d0 \ud3b8\uc785\ud588\uc2b5\ub2c8\ub2e4.",
+                )
+                return
+            if int(result.get("actual_remove_count") or 0) > 0:
+                QMessageBox.information(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
                     f"\uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9 {int(result.get('actual_remove_count') or 0)}\uac1c\ub97c \uc815\ub9ac\ud588\uc2b5\ub2c8\ub2e4.",
                 )
+                return
+            if result.get("message_key") == "add_no_candidates":
+                QMessageBox.information(
+                    self,
+                    "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
+                    "\ucd94\uac00\ud560 \uc790\ub3d9 \ud6c4\ubcf4\uac00 \uc5c6\uc2b5\ub2c8\ub2e4.",
+                )
+                return
+            QMessageBox.information(
+                self,
+                "\uad00\ub9ac\uc885\ubaa9 \ubc14\ub85c\uc801\uc6a9",
+                "\ud604\uc7ac \uad00\ub9ac\uc885\ubaa9 \uc218\uac00 \ucd5c\ub300 \uad00\ub9ac\uc885\ubaa9\uc218\uc640 \uc77c\uce58\ud569\ub2c8\ub2e4.",
+            )
         except Exception:
             pass
 

@@ -54,10 +54,16 @@ The first actual apply path is add-only: it may persist `planned_add` rows up to
 the configured max, but it must not execute `planned_remove`, rotation, orders,
 sell, cancel, or retry.
 
-Changing `max_managed_pool_size` only saves the setting. It does not trim rows.
-The Managed Pool footer has a separate `바로적용` button that applies the current
-max size to already-managed rows. That button may remove only unprotected
-`basic_added` rows and never calls any order path.
+Changing `max_managed_pool_size` only saves the setting. It does not add or trim
+rows by itself. The Managed Pool footer has a separate `바로적용` button that
+synchronizes rows to the current max size:
+
+- current count > max: remove only unprotected `basic_added` rows.
+- current count < max: run the Basic candidate scan and add top candidates as
+  `basic_added` rows up to the max.
+- current count == max: no-op.
+
+The button never calls any order path or executes rotation.
 
 ## Removal
 
@@ -94,10 +100,13 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotio
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-sync-proof --from-count 8 --to-max 10
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-sync-actual-proof --to-max 10 --apply-sync
 ```
 
 The proof covers auto-add, user protection, holding protection, max-10
 enforcement, low-rank `basic_added` removal candidates, rotation pair creation,
 no-rotation when candidate score is lower, and duplicate candidate ignoring.
-The apply-button proof additionally covers protected trim behavior and verifies
-that `user_added`, trade-hold, holding, and `system_seed` rows are preserved.
+The apply-button proof covers both sync branches: increasing max adds Basic
+candidates, decreasing max trims only unprotected `basic_added` rows, equal
+counts no-op, and protected rows are preserved.
