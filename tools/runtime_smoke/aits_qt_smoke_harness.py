@@ -63,6 +63,7 @@ PUBLIC_MARKET_READ_MODES = {
     "managed-pool-auto-promotion-apply-proof",
     "managed-pool-max-size-apply-button-actual-proof",
     "managed-pool-max-size-apply-button-sync-actual-proof",
+    "rotation-intent-live-candidate-proof",
 }
 
 
@@ -1192,6 +1193,225 @@ def _run_managed_pool_promotion_policy_proof(
         }
     )
     report["pass_status"] = "pass" if fixture_pass and not order_risk and latest else "partial"
+
+
+def _rotation_status_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
+    try:
+        gap = _safe_float(pair.get("score_gap"), 0.0)
+        return ("진입 후보" if role == "rotate_in" else "교체 검토") + (f" · +{gap:g}점 후보" if gap else "")
+    except Exception:
+        return "교체 검토"
+
+
+def _rotation_tooltip_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
+    out_symbol = str(pair.get("rotate_out_symbol") or pair.get("rotate_out") or "").strip()
+    in_symbol = str(pair.get("rotate_in_symbol") or pair.get("rotate_in") or "").strip()
+    out_score = _safe_float(pair.get("rotate_out_score", pair.get("holding_score")), 0.0)
+    in_score = _safe_float(pair.get("rotate_in_score", pair.get("candidate_score")), 0.0)
+    gap = _safe_float(pair.get("score_gap"), in_score - out_score)
+    symbol = out_symbol if role == "rotate_out" else in_symbol
+    peer = in_symbol if role == "rotate_out" else out_symbol
+    lines = [
+        f"종목: {symbol}",
+        f"상태: {_rotation_status_sample(pair, role=role)}",
+        f"AITS 점수: {out_score:g}" if role == "rotate_out" else f"AITS 점수: {in_score:g}",
+        f"로테이션 상대: {peer}",
+        f"점수 차이: +{gap:g}",
+        "판단: 더 높은 점수 후보가 있어 기회비용 검토 대상입니다.",
+        "실행: 주문 없음 / 검토만",
+    ]
+    return "\n".join(line for line in lines if str(line or "").strip())
+
+
+def _run_rotation_intent_ux_proof(
+    report: dict[str, Any],
+    *,
+    fixture: str = "",
+) -> None:
+    from app.services.managed_pool_promotion_policy import (
+        build_managed_pool_promotion_plan,
+        build_rotation_intent_payload,
+    )
+
+    config = {
+        "max_managed_pool_size": 10,
+        "promotion_min_score": None,
+        "auto_add_enabled": False,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": True,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+
+    def plan(rows: list[dict[str, Any]], candidates: list[dict[str, Any]], holdings: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        return build_managed_pool_promotion_plan(rows, candidates, holdings or [], config)
+
+    scenarios: list[dict[str, Any]] = []
+
+    def add_scenario(name: str, rows: list[dict[str, Any]], candidates: list[dict[str, Any]], holdings: list[dict[str, Any]] | None, expect_pairs: int) -> None:
+        p = plan(rows, candidates, holdings or [])
+        intent = build_rotation_intent_payload(p, source=f"fixture:{name}")
+        pairs = intent.get("pairs") or []
+        actual_order = any(bool(pair.get("actual_order")) for pair in pairs)
+        scenarios.append(
+            {
+                "scenario": name,
+                "passed": len(pairs) == expect_pairs and not actual_order and not bool(intent.get("rotation_execution")),
+                "pair_count": len(pairs),
+                "pairs": pairs,
+                "no_rotation_reason": intent.get("no_rotation_reason", ""),
+                "actual_order": bool(intent.get("actual_order")),
+                "rotation_execution": bool(intent.get("rotation_execution")),
+                "managed_pool_mutation": bool(intent.get("managed_pool_mutation")),
+            }
+        )
+
+    add_scenario(
+        "managed_60_candidate_70_pair",
+        [{"symbol": "KRW-OLD", "source_type": "basic_added", "score": 60, "holding": True}],
+        [{"symbol": "KRW-NEW", "rank": 1, "score": 70}],
+        [{"symbol": "KRW-OLD", "qty": 1.0}],
+        1,
+    )
+    add_scenario(
+        "holding_60_candidate_70_pair_no_order",
+        [{"symbol": "KRW-HOLD", "source_type": "basic_added", "score": 60, "holding": True}],
+        [{"symbol": "KRW-ROTIN", "rank": 1, "score": 70}],
+        [{"symbol": "KRW-HOLD", "qty": 1.0}],
+        1,
+    )
+    add_scenario(
+        "candidate_lower_no_rotation",
+        [{"symbol": "KRW-HOLD", "source_type": "basic_added", "score": 70, "holding": True}],
+        [{"symbol": "KRW-LOW", "rank": 1, "score": 60}],
+        [{"symbol": "KRW-HOLD", "qty": 1.0}],
+        0,
+    )
+    add_scenario(
+        "trade_hold_protected_no_rotate_out",
+        [{"symbol": "KRW-HALT", "source_type": "basic_added", "score": 60, "manual_hold": True}],
+        [{"symbol": "KRW-NEW", "rank": 1, "score": 80}],
+        [],
+        0,
+    )
+    add_scenario(
+        "equal_score_no_rotation",
+        [{"symbol": "KRW-HOLD", "source_type": "basic_added", "score": 70, "holding": True}],
+        [{"symbol": "KRW-EQ", "rank": 1, "score": 70}],
+        [{"symbol": "KRW-HOLD", "qty": 1.0}],
+        0,
+    )
+
+    primary = scenarios[0]
+    pairs = primary.get("pairs") or []
+    tooltip_samples = [_rotation_tooltip_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    tooltip_samples += [_rotation_tooltip_sample(pair, role="rotate_in") for pair in pairs[:1]]
+    status_samples = [_rotation_status_sample(pair, role="rotate_out") for pair in pairs[:1]]
+    status_samples += [_rotation_status_sample(pair, role="rotate_in") for pair in pairs[:1]]
+    all_pairs = [pair for item in scenarios for pair in (item.get("pairs") or [])]
+    order_risk = any(bool(pair.get("actual_order")) or bool(pair.get("order_execution")) for pair in all_pairs)
+    rotation_execution = any(bool(pair.get("rotation_execution")) for pair in all_pairs)
+    mutation = any(bool(item.get("managed_pool_mutation")) for item in scenarios)
+
+    report.update(
+        {
+            "rotation_intent_supported": True,
+            "schema": "aits_rotation_intent_v1",
+            "fixture": fixture or "score-gap",
+            "fixture_results": scenarios,
+            "pair_count": len(pairs),
+            "pairs": pairs,
+            "no_rotation_reason": primary.get("no_rotation_reason", ""),
+            "tooltip_samples": tooltip_samples,
+            "status_samples": status_samples,
+            "actual_order": False,
+            "rotation_execution": bool(rotation_execution),
+            "managed_pool_mutation": bool(mutation),
+            "managed_pool_mutation_performed": False,
+            "order_risk_detected": bool(order_risk),
+            "provider_external_call_count": 0,
+        }
+    )
+    report["pass_status"] = "pass" if all(item.get("passed") for item in scenarios) and not order_risk and not rotation_execution and not mutation else "fail"
+
+
+def _run_rotation_intent_live_candidate_proof(
+    app: Any,
+    window: Any,
+    widgets: dict[str, Any],
+    report: dict[str, Any],
+    *,
+    max_candidates: int = 10,
+) -> None:
+    from app.services.managed_pool_promotion_policy import (
+        build_managed_pool_promotion_plan,
+        build_rotation_intent_payload,
+    )
+
+    before_rows = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    before_symbols = [_row_symbol(row) for row in before_rows if _row_symbol(row)]
+    scan_report: dict[str, Any] = {}
+    _run_basic_candidate_discovery_proof(app, window, widgets, scan_report, max_candidates=max_candidates)
+    candidates = list(scan_report.get("top_candidates") or [])
+    current_rows = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    holdings = [row for row in current_rows if bool(row.get("holding"))]
+    config = {
+        "max_managed_pool_size": 10,
+        "promotion_min_score": None,
+        "auto_add_enabled": False,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": True,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+    plan = build_managed_pool_promotion_plan(current_rows, candidates, holdings, config)
+    intent = build_rotation_intent_payload(plan, source="live_candidate_observe")
+    try:
+        setattr(window, "_aits_last_rotation_intent_payload", intent)
+        refresh = getattr(window, "_refresh_ai_managed_cell_widgets_only", None)
+        if callable(refresh):
+            refresh()
+            _pump_events(app, 0.2)
+    except Exception:
+        pass
+
+    pairs = intent.get("pairs") or []
+    no_rotation_reason = intent.get("no_rotation_reason") or ""
+    if not pairs and not candidates:
+        no_rotation_reason = scan_report.get("no_candidate_reason") or "no_candidates_for_rotation"
+    tooltip_samples = [_rotation_tooltip_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    status_samples = [_rotation_status_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    after_symbols = [_row_symbol(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict) and _row_symbol(row)]
+    mutation = before_symbols != after_symbols
+    order_risk = any(bool(pair.get("actual_order")) or bool(pair.get("order_execution")) for pair in pairs)
+
+    report.update(
+        {
+            "rotation_intent_supported": True,
+            "schema": "aits_rotation_intent_v1",
+            "current_managed_count": len(current_rows),
+            "candidate_count": len(candidates),
+            "pair_count": len(pairs),
+            "pairs": pairs,
+            "no_rotation_reason": no_rotation_reason,
+            "protected_symbols": [item.get("symbol") for item in (plan.get("protected_rows") or [])],
+            "tooltip_samples": tooltip_samples,
+            "status_samples": status_samples,
+            "actual_order": False,
+            "rotation_execution": False,
+            "managed_pool_mutation": bool(mutation),
+            "managed_pool_mutation_performed": bool(mutation),
+            "order_risk_detected": bool(order_risk),
+            "provider_external_call_count": 0,
+        }
+    )
+    report["pass_status"] = "pass" if not mutation and not order_risk else "fail"
 
 
 def _persist_managed_pool_rows(window: Any, rows: list[dict[str, Any]], max_size: int) -> bool:
@@ -5416,6 +5636,7 @@ def run_harness(
     to_max: int = 8,
     apply_trim: bool = False,
     apply_sync: bool = False,
+    fixture: str = "",
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -5432,6 +5653,7 @@ def run_harness(
         "riskguard-proof",
         "top-markets-feed-proof",
         "managed-pool-promotion-policy-proof",
+        "rotation-intent-ux-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
@@ -5450,6 +5672,8 @@ def run_harness(
                 output_dir=output_dir,
                 max_managed=max_managed,
             )
+        elif mode == "rotation-intent-ux-proof":
+            _run_rotation_intent_ux_proof(report, fixture=fixture)
         elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
         elif mode == "live-one-shot-unlock-contract-proof":
@@ -5571,6 +5795,14 @@ def run_harness(
         pass
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
+            app,
+            window,
+            widgets,
+            report,
+            max_candidates=max_candidates,
+        )
+    elif mode == "rotation-intent-live-candidate-proof":
+        _run_rotation_intent_live_candidate_proof(
             app,
             window,
             widgets,
@@ -5745,6 +5977,8 @@ def main() -> int:
             "managed-pool-max-size-apply-button-actual-proof",
             "managed-pool-max-size-apply-button-sync-proof",
             "managed-pool-max-size-apply-button-sync-actual-proof",
+            "rotation-intent-ux-proof",
+            "rotation-intent-live-candidate-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",
@@ -5762,6 +5996,7 @@ def main() -> int:
     )
     parser.add_argument("--allow-provider-calls", action="store_true")
     parser.add_argument("--provider", choices=("local", "gpt", "gemini"))
+    parser.add_argument("--fixture", default="")
     parser.add_argument("--max-provider-calls", type=int, default=1)
     parser.add_argument("--target-symbol")
     parser.add_argument("--timeout-sec", type=float, default=90.0)
@@ -5841,6 +6076,7 @@ def main() -> int:
         to_max=args.to_max,
         apply_trim=args.apply_trim,
         apply_sync=args.apply_sync,
+        fixture=args.fixture,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

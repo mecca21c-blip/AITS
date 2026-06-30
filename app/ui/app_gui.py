@@ -35468,6 +35468,58 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _get_ai_managed_rotation_intent_for_symbol(self, symbol: str) -> dict:
+        try:
+            normalized = str(symbol or "").strip().upper()
+            if normalized and "-" not in normalized:
+                normalized = f"KRW-{normalized}"
+            payload = getattr(self, "_aits_last_rotation_intent_payload", {}) or {}
+            pairs = payload.get("pairs") if isinstance(payload, dict) else []
+            if not isinstance(pairs, list):
+                pairs = []
+            for pair in pairs:
+                if not isinstance(pair, dict):
+                    continue
+                out_symbol = str(pair.get("rotate_out_symbol") or pair.get("rotate_out") or "").strip().upper()
+                in_symbol = str(pair.get("rotate_in_symbol") or pair.get("rotate_in") or "").strip().upper()
+                if normalized and normalized == out_symbol:
+                    return {**pair, "role": "rotate_out"}
+                if normalized and normalized == in_symbol:
+                    return {**pair, "role": "rotate_in"}
+
+            soft = getattr(self, "_aits_last_rotation_payload", {}) or {}
+            if isinstance(soft, dict) and bool(soft.get("needed")):
+                out_symbol = str(soft.get("from_symbol") or soft.get("out_symbol") or "").strip().upper()
+                in_symbol = str(soft.get("to_symbol") or soft.get("in_symbol") or "").strip().upper()
+                if normalized and normalized in {out_symbol, in_symbol}:
+                    role = "rotate_out" if normalized == out_symbol else "rotate_in"
+                    return {
+                        "role": role,
+                        "rotate_out_symbol": out_symbol,
+                        "rotate_in_symbol": in_symbol,
+                        "reason_text": str(soft.get("why") or soft.get("reason") or "???? ??")[:120],
+                        "actual_order": False,
+                        "rotation_execution": False,
+                    }
+        except Exception:
+            pass
+        return {}
+
+    def _format_ai_managed_rotation_status_hint(self, rotation_intent: dict) -> str:
+        if not isinstance(rotation_intent, dict) or not rotation_intent:
+            return ""
+        try:
+            gap = rotation_intent.get("score_gap")
+            gap_text = ""
+            if gap not in (None, ""):
+                gap_text = f" ? +{float(gap):g}? ??"
+            role = str(rotation_intent.get("role") or "")
+            if role == "rotate_in":
+                return f"?? ??{gap_text}"
+            return f"?? ??{gap_text}"
+        except Exception:
+            return "?? ??"
+
     def _build_ai_managed_row_tooltip(
         self,
         row: dict,
@@ -35605,6 +35657,10 @@ class MainWindow(QMainWindow):
             st_main, st_kind = self._managed_status_build04(row)
             ai_review_sla = self._sync_managed_pool_ai_review_sla_state(row, log=True)
             status_sub_text = str(row.get("ai_review_queue_reason") or ai_review_sla.get("label") or "")
+            rotation_intent = self._get_ai_managed_rotation_intent_for_symbol(raw_symbol)
+            rotation_status_hint = self._format_ai_managed_rotation_status_hint(rotation_intent)
+            if rotation_status_hint:
+                status_sub_text = rotation_status_hint
             wg_txt = self._format_managed_weight_goal_text(
                 self._format_ai_managed_position_weight_line(row),
                 self._get_managed_target_weight(row),

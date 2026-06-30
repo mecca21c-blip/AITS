@@ -207,6 +207,15 @@ printed to stdout.
 - `managed-pool-promotion-policy-proof` is policy planning only. Rotation
   `sell_candidate` / `buy_candidate` fields are review intent, not order
   execution, and must always carry `actual_order=false`.
+- `rotation-intent-ux-proof --fixture score-gap` verifies the observe-only
+  `aits_rotation_intent_v1` UX payload. It must create the 60 score versus 70
+  score rotation pair, include tooltip/status samples, and report
+  `actual_order=false`, `rotation_execution=false`, and
+  `managed_pool_mutation=false`.
+- `rotation-intent-live-candidate-proof --observe-only` reads current Managed
+  Pool rows and Basic candidates, then reports rotation intent pairs or an
+  explicit `no_rotation_reason`. It must not mutate rows, execute rotation, or
+  call provider/order paths.
 - `managed-pool-auto-promotion-apply-proof --apply-add-only` is the only
   harness mode that may persist Managed Pool additions in this policy family.
   It must not remove existing rows, execute rotation, or exceed the configured

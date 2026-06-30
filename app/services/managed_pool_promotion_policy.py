@@ -311,9 +311,15 @@ def build_managed_pool_promotion_plan(
                         "holding_score": _score(holding, 0.0),
                         "candidate_score": candidate["score"],
                         "score_gap": round(gap, 4),
+                        "rotate_out_status": _text(holding.get("status") or holding.get("state")),
+                        "rotate_out_source": _source_type(holding),
+                        "rotate_in_rank": candidate.get("rank"),
+                        "protection_note": "holding_kept_until_liquidated",
                         "sell_candidate": True,
                         "buy_candidate": True,
                         "actual_order": False,
+                        "order_execution": False,
+                        "rotation_execution": False,
                         "reason": "candidate_score_above_holding",
                     }
                 )
@@ -422,9 +428,67 @@ def build_managed_pool_trim_plan(
     }
 
 
+def build_rotation_intent_payload(
+    plan: dict[str, Any] | None,
+    *,
+    source: str = "managed_pool_promotion_policy",
+) -> dict[str, Any]:
+    """Normalize planned rotation pairs into an observe-only UX/report payload."""
+
+    planned = []
+    if isinstance(plan, dict):
+        planned = [item for item in (plan.get("planned_rotation") or []) if isinstance(item, dict)]
+
+    pairs: list[dict[str, Any]] = []
+    for item in planned:
+        out_symbol = _symbol(item.get("rotate_out") or item.get("rotate_out_symbol"))
+        in_symbol = _symbol(item.get("rotate_in") or item.get("rotate_in_symbol"))
+        if not out_symbol or not in_symbol:
+            continue
+        out_score = _float(item.get("holding_score", item.get("rotate_out_score")), 0.0)
+        in_score = _float(item.get("candidate_score", item.get("rotate_in_score")), 0.0)
+        gap = _float(item.get("score_gap"), in_score - out_score)
+        reason_text = "신규 후보 점수가 현재 관리종목보다 높음"
+        pairs.append(
+            {
+                "rotate_out_symbol": out_symbol,
+                "rotate_out_score": out_score,
+                "rotate_out_status": _text(item.get("rotate_out_status") or "교체 검토"),
+                "rotate_out_source": _text(item.get("rotate_out_source")),
+                "rotate_in_symbol": in_symbol,
+                "rotate_in_score": in_score,
+                "rotate_in_rank": item.get("rotate_in_rank"),
+                "score_gap": round(gap, 4),
+                "reason": item.get("reason") or "candidate_score_above_holding",
+                "reason_text": reason_text,
+                "protection_note": item.get("protection_note") or "교체 검토만 표시, 실제 주문 없음",
+                "order_execution": False,
+                "actual_order": False,
+                "rotation_execution": False,
+            }
+        )
+
+    no_rotation_reason = ""
+    if not pairs:
+        no_rotation_reason = "no_rotation_pair_score_gap"
+
+    return {
+        "schema": "aits_rotation_intent_v1",
+        "rotation_enabled": True,
+        "actual_order": False,
+        "rotation_execution": False,
+        "source": source,
+        "pairs": pairs,
+        "pair_count": len(pairs),
+        "no_rotation_reason": no_rotation_reason,
+        "managed_pool_mutation": False,
+    }
+
+
 __all__ = [
     "MAX_MANAGED_POOL_SIZE",
     "ManagedPoolPromotionConfig",
+    "build_rotation_intent_payload",
     "build_managed_pool_promotion_plan",
     "build_managed_pool_trim_plan",
 ]

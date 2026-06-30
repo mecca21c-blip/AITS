@@ -62,3 +62,27 @@ candidate score is above a holding score. A pair marks the holding as
 `buy_candidate`, but `actual_order=false` is mandatory. The holding remains in
 Managed Pool until liquidation is confirmed by a later live execution and
 reconciliation Goal.
+
+## Rotation Intent UX
+
+Rotation intent uses the JSON-safe `aits_rotation_intent_v1` schema. It records
+observe-only `pairs` with `rotate_out_symbol`, `rotate_out_score`,
+`rotate_in_symbol`, `rotate_in_score`, `score_gap`, `reason_text`,
+`actual_order=false`, `order_execution=false`, `rotation_execution=false`, and
+`managed_pool_mutation=false`.
+
+The Managed Pool table may show a short status hint such as `교체 검토` or
+`진입 후보`; the full reason belongs in the hover tooltip. Tooltip text should
+explain the peer symbol, score gap, opportunity-cost reason, and that no order
+is executed.
+
+Use:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-ux-proof --fixture score-gap
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-proof --observe-only
+```
+
+The fixture proof must create the 60 score versus 70 score pair. The live
+candidate proof may report `pair_count=0` when the current candidate feed has no
+higher-scoring candidate; in that case `no_rotation_reason` must be explicit.

@@ -91,6 +91,12 @@ is higher than a holding score, the plan may emit:
 Example: holding score 60 and candidate score 70 produces a rotation pair, but
 the holding remains in Managed Pool until liquidation is confirmed.
 
+Rotation intent can be normalized into `aits_rotation_intent_v1` for UI and
+runtime proof. The intent payload is explanatory only: it may produce `교체 검토`
+or `진입 후보` status hints and tooltip text, but it must keep
+`actual_order=false`, `order_execution=false`, `rotation_execution=false`, and
+`managed_pool_mutation=false`.
+
 ## Proof
 
 Use:
@@ -102,6 +108,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-sync-proof --from-count 8 --to-max 10
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-sync-actual-proof --to-max 10 --apply-sync
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-ux-proof --fixture score-gap
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-proof --observe-only
 ```
 
 The proof covers auto-add, user protection, holding protection, max-10
