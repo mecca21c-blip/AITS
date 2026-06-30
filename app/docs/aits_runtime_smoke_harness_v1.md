@@ -23,6 +23,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-disco
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-gate-proof --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-proof --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-live-proof --observe-only --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
@@ -112,6 +114,16 @@ printed to stdout.
   scan, applies the promotion quality gate, and reports score distribution,
   quality pass/fail counts, planned additions, rejected candidates, and
   `not_filled_reason` without mutating rows.
+- `managed-pool-quality-ranked-rebuild-proof`: GUI-free fixture proof for the
+  `바로적용` quality rebuild contract. It preserves protected rows, re-evaluates
+  existing `basic_added` rows, removes low-score or lower-ranked automatic rows,
+  adds higher-quality candidates, treats the max as a cap, and performs no
+  mutation or order calls.
+- `managed-pool-quality-ranked-rebuild-live-proof`: observe-only public-feed
+  proof for the same rebuild contract using saved Managed Pool rows and current
+  public top-market candidates. It reports protected keep rows, current
+  automatic rows, planned keep/add/remove, remove reasons, score distribution,
+  and expected after-count without mutating rows.
 - `managed-pool-auto-promotion-apply-proof`: creates the Qt window, reads the
   Managed Pool max-size UI setting, optionally overrides it with
   `--max-managed`, backs up current rows under `data/managed_pool_backups`, runs
@@ -225,6 +237,11 @@ printed to stdout.
   `max_managed_pool_size` as a cap, not a target. Reports must keep
   `fill_to_max=false`, include candidate pass/fail reasons, and avoid adding
   weak candidates just to fill remaining slots.
+- `managed-pool-quality-ranked-rebuild-proof` and
+  `managed-pool-quality-ranked-rebuild-live-proof` extend that rule to existing
+  automatic rows: non-protected `basic_added` rows are re-ranked against current
+  candidates, while user-added, trade-hold, holding/holding-display, and
+  protected seed rows must never appear in `planned_remove`.
 - `rotation-intent-ux-proof --fixture score-gap` verifies the observe-only
   `aits_rotation_intent_v1` UX payload. It must create the 60 score versus 70
   score rotation pair, include tooltip/status samples, and report

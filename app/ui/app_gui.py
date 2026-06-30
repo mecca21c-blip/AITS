@@ -17300,6 +17300,7 @@ class MainWindow(QMainWindow):
         candidate_override: list[dict] | None = None,
     ) -> dict:
         from app.services.managed_pool_promotion_policy import (
+            build_managed_pool_quality_rebuild_plan,
             build_managed_pool_promotion_plan,
             build_managed_pool_trim_plan,
         )
@@ -17361,6 +17362,160 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+
+        candidates = list(candidate_override or [])
+        no_candidate_reason = ""
+        if candidate_override is None:
+            candidates, no_candidate_reason = self._collect_basic_candidates_for_managed_pool_sync(max_candidates=max_size + 20)
+        config = {
+            "max_managed_pool_size": max_size,
+            "promotion_min_score": 60.0,
+            "promotion_min_trade_value_krw": None,
+            "quality_gate_enabled": True,
+            "fill_to_max": False,
+            "auto_add_enabled": True,
+            "auto_remove_enabled": True,
+            "protect_user_added": True,
+            "protect_holdings_until_liquidated": True,
+            "protect_system_seed_initially": True,
+            "rotation_enabled": False,
+            "rotation_min_score_gap": 0.0,
+            "order_execution_enabled": False,
+        }
+        plan = build_managed_pool_quality_rebuild_plan(before_rows, candidates, [], config)
+        planned_add = list(plan.get("planned_add") or [])
+        planned_remove = list(plan.get("planned_remove") or [])
+        planned_remove_symbols = {
+            str(item.get("symbol") or "").strip()
+            for item in planned_remove
+            if str(item.get("symbol") or "").strip()
+        }
+        protected_symbols = {
+            str(item.get("symbol") or "").strip()
+            for item in (plan.get("protected_rows") or [])
+            if str(item.get("symbol") or "").strip()
+        }
+        result.update(
+            {
+                "branch": "rebuild",
+                "candidate_count": len(candidates),
+                "no_candidate_reason": no_candidate_reason,
+                "planned_add": planned_add,
+                "planned_remove": planned_remove,
+                "protected_rows": list(plan.get("protected_rows") or []),
+                "protected_keep": list(plan.get("protected_keep") or []),
+                "current_basic_added": list(plan.get("current_basic_added") or []),
+                "planned_keep_basic": list(plan.get("planned_keep_basic") or []),
+                "quality_gate_enabled": bool(plan.get("quality_gate_enabled")),
+                "fill_to_max": bool(plan.get("fill_to_max")),
+                "promotion_min_score": plan.get("promotion_min_score"),
+                "rebuild_slots": plan.get("rebuild_slots"),
+                "quality_pass_count": plan.get("quality_pass_count"),
+                "quality_fail_count": plan.get("quality_fail_count"),
+                "rejected_candidates": list(plan.get("rejected_candidates") or [])[:10],
+                "rejection_reasons": list(plan.get("rejection_reasons") or []),
+                "score_distribution": dict(plan.get("score_distribution") or {}),
+                "not_filled_reason": str(plan.get("not_filled_reason") or ""),
+                "after_count_expected": plan.get("after_count_expected"),
+                "protected_overflow": bool(plan.get("protected_overflow")),
+                "protected_overflow_reason": str(plan.get("protected_overflow_reason") or ""),
+            }
+        )
+        if planned_remove_symbols & protected_symbols or bool(plan.get("protected_violation")):
+            result["error"] = "protected_row_in_quality_rebuild_plan"
+            return _finish_result()
+        if not planned_add and not planned_remove:
+            result.update(
+                {
+                    "after_count": len(before_rows),
+                    "after_symbols": before_symbols,
+                    "persistence_saved": True,
+                    "readback_verified": True,
+                    "message_key": "add_quality_gate_no_pass" if plan.get("not_filled_reason") else "noop_equal",
+                }
+            )
+            return _finish_result()
+        if confirm:
+            message = (
+                "\uad00\ub9ac\uc885\ubaa9\uc744 \ud488\uc9c8 \uae30\uc900\uc73c\ub85c \uc7ac\ud3c9\uac00\ud569\ub2c8\ub2e4. "
+                "\ubcf4\ud638 \uc885\ubaa9\uc740 \uc720\uc9c0\ud558\uace0, \uc790\ub3d9 \ud3b8\uc785 \uc885\ubaa9\ub9cc \uc815\ub9ac/\ud3b8\uc785\ud569\ub2c8\ub2e4. "
+                "\uc9c4\ud589\ud560\uae4c\uc694?"
+            )
+            answer = QMessageBox.question(
+                self,
+                "\uad00\ub9ac\uc885\ubaa9 \ud488\uc9c8 \uc7ac\ud3c9\uac00",
+                message,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                result["cancelled"] = True
+                return _finish_result()
+        after_rows = [
+            dict(row)
+            for row in before_rows
+            if str(row.get("symbol") or "").strip() not in planned_remove_symbols
+        ]
+        existing = {str(row.get("symbol") or "").strip() for row in after_rows}
+        actual_added = []
+        for item in planned_add:
+            if len(after_rows) >= max_size and not bool(plan.get("protected_overflow")):
+                break
+            symbol = self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+            if not symbol or symbol in existing:
+                continue
+            row = self._build_basic_added_managed_pool_row(item)
+            if not row.get("symbol"):
+                continue
+            after_rows.append(row)
+            existing.add(symbol)
+            actual_added.append(symbol)
+        actual_removed = sorted(planned_remove_symbols)
+        result.update(
+            {
+                "actual_added": actual_added,
+                "actual_add_count": len(actual_added),
+                "actual_removed": actual_removed,
+                "actual_remove_count": len(actual_removed),
+                "message_key": "rebuild_applied",
+            }
+        )
+
+        after_symbols = [str(row.get("symbol") or "").strip() for row in after_rows]
+        if len(after_rows) > max_size and not bool(result.get("protected_overflow")):
+            result["error"] = "after_count_over_max_without_protected_overflow"
+            return _finish_result()
+        self.ai_managed_rows = [dict(row) for row in after_rows]
+        try:
+            refresher = getattr(self, "_refresh_ai_managed_table", None)
+            if callable(refresher):
+                refresher()
+        except Exception:
+            pass
+        persisted = self._persist_managed_pool_rows_after_trim(after_rows, max_size)
+        if not persisted:
+            self.ai_managed_rows = [dict(row) for row in before_rows]
+            try:
+                refresher = getattr(self, "_refresh_ai_managed_table", None)
+                if callable(refresher):
+                    refresher()
+            except Exception:
+                pass
+            result["rollback_performed"] = True
+            result["error"] = "persist_failed"
+            return _finish_result()
+        readback = self._build_managed_pool_rows_snapshot()
+        readback_symbols = [str(row.get("symbol") or "").strip() for row in readback]
+        result.update(
+            {
+                "after_count": len(readback),
+                "after_symbols": readback_symbols,
+                "persistence_saved": True,
+                "readback_verified": set(actual_added).issubset(set(readback_symbols))
+                and all(symbol not in readback_symbols for symbol in actual_removed),
+            }
+        )
+        return _finish_result()
 
         if branch == "noop":
             result.update(

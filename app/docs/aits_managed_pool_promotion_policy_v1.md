@@ -39,6 +39,9 @@ owns the user-facing setting (`ui_state.managed_pool_max_size`) with default
 `ManagedPoolPromotionConfig`; `10` is only the fallback default when the setting
 is absent or invalid.
 
+The `바로적용` action uses a quality-ranked rebuild plan for non-protected
+automatic rows. It is not a simple "add missing rows" operation.
+
 ## Source Types
 
 - `user_added`: user-managed row, never auto-removed.
@@ -74,11 +77,19 @@ rows by itself. The Managed Pool footer has a separate `바로적용` button tha
 synchronizes rows to the current max size:
 
 - current count > max: remove only unprotected `basic_added` rows.
-- current count < max: run the Basic candidate scan and add only quality-gate
-  passing candidates as `basic_added` rows, never above the max cap.
-- current count == max: no-op.
+- current count < max: run the Basic candidate scan, combine current
+  `basic_added` rows with current candidates, and keep/add only top
+  quality-gate passing rows up to the cap.
+- current count == max: still rebuild the non-protected `basic_added` subset;
+  low-quality or lower-ranked automatic rows may be replaced or removed.
+- current count > max: use the same protected-safe rebuild/trim boundary.
 
 The button never calls any order path or executes rotation.
+
+Protected rows are always kept: protected system seeds, user-added rows,
+trade-hold/manual-hold rows, live holdings, and holding-display dust rows.
+If protected rows alone exceed the cap, the plan reports
+`protected_overflow=true` and does not delete protected rows.
 
 ## Removal
 
@@ -120,6 +131,8 @@ Use:
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-gate-proof --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-proof --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-live-proof --observe-only --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
@@ -129,10 +142,10 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-ux-pr
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-proof --observe-only
 ```
 
-The proof covers auto-add, quality-gate pass/fail, max-as-cap behavior, user
-protection, holding protection, max-10 enforcement, low-rank `basic_added`
-removal candidates, rotation pair creation, no-rotation when candidate score is
-lower, and duplicate candidate ignoring.
+The proof covers auto-add, quality-gate pass/fail, quality-ranked rebuild,
+max-as-cap behavior, user protection, holding protection, max-10 enforcement,
+low-rank or low-score `basic_added` removal candidates, rotation pair creation,
+no-rotation when candidate score is lower, and duplicate candidate ignoring.
 The apply-button proof covers both sync branches: increasing max adds Basic
 candidates, decreasing max trims only unprotected `basic_added` rows, equal
 counts no-op, and protected rows are preserved.

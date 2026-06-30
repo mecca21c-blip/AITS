@@ -2089,6 +2089,179 @@ def _run_managed_pool_promotion_quality_live_proof(
     )
 
 
+def _run_managed_pool_quality_ranked_rebuild_proof(
+    report: dict[str, Any],
+    *,
+    max_managed: int = 10,
+    min_score: float = 60.0,
+) -> None:
+    from app.services.managed_pool_promotion_policy import build_managed_pool_quality_rebuild_plan
+
+    config = {
+        "max_managed_pool_size": int(max_managed or 10),
+        "promotion_min_score": float(min_score),
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
+        "auto_add_enabled": True,
+        "auto_remove_enabled": True,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": False,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+
+    rows = [
+        {"symbol": "KRW-BTC", "source_type": "system_seed", "score": 20},
+        {"symbol": "KRW-ETH", "source_type": "system_seed", "score": 21},
+        {"symbol": "KRW-XRP", "source_type": "system_seed", "score": 22},
+        {"symbol": "KRW-USER", "source_type": "user_added", "score": 5},
+        {"symbol": "KRW-HOLD", "source_type": "basic_added", "holding_display": True, "score": 35},
+        {"symbol": "KRW-PAUSE", "source_type": "basic_added", "trade_hold": True, "score": 36},
+        {"symbol": "KRW-LOW37", "source_type": "basic_added", "score": 37, "rank": 21},
+        {"symbol": "KRW-LOW38", "source_type": "basic_added", "score": 38, "rank": 22},
+        {"symbol": "KRW-KEEP65", "source_type": "basic_added", "score": 65, "rank": 4},
+        {"symbol": "KRW-KEEP62", "source_type": "basic_added", "score": 62, "rank": 5},
+    ]
+    candidates = [
+        {"symbol": "KRW-BIO", "score": 68, "rank": 1, "trade_value": 100000000, "reason": "fixture_high_score"},
+        {"symbol": "KRW-XLM", "score": 67, "rank": 2, "trade_value": 90000000, "reason": "fixture_high_score"},
+        {"symbol": "KRW-PYTH", "score": 66, "rank": 3, "trade_value": 80000000, "reason": "fixture_high_score"},
+        {"symbol": "KRW-MOC", "score": 65, "rank": 4, "trade_value": 70000000, "reason": "fixture_high_score"},
+        {"symbol": "KRW-AQT", "score": 59, "rank": 5, "trade_value": 60000000, "reason": "fixture_low_score"},
+    ]
+    plan = build_managed_pool_quality_rebuild_plan(rows, candidates, [], config)
+    sparse_plan = build_managed_pool_quality_rebuild_plan(
+        rows[:3] + [{"symbol": "KRW-LOWONLY", "source_type": "basic_added", "score": 35, "rank": 30}],
+        [{"symbol": "KRW-ONEPASS", "score": 70, "rank": 1, "trade_value": 1000000}],
+        [],
+        config,
+    )
+    remove_symbols = {_row_symbol(row) for row in plan.get("planned_remove") or []}
+    add_symbols = {_row_symbol(row) for row in plan.get("planned_add") or []}
+    protected_symbols = {_row_symbol(row) for row in plan.get("protected_rows") or []}
+    fixtures = [
+        {"name": "existing_low_score_basic_removed", "passed": {"KRW-LOW37", "KRW-LOW38"}.issubset(remove_symbols)},
+        {"name": "high_score_candidate_added", "passed": {"KRW-BIO", "KRW-XLM"}.issubset(add_symbols)},
+        {"name": "max_cap_not_target", "passed": bool(plan.get("fill_to_max")) is False and int(plan.get("after_count_expected") or 0) <= int(max_managed or 10)},
+        {
+            "name": "pass_candidates_less_than_slots_not_filled",
+            "passed": int(sparse_plan.get("after_count_expected") or 0) < int(max_managed or 10)
+            and sparse_plan.get("not_filled_reason") == "max_managed_pool_size_is_cap_not_target",
+        },
+        {"name": "user_added_protected", "passed": "KRW-USER" in protected_symbols and "KRW-USER" not in remove_symbols},
+        {"name": "holding_display_protected", "passed": "KRW-HOLD" in protected_symbols and "KRW-HOLD" not in remove_symbols},
+        {"name": "trade_hold_protected", "passed": "KRW-PAUSE" in protected_symbols and "KRW-PAUSE" not in remove_symbols},
+        {"name": "system_seed_protected", "passed": {"KRW-BTC", "KRW-ETH", "KRW-XRP"}.issubset(protected_symbols) and not ({"KRW-BTC", "KRW-ETH", "KRW-XRP"} & remove_symbols)},
+        {"name": "max_equal_still_rebuilds_quality", "passed": bool(remove_symbols) and bool(add_symbols)},
+        {"name": "protected_overflow", "passed": not bool(plan.get("protected_violation"))},
+    ]
+    pass_status = all(item.get("passed") for item in fixtures)
+    report.update(
+        {
+            "quality_rebuild_supported": True,
+            "max_managed_pool_size": int(max_managed or 10),
+            "promotion_min_score": float(min_score),
+            "fill_to_max": plan.get("fill_to_max"),
+            "protected_keep": plan.get("protected_keep", []),
+            "protected_count": plan.get("protected_count", 0),
+            "rebuild_slots": plan.get("rebuild_slots", 0),
+            "current_basic_added": plan.get("current_basic_added", []),
+            "quality_pass_count": plan.get("quality_pass_count", 0),
+            "quality_fail_count": plan.get("quality_fail_count", 0),
+            "planned_keep_basic": plan.get("planned_keep_basic", []),
+            "planned_add": plan.get("planned_add", []),
+            "planned_remove": plan.get("planned_remove", []),
+            "planned_remove_reasons": plan.get("planned_remove_reasons", []),
+            "after_count_expected": plan.get("after_count_expected", 0),
+            "not_filled_reason": plan.get("not_filled_reason", ""),
+            "protected_overflow": plan.get("protected_overflow", False),
+            "fixture_results": fixtures,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "actual_order": False,
+            "rotation_execution": False,
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "pass_status": "pass" if pass_status else "fail",
+        }
+    )
+
+
+def _run_managed_pool_quality_ranked_rebuild_live_proof(
+    report: dict[str, Any],
+    *,
+    max_managed: int = 10,
+    min_score: float = 60.0,
+    max_candidates: int = 50,
+) -> None:
+    from app.services.managed_pool_promotion_policy import build_managed_pool_quality_rebuild_plan
+
+    current_rows = _load_saved_managed_pool_rows_readonly()
+    feed_report: dict[str, Any] = {}
+    _run_top_markets_feed_proof(feed_report, max_markets=max_candidates)
+    top_markets = [row for row in (feed_report.get("top_markets") or []) if isinstance(row, dict)]
+    candidates = _public_top_markets_to_rotation_candidates(top_markets, max_candidates=max_candidates)
+    config = {
+        "max_managed_pool_size": int(max_managed or 10),
+        "promotion_min_score": float(min_score),
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
+        "auto_add_enabled": True,
+        "auto_remove_enabled": True,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": False,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+    plan = build_managed_pool_quality_rebuild_plan(current_rows, candidates, [], config)
+    report.update(
+        {
+            "quality_rebuild_supported": True,
+            "observe_only": True,
+            "current_rows": current_rows,
+            "current_count": len(current_rows),
+            "max_managed_pool_size": int(max_managed or 10),
+            "promotion_min_score": float(min_score),
+            "fill_to_max": plan.get("fill_to_max"),
+            "market_count_raw": int(feed_report.get("market_count_raw") or 0),
+            "krw_market_count": int(feed_report.get("krw_market_count") or 0),
+            "ticker_count": int(feed_report.get("ticker_count") or 0),
+            "top_markets_count": int(feed_report.get("top_markets_count") or 0),
+            "candidate_count": len(candidates),
+            "candidate_source_status": feed_report.get("pass_status") or feed_report.get("status", ""),
+            "candidate_no_reason": feed_report.get("empty_reason", ""),
+            "protected_keep": plan.get("protected_keep", []),
+            "protected_count": plan.get("protected_count", 0),
+            "rebuild_slots": plan.get("rebuild_slots", 0),
+            "current_basic_added": plan.get("current_basic_added", []),
+            "quality_pass_count": plan.get("quality_pass_count", 0),
+            "quality_fail_count": plan.get("quality_fail_count", 0),
+            "planned_keep_basic": plan.get("planned_keep_basic", []),
+            "planned_add": plan.get("planned_add", []),
+            "planned_remove": plan.get("planned_remove", []),
+            "planned_remove_reasons": plan.get("planned_remove_reasons", []),
+            "rejected_candidates_sample": list(plan.get("rejected_candidates") or [])[:10],
+            "score_distribution": plan.get("score_distribution", {}),
+            "after_count_expected": plan.get("after_count_expected", 0),
+            "not_filled_reason": plan.get("not_filled_reason", ""),
+            "protected_overflow": plan.get("protected_overflow", False),
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "actual_order": False,
+            "rotation_execution": False,
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "pass_status": "pass" if plan.get("quality_rebuild_supported") and len(candidates) > 0 and not bool(feed_report.get("empty_reason")) else "partial",
+        }
+    )
+
+
 def _rotation_status_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
     try:
         gap = _safe_float(pair.get("score_gap"), 0.0)
@@ -6553,6 +6726,8 @@ def run_harness(
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
+        "managed-pool-quality-ranked-rebuild-proof",
+        "managed-pool-quality-ranked-rebuild-live-proof",
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
@@ -6585,6 +6760,20 @@ def run_harness(
         elif mode == "managed-pool-promotion-quality-live-proof":
             _install_provider_post_guard(report)
             _run_managed_pool_promotion_quality_live_proof(
+                report,
+                max_managed=max_managed,
+                min_score=min_score,
+                max_candidates=max_candidates,
+            )
+        elif mode == "managed-pool-quality-ranked-rebuild-proof":
+            _run_managed_pool_quality_ranked_rebuild_proof(
+                report,
+                max_managed=max_managed,
+                min_score=min_score,
+            )
+        elif mode == "managed-pool-quality-ranked-rebuild-live-proof":
+            _install_provider_post_guard(report)
+            _run_managed_pool_quality_ranked_rebuild_live_proof(
                 report,
                 max_managed=max_managed,
                 min_score=min_score,
@@ -6904,6 +7093,8 @@ def main() -> int:
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",
+            "managed-pool-quality-ranked-rebuild-proof",
+            "managed-pool-quality-ranked-rebuild-live-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",

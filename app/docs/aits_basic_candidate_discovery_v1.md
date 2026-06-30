@@ -140,11 +140,20 @@ User-added, trade-hold, holding, and protected seed rows are preserved. If
 protected rows exceed the configured max, the trim reports `protected_overflow`
 instead of deleting protected rows.
 
+`바로적용` also re-evaluates existing non-protected `basic_added` rows. The
+policy builds a quality-ranked set from current Basic candidates plus existing
+automatic rows, keeps protected rows, then keeps/adds only quality-pass rows up
+to the cap. Low-score or lower-ranked automatic rows may therefore be removed
+even when the total row count already equals the configured max. If too few
+rows pass the quality gate, the pool remains below the cap.
+
 Quality proof modes:
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-gate-proof --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-proof --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-live-proof --observe-only --max-managed 10 --min-score 60
 ```
 
 ## Explainable Apply Result

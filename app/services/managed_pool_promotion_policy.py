@@ -112,7 +112,15 @@ def _is_holding(row: dict[str, Any], holding_symbols: set[str]) -> bool:
     status = _text(row.get("status")).lower()
     qty = _float(row.get("qty", row.get("quantity", row.get("balance"))), 0.0)
     value = _float(row.get("value_krw", row.get("holding_value", row.get("amount_krw"))), 0.0)
-    return symbol in holding_symbols or bool(row.get("holding")) or status == "holding" or qty > 0.0 or value > 0.0
+    return (
+        symbol in holding_symbols
+        or bool(row.get("holding"))
+        or bool(row.get("holding_display"))
+        or bool(row.get("holding_eligible"))
+        or status == "holding"
+        or qty > 0.0
+        or value > 0.0
+    )
 
 
 def _rank(row: dict[str, Any], default: int = 999999) -> int:
@@ -251,6 +259,187 @@ def _score_distribution(candidates: list[dict[str, Any]]) -> dict[str, Any]:
         "avg": round(sum(scores) / len(scores), 4),
         "gte_60": sum(1 for score in scores if score >= 60.0),
         "lt_60": sum(1 for score in scores if score < 60.0),
+    }
+
+
+def build_managed_pool_quality_rebuild_plan(
+    current_rows: list[dict[str, Any]] | None,
+    candidates: list[dict[str, Any]] | None,
+    holdings: list[dict[str, Any]] | None = None,
+    config: ManagedPoolPromotionConfig | dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Rebuild the non-protected auto-managed subset by quality rank only."""
+
+    cfg = config if isinstance(config, ManagedPoolPromotionConfig) else ManagedPoolPromotionConfig(**(config or {}))
+    max_size = max(1, int(cfg.max_managed_pool_size or MAX_MANAGED_POOL_SIZE))
+    holding_set = _holding_symbols(holdings)
+
+    rows: list[dict[str, Any]] = []
+    seen_rows: set[str] = set()
+    for row in current_rows or []:
+        if not isinstance(row, dict):
+            continue
+        symbol = _row_symbol(row)
+        if not symbol or symbol in seen_rows:
+            continue
+        clean = dict(row)
+        clean["symbol"] = symbol
+        clean.setdefault("market", symbol)
+        rows.append(clean)
+        seen_rows.add(symbol)
+
+    protected_keep: list[dict[str, Any]] = []
+    rebuild_rows: list[dict[str, Any]] = []
+    ignored_rows: list[dict[str, Any]] = []
+    for row in rows:
+        reasons = _protected_reasons(row, holding_set, cfg)
+        if reasons:
+            protected_keep.append(_compact_pool_row(row, reasons=reasons))
+        elif _is_basic_added(row):
+            rebuild_rows.append(row)
+        else:
+            ignored_rows.append(_compact_pool_row(row, reasons=["non_basic_unprotected"]))
+
+    protected_symbols = {item.get("symbol") for item in protected_keep if item.get("symbol")}
+    existing_basic_by_symbol = {_row_symbol(row): row for row in rebuild_rows if _row_symbol(row)}
+
+    candidate_by_symbol: dict[str, dict[str, Any]] = {}
+    for row in _sort_candidates(candidates or [], cfg):
+        symbol = _row_symbol(row)
+        if symbol and symbol not in protected_symbols:
+            candidate_by_symbol[symbol] = row
+
+    merged_candidates: list[dict[str, Any]] = []
+    seen_candidates: set[str] = set()
+    for row in candidate_by_symbol.values():
+        symbol = _row_symbol(row)
+        if symbol and symbol not in seen_candidates:
+            merged_candidates.append(row)
+            seen_candidates.add(symbol)
+    for symbol, row in existing_basic_by_symbol.items():
+        if symbol in protected_symbols or symbol in seen_candidates:
+            continue
+        merged = _compact_candidate(row, rank=_rank(row))
+        merged["source"] = _text(row.get("source") or row.get("source_type") or "basic_added")
+        merged["reason"] = _text(row.get("reason") or row.get("reason_summary") or "existing_basic_added_recheck")
+        merged_candidates.append(merged)
+        seen_candidates.add(symbol)
+
+    merged_candidates = _sort_candidates(merged_candidates, cfg)
+    quality_results = [
+        evaluate_candidate_promotion_quality(row, cfg, existing_symbols=protected_symbols)
+        for row in merged_candidates
+    ]
+    quality_by_symbol = {item["symbol"]: item for item in quality_results if item.get("symbol")}
+    quality_pass_symbols = {item["symbol"] for item in quality_results if item.get("pass") and item.get("symbol")}
+    rejected_candidates = [
+        {
+            "symbol": item.get("symbol", ""),
+            "score": item.get("score", 0.0),
+            "rank": item.get("rank", 999999),
+            "trade_value": item.get("trade_value", 0.0),
+            "reasons": item.get("reasons", []),
+            "failed_reason": item.get("failed_reason", ""),
+        }
+        for item in quality_results
+        if not item.get("pass")
+    ]
+
+    rebuild_slots = max(0, max_size - len(protected_keep))
+    selected = [row for row in merged_candidates if row.get("symbol") in quality_pass_symbols][:rebuild_slots]
+    selected_symbols = {row.get("symbol") for row in selected if row.get("symbol")}
+
+    planned_keep_basic: list[dict[str, Any]] = []
+    planned_add: list[dict[str, Any]] = []
+    for row in selected:
+        symbol = _row_symbol(row)
+        quality = quality_by_symbol.get(symbol, {})
+        item = {
+            **row,
+            "source_type": "basic_added",
+            "reason": row.get("reason") or "selected_by_quality_ranked_rebuild",
+            "promotion_reason": "quality_ranked_rebuild_keep" if symbol in existing_basic_by_symbol else "quality_ranked_rebuild_add",
+            "quality_gate_pass": True,
+            "quality_gate_reasons": quality.get("reasons", []),
+            "promotion_min_score": quality.get("promotion_min_score"),
+            "actual_order": False,
+        }
+        if symbol in existing_basic_by_symbol:
+            planned_keep_basic.append(item)
+        else:
+            planned_add.append(item)
+
+    planned_remove: list[dict[str, Any]] = []
+    for symbol, row in sorted(existing_basic_by_symbol.items(), key=lambda item: _trim_remove_sort_key(item[1])):
+        if symbol in selected_symbols:
+            continue
+        quality = quality_by_symbol.get(symbol, {})
+        reason = "quality_ranked_rebuild_not_selected"
+        if quality and not quality.get("pass"):
+            reason = quality.get("failed_reason") or "quality_gate_failed"
+        elif rebuild_slots <= 0:
+            reason = "protected_rows_fill_cap"
+        planned_remove.append(
+            {
+                **_compact_pool_row(row),
+                "remove_reason": reason,
+                "quality_gate_reasons": quality.get("reasons", []) if quality else [],
+                "replacement_available": bool(planned_add),
+                "actual_order": False,
+            }
+        )
+
+    after_count_expected = len(protected_keep) + len(planned_keep_basic) + len(planned_add)
+    protected_overflow = len(protected_keep) > max_size
+    not_filled_reason = ""
+    if not protected_overflow and after_count_expected < max_size:
+        if not merged_candidates:
+            not_filled_reason = "candidate_count_zero"
+        elif not quality_pass_symbols:
+            not_filled_reason = "quality_gate_no_pass_candidates"
+        elif not bool(cfg.fill_to_max):
+            not_filled_reason = "max_managed_pool_size_is_cap_not_target"
+
+    protected_violation = bool({item.get("symbol") for item in planned_remove} & protected_symbols)
+    return {
+        "quality_rebuild_supported": True,
+        "config": asdict(cfg),
+        "max_managed_pool_size": max_size,
+        "promotion_min_score": _effective_promotion_min_score(cfg),
+        "promotion_min_trade_value_krw": cfg.promotion_min_trade_value_krw,
+        "quality_gate_enabled": bool(cfg.quality_gate_enabled),
+        "fill_to_max": bool(cfg.fill_to_max),
+        "current_pool_size": len(rows),
+        "protected_keep": protected_keep,
+        "protected_rows": protected_keep,
+        "protected_count": len(protected_keep),
+        "rebuild_slots": rebuild_slots,
+        "current_basic_added": [_compact_pool_row(row) for row in rebuild_rows],
+        "ignored_rows": ignored_rows,
+        "candidate_count": len(merged_candidates),
+        "candidate_pool": merged_candidates,
+        "quality_pass_count": len(quality_pass_symbols),
+        "quality_fail_count": len(rejected_candidates),
+        "quality_pass_candidates": [row for row in merged_candidates if row.get("symbol") in quality_pass_symbols],
+        "quality_fail_candidates": rejected_candidates,
+        "rejected_candidates": rejected_candidates,
+        "rejection_reasons": sorted({reason for item in rejected_candidates for reason in item.get("reasons", [])}),
+        "score_distribution": _score_distribution(merged_candidates),
+        "planned_keep_basic": planned_keep_basic,
+        "planned_add": planned_add,
+        "planned_remove": planned_remove,
+        "planned_remove_reasons": sorted({item.get("remove_reason", "") for item in planned_remove if item.get("remove_reason")}),
+        "after_count_expected": after_count_expected,
+        "pool_size_after": after_count_expected,
+        "not_filled_reason": not_filled_reason,
+        "protected_overflow": bool(protected_overflow),
+        "protected_overflow_reason": "protected_rows_exceed_max" if protected_overflow else "",
+        "protected_violation": protected_violation,
+        "managed_pool_mutation_performed": False,
+        "actual_mutation_performed": False,
+        "actual_order": False,
+        "rotation_execution": False,
+        "order_execution_enabled": False,
     }
 
 
@@ -604,6 +793,7 @@ __all__ = [
     "MAX_MANAGED_POOL_SIZE",
     "ManagedPoolPromotionConfig",
     "evaluate_candidate_promotion_quality",
+    "build_managed_pool_quality_rebuild_plan",
     "build_rotation_intent_payload",
     "build_managed_pool_promotion_plan",
     "build_managed_pool_trim_plan",
