@@ -1499,7 +1499,10 @@ def _run_rotation_eligibility_from_holdings_proof(
     candidates = _public_top_markets_to_rotation_candidates(top_markets, max_candidates=max_candidates)
     config = {
         "max_managed_pool_size": max(10, len(effective_rows) or 10),
-        "promotion_min_score": None,
+        "promotion_min_score": 60.0,
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
         "auto_add_enabled": False,
         "auto_remove_enabled": False,
         "protect_user_added": True,
@@ -1766,7 +1769,10 @@ def _run_managed_pool_promotion_policy_proof(
 
     config = {
         "max_managed_pool_size": int(max_managed or 10),
-        "promotion_min_score": None,
+        "promotion_min_score": 60.0,
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
         "auto_add_enabled": True,
         "auto_remove_enabled": True,
         "protect_user_added": True,
@@ -1894,7 +1900,9 @@ def _run_managed_pool_promotion_policy_proof(
             "max_managed_pool_size": int(max_managed or 10),
             "auto_add_enabled": True,
             "auto_remove_enabled": True,
-            "promotion_min_score": None,
+            "promotion_min_score": real_plan.get("promotion_min_score", 60.0),
+            "quality_gate_enabled": real_plan.get("quality_gate_enabled", True),
+            "fill_to_max": real_plan.get("fill_to_max", False),
             "protect_user_added": True,
             "protect_holdings_until_liquidated": True,
             "protect_system_seed_initially": True,
@@ -1924,6 +1932,161 @@ def _run_managed_pool_promotion_policy_proof(
         }
     )
     report["pass_status"] = "pass" if fixture_pass and not order_risk and latest else "partial"
+
+
+def _run_managed_pool_promotion_quality_gate_proof(
+    report: dict[str, Any],
+    *,
+    max_managed: int = 10,
+    min_score: float = 60.0,
+) -> None:
+    from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
+
+    config = {
+        "max_managed_pool_size": int(max_managed or 10),
+        "promotion_min_score": float(min_score),
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
+        "auto_add_enabled": True,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": False,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+
+    def plan(rows: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        return build_managed_pool_promotion_plan(rows, candidates, [], config)
+
+    rows_8 = [{"symbol": f"KRW-M{i}", "source_type": "basic_added", "score": 50 + i} for i in range(8)]
+    p1 = plan(
+        rows_8,
+        [
+            {"symbol": "KRW-PASS1", "rank": 1, "score": 72, "trade_value": 100000000},
+            {"symbol": "KRW-PASS2", "rank": 2, "score": 64, "trade_value": 90000000},
+            {"symbol": "KRW-LOW1", "rank": 3, "score": 55, "trade_value": 80000000},
+            {"symbol": "KRW-LOW2", "rank": 4, "score": 40, "trade_value": 70000000},
+        ],
+    )
+    p2 = plan(rows_8, [{"symbol": "KRW-LOWA", "rank": 1, "score": 59}, {"symbol": "KRW-LOWB", "rank": 2, "score": 42}])
+    p3 = plan(rows_8, [{"symbol": "KRW-RANK1LOW", "rank": 1, "score": 50}])
+    p4 = plan(rows_8, [{"symbol": "KRW-M1", "rank": 1, "score": 99}, {"symbol": "KRW-NEW", "rank": 2, "score": 80}])
+
+    fixtures = [
+        _fixture_result("max_10_pass_2_adds_2_only", len(p1.get("planned_add") or []) == 2, p1),
+        _fixture_result("max_10_pass_0_adds_0", len(p2.get("planned_add") or []) == 0, p2),
+        _fixture_result(
+            "high_rank_low_score_rejected",
+            len(p3.get("planned_add") or []) == 0
+            and any(item.get("symbol") == "KRW-RANK1LOW" for item in p3.get("rejected_candidates") or []),
+            p3,
+        ),
+        _fixture_result(
+            "already_managed_rejected",
+            all(item.get("symbol") != "KRW-M1" for item in p4.get("planned_add") or [])
+            and any(item.get("symbol") == "KRW-M1" for item in p4.get("rejected_candidates") or []),
+            p4,
+        ),
+        _fixture_result("max_cap_applied_not_target", bool(p1.get("fill_to_max")) is False and len(p1.get("planned_add") or []) < int(max_managed or 10), p1),
+        _fixture_result("fill_to_max_false", bool(p1.get("fill_to_max")) is False, p1),
+    ]
+    fixture_pass = all(item.get("passed") for item in fixtures)
+    report.update(
+        {
+            "quality_gate_supported": True,
+            "max_managed_pool_size": int(max_managed or 10),
+            "fill_to_max": False,
+            "promotion_min_score": float(min_score),
+            "current_count": p1.get("current_pool_size", 0),
+            "remaining_slots": p1.get("remaining_slots", 0),
+            "candidate_count": p1.get("candidate_count", 0),
+            "quality_pass_count": p1.get("quality_pass_count", 0),
+            "quality_fail_count": p1.get("quality_fail_count", 0),
+            "planned_add_count": len(p1.get("planned_add") or []),
+            "planned_add": p1.get("planned_add", []),
+            "rejected_candidates": p1.get("rejected_candidates", []),
+            "rejection_reasons": p1.get("rejection_reasons", []),
+            "score_distribution": p1.get("score_distribution", {}),
+            "not_filled_reason": p1.get("not_filled_reason", ""),
+            "fixture_results": fixtures,
+            "fixture_pass_count": sum(1 for item in fixtures if item.get("passed")),
+            "fixture_total_count": len(fixtures),
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "actual_mutation_performed": False,
+            "managed_pool_mutation_performed": False,
+            "pass_status": "pass" if fixture_pass else "fail",
+        }
+    )
+
+
+def _run_managed_pool_promotion_quality_live_proof(
+    report: dict[str, Any],
+    *,
+    max_managed: int = 10,
+    min_score: float = 60.0,
+    max_candidates: int = 50,
+) -> None:
+    from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
+
+    current_rows = _load_saved_managed_pool_rows_readonly()
+    feed_report: dict[str, Any] = {}
+    _run_top_markets_feed_proof(feed_report, max_markets=max_candidates)
+    top_markets = [row for row in (feed_report.get("top_markets") or []) if isinstance(row, dict)]
+    candidates = _public_top_markets_to_rotation_candidates(top_markets, max_candidates=max_candidates)
+    config = {
+        "max_managed_pool_size": int(max_managed or 10),
+        "promotion_min_score": float(min_score),
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
+        "auto_add_enabled": True,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": False,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+    plan = build_managed_pool_promotion_plan(current_rows, candidates, [], config)
+    report.update(
+        {
+            "quality_gate_supported": True,
+            "observe_only": True,
+            "current_count": plan.get("current_pool_size", len(current_rows)),
+            "max_managed_pool_size": int(max_managed or 10),
+            "fill_to_max": plan.get("fill_to_max"),
+            "promotion_min_score": plan.get("promotion_min_score"),
+            "remaining_slots": plan.get("remaining_slots", 0),
+            "candidate_count": plan.get("candidate_count", 0),
+            "quality_pass_count": plan.get("quality_pass_count", 0),
+            "quality_fail_count": plan.get("quality_fail_count", 0),
+            "planned_add_count": len(plan.get("planned_add") or []),
+            "planned_add": plan.get("planned_add", []),
+            "rejected_candidates_sample": list(plan.get("rejected_candidates") or [])[:10],
+            "rejection_reasons": plan.get("rejection_reasons", []),
+            "score_distribution": plan.get("score_distribution", {}),
+            "not_filled_reason": plan.get("not_filled_reason", ""),
+            "candidate_source_status": feed_report.get("pass_status") or feed_report.get("status", ""),
+            "candidate_no_reason": feed_report.get("empty_reason", ""),
+            "market_count_raw": int(feed_report.get("market_count_raw") or 0),
+            "krw_market_count": int(feed_report.get("krw_market_count") or 0),
+            "ticker_count": int(feed_report.get("ticker_count") or 0),
+            "top_markets_count": int(feed_report.get("top_markets_count") or 0),
+            "top_markets_sample": top_markets[:10],
+            "managed_pool_mutation_performed": False,
+            "actual_mutation_performed": False,
+            "order_risk_detected": False,
+            "provider_external_call_count": 0,
+            "pass_status": "pass"
+            if plan.get("policy_supported") and len(candidates) > 0 and not bool(feed_report.get("empty_reason"))
+            else "partial",
+        }
+    )
 
 
 def _rotation_status_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
@@ -2842,7 +3005,10 @@ def _run_managed_pool_auto_promotion_apply_proof(
     ]
     config = {
         "max_managed_pool_size": configured_max,
-        "promotion_min_score": None,
+        "promotion_min_score": 60.0,
+        "promotion_min_trade_value_krw": None,
+        "quality_gate_enabled": True,
+        "fill_to_max": False,
         "auto_add_enabled": True,
         "auto_remove_enabled": False,
         "protect_user_added": True,
@@ -6361,6 +6527,7 @@ def run_harness(
     max_candidates: int = 10,
     max_markets: int = 20,
     max_managed: int = 10,
+    min_score: float = 60.0,
     apply_add_only: bool = False,
     from_max: int = 10,
     from_count: int = 8,
@@ -6384,6 +6551,8 @@ def run_harness(
         "riskguard-proof",
         "top-markets-feed-proof",
         "managed-pool-promotion-policy-proof",
+        "managed-pool-promotion-quality-gate-proof",
+        "managed-pool-promotion-quality-live-proof",
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
@@ -6406,6 +6575,20 @@ def run_harness(
                 report,
                 output_dir=output_dir,
                 max_managed=max_managed,
+            )
+        elif mode == "managed-pool-promotion-quality-gate-proof":
+            _run_managed_pool_promotion_quality_gate_proof(
+                report,
+                max_managed=max_managed,
+                min_score=min_score,
+            )
+        elif mode == "managed-pool-promotion-quality-live-proof":
+            _install_provider_post_guard(report)
+            _run_managed_pool_promotion_quality_live_proof(
+                report,
+                max_managed=max_managed,
+                min_score=min_score,
+                max_candidates=max_candidates,
             )
         elif mode == "rotation-intent-ux-proof":
             _run_rotation_intent_ux_proof(report, fixture=fixture)
@@ -6719,6 +6902,8 @@ def main() -> int:
             "real-app-startup-readiness-proof",
             "top-markets-feed-proof",
             "managed-pool-promotion-policy-proof",
+            "managed-pool-promotion-quality-gate-proof",
+            "managed-pool-promotion-quality-live-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",
@@ -6791,6 +6976,7 @@ def main() -> int:
     parser.add_argument("--max-candidates", type=int, default=10)
     parser.add_argument("--max-markets", type=int, default=20)
     parser.add_argument("--max-managed", type=int, default=10)
+    parser.add_argument("--min-score", type=float, default=60.0)
     parser.add_argument("--from-max", type=int, default=10)
     parser.add_argument("--from-count", type=int, default=8)
     parser.add_argument("--to-max", type=int, default=8)
@@ -6821,6 +7007,7 @@ def main() -> int:
         max_candidates=args.max_candidates,
         max_markets=args.max_markets,
         max_managed=args.max_managed,
+        min_score=args.min_score,
         apply_add_only=args.apply_add_only,
         from_max=args.from_max,
         from_count=args.from_count,

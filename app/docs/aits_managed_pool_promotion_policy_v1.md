@@ -16,7 +16,10 @@ orders require a separate live-execution Goal.
 ## Config
 
 - `max_managed_pool_size`: user setting, default `10`
-- `promotion_min_score`: `None`
+- `promotion_min_score`: default `60`
+- `promotion_min_trade_value_krw`: optional, default `None`
+- `quality_gate_enabled`: `True`
+- `fill_to_max`: `False`
 - `auto_add_enabled`: `True`
 - `auto_remove_enabled`: `True`
 - `protect_user_added`: `True`
@@ -26,8 +29,9 @@ orders require a separate live-execution Goal.
 - `rotation_min_score_gap`: `0.0`
 - `order_execution_enabled`: `False`
 
-Initial operation is rank-relative. Fixed score thresholds are intentionally
-left unset until more runtime data exists.
+Initial operation is quality-gated and rank-relative. The max size is a cap,
+not a target count. A candidate must pass the promotion quality gate before it
+can be planned for addition; weak markets may therefore add zero rows.
 
 The max size is no longer a hard-coded policy value. The Managed Pool footer
 owns the user-facing setting (`ui_state.managed_pool_max_size`) with default
@@ -46,9 +50,20 @@ is absent or invalid.
 ## Promotion
 
 When the pool has fewer rows than the configured max, Basic top candidates not
-already managed can be planned for addition in rank order. Planned rows use
-`source_type=basic_added` and include score, rank, reason, trade value, and
-`actual_order=false`.
+already managed are evaluated by the quality gate before they can be planned
+for addition. Planned rows use `source_type=basic_added` and include score,
+rank, reason, trade value, quality-gate metadata, and `actual_order=false`.
+
+The first quality gate is intentionally simple:
+
+- score must be at or above `promotion_min_score` (default `60`)
+- already-managed or duplicate candidates are rejected
+- optional trade-value filtering can be configured later
+
+Rejected candidates are reported with reasons such as `score_below_min`,
+`already_managed`, `trade_value_below_min`, and
+`candidate_quality_gate_failed`. `fill_to_max=false` means remaining slots are
+allowed; the policy does not add low-quality candidates merely to reach the max.
 
 The first actual apply path is add-only: it may persist `planned_add` rows up to
 the configured max, but it must not execute `planned_remove`, rotation, orders,
@@ -59,8 +74,8 @@ rows by itself. The Managed Pool footer has a separate `바로적용` button tha
 synchronizes rows to the current max size:
 
 - current count > max: remove only unprotected `basic_added` rows.
-- current count < max: run the Basic candidate scan and add top candidates as
-  `basic_added` rows up to the max.
+- current count < max: run the Basic candidate scan and add only quality-gate
+  passing candidates as `basic_added` rows, never above the max cap.
 - current count == max: no-op.
 
 The button never calls any order path or executes rotation.
@@ -103,6 +118,8 @@ Use:
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-gate-proof --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
@@ -112,9 +129,10 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-ux-pr
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-proof --observe-only
 ```
 
-The proof covers auto-add, user protection, holding protection, max-10
-enforcement, low-rank `basic_added` removal candidates, rotation pair creation,
-no-rotation when candidate score is lower, and duplicate candidate ignoring.
+The proof covers auto-add, quality-gate pass/fail, max-as-cap behavior, user
+protection, holding protection, max-10 enforcement, low-rank `basic_added`
+removal candidates, rotation pair creation, no-rotation when candidate score is
+lower, and duplicate candidate ignoring.
 The apply-button proof covers both sync branches: increasing max adds Basic
 candidates, decreasing max trims only unprotected `basic_added` rows, equal
 counts no-op, and protected rows are preserved.

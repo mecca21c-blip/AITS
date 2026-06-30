@@ -18,7 +18,10 @@ PROTECTED_SYSTEM_SEED_SYMBOLS = {"KRW-BTC", "KRW-ETH", "KRW-XRP"}
 @dataclass(frozen=True)
 class ManagedPoolPromotionConfig:
     max_managed_pool_size: int = MAX_MANAGED_POOL_SIZE
-    promotion_min_score: float | None = None
+    promotion_min_score: float | None = 60.0
+    promotion_min_trade_value_krw: float | None = None
+    quality_gate_enabled: bool = True
+    fill_to_max: bool = False
     auto_add_enabled: bool = True
     auto_remove_enabled: bool = True
     protect_user_added: bool = True
@@ -184,14 +187,71 @@ def _sort_candidates(candidates: list[dict[str, Any]], config: ManagedPoolPromot
         symbol = compact["symbol"]
         if not symbol or symbol in seen:
             continue
-        if config.promotion_min_score is not None and compact["score"] < float(config.promotion_min_score):
-            continue
         seen.add(symbol)
         out.append(compact)
     out.sort(key=lambda r: (_float(r.get("score"), -1.0), _float(r.get("trade_value"), 0.0), -int(r.get("rank") or 9999)), reverse=True)
     for idx, row in enumerate(out):
         row["rank"] = idx + 1
     return out
+
+
+def _effective_promotion_min_score(cfg: ManagedPoolPromotionConfig) -> float | None:
+    if not bool(cfg.quality_gate_enabled):
+        return None
+    if cfg.promotion_min_score is None:
+        return 60.0
+    return float(cfg.promotion_min_score)
+
+
+def evaluate_candidate_promotion_quality(
+    candidate: dict[str, Any],
+    config: ManagedPoolPromotionConfig | dict[str, Any] | None = None,
+    *,
+    existing_symbols: set[str] | None = None,
+) -> dict[str, Any]:
+    cfg = config if isinstance(config, ManagedPoolPromotionConfig) else ManagedPoolPromotionConfig(**(config or {}))
+    symbol = _row_symbol(candidate)
+    score = _score(candidate)
+    rank = _rank(candidate)
+    trade_value = _float(candidate.get("trade_value", candidate.get("volume_krw", candidate.get("acc_trade_price_24h"))), 0.0)
+    reasons: list[str] = []
+    if not symbol:
+        reasons.append("missing_symbol")
+    if symbol and symbol in (existing_symbols or set()):
+        reasons.append("already_managed")
+    min_score = _effective_promotion_min_score(cfg)
+    if min_score is not None and score < min_score:
+        reasons.append("score_below_min")
+    min_trade_value = cfg.promotion_min_trade_value_krw
+    if min_trade_value is not None and trade_value < float(min_trade_value):
+        reasons.append("trade_value_below_min")
+    if bool(cfg.quality_gate_enabled) and reasons:
+        reasons.append("candidate_quality_gate_failed")
+    return {
+        "symbol": symbol,
+        "pass": not reasons,
+        "reasons": reasons,
+        "failed_reason": reasons[0] if reasons else "",
+        "score": score,
+        "rank": rank,
+        "trade_value": trade_value,
+        "promotion_min_score": min_score,
+        "promotion_min_trade_value_krw": min_trade_value,
+    }
+
+
+def _score_distribution(candidates: list[dict[str, Any]]) -> dict[str, Any]:
+    scores = [_score(row) for row in candidates if isinstance(row, dict) and _row_symbol(row)]
+    if not scores:
+        return {"count": 0}
+    return {
+        "count": len(scores),
+        "min": round(min(scores), 4),
+        "max": round(max(scores), 4),
+        "avg": round(sum(scores) / len(scores), 4),
+        "gte_60": sum(1 for score in scores if score >= 60.0),
+        "lt_60": sum(1 for score in scores if score < 60.0),
+    }
 
 
 def build_managed_pool_promotion_plan(
@@ -232,7 +292,29 @@ def build_managed_pool_promotion_plan(
 
     sorted_candidates = _sort_candidates(candidates or [], cfg)
     existing_symbols = {_row_symbol(row) for row in rows}
-    new_candidates = [row for row in sorted_candidates if row["symbol"] not in existing_symbols]
+    quality_results = [
+        evaluate_candidate_promotion_quality(row, cfg, existing_symbols=existing_symbols)
+        for row in sorted_candidates
+    ]
+    quality_by_symbol = {item["symbol"]: item for item in quality_results if item.get("symbol")}
+    quality_pass_symbols = {item["symbol"] for item in quality_results if item.get("pass") and item.get("symbol")}
+    rejected_candidates = [
+        {
+            "symbol": item.get("symbol", ""),
+            "score": item.get("score", 0.0),
+            "rank": item.get("rank", 999999),
+            "trade_value": item.get("trade_value", 0.0),
+            "reasons": item.get("reasons", []),
+            "failed_reason": item.get("failed_reason", ""),
+        }
+        for item in quality_results
+        if not item.get("pass")
+    ]
+    new_candidates = [
+        row
+        for row in sorted_candidates
+        if row["symbol"] not in existing_symbols and row["symbol"] in quality_pass_symbols
+    ]
 
     planned_add: list[dict[str, Any]] = []
     planned_remove: list[dict[str, Any]] = []
@@ -240,12 +322,16 @@ def build_managed_pool_promotion_plan(
     if cfg.auto_add_enabled:
         slots = max(0, max_size - current_size)
         for candidate in new_candidates[:slots]:
+            quality = quality_by_symbol.get(candidate["symbol"], {})
             planned_add.append(
                 {
                     **candidate,
                     "source_type": "basic_added",
                     "reason": candidate.get("reason") or "selected_by_basic_candidate",
                     "promotion_reason": "pool_has_free_slot",
+                    "quality_gate_pass": True,
+                    "quality_gate_reasons": quality.get("reasons", []),
+                    "promotion_min_score": quality.get("promotion_min_score"),
                     "actual_order": False,
                 }
             )
@@ -287,11 +373,15 @@ def build_managed_pool_promotion_plan(
                     )
                 can_add_replacement = (current_size + 1 - len(planned_remove)) <= max_size
                 if not planned_add and can_add_replacement:
+                    quality = quality_by_symbol.get(best_new["symbol"], {})
                     planned_add.append(
                         {
                             **best_new,
                             "source_type": "basic_added",
                             "promotion_reason": "replace_lower_basic_added",
+                            "quality_gate_pass": True,
+                            "quality_gate_reasons": quality.get("reasons", []),
+                            "promotion_min_score": quality.get("promotion_min_score"),
                             "actual_order": False,
                         }
                     )
@@ -328,12 +418,37 @@ def build_managed_pool_promotion_plan(
     protected_symbols = {item["symbol"] for item in protected_rows}
     protected_violation = any(item.get("symbol") in protected_symbols for item in planned_remove)
     pool_size_after = len(rows) + len(planned_add) - len(planned_remove)
+    quality_pass_count = len([item for item in quality_results if item.get("pass")])
+    quality_fail_count = len(rejected_candidates)
+    remaining_slots = max(0, max_size - len(rows))
+    not_filled_reason = ""
+    if cfg.auto_add_enabled and remaining_slots > len(planned_add):
+        if not sorted_candidates:
+            not_filled_reason = "candidate_count_zero"
+        elif quality_pass_count <= 0:
+            not_filled_reason = "quality_gate_no_pass_candidates"
+        elif len(planned_add) < min(remaining_slots, quality_pass_count):
+            not_filled_reason = "quality_gate_pass_candidates_not_added"
+        elif not bool(cfg.fill_to_max):
+            not_filled_reason = "max_managed_pool_size_is_cap_not_target"
     return {
         "policy_supported": True,
         "config": asdict(cfg),
         "max_managed_pool_size": max_size,
+        "fill_to_max": bool(cfg.fill_to_max),
+        "quality_gate_enabled": bool(cfg.quality_gate_enabled),
+        "promotion_min_score": _effective_promotion_min_score(cfg),
+        "promotion_min_trade_value_krw": cfg.promotion_min_trade_value_krw,
         "current_pool_size": len(rows),
         "candidate_count": len(sorted_candidates),
+        "remaining_slots": remaining_slots,
+        "quality_pass_count": quality_pass_count,
+        "quality_fail_count": quality_fail_count,
+        "candidate_quality_results": quality_results,
+        "rejected_candidates": rejected_candidates,
+        "rejection_reasons": sorted({reason for item in rejected_candidates for reason in item.get("reasons", [])}),
+        "score_distribution": _score_distribution(sorted_candidates),
+        "not_filled_reason": not_filled_reason,
         "planned_keep": keep,
         "planned_add": planned_add,
         "planned_remove": planned_remove,
@@ -488,6 +603,7 @@ def build_rotation_intent_payload(
 __all__ = [
     "MAX_MANAGED_POOL_SIZE",
     "ManagedPoolPromotionConfig",
+    "evaluate_candidate_promotion_quality",
     "build_rotation_intent_payload",
     "build_managed_pool_promotion_plan",
     "build_managed_pool_trim_plan",

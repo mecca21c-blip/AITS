@@ -116,21 +116,36 @@ managed-pool addition path in this policy family.
 ## Promotion Boundary
 
 Basic candidate promotion is defined in
-`app/services/managed_pool_promotion_policy.py`. The current policy is
-rank-based with no fixed score threshold. `max_managed_pool_size` comes from
-the user setting in `ui_state.managed_pool_max_size`; `10` is only the default
-fallback. The Basic scan may feed top candidates into the promotion policy.
+`app/services/managed_pool_promotion_policy.py`. `max_managed_pool_size` comes
+from the user setting in `ui_state.managed_pool_max_size`; `10` is only the
+default fallback. The max value is a cap, not a target count.
+
+The Basic scan may feed top candidates into the promotion policy, but automatic
+promotion is quality-gated. The initial gate uses
+`quality_gate_enabled=true`, `fill_to_max=false`, and
+`promotion_min_score=60` by default. If only one or two candidates pass, only
+those rows are planned. If no candidate passes, no rows are added even when
+slots remain.
 
 `managed-pool-auto-promotion-apply-proof --apply-add-only` is the first actual
-mutation proof. It may add `basic_added` rows up to the configured max, but it
-must not remove rows, execute rotation, call providers, or create orders.
+mutation proof. It may add only quality-gate passing `basic_added` rows up to
+the configured cap, but it must not remove rows, execute rotation, call
+providers, or create orders.
 
 Changing the max size is intentionally not automatic. The Managed Pool footer
 `바로적용` button owns max-size sync. If the pool is below the max, it runs the
-Basic candidate scan and add-only promotion path. If the pool is above the max,
-it removes only unprotected `basic_added` rows. User-added, trade-hold, holding,
-and protected seed rows are preserved. If protected rows exceed the configured
-max, the trim reports `protected_overflow` instead of deleting protected rows.
+Basic candidate scan and add-only promotion path through the same quality gate.
+If the pool is above the max, it removes only unprotected `basic_added` rows.
+User-added, trade-hold, holding, and protected seed rows are preserved. If
+protected rows exceed the configured max, the trim reports `protected_overflow`
+instead of deleting protected rows.
+
+Quality proof modes:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-gate-proof --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
+```
 
 ## Explainable Apply Result
 

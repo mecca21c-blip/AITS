@@ -17183,7 +17183,7 @@ class MainWindow(QMainWindow):
                 }
             )
         skipped = []
-        if result.get("message_key") == "add_no_candidates":
+        if result.get("message_key") in {"add_no_candidates", "add_quality_gate_no_pass"}:
             skipped.append(
                 {
                     "symbol": "",
@@ -17194,7 +17194,7 @@ class MainWindow(QMainWindow):
         branch = str(result.get("branch") or "noop")
         if result.get("protected_overflow"):
             branch = "protected_overflow"
-        elif result.get("message_key") == "add_no_candidates":
+        elif result.get("message_key") in {"add_no_candidates", "add_quality_gate_no_pass"}:
             branch = "no_candidates"
         added_count = len(added)
         removed_count = len(removed)
@@ -17456,7 +17456,10 @@ class MainWindow(QMainWindow):
                 return _finish_result()
             config = {
                 "max_managed_pool_size": max_size,
-                "promotion_min_score": None,
+                "promotion_min_score": 60.0,
+                "promotion_min_trade_value_krw": None,
+                "quality_gate_enabled": True,
+                "fill_to_max": False,
                 "auto_add_enabled": True,
                 "auto_remove_enabled": False,
                 "protect_user_added": True,
@@ -17469,6 +17472,16 @@ class MainWindow(QMainWindow):
             plan = build_managed_pool_promotion_plan(before_rows, candidates, [], config)
             planned_add = list(plan.get("planned_add") or [])[:slots]
             result["planned_add"] = planned_add
+            result["quality_gate_enabled"] = bool(plan.get("quality_gate_enabled"))
+            result["fill_to_max"] = bool(plan.get("fill_to_max"))
+            result["promotion_min_score"] = plan.get("promotion_min_score")
+            result["remaining_slots"] = plan.get("remaining_slots")
+            result["quality_pass_count"] = plan.get("quality_pass_count")
+            result["quality_fail_count"] = plan.get("quality_fail_count")
+            result["rejected_candidates"] = list(plan.get("rejected_candidates") or [])[:10]
+            result["rejection_reasons"] = list(plan.get("rejection_reasons") or [])
+            result["score_distribution"] = dict(plan.get("score_distribution") or {})
+            result["not_filled_reason"] = str(plan.get("not_filled_reason") or "")
             if not planned_add:
                 result.update(
                     {
@@ -17476,7 +17489,7 @@ class MainWindow(QMainWindow):
                         "after_symbols": before_symbols,
                         "persistence_saved": True,
                         "readback_verified": True,
-                        "message_key": "add_no_candidates",
+                        "message_key": "add_quality_gate_no_pass" if result.get("quality_fail_count") else "add_no_candidates",
                     }
                 )
                 return _finish_result()

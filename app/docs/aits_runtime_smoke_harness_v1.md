@@ -21,6 +21,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode top-markets-feed-proof --max-markets 20
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode basic-candidate-discovery-proof --observe-only --max-candidates 10
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-policy-proof --max-managed 10 --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-gate-proof --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
@@ -94,11 +96,22 @@ printed to stdout.
   `managed_pool_mutation_performed=false`, `provider_external_call_count=0`,
   and zero place/cancel/sell/retry calls.
 - `managed-pool-promotion-policy-proof`: runs fixture coverage for the
-  rank-based Basic promotion policy and, when available, applies the policy to
-  the latest `basic-candidate-discovery-proof` report. It verifies max pool size
-  from the supplied config, `user_added` protection, holding protection until liquidation,
-  `basic_added` removal candidates, rotation intent creation, duplicate
-  candidate ignoring, `actual_mutation_performed=false`, and zero order calls.
+  quality-gated Basic promotion policy and, when available, applies the policy
+  to the latest `basic-candidate-discovery-proof` report. It verifies max pool
+  size from the supplied config as a cap, `user_added` protection, holding
+  protection until liquidation, `basic_added` removal candidates, rotation
+  intent creation, duplicate candidate ignoring, `actual_mutation_performed=false`,
+  and zero order calls.
+- `managed-pool-promotion-quality-gate-proof`: GUI-free fixture proof for the
+  promotion quality gate. It verifies `fill_to_max=false`,
+  `promotion_min_score`, max-as-cap behavior, low-score rejection,
+  already-managed rejection, candidate pass/fail counts, rejected candidate
+  reasons, and zero provider/order calls.
+- `managed-pool-promotion-quality-live-proof`: observe-only live Basic
+  candidate proof. It reads current Managed Pool rows, runs the Basic candidate
+  scan, applies the promotion quality gate, and reports score distribution,
+  quality pass/fail counts, planned additions, rejected candidates, and
+  `not_filled_reason` without mutating rows.
 - `managed-pool-auto-promotion-apply-proof`: creates the Qt window, reads the
   Managed Pool max-size UI setting, optionally overrides it with
   `--max-managed`, backs up current rows under `data/managed_pool_backups`, runs
@@ -207,6 +220,11 @@ printed to stdout.
 - `managed-pool-promotion-policy-proof` is policy planning only. Rotation
   `sell_candidate` / `buy_candidate` fields are review intent, not order
   execution, and must always carry `actual_order=false`.
+- `managed-pool-promotion-quality-gate-proof` and
+  `managed-pool-promotion-quality-live-proof` treat
+  `max_managed_pool_size` as a cap, not a target. Reports must keep
+  `fill_to_max=false`, include candidate pass/fail reasons, and avoid adding
+  weak candidates just to fill remaining slots.
 - `rotation-intent-ux-proof --fixture score-gap` verifies the observe-only
   `aits_rotation_intent_v1` UX payload. It must create the 60 score versus 70
   score rotation pair, include tooltip/status samples, and report
