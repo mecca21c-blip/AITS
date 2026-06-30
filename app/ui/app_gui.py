@@ -298,11 +298,11 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 # 좌측 관리종목: 컬럼 헤더 + 행 카드 폭 SSOT (항상 동일 dict 참조)
 _MANAGED_COL_WIDTHS: dict[str, int] = {
-    "rank": 38,
-    "symbol": 106,
-    "score": 80,
-    "status": 62,
-    "weight_goal": 90,
+    "rank": 34,
+    "symbol": 96,
+    "score": 68,
+    "status": 74,
+    "weight_goal": 74,
 }
 
 
@@ -14772,6 +14772,7 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
+        self._apply_ai_managed_table_column_fit_policy(self.tbl_ai_managed)
         # [UI MASTER PLAN / Phase 2 / PATCH 2-5]
         # Managed Pool 우선순위를
         # 버튼 방식에서 드래그 중심 UX로 전환한다.
@@ -35292,6 +35293,34 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _apply_ai_managed_table_column_fit_policy(self, table=None) -> None:
+        """Keep the managed-pool table inside its card without policy side effects."""
+        if table is None:
+            table = getattr(self, "tbl_ai_managed", None)
+        if table is None:
+            return
+        try:
+            table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            table.setHorizontalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        except Exception:
+            pass
+        try:
+            header = table.horizontalHeader()
+            header.setStretchLastSection(False)
+            header.setSectionsMovable(False)
+            header.setMinimumSectionSize(32)
+            for ci in range(int(table.columnCount())):
+                mode = (
+                    QHeaderView.ResizeMode.Stretch
+                    if ci == 1
+                    else QHeaderView.ResizeMode.Fixed
+                )
+                header.setSectionResizeMode(ci, mode)
+            for ci, key in enumerate(("rank", "symbol", "score", "status", "weight_goal")):
+                table.setColumnWidth(ci, int(_MANAGED_COL_WIDTHS[key]))
+        except Exception:
+            pass
+
     def _finalize_left_managed_panel_layout(
         self, parent: QWidget, panel_layout: QVBoxLayout
     ) -> None:
@@ -35387,6 +35416,7 @@ class MainWindow(QMainWindow):
                 table.setColumnWidth(ci, int(_MANAGED_COL_WIDTHS[key]))
         except Exception:
             pass
+        self._apply_ai_managed_table_column_fit_policy(table)
 
         try:
             footer.setFixedHeight(70)
