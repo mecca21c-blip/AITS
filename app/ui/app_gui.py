@@ -298,11 +298,11 @@ matplotlib.rcParams["axes.unicode_minus"] = False
 
 # 좌측 관리종목: 컬럼 헤더 + 행 카드 폭 SSOT (항상 동일 dict 참조)
 _MANAGED_COL_WIDTHS: dict[str, int] = {
-    "rank": 34,
-    "symbol": 96,
-    "score": 68,
-    "status": 74,
-    "weight_goal": 74,
+    "rank": 30,
+    "symbol": 104,
+    "score": 66,
+    "status": 80,
+    "weight_goal": 62,
 }
 
 
@@ -35262,16 +35262,28 @@ class MainWindow(QMainWindow):
             header = table.horizontalHeader()
             header.setStretchLastSection(False)
             header.setSectionsMovable(False)
-            header.setMinimumSectionSize(32)
+            header.setMinimumSectionSize(30)
+            fixed_widths = {
+                0: int(_MANAGED_COL_WIDTHS["rank"]),
+                2: int(_MANAGED_COL_WIDTHS["score"]),
+                3: int(_MANAGED_COL_WIDTHS["status"]),
+                4: int(_MANAGED_COL_WIDTHS["weight_goal"]),
+            }
             for ci in range(int(table.columnCount())):
-                mode = (
-                    QHeaderView.ResizeMode.Stretch
-                    if ci == 1
-                    else QHeaderView.ResizeMode.Fixed
-                )
+                mode = QHeaderView.ResizeMode.Stretch if ci == 1 else QHeaderView.ResizeMode.Fixed
                 header.setSectionResizeMode(ci, mode)
-            for ci, key in enumerate(("rank", "symbol", "score", "status", "weight_goal")):
-                table.setColumnWidth(ci, int(_MANAGED_COL_WIDTHS[key]))
+            for ci, width in fixed_widths.items():
+                table.setColumnWidth(ci, width)
+            table.setColumnWidth(1, int(_MANAGED_COL_WIDTHS["symbol"]))
+            self._ai_managed_column_fit_policy_applied = True
+            self._ai_managed_column_fit_policy = {
+                "rank": fixed_widths.get(0),
+                "symbol": "stretch",
+                "score": fixed_widths.get(2),
+                "status": fixed_widths.get(3),
+                "weight_goal": fixed_widths.get(4),
+                "horizontal_scrollbar": "as_needed",
+            }
         except Exception:
             pass
 
@@ -35456,6 +35468,99 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _build_ai_managed_row_tooltip(
+        self,
+        row: dict,
+        *,
+        status_text: str = "",
+        score_text: str = "",
+        status_reason: str = "",
+        source_text: str = "",
+    ) -> str:
+        """Compact hover text for managed-pool rows; display stays short."""
+        try:
+            if not isinstance(row, dict):
+                row = {}
+            symbol = str(row.get("symbol") or row.get("market") or row.get("code") or "").strip().upper()
+            name = self._get_managed_korean_name(row)
+            label = symbol or str(row.get("name") or "").strip() or "-"
+            if name and name not in label:
+                label = f"{label} {name}"
+            lines = [f"종목: {label}"]
+            if status_text:
+                lines.append(f"상태: {str(status_text).strip()}")
+            if score_text:
+                lines.append(f"AITS 점수: {str(score_text).strip()}")
+            reason_values = []
+            for key in (
+                "ai_review_queue_reason",
+                "status_reason",
+                "state_reason",
+                "decision_reason",
+                "reason",
+                "promotion_reason",
+                "source_reason",
+                "added_reason",
+            ):
+                value = str(row.get(key) or "").strip()
+                if value and value not in reason_values:
+                    reason_values.append(value)
+            if status_reason and status_reason not in reason_values:
+                reason_values.insert(0, str(status_reason).strip())
+            if reason_values:
+                reason_text = reason_values[0]
+                try:
+                    reason_text = self._managed_pool_sync_reason_text(reason_text)
+                except Exception:
+                    pass
+                lines.append(f"판단 사유: {str(reason_text)[:120]}")
+            source_raw = str(row.get("source_type") or row.get("source") or row.get("origin") or source_text or "").strip()
+            if source_raw:
+                try:
+                    source_text_ui = self._managed_pool_sync_reason_text(source_raw)
+                except Exception:
+                    source_text_ui = source_raw
+                lines.append(f"편입 출처: {source_text_ui}")
+            protect = ""
+            try:
+                if self._is_managed_manual_hold_row(row):
+                    protect = "매매보류"
+                elif self._managed_row_has_position_weight(row) or bool(row.get("holding")):
+                    protect = "보유중"
+                elif str(row.get("source_type") or "").strip().lower() == "system_default":
+                    protect = "기본 보호 종목"
+                elif str(row.get("source_type") or "").strip().lower() == "user_added" or str(row.get("source") or "").strip().upper() == "USER":
+                    protect = "사용자 추가"
+                elif str(row.get("source_type") or "").strip().lower() == "basic_added":
+                    protect = "자동 편입 종목"
+            except Exception:
+                protect = ""
+            if protect:
+                lines.append(f"보호 상태: {protect}")
+            return "\n".join(line for line in lines[:8] if str(line or "").strip())
+        except Exception:
+            return ""
+
+    def _apply_ai_managed_row_tooltip(self, widget, tooltip_text: str) -> int:
+        if widget is None or not tooltip_text:
+            return 0
+        count = 0
+        try:
+            widget.setToolTip(tooltip_text)
+            count += 1
+        except Exception:
+            pass
+        try:
+            for child in widget.findChildren(QWidget):
+                try:
+                    child.setToolTip(tooltip_text)
+                    count += 1
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return count
+
     def _populate_ai_managed_table_cells(self) -> None:
         """ai_managed_rows 순서에 맞춰 5열 cellWidget 채움(표시만)."""
         t = getattr(self, "tbl_ai_managed", None)
@@ -35470,6 +35575,8 @@ class MainWindow(QMainWindow):
             rc = int(t.rowCount())
         except Exception:
             return
+        tooltip_applied_count = 0
+        tooltip_samples: list[str] = []
         for i in range(rc):
             if i >= len(rows):
                 break
@@ -35497,6 +35604,7 @@ class MainWindow(QMainWindow):
                 score = 0
             st_main, st_kind = self._managed_status_build04(row)
             ai_review_sla = self._sync_managed_pool_ai_review_sla_state(row, log=True)
+            status_sub_text = str(row.get("ai_review_queue_reason") or ai_review_sla.get("label") or "")
             wg_txt = self._format_managed_weight_goal_text(
                 self._format_ai_managed_position_weight_line(row),
                 self._get_managed_target_weight(row),
@@ -35615,7 +35723,6 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             try:
-                status_sub_text = str(row.get("ai_review_queue_reason") or ai_review_sla.get("label") or "")
                 st_cell = _AitsManagedStatusCell(
                     str(st_main or "—"),
                     status_sub_text,
@@ -35645,6 +35752,33 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+            try:
+                tooltip_text = self._build_ai_managed_row_tooltip(
+                    row,
+                    status_text=str(st_main or ""),
+                    score_text=str(score),
+                    status_reason=status_sub_text,
+                    source_text=origin_code,
+                )
+                if tooltip_text:
+                    if len(tooltip_samples) < 3:
+                        tooltip_samples.append(tooltip_text)
+                    for cc in range(5):
+                        tooltip_applied_count += self._apply_ai_managed_row_tooltip(
+                            t.cellWidget(i, cc), tooltip_text
+                        )
+                        item = t.item(i, cc)
+                        if item is not None:
+                            item.setToolTip(tooltip_text)
+                            tooltip_applied_count += 1
+            except Exception:
+                pass
+        try:
+            self._ai_managed_tooltip_applied_count = int(tooltip_applied_count)
+            self._last_ai_managed_tooltip_samples = list(tooltip_samples)
+            self._ai_managed_tooltip_supported = bool(tooltip_applied_count)
+        except Exception:
+            pass
         try:
             for ri in range(int(t.rowCount())):
                 for cc in range(int(t.columnCount())):
