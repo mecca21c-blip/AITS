@@ -86,6 +86,13 @@ If candidates are still zero after top markets are present, the reason should
 move from `top_markets_empty` to a scoring/filter reason, such as symbols
 already managed or Basic thresholds not met.
 
+For rotation observation, `rotation-intent-live-candidate-feed-proof` uses the
+same public top-market input boundary but keeps the run GUI-free and
+mutation-free. A healthy public feed must produce nonzero `top_markets_count`
+and `candidate_count`; if no rotation pair exists after that, the report should
+name a strategy/position reason such as `no_holding_rows_for_rotation`,
+`no_higher_score_candidate`, or `all_candidates_already_managed`.
+
 ## Promotion Boundary
 
 Basic candidate promotion is defined in

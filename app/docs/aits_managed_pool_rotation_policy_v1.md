@@ -43,6 +43,11 @@ Observe-only reports should use explicit reasons:
 - `rotation_soft_payload_empty`
 - `top_markets_empty`
 - `market_rows_empty`
+- `no_holding_rows_for_rotation`
+- `no_higher_score_candidate`
+- `all_candidates_already_managed`
+- `score_gap_not_met`
+- `protected_rows_only`
 
 If the market candidate feed is empty, rotation cannot be evaluated beyond
 confirming that no soft rotation payload is active.
@@ -53,6 +58,13 @@ Rotation observe-only proof depends on Basic top-market candidates. Use
 `top-markets-feed-proof` first when reports show `top_markets_empty`; a healthy
 feed should provide nonzero KRW market and top-market counts before rotation
 absence is interpreted as a strategy condition.
+
+`rotation-intent-live-candidate-feed-proof --observe-only` is the public-feed
+rotation proof for that healthy-feed case. It allows only Upbit public
+market/ticker GET reads, keeps provider POST and order/private paths blocked,
+reads saved Managed Pool rows without mutation, and reports `pair_count` or a
+strategy/position reason such as `no_holding_rows_for_rotation` instead of
+`top_markets_empty`.
 
 ## Promotion Policy Integration
 
@@ -81,6 +93,7 @@ Use:
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-ux-proof --fixture score-gap
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-proof --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-feed-proof --observe-only --max-candidates 50
 ```
 
 The fixture proof must create the 60 score versus 70 score pair. The live

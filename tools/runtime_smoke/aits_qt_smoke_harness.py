@@ -64,6 +64,7 @@ PUBLIC_MARKET_READ_MODES = {
     "managed-pool-max-size-apply-button-actual-proof",
     "managed-pool-max-size-apply-button-sync-actual-proof",
     "rotation-intent-live-candidate-proof",
+    "rotation-intent-live-candidate-feed-proof",
 }
 
 
@@ -994,6 +995,203 @@ def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20
         report["pass_status"] = "partial"
     else:
         report["pass_status"] = "fail"
+
+
+def _public_top_market_candidate_score(row: dict[str, Any], rank: int) -> float:
+    """Build a proof-only Basic-style score from public ticker fields."""
+    rank_value = max(1, int(rank or 1))
+    rank_bonus = max(0.0, 26.0 - min(rank_value, 25))
+    change_rate = _safe_float(row.get("signed_change_rate"), 0.0)
+    change_bonus = max(-8.0, min(18.0, change_rate * 100.0))
+    trade_value = _safe_float(row.get("acc_trade_price_24h") or row.get("trade_value"), 0.0)
+    liquidity_bonus = 5.0 if trade_value > 0 else 0.0
+    return round(max(0.0, min(100.0, 45.0 + rank_bonus + change_bonus + liquidity_bonus)), 4)
+
+
+def _public_top_markets_to_rotation_candidates(
+    top_markets: list[dict[str, Any]],
+    *,
+    max_candidates: int = 50,
+) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for idx, row in enumerate(top_markets[: max(1, int(max_candidates or 50))], start=1):
+        if not isinstance(row, dict):
+            continue
+        symbol = str(row.get("market") or row.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        score = _public_top_market_candidate_score(row, idx)
+        candidates.append(
+            {
+                "symbol": symbol,
+                "market": symbol,
+                "rank": idx,
+                "score": score,
+                "source": "public_top_markets",
+                "reason": "public_top_market_ranked_read_only",
+                "trade_value": _safe_float(row.get("acc_trade_price_24h") or row.get("trade_value"), 0.0),
+                "change_rate": _safe_float(row.get("signed_change_rate"), 0.0),
+                "actual_order": False,
+            }
+        )
+    return candidates
+
+
+def _load_saved_managed_pool_rows_readonly() -> list[dict[str, Any]]:
+    """Read saved Managed Pool rows without opening the GUI or mutating prefs."""
+    try:
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+        ui_state = getattr(settings, "ui_state", None) or {}
+        if hasattr(ui_state, "model_dump"):
+            ui_state = ui_state.model_dump()
+        if not isinstance(ui_state, dict):
+            return []
+        rows = ui_state.get("managed_pool_rows") or []
+        return [dict(row) for row in rows if isinstance(row, dict)]
+    except Exception:
+        return []
+
+
+def _is_rotation_holding_row(row: dict[str, Any]) -> bool:
+    if bool(row.get("holding") or row.get("is_holding") or row.get("has_position")):
+        return True
+    for key in ("qty", "quantity", "balance", "volume", "position_qty"):
+        if _safe_float(row.get(key), 0.0) > 0.0:
+            return True
+    return False
+
+
+def _refine_live_rotation_no_reason(
+    *,
+    top_markets_count: int,
+    candidate_count: int,
+    current_rows: list[dict[str, Any]],
+    candidates: list[dict[str, Any]],
+    pairs: list[dict[str, Any]],
+    plan: dict[str, Any],
+    feed_empty_reason: str,
+) -> str:
+    if pairs:
+        return ""
+    if top_markets_count <= 0:
+        return feed_empty_reason or "top_markets_empty"
+    if candidate_count <= 0:
+        return "candidate_count_zero_after_public_feed_scoring"
+    if not current_rows:
+        return "managed_pool_rows_empty"
+    managed_symbols = {_row_symbol(row) for row in current_rows if _row_symbol(row)}
+    candidate_symbols = {_row_symbol(row) for row in candidates if _row_symbol(row)}
+    if candidate_symbols and candidate_symbols.issubset(managed_symbols):
+        return "all_candidates_already_managed"
+    holding_rows = [row for row in current_rows if _is_rotation_holding_row(row)]
+    if not holding_rows:
+        return "no_holding_rows_for_rotation"
+    protected = plan.get("protected_rows") if isinstance(plan, dict) else []
+    if protected and len(protected) >= len(current_rows):
+        return "protected_rows_only"
+    highest_candidate = max((_safe_float(row.get("score"), 0.0) for row in candidates), default=0.0)
+    highest_current = max((_safe_float(row.get("score"), _safe_float(row.get("ai_score"), 0.0)) for row in current_rows), default=0.0)
+    if highest_candidate <= highest_current:
+        return "no_higher_score_candidate"
+    return "score_gap_not_met"
+
+
+def _run_rotation_intent_live_candidate_feed_proof(
+    report: dict[str, Any],
+    *,
+    max_candidates: int = 50,
+) -> None:
+    from app.services.managed_pool_promotion_policy import (
+        build_managed_pool_promotion_plan,
+        build_rotation_intent_payload,
+    )
+
+    feed_report: dict[str, Any] = {}
+    _run_top_markets_feed_proof(feed_report, max_markets=max_candidates)
+    top_markets = [row for row in (feed_report.get("top_markets") or []) if isinstance(row, dict)]
+    candidates = _public_top_markets_to_rotation_candidates(top_markets, max_candidates=max_candidates)
+    current_rows = _load_saved_managed_pool_rows_readonly()
+    managed_symbols = [_row_symbol(row) for row in current_rows if _row_symbol(row)]
+    holdings = [row for row in current_rows if _is_rotation_holding_row(row)]
+    config = {
+        "max_managed_pool_size": max(10, len(current_rows) or 10),
+        "promotion_min_score": None,
+        "auto_add_enabled": False,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": True,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+    plan = build_managed_pool_promotion_plan(current_rows, candidates, holdings, config)
+    intent = build_rotation_intent_payload(plan, source="public_top_markets_live_candidate_feed")
+    pairs = [pair for pair in (intent.get("pairs") or []) if isinstance(pair, dict)]
+    no_rotation_reason = _refine_live_rotation_no_reason(
+        top_markets_count=int(feed_report.get("top_markets_count") or 0),
+        candidate_count=len(candidates),
+        current_rows=current_rows,
+        candidates=candidates,
+        pairs=pairs,
+        plan=plan,
+        feed_empty_reason=str(feed_report.get("empty_reason") or ""),
+    )
+    if no_rotation_reason:
+        intent["no_rotation_reason"] = no_rotation_reason
+    tooltip_samples = [_rotation_tooltip_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    tooltip_samples += [_rotation_tooltip_sample(pair, role="rotate_in") for pair in pairs[:1]]
+    status_samples = [_rotation_status_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    order_risk = any(bool(pair.get("actual_order")) or bool(pair.get("order_execution")) for pair in pairs)
+    mutation = bool(intent.get("managed_pool_mutation")) or bool(plan.get("actual_mutation_performed"))
+    top_count = int(feed_report.get("top_markets_count") or 0)
+    candidate_count = len(candidates)
+    pass_status = (
+        top_count > 0
+        and candidate_count > 0
+        and not order_risk
+        and not bool(intent.get("actual_order"))
+        and not bool(intent.get("rotation_execution"))
+        and not mutation
+        and (bool(pairs) or no_rotation_reason not in {"", "top_markets_empty"})
+    )
+    report.update(
+        {
+            "rotation_intent_supported": True,
+            "schema": "aits_rotation_intent_v1",
+            "public_market_get_allowed": True,
+            "provider_post_blocked": True,
+            "order_path_blocked": True,
+            "market_count_raw": int(feed_report.get("market_count_raw") or 0),
+            "krw_market_count": int(feed_report.get("krw_market_count") or 0),
+            "ticker_count": int(feed_report.get("ticker_count") or 0),
+            "top_markets_count": top_count,
+            "top_markets_sample": top_markets[:10],
+            "candidate_count": candidate_count,
+            "candidate_sample": candidates[:10],
+            "current_managed_count": len(current_rows),
+            "managed_symbols": managed_symbols,
+            "pair_count": len(pairs),
+            "pairs": pairs,
+            "no_rotation_reason": no_rotation_reason,
+            "tooltip_samples": tooltip_samples,
+            "status_samples": status_samples,
+            "actual_order": False,
+            "rotation_execution": bool(intent.get("rotation_execution")),
+            "managed_pool_mutation": mutation,
+            "managed_pool_mutation_performed": mutation,
+            "provider_external_call_count": 0,
+            "order_risk_detected": bool(order_risk),
+            "feed_empty_reason": str(feed_report.get("empty_reason") or ""),
+            "feed_pass_status": feed_report.get("pass_status", ""),
+            "feed_network_state": feed_report.get("network_state", ""),
+            "planned_rotation": plan.get("planned_rotation", []),
+            "protected_symbols": [item.get("symbol") for item in (plan.get("protected_rows") or []) if isinstance(item, dict)],
+            "pass_status": "pass" if pass_status else "fail",
+        }
+    )
 
 
 def _latest_basic_candidate_report(output_dir: Path) -> dict[str, Any]:
@@ -5654,6 +5852,7 @@ def run_harness(
         "top-markets-feed-proof",
         "managed-pool-promotion-policy-proof",
         "rotation-intent-ux-proof",
+        "rotation-intent-live-candidate-feed-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
@@ -5674,6 +5873,9 @@ def run_harness(
             )
         elif mode == "rotation-intent-ux-proof":
             _run_rotation_intent_ux_proof(report, fixture=fixture)
+        elif mode == "rotation-intent-live-candidate-feed-proof":
+            _install_provider_post_guard(report)
+            _run_rotation_intent_live_candidate_feed_proof(report, max_candidates=max_candidates)
         elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
         elif mode == "live-one-shot-unlock-contract-proof":
@@ -5979,6 +6181,7 @@ def main() -> int:
             "managed-pool-max-size-apply-button-sync-actual-proof",
             "rotation-intent-ux-proof",
             "rotation-intent-live-candidate-proof",
+            "rotation-intent-live-candidate-feed-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",

@@ -216,6 +216,12 @@ printed to stdout.
   Pool rows and Basic candidates, then reports rotation intent pairs or an
   explicit `no_rotation_reason`. It must not mutate rows, execute rotation, or
   call provider/order paths.
+- `rotation-intent-live-candidate-feed-proof --observe-only` is the read-only
+  public-feed variant. It does not open the GUI; it allows Upbit public
+  market/ticker GET reads, blocks provider POST and order/private paths, reads
+  saved Managed Pool rows, builds proof-only candidates from the live top
+  markets, and reports rotation intent pairs or a non-feed
+  `no_rotation_reason`.
 - `managed-pool-auto-promotion-apply-proof --apply-add-only` is the only
   harness mode that may persist Managed Pool additions in this policy family.
   It must not remove existing rows, execute rotation, or exceed the configured
