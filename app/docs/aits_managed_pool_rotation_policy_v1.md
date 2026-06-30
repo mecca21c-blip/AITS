@@ -48,9 +48,26 @@ Observe-only reports should use explicit reasons:
 - `all_candidates_already_managed`
 - `score_gap_not_met`
 - `protected_rows_only`
+- `holding_dust_filtered`
+- `managed_row_holding_flag_missing`
 
 If the market candidate feed is empty, rotation cannot be evaluated beyond
 confirming that no soft rotation payload is active.
+
+## Holding Eligibility
+
+Rotation pairs require a holding-eligible row. The holdings proof reads Upbit
+balances through the existing read-only holdings path and treats positions
+below `5000 KRW` evaluated value as dust for rotation eligibility. Dust
+holdings may still appear in `would_mark_holding`, but they do not become
+`rotate_out` candidates until a later Goal changes the minimum-value policy.
+
+`holdings-to-managed-row-proof --observe-only` reports current holdings,
+Managed Pool matches, missing holding flags, and `would_mark_holding` without
+persisting row changes. `rotation-eligibility-from-holdings-proof
+--observe-only` then uses those observed eligible holdings in memory to verify
+whether rotation intent can be calculated. If all observed holdings are dust,
+the expected reason is `holding_dust_filtered`.
 
 ## Feed Dependency
 
@@ -94,6 +111,8 @@ Use:
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-ux-proof --fixture score-gap
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-proof --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-intent-live-candidate-feed-proof --observe-only --max-candidates 50
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode holdings-to-managed-row-proof --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode rotation-eligibility-from-holdings-proof --observe-only
 ```
 
 The fixture proof must create the 60 score versus 70 score pair. The live

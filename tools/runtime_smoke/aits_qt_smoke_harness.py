@@ -1063,6 +1063,327 @@ def _is_rotation_holding_row(row: dict[str, Any]) -> bool:
     return False
 
 
+def _holding_symbol(row: dict[str, Any]) -> str:
+    symbol = str(row.get("symbol") or row.get("market") or "").strip().upper()
+    if symbol:
+        return symbol
+    currency = str(row.get("currency") or row.get("asset") or "").strip().upper()
+    if currency and currency != "KRW":
+        return f"KRW-{currency}" if not currency.startswith("KRW-") else currency
+    return ""
+
+
+def _holding_eval_krw(row: dict[str, Any]) -> float:
+    value = _safe_float(row.get("eval_krw") or row.get("value_krw") or row.get("position_krw"), -1.0)
+    if value >= 0.0:
+        return value
+    qty = _safe_float(row.get("qty") or row.get("quantity") or row.get("balance"), 0.0)
+    px = _safe_float(row.get("px") or row.get("price") or row.get("avg_price") or row.get("avg_buy_price"), 0.0)
+    return max(0.0, qty * px)
+
+
+def _fetch_live_holdings_snapshot_readonly(*, min_value_krw: float = 5000.0) -> dict[str, Any]:
+    snapshot: dict[str, Any] = {
+        "holdings_snapshot_supported": False,
+        "holdings_fetch_success": False,
+        "holdings_count": 0,
+        "holdings_raw_count": 0,
+        "holdings_symbols": [],
+        "holdings_value_krw": 0.0,
+        "dust_filtered_symbols": [],
+        "min_holding_value_krw": float(min_value_krw),
+        "holdings": [],
+        "eligible_holdings": [],
+        "no_holding_reason": "",
+        "exception_type": "",
+    }
+    try:
+        from app.services.holdings_service import fetch_live_holdings
+        from app.services.order_service import svc_order
+        from app.utils.prefs import load_settings
+
+        snapshot["holdings_snapshot_supported"] = True
+        try:
+            svc_order.set_settings(load_settings())
+            snapshot["settings_injected"] = True
+        except Exception as exc:
+            snapshot["settings_injected"] = False
+            snapshot["settings_inject_error"] = type(exc).__name__
+        data = fetch_live_holdings(force=True)
+        snapshot["holdings_fetch_success"] = bool(isinstance(data, dict) and data.get("ok"))
+        if not isinstance(data, dict) or not data.get("ok"):
+            snapshot["no_holding_reason"] = str((data or {}).get("err") if isinstance(data, dict) else "holdings_fetch_failed")[:120]
+            return snapshot
+        items = [dict(item) for item in (data.get("items") or []) if isinstance(item, dict)]
+        snapshot["holdings_raw_count"] = len(items)
+        holdings: list[dict[str, Any]] = []
+        eligible: list[dict[str, Any]] = []
+        dust_symbols: list[str] = []
+        for item in items:
+            symbol = _holding_symbol(item)
+            if not symbol:
+                continue
+            qty = _safe_float(item.get("qty") or item.get("quantity") or item.get("balance"), 0.0)
+            locked = _safe_float(item.get("locked"), 0.0)
+            eval_krw = _holding_eval_krw(item)
+            clean = {
+                "symbol": symbol,
+                "qty": qty,
+                "balance": _safe_float(item.get("balance"), qty),
+                "locked": locked,
+                "avg_price": _safe_float(item.get("avg_price") or item.get("avg_buy_price"), 0.0),
+                "eval_krw": eval_krw,
+                "market_supported": bool(item.get("market_supported", True)),
+                "dust": bool(qty <= 0.0 or (0.0 <= eval_krw < float(min_value_krw))),
+            }
+            holdings.append(clean)
+            if clean["dust"]:
+                dust_symbols.append(symbol)
+            else:
+                eligible.append(clean)
+        snapshot["holdings"] = holdings
+        snapshot["eligible_holdings"] = eligible
+        snapshot["holdings_count"] = len(eligible)
+        snapshot["holdings_raw_count"] = len(holdings)
+        snapshot["holdings_symbols"] = [row["symbol"] for row in eligible]
+        snapshot["holdings_value_krw"] = round(sum(_safe_float(row.get("eval_krw"), 0.0) for row in holdings), 4)
+        snapshot["dust_filtered_symbols"] = dust_symbols
+        if not holdings:
+            snapshot["no_holding_reason"] = "holdings_empty"
+        elif not eligible:
+            snapshot["no_holding_reason"] = "holding_dust_filtered"
+        else:
+            snapshot["no_holding_reason"] = ""
+    except Exception as exc:
+        snapshot["exception_type"] = type(exc).__name__
+        snapshot["no_holding_reason"] = f"holdings_fetch_exception:{type(exc).__name__}"
+    return snapshot
+
+
+def _match_holdings_to_managed_rows(
+    managed_rows: list[dict[str, Any]],
+    holdings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    managed_by_symbol = {_row_symbol(row): dict(row) for row in managed_rows if _row_symbol(row)}
+    matched: list[dict[str, Any]] = []
+    missing_flags: list[dict[str, Any]] = []
+    would_mark: list[dict[str, Any]] = []
+    for holding in holdings:
+        symbol = _holding_symbol(holding)
+        row = managed_by_symbol.get(symbol)
+        if not row:
+            would_mark.append(
+                {
+                    "symbol": symbol,
+                    "reason": "holding_not_in_managed_pool",
+                    "qty": _safe_float(holding.get("qty"), 0.0),
+                    "eval_krw": _safe_float(holding.get("eval_krw"), 0.0),
+                    "mutation_performed": False,
+                }
+            )
+            continue
+        row_holding = _is_rotation_holding_row(row)
+        item = {
+            "symbol": symbol,
+            "row_holding": bool(row_holding),
+            "qty": _safe_float(holding.get("qty"), 0.0),
+            "eval_krw": _safe_float(holding.get("eval_krw"), 0.0),
+            "source_type": row.get("source_type") or row.get("source") or "",
+        }
+        matched.append(item)
+        if not row_holding:
+            missing_flags.append(
+                {
+                    "symbol": symbol,
+                    "reason": "managed_row_missing_holding_flag",
+                    "qty": item["qty"],
+                    "eval_krw": item["eval_krw"],
+                }
+            )
+            would_mark.append(
+                {
+                    "symbol": symbol,
+                    "reason": "would_set_holding_true_read_only",
+                    "qty": item["qty"],
+                    "eval_krw": item["eval_krw"],
+                    "mutation_performed": False,
+                }
+            )
+    return {
+        "matched_holding_rows": matched,
+        "missing_holding_flags": missing_flags,
+        "would_mark_holding": would_mark,
+    }
+
+
+def _managed_rows_with_observed_holdings(
+    managed_rows: list[dict[str, Any]],
+    holdings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    holding_by_symbol = {_holding_symbol(row): dict(row) for row in holdings if _holding_symbol(row)}
+    out: list[dict[str, Any]] = []
+    for row in managed_rows:
+        clean = dict(row)
+        symbol = _row_symbol(clean)
+        holding = holding_by_symbol.get(symbol)
+        if holding:
+            clean["holding"] = True
+            clean["qty"] = _safe_float(holding.get("qty"), 0.0)
+            clean["balance"] = _safe_float(holding.get("balance"), clean.get("qty"))
+            clean["eval_krw"] = _safe_float(holding.get("eval_krw"), 0.0)
+            clean["holding_source"] = "live_holdings_observe_only"
+        out.append(clean)
+    return out
+
+
+def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
+    min_value_krw = 5000.0
+    managed_rows = _load_saved_managed_pool_rows_readonly()
+    snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
+    holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
+    match = _match_holdings_to_managed_rows(managed_rows, holdings_all)
+    no_holding_reason = str(snapshot.get("no_holding_reason") or "")
+    if holdings_all and match.get("would_mark_holding"):
+        no_holding_reason = no_holding_reason or "managed_row_holding_flag_missing"
+    report.update(
+        {
+            "holdings_snapshot_supported": bool(snapshot.get("holdings_snapshot_supported")),
+            "holdings_settings_injected": bool(snapshot.get("settings_injected")),
+            "holdings_fetch_success": bool(snapshot.get("holdings_fetch_success")),
+            "holdings_count": int(snapshot.get("holdings_count") or 0),
+            "holdings_raw_count": int(snapshot.get("holdings_raw_count") or 0),
+            "holdings_symbols": snapshot.get("holdings_symbols") or [],
+            "holdings_value_krw": snapshot.get("holdings_value_krw", 0.0),
+            "dust_filtered_symbols": snapshot.get("dust_filtered_symbols") or [],
+            "min_holding_value_krw": min_value_krw,
+            "managed_row_count": len(managed_rows),
+            "managed_symbols": [_row_symbol(row) for row in managed_rows if _row_symbol(row)],
+            "matched_holding_rows": match.get("matched_holding_rows", []),
+            "missing_holding_flags": match.get("missing_holding_flags", []),
+            "would_mark_holding": match.get("would_mark_holding", []),
+            "no_holding_reason": no_holding_reason,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+            "actual_order": False,
+            "rotation_execution": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+        }
+    )
+    if snapshot.get("holdings_fetch_success"):
+        report["pass_status"] = "pass"
+    else:
+        report.setdefault("warnings", []).append(str(no_holding_reason or "holdings_fetch_failed"))
+        report["pass_status"] = "partial"
+
+
+def _run_rotation_eligibility_from_holdings_proof(
+    report: dict[str, Any],
+    *,
+    max_candidates: int = 50,
+) -> None:
+    from app.services.managed_pool_promotion_policy import (
+        build_managed_pool_promotion_plan,
+        build_rotation_intent_payload,
+    )
+
+    min_value_krw = 5000.0
+    managed_rows = _load_saved_managed_pool_rows_readonly()
+    snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
+    eligible_holdings = [row for row in (snapshot.get("eligible_holdings") or []) if isinstance(row, dict)]
+    holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
+    match = _match_holdings_to_managed_rows(managed_rows, holdings_all)
+    effective_rows = _managed_rows_with_observed_holdings(managed_rows, eligible_holdings)
+    feed_report: dict[str, Any] = {}
+    _run_top_markets_feed_proof(feed_report, max_markets=max_candidates)
+    top_markets = [row for row in (feed_report.get("top_markets") or []) if isinstance(row, dict)]
+    candidates = _public_top_markets_to_rotation_candidates(top_markets, max_candidates=max_candidates)
+    config = {
+        "max_managed_pool_size": max(10, len(effective_rows) or 10),
+        "promotion_min_score": None,
+        "auto_add_enabled": False,
+        "auto_remove_enabled": False,
+        "protect_user_added": True,
+        "protect_holdings_until_liquidated": True,
+        "protect_system_seed_initially": True,
+        "rotation_enabled": True,
+        "rotation_min_score_gap": 0.0,
+        "order_execution_enabled": False,
+    }
+    plan = build_managed_pool_promotion_plan(effective_rows, candidates, eligible_holdings, config)
+    intent = build_rotation_intent_payload(plan, source="holdings_rotation_eligibility_observe")
+    pairs = [pair for pair in (intent.get("pairs") or []) if isinstance(pair, dict)]
+    if pairs:
+        no_rotation_reason = ""
+    elif not snapshot.get("holdings_fetch_success"):
+        no_rotation_reason = str(snapshot.get("no_holding_reason") or "holdings_fetch_failed")
+    elif not eligible_holdings:
+        no_rotation_reason = str(snapshot.get("no_holding_reason") or "no_holding_rows_for_rotation")
+    else:
+        no_rotation_reason = _refine_live_rotation_no_reason(
+            top_markets_count=int(feed_report.get("top_markets_count") or 0),
+            candidate_count=len(candidates),
+            current_rows=effective_rows,
+            candidates=candidates,
+            pairs=pairs,
+            plan=plan,
+            feed_empty_reason=str(feed_report.get("empty_reason") or ""),
+        )
+    tooltip_samples = [_rotation_tooltip_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    status_samples = [_rotation_status_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    order_risk = any(bool(pair.get("actual_order")) or bool(pair.get("order_execution")) for pair in pairs)
+    pass_status = (
+        bool(snapshot.get("holdings_fetch_success"))
+        and int(feed_report.get("top_markets_count") or 0) > 0
+        and len(candidates) > 0
+        and not order_risk
+        and not bool(intent.get("actual_order"))
+        and not bool(intent.get("rotation_execution"))
+        and not bool(intent.get("managed_pool_mutation"))
+        and (bool(pairs) or bool(no_rotation_reason))
+    )
+    report.update(
+        {
+            "holdings_fetch_success": bool(snapshot.get("holdings_fetch_success")),
+            "holdings_settings_injected": bool(snapshot.get("settings_injected")),
+            "holdings_raw_count": int(snapshot.get("holdings_raw_count") or 0),
+            "holdings_count": int(snapshot.get("holdings_count") or 0),
+            "holdings_symbols": snapshot.get("holdings_symbols") or [],
+            "holdings_value_krw": snapshot.get("holdings_value_krw", 0.0),
+            "dust_filtered_symbols": snapshot.get("dust_filtered_symbols") or [],
+            "min_holding_value_krw": min_value_krw,
+            "managed_row_count": len(managed_rows),
+            "managed_symbols": [_row_symbol(row) for row in managed_rows if _row_symbol(row)],
+            "matched_holding_rows": match.get("matched_holding_rows", []),
+            "missing_holding_flags": match.get("missing_holding_flags", []),
+            "would_mark_holding": match.get("would_mark_holding", []),
+            "holding_eligible_count": len(eligible_holdings),
+            "holding_eligible_symbols": [_holding_symbol(row) for row in eligible_holdings if _holding_symbol(row)],
+            "market_count_raw": int(feed_report.get("market_count_raw") or 0),
+            "krw_market_count": int(feed_report.get("krw_market_count") or 0),
+            "ticker_count": int(feed_report.get("ticker_count") or 0),
+            "top_markets_count": int(feed_report.get("top_markets_count") or 0),
+            "candidate_count": len(candidates),
+            "pair_count": len(pairs),
+            "pairs": pairs,
+            "no_rotation_reason": no_rotation_reason,
+            "tooltip_samples": tooltip_samples,
+            "status_samples": status_samples,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "actual_order": False,
+            "rotation_execution": False,
+            "provider_external_call_count": 0,
+            "order_risk_detected": bool(order_risk),
+            "pass_status": "pass" if pass_status else "partial" if snapshot.get("holdings_fetch_success") else "fail",
+        }
+    )
+
+
 def _refine_live_rotation_no_reason(
     *,
     top_markets_count: int,
@@ -5853,6 +6174,8 @@ def run_harness(
         "managed-pool-promotion-policy-proof",
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
+        "holdings-to-managed-row-proof",
+        "rotation-eligibility-from-holdings-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
@@ -5876,6 +6199,12 @@ def run_harness(
         elif mode == "rotation-intent-live-candidate-feed-proof":
             _install_provider_post_guard(report)
             _run_rotation_intent_live_candidate_feed_proof(report, max_candidates=max_candidates)
+        elif mode == "holdings-to-managed-row-proof":
+            _install_provider_post_guard(report)
+            _run_holdings_to_managed_row_proof(report)
+        elif mode == "rotation-eligibility-from-holdings-proof":
+            _install_provider_post_guard(report)
+            _run_rotation_eligibility_from_holdings_proof(report, max_candidates=max_candidates)
         elif mode == "live-preflight-locked-proof":
             _run_live_preflight_locked_proof(report)
         elif mode == "live-one-shot-unlock-contract-proof":
@@ -6182,6 +6511,8 @@ def main() -> int:
             "rotation-intent-ux-proof",
             "rotation-intent-live-candidate-proof",
             "rotation-intent-live-candidate-feed-proof",
+            "holdings-to-managed-row-proof",
+            "rotation-eligibility-from-holdings-proof",
             "save-probe",
             "riskguard-proof",
             "riskguard-active-path-proof",

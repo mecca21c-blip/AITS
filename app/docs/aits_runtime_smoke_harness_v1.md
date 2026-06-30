@@ -222,6 +222,16 @@ printed to stdout.
   saved Managed Pool rows, builds proof-only candidates from the live top
   markets, and reports rotation intent pairs or a non-feed
   `no_rotation_reason`.
+- `holdings-to-managed-row-proof --observe-only` injects saved settings into
+  the read-only account service, calls the holdings snapshot path, compares
+  live holdings with saved Managed Pool rows, and reports matched rows,
+  missing holding flags, `would_mark_holding`, dust filtering, and
+  `managed_pool_mutation=false`.
+- `rotation-eligibility-from-holdings-proof --observe-only` combines the
+  holdings snapshot with public top-market candidates. It uses eligible
+  holding rows only in memory, never persists them, and reports whether
+  `no_holding_rows_for_rotation` becomes a score/condition reason or a
+  dust/min-value reason.
 - `managed-pool-auto-promotion-apply-proof --apply-add-only` is the only
   harness mode that may persist Managed Pool additions in this policy family.
   It must not remove existing rows, execute rotation, or exceed the configured

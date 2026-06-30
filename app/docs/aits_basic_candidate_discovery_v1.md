@@ -93,6 +93,14 @@ and `candidate_count`; if no rotation pair exists after that, the report should
 name a strategy/position reason such as `no_holding_rows_for_rotation`,
 `no_higher_score_candidate`, or `all_candidates_already_managed`.
 
+When live holdings are part of rotation proof, the candidate feed remains
+read-only and separate from holdings eligibility. `holdings-to-managed-row-proof`
+reports whether balances map to Managed Pool rows, while
+`rotation-eligibility-from-holdings-proof` combines those observed eligible
+holdings with public candidates in memory only. A balance below the current
+`5000 KRW` dust threshold should produce `holding_dust_filtered`, not
+`top_markets_empty`.
+
 ## Promotion Boundary
 
 Basic candidate promotion is defined in
