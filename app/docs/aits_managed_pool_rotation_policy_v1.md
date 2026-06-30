@@ -62,12 +62,25 @@ below `5000 KRW` evaluated value as dust for rotation eligibility. Dust
 holdings may still appear in `would_mark_holding`, but they do not become
 `rotate_out` candidates until a later Goal changes the minimum-value policy.
 
+Holding display and holding eligibility are separate policy states:
+
+- `holding_display=true`: a balance exists and the row may be shown as held,
+  including dust balances below `5000 KRW`.
+- `holding_eligible=true`: the evaluated value is at or above `5000 KRW` and
+  the holding may participate in rotation intent calculation.
+- Dust holdings are display-only. They should be described as `소액 보유` /
+  operation-excluded in tooltip or report payloads, are not auto-deleted, and
+  are not rotation candidates.
+- The live-trading minimum test amount remains `10000 KRW`; that is separate
+  from the `5000 KRW` dust-display threshold.
+
 `holdings-to-managed-row-proof --observe-only` reports current holdings,
-Managed Pool matches, missing holding flags, and `would_mark_holding` without
-persisting row changes. `rotation-eligibility-from-holdings-proof
---observe-only` then uses those observed eligible holdings in memory to verify
-whether rotation intent can be calculated. If all observed holdings are dust,
-the expected reason is `holding_dust_filtered`.
+Managed Pool matches, missing holding flags, `would_display_holding`,
+`would_mark_holding_eligible`, and tooltip samples without persisting row
+changes. `rotation-eligibility-from-holdings-proof --observe-only` then uses
+only observed eligible holdings in memory to verify whether rotation intent can
+be calculated. If all observed holdings are dust, the expected reason is
+`holding_dust_filtered`.
 
 ## Feed Dependency
 

@@ -101,6 +101,13 @@ holdings with public candidates in memory only. A balance below the current
 `5000 KRW` dust threshold should produce `holding_dust_filtered`, not
 `top_markets_empty`.
 
+Dust balances still count as display holdings. Reports separate
+`holding_display` from `holding_eligible`: a dust KRW-BTC balance may be shown
+as `소액 보유` in tooltip/status payloads, but it remains excluded from Basic
+rotation intent until its evaluated value reaches the `5000 KRW` eligibility
+threshold. This display policy does not change the `10000 KRW` minimum used for
+future live-trading tests.
+
 ## Promotion Boundary
 
 Basic candidate promotion is defined in

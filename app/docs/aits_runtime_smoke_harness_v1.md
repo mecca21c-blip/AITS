@@ -225,8 +225,11 @@ printed to stdout.
 - `holdings-to-managed-row-proof --observe-only` injects saved settings into
   the read-only account service, calls the holdings snapshot path, compares
   live holdings with saved Managed Pool rows, and reports matched rows,
-  missing holding flags, `would_mark_holding`, dust filtering, and
-  `managed_pool_mutation=false`.
+  missing holding flags, `would_mark_holding`, dust filtering,
+  `holding_display_count`, `holding_eligible_count`, `would_display_holding`,
+  `would_mark_holding_eligible`, tooltip samples, and
+  `managed_pool_mutation=false`. Dust balances below `5000 KRW` are display
+  holdings but not rotation-eligible holdings.
 - `rotation-eligibility-from-holdings-proof --observe-only` combines the
   holdings snapshot with public top-market candidates. It uses eligible
   holding rows only in memory, never persists them, and reports whether

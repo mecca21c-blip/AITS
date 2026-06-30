@@ -1091,8 +1091,14 @@ def _fetch_live_holdings_snapshot_readonly(*, min_value_krw: float = 5000.0) -> 
         "holdings_symbols": [],
         "holdings_value_krw": 0.0,
         "dust_filtered_symbols": [],
+        "display_holding_symbols": [],
+        "eligible_holding_symbols": [],
+        "dust_holding_symbols": [],
+        "holding_display_count": 0,
+        "holding_eligible_count": 0,
         "min_holding_value_krw": float(min_value_krw),
         "holdings": [],
+        "display_holdings": [],
         "eligible_holdings": [],
         "no_holding_reason": "",
         "exception_type": "",
@@ -1142,10 +1148,16 @@ def _fetch_live_holdings_snapshot_readonly(*, min_value_krw: float = 5000.0) -> 
             else:
                 eligible.append(clean)
         snapshot["holdings"] = holdings
+        snapshot["display_holdings"] = holdings
         snapshot["eligible_holdings"] = eligible
         snapshot["holdings_count"] = len(eligible)
         snapshot["holdings_raw_count"] = len(holdings)
         snapshot["holdings_symbols"] = [row["symbol"] for row in eligible]
+        snapshot["display_holding_symbols"] = [row["symbol"] for row in holdings]
+        snapshot["eligible_holding_symbols"] = [row["symbol"] for row in eligible]
+        snapshot["dust_holding_symbols"] = list(dust_symbols)
+        snapshot["holding_display_count"] = len(holdings)
+        snapshot["holding_eligible_count"] = len(eligible)
         snapshot["holdings_value_krw"] = round(sum(_safe_float(row.get("eval_krw"), 0.0) for row in holdings), 4)
         snapshot["dust_filtered_symbols"] = dust_symbols
         if not holdings:
@@ -1160,24 +1172,97 @@ def _fetch_live_holdings_snapshot_readonly(*, min_value_krw: float = 5000.0) -> 
     return snapshot
 
 
+def _holding_display_reason(
+    holding: dict[str, Any],
+    *,
+    min_value_krw: float,
+) -> str:
+    if bool(holding.get("dust")):
+        return "balance_exists_dust_display_only"
+    if _safe_float(holding.get("eval_krw"), 0.0) >= float(min_value_krw):
+        return "balance_exists_rotation_eligible"
+    return "balance_exists_display_only"
+
+
+def _holding_display_status(
+    holding: dict[str, Any],
+    *,
+    min_value_krw: float,
+) -> str:
+    return "소액 보유" if _holding_display_reason(holding, min_value_krw=min_value_krw) == "balance_exists_dust_display_only" else "보유중"
+
+
+def _holding_display_tooltip_sample(
+    holding: dict[str, Any],
+    *,
+    min_value_krw: float,
+) -> str:
+    symbol = _holding_symbol(holding) or "-"
+    eval_krw = _safe_float(holding.get("eval_krw"), 0.0)
+    status = _holding_display_status(holding, min_value_krw=min_value_krw)
+    eligible = eval_krw >= float(min_value_krw) and not bool(holding.get("dust"))
+    operation_line = "운용 판정: rotation 대상" if eligible else "운용 판정: dust 기준 미만으로 로테이션 제외"
+    return "\n".join(
+        [
+            f"종목: {symbol}",
+            f"상태: {status}",
+            f"평가액: {eval_krw:,.0f}원",
+            "보유 판정: 잔고 있음",
+            operation_line,
+            f"기준: {float(min_value_krw):,.0f}원 미만은 소액 잔고로 분류",
+            "실행: 주문 없음 / 표시만",
+        ]
+    )
+
+
 def _match_holdings_to_managed_rows(
     managed_rows: list[dict[str, Any]],
     holdings: list[dict[str, Any]],
+    *,
+    min_value_krw: float = 5000.0,
 ) -> dict[str, Any]:
     managed_by_symbol = {_row_symbol(row): dict(row) for row in managed_rows if _row_symbol(row)}
     matched: list[dict[str, Any]] = []
     missing_flags: list[dict[str, Any]] = []
     would_mark: list[dict[str, Any]] = []
+    would_display: list[dict[str, Any]] = []
+    would_mark_eligible: list[dict[str, Any]] = []
     for holding in holdings:
         symbol = _holding_symbol(holding)
+        eval_krw = _safe_float(holding.get("eval_krw"), 0.0)
+        qty = _safe_float(holding.get("qty"), 0.0)
+        display_reason = _holding_display_reason(holding, min_value_krw=min_value_krw)
+        is_eligible = display_reason == "balance_exists_rotation_eligible"
+        if symbol:
+            would_display.append(
+                {
+                    "symbol": symbol,
+                    "holding_display": True,
+                    "holding_eligible": bool(is_eligible),
+                    "reason": display_reason,
+                    "qty": qty,
+                    "eval_krw": eval_krw,
+                    "mutation_performed": False,
+                }
+            )
+            if is_eligible:
+                would_mark_eligible.append(
+                    {
+                        "symbol": symbol,
+                        "reason": "would_set_holding_eligible_true_read_only",
+                        "qty": qty,
+                        "eval_krw": eval_krw,
+                        "mutation_performed": False,
+                    }
+                )
         row = managed_by_symbol.get(symbol)
         if not row:
             would_mark.append(
                 {
                     "symbol": symbol,
                     "reason": "holding_not_in_managed_pool",
-                    "qty": _safe_float(holding.get("qty"), 0.0),
-                    "eval_krw": _safe_float(holding.get("eval_krw"), 0.0),
+                    "qty": qty,
+                    "eval_krw": eval_krw,
                     "mutation_performed": False,
                 }
             )
@@ -1186,9 +1271,12 @@ def _match_holdings_to_managed_rows(
         item = {
             "symbol": symbol,
             "row_holding": bool(row_holding),
-            "qty": _safe_float(holding.get("qty"), 0.0),
-            "eval_krw": _safe_float(holding.get("eval_krw"), 0.0),
+            "holding_display": True,
+            "holding_eligible": bool(is_eligible),
+            "qty": qty,
+            "eval_krw": eval_krw,
             "source_type": row.get("source_type") or row.get("source") or "",
+            "display_reason": display_reason,
         }
         matched.append(item)
         if not row_holding:
@@ -1213,6 +1301,8 @@ def _match_holdings_to_managed_rows(
         "matched_holding_rows": matched,
         "missing_holding_flags": missing_flags,
         "would_mark_holding": would_mark,
+        "would_display_holding": would_display,
+        "would_mark_holding_eligible": would_mark_eligible,
     }
 
 
@@ -1241,10 +1331,14 @@ def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
     managed_rows = _load_saved_managed_pool_rows_readonly()
     snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
     holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
-    match = _match_holdings_to_managed_rows(managed_rows, holdings_all)
+    match = _match_holdings_to_managed_rows(managed_rows, holdings_all, min_value_krw=min_value_krw)
     no_holding_reason = str(snapshot.get("no_holding_reason") or "")
     if holdings_all and match.get("would_mark_holding"):
         no_holding_reason = no_holding_reason or "managed_row_holding_flag_missing"
+    tooltip_samples = [
+        _holding_display_tooltip_sample(row, min_value_krw=min_value_krw)
+        for row in holdings_all[:3]
+    ]
     report.update(
         {
             "holdings_snapshot_supported": bool(snapshot.get("holdings_snapshot_supported")),
@@ -1253,6 +1347,18 @@ def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
             "holdings_count": int(snapshot.get("holdings_count") or 0),
             "holdings_raw_count": int(snapshot.get("holdings_raw_count") or 0),
             "holdings_symbols": snapshot.get("holdings_symbols") or [],
+            "display_holding_symbols": snapshot.get("display_holding_symbols") or [],
+            "eligible_holding_symbols": snapshot.get("eligible_holding_symbols") or [],
+            "dust_holding_symbols": snapshot.get("dust_holding_symbols") or snapshot.get("dust_filtered_symbols") or [],
+            "holding_display_count": int(snapshot.get("holding_display_count") or 0),
+            "holding_eligible_count": int(snapshot.get("holding_eligible_count") or 0),
+            "display_vs_eligible_policy": {
+                "holding_display": "balance_exists_even_when_dust",
+                "holding_eligible": "eval_krw_at_or_above_min_holding_value",
+                "dust_policy": "display_only_not_rotation_eligible",
+                "min_holding_value_krw": min_value_krw,
+                "future_live_test_min_krw": 10000,
+            },
             "holdings_value_krw": snapshot.get("holdings_value_krw", 0.0),
             "dust_filtered_symbols": snapshot.get("dust_filtered_symbols") or [],
             "min_holding_value_krw": min_value_krw,
@@ -1261,6 +1367,9 @@ def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
             "matched_holding_rows": match.get("matched_holding_rows", []),
             "missing_holding_flags": match.get("missing_holding_flags", []),
             "would_mark_holding": match.get("would_mark_holding", []),
+            "would_display_holding": match.get("would_display_holding", []),
+            "would_mark_holding_eligible": match.get("would_mark_holding_eligible", []),
+            "tooltip_samples": tooltip_samples,
             "no_holding_reason": no_holding_reason,
             "managed_pool_mutation": False,
             "managed_pool_mutation_performed": False,
@@ -1296,7 +1405,7 @@ def _run_rotation_eligibility_from_holdings_proof(
     snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
     eligible_holdings = [row for row in (snapshot.get("eligible_holdings") or []) if isinstance(row, dict)]
     holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
-    match = _match_holdings_to_managed_rows(managed_rows, holdings_all)
+    match = _match_holdings_to_managed_rows(managed_rows, holdings_all, min_value_krw=min_value_krw)
     effective_rows = _managed_rows_with_observed_holdings(managed_rows, eligible_holdings)
     feed_report: dict[str, Any] = {}
     _run_top_markets_feed_proof(feed_report, max_markets=max_candidates)
@@ -1334,6 +1443,10 @@ def _run_rotation_eligibility_from_holdings_proof(
             feed_empty_reason=str(feed_report.get("empty_reason") or ""),
         )
     tooltip_samples = [_rotation_tooltip_sample(pair, role="rotate_out") for pair in pairs[:2]]
+    holding_tooltip_samples = [
+        _holding_display_tooltip_sample(row, min_value_krw=min_value_krw)
+        for row in holdings_all[:2]
+    ]
     status_samples = [_rotation_status_sample(pair, role="rotate_out") for pair in pairs[:2]]
     order_risk = any(bool(pair.get("actual_order")) or bool(pair.get("order_execution")) for pair in pairs)
     pass_status = (
@@ -1353,6 +1466,18 @@ def _run_rotation_eligibility_from_holdings_proof(
             "holdings_raw_count": int(snapshot.get("holdings_raw_count") or 0),
             "holdings_count": int(snapshot.get("holdings_count") or 0),
             "holdings_symbols": snapshot.get("holdings_symbols") or [],
+            "display_holding_symbols": snapshot.get("display_holding_symbols") or [],
+            "eligible_holding_symbols": snapshot.get("eligible_holding_symbols") or [],
+            "dust_holding_symbols": snapshot.get("dust_holding_symbols") or snapshot.get("dust_filtered_symbols") or [],
+            "holding_display_count": int(snapshot.get("holding_display_count") or 0),
+            "holding_eligible_count": int(snapshot.get("holding_eligible_count") or 0),
+            "display_vs_eligible_policy": {
+                "holding_display": "balance_exists_even_when_dust",
+                "holding_eligible": "eval_krw_at_or_above_min_holding_value",
+                "dust_policy": "display_only_not_rotation_eligible",
+                "min_holding_value_krw": min_value_krw,
+                "future_live_test_min_krw": 10000,
+            },
             "holdings_value_krw": snapshot.get("holdings_value_krw", 0.0),
             "dust_filtered_symbols": snapshot.get("dust_filtered_symbols") or [],
             "min_holding_value_krw": min_value_krw,
@@ -1361,8 +1486,8 @@ def _run_rotation_eligibility_from_holdings_proof(
             "matched_holding_rows": match.get("matched_holding_rows", []),
             "missing_holding_flags": match.get("missing_holding_flags", []),
             "would_mark_holding": match.get("would_mark_holding", []),
-            "holding_eligible_count": len(eligible_holdings),
-            "holding_eligible_symbols": [_holding_symbol(row) for row in eligible_holdings if _holding_symbol(row)],
+            "would_display_holding": match.get("would_display_holding", []),
+            "would_mark_holding_eligible": match.get("would_mark_holding_eligible", []),
             "market_count_raw": int(feed_report.get("market_count_raw") or 0),
             "krw_market_count": int(feed_report.get("krw_market_count") or 0),
             "ticker_count": int(feed_report.get("ticker_count") or 0),
@@ -1372,6 +1497,7 @@ def _run_rotation_eligibility_from_holdings_proof(
             "pairs": pairs,
             "no_rotation_reason": no_rotation_reason,
             "tooltip_samples": tooltip_samples,
+            "holding_tooltip_samples": holding_tooltip_samples,
             "status_samples": status_samples,
             "managed_pool_mutation": False,
             "managed_pool_mutation_performed": False,
