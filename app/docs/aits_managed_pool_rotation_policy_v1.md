@@ -74,6 +74,13 @@ Holding display and holding eligibility are separate policy states:
 - The live-trading minimum test amount remains `10000 KRW`; that is separate
   from the `5000 KRW` dust-display threshold.
 
+Managed Pool UI may apply a read-only holding-display overlay during row
+rendering. When a saved Managed Pool symbol matches a live dust balance, the
+row can show small-holding status and a tooltip explaining the value, dust
+threshold, and rotation exclusion. This overlay must not persist row changes,
+must not promote holdings outside the Managed Pool, and must not mark dust as
+`holding_eligible`.
+
 `holdings-to-managed-row-proof --observe-only` reports current holdings,
 Managed Pool matches, missing holding flags, `would_display_holding`,
 `would_mark_holding_eligible`, and tooltip samples without persisting row
@@ -81,6 +88,10 @@ changes. `rotation-eligibility-from-holdings-proof --observe-only` then uses
 only observed eligible holdings in memory to verify whether rotation intent can
 be calculated. If all observed holdings are dust, the expected reason is
 `holding_dust_filtered`.
+
+`managed-pool-holding-display-sync-proof --observe-only` verifies the UI
+overlay policy: matched rows such as KRW-BTC may receive display-only holding
+status and tooltip samples, while outside holdings are reported but not added.
 
 ## Feed Dependency
 

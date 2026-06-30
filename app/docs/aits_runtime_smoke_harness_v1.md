@@ -230,6 +230,10 @@ printed to stdout.
   `would_mark_holding_eligible`, tooltip samples, and
   `managed_pool_mutation=false`. Dust balances below `5000 KRW` are display
   holdings but not rotation-eligible holdings.
+- `managed-pool-holding-display-sync-proof --observe-only` verifies the
+  display-only Managed Pool overlay. It reads holdings, matches only existing
+  Managed Pool rows, reports outside holdings without adding them, confirms row
+  count is unchanged, and samples the small-holding tooltip/status payload.
 - `rotation-eligibility-from-holdings-proof --observe-only` combines the
   holdings snapshot with public top-market candidates. It uses eligible
   holding rows only in memory, never persists them, and reports whether

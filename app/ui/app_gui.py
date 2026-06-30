@@ -35520,6 +35520,104 @@ class MainWindow(QMainWindow):
         except Exception:
             return "?? ??"
 
+    def _build_managed_pool_holding_display_overlay(self, holdings: list, *, min_value_krw: float = 5000.0) -> dict:
+        overlay: dict[str, dict] = {}
+        try:
+            for item in holdings or []:
+                if not isinstance(item, dict):
+                    continue
+                symbol = str(item.get("symbol") or item.get("market") or "").strip().upper()
+                if not symbol:
+                    currency = str(item.get("currency") or "").strip().upper()
+                    if currency and currency != "KRW":
+                        symbol = currency if currency.startswith("KRW-") else f"KRW-{currency}"
+                if not symbol:
+                    continue
+                try:
+                    qty = float(item.get("qty") or item.get("quantity") or item.get("balance") or 0.0)
+                except Exception:
+                    qty = 0.0
+                try:
+                    eval_krw = float(item.get("eval_krw") or item.get("value_krw") or item.get("position_krw") or 0.0)
+                except Exception:
+                    eval_krw = 0.0
+                if qty <= 0.0:
+                    continue
+                dust = bool(eval_krw < float(min_value_krw))
+                eligible = bool(eval_krw >= float(min_value_krw))
+                overlay[symbol] = {
+                    "symbol": symbol,
+                    "holding_display": True,
+                    "holding_eligible": eligible,
+                    "dust_holding": dust,
+                    "status": "\uc18c\uc561 \ubcf4\uc720" if dust else "\ubcf4\uc720\uc911",
+                    "status_hint": "\uc6b4\uc6a9 \uc81c\uc678" if dust else "\ub85c\ud14c\uc774\uc158 \uac80\ud1a0 \uac00\ub2a5",
+                    "reason": "holding_dust_filtered" if dust else "holding_rotation_eligible",
+                    "qty": qty,
+                    "eval_krw": eval_krw,
+                    "min_value_krw": float(min_value_krw),
+                    "source": "live_holdings_display_overlay",
+                }
+        except Exception:
+            return {}
+        return overlay
+
+    def _refresh_managed_pool_holding_display_overlay(self, *, force: bool = False) -> dict:
+        now = time.time()
+        try:
+            cached = getattr(self, "_aits_last_holding_display_overlay", None)
+            ts = float(getattr(self, "_aits_last_holding_display_overlay_ts", 0.0) or 0.0)
+            if not force and isinstance(cached, dict) and now - ts < 60.0:
+                return cached
+        except Exception:
+            pass
+        overlay: dict = {}
+        try:
+            from app.services.holdings_service import fetch_live_holdings
+            from app.services.order_service import svc_order
+            from app.utils.prefs import load_settings
+
+            try:
+                svc_order.set_settings(load_settings())
+            except Exception:
+                pass
+            data = fetch_live_holdings(force=True)
+            items = [dict(item) for item in ((data or {}).get("items") or []) if isinstance(item, dict)] if isinstance(data, dict) and data.get("ok") else []
+            overlay = self._build_managed_pool_holding_display_overlay(items, min_value_krw=5000.0)
+        except Exception:
+            overlay = {}
+        try:
+            self._aits_last_holding_display_overlay = dict(overlay)
+            self._aits_last_holding_display_overlay_ts = float(now)
+        except Exception:
+            pass
+        return overlay
+
+    def _format_managed_pool_holding_display_tooltip(self, overlay: dict) -> list[str]:
+        if not isinstance(overlay, dict) or not overlay.get("holding_display"):
+            return []
+        try:
+            eval_krw = float(overlay.get("eval_krw") or 0.0)
+        except Exception:
+            eval_krw = 0.0
+        try:
+            min_value = float(overlay.get("min_value_krw") or 5000.0)
+        except Exception:
+            min_value = 5000.0
+        status = str(overlay.get("status") or ("\uc18c\uc561 \ubcf4\uc720" if overlay.get("dust_holding") else "\ubcf4\uc720\uc911"))
+        lines = [
+            f"\uc0c1\ud0dc: {status}",
+            f"\ud3c9\uac00\uc561: {eval_krw:,.0f}\uc6d0",
+            "\ubcf4\uc720 \ud310\uc815: \uc794\uace0 \uc788\uc74c",
+        ]
+        if bool(overlay.get("holding_eligible")):
+            lines.append("\uc6b4\uc6a9 \ud310\uc815: rotation \ub300\uc0c1")
+        else:
+            lines.append("\uc6b4\uc6a9 \ud310\uc815: dust \uae30\uc900 \ubbf8\ub9cc\uc73c\ub85c \ub85c\ud14c\uc774\uc158 \uc81c\uc678")
+        lines.append(f"\uae30\uc900: {min_value:,.0f}\uc6d0 \ubbf8\ub9cc\uc740 \uc18c\uc561 \uc794\uace0\ub85c \ubd84\ub958")
+        lines.append("\uc2e4\ud589: \uc8fc\ubb38 \uc5c6\uc74c / \ud45c\uc2dc\ub9cc")
+        return lines
+
     def _build_ai_managed_row_tooltip(
         self,
         row: dict,
@@ -35543,6 +35641,9 @@ class MainWindow(QMainWindow):
                 lines.append(f"상태: {str(status_text).strip()}")
             if score_text:
                 lines.append(f"AITS 점수: {str(score_text).strip()}")
+            holding_overlay = row.get("_holding_display_overlay") if isinstance(row.get("_holding_display_overlay"), dict) else {}
+            if holding_overlay:
+                lines.extend(self._format_managed_pool_holding_display_tooltip(holding_overlay))
             reason_values = []
             for key in (
                 "ai_review_queue_reason",
@@ -35629,6 +35730,7 @@ class MainWindow(QMainWindow):
             return
         tooltip_applied_count = 0
         tooltip_samples: list[str] = []
+        holding_display_overlay = self._refresh_managed_pool_holding_display_overlay()
         for i in range(rc):
             if i >= len(rows):
                 break
@@ -35644,28 +35746,39 @@ class MainWindow(QMainWindow):
             ).strip()
             if not raw_symbol:
                 continue
+            normalized_symbol = raw_symbol.upper().strip()
+            if normalized_symbol and "-" not in normalized_symbol:
+                normalized_symbol = f"KRW-{normalized_symbol}"
+            row_for_display = dict(row)
+            holding_overlay = holding_display_overlay.get(normalized_symbol) if isinstance(holding_display_overlay, dict) else None
+            if isinstance(holding_overlay, dict) and holding_overlay.get("holding_display"):
+                row_for_display["_holding_display_overlay"] = dict(holding_overlay)
             key = raw_symbol.replace("KRW-", "").upper().strip()
             lab = self._aits_symbol_label(raw_symbol)
             parts = str(lab or "").strip().split()
             title = parts[0] if parts else key
-            korean = self._get_managed_korean_name(row)
-            sc_txt = self._get_ai_confidence(row)
+            korean = self._get_managed_korean_name(row_for_display)
+            sc_txt = self._get_ai_confidence(row_for_display)
             try:
                 score = int(float(str(sc_txt).replace("%", "")))
             except Exception:
                 score = 0
-            st_main, st_kind = self._managed_status_build04(row)
-            ai_review_sla = self._sync_managed_pool_ai_review_sla_state(row, log=True)
-            status_sub_text = str(row.get("ai_review_queue_reason") or ai_review_sla.get("label") or "")
+            st_main, st_kind = self._managed_status_build04(row_for_display)
+            ai_review_sla = self._sync_managed_pool_ai_review_sla_state(row_for_display, log=True)
+            status_sub_text = str(row_for_display.get("ai_review_queue_reason") or ai_review_sla.get("label") or "")
+            if isinstance(holding_overlay, dict) and holding_overlay.get("holding_display"):
+                st_main = str(holding_overlay.get("status") or st_main or "")
+                status_sub_text = str(holding_overlay.get("status_hint") or status_sub_text or "")
+                st_kind = "watch"
             rotation_intent = self._get_ai_managed_rotation_intent_for_symbol(raw_symbol)
             rotation_status_hint = self._format_ai_managed_rotation_status_hint(rotation_intent)
             if rotation_status_hint:
                 status_sub_text = rotation_status_hint
             wg_txt = self._format_managed_weight_goal_text(
-                self._format_ai_managed_position_weight_line(row),
-                self._get_managed_target_weight(row),
+                self._format_ai_managed_position_weight_line(row_for_display),
+                self._get_managed_target_weight(row_for_display),
             )
-            origin_code = self._get_managed_origin_code(row)
+            origin_code = self._get_managed_origin_code(row_for_display)
             try:
                 rb = _AitsManagedRankBadge(int(i) + 1, t)
                 t.setCellWidget(
@@ -35810,7 +35923,7 @@ class MainWindow(QMainWindow):
                 pass
             try:
                 tooltip_text = self._build_ai_managed_row_tooltip(
-                    row,
+                    row_for_display,
                     status_text=str(st_main or ""),
                     score_text=str(score),
                     status_reason=status_sub_text,

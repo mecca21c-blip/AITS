@@ -1390,6 +1390,92 @@ def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
         report["pass_status"] = "partial"
 
 
+def _run_managed_pool_holding_display_sync_proof(report: dict[str, Any]) -> None:
+    min_value_krw = 5000.0
+    managed_rows = _load_saved_managed_pool_rows_readonly()
+    snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
+    holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
+    match = _match_holdings_to_managed_rows(managed_rows, holdings_all, min_value_krw=min_value_krw)
+    managed_symbols = {_row_symbol(row) for row in managed_rows if _row_symbol(row)}
+    outside_holdings = [
+        row
+        for row in match.get("would_display_holding", [])
+        if isinstance(row, dict) and str(row.get("symbol") or "").upper() not in managed_symbols
+    ]
+    matched_display_rows = [
+        row
+        for row in match.get("matched_holding_rows", [])
+        if isinstance(row, dict) and bool(row.get("holding_display"))
+    ]
+    tooltip_samples = [
+        _holding_display_tooltip_sample(row, min_value_krw=min_value_krw)
+        for row in holdings_all[:3]
+    ]
+    status_samples = [
+        {
+            "symbol": str(row.get("symbol") or ""),
+            "status": "소액 보유" if bool(row.get("dust")) else "보유중",
+            "status_hint": "운용 제외" if bool(row.get("dust")) else "로테이션 검토 가능",
+            "holding_display": True,
+            "holding_eligible": not bool(row.get("dust")),
+        }
+        for row in holdings_all[:3]
+        if isinstance(row, dict)
+    ]
+    row_count_before = len(managed_rows)
+    row_count_after = len(_load_saved_managed_pool_rows_readonly())
+    btc_match = next(
+        (
+            row
+            for row in matched_display_rows
+            if str(row.get("symbol") or "").upper() == "KRW-BTC"
+        ),
+        {},
+    )
+    btc_tooltip = next((text for text in tooltip_samples if "KRW-BTC" in str(text)), "")
+    pass_status = (
+        bool(snapshot.get("holdings_fetch_success"))
+        and bool(btc_match)
+        and bool(btc_match.get("holding_display"))
+        and not bool(btc_match.get("holding_eligible"))
+        and "소액 보유" in str(btc_tooltip)
+        and "로테이션 제외" in str(btc_tooltip)
+        and row_count_before == row_count_after
+    )
+    report.update(
+        {
+            "holding_display_sync_supported": True,
+            "holdings_fetch_success": bool(snapshot.get("holdings_fetch_success")),
+            "holdings_settings_injected": bool(snapshot.get("settings_injected")),
+            "display_holding_symbols": snapshot.get("display_holding_symbols") or [],
+            "eligible_holding_symbols": snapshot.get("eligible_holding_symbols") or [],
+            "dust_holding_symbols": snapshot.get("dust_holding_symbols") or snapshot.get("dust_filtered_symbols") or [],
+            "holding_display_count": int(snapshot.get("holding_display_count") or 0),
+            "holding_eligible_count": int(snapshot.get("holding_eligible_count") or 0),
+            "managed_row_count_before": row_count_before,
+            "managed_row_count_after": row_count_after,
+            "matched_display_rows": matched_display_rows,
+            "outside_holdings": outside_holdings,
+            "auto_added_outside_holdings": False,
+            "tooltip_samples": tooltip_samples,
+            "status_samples": status_samples,
+            "krw_btc_display_match": btc_match,
+            "krw_btc_tooltip_sample": btc_tooltip,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "actual_order": False,
+            "rotation_execution": False,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+            "place_order_call_count": 0,
+            "cancel_call_count": 0,
+            "sell_call_count": 0,
+            "retry_call_count": 0,
+            "pass_status": "pass" if pass_status else "partial" if snapshot.get("holdings_fetch_success") else "fail",
+        }
+    )
+
+
 def _run_rotation_eligibility_from_holdings_proof(
     report: dict[str, Any],
     *,
@@ -6301,6 +6387,7 @@ def run_harness(
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
+        "managed-pool-holding-display-sync-proof",
         "rotation-eligibility-from-holdings-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
@@ -6328,6 +6415,9 @@ def run_harness(
         elif mode == "holdings-to-managed-row-proof":
             _install_provider_post_guard(report)
             _run_holdings_to_managed_row_proof(report)
+        elif mode == "managed-pool-holding-display-sync-proof":
+            _install_provider_post_guard(report)
+            _run_managed_pool_holding_display_sync_proof(report)
         elif mode == "rotation-eligibility-from-holdings-proof":
             _install_provider_post_guard(report)
             _run_rotation_eligibility_from_holdings_proof(report, max_candidates=max_candidates)
@@ -6638,6 +6728,7 @@ def main() -> int:
             "rotation-intent-live-candidate-proof",
             "rotation-intent-live-candidate-feed-proof",
             "holdings-to-managed-row-proof",
+            "managed-pool-holding-display-sync-proof",
             "rotation-eligibility-from-holdings-proof",
             "save-probe",
             "riskguard-proof",

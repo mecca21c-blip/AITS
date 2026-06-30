@@ -108,6 +108,11 @@ rotation intent until its evaluated value reaches the `5000 KRW` eligibility
 threshold. This display policy does not change the `10000 KRW` minimum used for
 future live-trading tests.
 
+The Managed Pool display overlay is also read-only. Existing Managed Pool rows
+may show the live holding display state, but holdings outside the pool are not
+auto-promoted by the overlay and Basic candidate promotion remains the only
+managed-pool addition path in this policy family.
+
 ## Promotion Boundary
 
 Basic candidate promotion is defined in
