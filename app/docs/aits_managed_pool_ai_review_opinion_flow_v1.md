@@ -155,6 +155,25 @@ This is display normalization only. It does not change the provider payload
 schema, freshness decision ownership, Managed Pool persistence, DecisionRouter
 final action, or any execution path.
 
+### GPT Actual Manual Refresh Reason Consistency Proof
+
+The actual GPT manual refresh proof uses the same
+`managed_pool_ai_opinion_request_v1` dedicated payload path as the manual
+Managed Pool refresh flow. The proof is limited to one provider generation call
+with `--max-provider-calls 1` and normalizes the response into
+`managed_pool_ai_opinion_v1` before applying the display-only overlay.
+
+For fresh manual refresh overlays, the report must show
+`freshness=fresh_manual_refresh`, `reason_consistent_with_freshness=true`,
+`stale_reason_leaked=false`, `stale_next_action_leaked=false`, and
+`fresh_tooltip_stale_phrase_found=false`. The tooltip sample must not expose
+manual-required or stale-analysis fallback phrases as the user-facing reason or
+next action.
+
+This proof is provider-call validation only. It keeps `order_execution=false`,
+`actual_order=false`, `final_action_unchanged=true`, and
+`managed_pool_mutation=false`.
+
 ## Manual Refresh Target Symbol E2E
 
 Manual Managed Pool AI refresh must preserve the selected row symbol through the

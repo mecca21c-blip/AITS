@@ -904,6 +904,17 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-r
 
 PASS requires `dedicated_payload_used=true`, `payload_schema=managed_pool_ai_opinion_request_v1`, a normalized opinion payload, overlay application, `order_execution=false`, `final_action_unchanged=true`, `actual_order=false`, `managed_pool_mutation=false`, and `order_risk_detected=false`. LOCAL proof keeps provider calls at `0`; GPT/Gemini proof requires the explicit provider-call flag and a call budget of `<= 1`.
 
+The GPT actual-call variant also verifies the fresh reason consistency guard.
+For a successful manual refresh overlay, the report records
+`freshness=fresh_manual_refresh`, `reason_consistent_with_freshness=true`,
+`stale_reason_leaked=false`, `stale_next_action_leaked=false`,
+`stale_reason_replaced`, and `fresh_tooltip_stale_phrase_found=false`.
+The fresh overlay tooltip sample is scanned for stale/manual-required phrases
+such as manual-required, analysis-required, and new-analysis-recommended copy.
+The proof remains display-only and must keep `order_execution=false`,
+`final_action_unchanged=true`, `actual_order=false`, and
+`managed_pool_mutation=false`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed
