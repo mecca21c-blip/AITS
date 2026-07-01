@@ -188,6 +188,26 @@ opinion, freshness, DecisionRouter final action, order execution, or Managed
 Pool persistence. LOCAL/observe-only refreshes may report
 `local_provider_no_external_usage` as the metadata missing reason.
 
+## Manual Refresh Metadata Audit
+
+Manual Managed Pool GPT/Gemini refresh metadata is exposed through a read-only
+audit/report payload, not through the user tooltip. The audit schema is
+`managed_pool_ai_opinion_audit_v1`.
+
+Audit fields include `target_symbol`, `provider`, `source=manual_ai_refresh`,
+`request_id`, `response_id`, `response_confirmed`, `token_usage`
+(`input_tokens`, `output_tokens`, `total_tokens`),
+`provider_external_call_count`, `payload_schema`, `opinion_schema`, and safety
+flags for `order_execution`, `final_action_unchanged`, `actual_order`,
+`managed_pool_mutation`, `tooltip_exposes_token_usage`, `raw_payload_logged`,
+`raw_response_logged`, and `secret_logged`.
+
+The audit path is for development validation and cost tracing only. It must not
+change the opinion payload meaning, freshness decision, row persistence,
+DecisionRouter final action, or order execution. Tooltips continue to show only
+the user-facing opinion, reason, next action, freshness label, request id, and
+safety copy; token usage remains report-only.
+
 ## Manual Refresh Target Symbol E2E
 
 Manual Managed Pool AI refresh must preserve the selected row symbol through the

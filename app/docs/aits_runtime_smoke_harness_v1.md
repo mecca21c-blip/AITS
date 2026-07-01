@@ -923,6 +923,29 @@ the metadata follow-up requires `response_metadata_extracted=true`,
 `tooltip_exposes_token_usage=false`. LOCAL observe-only proof may leave response
 metadata absent and should report a clear non-external-provider reason.
 
+### managed-pool-manual-refresh-metadata-audit-proof
+
+`managed-pool-manual-refresh-metadata-audit-proof` verifies the read-only audit
+path for manual Managed Pool GPT/Gemini refresh metadata. It reuses the
+dedicated manual refresh opinion flow, then emits a
+`managed_pool_ai_opinion_audit_v1` payload for validation and cost tracking.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-refresh-metadata-audit-proof --provider local --target-symbol KRW-ETH --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-refresh-metadata-audit-proof --provider gpt --target-symbol KRW-ETH --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
+```
+
+The audit payload includes `target_symbol`, `provider`, `request_id`,
+`response_id`, `response_confirmed`, token counts, provider call count, request
+schema, opinion schema, and safety flags. It must not include raw prompts, raw
+provider responses, API keys, or secret bodies. PASS for GPT/Gemini requires
+`response_id_present=true`, `token_usage_present=true`,
+`provider_external_call_count<=1`, `tooltip_exposes_token_usage=false`,
+`raw_payload_logged=false`, `raw_response_logged=false`, `secret_logged=false`,
+`order_execution=false`, `final_action_unchanged=true`, `actual_order=false`,
+and `managed_pool_mutation=false`. LOCAL observe-only proof emits the same audit
+schema with safe null response metadata and provider calls fixed at `0`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

@@ -3411,6 +3411,78 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
     report.update(_tooltip_html_card_proof(str(tooltip_sample or "")))
 
 
+def _apply_managed_pool_manual_refresh_metadata_audit_report(report: dict[str, Any]) -> None:
+    token_usage = report.get("token_usage") if isinstance(report.get("token_usage"), dict) else {}
+    if not token_usage:
+        token_usage = {
+            "input_tokens": report.get("usage_input_tokens"),
+            "output_tokens": report.get("usage_output_tokens"),
+            "total_tokens": report.get("usage_total_tokens"),
+        }
+    tooltip_exposes_token_usage = bool(report.get("tooltip_exposes_token_usage"))
+    audit_payload = {
+        "schema": "managed_pool_ai_opinion_audit_v1",
+        "event_time": _now_iso(),
+        "target_symbol": str(report.get("target_symbol") or ""),
+        "provider": str(report.get("provider") or ""),
+        "source": "manual_ai_refresh",
+        "request_id": str(report.get("request_id") or ""),
+        "response_id": str(report.get("response_id") or ""),
+        "response_confirmed": bool(report.get("response_confirmed")),
+        "token_usage": {
+            "input_tokens": token_usage.get("input_tokens"),
+            "output_tokens": token_usage.get("output_tokens"),
+            "total_tokens": token_usage.get("total_tokens"),
+        },
+        "provider_external_call_count": int(report.get("provider_external_call_count") or 0),
+        "payload_schema": str(report.get("payload_schema") or ""),
+        "opinion_schema": str((report.get("normalized_opinion") or {}).get("schema") or "managed_pool_ai_opinion_v1"),
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+        "managed_pool_mutation": False,
+        "tooltip_exposes_token_usage": tooltip_exposes_token_usage,
+        "raw_payload_logged": False,
+        "raw_response_logged": False,
+        "secret_logged": False,
+    }
+    provider = str(report.get("provider") or "").strip().lower()
+    external_provider = provider in {"gpt", "gemini"}
+    metadata_ok = bool(report.get("response_id_present")) and bool(report.get("token_usage_present"))
+    base_safe = (
+        not tooltip_exposes_token_usage
+        and not bool(report.get("order_execution"))
+        and bool(report.get("final_action_unchanged", True))
+        and not bool(report.get("actual_order"))
+        and not bool(report.get("managed_pool_mutation"))
+    )
+    if external_provider:
+        pass_status = "pass" if (
+            base_safe
+            and bool(report.get("response_confirmed"))
+            and metadata_ok
+            and int(report.get("provider_external_call_count") or 0) <= 1
+        ) else "partial"
+    else:
+        pass_status = "pass" if base_safe and audit_payload["provider_external_call_count"] == 0 else "partial"
+    report.update({
+        "mode": "managed-pool-manual-refresh-metadata-audit-proof",
+        "metadata_audit_supported": True,
+        "audit_schema": "managed_pool_ai_opinion_audit_v1",
+        "audit_payload": audit_payload,
+        "raw_payload_logged": False,
+        "raw_response_logged": False,
+        "secret_logged": False,
+        "audit_summary_text": (
+            f"{audit_payload['provider']} {audit_payload['target_symbol']} "
+            f"response_id_present={bool(report.get('response_id_present'))} "
+            f"token_usage_present={bool(report.get('token_usage_present'))} "
+            "tooltip_usage=false"
+        ),
+        "pass_status": pass_status,
+    })
+
+
 def _run_manual_ai_refresh_target_symbol_e2e_proof(
     app: Any,
     window: Any,
@@ -8662,6 +8734,19 @@ def run_harness(
             allow_provider_calls=allow_provider_calls,
             max_provider_calls=max_provider_calls,
         )
+    elif mode == "managed-pool-manual-refresh-metadata-audit-proof":
+        if not allow_provider_calls:
+            _install_provider_post_guard(report)
+        _run_managed_pool_manual_refresh_dedicated_opinion_proof(
+            app,
+            window,
+            report,
+            provider=provider or "local",
+            target_symbol=target_symbol,
+            allow_provider_calls=allow_provider_calls,
+            max_provider_calls=max_provider_calls,
+        )
+        _apply_managed_pool_manual_refresh_metadata_audit_report(report)
     elif mode == "manual-ai-refresh-target-symbol-e2e-proof":
         if not allow_provider_calls:
             _install_provider_post_guard(report)
@@ -8771,7 +8856,10 @@ def run_harness(
         )
 
     preserve_mode_fields: dict[str, Any] = {}
-    if mode == "managed-pool-manual-refresh-dedicated-opinion-proof":
+    if mode in {
+        "managed-pool-manual-refresh-dedicated-opinion-proof",
+        "managed-pool-manual-refresh-metadata-audit-proof",
+    }:
         for key in (
             "response_id_present",
             "token_usage_present",
@@ -8783,6 +8871,13 @@ def run_harness(
             "response_metadata_extracted",
             "response_metadata_missing_reason",
             "tooltip_exposes_token_usage",
+            "metadata_audit_supported",
+            "audit_schema",
+            "audit_payload",
+            "raw_payload_logged",
+            "raw_response_logged",
+            "secret_logged",
+            "audit_summary_text",
         ):
             if key in report:
                 preserve_mode_fields[key] = report.get(key)
@@ -8859,6 +8954,7 @@ def main() -> int:
             "managed-pool-gpt-one-shot-opinion-proof",
             "managed-pool-gpt-one-shot-opinion-ui-proof",
             "managed-pool-manual-refresh-dedicated-opinion-proof",
+            "managed-pool-manual-refresh-metadata-audit-proof",
             "manual-ai-refresh-target-symbol-e2e-proof",
             "managed-pool-ai-opinion-reason-consistency-proof",
             "managed-pool-manual-ai-refresh-row-freshness-proof",
