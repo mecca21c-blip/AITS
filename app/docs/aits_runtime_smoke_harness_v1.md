@@ -915,6 +915,14 @@ The proof remains display-only and must keep `order_execution=false`,
 `final_action_unchanged=true`, `actual_order=false`, and
 `managed_pool_mutation=false`.
 
+The GPT/Gemini actual-call variant also reports safe response metadata:
+`response_id_present`, `token_usage_present`, `response_id`, `token_usage`,
+`response_metadata_extracted`, and `response_metadata_missing_reason`. PASS for
+the metadata follow-up requires `response_metadata_extracted=true`,
+`response_id_present=true`, `token_usage_present=true`, and
+`tooltip_exposes_token_usage=false`. LOCAL observe-only proof may leave response
+metadata absent and should report a clear non-external-provider reason.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

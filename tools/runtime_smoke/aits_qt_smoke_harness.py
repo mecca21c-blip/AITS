@@ -3326,6 +3326,27 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
         and bool(reason_quality_flags.get("reason_consistent_with_freshness", True))
     )
     response_confirmed = bool(opinion_payload.get("response_confirmed"))
+    response_id = str(opinion_payload.get("response_id") or "")
+    token_usage = {
+        "input_tokens": opinion_payload.get("usage_input_tokens"),
+        "output_tokens": opinion_payload.get("usage_output_tokens"),
+        "total_tokens": opinion_payload.get("usage_total_tokens"),
+    }
+    token_usage_present = any(value is not None for value in token_usage.values())
+    response_metadata_extracted = bool(response_id or token_usage_present)
+    if response_metadata_extracted:
+        response_metadata_missing_reason = ""
+    elif provider == "local":
+        response_metadata_missing_reason = "local_provider_no_external_usage"
+    elif not response_confirmed:
+        response_metadata_missing_reason = "provider_response_not_confirmed"
+    else:
+        response_metadata_missing_reason = "provider_response_metadata_missing"
+    tooltip_lower = str(tooltip_sample or "").lower()
+    tooltip_exposes_token_usage = any(
+        token in tooltip_lower
+        for token in ("token_usage", "usage_input", "usage_output", "usage_total", "prompt_tokens", "completion_tokens", "total_tokens", "토큰")
+    )
     pass_ok = bool(row) and bool(compact_context) and bool(opinion_payload) and bool(overlay) and reason_quality_ok
     if provider in {"gpt", "gemini"}:
         pass_ok = pass_ok and bool(provider_ready) and provider_call_count <= 1 and response_confirmed
@@ -3344,8 +3365,15 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
         "provider_external_call_count": int(provider_call_count),
         "request_id": request_id,
         "response_confirmed": bool(response_confirmed),
-        "response_id_present": bool(opinion_payload.get("response_id")),
-        "token_usage_present": opinion_payload.get("usage_total_tokens") is not None,
+        "response_id_present": bool(response_id),
+        "token_usage_present": bool(token_usage_present),
+        "response_id": response_id,
+        "token_usage": token_usage,
+        "usage_input_tokens": token_usage.get("input_tokens"),
+        "usage_output_tokens": token_usage.get("output_tokens"),
+        "usage_total_tokens": token_usage.get("total_tokens"),
+        "response_metadata_extracted": bool(response_metadata_extracted),
+        "response_metadata_missing_reason": response_metadata_missing_reason,
         "normalized_opinion": opinion_payload,
         "opinion": opinion_payload.get("opinion"),
         "status_label": opinion_payload.get("status_label"),
@@ -3362,6 +3390,7 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
         "tooltip_sample": tooltip_sample,
         "target_tooltip_sample": tooltip_sample,
         "fresh_overlay_tooltip_sample": tooltip_sample,
+        "tooltip_exposes_token_usage": bool(tooltip_exposes_token_usage),
         "fresh_tooltip_stale_phrase_found": bool(
             _is_stale_manual_refresh_reason(str(tooltip_sample or ""))
             and bool(reason_quality_flags.get("fresh_opinion_payload"))
@@ -8741,7 +8770,25 @@ def run_harness(
             max_smoke_duration_sec=max_smoke_duration_sec,
         )
 
+    preserve_mode_fields: dict[str, Any] = {}
+    if mode == "managed-pool-manual-refresh-dedicated-opinion-proof":
+        for key in (
+            "response_id_present",
+            "token_usage_present",
+            "response_id",
+            "token_usage",
+            "usage_input_tokens",
+            "usage_output_tokens",
+            "usage_total_tokens",
+            "response_metadata_extracted",
+            "response_metadata_missing_reason",
+            "tooltip_exposes_token_usage",
+        ):
+            if key in report:
+                preserve_mode_fields[key] = report.get(key)
     report.update(_collect(window, widgets))
+    if preserve_mode_fields:
+        report.update(preserve_mode_fields)
     report["missing_widgets"] = missing
     safety_text = f"{report.get('aits_power_state','')} {report.get('aits_safety_state','')}"
     report["submitted_detected"] = False

@@ -174,6 +174,20 @@ This proof is provider-call validation only. It keeps `order_execution=false`,
 `actual_order=false`, `final_action_unchanged=true`, and
 `managed_pool_mutation=false`.
 
+### Manual Refresh Response Metadata Extraction
+
+Manual GPT/Gemini Managed Pool refresh reports preserve safe provider response
+metadata from the normalized `managed_pool_ai_opinion_v1` payload. The report
+records `response_id_present`, `token_usage_present`, `response_id`,
+`token_usage`, `response_metadata_extracted`, and
+`response_metadata_missing_reason`.
+
+This metadata is for audit and cost proof only. It must not be shown in the row
+tooltip, must not include raw provider payloads or secrets, and must not affect
+opinion, freshness, DecisionRouter final action, order execution, or Managed
+Pool persistence. LOCAL/observe-only refreshes may report
+`local_provider_no_external_usage` as the metadata missing reason.
+
 ## Manual Refresh Target Symbol E2E
 
 Manual Managed Pool AI refresh must preserve the selected row symbol through the
