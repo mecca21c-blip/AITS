@@ -47,6 +47,8 @@ always keep `order_execution=false` and `final_action_unchanged=true`.
 Tooltip readability is handled by the global `QToolTip` stylesheet. The content
 contract is unchanged: AI opinion, holding, rotation, and protection reasons are
 still merged into the same hover text, only rendered with a light card style.
+Managed Pool row tooltips also wrap that same content in an escaped HTML light
+card so OS/native tooltip dark backgrounds do not hide the text.
 
 ## Opinion Schema
 

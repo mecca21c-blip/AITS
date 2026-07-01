@@ -58,6 +58,9 @@ Dry-read reports also record the global Qt tooltip readability style proof:
 `tooltip_stylesheet_present`, `tooltip_background`, `tooltip_color`,
 `tooltip_border`, and `tooltip_padding`. This is UI polish only; tooltip content,
 Managed Pool rows, provider calls, and order state are unchanged.
+Managed Pool tooltip samples include an escaped HTML light-card fallback through
+`tooltip_html_sample` and `tooltip_html_card_supported`, because some OS/remote
+runtime environments ignore native `QToolTip` background styling.
 
 ## Modes
 

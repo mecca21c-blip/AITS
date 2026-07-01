@@ -15,6 +15,7 @@ import time
 import json
 import math
 import re
+import html
 from pathlib import Path
 import concurrent.futures
 from PySide6 import QtGui
@@ -35891,6 +35892,55 @@ class MainWindow(QMainWindow):
         lines.append("\uc548\uc804: \uc8fc\ubb38 \uc5c6\uc74c / \ucd5c\uc885 \uc561\uc158 \ubcc0\uacbd \uc5c6\uc74c")
         return lines
 
+    def _format_aits_tooltip_html(self, plain_text: str) -> str:
+        try:
+            lines = [str(line or "").strip() for line in str(plain_text or "").splitlines()]
+            lines = [line for line in lines if line]
+            if not lines:
+                return str(plain_text or "")
+            title = html.escape(lines[0], quote=True)
+            body_lines = []
+            for raw_line in lines[1:12]:
+                if ":" in raw_line:
+                    raw_label, raw_value = raw_line.split(":", 1)
+                    label = html.escape(raw_label.strip(), quote=True)
+                    value = html.escape(raw_value.strip(), quote=True)
+                    body_lines.append(
+                        "<div style=\"margin-top:3px;\">"
+                        f"<span style=\"color:#64748b;font-weight:700;\">{label}:</span> "
+                        f"<span style=\"color:#1f2933;\">{value}</span>"
+                        "</div>"
+                    )
+                else:
+                    safe_line = html.escape(raw_line, quote=True)
+                    body_lines.append(
+                        "<div style=\"margin-top:3px;color:#1f2933;\">"
+                        f"{safe_line}"
+                        "</div>"
+                    )
+            return (
+                "<html><body style=\"margin:0;padding:0;\">"
+                "<div style=\""
+                "background-color:#fffdf7;"
+                "color:#1f2933;"
+                "border:1px solid #cabb9d;"
+                "border-radius:8px;"
+                "padding:10px 12px;"
+                "min-width:260px;"
+                "max-width:420px;"
+                "line-height:1.55;"
+                "font-size:12px;"
+                "font-family:'Malgun Gothic','Segoe UI',sans-serif;"
+                "\">"
+                f"<div style=\"font-weight:800;color:#111827;margin-bottom:6px;\">{title}</div>"
+                + "".join(body_lines)
+                + "<div style=\"margin-top:7px;color:#92400e;font-weight:700;\">"
+                "\uc8fc\ubb38 \uc5c6\uc74c / \ud45c\uc2dc\ub9cc"
+                "</div></div></body></html>"
+            )
+        except Exception:
+            return str(plain_text or "")
+
     def _build_ai_managed_row_tooltip(
         self,
         row: dict,
@@ -35966,7 +36016,8 @@ class MainWindow(QMainWindow):
                 protect = ""
             if protect:
                 lines.append(f"보호 상태: {protect}")
-            return "\n".join(line for line in lines[:8] if str(line or "").strip())
+            plain_tooltip = "\n".join(line for line in lines[:10] if str(line or "").strip())
+            return self._format_aits_tooltip_html(plain_tooltip)
         except Exception:
             return ""
 
@@ -35990,6 +36041,20 @@ class MainWindow(QMainWindow):
             pass
         return count
 
+    def _plain_text_from_aits_tooltip_html(self, tooltip_text: str) -> str:
+        try:
+            text = str(tooltip_text or "")
+            if "<" not in text:
+                return text
+            text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+            text = re.sub(r"(?i)</div\s*>", "\n", text)
+            text = re.sub(r"<[^>]+>", "", text)
+            text = html.unescape(text)
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            return "\n".join(lines)
+        except Exception:
+            return str(tooltip_text or "")
+
     def _populate_ai_managed_table_cells(self) -> None:
         """ai_managed_rows 순서에 맞춰 5열 cellWidget 채움(표시만)."""
         t = getattr(self, "tbl_ai_managed", None)
@@ -36006,6 +36071,7 @@ class MainWindow(QMainWindow):
             return
         tooltip_applied_count = 0
         tooltip_samples: list[str] = []
+        tooltip_plain_samples: list[str] = []
         holding_display_overlay = self._refresh_managed_pool_holding_display_overlay()
         for i in range(rc):
             if i >= len(rows):
@@ -36218,6 +36284,7 @@ class MainWindow(QMainWindow):
                 if tooltip_text:
                     if len(tooltip_samples) < 3:
                         tooltip_samples.append(tooltip_text)
+                        tooltip_plain_samples.append(self._plain_text_from_aits_tooltip_html(tooltip_text))
                     for cc in range(5):
                         tooltip_applied_count += self._apply_ai_managed_row_tooltip(
                             t.cellWidget(i, cc), tooltip_text
@@ -36231,6 +36298,8 @@ class MainWindow(QMainWindow):
         try:
             self._ai_managed_tooltip_applied_count = int(tooltip_applied_count)
             self._last_ai_managed_tooltip_samples = list(tooltip_samples)
+            self._last_ai_managed_tooltip_plain_samples = list(tooltip_plain_samples)
+            self._last_ai_managed_tooltip_html_samples = list(tooltip_samples)
             self._ai_managed_tooltip_supported = bool(tooltip_applied_count)
         except Exception:
             pass

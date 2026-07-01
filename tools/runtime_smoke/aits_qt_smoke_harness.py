@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import math
 import os
@@ -591,6 +592,50 @@ def _collect_tooltip_style_proof() -> dict[str, Any]:
     }
 
 
+def _tooltip_html_card_sample_from_plain(plain_text: str) -> str:
+    lines = [str(line or "").strip() for line in str(plain_text or "").splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+    title = html.escape(lines[0], quote=True)
+    body = []
+    for raw_line in lines[1:12]:
+        if ":" in raw_line:
+            label, value = raw_line.split(":", 1)
+            body.append(
+                "<div style=\"margin-top:3px;\">"
+                f"<span style=\"color:#64748b;font-weight:700;\">{html.escape(label.strip(), quote=True)}:</span> "
+                f"<span style=\"color:#1f2933;\">{html.escape(value.strip(), quote=True)}</span>"
+                "</div>"
+            )
+        else:
+            body.append(
+                "<div style=\"margin-top:3px;color:#1f2933;\">"
+                f"{html.escape(raw_line, quote=True)}"
+                "</div>"
+            )
+    return (
+        "<html><body style=\"margin:0;padding:0;\"><div style=\""
+        "background-color:#fffdf7;color:#1f2933;border:1px solid #cabb9d;"
+        "border-radius:8px;padding:10px 12px;min-width:260px;max-width:420px;"
+        "line-height:1.55;font-size:12px;\">"
+        f"<div style=\"font-weight:800;color:#111827;margin-bottom:6px;\">{title}</div>"
+        + "".join(body)
+        + "</div></body></html>"
+    )
+
+
+def _tooltip_html_card_proof(sample: str) -> dict[str, Any]:
+    text = str(sample or "").lower()
+    return {
+        "tooltip_html_card_supported": bool("<html" in text and "#fffdf7" in text),
+        "tooltip_html_present": bool("<html" in text or "<div" in text),
+        "tooltip_has_light_background": "#fffdf7" in text,
+        "tooltip_has_dark_text": "#1f2933" in text or "#111827" in text,
+        "tooltip_escaped": "<script" not in text,
+    }
+
+
 def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
     tabs = getattr(window, "tabs", None)
     current_tab = ""
@@ -621,6 +666,17 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         readiness = window._build_ai_engine_readiness_state()
     except Exception:
         readiness = {}
+    tooltip_html_samples = list(
+        getattr(window, "_last_ai_managed_tooltip_html_samples", None)
+        or getattr(window, "_last_ai_managed_tooltip_samples", [])
+        or []
+    )[:3]
+    tooltip_plain_samples = list(
+        getattr(window, "_last_ai_managed_tooltip_plain_samples", None)
+        or []
+    )[:3]
+    tooltip_html_sample = (tooltip_html_samples[:1] or [""])[0]
+    tooltip_plain_sample = (tooltip_plain_samples[:1] or [""])[0]
     result = {
         "window_title": str(window.windowTitle() or ""),
         "current_tab": current_tab,
@@ -651,8 +707,12 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "managed_row_count": _table_row_count(managed_table),
         "managed_pool_tooltip_supported": bool(getattr(window, "_ai_managed_tooltip_supported", False)),
         "tooltip_applied_count": int(getattr(window, "_ai_managed_tooltip_applied_count", 0) or 0),
-        "tooltip_sample": (list(getattr(window, "_last_ai_managed_tooltip_samples", []) or [""])[:1] or [""])[0],
-        "tooltip_samples": list(getattr(window, "_last_ai_managed_tooltip_samples", []) or [])[:3],
+        "tooltip_sample": tooltip_html_sample,
+        "tooltip_samples": tooltip_html_samples,
+        "tooltip_plain_sample": tooltip_plain_sample,
+        "tooltip_plain_samples": tooltip_plain_samples,
+        "tooltip_html_sample": tooltip_html_sample,
+        "tooltip_html_samples": tooltip_html_samples,
         "column_fit_policy_applied": bool(getattr(window, "_ai_managed_column_fit_policy_applied", False)),
         "column_fit_policy": getattr(window, "_ai_managed_column_fit_policy", {}) or {},
         "table_object_name": str(managed_table.objectName() or "") if managed_table is not None and hasattr(managed_table, "objectName") else "",
@@ -665,6 +725,7 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         ),
     }
     result.update(_collect_tooltip_style_proof())
+    result.update(_tooltip_html_card_proof(tooltip_html_sample))
     return result
 
 
@@ -2770,7 +2831,8 @@ def _apply_managed_pool_ai_opinion_ui_overlay_report(
     rows_after = _load_saved_managed_pool_rows_readonly()
     overlay = _normalize_managed_pool_ai_opinion_overlay_payload(opinion_payload)
     status_sample = _managed_pool_ai_opinion_overlay_status_sample(opinion_payload)
-    tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    tooltip_plain_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    tooltip_html_sample = _tooltip_html_card_sample_from_plain(tooltip_plain_sample)
     target = _normalize_symbol_text(target_symbol or overlay.get("symbol") or "")
     report.update(
         {
@@ -2778,10 +2840,12 @@ def _apply_managed_pool_ai_opinion_ui_overlay_report(
             "provider": _normalize_provider_for_report(provider or overlay.get("provider") or "local"),
             "target_symbol": target,
             "overlay_cache_key": target,
-            "overlay_created": bool(overlay and status_sample and tooltip_sample),
+            "overlay_created": bool(overlay and status_sample and tooltip_plain_sample),
             "opinion_overlay": overlay,
             "status_sample": status_sample,
-            "tooltip_sample": tooltip_sample,
+            "tooltip_sample": tooltip_html_sample or tooltip_plain_sample,
+            "tooltip_plain_sample": tooltip_plain_sample,
+            "tooltip_html_sample": tooltip_html_sample,
             "managed_row_count_before": len(rows_before),
             "managed_row_count_after": len(rows_after),
             "managed_pool_mutation": False,
@@ -2794,7 +2858,7 @@ def _apply_managed_pool_ai_opinion_ui_overlay_report(
             "request_id": request_id or str(overlay.get("request_id") or ""),
             "response_confirmed": bool(response_confirmed) if response_confirmed is not None else bool(opinion_payload),
             "order_risk_detected": False,
-            "pass_status": "pass" if overlay and status_sample and tooltip_sample else "partial",
+            "pass_status": "pass" if overlay and status_sample and tooltip_plain_sample else "partial",
         }
     )
     report.update(
@@ -2807,6 +2871,7 @@ def _apply_managed_pool_ai_opinion_ui_overlay_report(
             "tooltip_padding": "8px 10px",
         }
     )
+    report.update(_tooltip_html_card_proof(tooltip_html_sample))
 
 
 def _run_managed_pool_ai_opinion_ui_apply_proof(
