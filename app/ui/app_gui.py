@@ -53738,7 +53738,18 @@ def _build_aits_combined_stylesheet() -> tuple[str, str]:
     """
     base_qss, theme_meta = _load_qdarktheme_light_qss()
     aits_override_qss = _build_aits_override_qss()
-    parts = [base_qss, KMTS_LIGHT_QSS, aits_override_qss]
+    tooltip_qss = """
+QToolTip {
+    background-color: #fffdf7;
+    color: #1f2933;
+    border: 1px solid #cabb9d;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 12px;
+    opacity: 255;
+}
+"""
+    parts = [base_qss, KMTS_LIGHT_QSS, aits_override_qss, tooltip_qss]
     combined = "\n".join([p for p in parts if isinstance(p, str) and p.strip()])
     return combined, theme_meta
 

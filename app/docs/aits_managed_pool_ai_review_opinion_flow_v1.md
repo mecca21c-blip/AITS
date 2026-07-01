@@ -44,6 +44,10 @@ request id, and safety text to the tooltip. It must not persist changes to
 `managed_pool_rows`, must not change protection/holding/source fields, and must
 always keep `order_execution=false` and `final_action_unchanged=true`.
 
+Tooltip readability is handled by the global `QToolTip` stylesheet. The content
+contract is unchanged: AI opinion, holding, rotation, and protection reasons are
+still merged into the same hover text, only rendered with a light card style.
+
 ## Opinion Schema
 
 `managed_pool_ai_opinion_v1` fields:

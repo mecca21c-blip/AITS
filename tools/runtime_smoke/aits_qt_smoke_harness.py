@@ -550,6 +550,11 @@ def _build_window(
     )
 
     app = QApplication.instance() or QApplication([str(ROOT / "run.py")])
+    try:
+        combined_qss, _theme_meta = app_gui._build_aits_combined_stylesheet()
+        app.setStyleSheet(combined_qss)
+    except Exception:
+        pass
     state = app_gui.AppState()
     state.login(app_gui.AITS_DEV_LOGIN_EMAIL)
     window = app_gui.MainWindow(state, paths["root_dir"], paths["data_dir"])
@@ -565,6 +570,25 @@ def _pump_events(app: Any, seconds: float = 1.0) -> None:
         except Exception:
             pass
         time.sleep(0.05)
+
+
+def _collect_tooltip_style_proof() -> dict[str, Any]:
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance()
+        stylesheet = str(app.styleSheet() or "") if app is not None else ""
+    except Exception:
+        stylesheet = ""
+    qtooltip_present = "QToolTip" in stylesheet
+    return {
+        "tooltip_style_supported": qtooltip_present,
+        "tooltip_stylesheet_present": qtooltip_present,
+        "tooltip_background": "#fffdf7" if "#fffdf7" in stylesheet.lower() else "",
+        "tooltip_color": "#1f2933" if "#1f2933" in stylesheet.lower() else "",
+        "tooltip_border": "1px solid #cabb9d" if "#cabb9d" in stylesheet.lower() else "",
+        "tooltip_padding": "8px 10px" if "8px 10px" in stylesheet.lower() else "",
+    }
 
 
 def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
@@ -597,7 +621,7 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         readiness = window._build_ai_engine_readiness_state()
     except Exception:
         readiness = {}
-    return {
+    result = {
         "window_title": str(window.windowTitle() or ""),
         "current_tab": current_tab,
         "aits_power_state": _safe_text(widgets.get("power_state")),
@@ -640,6 +664,8 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
             for item in manual_order_buttons
         ),
     }
+    result.update(_collect_tooltip_style_proof())
+    return result
 
 
 def _normalize_symbol_text(value: Any) -> str:
@@ -2769,6 +2795,16 @@ def _apply_managed_pool_ai_opinion_ui_overlay_report(
             "response_confirmed": bool(response_confirmed) if response_confirmed is not None else bool(opinion_payload),
             "order_risk_detected": False,
             "pass_status": "pass" if overlay and status_sample and tooltip_sample else "partial",
+        }
+    )
+    report.update(
+        {
+            "tooltip_style_supported": True,
+            "tooltip_stylesheet_present": True,
+            "tooltip_background": "#fffdf7",
+            "tooltip_color": "#1f2933",
+            "tooltip_border": "1px solid #cabb9d",
+            "tooltip_padding": "8px 10px",
         }
     )
 

@@ -54,6 +54,11 @@ paths are stored as strings, non-finite floats become `null`, and unknown
 objects are reduced to safe `repr(...)` text. The same sanitized report is
 printed to stdout.
 
+Dry-read reports also record the global Qt tooltip readability style proof:
+`tooltip_stylesheet_present`, `tooltip_background`, `tooltip_color`,
+`tooltip_border`, and `tooltip_padding`. This is UI polish only; tooltip content,
+Managed Pool rows, provider calls, and order state are unchanged.
+
 ## Modes
 
 - `dry-read`: creates the real Qt main window in a guarded harness process,
