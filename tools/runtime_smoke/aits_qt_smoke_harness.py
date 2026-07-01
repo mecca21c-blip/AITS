@@ -2565,8 +2565,8 @@ def _router_suggestion_to_opinion(result: dict[str, Any], row: dict[str, Any], p
         [
             f"종목: {symbol}",
             f"상태: {status_label}",
-            f"Provider: {provider}",
-            f"의견 근거: {reason[:160]}",
+            f"분석 엔진: {provider.upper()}",
+            f"판단 근거: {reason[:160]}",
             "실행: 주문 없음 / final action 변경 없음",
         ]
     )
@@ -2784,6 +2784,30 @@ def _managed_pool_ai_opinion_overlay_status_sample(payload: dict[str, Any]) -> s
     return str(overlay.get("status_label") or "").strip()
 
 
+def _humanize_ai_opinion_freshness_for_tooltip(value: str) -> str:
+    text = str(value or "").strip()
+    mapping = {
+        "fresh_manual_refresh": "최신 · 수동 AI 분석 반영",
+        "fresh_startup_generation": "최신 · 시작 시 연결 확인 반영",
+        "stale": "오래됨 · 재분석 권장",
+        "analysis_required": "분석 필요",
+        "manual_required": "수동 AI 분석 필요",
+        "local_reference": "LOCAL 계산 참고",
+    }
+    return mapping.get(text, "상태 확인 필요" if text else "상태 확인 필요")
+
+
+def _humanize_ai_opinion_source_for_tooltip(value: str) -> str:
+    text = str(value or "").strip()
+    mapping = {
+        "manual_ai_refresh": "수동 AI 분석",
+        "local_calculation": "LOCAL 계산 의견",
+        "gpt_one_shot_opinion": "GPT 단일 분석",
+        "startup_generation": "시작 시 연결 확인",
+    }
+    return mapping.get(text, "분석 결과")
+
+
 def _managed_pool_ai_opinion_overlay_tooltip_sample(payload: dict[str, Any]) -> str:
     overlay = _normalize_managed_pool_ai_opinion_overlay_payload(payload)
     if not overlay:
@@ -2798,21 +2822,24 @@ def _managed_pool_ai_opinion_overlay_tooltip_sample(payload: dict[str, Any]) -> 
     lines = [
         f"\uc885\ubaa9: {overlay.get('symbol')}",
         f"AI \uc758\uacac: {overlay.get('status_label') or '-'}",
-        f"Provider: {str(overlay.get('provider') or 'local').upper()}",
+        f"분석 엔진: {str(overlay.get('provider') or 'local').upper()}",
         f"\ud655\uc2e0\ub3c4: {confidence_text}",
     ]
     reason = str(overlay.get("reason") or "").strip()
     if reason:
-        lines.append(f"\uadfc\uac70: {reason[:140]}")
+        lines.append(f"판단 근거: {reason[:140]}")
     next_action = str(overlay.get("next_action") or "").strip()
     if next_action:
         lines.append(f"\ub2e4\uc74c \ud589\ub3d9: {next_action[:110]}")
     freshness = str(overlay.get("freshness") or "").strip()
+    source = str(overlay.get("source") or "").strip()
+    if source:
+        lines.append(f"분석 출처: {_humanize_ai_opinion_source_for_tooltip(source)}")
     if freshness:
-        lines.append(f"Freshness: {freshness}")
+        lines.append(f"분석 상태: {_humanize_ai_opinion_freshness_for_tooltip(freshness)}")
     request_id = str(overlay.get("request_id") or "").strip()
     if request_id:
-        lines.append(f"Request: {request_id[:48]}")
+        lines.append(f"요청 ID: {request_id[:48]}")
     lines.append("\uc548\uc804: \uc8fc\ubb38 \uc5c6\uc74c / \ucd5c\uc885 \uc561\uc158 \ubcc0\uacbd \uc5c6\uc74c")
     return "\n".join(line for line in lines if str(line or "").strip())
 
@@ -2871,6 +2898,12 @@ def _apply_managed_pool_ai_opinion_ui_overlay_report(
             "tooltip_padding": "8px 10px",
         }
     )
+    tooltip_text_for_labels = str(tooltip_html_sample or tooltip_plain_sample or "")
+    report.update({
+        "tooltip_korean_labels_applied": all(token in tooltip_text_for_labels for token in ("분석 엔진", "판단 근거", "분석 상태")),
+        "tooltip_system_labels_removed": not any(token in tooltip_text_for_labels for token in ("Provider:", "Reason:", "Freshness:", "Request:")),
+        "tooltip_freshness_humanized": "fresh_manual_refresh" not in tooltip_text_for_labels,
+    })
     report.update(_tooltip_html_card_proof(tooltip_html_sample))
 
 

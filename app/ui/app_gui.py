@@ -35979,6 +35979,28 @@ class MainWindow(QMainWindow):
             return "risk"
         return "watch"
 
+    def _humanize_managed_pool_ai_opinion_freshness(self, value: str) -> str:
+        text = str(value or "").strip()
+        mapping = {
+            "fresh_manual_refresh": "최신 · 수동 AI 분석 반영",
+            "fresh_startup_generation": "최신 · 시작 시 연결 확인 반영",
+            "stale": "오래됨 · 재분석 권장",
+            "analysis_required": "분석 필요",
+            "manual_required": "수동 AI 분석 필요",
+            "local_reference": "LOCAL 계산 참고",
+        }
+        return mapping.get(text, "상태 확인 필요" if text else "상태 확인 필요")
+
+    def _humanize_managed_pool_ai_opinion_source(self, value: str) -> str:
+        text = str(value or "").strip()
+        mapping = {
+            "manual_ai_refresh": "수동 AI 분석",
+            "local_calculation": "LOCAL 계산 의견",
+            "gpt_one_shot_opinion": "GPT 단일 분석",
+            "startup_generation": "시작 시 연결 확인",
+        }
+        return mapping.get(text, "분석 결과")
+
     def _format_managed_pool_ai_opinion_tooltip(self, overlay: dict) -> list[str]:
         if not isinstance(overlay, dict):
             return []
@@ -35987,6 +36009,7 @@ class MainWindow(QMainWindow):
         reason = str(overlay.get("reason") or "").strip()
         next_action = str(overlay.get("next_action") or "").strip()
         freshness = str(overlay.get("freshness") or "").strip()
+        source = str(overlay.get("source") or "").strip()
         request_id = str(overlay.get("request_id") or "").strip()
         confidence_value = overlay.get("confidence")
         confidence_text = "-"
@@ -35998,16 +36021,18 @@ class MainWindow(QMainWindow):
         lines = []
         if status_label:
             lines.append(f"AI \uc758\uacac: {status_label}")
-        lines.append(f"Provider: {provider}")
+        lines.append(f"분석 엔진: {provider}")
         lines.append(f"\ud655\uc2e0\ub3c4: {confidence_text}")
         if reason:
-            lines.append(f"\uadfc\uac70: {reason[:140]}")
+            lines.append(f"판단 근거: {reason[:140]}")
         if next_action:
             lines.append(f"\ub2e4\uc74c \ud589\ub3d9: {next_action[:110]}")
+        if source:
+            lines.append(f"분석 출처: {self._humanize_managed_pool_ai_opinion_source(source)}")
         if freshness:
-            lines.append(f"Freshness: {freshness}")
+            lines.append(f"분석 상태: {self._humanize_managed_pool_ai_opinion_freshness(freshness)}")
         if request_id:
-            lines.append(f"Request: {request_id[:48]}")
+            lines.append(f"요청 ID: {request_id[:48]}")
         lines.append("\uc548\uc804: \uc8fc\ubb38 \uc5c6\uc74c / \ucd5c\uc885 \uc561\uc158 \ubcc0\uacbd \uc5c6\uc74c")
         return lines
 

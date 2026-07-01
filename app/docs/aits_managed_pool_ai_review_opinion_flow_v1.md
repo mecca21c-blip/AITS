@@ -102,3 +102,14 @@ count `0` for LOCAL or `<= 1` for GPT/Gemini one-shot proof.
 Manual `AI 분석 새로고침` results are linked to the matching Managed Pool row through a display-only `managed_pool_ai_opinion_v1` overlay. When the refresh result symbol matches a Managed Pool row, the row freshness state can be treated as fresh with the label `최신 · 수동 AI 분석 반영`; the row tooltip then shows provider, opinion, reason, next action, request id, and the safety note that no order or final action changed.
 
 This overlay does not persist or mutate `managed_pool_rows`; it is UI/freshness state only. If the refresh result has no target symbol or the symbol is not in the Managed Pool, the existing stale/manual-required copy remains.
+
+## Korean Tooltip Labels
+
+Managed Pool AI opinion tooltips keep the `managed_pool_ai_opinion_v1` payload
+unchanged, but render user-facing labels in Korean. Provider, reason, freshness,
+and request metadata are displayed as `분석 엔진`, `판단 근거`, `분석 상태`, and
+`요청 ID`. Freshness/source code values are humanized for display only, for
+example `fresh_manual_refresh` is shown as `최신 · 수동 AI 분석 반영`.
+
+This is UI copy only. It does not change freshness logic, provider policy,
+DecisionRouter final action, order execution, or Managed Pool persistence.
