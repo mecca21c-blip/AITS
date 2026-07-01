@@ -1310,6 +1310,64 @@ class AITSProviderRefreshWorker(QThread):
             from requests import Timeout
 
             timeout_sec = int(self.request_payload.get("timeout_sec") or 90)
+            if bool(self.request_payload.get("managed_pool_opinion_request")):
+                result["provider_call_attempted"] = True
+                result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+                result["provider_endpoint_type"] = "managed_pool_opinion"
+                result["generation_attempt"] = 1
+                result["generation_attempt_count"] = 1
+                result["generation_max_attempts"] = 1
+                result["generation_status"] = "waiting_response"
+                result["generation_status_text"] = "managed_pool_opinion_waiting"
+                old_enable = os.environ.get("AITS_ENABLE_REAL_AI_CALL")
+                old_one_shot = os.environ.get("AITS_REAL_AI_ONE_SHOT")
+                try:
+                    from app.services.ai_engine_provider import AIEngineProvider
+                    from app.utils.prefs import load_settings
+
+                    settings = load_settings()
+                    strategy = getattr(settings, "strategy", None)
+                    engine_provider = AIEngineProvider(settings=settings, strategy=strategy)
+                    provider_key = "openai" if provider == "gpt" else ("gemini" if provider == "gemini" else provider)
+                    opinion_context = self.request_payload.get("managed_pool_opinion_context")
+                    if not isinstance(opinion_context, dict):
+                        opinion_context = self.request_payload.get("context") or {}
+                    os.environ["AITS_ENABLE_REAL_AI_CALL"] = "1"
+                    os.environ["AITS_REAL_AI_ONE_SHOT"] = "1"
+                    opinion_result = engine_provider.generate_managed_pool_opinion(
+                        provider=provider_key,
+                        context=dict(opinion_context or {}),
+                    )
+                    result["managed_pool_dedicated_payload_used"] = True
+                    result["managed_pool_opinion_payload_schema"] = str((opinion_context or {}).get("schema") or "")
+                    result["managed_pool_opinion_provider_result"] = opinion_result if isinstance(opinion_result, dict) else {}
+                    result["text"] = json.dumps(result["managed_pool_opinion_provider_result"], ensure_ascii=False, default=str)
+                    result["provider_actual"] = provider
+                    result["invoked_model"] = str(result.get("model") or "")
+                    result["provider_success"] = bool((opinion_result or {}).get("response_confirmed"))
+                    result["ok"] = bool(result["provider_success"])
+                    result["response_id"] = str((opinion_result or {}).get("response_id") or "")
+                    result["usage_input_tokens"] = (opinion_result or {}).get("usage_input_tokens")
+                    result["usage_output_tokens"] = (opinion_result or {}).get("usage_output_tokens")
+                    result["usage_total_tokens"] = (opinion_result or {}).get("usage_total_tokens")
+                    result["generation_status"] = "confirmed" if result["ok"] else "failed_error"
+                    result["generation_status_text"] = "managed_pool_opinion_confirmed" if result["ok"] else "managed_pool_opinion_failed"
+                    result["generation_fresh"] = bool(result["ok"])
+                    result["generation_stale"] = False
+                    result["generation_response_confirmed"] = bool(result["ok"])
+                    result["generation_response_confirmed_reason"] = "managed_pool_dedicated_opinion_response"
+                    if not result["ok"]:
+                        result["error_summary"] = str((opinion_result or {}).get("reason") or "managed_pool_opinion_failed")[:240]
+                    return
+                finally:
+                    if old_enable is None:
+                        os.environ.pop("AITS_ENABLE_REAL_AI_CALL", None)
+                    else:
+                        os.environ["AITS_ENABLE_REAL_AI_CALL"] = old_enable
+                    if old_one_shot is None:
+                        os.environ.pop("AITS_REAL_AI_ONE_SHOT", None)
+                    else:
+                        os.environ["AITS_REAL_AI_ONE_SHOT"] = old_one_shot
             if provider == "gemini":
                 result["provider_call_attempted"] = True
                 result["provider_request_sent_at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
@@ -35841,6 +35899,11 @@ class MainWindow(QMainWindow):
             "event_time": str(payload.get("event_time") or payload.get("generated_at") or "").strip(),
             "generated_at": str(payload.get("generated_at") or payload.get("event_time") or "").strip(),
             "response_confirmed": bool(payload.get("response_confirmed", True)),
+            "provider_external_call": bool(payload.get("provider_external_call")),
+            "response_id": str(payload.get("response_id") or ""),
+            "usage_input_tokens": payload.get("usage_input_tokens"),
+            "usage_output_tokens": payload.get("usage_output_tokens"),
+            "usage_total_tokens": payload.get("usage_total_tokens"),
             "order_execution": bool(payload.get("order_execution")) is True,
             "final_action_unchanged": bool(payload.get("final_action_unchanged", True)),
             "actual_order": bool(payload.get("actual_order")) is True,
@@ -35860,6 +35923,163 @@ class MainWindow(QMainWindow):
             pass
         return overlay
 
+    def _managed_pool_ai_opinion_status_from_provider(self, value, fallback_label="") -> tuple[str, str]:
+        text = str(value or "").strip().lower()
+        label = str(fallback_label or "").strip()
+        mapping = {
+            "watch": ("watch", "\uad00\ub9dd"),
+            "hold": ("watch", "\uad00\ub9dd"),
+            "\uad00\ub9dd": ("watch", "\uad00\ub9dd"),
+            "buy_wait": ("buy_wait", "\ub9e4\uc218\ub300\uae30"),
+            "buy": ("buy_wait", "\ub9e4\uc218\ub300\uae30"),
+            "\ub9e4\uc218\ub300\uae30": ("buy_wait", "\ub9e4\uc218\ub300\uae30"),
+            "rotate_review": ("rotate_review", "\uad50\uccb4\uac80\ud1a0"),
+            "rotation": ("rotate_review", "\uad50\uccb4\uac80\ud1a0"),
+            "\uad50\uccb4\uac80\ud1a0": ("rotate_review", "\uad50\uccb4\uac80\ud1a0"),
+            "sell_review": ("sell_review", "\ub9e4\ub3c4\uac80\ud1a0"),
+            "sell": ("sell_review", "\ub9e4\ub3c4\uac80\ud1a0"),
+            "\ub9e4\ub3c4\uac80\ud1a0": ("sell_review", "\ub9e4\ub3c4\uac80\ud1a0"),
+            "data_insufficient": ("data_insufficient", "\ub370\uc774\ud130\ubd80\uc871"),
+            "insufficient": ("data_insufficient", "\ub370\uc774\ud130\ubd80\uc871"),
+            "\ub370\uc774\ud130\ubd80\uc871": ("data_insufficient", "\ub370\uc774\ud130\ubd80\uc871"),
+        }
+        return mapping.get(text) or mapping.get(label.lower()) or mapping.get(label) or ("data_insufficient", "\ub370\uc774\ud130\ubd80\uc871")
+
+    def _is_managed_pool_execution_block_reason_only(self, reason: str) -> bool:
+        text = str(reason or "").strip().lower()
+        if not text:
+            return False
+        blocked_tokens = (
+            "execution not allowed",
+            "order execution not allowed",
+            "openai_live_call_disabled",
+            "gemini_live_call_disabled",
+        )
+        return any(token in text for token in blocked_tokens) and len(text) <= 120
+
+    def _is_managed_pool_stale_refresh_reason(self, reason: str) -> bool:
+        text = str(reason or "").strip().lower()
+        if not text:
+            return False
+        stale_tokens = (
+            "\uc0c8 \ubd84\uc11d \uad8c\uc7a5",
+            "ai \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+            "analysis_required",
+            "manual_required",
+        )
+        return any(token in text for token in stale_tokens)
+
+    def _normalize_provider_managed_pool_opinion_result_for_ui(
+        self,
+        result: dict | None,
+        *,
+        symbol: str,
+        provider: str,
+        request_id: str,
+        source: str = "manual_ai_refresh",
+        fallback_reason: str = "",
+    ) -> dict:
+        result = result if isinstance(result, dict) else {}
+        opinion, status_label = self._managed_pool_ai_opinion_status_from_provider(
+            result.get("opinion") or result.get("status"),
+            result.get("status_label"),
+        )
+        try:
+            confidence = float(result.get("confidence"))
+        except Exception:
+            confidence = None
+        if confidence is not None:
+            confidence = max(0.0, min(1.0, confidence))
+        reason = str(result.get("reason") or "").strip()
+        if (
+            not reason
+            or self._is_managed_pool_execution_block_reason_only(reason)
+            or self._is_managed_pool_stale_refresh_reason(reason)
+        ):
+            fallback = str(fallback_reason or "").strip()
+            if self._is_managed_pool_execution_block_reason_only(fallback) or self._is_managed_pool_stale_refresh_reason(fallback):
+                fallback = ""
+            reason = fallback or "\uc218\ub3d9 AI \ubd84\uc11d\uc774 \ubc18\uc601\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ud604\uc7ac \uc885\ubaa9 \uc0c1\ud0dc\ub294 \ucd94\uac00 \uc8fc\ubb38 \uc5c6\uc774 \uad00\ub9dd \uae30\uc900\uc73c\ub85c \uac80\ud1a0\ud569\ub2c8\ub2e4."
+        next_action = str(result.get("next_action") or "").strip() or "Review opinion only; no order execution."
+        try:
+            from datetime import datetime, timezone
+            event_time = datetime.now(timezone.utc).isoformat()
+        except Exception:
+            event_time = ""
+        return {
+            "schema": "managed_pool_ai_opinion_v1",
+            "event_time": event_time,
+            "generated_at": event_time,
+            "symbol": self._normalize_market_symbol_for_ai_snapshot(symbol),
+            "provider": "gpt" if str(provider or "").strip().lower() in ("gpt", "openai") else str(provider or "local").strip().lower(),
+            "provider_external_call": True,
+            "source": source,
+            "request_id": str(request_id or ""),
+            "response_confirmed": bool(result.get("response_confirmed")),
+            "response_id": str(result.get("response_id") or ""),
+            "usage_input_tokens": result.get("usage_input_tokens"),
+            "usage_output_tokens": result.get("usage_output_tokens"),
+            "usage_total_tokens": result.get("usage_total_tokens"),
+            "opinion": opinion,
+            "status_label": status_label,
+            "confidence": confidence,
+            "reason": reason[:500],
+            "next_action": next_action[:300],
+            "freshness": "fresh_manual_refresh",
+            "order_execution": False,
+            "final_action_unchanged": True,
+            "actual_order": False,
+        }
+
+    def _build_managed_pool_opinion_compact_payload_for_manual_refresh(self, target_symbol: str, provider: str) -> dict:
+        symbol = self._normalize_market_symbol_for_ai_snapshot(target_symbol)
+        rows = [dict(row) for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+        target_row = {}
+        for row in rows:
+            row_symbol = self._normalize_market_symbol_for_ai_snapshot(row.get("symbol") or row.get("market") or row.get("code") or "")
+            if row_symbol == symbol:
+                target_row = dict(row)
+                break
+        if not target_row:
+            return {}
+        score = target_row.get("ai_score", target_row.get("score"))
+        reason = str(
+            target_row.get("ai_review_queue_reason")
+            or target_row.get("status_reason")
+            or target_row.get("reason")
+            or target_row.get("source_reason")
+            or ""
+        ).strip()
+        return {
+            "schema": "managed_pool_ai_opinion_request_v1",
+            "purpose": "managed_pool_display_opinion",
+            "source": "manual_ai_refresh",
+            "task": "managed_pool_opinion",
+            "provider": str(provider or "").strip().lower(),
+            "symbol": symbol,
+            "display_name": str(target_row.get("name") or target_row.get("display_name") or symbol),
+            "aits_score": score,
+            "status": str(target_row.get("status") or target_row.get("status_label") or "").strip(),
+            "status_reason": reason[:220],
+            "candidate_reason": str(target_row.get("candidate_reason") or target_row.get("added_reason") or reason)[:220],
+            "managed_source": str(target_row.get("source") or target_row.get("managed_source") or "")[:80],
+            "recent_move": {
+                "change_rate": target_row.get("change_rate", target_row.get("change_pct", target_row.get("change_24h"))),
+                "trade_value": target_row.get("trade_value", target_row.get("trade_value_krw", target_row.get("acc_trade_price_24h"))),
+                "rank": target_row.get("rank", target_row.get("market_rank")),
+            },
+            "managed_pool_count": len(rows),
+            "safety_constraints": {
+                "order_execution": False,
+                "actual_order": False,
+                "final_action_unchanged": True,
+                "managed_pool_mutation": False,
+                "order_execution_allowed": False,
+                "final_action_change_allowed": False,
+                "suggestion_only": True,
+                "do_not_verify_order": True,
+            },
+        }
     def _build_managed_pool_ai_opinion_overlay_from_refresh_payload(
         self,
         payload: dict | None,
@@ -35868,6 +36088,37 @@ class MainWindow(QMainWindow):
     ) -> dict:
         try:
             payload = payload if isinstance(payload, dict) else {}
+            direct_payload = payload.get("managed_pool_ai_opinion") if isinstance(payload.get("managed_pool_ai_opinion"), dict) else {}
+            if not direct_payload and str(payload.get("schema") or "").strip() == "managed_pool_ai_opinion_v1":
+                direct_payload = payload
+            if direct_payload:
+                normalized = self._normalize_managed_pool_ai_opinion_overlay(dict(direct_payload))
+                if normalized:
+                    normalized["source"] = str(normalized.get("source") or source)
+                    normalized["freshness"] = str(normalized.get("freshness") or "fresh_manual_refresh")
+                    return normalized
+            provider_result = payload.get("managed_pool_opinion_provider_result") if isinstance(payload.get("managed_pool_opinion_provider_result"), dict) else {}
+            if provider_result:
+                request_id_for_result = str(payload.get("request_id") or payload.get("decision_group_id") or "").strip()
+                result_symbol = self._normalize_market_symbol_for_ai_snapshot(
+                    payload.get("target_symbol")
+                    or payload.get("requested_symbol")
+                    or payload.get("symbol")
+                    or payload.get("market")
+                    or ""
+                )
+                result_provider = str(payload.get("provider_actual") or payload.get("provider_selected") or payload.get("provider") or "local").strip().lower()
+                fallback_reason = str(payload.get("reason_code") or payload.get("reason") or "").strip()
+                normalized_provider_payload = self._normalize_provider_managed_pool_opinion_result_for_ui(
+                    provider_result,
+                    symbol=result_symbol,
+                    provider=result_provider,
+                    request_id=request_id_for_result,
+                    source=source,
+                    fallback_reason=fallback_reason,
+                )
+                if normalized_provider_payload:
+                    return normalized_provider_payload
             symbol = self._normalize_market_symbol_for_ai_snapshot(
                 payload.get("target_symbol")
                 or payload.get("requested_symbol")
@@ -39736,6 +39987,20 @@ class MainWindow(QMainWindow):
             )
 
         reason_code = " · ".join(str(x) for x in reasons[:5] if str(x).strip())[:2000]
+        managed_pool_opinion_provider_result = ctx.get("managed_pool_opinion_provider_result") if isinstance(ctx.get("managed_pool_opinion_provider_result"), dict) else {}
+        managed_pool_opinion_payload = {}
+        if managed_pool_opinion_provider_result:
+            managed_pool_opinion_payload = self._normalize_provider_managed_pool_opinion_result_for_ui(
+                managed_pool_opinion_provider_result,
+                symbol=target_symbol,
+                provider=provider,
+                request_id=str(ctx.get("request_id") or ctx.get("decision_group_id") or ""),
+                source="manual_ai_refresh",
+                fallback_reason=reason_code,
+            )
+            if managed_pool_opinion_payload:
+                decision = str(managed_pool_opinion_payload.get("status_label") or decision or "").strip()
+                reason_code = str(managed_pool_opinion_payload.get("reason") or reason_code or "").strip()[:2000]
         provider_norm = self._normalize_ai_refresh_provider_code(provider)
         if provider_norm == "local":
             provider_norm = "gemini" if str(provider or "").strip().lower() == "gemini" else "gpt"
@@ -39801,6 +40066,10 @@ class MainWindow(QMainWindow):
             "stale_reason": str(ctx.get("stale_reason") or ""),
             "generation_response_confirmed": bool(ctx.get("generation_response_confirmed")),
             "generation_response_confirmed_reason": str(ctx.get("generation_response_confirmed_reason") or ""),
+            "managed_pool_dedicated_payload_used": bool(ctx.get("managed_pool_dedicated_payload_used")),
+            "managed_pool_opinion_payload_schema": str(ctx.get("managed_pool_opinion_payload_schema") or ""),
+            "managed_pool_opinion_provider_result": ctx.get("managed_pool_opinion_provider_result") if isinstance(ctx.get("managed_pool_opinion_provider_result"), dict) else {},
+            "managed_pool_ai_opinion": managed_pool_opinion_payload,
         }
 
     def _start_aits_provider_refresh_worker(self, request_payload: dict) -> bool:
@@ -40080,6 +40349,9 @@ class MainWindow(QMainWindow):
                     "stale_reason",
                     "generation_response_confirmed",
                     "generation_response_confirmed_reason",
+                    "managed_pool_dedicated_payload_used",
+                    "managed_pool_opinion_payload_schema",
+                    "managed_pool_opinion_provider_result",
                 ):
                     if proof_key in result:
                         result_context.setdefault(proof_key, result.get(proof_key))
@@ -41654,6 +41926,15 @@ class MainWindow(QMainWindow):
                 current_fp = ""
 
             compact_provider_smoke = bool(getattr(self, "_aits_provider_smoke_compact_generation", False) or getattr(self, "_startup_provider_readiness_compact_generation", False))
+            managed_pool_opinion_context = {}
+            managed_pool_manual_opinion_request = False
+            if bool(manual_request) and not compact_provider_smoke:
+                try:
+                    managed_pool_opinion_context = self._build_managed_pool_opinion_compact_payload_for_manual_refresh(target_symbol, "gpt")
+                    managed_pool_manual_opinion_request = bool(managed_pool_opinion_context)
+                except Exception:
+                    managed_pool_opinion_context = {}
+                    managed_pool_manual_opinion_request = False
             if compact_provider_smoke:
                 messages = [
                     {
@@ -41683,7 +41964,7 @@ class MainWindow(QMainWindow):
                 "model": model,
                 "messages": messages,
             }
-            output_token_cap = 120 if compact_provider_smoke else 1200
+            output_token_cap = 260 if managed_pool_manual_opinion_request else (120 if compact_provider_smoke else 1200)
             if model == "chat-latest":
                 body["max_completion_tokens"] = output_token_cap
             else:
@@ -41695,7 +41976,7 @@ class MainWindow(QMainWindow):
             )
             requested_model_req = self._normalize_openai_api_model_id(str(request_context.get("requested_model") or model or "").strip(), log=True)
             model_display_name_req = str(request_context.get("model_display_name") or model_display_name or self._openai_model_display_name(requested_model_req) or "").strip()
-            generation_max_attempts = 2
+            generation_max_attempts = 1 if managed_pool_manual_opinion_request else 2
             if compact_provider_smoke:
                 try:
                     generation_max_attempts = max(1, min(3, int(getattr(self, "_aits_provider_smoke_max_provider_calls", 1) or 1)))
@@ -41766,11 +42047,15 @@ class MainWindow(QMainWindow):
                     "messages_count": len(messages),
                     "message_chars": sum(len(str((m or {}).get("content") or "")) for m in messages if isinstance(m, dict)),
                     "output_token_cap": output_token_cap,
+                    "managed_pool_opinion_request": bool(managed_pool_manual_opinion_request),
+                    "managed_pool_opinion_schema": str((managed_pool_opinion_context or {}).get("schema") or ""),
                 },
                 "timeout_sec": 45 if compact_provider_smoke else 90,
                 "generation_request_id": group_id,
                 "generation_max_attempts": generation_max_attempts,
                 "generation_retry_backoff_sec": 3 if generation_max_attempts > 1 else 0,
+                "managed_pool_opinion_request": bool(managed_pool_manual_opinion_request),
+                "managed_pool_opinion_context": dict(managed_pool_opinion_context or {}),
             }
             if self._start_aits_provider_refresh_worker(request_payload):
                 provider_worker_started = True

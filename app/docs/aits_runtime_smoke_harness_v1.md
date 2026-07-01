@@ -892,3 +892,14 @@ normalized opinion payload, response id/token usage presence, and
 response, user-facing rationale that is not only an execution-block reason,
 `order_execution=false`, `final_action_unchanged=true`, and Managed Pool mutation
 false.
+
+### managed-pool-manual-refresh-dedicated-opinion-proof
+
+`managed-pool-manual-refresh-dedicated-opinion-proof` verifies that the manual Managed Pool AI refresh path uses `managed_pool_ai_opinion_request_v1` and normalizes the provider result into `managed_pool_ai_opinion_v1` before applying the display-only row overlay.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-refresh-dedicated-opinion-proof --provider local --target-symbol KRW-ETH --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-refresh-dedicated-opinion-proof --provider gpt --target-symbol KRW-ETH --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
+```
+
+PASS requires `dedicated_payload_used=true`, `payload_schema=managed_pool_ai_opinion_request_v1`, a normalized opinion payload, overlay application, `order_execution=false`, `final_action_unchanged=true`, `actual_order=false`, `managed_pool_mutation=false`, and `order_risk_detected=false`. LOCAL proof keeps provider calls at `0`; GPT/Gemini proof requires the explicit provider-call flag and a call budget of `<= 1`.

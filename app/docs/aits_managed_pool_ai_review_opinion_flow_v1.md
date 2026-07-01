@@ -129,3 +129,9 @@ normalizer accepts only display statuses such as `관망`, `매수대기`, `교�
 `매도검토`, and `데이터부족`, and it replaces execution-block-only rationale
 with user-facing managed-pool rationale. This changes tooltip/report quality
 only; it does not route or execute orders.
+
+## Manual Refresh Dedicated Opinion Payload
+
+When the user runs manual `AI 분석 새로고침` for a symbol that belongs to the Managed Pool, the refresh path uses the dedicated `managed_pool_ai_opinion_request_v1` payload instead of the Router verification adapter. The request remains a suggestion-only Managed Pool opinion request: `order_execution=false`, `actual_order=false`, `final_action_unchanged=true`, and `managed_pool_mutation=false`.
+
+The result is normalized into `managed_pool_ai_opinion_v1`, then applied to the display-only row opinion/freshness overlay. The overlay may update status and tooltip copy, but it does not persist row changes. Provider calls remain behind an explicit proof flag and a one-call budget. Execution-block-only or stale manual-required rationale is not used as the primary user-facing reason.

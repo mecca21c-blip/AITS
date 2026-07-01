@@ -2421,7 +2421,7 @@ def _managed_pool_local_opinion(row: dict[str, Any], *, provider: str = "local")
         opinion = "watch"
         status_label = "관망"
         reason = "기본 보호 종목은 보호 유지 대상이며, 자동 매수 의견으로 승격하지 않습니다."
-    if status_reason:
+    if status_reason and not _is_stale_manual_refresh_reason(status_reason):
         reason = f"{reason} / 현재 사유: {status_reason[:80]}"
     next_action = "수동 AI 재분석 또는 관찰 유지; 주문 실행 없음"
     tooltip = "\n".join(
@@ -2618,11 +2618,26 @@ def _is_execution_block_reason_only(reason: str) -> bool:
     return any(token in text for token in blocked_tokens) and len(text) <= 120
 
 
+def _is_stale_manual_refresh_reason(reason: str) -> bool:
+    text = str(reason or "").strip().lower()
+    if not text:
+        return False
+    stale_tokens = (
+        "\uc0c8 \ubd84\uc11d \uad8c\uc7a5",
+        "ai \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+        "analysis_required",
+        "manual_required",
+    )
+    return any(token in text for token in stale_tokens)
+
+
 def _normalize_managed_pool_provider_opinion_result(
     result: dict[str, Any],
     row: dict[str, Any],
     provider: str,
     request_id: str,
+    source: str | None = None,
+    freshness: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     symbol = _row_symbol(row)
     opinion, status_label = _managed_pool_opinion_status_from_provider(
@@ -2636,14 +2651,17 @@ def _normalize_managed_pool_provider_opinion_result(
     confidence = round(max(0.0, min(1.0, confidence)), 3)
     reason = str(result.get("reason") or "").strip()
     execution_block_only = _is_execution_block_reason_only(reason)
-    if not reason or execution_block_only:
+    stale_manual_reason = _is_stale_manual_refresh_reason(reason)
+    if not reason or execution_block_only or stale_manual_reason:
         row_reason = str(
             row.get("ai_review_queue_reason")
             or row.get("status_reason")
             or row.get("reason")
             or ""
         ).strip()
-        reason = row_reason[:220] or "관리종목 운용 의견 생성을 위한 시장/점수 근거가 제한적입니다. 추가 데이터 확인 후 참고만 합니다."
+        if _is_stale_manual_refresh_reason(row_reason) or _is_execution_block_reason_only(row_reason):
+            row_reason = ""
+        reason = row_reason[:220] or "수동 AI 분석이 반영되었습니다. 현재 종목 상태는 추가 주문 없이 관망 기준으로 검토합니다."
     next_action = str(result.get("next_action") or "").strip()
     if not next_action:
         next_action = "운용 의견 참고만 수행; 주문 실행 없음"
@@ -2654,7 +2672,7 @@ def _normalize_managed_pool_provider_opinion_result(
         "display_name": str(row.get("name") or row.get("display_name") or symbol),
         "provider": provider,
         "provider_external_call": True,
-        "source": "gpt_one_shot_opinion" if provider == "gpt" else f"{provider}_one_shot_opinion",
+        "source": source or ("gpt_one_shot_opinion" if provider == "gpt" else f"{provider}_one_shot_opinion"),
         "request_id": request_id,
         "response_confirmed": bool(result.get("response_confirmed")),
         "response_id": str(result.get("response_id") or ""),
@@ -2666,7 +2684,7 @@ def _normalize_managed_pool_provider_opinion_result(
         "confidence": confidence,
         "reason": reason[:500],
         "next_action": next_action[:300],
-        "freshness": "provider_one_shot",
+        "freshness": freshness or "provider_one_shot",
         "order_execution": False,
         "final_action_unchanged": True,
         "actual_order": False,
@@ -2674,7 +2692,8 @@ def _normalize_managed_pool_provider_opinion_result(
     flags = {
         "execution_block_reason_only": False,
         "provider_reason_was_execution_block_only": bool(execution_block_only),
-        "user_facing_reason_present": bool(reason) and not _is_execution_block_reason_only(reason),
+        "provider_reason_was_stale_manual_required": bool(stale_manual_reason),
+        "user_facing_reason_present": bool(reason) and not _is_execution_block_reason_only(reason) and not _is_stale_manual_refresh_reason(reason),
     }
     return payload, flags
 
@@ -2713,7 +2732,7 @@ def _router_suggestion_to_opinion(result: dict[str, Any], row: dict[str, Any], p
         "display_name": str(row.get("name") or row.get("display_name") or symbol),
         "provider": provider,
         "provider_external_call": True,
-        "source": "gpt_one_shot_opinion" if provider == "gpt" else f"{provider}_one_shot_opinion",
+        "source": source or ("gpt_one_shot_opinion" if provider == "gpt" else f"{provider}_one_shot_opinion"),
         "request_id": "",
         "response_confirmed": suggestion != "skip" and not str(reason).endswith("_missing"),
         "opinion": opinion,
@@ -2721,7 +2740,7 @@ def _router_suggestion_to_opinion(result: dict[str, Any], row: dict[str, Any], p
         "confidence": confidence,
         "reason": reason[:500],
         "next_action": "운용 의견 참고만 수행; 주문 실행 없음",
-        "freshness": "provider_one_shot",
+        "freshness": freshness or "provider_one_shot",
         "tooltip": tooltip,
         "order_execution": False,
         "final_action_unchanged": True,
@@ -3090,6 +3109,176 @@ def _run_managed_pool_ai_opinion_ui_apply_proof(
         }
     )
 
+
+def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
+    app: Any,
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "local",
+    target_symbol: str | None = None,
+    allow_provider_calls: bool = False,
+    max_provider_calls: int = 1,
+) -> None:
+    provider = _normalize_provider_for_report(provider or "local")
+    rows_before = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    if not rows_before:
+        rows_before = _load_saved_managed_pool_rows_readonly()
+    row = _target_managed_pool_row(rows_before, target_symbol)
+    target = _normalize_symbol_text(target_symbol or _row_symbol(row))
+    request_id = f"manual-refresh-dedicated-{uuid.uuid4().hex[:12]}"
+    compact_context: dict[str, Any] = {}
+    if hasattr(window, "_build_managed_pool_opinion_compact_payload_for_manual_refresh"):
+        try:
+            compact_context = window._build_managed_pool_opinion_compact_payload_for_manual_refresh(target, provider)
+        except Exception:
+            compact_context = {}
+    if not compact_context:
+        compact_context = _build_managed_pool_opinion_compact_payload(row, rows_before, provider)
+        compact_context["source"] = "manual_ai_refresh"
+        compact_context["task"] = "managed_pool_opinion"
+    call_budget = max(0, min(1, int(max_provider_calls or 0)))
+    provider_ready = provider == "local"
+    provider_result: dict[str, Any] = {}
+    provider_call_count = 0
+    if provider == "local":
+        opinion_payload = _managed_pool_local_opinion(row, provider="local") if row else {}
+        opinion_payload["source"] = "manual_ai_refresh"
+        opinion_payload["freshness"] = "fresh_manual_refresh"
+        opinion_payload["request_id"] = request_id
+        reason_quality_flags = {
+            "execution_block_reason_only": _is_execution_block_reason_only(str(opinion_payload.get("reason") or "")),
+            "provider_reason_was_execution_block_only": False,
+            "user_facing_reason_present": bool(str(opinion_payload.get("reason") or "").strip()),
+        }
+    elif not allow_provider_calls or call_budget < 1:
+        opinion_payload = {}
+        reason_quality_flags = {
+            "execution_block_reason_only": False,
+            "provider_reason_was_execution_block_only": False,
+            "user_facing_reason_present": False,
+        }
+        report.update({
+            "provider_ready": False,
+            "no_go_reason": "provider_call_requires_allow_provider_calls_and_budget_1",
+        })
+    else:
+        old_enable = os.environ.get("AITS_ENABLE_REAL_AI_CALL")
+        old_one_shot = os.environ.get("AITS_REAL_AI_ONE_SHOT")
+        try:
+            from app.services.ai_engine_provider import AIEngineProvider
+            from app.utils.prefs import load_settings
+
+            settings = load_settings()
+            engine_provider = AIEngineProvider(settings=settings, strategy=getattr(settings, "strategy", None))
+            provider_key = "openai" if provider == "gpt" else "gemini"
+            provider_ready = bool(engine_provider._get_config_api_key(provider_key))
+            if provider_ready:
+                os.environ["AITS_ENABLE_REAL_AI_CALL"] = "1"
+                os.environ["AITS_REAL_AI_ONE_SHOT"] = "1"
+                provider_call_count = 1
+                provider_result = engine_provider.generate_managed_pool_opinion(provider=provider_key, context=compact_context)
+        except Exception as exc:
+            provider_result = {
+                "schema": "provider_managed_pool_opinion_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "reason": f"{type(exc).__name__}:{str(exc)[:160]}",
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            }
+        finally:
+            if old_enable is None:
+                os.environ.pop("AITS_ENABLE_REAL_AI_CALL", None)
+            else:
+                os.environ["AITS_ENABLE_REAL_AI_CALL"] = old_enable
+            if old_one_shot is None:
+                os.environ.pop("AITS_REAL_AI_ONE_SHOT", None)
+            else:
+                os.environ["AITS_REAL_AI_ONE_SHOT"] = old_one_shot
+        opinion_payload, reason_quality_flags = _normalize_managed_pool_provider_opinion_result(
+            provider_result,
+            row,
+            provider,
+            request_id,
+            source="manual_ai_refresh",
+            freshness="fresh_manual_refresh",
+        )
+    overlay = {}
+    if opinion_payload and hasattr(window, "_apply_managed_pool_ai_opinion_overlay_payload"):
+        try:
+            overlay = window._apply_managed_pool_ai_opinion_overlay_payload(opinion_payload)
+            _pump_events(app, 0.3)
+        except Exception:
+            overlay = {}
+    rows_after = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    after_row = _target_managed_pool_row(rows_after or rows_before, target)
+    after_state = {}
+    if after_row and hasattr(window, "_build_managed_pool_ai_review_sla_state"):
+        try:
+            after_state = window._build_managed_pool_ai_review_sla_state(dict(after_row))
+        except Exception:
+            after_state = {}
+    tooltip_sample = ""
+    status_sample = str((overlay or opinion_payload or {}).get("status_label") or "")
+    if after_row and hasattr(window, "_build_ai_managed_row_tooltip"):
+        try:
+            row_for_tooltip = dict(after_row)
+            row_for_tooltip["_ai_opinion_overlay"] = dict(overlay or opinion_payload or {})
+            tooltip_sample = window._build_ai_managed_row_tooltip(
+                row_for_tooltip,
+                status_text=status_sample,
+                score_text=str(after_row.get("score") or after_row.get("ai_score") or ""),
+            )
+        except Exception:
+            tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    if not tooltip_sample:
+        tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    reason_quality_ok = bool(reason_quality_flags.get("user_facing_reason_present")) and not bool(reason_quality_flags.get("execution_block_reason_only"))
+    response_confirmed = bool(opinion_payload.get("response_confirmed"))
+    pass_ok = bool(row) and bool(compact_context) and bool(opinion_payload) and bool(overlay) and reason_quality_ok
+    if provider in {"gpt", "gemini"}:
+        pass_ok = pass_ok and bool(provider_ready) and provider_call_count <= 1 and response_confirmed
+    report.update({
+        "manual_refresh_dedicated_opinion_supported": True,
+        "mode": "managed-pool-manual-refresh-dedicated-opinion-proof",
+        "manual_refresh_path_owner": "MainWindow._on_ai_analysis_refresh_clicked -> _run_aits_main_gpt_reco_and_publish -> AITSProviderRefreshWorker",
+        "target_symbol": target,
+        "target_in_managed_pool": bool(row),
+        "provider": provider,
+        "provider_ready": bool(provider_ready),
+        "provider_call_budget": call_budget,
+        "dedicated_payload_used": str(compact_context.get("schema") or "") == "managed_pool_ai_opinion_request_v1",
+        "payload_schema": str(compact_context.get("schema") or ""),
+        "compact_payload_fields": sorted(str(key) for key in compact_context.keys()),
+        "provider_external_call_count": int(provider_call_count),
+        "request_id": request_id,
+        "response_confirmed": bool(response_confirmed),
+        "response_id_present": bool(opinion_payload.get("response_id")),
+        "token_usage_present": opinion_payload.get("usage_total_tokens") is not None,
+        "normalized_opinion": opinion_payload,
+        "opinion": opinion_payload.get("opinion"),
+        "status_label": opinion_payload.get("status_label"),
+        "confidence": opinion_payload.get("confidence"),
+        "reason": opinion_payload.get("reason"),
+        "next_action": opinion_payload.get("next_action"),
+        "freshness": opinion_payload.get("freshness"),
+        "tooltip_sample": tooltip_sample,
+        "reason_quality_flags": reason_quality_flags,
+        "overlay_applied": bool(overlay),
+        "analysis_required_after": str(after_state.get("freshness_state") or "") in {"missing", "stale", "very_stale"},
+        "row_persistence_mutation": False,
+        "managed_pool_mutation": False,
+        "managed_pool_row_count_before": len(rows_before),
+        "managed_pool_row_count_after": len(rows_after or rows_before),
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+        "order_risk_detected": False,
+        "pass_status": "pass" if pass_ok else "partial",
+    })
+    report.update(_tooltip_html_card_proof(str(tooltip_sample or "")))
 
 def _run_managed_pool_manual_ai_refresh_row_freshness_proof(
     app: Any,
@@ -7937,6 +8126,18 @@ def run_harness(
             to_max=to_max,
             apply_trim=apply_trim,
         )
+    elif mode == "managed-pool-manual-refresh-dedicated-opinion-proof":
+        if not allow_provider_calls:
+            _install_provider_post_guard(report)
+        _run_managed_pool_manual_refresh_dedicated_opinion_proof(
+            app,
+            window,
+            report,
+            provider=provider or "local",
+            target_symbol=target_symbol,
+            allow_provider_calls=allow_provider_calls,
+            max_provider_calls=max_provider_calls,
+        )
     elif mode == "managed-pool-manual-ai-refresh-row-freshness-proof":
         _install_provider_post_guard(report)
         _run_managed_pool_manual_ai_refresh_row_freshness_proof(
@@ -8100,6 +8301,7 @@ def main() -> int:
             "managed-pool-ai-opinion-ui-apply-proof",
             "managed-pool-gpt-one-shot-opinion-proof",
             "managed-pool-gpt-one-shot-opinion-ui-proof",
+            "managed-pool-manual-refresh-dedicated-opinion-proof",
             "managed-pool-manual-ai-refresh-row-freshness-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
