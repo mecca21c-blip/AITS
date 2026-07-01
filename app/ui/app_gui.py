@@ -36520,6 +36520,282 @@ class MainWindow(QMainWindow):
         except Exception:
             return ""
 
+    def _managed_pool_source_summary_text(self, row: dict, holding_overlay: dict | None = None) -> str:
+        try:
+            if not isinstance(row, dict):
+                row = {}
+            if isinstance(holding_overlay, dict) and holding_overlay.get("holding_display"):
+                if holding_overlay.get("dust_holding"):
+                    return "잔고가 있어 관리 대상으로 유지됩니다. 소액 보유라 운용 판단에서는 제외됩니다."
+                return "잔고가 있어 관리 대상으로 유지됩니다."
+            source = str(
+                row.get("source_type")
+                or row.get("source")
+                or row.get("origin")
+                or ""
+            ).strip().lower()
+            if source in {"user_added", "user", "manual"} or bool(row.get("user_added")):
+                return "사용자가 직접 추가한 관리종목입니다."
+            if source in {"system_default", "system_seed", "seed"}:
+                return "기본 보호 관리종목입니다."
+            if source in {"basic_added", "auto_added", "basic"}:
+                return "Basic 후보 품질 기준을 통과해 자동 편입되었습니다."
+            reason = str(
+                row.get("promotion_reason")
+                or row.get("source_reason")
+                or row.get("added_reason")
+                or row.get("reason")
+                or ""
+            ).strip()
+            if reason:
+                try:
+                    reason = self._managed_pool_sync_reason_text(reason)
+                except Exception:
+                    pass
+                return str(reason)[:120]
+        except Exception:
+            pass
+        return "관리 후보 기준에 따라 관찰 대상으로 분류되었습니다."
+
+    def _managed_pool_opinion_judge_text(self, overlay: dict | None, row: dict | None = None) -> str:
+        try:
+            if isinstance(overlay, dict) and overlay:
+                provider = str(overlay.get("provider") or "local").strip().upper()
+                source = str(overlay.get("source") or "").strip()
+                source_text = self._humanize_managed_pool_ai_opinion_source(source)
+                if provider == "GPT" and source == "manual_ai_refresh":
+                    return "GPT 수동 AI 분석 결과입니다."
+                if provider == "GEMINI":
+                    return "Gemini 분석 결과입니다."
+                if provider == "LOCAL":
+                    return source_text or "LOCAL 계산 의견입니다."
+                return f"{provider} 분석 결과입니다."
+            if isinstance(row, dict):
+                source = str(row.get("source_type") or row.get("source") or "").strip().lower()
+                if source in {"basic_added", "auto_added", "basic"}:
+                    return "Basic 후보 엔진이 선별했습니다."
+        except Exception:
+            pass
+        return "Basic 후보 엔진이 참고 기준을 계산했습니다."
+
+    def _managed_pool_watch_until_text(self, overlay: dict | None, status_text: str = "") -> str:
+        try:
+            freshness = str((overlay or {}).get("freshness") or "").strip() if isinstance(overlay, dict) else ""
+            opinion = str((overlay or {}).get("opinion") or "").strip().lower() if isinstance(overlay, dict) else ""
+            status = str(status_text or "").strip()
+            if freshness == "fresh_manual_refresh":
+                return "수동 AI 분석 기준 최신 상태입니다. 다음 데이터 갱신 후 재평가합니다."
+            if freshness == "fresh_startup_generation":
+                return "최근 연결 확인 기준으로 표시 중입니다. 다음 데이터 갱신 후 재평가합니다."
+            if freshness in {"stale", "analysis_required", "manual_required"}:
+                return "재분석이 필요합니다. 수동 분석 또는 다음 데이터 갱신 후 다시 확인합니다."
+            if opinion == "data_insufficient" or "데이터부족" in status:
+                return "추가 데이터 확인 후 재평가합니다."
+        except Exception:
+            pass
+        return "다음 데이터 갱신 후 재평가합니다."
+
+    def _build_ai_managed_decision_summary_payload(
+        self,
+        row: dict,
+        *,
+        status_text: str = "",
+        score_text: str = "",
+    ) -> dict:
+        try:
+            if not isinstance(row, dict):
+                row = {}
+            symbol = str(row.get("symbol") or row.get("market") or row.get("code") or "").strip().upper()
+            name = self._get_managed_korean_name(row)
+            label = symbol or str(row.get("name") or "").strip() or "-"
+            if name and name not in label:
+                label = f"{label} {name}"
+            holding_overlay = row.get("_holding_display_overlay") if isinstance(row.get("_holding_display_overlay"), dict) else {}
+            opinion_overlay = row.get("_ai_opinion_overlay") if isinstance(row.get("_ai_opinion_overlay"), dict) else {}
+            expected = str((opinion_overlay or {}).get("status_label") or status_text or "").strip() or "관망"
+            reason = str((opinion_overlay or {}).get("reason") or "").strip()
+            if reason:
+                expected = f"{expected}. {reason[:120]}"
+            payload = {
+                "title": label,
+                "selected_reason": self._managed_pool_source_summary_text(row, holding_overlay),
+                "judged_by": self._managed_pool_opinion_judge_text(opinion_overlay, row),
+                "expected_action": expected,
+                "watch_until": self._managed_pool_watch_until_text(opinion_overlay, expected),
+                "safety_note": "주문 없음 / 표시만",
+            }
+            if score_text:
+                payload["score_text"] = str(score_text)
+            return payload
+        except Exception:
+            return {
+                "title": "-",
+                "selected_reason": "관리 후보 기준에 따라 관찰 대상으로 분류되었습니다.",
+                "judged_by": "Basic 후보 엔진이 참고 기준을 계산했습니다.",
+                "expected_action": "관망",
+                "watch_until": "다음 데이터 갱신 후 재평가합니다.",
+                "safety_note": "주문 없음 / 표시만",
+            }
+
+    def _show_ai_managed_decision_summary_popup(
+        self,
+        row: dict,
+        *,
+        status_text: str = "",
+        score_text: str = "",
+        anchor_widget=None,
+    ) -> None:
+        try:
+            old = getattr(self, "_ai_managed_decision_summary_popup", None)
+            if old is not None:
+                old.close()
+                old.deleteLater()
+        except Exception:
+            pass
+        payload = self._build_ai_managed_decision_summary_payload(
+            row,
+            status_text=status_text,
+            score_text=score_text,
+        )
+        popup = QFrame(self, Qt.WindowType.Popup)
+        self._ai_managed_decision_summary_popup = popup
+        try:
+            popup.setObjectName("frmAiManagedDecisionSummaryPopup")
+            popup.setFrameShape(QFrame.Shape.NoFrame)
+            popup.setStyleSheet(
+                "QFrame#frmAiManagedDecisionSummaryPopup{"
+                "background:#fffdf7;color:#1f2933;border:1px solid #cabb9d;"
+                "border-radius:8px;}"
+                "QLabel{background:transparent;color:#1f2933;}"
+                "QToolButton#btnAiManagedDecisionSummaryClose{"
+                "background:#ffffff;color:#475569;border:1px solid #d8c9aa;"
+                "border-radius:10px;font-weight:800;}"
+                "QToolButton#btnAiManagedDecisionSummaryClose:hover{background:#fef3c7;color:#111827;}"
+            )
+        except Exception:
+            pass
+        root = QVBoxLayout(popup)
+        try:
+            root.setContentsMargins(14, 12, 14, 12)
+            root.setSpacing(8)
+        except Exception:
+            pass
+        header = QHBoxLayout()
+        title = QLabel("AI 판단 요약")
+        try:
+            title.setStyleSheet("font-size:14px;font-weight:900;color:#111827;")
+        except Exception:
+            pass
+        close_btn = QToolButton(popup)
+        try:
+            close_btn.setObjectName("btnAiManagedDecisionSummaryClose")
+            close_btn.setText("X")
+            close_btn.setFixedSize(22, 22)
+            close_btn.clicked.connect(popup.close)
+        except Exception:
+            pass
+        header.addWidget(title, 1)
+        header.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignRight)
+        root.addLayout(header)
+        subtitle = QLabel(str(payload.get("title") or "-"))
+        try:
+            subtitle.setStyleSheet("font-size:12px;font-weight:800;color:#334155;")
+            subtitle.setWordWrap(True)
+        except Exception:
+            pass
+        root.addWidget(subtitle)
+        questions = (
+            ("1. 왜 선택되었나", payload.get("selected_reason")),
+            ("2. 누가 판단했나", payload.get("judged_by")),
+            ("3. 뭘 예상하는가", payload.get("expected_action")),
+            ("4. 언제까지 지켜볼 건가", payload.get("watch_until")),
+        )
+        for q_title, body in questions:
+            q = QLabel(f"{q_title}\n{str(body or '-')}")
+            try:
+                q.setWordWrap(True)
+                q.setTextFormat(Qt.TextFormat.PlainText)
+                q.setStyleSheet(
+                    "font-size:12px;line-height:1.45;color:#1f2933;"
+                    "padding:5px 0px;border:none;"
+                )
+            except Exception:
+                pass
+            root.addWidget(q)
+        safety = QLabel(str(payload.get("safety_note") or "주문 없음 / 표시만"))
+        try:
+            safety.setStyleSheet("font-size:12px;font-weight:900;color:#92400e;margin-top:3px;")
+        except Exception:
+            pass
+        root.addWidget(safety)
+        try:
+            popup.setFixedWidth(420)
+            popup.adjustSize()
+        except Exception:
+            pass
+        try:
+            if anchor_widget is not None:
+                pos = anchor_widget.mapToGlobal(QPoint(0, int(anchor_widget.height()) + 4))
+            else:
+                pos = self.mapToGlobal(QPoint(120, 120))
+            popup.move(pos)
+        except Exception:
+            pass
+        popup.show()
+
+    def _make_ai_managed_status_summary_cell(
+        self,
+        status_cell: QWidget,
+        row_for_display: dict,
+        *,
+        status_text: str = "",
+        score_text: str = "",
+    ) -> QWidget:
+        root = QWidget(getattr(self, "tbl_ai_managed", None))
+        try:
+            root.setStyleSheet("background:transparent;border:none;")
+            root.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        except Exception:
+            pass
+        layout = QHBoxLayout(root)
+        try:
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(3)
+        except Exception:
+            pass
+        layout.addWidget(status_cell, 1, Qt.AlignmentFlag.AlignVCenter)
+        btn = QToolButton(root)
+        try:
+            btn.setObjectName("btn_ai_managed_decision_summary")
+            btn.setText("▶")
+            btn.setToolTip("AI 판단 요약")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedSize(24, 24)
+            btn.setStyleSheet(
+                "QToolButton#btn_ai_managed_decision_summary{"
+                "background:#fffdf7;color:#334155;border:1px solid #d8c9aa;"
+                "border-radius:12px;font-size:11px;font-weight:900;padding:0px;}"
+                "QToolButton#btn_ai_managed_decision_summary:hover{background:#fef3c7;color:#111827;}"
+            )
+            btn.clicked.connect(
+                lambda _checked=False, row=dict(row_for_display), status=str(status_text or ""), score=str(score_text or ""), anchor=btn: (
+                    self._show_ai_managed_decision_summary_popup(
+                        row,
+                        status_text=status,
+                        score_text=score,
+                        anchor_widget=anchor,
+                    )
+                )
+            )
+        except Exception:
+            pass
+        layout.addWidget(btn, 0, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        try:
+            root.setProperty("aiManagedDecisionSummaryCell", True)
+        except Exception:
+            pass
+        return root
+
     def _apply_ai_managed_row_tooltip(self, widget, tooltip_text: str) -> int:
         if widget is None or not tooltip_text:
             return 0
@@ -36532,6 +36808,9 @@ class MainWindow(QMainWindow):
         try:
             for child in widget.findChildren(QWidget):
                 try:
+                    if str(child.objectName() or "") == "btn_ai_managed_decision_summary":
+                        child.setToolTip("AI 판단 요약")
+                        continue
                     child.setToolTip(tooltip_text)
                     count += 1
                 except Exception:
@@ -36748,14 +37027,20 @@ class MainWindow(QMainWindow):
                     status_sub_text,
                     str(st_kind or "watch"),
                 )
+                status_widget = self._make_ai_managed_status_summary_cell(
+                    st_cell,
+                    row_for_display,
+                    status_text=str(st_main or ""),
+                    score_text=str(score),
+                )
                 try:
-                    st_cell.setToolTip(str(row.get("ai_review_queue_reason") or ai_review_sla.get("tooltip") or ""))
+                    status_widget.setToolTip(str(row.get("ai_review_queue_reason") or ai_review_sla.get("tooltip") or ""))
                 except Exception:
                     pass
                 t.setCellWidget(
                     i,
                     3,
-                    _managed_table_cell_padding_wrap(st_cell, center=True),
+                    _managed_table_cell_padding_wrap(status_widget, center=True),
                 )
             except Exception:
                 pass
