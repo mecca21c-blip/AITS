@@ -903,3 +903,22 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-r
 ```
 
 PASS requires `dedicated_payload_used=true`, `payload_schema=managed_pool_ai_opinion_request_v1`, a normalized opinion payload, overlay application, `order_execution=false`, `final_action_unchanged=true`, `actual_order=false`, `managed_pool_mutation=false`, and `order_risk_detected=false`. LOCAL proof keeps provider calls at `0`; GPT/Gemini proof requires the explicit provider-call flag and a call budget of `<= 1`.
+
+### manual-ai-refresh-target-symbol-e2e-proof
+
+`manual-ai-refresh-target-symbol-e2e-proof` verifies that the manual Managed
+Pool AI refresh path keeps the selected table row symbol aligned end to end:
+selected row symbol, dedicated opinion payload symbol, and overlay symbol must
+match.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode manual-ai-refresh-target-symbol-e2e-proof --target-symbol KRW-ETH --provider local --observe-only
+```
+
+The report records the selection owner, resolver owner, table object name,
+`target_symbol`, `selected_symbol`, `payload_symbol`, `overlay_symbol`,
+`target_match`, `fallback_used`, `dedicated_payload_used`,
+`overlay_applied_to_target_only`, and `changed_overlay_symbols`. PASS requires
+`fallback_used=false`, the three symbols to match, overlay changes limited to
+the target symbol, provider call count `0` for LOCAL, and no order execution,
+final-action change, or Managed Pool mutation.

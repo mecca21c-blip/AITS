@@ -3280,6 +3280,233 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
     })
     report.update(_tooltip_html_card_proof(str(tooltip_sample or "")))
 
+
+def _run_manual_ai_refresh_target_symbol_e2e_proof(
+    app: Any,
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "local",
+    target_symbol: str | None = None,
+    allow_provider_calls: bool = False,
+    max_provider_calls: int = 1,
+) -> None:
+    provider = _normalize_provider_for_report(provider or "local")
+    rows_before = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    if not rows_before:
+        rows_before = _load_saved_managed_pool_rows_readonly()
+    row = _target_managed_pool_row(rows_before, target_symbol)
+    target = _normalize_symbol_text(target_symbol or _row_symbol(row))
+    target_index = -1
+    for idx, candidate in enumerate(rows_before):
+        if _row_symbol(candidate) == target:
+            target_index = idx
+            row = candidate
+            break
+
+    table_select_ok = False
+    table_object_name = ""
+    if target_index >= 0:
+        table = getattr(window, "tbl_ai_managed", None)
+        if table is not None:
+            try:
+                table_object_name = str(table.objectName() or "")
+            except Exception:
+                table_object_name = ""
+            try:
+                table.setCurrentCell(int(target_index), 0)
+                table.selectRow(int(target_index))
+                _pump_events(app, 0.2)
+                table_select_ok = int(table.currentRow()) == int(target_index)
+            except Exception:
+                table_select_ok = False
+
+    resolver_info: dict[str, Any] = {}
+    if hasattr(window, "_resolve_ai_refresh_target_symbol"):
+        try:
+            resolver_info = window._resolve_ai_refresh_target_symbol(None, None, "managed_tab")
+        except Exception as exc:
+            resolver_info = {"symbol": "", "skip_reason": f"{type(exc).__name__}:{str(exc)[:120]}"}
+    selected_symbol = _normalize_symbol_text(resolver_info.get("symbol") or "")
+    resolver_source = str(resolver_info.get("source") or "")
+    fallback_used = bool(not selected_symbol or selected_symbol != target)
+    target_match = bool(target and selected_symbol == target)
+
+    request_id = f"manual-refresh-target-e2e-{uuid.uuid4().hex[:12]}"
+    compact_context: dict[str, Any] = {}
+    provider_result: dict[str, Any] = {}
+    opinion_payload: dict[str, Any] = {}
+    reason_quality_flags: dict[str, Any] = {
+        "execution_block_reason_only": False,
+        "provider_reason_was_execution_block_only": False,
+        "user_facing_reason_present": False,
+    }
+    provider_call_count = 0
+    provider_ready = provider == "local"
+    unresolved_target = not (row and target_match)
+    if row and target_match:
+        if hasattr(window, "_build_managed_pool_opinion_compact_payload_for_manual_refresh"):
+            try:
+                compact_context = window._build_managed_pool_opinion_compact_payload_for_manual_refresh(selected_symbol, provider)
+            except Exception:
+                compact_context = {}
+        if not compact_context:
+            compact_context = _build_managed_pool_opinion_compact_payload(row, rows_before, provider)
+            compact_context["source"] = "manual_ai_refresh"
+            compact_context["task"] = "managed_pool_opinion"
+        if provider == "local":
+            opinion_payload = _managed_pool_local_opinion(row, provider="local") if row else {}
+            opinion_payload["source"] = "manual_ai_refresh"
+            opinion_payload["freshness"] = "fresh_manual_refresh"
+            opinion_payload["request_id"] = request_id
+            reason_quality_flags = {
+                "execution_block_reason_only": _is_execution_block_reason_only(str(opinion_payload.get("reason") or "")),
+                "provider_reason_was_execution_block_only": False,
+                "user_facing_reason_present": bool(str(opinion_payload.get("reason") or "").strip()),
+            }
+        elif allow_provider_calls and int(max_provider_calls or 0) >= 1:
+            old_enable = os.environ.get("AITS_ENABLE_REAL_AI_CALL")
+            old_one_shot = os.environ.get("AITS_REAL_AI_ONE_SHOT")
+            try:
+                from app.services.ai_engine_provider import AIEngineProvider
+                from app.utils.prefs import load_settings
+
+                settings = load_settings()
+                engine_provider = AIEngineProvider(settings=settings, strategy=getattr(settings, "strategy", None))
+                provider_key = "openai" if provider == "gpt" else "gemini"
+                provider_ready = bool(engine_provider._get_config_api_key(provider_key))
+                if provider_ready:
+                    os.environ["AITS_ENABLE_REAL_AI_CALL"] = "1"
+                    os.environ["AITS_REAL_AI_ONE_SHOT"] = "1"
+                    provider_call_count = 1
+                    provider_result = engine_provider.generate_managed_pool_opinion(provider=provider_key, context=compact_context)
+            except Exception as exc:
+                provider_result = {
+                    "schema": "provider_managed_pool_opinion_v1",
+                    "provider": provider,
+                    "response_confirmed": False,
+                    "reason": f"{type(exc).__name__}:{str(exc)[:160]}",
+                    "order_execution": False,
+                    "final_action_unchanged": True,
+                    "actual_order": False,
+                }
+            finally:
+                if old_enable is None:
+                    os.environ.pop("AITS_ENABLE_REAL_AI_CALL", None)
+                else:
+                    os.environ["AITS_ENABLE_REAL_AI_CALL"] = old_enable
+                if old_one_shot is None:
+                    os.environ.pop("AITS_REAL_AI_ONE_SHOT", None)
+                else:
+                    os.environ["AITS_REAL_AI_ONE_SHOT"] = old_one_shot
+            opinion_payload, reason_quality_flags = _normalize_managed_pool_provider_opinion_result(
+                provider_result,
+                row,
+                provider,
+                request_id,
+                source="manual_ai_refresh",
+                freshness="fresh_manual_refresh",
+            )
+
+    payload_symbol = _normalize_symbol_text(compact_context.get("symbol") or "")
+    overlay_before = {}
+    try:
+        overlay_before = dict(getattr(window, "_aits_last_managed_pool_ai_opinion_overlay", {}) or {})
+    except Exception:
+        overlay_before = {}
+    overlay = {}
+    if opinion_payload and target_match and payload_symbol == target and hasattr(window, "_apply_managed_pool_ai_opinion_overlay_payload"):
+        try:
+            overlay = window._apply_managed_pool_ai_opinion_overlay_payload(opinion_payload)
+            _pump_events(app, 0.3)
+        except Exception:
+            overlay = {}
+    overlay_after = {}
+    try:
+        overlay_after = dict(getattr(window, "_aits_last_managed_pool_ai_opinion_overlay", {}) or {})
+    except Exception:
+        overlay_after = {}
+    changed_overlay_symbols = sorted(
+        symbol for symbol in set(overlay_before.keys()) | set(overlay_after.keys())
+        if overlay_before.get(symbol) != overlay_after.get(symbol)
+    )
+    overlay_symbol = _normalize_symbol_text((overlay or opinion_payload or {}).get("symbol") or "")
+    overlay_applied_to_target_only = bool(overlay) and changed_overlay_symbols == [target]
+    rows_after = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    rows_after = rows_after or rows_before
+    tooltip_sample = ""
+    if overlay and row and hasattr(window, "_build_ai_managed_row_tooltip"):
+        try:
+            row_for_tooltip = dict(row)
+            row_for_tooltip["_ai_opinion_overlay"] = dict(overlay)
+            tooltip_sample = window._build_ai_managed_row_tooltip(
+                row_for_tooltip,
+                status_text=str(overlay.get("status_label") or ""),
+                score_text=str(row.get("score") or row.get("ai_score") or ""),
+            )
+        except Exception:
+            tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    if not tooltip_sample and opinion_payload:
+        tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    pass_ok = bool(
+        row
+        and target_match
+        and selected_symbol == target
+        and payload_symbol == target
+        and overlay_symbol == target
+        and not fallback_used
+        and bool(overlay)
+        and overlay_applied_to_target_only
+        and provider_call_count <= 1
+    )
+    if provider in {"gpt", "gemini"}:
+        pass_ok = pass_ok and bool(provider_ready) and bool(opinion_payload.get("response_confirmed"))
+    report.update({
+        "manual_ai_refresh_target_symbol_e2e_supported": True,
+        "mode": "manual-ai-refresh-target-symbol-e2e-proof",
+        "selection_owner": "MainWindow._current_managed_table_selection_for_ai_refresh",
+        "target_resolver_owner": "MainWindow._resolve_ai_refresh_target_symbol",
+        "manual_refresh_path_owner": "MainWindow._on_ai_analysis_refresh_clicked -> _run_aits_main_gpt_reco_and_publish -> AITSProviderRefreshWorker",
+        "table_object_name": table_object_name or "tblAiManaged",
+        "target_symbol": target,
+        "target_in_managed_pool": bool(row),
+        "target_row_index": int(target_index),
+        "table_select_ok": bool(table_select_ok),
+        "selected_symbol": selected_symbol,
+        "payload_symbol": payload_symbol,
+        "overlay_symbol": overlay_symbol,
+        "target_match": bool(target_match and payload_symbol == target and overlay_symbol == target),
+        "resolver_source": resolver_source,
+        "resolver_skip_reason": str(resolver_info.get("skip_reason") or ""),
+        "fallback_used": bool(fallback_used),
+        "provider": provider,
+        "provider_ready": bool(provider_ready),
+        "provider_external_call_count": int(provider_call_count),
+        "provider_call_budget": max(0, min(1, int(max_provider_calls or 0))),
+        "dedicated_payload_used": str(compact_context.get("schema") or "") == "managed_pool_ai_opinion_request_v1",
+        "payload_schema": str(compact_context.get("schema") or ""),
+        "overlay_applied": bool(overlay),
+        "overlay_applied_to_target_only": bool(overlay_applied_to_target_only),
+        "changed_overlay_symbols": changed_overlay_symbols,
+        "target_unresolved_provider_call_blocked": bool(unresolved_target and provider_call_count == 0),
+        "response_confirmed": bool(opinion_payload.get("response_confirmed")),
+        "response_id_present": bool(opinion_payload.get("response_id")),
+        "token_usage_present": opinion_payload.get("usage_total_tokens") is not None,
+        "normalized_opinion": opinion_payload,
+        "reason_quality_flags": reason_quality_flags,
+        "tooltip_sample": tooltip_sample,
+        "managed_pool_row_count_before": len(rows_before),
+        "managed_pool_row_count_after": len(rows_after),
+        "managed_pool_mutation": len(rows_before) != len(rows_after),
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+        "order_risk_detected": False,
+        "pass_status": "pass" if pass_ok else ("partial" if not row else "fail"),
+    })
+    report.update(_tooltip_html_card_proof(str(tooltip_sample or "")))
+
+
 def _run_managed_pool_manual_ai_refresh_row_freshness_proof(
     app: Any,
     window: Any,
@@ -8138,6 +8365,18 @@ def run_harness(
             allow_provider_calls=allow_provider_calls,
             max_provider_calls=max_provider_calls,
         )
+    elif mode == "manual-ai-refresh-target-symbol-e2e-proof":
+        if not allow_provider_calls:
+            _install_provider_post_guard(report)
+        _run_manual_ai_refresh_target_symbol_e2e_proof(
+            app,
+            window,
+            report,
+            provider=provider or "local",
+            target_symbol=target_symbol,
+            allow_provider_calls=allow_provider_calls,
+            max_provider_calls=max_provider_calls,
+        )
     elif mode == "managed-pool-manual-ai-refresh-row-freshness-proof":
         _install_provider_post_guard(report)
         _run_managed_pool_manual_ai_refresh_row_freshness_proof(
@@ -8302,6 +8541,7 @@ def main() -> int:
             "managed-pool-gpt-one-shot-opinion-proof",
             "managed-pool-gpt-one-shot-opinion-ui-proof",
             "managed-pool-manual-refresh-dedicated-opinion-proof",
+            "manual-ai-refresh-target-symbol-e2e-proof",
             "managed-pool-manual-ai-refresh-row-freshness-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",

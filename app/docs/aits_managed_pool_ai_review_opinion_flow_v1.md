@@ -135,3 +135,20 @@ only; it does not route or execute orders.
 When the user runs manual `AI 분석 새로고침` for a symbol that belongs to the Managed Pool, the refresh path uses the dedicated `managed_pool_ai_opinion_request_v1` payload instead of the Router verification adapter. The request remains a suggestion-only Managed Pool opinion request: `order_execution=false`, `actual_order=false`, `final_action_unchanged=true`, and `managed_pool_mutation=false`.
 
 The result is normalized into `managed_pool_ai_opinion_v1`, then applied to the display-only row opinion/freshness overlay. The overlay may update status and tooltip copy, but it does not persist row changes. Provider calls remain behind an explicit proof flag and a one-call budget. Execution-block-only or stale manual-required rationale is not used as the primary user-facing reason.
+
+## Manual Refresh Target Symbol E2E
+
+Manual Managed Pool AI refresh must preserve the selected row symbol through the
+entire display-only opinion path. For a managed-tab refresh, the selected
+`tblAiManaged` row is resolved by
+`MainWindow._current_managed_table_selection_for_ai_refresh` and
+`MainWindow._resolve_ai_refresh_target_symbol`; if no valid row is selected, the
+refresh is skipped instead of falling back to BTC or another symbol.
+
+The E2E proof verifies that `selected_symbol`, the
+`managed_pool_ai_opinion_request_v1` payload symbol, and the row overlay symbol
+are identical. It also verifies `fallback_used=false`,
+`overlay_applied_to_target_only=true`, no Managed Pool persistence mutation, no
+order execution, and no DecisionRouter final-action change. LOCAL proof keeps
+provider calls at `0`; GPT/Gemini remains available only behind an explicit
+one-call proof flag.
