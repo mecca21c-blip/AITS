@@ -2666,6 +2666,184 @@ def _run_managed_pool_gpt_one_shot_opinion_proof(
     )
 
 
+def _normalize_managed_pool_ai_opinion_overlay_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    if str(payload.get("schema") or "").strip() != "managed_pool_ai_opinion_v1":
+        return {}
+    symbol = _normalize_symbol_text(payload.get("symbol") or "")
+    if not symbol:
+        return {}
+    confidence = _safe_float(payload.get("confidence"), math.nan)
+    return {
+        "schema": "managed_pool_ai_opinion_v1",
+        "symbol": symbol,
+        "provider": _normalize_provider_for_report(payload.get("provider") or "local"),
+        "status_label": str(payload.get("status_label") or payload.get("opinion") or "").strip(),
+        "confidence": None if math.isnan(confidence) else confidence,
+        "reason": str(payload.get("reason") or "").strip(),
+        "next_action": str(payload.get("next_action") or "").strip(),
+        "freshness": str(payload.get("freshness") or "").strip(),
+        "request_id": str(payload.get("request_id") or "").strip(),
+        "source": str(payload.get("source") or "").strip(),
+        "order_execution": bool(payload.get("order_execution")) is True,
+        "final_action_unchanged": bool(payload.get("final_action_unchanged", True)),
+        "actual_order": bool(payload.get("actual_order")) is True,
+    }
+
+
+def _managed_pool_ai_opinion_overlay_status_sample(payload: dict[str, Any]) -> str:
+    overlay = _normalize_managed_pool_ai_opinion_overlay_payload(payload)
+    return str(overlay.get("status_label") or "").strip()
+
+
+def _managed_pool_ai_opinion_overlay_tooltip_sample(payload: dict[str, Any]) -> str:
+    overlay = _normalize_managed_pool_ai_opinion_overlay_payload(payload)
+    if not overlay:
+        return ""
+    confidence = overlay.get("confidence")
+    confidence_text = "-"
+    if confidence is not None:
+        try:
+            confidence_text = f"{float(confidence):.2f}"
+        except Exception:
+            confidence_text = "-"
+    lines = [
+        f"\uc885\ubaa9: {overlay.get('symbol')}",
+        f"AI \uc758\uacac: {overlay.get('status_label') or '-'}",
+        f"Provider: {str(overlay.get('provider') or 'local').upper()}",
+        f"\ud655\uc2e0\ub3c4: {confidence_text}",
+    ]
+    reason = str(overlay.get("reason") or "").strip()
+    if reason:
+        lines.append(f"\uadfc\uac70: {reason[:140]}")
+    next_action = str(overlay.get("next_action") or "").strip()
+    if next_action:
+        lines.append(f"\ub2e4\uc74c \ud589\ub3d9: {next_action[:110]}")
+    freshness = str(overlay.get("freshness") or "").strip()
+    if freshness:
+        lines.append(f"Freshness: {freshness}")
+    request_id = str(overlay.get("request_id") or "").strip()
+    if request_id:
+        lines.append(f"Request: {request_id[:48]}")
+    lines.append("\uc548\uc804: \uc8fc\ubb38 \uc5c6\uc74c / \ucd5c\uc885 \uc561\uc158 \ubcc0\uacbd \uc5c6\uc74c")
+    return "\n".join(line for line in lines if str(line or "").strip())
+
+
+def _apply_managed_pool_ai_opinion_ui_overlay_report(
+    report: dict[str, Any],
+    *,
+    provider: str,
+    target_symbol: str | None,
+    opinion_payload: dict[str, Any],
+    provider_external_call_count: int,
+    response_confirmed: bool | None = None,
+    request_id: str = "",
+) -> None:
+    rows_before = _load_saved_managed_pool_rows_readonly()
+    rows_after = _load_saved_managed_pool_rows_readonly()
+    overlay = _normalize_managed_pool_ai_opinion_overlay_payload(opinion_payload)
+    status_sample = _managed_pool_ai_opinion_overlay_status_sample(opinion_payload)
+    tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
+    target = _normalize_symbol_text(target_symbol or overlay.get("symbol") or "")
+    report.update(
+        {
+            "opinion_ui_overlay_supported": True,
+            "provider": _normalize_provider_for_report(provider or overlay.get("provider") or "local"),
+            "target_symbol": target,
+            "overlay_cache_key": target,
+            "overlay_created": bool(overlay and status_sample and tooltip_sample),
+            "opinion_overlay": overlay,
+            "status_sample": status_sample,
+            "tooltip_sample": tooltip_sample,
+            "managed_row_count_before": len(rows_before),
+            "managed_row_count_after": len(rows_after),
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "managed_pool_row_count_changed": len(rows_before) != len(rows_after),
+            "order_execution": False,
+            "final_action_unchanged": True,
+            "actual_order": False,
+            "provider_external_call_count": int(provider_external_call_count or 0),
+            "request_id": request_id or str(overlay.get("request_id") or ""),
+            "response_confirmed": bool(response_confirmed) if response_confirmed is not None else bool(opinion_payload),
+            "order_risk_detected": False,
+            "pass_status": "pass" if overlay and status_sample and tooltip_sample else "partial",
+        }
+    )
+
+
+def _run_managed_pool_ai_opinion_ui_apply_proof(
+    report: dict[str, Any],
+    *,
+    provider: str = "local",
+    target_symbol: str | None = None,
+) -> None:
+    rows = _load_saved_managed_pool_rows_readonly()
+    row = _target_managed_pool_row(rows, target_symbol)
+    opinion_payload = _managed_pool_local_opinion(row, provider=_normalize_provider_for_report(provider or "local")) if row else {}
+    _apply_managed_pool_ai_opinion_ui_overlay_report(
+        report,
+        provider=provider or "local",
+        target_symbol=target_symbol or _row_symbol(row),
+        opinion_payload=opinion_payload,
+        provider_external_call_count=0,
+        response_confirmed=bool(opinion_payload),
+        request_id=str(opinion_payload.get("request_id") or ""),
+    )
+    report.update(
+        {
+            "proof_owner": "MainWindow._aits_last_managed_pool_ai_opinion_overlay + MainWindow._build_ai_managed_row_tooltip",
+            "status_merge_policy": "opinion overlay status_label overrides row status for display only",
+            "tooltip_merge_policy": "opinion overlay details are appended to the row tooltip; managed_pool_rows are not persisted",
+        }
+    )
+
+
+def _run_managed_pool_gpt_one_shot_opinion_ui_proof(
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+    target_symbol: str | None = None,
+    allow_provider_calls: bool = False,
+    max_provider_calls: int = 1,
+) -> None:
+    one_shot_report: dict[str, Any] = {}
+    _run_managed_pool_gpt_one_shot_opinion_proof(
+        one_shot_report,
+        provider=provider,
+        target_symbol=target_symbol,
+        allow_provider_calls=allow_provider_calls,
+        max_provider_calls=max_provider_calls,
+    )
+    opinion_payload = one_shot_report.get("opinion_payload") if isinstance(one_shot_report.get("opinion_payload"), dict) else {}
+    report.update(one_shot_report)
+    _apply_managed_pool_ai_opinion_ui_overlay_report(
+        report,
+        provider=provider,
+        target_symbol=target_symbol or str(one_shot_report.get("target_symbol") or ""),
+        opinion_payload=opinion_payload,
+        provider_external_call_count=int(one_shot_report.get("provider_external_call_count") or 0),
+        response_confirmed=bool(one_shot_report.get("response_confirmed")),
+        request_id=str(one_shot_report.get("request_id") or ""),
+    )
+    report.update(
+        {
+            "proof_owner": "managed-pool-gpt-one-shot-opinion-proof + display-only opinion overlay",
+            "provider_call_budget": min(1, int(max_provider_calls or 0)),
+            "status_merge_policy": "provider opinion status_label is display-only and does not change final action",
+            "tooltip_merge_policy": "provider opinion details are tooltip-only; raw provider payload is not logged",
+            "pass_status": (
+                "pass"
+                if bool(one_shot_report.get("response_confirmed"))
+                and int(one_shot_report.get("provider_external_call_count") or 0) <= 1
+                and bool(report.get("overlay_created"))
+                else "partial"
+            ),
+        }
+    )
+
+
 def _rotation_status_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
     try:
         gap = _safe_float(pair.get("score_gap"), 0.0)
@@ -7134,7 +7312,9 @@ def run_harness(
         "managed-pool-quality-ranked-rebuild-live-proof",
         "managed-pool-ai-review-queue-proof",
         "managed-pool-ai-opinion-flow-proof",
+        "managed-pool-ai-opinion-ui-apply-proof",
         "managed-pool-gpt-one-shot-opinion-proof",
+        "managed-pool-gpt-one-shot-opinion-ui-proof",
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
@@ -7192,8 +7372,23 @@ def run_harness(
         elif mode == "managed-pool-ai-opinion-flow-proof":
             _install_provider_post_guard(report)
             _run_managed_pool_ai_opinion_flow_proof(report, provider=provider or "local")
+        elif mode == "managed-pool-ai-opinion-ui-apply-proof":
+            _install_provider_post_guard(report)
+            _run_managed_pool_ai_opinion_ui_apply_proof(
+                report,
+                provider=provider or "local",
+                target_symbol=target_symbol,
+            )
         elif mode == "managed-pool-gpt-one-shot-opinion-proof":
             _run_managed_pool_gpt_one_shot_opinion_proof(
+                report,
+                provider=provider or "gpt",
+                target_symbol=target_symbol,
+                allow_provider_calls=allow_provider_calls,
+                max_provider_calls=max_provider_calls,
+            )
+        elif mode == "managed-pool-gpt-one-shot-opinion-ui-proof":
+            _run_managed_pool_gpt_one_shot_opinion_ui_proof(
                 report,
                 provider=provider or "gpt",
                 target_symbol=target_symbol,
@@ -7518,7 +7713,9 @@ def main() -> int:
             "managed-pool-quality-ranked-rebuild-live-proof",
             "managed-pool-ai-review-queue-proof",
             "managed-pool-ai-opinion-flow-proof",
+            "managed-pool-ai-opinion-ui-apply-proof",
             "managed-pool-gpt-one-shot-opinion-proof",
+            "managed-pool-gpt-one-shot-opinion-ui-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",

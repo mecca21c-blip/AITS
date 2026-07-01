@@ -30,6 +30,20 @@ Default proof policy:
 - DecisionRouter final action is unchanged.
 - `order_execution=false`.
 
+## UI Overlay Policy
+
+`managed_pool_ai_opinion_v1` can be applied to the Managed Pool table as a
+display-only overlay. The overlay is keyed by symbol in
+`MainWindow._aits_last_managed_pool_ai_opinion_overlay` and is merged at render
+time by `MainWindow._populate_ai_managed_table_cells` and
+`MainWindow._build_ai_managed_row_tooltip`.
+
+The overlay may replace the visible status label with the opinion
+`status_label` and append provider, confidence, reason, next action, freshness,
+request id, and safety text to the tooltip. It must not persist changes to
+`managed_pool_rows`, must not change protection/holding/source fields, and must
+always keep `order_execution=false` and `final_action_unchanged=true`.
+
 ## Opinion Schema
 
 `managed_pool_ai_opinion_v1` fields:
@@ -57,7 +71,9 @@ LOCAL reference opinions, not order signals.
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-review-queue-proof --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-flow-proof --observe-only --provider local
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-ui-apply-proof --observe-only --provider local --target-symbol KRW-BTC
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-gpt-one-shot-opinion-proof --provider gpt --target-symbol KRW-BTC --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-gpt-one-shot-opinion-ui-proof --provider gpt --target-symbol KRW-BTC --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
 ```
 
 PASS requires queue/opinion payloads to be present, provider external call count
@@ -70,3 +86,7 @@ count to be `<= 1`, response confirmation, normalized
 `final_action_unchanged=true`, and Managed Pool mutation false. If the provider
 key is missing or readiness is false, the proof reports partial/NO-GO without
 calling the provider.
+
+The UI overlay proofs additionally require `overlay_created=true`, a visible
+status sample, a tooltip sample, Managed Pool mutation false, and provider call
+count `0` for LOCAL or `<= 1` for GPT/Gemini one-shot proof.

@@ -25,6 +25,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotio
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-promotion-quality-live-proof --observe-only --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-proof --max-managed 10 --min-score 60
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-quality-ranked-rebuild-live-proof --observe-only --max-managed 10 --min-score 60
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-ui-apply-proof --observe-only --provider local --target-symbol KRW-BTC
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-gpt-one-shot-opinion-ui-proof --provider gpt --target-symbol KRW-BTC --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-auto-promotion-apply-proof --max-managed 10 --apply-add-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-proof --from-max 10 --to-max 8
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-max-size-apply-button-actual-proof --to-max 8 --apply-trim
@@ -845,3 +847,22 @@ The mode builds a compact Managed Pool opinion context, enables the existing
 one-shot provider gate, and normalizes the response into
 `managed_pool_ai_opinion_v1`. It must not mutate Managed Pool rows, must not
 change DecisionRouter final action, and must keep provider call count `<= 1`.
+
+`managed-pool-ai-opinion-ui-apply-proof` applies a LOCAL opinion payload to the
+same display-only overlay path used by the table renderer:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-ui-apply-proof --observe-only --provider local --target-symbol KRW-BTC
+```
+
+`managed-pool-gpt-one-shot-opinion-ui-proof` first runs the one-shot provider
+opinion proof and then verifies the same overlay status/tooltip samples:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-gpt-one-shot-opinion-ui-proof --provider gpt --target-symbol KRW-BTC --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
+```
+
+Both modes must report `overlay_created=true`, a status sample, a tooltip
+sample, `managed_pool_mutation=false`, `order_execution=false`, and
+`final_action_unchanged=true`. LOCAL overlay proof must keep provider calls at
+`0`; GPT/Gemini one-shot UI proof must keep provider calls `<= 1`.

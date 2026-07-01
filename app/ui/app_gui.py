@@ -35786,6 +35786,111 @@ class MainWindow(QMainWindow):
         lines.append("\uc2e4\ud589: \uc8fc\ubb38 \uc5c6\uc74c / \ud45c\uc2dc\ub9cc")
         return lines
 
+    def _normalize_managed_pool_ai_opinion_overlay(self, payload: dict) -> dict:
+        if not isinstance(payload, dict):
+            return {}
+        if str(payload.get("schema") or "").strip() != "managed_pool_ai_opinion_v1":
+            return {}
+        symbol = str(
+            payload.get("symbol")
+            or payload.get("market")
+            or payload.get("code")
+            or ""
+        ).strip().upper()
+        if symbol and "-" not in symbol:
+            symbol = f"KRW-{symbol}"
+        if not symbol:
+            return {}
+        provider = str(payload.get("provider") or "").strip().lower() or "local"
+        status_label = str(payload.get("status_label") or payload.get("opinion") or "").strip()
+        reason = str(payload.get("reason") or "").strip()
+        next_action = str(payload.get("next_action") or "").strip()
+        try:
+            confidence = float(payload.get("confidence"))
+        except Exception:
+            confidence = None
+        return {
+            "schema": "managed_pool_ai_opinion_v1",
+            "symbol": symbol,
+            "provider": provider,
+            "status_label": status_label,
+            "confidence": confidence,
+            "reason": reason,
+            "next_action": next_action,
+            "freshness": str(payload.get("freshness") or "").strip(),
+            "request_id": str(payload.get("request_id") or "").strip(),
+            "source": str(payload.get("source") or "").strip(),
+            "order_execution": bool(payload.get("order_execution")) is True,
+            "final_action_unchanged": bool(payload.get("final_action_unchanged", True)),
+            "actual_order": bool(payload.get("actual_order")) is True,
+        }
+
+    def _apply_managed_pool_ai_opinion_overlay_payload(self, payload: dict) -> dict:
+        overlay = self._normalize_managed_pool_ai_opinion_overlay(payload)
+        if not overlay:
+            return {}
+        try:
+            cache = getattr(self, "_aits_last_managed_pool_ai_opinion_overlay", None)
+            if not isinstance(cache, dict):
+                cache = {}
+            cache[str(overlay.get("symbol") or "").upper()] = dict(overlay)
+            self._aits_last_managed_pool_ai_opinion_overlay = cache
+        except Exception:
+            pass
+        return overlay
+
+    def _get_managed_pool_ai_opinion_overlay(self, symbol: str) -> dict:
+        key = str(symbol or "").strip().upper()
+        if key and "-" not in key:
+            key = f"KRW-{key}"
+        try:
+            cache = getattr(self, "_aits_last_managed_pool_ai_opinion_overlay", None)
+            if isinstance(cache, dict) and isinstance(cache.get(key), dict):
+                return dict(cache.get(key) or {})
+        except Exception:
+            pass
+        return {}
+
+    def _managed_pool_ai_opinion_status_kind(self, status_label: str) -> str:
+        text = str(status_label or "").strip()
+        if text in {"\ub9e4\uc218\ub300\uae30"}:
+            return "buy"
+        if text in {"\ub9e4\ub3c4\uac80\ud1a0"}:
+            return "risk"
+        return "watch"
+
+    def _format_managed_pool_ai_opinion_tooltip(self, overlay: dict) -> list[str]:
+        if not isinstance(overlay, dict):
+            return []
+        status_label = str(overlay.get("status_label") or "").strip()
+        provider = str(overlay.get("provider") or "").strip().upper() or "LOCAL"
+        reason = str(overlay.get("reason") or "").strip()
+        next_action = str(overlay.get("next_action") or "").strip()
+        freshness = str(overlay.get("freshness") or "").strip()
+        request_id = str(overlay.get("request_id") or "").strip()
+        confidence_value = overlay.get("confidence")
+        confidence_text = "-"
+        try:
+            if confidence_value is not None:
+                confidence_text = f"{float(confidence_value):.2f}"
+        except Exception:
+            confidence_text = "-"
+        lines = []
+        if status_label:
+            lines.append(f"AI \uc758\uacac: {status_label}")
+        lines.append(f"Provider: {provider}")
+        lines.append(f"\ud655\uc2e0\ub3c4: {confidence_text}")
+        if reason:
+            lines.append(f"\uadfc\uac70: {reason[:140]}")
+        if next_action:
+            lines.append(f"\ub2e4\uc74c \ud589\ub3d9: {next_action[:110]}")
+        if freshness:
+            lines.append(f"Freshness: {freshness}")
+        if request_id:
+            lines.append(f"Request: {request_id[:48]}")
+        lines.append("\uc548\uc804: \uc8fc\ubb38 \uc5c6\uc74c / \ucd5c\uc885 \uc561\uc158 \ubcc0\uacbd \uc5c6\uc74c")
+        return lines
+
     def _build_ai_managed_row_tooltip(
         self,
         row: dict,
@@ -35812,6 +35917,9 @@ class MainWindow(QMainWindow):
             holding_overlay = row.get("_holding_display_overlay") if isinstance(row.get("_holding_display_overlay"), dict) else {}
             if holding_overlay:
                 lines.extend(self._format_managed_pool_holding_display_tooltip(holding_overlay))
+            opinion_overlay = row.get("_ai_opinion_overlay") if isinstance(row.get("_ai_opinion_overlay"), dict) else {}
+            if opinion_overlay:
+                lines.extend(self._format_managed_pool_ai_opinion_tooltip(opinion_overlay))
             reason_values = []
             for key in (
                 "ai_review_queue_reason",
@@ -35921,6 +36029,9 @@ class MainWindow(QMainWindow):
             holding_overlay = holding_display_overlay.get(normalized_symbol) if isinstance(holding_display_overlay, dict) else None
             if isinstance(holding_overlay, dict) and holding_overlay.get("holding_display"):
                 row_for_display["_holding_display_overlay"] = dict(holding_overlay)
+            ai_opinion_overlay = self._get_managed_pool_ai_opinion_overlay(normalized_symbol)
+            if isinstance(ai_opinion_overlay, dict) and ai_opinion_overlay:
+                row_for_display["_ai_opinion_overlay"] = dict(ai_opinion_overlay)
             key = raw_symbol.replace("KRW-", "").upper().strip()
             lab = self._aits_symbol_label(raw_symbol)
             parts = str(lab or "").strip().split()
@@ -35938,6 +36049,13 @@ class MainWindow(QMainWindow):
                 st_main = str(holding_overlay.get("status") or st_main or "")
                 status_sub_text = str(holding_overlay.get("status_hint") or status_sub_text or "")
                 st_kind = "watch"
+            if isinstance(ai_opinion_overlay, dict) and ai_opinion_overlay:
+                opinion_label = str(ai_opinion_overlay.get("status_label") or "").strip()
+                if opinion_label:
+                    st_main = opinion_label
+                provider_label = str(ai_opinion_overlay.get("provider") or "local").strip().upper()
+                status_sub_text = f"{provider_label} \uc758\uacac \ucc38\uace0"
+                st_kind = self._managed_pool_ai_opinion_status_kind(opinion_label)
             rotation_intent = self._get_ai_managed_rotation_intent_for_symbol(raw_symbol)
             rotation_status_hint = self._format_ai_managed_rotation_status_hint(rotation_intent)
             if rotation_status_hint:
