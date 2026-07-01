@@ -833,3 +833,15 @@ The payload is an opinion/report surface only. It must keep
 `order_execution=false`, `final_action_unchanged=true`, Managed Pool mutation
 false, and provider external call count `0`. GPT/Gemini one-shot opinion proof
 requires a separate Goal.
+
+`managed-pool-gpt-one-shot-opinion-proof` is the explicit provider-call proof
+for exactly one Managed Pool symbol:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-gpt-one-shot-opinion-proof --provider gpt --target-symbol KRW-BTC --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
+```
+
+The mode builds a compact Managed Pool opinion context, enables the existing
+one-shot provider gate, and normalizes the response into
+`managed_pool_ai_opinion_v1`. It must not mutate Managed Pool rows, must not
+change DecisionRouter final action, and must keep provider call count `<= 1`.

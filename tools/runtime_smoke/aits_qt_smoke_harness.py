@@ -2444,6 +2444,228 @@ def _run_managed_pool_ai_opinion_flow_proof(report: dict[str, Any], *, provider:
     )
 
 
+def _target_managed_pool_row(rows: list[dict[str, Any]], target_symbol: str | None = None) -> dict[str, Any]:
+    target = _normalize_symbol_text(target_symbol or "")
+    if target:
+        for row in rows:
+            if _row_symbol(row) == target:
+                return dict(row)
+    for row in rows:
+        if _row_symbol(row):
+            return dict(row)
+    return {}
+
+
+def _router_suggestion_to_opinion(result: dict[str, Any], row: dict[str, Any], provider: str) -> dict[str, Any]:
+    symbol = _row_symbol(row)
+    score = _safe_float(row.get("ai_score", row.get("score")), math.nan)
+    suggestion = str(result.get("suggestion") or result.get("ai_action") or "skip").strip().lower()
+    reason = str(result.get("reason") or result.get("risk_note") or "provider_response").strip()
+    opinion_map = {
+        "confirm": ("watch", "관망"),
+        "override_wait": ("watch", "관망"),
+        "override_buy": ("buy_wait", "매수대기"),
+        "override_reduce": ("sell_review", "매도검토"),
+        "override_sell": ("sell_review", "매도검토"),
+        "reject_signal": ("data_insufficient", "데이터부족"),
+        "skip": ("analysis_required", "재분석필요"),
+    }
+    opinion, status_label = opinion_map.get(suggestion, ("watch", "관망"))
+    confidence = 0.5
+    if not math.isnan(score):
+        confidence = round(max(0.1, min(0.95, score / 100.0)), 3)
+    tooltip = "\n".join(
+        [
+            f"종목: {symbol}",
+            f"상태: {status_label}",
+            f"Provider: {provider}",
+            f"의견 근거: {reason[:160]}",
+            "실행: 주문 없음 / final action 변경 없음",
+        ]
+    )
+    return {
+        "schema": "managed_pool_ai_opinion_v1",
+        "event_time": _now_iso(),
+        "symbol": symbol,
+        "display_name": str(row.get("name") or row.get("display_name") or symbol),
+        "provider": provider,
+        "provider_external_call": True,
+        "source": "gpt_one_shot_opinion" if provider == "gpt" else f"{provider}_one_shot_opinion",
+        "request_id": "",
+        "response_confirmed": suggestion != "skip" and not str(reason).endswith("_missing"),
+        "opinion": opinion,
+        "status_label": status_label,
+        "confidence": confidence,
+        "reason": reason[:500],
+        "next_action": "운용 의견 참고만 수행; 주문 실행 없음",
+        "freshness": "provider_one_shot",
+        "tooltip": tooltip,
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+    }
+
+
+def _run_managed_pool_gpt_one_shot_opinion_proof(
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+    target_symbol: str | None = None,
+    allow_provider_calls: bool = False,
+    max_provider_calls: int = 1,
+) -> None:
+    provider = _normalize_provider_for_report(provider or "gpt")
+    rows = _load_saved_managed_pool_rows_readonly()
+    row = _target_managed_pool_row(rows, target_symbol)
+    symbol = _row_symbol(row)
+    call_budget = max(0, min(1, int(max_provider_calls or 0)))
+    compact_context = {
+        "router_version": "managed_pool_ai_opinion_v1",
+        "final_action": "none",
+        "final_confidence": 0.0,
+        "fusion_signal": "managed_pool_one_shot_opinion",
+        "candidate_count": len(rows),
+        "positions_count": 0,
+        "symbol": symbol,
+        "execution_allowed": False,
+        "safety_note": "Opinion proof only. Do not execute trades. Keep final_action unchanged.",
+        "managed_pool_score": row.get("ai_score", row.get("score")),
+        "managed_pool_status": row.get("status"),
+        "managed_pool_reason": str(row.get("ai_review_queue_reason") or row.get("reason") or "")[:180],
+    }
+    report.update(
+        {
+            "one_shot_opinion_supported": True,
+            "provider": provider,
+            "target_symbol": symbol,
+            "provider_call_budget": call_budget,
+            "managed_row_count": len(rows),
+            "compact_payload_summary": {
+                "symbol": compact_context.get("symbol"),
+                "execution_allowed": False,
+                "score_present": compact_context.get("managed_pool_score") not in (None, ""),
+                "reason_chars": len(str(compact_context.get("managed_pool_reason") or "")),
+            },
+            "order_execution": False,
+            "final_action_unchanged": True,
+            "actual_order": False,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "order_risk_detected": False,
+        }
+    )
+    if provider not in {"gpt", "gemini"}:
+        report.update(
+            {
+                "provider_ready": False,
+                "response_confirmed": False,
+                "provider_external_call_count": 0,
+                "no_go_reason": "provider_must_be_gpt_or_gemini",
+                "pass_status": "partial",
+            }
+        )
+        return
+    if not rows or not symbol:
+        report.update(
+            {
+                "provider_ready": False,
+                "response_confirmed": False,
+                "provider_external_call_count": 0,
+                "no_go_reason": "managed_pool_rows_empty",
+                "pass_status": "partial",
+            }
+        )
+        return
+    if not allow_provider_calls or call_budget < 1:
+        report.update(
+            {
+                "provider_ready": False,
+                "response_confirmed": False,
+                "provider_external_call_count": 0,
+                "no_go_reason": "provider_call_requires_allow_provider_calls_and_budget_1",
+                "pass_status": "partial",
+            }
+        )
+        return
+
+    old_enable = os.environ.get("AITS_ENABLE_REAL_AI_CALL")
+    old_one_shot = os.environ.get("AITS_REAL_AI_ONE_SHOT")
+    request_id = f"managed-pool-one-shot-{uuid.uuid4().hex[:12]}"
+    result: dict[str, Any] = {}
+    call_count = 0
+    provider_ready = False
+    try:
+        from app.services.ai_engine_provider import AIEngineProvider
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+        engine_provider = AIEngineProvider(settings=settings, strategy=getattr(settings, "strategy", None))
+        provider_key = "openai" if provider == "gpt" else "gemini"
+        provider_ready = bool(engine_provider._get_config_api_key(provider_key))
+        if not provider_ready:
+            report.update(
+                {
+                    "provider_ready": False,
+                    "response_confirmed": False,
+                    "provider_external_call_count": 0,
+                    "no_go_reason": f"{provider}_api_key_missing",
+                    "pass_status": "partial",
+                }
+            )
+            return
+        os.environ["AITS_ENABLE_REAL_AI_CALL"] = "1"
+        os.environ["AITS_REAL_AI_ONE_SHOT"] = "1"
+        call_count = 1
+        result = engine_provider.verify_router_decision(provider=provider_key, context=compact_context)
+    except Exception as exc:
+        result = {
+            "suggestion": "skip",
+            "reason": f"{type(exc).__name__}:{str(exc)[:160]}",
+            "provider": provider,
+            "applied_to_action": False,
+        }
+    finally:
+        if old_enable is None:
+            os.environ.pop("AITS_ENABLE_REAL_AI_CALL", None)
+        else:
+            os.environ["AITS_ENABLE_REAL_AI_CALL"] = old_enable
+        if old_one_shot is None:
+            os.environ.pop("AITS_REAL_AI_ONE_SHOT", None)
+        else:
+            os.environ["AITS_REAL_AI_ONE_SHOT"] = old_one_shot
+
+    opinion_payload = _router_suggestion_to_opinion(result, row, provider)
+    opinion_payload["request_id"] = request_id
+    response_confirmed = bool(opinion_payload.get("response_confirmed")) and not str(result.get("error") or "")
+    pass_status = "pass" if provider_ready and call_count <= 1 and response_confirmed else "partial"
+    report.update(
+        {
+            "provider_ready": bool(provider_ready),
+            "provider_external_call_count": int(call_count),
+            "request_id": request_id,
+            "response_confirmed": bool(response_confirmed),
+            "response_id_present": False,
+            "token_usage_present": False,
+            "raw_result_keys": sorted(str(key) for key in result.keys())[:20],
+            "opinion_schema": "managed_pool_ai_opinion_v1",
+            "opinion_payload": opinion_payload,
+            "opinion": opinion_payload.get("opinion"),
+            "status_label": opinion_payload.get("status_label"),
+            "confidence": opinion_payload.get("confidence"),
+            "reason": opinion_payload.get("reason"),
+            "next_action": opinion_payload.get("next_action"),
+            "tooltip_sample": opinion_payload.get("tooltip"),
+            "order_execution": False,
+            "final_action_unchanged": bool(result.get("applied_to_action") is not True),
+            "actual_order": False,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "order_risk_detected": False,
+            "pass_status": pass_status,
+        }
+    )
+
+
 def _rotation_status_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
     try:
         gap = _safe_float(pair.get("score_gap"), 0.0)
@@ -6912,6 +7134,7 @@ def run_harness(
         "managed-pool-quality-ranked-rebuild-live-proof",
         "managed-pool-ai-review-queue-proof",
         "managed-pool-ai-opinion-flow-proof",
+        "managed-pool-gpt-one-shot-opinion-proof",
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
@@ -6969,6 +7192,14 @@ def run_harness(
         elif mode == "managed-pool-ai-opinion-flow-proof":
             _install_provider_post_guard(report)
             _run_managed_pool_ai_opinion_flow_proof(report, provider=provider or "local")
+        elif mode == "managed-pool-gpt-one-shot-opinion-proof":
+            _run_managed_pool_gpt_one_shot_opinion_proof(
+                report,
+                provider=provider or "gpt",
+                target_symbol=target_symbol,
+                allow_provider_calls=allow_provider_calls,
+                max_provider_calls=max_provider_calls,
+            )
         elif mode == "rotation-intent-ux-proof":
             _run_rotation_intent_ux_proof(report, fixture=fixture)
         elif mode == "rotation-intent-live-candidate-feed-proof":
@@ -7287,6 +7518,7 @@ def main() -> int:
             "managed-pool-quality-ranked-rebuild-live-proof",
             "managed-pool-ai-review-queue-proof",
             "managed-pool-ai-opinion-flow-proof",
+            "managed-pool-gpt-one-shot-opinion-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",

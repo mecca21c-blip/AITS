@@ -25,6 +25,8 @@ Default proof policy:
 - LOCAL/calculation opinion payloads are allowed.
 - GPT/Gemini external calls are blocked unless a separate provider-call Goal
   explicitly allows them.
+- Provider one-shot proof requires `--allow-provider-calls` and a call budget of
+  `--max-provider-calls 1`.
 - DecisionRouter final action is unchanged.
 - `order_execution=false`.
 
@@ -55,8 +57,16 @@ LOCAL reference opinions, not order signals.
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-review-queue-proof --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-flow-proof --observe-only --provider local
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-gpt-one-shot-opinion-proof --provider gpt --target-symbol KRW-BTC --allow-provider-calls --max-provider-calls 1 --timeout-sec 120
 ```
 
 PASS requires queue/opinion payloads to be present, provider external call count
 to remain `0`, Managed Pool mutation to remain false, and order-risk markers to
 remain false.
+
+For the GPT/Gemini one-shot proof, PASS additionally requires provider call
+count to be `<= 1`, response confirmation, normalized
+`managed_pool_ai_opinion_v1`, `order_execution=false`,
+`final_action_unchanged=true`, and Managed Pool mutation false. If the provider
+key is missing or readiness is false, the proof reports partial/NO-GO without
+calling the provider.
