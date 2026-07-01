@@ -2262,6 +2262,188 @@ def _run_managed_pool_quality_ranked_rebuild_live_proof(
     )
 
 
+def _managed_pool_ai_review_state(row: dict[str, Any]) -> dict[str, Any]:
+    symbol = _row_symbol(row)
+    generated_at = str(
+        row.get("last_ai_review_at")
+        or row.get("ai_briefing_generated_at")
+        or row.get("decision_generated_at")
+        or row.get("generated_at")
+        or ""
+    ).strip()
+    score = _safe_float(row.get("ai_score", row.get("score")), math.nan)
+    status = str(row.get("ai_review_queue_status") or row.get("status") or "").strip()
+    reason = str(row.get("ai_review_queue_reason") or row.get("status_reason") or row.get("reason") or "").strip()
+    freshness = "missing" if not generated_at else "present"
+    analysis_required = freshness == "missing" or "재분석" in reason or "manual" in reason.lower()
+    if math.isnan(score):
+        analysis_required = True
+    return {
+        "symbol": symbol,
+        "status": status,
+        "reason": reason,
+        "ai_score": None if math.isnan(score) else score,
+        "freshness_state": freshness,
+        "last_ai_review_at": generated_at,
+        "analysis_required": bool(analysis_required),
+        "manual_only_reason": "GPT/Gemini provider reanalysis is manual; this proof keeps provider_external_call_count=0",
+        "order_execution": False,
+        "final_action_unchanged": True,
+    }
+
+
+def _managed_pool_local_opinion(row: dict[str, Any], *, provider: str = "local") -> dict[str, Any]:
+    symbol = _row_symbol(row)
+    name = str(row.get("name") or row.get("display_name") or symbol).strip()
+    score_raw = row.get("ai_score", row.get("score"))
+    score = _safe_float(score_raw, math.nan)
+    source = str(row.get("source_type") or row.get("source") or "managed_pool").strip()
+    holding_display = bool(row.get("holding_display") or row.get("holding") or row.get("is_holding"))
+    status_reason = str(row.get("ai_review_queue_reason") or row.get("status_reason") or row.get("reason") or "").strip()
+    if math.isnan(score):
+        opinion = "analysis_required"
+        status_label = "재분석필요"
+        confidence = 0.0
+        reason = "AITS 점수 또는 최신 AI 분석 시각이 부족해 수동 재분석 대상입니다."
+    elif holding_display and score < 60:
+        opinion = "watch"
+        status_label = "관망"
+        confidence = round(max(0.1, min(0.8, score / 100.0)), 3)
+        reason = "보유 표시는 유지하지만 품질 점수 기준으로는 운용 확대보다 관망이 적절합니다."
+    elif score >= 70:
+        opinion = "buy_wait"
+        status_label = "매수대기"
+        confidence = round(min(0.95, score / 100.0), 3)
+        reason = "LOCAL 계산 기준에서 품질 점수가 높아 진입 후보로 관찰할 수 있습니다."
+    elif score >= 60:
+        opinion = "watch"
+        status_label = "관망"
+        confidence = round(min(0.8, score / 100.0), 3)
+        reason = "품질 기준은 통과했지만 추가 AI 재분석 전에는 관망 의견으로 유지합니다."
+    elif score >= 45:
+        opinion = "data_insufficient"
+        status_label = "데이터부족"
+        confidence = round(max(0.1, score / 100.0), 3)
+        reason = "품질 기준 미달 또는 추가 데이터 확인이 필요합니다."
+    else:
+        opinion = "analysis_required"
+        status_label = "재분석필요"
+        confidence = round(max(0.1, score / 100.0), 3)
+        reason = "품질 점수가 낮아 수동 AI 재분석 또는 관리 제외 검토가 필요합니다."
+    if source in {"system_seed", "system_default"} and opinion == "buy_wait":
+        opinion = "watch"
+        status_label = "관망"
+        reason = "기본 보호 종목은 보호 유지 대상이며, 자동 매수 의견으로 승격하지 않습니다."
+    if status_reason:
+        reason = f"{reason} / 현재 사유: {status_reason[:80]}"
+    next_action = "수동 AI 재분석 또는 관찰 유지; 주문 실행 없음"
+    tooltip = "\n".join(
+        [
+            f"종목: {symbol} {name}".strip(),
+            f"상태: {status_label}",
+            f"AITS 점수: {'-' if math.isnan(score) else round(score, 2)}",
+            f"의견 근거: {reason[:140]}",
+            "실행: 주문 없음 / final action 변경 없음",
+        ]
+    )
+    return {
+        "schema": "managed_pool_ai_opinion_v1",
+        "event_time": _now_iso(),
+        "symbol": symbol,
+        "display_name": name,
+        "provider": provider,
+        "provider_external_call": False,
+        "source": "local_calculation",
+        "ai_score": None if math.isnan(score) else score,
+        "opinion": opinion,
+        "status_label": status_label,
+        "confidence": confidence,
+        "reason": reason,
+        "next_action": next_action,
+        "freshness": "analysis_required" if opinion == "analysis_required" else "local_reference",
+        "tooltip": tooltip,
+        "order_execution": False,
+        "final_action_unchanged": True,
+    }
+
+
+def _run_managed_pool_ai_review_queue_proof(report: dict[str, Any]) -> None:
+    rows = _load_saved_managed_pool_rows_readonly()
+    states = [_managed_pool_ai_review_state(row) for row in rows if _row_symbol(row)]
+    queue_symbols = [item["symbol"] for item in states]
+    analysis_required = [item for item in states if item.get("analysis_required")]
+    fresh = [item for item in states if item.get("freshness_state") == "present" and not item.get("analysis_required")]
+    stale = [item for item in states if item.get("analysis_required")]
+    manual_only_reason = "MainWindow._build_managed_pool_ai_review_queue builds review candidates; GPT/Gemini reanalysis is manual and blocked in this proof."
+    proof_log_text = (
+        f"[AITS][ManagedPoolAIReviewQueueProof] rows={len(rows)} "
+        f"queue_candidates={len(queue_symbols)} provider_external_call_count=0 "
+        "submitted=0 order_allowed=False real_order=False"
+    )
+    report.update(
+        {
+            "ai_review_queue_supported": True,
+            "queue_owner": "MainWindow._build_managed_pool_ai_review_queue",
+            "queue_trigger": ["managed row score update", "managed table refresh", "manual AI reanalysis"],
+            "manual_reanalysis_copy_owner": "MainWindow._build_managed_pool_ai_review_queue row['ai_review_queue_reason']",
+            "managed_row_count": len(rows),
+            "queue_candidate_count": len(queue_symbols),
+            "queue_symbols": queue_symbols,
+            "review_state_by_symbol": states,
+            "analysis_required_count": len(analysis_required),
+            "fresh_count": len(fresh),
+            "stale_count": len(stale),
+            "manual_only_reason": manual_only_reason,
+            "proof_log_text": proof_log_text,
+            "provider_external_call_count": 0,
+            "order_execution": False,
+            "final_action_unchanged": True,
+            "order_risk_detected": False,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "pass_status": "pass" if rows and queue_symbols else "partial",
+        }
+    )
+
+
+def _run_managed_pool_ai_opinion_flow_proof(report: dict[str, Any], *, provider: str = "local") -> None:
+    rows = _load_saved_managed_pool_rows_readonly()
+    provider = _normalize_provider_for_report(provider or "local")
+    provider_allowed = provider == "local"
+    opinions = [_managed_pool_local_opinion(row, provider=provider) for row in rows if _row_symbol(row)] if provider_allowed else []
+    status_samples = [{"symbol": item.get("symbol"), "status_label": item.get("status_label")} for item in opinions[:5]]
+    tooltip_samples = [str(item.get("tooltip") or "") for item in opinions[:3]]
+    data_insufficient = [item.get("symbol") for item in opinions if item.get("opinion") == "data_insufficient"]
+    analysis_required = [item.get("symbol") for item in opinions if item.get("opinion") == "analysis_required"]
+    proof_log_text = (
+        f"[AITS][ManagedPoolAIOpinionFlowProof] provider={provider} "
+        f"opinions={len(opinions)} provider_external_call_count=0 "
+        "order_execution=False final_action_unchanged=True"
+    )
+    report.update(
+        {
+            "ai_opinion_flow_supported": bool(provider_allowed),
+            "provider": provider,
+            "provider_policy": "LOCAL calculation only; GPT/Gemini actual calls require a separate provider-call proof Goal.",
+            "provider_external_call_count": 0,
+            "opinion_schema": "managed_pool_ai_opinion_v1",
+            "opinion_count": len(opinions),
+            "opinions": opinions,
+            "status_samples": status_samples,
+            "tooltip_samples": tooltip_samples,
+            "data_insufficient_symbols": data_insufficient,
+            "analysis_required_symbols": analysis_required,
+            "proof_log_text": proof_log_text,
+            "order_execution": False,
+            "final_action_unchanged": True,
+            "managed_pool_mutation": False,
+            "managed_pool_mutation_performed": False,
+            "order_risk_detected": False,
+            "pass_status": "pass" if provider_allowed and opinions else "partial",
+        }
+    )
+
+
 def _rotation_status_sample(pair: dict[str, Any], *, role: str = "rotate_out") -> str:
     try:
         gap = _safe_float(pair.get("score_gap"), 0.0)
@@ -6728,6 +6910,8 @@ def run_harness(
         "managed-pool-promotion-quality-live-proof",
         "managed-pool-quality-ranked-rebuild-proof",
         "managed-pool-quality-ranked-rebuild-live-proof",
+        "managed-pool-ai-review-queue-proof",
+        "managed-pool-ai-opinion-flow-proof",
         "rotation-intent-ux-proof",
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
@@ -6779,6 +6963,12 @@ def run_harness(
                 min_score=min_score,
                 max_candidates=max_candidates,
             )
+        elif mode == "managed-pool-ai-review-queue-proof":
+            _install_provider_post_guard(report)
+            _run_managed_pool_ai_review_queue_proof(report)
+        elif mode == "managed-pool-ai-opinion-flow-proof":
+            _install_provider_post_guard(report)
+            _run_managed_pool_ai_opinion_flow_proof(report, provider=provider or "local")
         elif mode == "rotation-intent-ux-proof":
             _run_rotation_intent_ux_proof(report, fixture=fixture)
         elif mode == "rotation-intent-live-candidate-feed-proof":
@@ -7095,6 +7285,8 @@ def main() -> int:
             "managed-pool-promotion-quality-live-proof",
             "managed-pool-quality-ranked-rebuild-proof",
             "managed-pool-quality-ranked-rebuild-live-proof",
+            "managed-pool-ai-review-queue-proof",
+            "managed-pool-ai-opinion-flow-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",

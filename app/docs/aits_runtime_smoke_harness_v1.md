@@ -807,3 +807,29 @@ fields for the max-size `바로적용` action:
 The fixture proof covers add, trim, no-op, no-candidate, and protected-overflow
 message paths. PASS requires the explain payload to remain JSON-safe and order
 risk to remain false.
+
+## Managed Pool AI Review Proof
+
+`managed-pool-ai-review-queue-proof` observes the Managed Pool review queue
+without calling GPT/Gemini and without changing rows:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-review-queue-proof --observe-only
+```
+
+The report records the active owner
+`MainWindow._build_managed_pool_ai_review_queue`, current queue symbols,
+fresh/stale/analysis-required state, and the manual reanalysis reason. Provider
+external calls must remain `0`.
+
+`managed-pool-ai-opinion-flow-proof` builds LOCAL/calculation-based
+`managed_pool_ai_opinion_v1` payloads:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-flow-proof --observe-only --provider local
+```
+
+The payload is an opinion/report surface only. It must keep
+`order_execution=false`, `final_action_unchanged=true`, Managed Pool mutation
+false, and provider external call count `0`. GPT/Gemini one-shot opinion proof
+requires a separate Goal.

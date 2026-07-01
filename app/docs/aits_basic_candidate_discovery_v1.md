@@ -16,6 +16,11 @@ current managed rows, recalculates Basic scores, refreshes the managed table,
 and builds the review queue. This is calculation/reference behavior and is not
 an order signal.
 
+The review queue is observe/manual-analysis infrastructure. It may mark rows as
+analysis-required or stale, but GPT/Gemini provider reanalysis is manual and is
+not triggered by candidate discovery proof. LOCAL/calculation opinion proof is
+reported separately through `managed_pool_ai_opinion_v1`.
+
 ## Input Data
 
 The scan depends on:
