@@ -884,3 +884,11 @@ AI opinion tooltip samples also report Korean label polish checks:
 `tooltip_freshness_humanized`. These fields verify display copy only; the
 underlying `managed_pool_ai_opinion_v1` payload and freshness decision logic are
 unchanged.
+
+`managed-pool-gpt-one-shot-opinion-proof` now records the dedicated
+`managed_pool_ai_opinion_request_v1` request schema, compact payload fields,
+normalized opinion payload, response id/token usage presence, and
+`reason_quality_flags`. PASS requires provider call count `<= 1`, a confirmed
+response, user-facing rationale that is not only an execution-block reason,
+`order_execution=false`, `final_action_unchanged=true`, and Managed Pool mutation
+false.

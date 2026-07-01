@@ -307,6 +307,256 @@ class AIEngineProvider:
                 "error": error_reason,
             })
 
+    def generate_managed_pool_opinion(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Managed Pool opinion-only provider call.
+
+        This path is intentionally separate from Router verification: it asks for
+        a display/review opinion and never applies, routes, or executes an order.
+        """
+        provider = str(provider or "local").strip().lower()
+        context = dict(context or {})
+        if provider in ("gpt", "chatgpt"):
+            provider = "openai"
+        elif provider in ("google", "google_gemini"):
+            provider = "gemini"
+        if provider not in ("openai", "gemini"):
+            return self._with_ai_result_contract({
+                "schema": "provider_managed_pool_opinion_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "reason": f"unsupported_provider:{provider}",
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+                "applied": False,
+            })
+
+        try:
+            prompt = self._build_managed_pool_opinion_prompt(context)
+            if provider == "openai":
+                raw = self._call_openai_managed_pool_opinion(prompt, context)
+            else:
+                raw = self._call_gemini_managed_pool_opinion(prompt, context)
+            parsed = self._parse_managed_pool_opinion_response(raw.get("content"), context)
+            return self._with_ai_result_contract({
+                "schema": "provider_managed_pool_opinion_v1",
+                "provider": provider,
+                "response_confirmed": True,
+                "response_id": str(raw.get("response_id") or ""),
+                "usage_input_tokens": raw.get("usage_input_tokens"),
+                "usage_output_tokens": raw.get("usage_output_tokens"),
+                "usage_total_tokens": raw.get("usage_total_tokens"),
+                "opinion": parsed.get("opinion"),
+                "status_label": parsed.get("status_label"),
+                "confidence": parsed.get("confidence"),
+                "reason": parsed.get("reason"),
+                "next_action": parsed.get("next_action"),
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+                "applied": False,
+            })
+        except NotImplementedError as exc:
+            return self._with_ai_result_contract({
+                "schema": "provider_managed_pool_opinion_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "reason": str(exc) or f"{provider}_managed_pool_opinion_not_implemented",
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+                "applied": False,
+            })
+        except Exception as exc:
+            reason = str(exc)[:500] or f"{provider}_managed_pool_opinion_error:{type(exc).__name__}"
+            return self._with_ai_result_contract({
+                "schema": "provider_managed_pool_opinion_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "reason": reason,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+                "applied": False,
+            })
+
+    def _build_managed_pool_opinion_prompt(self, context: Optional[Dict[str, Any]]) -> str:
+        context = dict(context or {})
+        safe_context = {
+            "schema": context.get("schema") or "managed_pool_ai_opinion_request_v1",
+            "symbol": context.get("symbol"),
+            "display_name": context.get("display_name"),
+            "aits_score": context.get("aits_score"),
+            "status": context.get("status"),
+            "status_reason": context.get("status_reason"),
+            "managed_source": context.get("managed_source"),
+            "candidate_reason": context.get("candidate_reason"),
+            "recent_move": context.get("recent_move"),
+            "safety_constraints": context.get("safety_constraints"),
+        }
+        return (
+            "You are generating an AITS Managed Pool operation opinion for display only.\n"
+            "This is NOT router verification and NOT an order approval request.\n"
+            "Never ask to buy, sell, cancel, retry, or execute an order.\n"
+            "Return only compact JSON with keys: opinion, status_label, confidence, reason, next_action.\n"
+            "Allowed opinion values: watch, buy_wait, rotate_review, sell_review, data_insufficient.\n"
+            "Allowed Korean status_label values: 관망, 매수대기, 교체검토, 매도검토, 데이터부족.\n"
+            "The reason must be user-facing market/managed-pool rationale, not an execution-block reason.\n"
+            "The next_action must be review-only and must include no order execution.\n"
+            "Context JSON:\n"
+            + json.dumps(safe_context, ensure_ascii=False, default=str)
+        )
+
+    def _call_openai_managed_pool_opinion(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
+        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
+        if not (real_call_enabled and one_shot_enabled):
+            raise NotImplementedError("openai_live_call_disabled")
+        api_key = self._get_config_api_key("openai")
+        if not api_key:
+            raise NotImplementedError("openai_api_key_missing")
+        model = os.getenv("AITS_OPENAI_OPINION_MODEL", os.getenv("AITS_OPENAI_VERIFY_MODEL", "gpt-4o-mini"))
+        payload = {
+            "model": model,
+            "temperature": 0.2,
+            "max_tokens": 260,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "Return only JSON. You write Korean Managed Pool review opinions. Never execute trades.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        }
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            _safe_log_info("[AITS][ManagedPoolOpinionOpenAI] step=before_request")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            usage = data.get("usage") or {}
+            return {
+                "content": data.get("choices", [{}])[0].get("message", {}).get("content", ""),
+                "response_id": data.get("id") or "",
+                "usage_input_tokens": usage.get("prompt_tokens"),
+                "usage_output_tokens": usage.get("completion_tokens"),
+                "usage_total_tokens": usage.get("total_tokens"),
+            }
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")[:800].lower()
+            if exc.code == 429 or "quota" in body or "rate limit" in body or "insufficient_quota" in body:
+                raise RuntimeError("openai_quota_exceeded")
+            if exc.code in (401, 403) or "invalid api key" in body or "incorrect api key" in body:
+                raise RuntimeError("openai_api_key_invalid")
+            if exc.code == 400:
+                raise RuntimeError("openai_bad_request")
+            raise
+
+    def _call_gemini_managed_pool_opinion(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
+        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
+        if not (real_call_enabled and one_shot_enabled):
+            raise NotImplementedError("gemini_live_call_disabled")
+        api_key = self._get_config_api_key("gemini")
+        if not api_key:
+            raise NotImplementedError("gemini_api_key_missing")
+        model = os.getenv("AITS_GEMINI_OPINION_MODEL", os.getenv("AITS_GEMINI_VERIFY_MODEL", "gemini-1.5-flash"))
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 260},
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            _safe_log_info("[AITS][ManagedPoolOpinionGemini] step=before_request")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            content = ""
+            candidates = data.get("candidates") or []
+            if candidates:
+                parts = ((candidates[0].get("content") or {}).get("parts") or [])
+                content = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
+            usage = data.get("usageMetadata") or {}
+            return {
+                "content": content,
+                "response_id": str(data.get("responseId") or ""),
+                "usage_input_tokens": usage.get("promptTokenCount"),
+                "usage_output_tokens": usage.get("candidatesTokenCount"),
+                "usage_total_tokens": usage.get("totalTokenCount"),
+            }
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="ignore")[:800].lower()
+            if exc.code == 429 or "quota" in body or "rate limit" in body:
+                raise RuntimeError("gemini_quota_exceeded")
+            if exc.code in (401, 403) or "api key not valid" in body or "invalid api key" in body:
+                raise RuntimeError("gemini_api_key_invalid")
+            if exc.code == 400:
+                raise RuntimeError("gemini_bad_request")
+            raise
+
+    def _parse_managed_pool_opinion_response(self, raw_response: Any, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        text = str(raw_response or "").strip()
+        parsed: Dict[str, Any] = {}
+        if text:
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                start = text.find("{")
+                end = text.rfind("}")
+                if start >= 0 and end > start:
+                    try:
+                        parsed = json.loads(text[start:end + 1])
+                    except Exception:
+                        parsed = {}
+        opinion_raw = str(parsed.get("opinion") or parsed.get("recommendation") or parsed.get("status") or "").strip().lower()
+        status_raw = str(parsed.get("status_label") or "").strip()
+        status_map = {
+            "watch": ("watch", "관망"),
+            "hold": ("watch", "관망"),
+            "관망": ("watch", "관망"),
+            "buy_wait": ("buy_wait", "매수대기"),
+            "buy": ("buy_wait", "매수대기"),
+            "매수대기": ("buy_wait", "매수대기"),
+            "rotate_review": ("rotate_review", "교체검토"),
+            "rotation": ("rotate_review", "교체검토"),
+            "교체검토": ("rotate_review", "교체검토"),
+            "sell_review": ("sell_review", "매도검토"),
+            "sell": ("sell_review", "매도검토"),
+            "매도검토": ("sell_review", "매도검토"),
+            "data_insufficient": ("data_insufficient", "데이터부족"),
+            "insufficient": ("data_insufficient", "데이터부족"),
+            "데이터부족": ("data_insufficient", "데이터부족"),
+        }
+        opinion, status_label = status_map.get(opinion_raw) or status_map.get(status_raw) or ("data_insufficient", "데이터부족")
+        try:
+            confidence = float(parsed.get("confidence"))
+        except Exception:
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
+        reason = str(parsed.get("reason") or parsed.get("rationale") or "").strip()
+        if not reason or reason.lower() in {"execution not allowed", "order execution not allowed"}:
+            reason = "관리종목 운용 의견 생성을 위한 근거가 제한적입니다. 추가 데이터 확인 후 참고만 합니다."
+        next_action = str(parsed.get("next_action") or "").strip()
+        if not next_action:
+            next_action = "운용 의견 참고만 수행; 주문 실행 없음"
+        return {
+            "opinion": opinion,
+            "status_label": status_label,
+            "confidence": confidence,
+            "reason": reason[:500],
+            "next_action": next_action[:300],
+        }
+
     def _with_ai_result_contract(self, result: Dict[str, Any]) -> Dict[str, Any]:
         result["suggestion_only"] = True
         result["applied_to_action"] = False

@@ -2543,6 +2543,142 @@ def _target_managed_pool_row(rows: list[dict[str, Any]], target_symbol: str | No
     return {}
 
 
+def _build_managed_pool_opinion_compact_payload(row: dict[str, Any], rows: list[dict[str, Any]], provider: str) -> dict[str, Any]:
+    symbol = _row_symbol(row)
+    score = row.get("ai_score", row.get("score"))
+    status = str(row.get("status") or row.get("status_label") or "").strip()
+    reason = str(
+        row.get("ai_review_queue_reason")
+        or row.get("status_reason")
+        or row.get("reason")
+        or row.get("source_reason")
+        or ""
+    ).strip()
+    recent_move = {
+        "change_rate": row.get("change_rate", row.get("change_pct", row.get("change_24h"))),
+        "trade_value": row.get("trade_value", row.get("trade_value_krw", row.get("acc_trade_price_24h"))),
+        "rank": row.get("rank", row.get("market_rank")),
+    }
+    return {
+        "schema": "managed_pool_ai_opinion_request_v1",
+        "purpose": "managed_pool_display_opinion",
+        "provider": provider,
+        "symbol": symbol,
+        "display_name": str(row.get("name") or row.get("display_name") or symbol),
+        "aits_score": score,
+        "status": status,
+        "status_reason": reason[:220],
+        "candidate_reason": str(row.get("candidate_reason") or row.get("added_reason") or reason)[:220],
+        "managed_source": str(row.get("source") or row.get("managed_source") or "")[:80],
+        "recent_move": recent_move,
+        "managed_pool_count": len(rows),
+        "safety_constraints": {
+            "order_execution": False,
+            "actual_order": False,
+            "final_action_unchanged": True,
+            "managed_pool_mutation": False,
+            "do_not_verify_order": True,
+        },
+    }
+
+
+def _managed_pool_opinion_status_from_provider(value: Any, fallback_label: Any = "") -> tuple[str, str]:
+    text = str(value or "").strip().lower()
+    label = str(fallback_label or "").strip()
+    mapping = {
+        "watch": ("watch", "관망"),
+        "hold": ("watch", "관망"),
+        "관망": ("watch", "관망"),
+        "buy_wait": ("buy_wait", "매수대기"),
+        "buy": ("buy_wait", "매수대기"),
+        "매수대기": ("buy_wait", "매수대기"),
+        "rotate_review": ("rotate_review", "교체검토"),
+        "rotation": ("rotate_review", "교체검토"),
+        "교체검토": ("rotate_review", "교체검토"),
+        "sell_review": ("sell_review", "매도검토"),
+        "sell": ("sell_review", "매도검토"),
+        "매도검토": ("sell_review", "매도검토"),
+        "data_insufficient": ("data_insufficient", "데이터부족"),
+        "insufficient": ("data_insufficient", "데이터부족"),
+        "데이터부족": ("data_insufficient", "데이터부족"),
+    }
+    return mapping.get(text) or mapping.get(label.lower()) or mapping.get(label) or ("data_insufficient", "데이터부족")
+
+
+def _is_execution_block_reason_only(reason: str) -> bool:
+    text = str(reason or "").strip().lower()
+    if not text:
+        return False
+    blocked_tokens = (
+        "execution not allowed",
+        "order execution not allowed",
+        "openai_live_call_disabled",
+        "gemini_live_call_disabled",
+    )
+    return any(token in text for token in blocked_tokens) and len(text) <= 120
+
+
+def _normalize_managed_pool_provider_opinion_result(
+    result: dict[str, Any],
+    row: dict[str, Any],
+    provider: str,
+    request_id: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    symbol = _row_symbol(row)
+    opinion, status_label = _managed_pool_opinion_status_from_provider(
+        result.get("opinion") or result.get("status"),
+        result.get("status_label"),
+    )
+    confidence = _safe_float(result.get("confidence"), math.nan)
+    if math.isnan(confidence):
+        score = _safe_float(row.get("ai_score", row.get("score")), math.nan)
+        confidence = 0.5 if math.isnan(score) else round(max(0.2, min(0.85, score / 100.0)), 3)
+    confidence = round(max(0.0, min(1.0, confidence)), 3)
+    reason = str(result.get("reason") or "").strip()
+    execution_block_only = _is_execution_block_reason_only(reason)
+    if not reason or execution_block_only:
+        row_reason = str(
+            row.get("ai_review_queue_reason")
+            or row.get("status_reason")
+            or row.get("reason")
+            or ""
+        ).strip()
+        reason = row_reason[:220] or "관리종목 운용 의견 생성을 위한 시장/점수 근거가 제한적입니다. 추가 데이터 확인 후 참고만 합니다."
+    next_action = str(result.get("next_action") or "").strip()
+    if not next_action:
+        next_action = "운용 의견 참고만 수행; 주문 실행 없음"
+    payload = {
+        "schema": "managed_pool_ai_opinion_v1",
+        "event_time": _now_iso(),
+        "symbol": symbol,
+        "display_name": str(row.get("name") or row.get("display_name") or symbol),
+        "provider": provider,
+        "provider_external_call": True,
+        "source": "gpt_one_shot_opinion" if provider == "gpt" else f"{provider}_one_shot_opinion",
+        "request_id": request_id,
+        "response_confirmed": bool(result.get("response_confirmed")),
+        "response_id": str(result.get("response_id") or ""),
+        "usage_input_tokens": result.get("usage_input_tokens"),
+        "usage_output_tokens": result.get("usage_output_tokens"),
+        "usage_total_tokens": result.get("usage_total_tokens"),
+        "opinion": opinion,
+        "status_label": status_label,
+        "confidence": confidence,
+        "reason": reason[:500],
+        "next_action": next_action[:300],
+        "freshness": "provider_one_shot",
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+    }
+    flags = {
+        "execution_block_reason_only": False,
+        "provider_reason_was_execution_block_only": bool(execution_block_only),
+        "user_facing_reason_present": bool(reason) and not _is_execution_block_reason_only(reason),
+    }
+    return payload, flags
+
+
 def _router_suggestion_to_opinion(result: dict[str, Any], row: dict[str, Any], provider: str) -> dict[str, Any]:
     symbol = _row_symbol(row)
     score = _safe_float(row.get("ai_score", row.get("score")), math.nan)
@@ -2606,32 +2742,26 @@ def _run_managed_pool_gpt_one_shot_opinion_proof(
     row = _target_managed_pool_row(rows, target_symbol)
     symbol = _row_symbol(row)
     call_budget = max(0, min(1, int(max_provider_calls or 0)))
-    compact_context = {
-        "router_version": "managed_pool_ai_opinion_v1",
-        "final_action": "none",
-        "final_confidence": 0.0,
-        "fusion_signal": "managed_pool_one_shot_opinion",
-        "candidate_count": len(rows),
-        "positions_count": 0,
-        "symbol": symbol,
-        "execution_allowed": False,
-        "safety_note": "Opinion proof only. Do not execute trades. Keep final_action unchanged.",
-        "managed_pool_score": row.get("ai_score", row.get("score")),
-        "managed_pool_status": row.get("status"),
-        "managed_pool_reason": str(row.get("ai_review_queue_reason") or row.get("reason") or "")[:180],
-    }
+    compact_context = _build_managed_pool_opinion_compact_payload(row, rows, provider)
     report.update(
         {
             "one_shot_opinion_supported": True,
+            "managed_pool_gpt_opinion_quality_supported": True,
+            "legacy_router_verification_adapter_used": False,
+            "legacy_router_verification_adapter_limit": "router verification reasons can describe execution gating instead of managed-pool operation rationale",
             "provider": provider,
             "target_symbol": symbol,
             "provider_call_budget": call_budget,
+            "request_schema": compact_context.get("schema"),
+            "compact_payload_fields": sorted(str(key) for key in compact_context.keys()),
             "managed_row_count": len(rows),
             "compact_payload_summary": {
                 "symbol": compact_context.get("symbol"),
-                "execution_allowed": False,
-                "score_present": compact_context.get("managed_pool_score") not in (None, ""),
-                "reason_chars": len(str(compact_context.get("managed_pool_reason") or "")),
+                "purpose": compact_context.get("purpose"),
+                "order_execution": False,
+                "score_present": compact_context.get("aits_score") not in (None, ""),
+                "reason_chars": len(str(compact_context.get("status_reason") or "")),
+                "safety_constraints_present": bool(compact_context.get("safety_constraints")),
             },
             "order_execution": False,
             "final_action_unchanged": True,
@@ -2703,13 +2833,21 @@ def _run_managed_pool_gpt_one_shot_opinion_proof(
         os.environ["AITS_ENABLE_REAL_AI_CALL"] = "1"
         os.environ["AITS_REAL_AI_ONE_SHOT"] = "1"
         call_count = 1
-        result = engine_provider.verify_router_decision(provider=provider_key, context=compact_context)
+        if hasattr(engine_provider, "generate_managed_pool_opinion"):
+            result = engine_provider.generate_managed_pool_opinion(provider=provider_key, context=compact_context)
+        else:
+            result = engine_provider.verify_router_decision(provider=provider_key, context=compact_context)
+            report["legacy_router_verification_adapter_used"] = True
     except Exception as exc:
         result = {
-            "suggestion": "skip",
+            "schema": "provider_managed_pool_opinion_v1",
+            "response_confirmed": False,
             "reason": f"{type(exc).__name__}:{str(exc)[:160]}",
             "provider": provider,
             "applied_to_action": False,
+            "order_execution": False,
+            "final_action_unchanged": True,
+            "actual_order": False,
         }
     finally:
         if old_enable is None:
@@ -2721,27 +2859,44 @@ def _run_managed_pool_gpt_one_shot_opinion_proof(
         else:
             os.environ["AITS_REAL_AI_ONE_SHOT"] = old_one_shot
 
-    opinion_payload = _router_suggestion_to_opinion(result, row, provider)
-    opinion_payload["request_id"] = request_id
+    if str(result.get("schema") or "") == "provider_managed_pool_opinion_v1":
+        opinion_payload, reason_quality_flags = _normalize_managed_pool_provider_opinion_result(
+            result,
+            row,
+            provider,
+            request_id,
+        )
+    else:
+        opinion_payload = _router_suggestion_to_opinion(result, row, provider)
+        opinion_payload["request_id"] = request_id
+        reason_quality_flags = {
+            "execution_block_reason_only": _is_execution_block_reason_only(str(opinion_payload.get("reason") or "")),
+            "provider_reason_was_execution_block_only": _is_execution_block_reason_only(str(opinion_payload.get("reason") or "")),
+            "user_facing_reason_present": bool(str(opinion_payload.get("reason") or "").strip()),
+        }
+    tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
     response_confirmed = bool(opinion_payload.get("response_confirmed")) and not str(result.get("error") or "")
-    pass_status = "pass" if provider_ready and call_count <= 1 and response_confirmed else "partial"
+    reason_quality_ok = bool(reason_quality_flags.get("user_facing_reason_present")) and not bool(reason_quality_flags.get("execution_block_reason_only"))
+    pass_status = "pass" if provider_ready and call_count <= 1 and response_confirmed and reason_quality_ok else "partial"
     report.update(
         {
             "provider_ready": bool(provider_ready),
             "provider_external_call_count": int(call_count),
             "request_id": request_id,
             "response_confirmed": bool(response_confirmed),
-            "response_id_present": False,
-            "token_usage_present": False,
+            "response_id_present": bool(opinion_payload.get("response_id")),
+            "token_usage_present": opinion_payload.get("usage_total_tokens") is not None,
             "raw_result_keys": sorted(str(key) for key in result.keys())[:20],
             "opinion_schema": "managed_pool_ai_opinion_v1",
+            "normalized_opinion": opinion_payload,
             "opinion_payload": opinion_payload,
             "opinion": opinion_payload.get("opinion"),
             "status_label": opinion_payload.get("status_label"),
             "confidence": opinion_payload.get("confidence"),
             "reason": opinion_payload.get("reason"),
             "next_action": opinion_payload.get("next_action"),
-            "tooltip_sample": opinion_payload.get("tooltip"),
+            "tooltip_sample": tooltip_sample or opinion_payload.get("tooltip"),
+            "reason_quality_flags": reason_quality_flags,
             "order_execution": False,
             "final_action_unchanged": bool(result.get("applied_to_action") is not True),
             "actual_order": False,
@@ -2793,6 +2948,7 @@ def _humanize_ai_opinion_freshness_for_tooltip(value: str) -> str:
         "analysis_required": "분석 필요",
         "manual_required": "수동 AI 분석 필요",
         "local_reference": "LOCAL 계산 참고",
+        "provider_one_shot": "최신 · 단일 AI 분석 반영",
     }
     return mapping.get(text, "상태 확인 필요" if text else "상태 확인 필요")
 
@@ -2803,6 +2959,7 @@ def _humanize_ai_opinion_source_for_tooltip(value: str) -> str:
         "manual_ai_refresh": "수동 AI 분석",
         "local_calculation": "LOCAL 계산 의견",
         "gpt_one_shot_opinion": "GPT 단일 분석",
+        "gemini_one_shot_opinion": "Gemini 단일 분석",
         "startup_generation": "시작 시 연결 확인",
     }
     return mapping.get(text, "분석 결과")

@@ -113,3 +113,19 @@ example `fresh_manual_refresh` is shown as `최신 · 수동 AI 분석 반영`.
 
 This is UI copy only. It does not change freshness logic, provider policy,
 DecisionRouter final action, order execution, or Managed Pool persistence.
+
+## GPT Opinion Payload Quality
+
+Managed Pool GPT/Gemini one-shot opinion proof uses a dedicated
+`managed_pool_ai_opinion_request_v1` compact payload instead of relying on the
+Router verification payload shape. The request is for display/review opinion
+generation only and includes symbol, display name, AITS score, current status,
+candidate/row reason, managed source, recent movement fields, and explicit
+safety constraints (`order_execution=false`, `actual_order=false`,
+`final_action_unchanged=true`, `managed_pool_mutation=false`).
+
+The provider result is normalized into `managed_pool_ai_opinion_v1`. The
+normalizer accepts only display statuses such as `관망`, `매수대기`, `교체검토`,
+`매도검토`, and `데이터부족`, and it replaces execution-block-only rationale
+with user-facing managed-pool rationale. This changes tooltip/report quality
+only; it does not route or execute orders.
