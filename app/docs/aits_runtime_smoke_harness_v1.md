@@ -874,3 +874,7 @@ Both modes must report `overlay_created=true`, a status sample, a tooltip
 sample, `managed_pool_mutation=false`, `order_execution=false`, and
 `final_action_unchanged=true`. LOCAL overlay proof must keep provider calls at
 `0`; GPT/Gemini one-shot UI proof must keep provider calls `<= 1`.
+
+### managed-pool-manual-ai-refresh-row-freshness-proof
+
+`managed-pool-manual-ai-refresh-row-freshness-proof` injects a LOCAL/mock manual AI refresh result into the same display-only Managed Pool overlay path used by the UI. The report records `analysis_required_before`, `overlay_created`, `overlay_source`, `analysis_required_after`, `reason_after`, `tooltip_sample`, `status_sample`, `row_persistence_mutation=false`, `provider_external_call_count=0`, and order/final-action safety fields.

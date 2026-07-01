@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
 # ⚠️ 봉인 선언: 역할 변경/이동/삭제/리팩터링 금지
@@ -27852,6 +27852,23 @@ class MainWindow(QMainWindow):
             row = row if isinstance(row, dict) else {}
             symbol = self._normalize_market_symbol_for_ai_snapshot(row.get("symbol") or row.get("market") or row.get("code") or "")
             generated_at = row.get("last_ai_review_at") or row.get("ai_briefing_generated_at") or row.get("decision_generated_at") or row.get("generated_at") or ""
+            opinion_overlay = self._get_managed_pool_ai_opinion_overlay(symbol) if symbol else {}
+            if isinstance(opinion_overlay, dict) and opinion_overlay:
+                overlay_time = str(opinion_overlay.get("generated_at") or opinion_overlay.get("event_time") or "").strip()
+                overlay_source = str(opinion_overlay.get("source") or "").strip()
+                if overlay_time or str(opinion_overlay.get("request_id") or "").strip():
+                    return {
+                        "freshness_state": "fresh",
+                        "label": "최신 · 수동 AI 분석 반영",
+                        "tooltip": "최근 수동 AI 분석 결과가 Managed Pool row에 반영되었습니다.",
+                        "generated_at": overlay_time,
+                        "age_sec": 0,
+                        "symbol": symbol,
+                        "overlay_source": overlay_source,
+                        "request_id": str(opinion_overlay.get("request_id") or "").strip(),
+                        "analysis_required": False,
+                        "submitted": 0,
+                    }
             if (not str(generated_at or "").strip()) and symbol:
                 cache = getattr(self, "_aits_recent_ai_snapshot_by_symbol", None) or {}
                 snap = cache.get(symbol) if isinstance(cache, dict) else {}
@@ -35821,6 +35838,9 @@ class MainWindow(QMainWindow):
             "freshness": str(payload.get("freshness") or "").strip(),
             "request_id": str(payload.get("request_id") or "").strip(),
             "source": str(payload.get("source") or "").strip(),
+            "event_time": str(payload.get("event_time") or payload.get("generated_at") or "").strip(),
+            "generated_at": str(payload.get("generated_at") or payload.get("event_time") or "").strip(),
+            "response_confirmed": bool(payload.get("response_confirmed", True)),
             "order_execution": bool(payload.get("order_execution")) is True,
             "final_action_unchanged": bool(payload.get("final_action_unchanged", True)),
             "actual_order": bool(payload.get("actual_order")) is True,
@@ -35839,6 +35859,105 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return overlay
+
+    def _build_managed_pool_ai_opinion_overlay_from_refresh_payload(
+        self,
+        payload: dict | None,
+        *,
+        source: str = "manual_ai_refresh",
+    ) -> dict:
+        try:
+            payload = payload if isinstance(payload, dict) else {}
+            symbol = self._normalize_market_symbol_for_ai_snapshot(
+                payload.get("target_symbol")
+                or payload.get("requested_symbol")
+                or payload.get("symbol")
+                or payload.get("market")
+                or ""
+            )
+            if not symbol:
+                return {}
+            provider = str(
+                payload.get("provider_actual")
+                or payload.get("source")
+                or payload.get("provider_selected")
+                or "local"
+            ).strip().lower()
+            if provider in ("openai", "gpt"):
+                provider = "gpt"
+            elif provider == "gemini":
+                provider = "gemini"
+            else:
+                provider = "local"
+            decision = str(payload.get("decision_summary") or payload.get("decision") or "").strip()
+            reason = str(payload.get("reason_code") or payload.get("reason") or "").strip()
+            if not reason:
+                reason = "수동 AI 분석 결과가 Managed Pool 표시 상태에 반영되었습니다."
+            lower_text = f"{decision} {reason}".lower()
+            if any(token in lower_text for token in ("매수", "buy", "entry")):
+                status_label = "매수대기"
+            elif any(token in lower_text for token in ("매도", "sell", "exit")):
+                status_label = "매도검토"
+            elif any(token in lower_text for token in ("교체", "rotate", "rotation")):
+                status_label = "교체검토"
+            elif any(token in lower_text for token in ("부족", "insufficient", "데이터")):
+                status_label = "데이터부족"
+            else:
+                status_label = "관망"
+            request_id = str(payload.get("request_id") or payload.get("decision_group_id") or "").strip()
+            try:
+                from datetime import datetime, timezone
+                event_time = datetime.now(timezone.utc).isoformat()
+            except Exception:
+                event_time = ""
+            return {
+                "schema": "managed_pool_ai_opinion_v1",
+                "event_time": event_time,
+                "generated_at": event_time,
+                "symbol": symbol,
+                "provider": provider,
+                "provider_external_call": bool(payload.get("provider_call_attempted")),
+                "source": source,
+                "opinion": status_label,
+                "status_label": status_label,
+                "confidence": None,
+                "reason": reason[:300],
+                "next_action": "수동 AI 분석 의견 참고; 주문 실행 없음",
+                "freshness": "fresh_manual_refresh",
+                "request_id": request_id,
+                "response_confirmed": True,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            }
+        except Exception:
+            return {}
+
+    def _apply_managed_pool_manual_ai_refresh_overlay(self, payload: dict | None) -> dict:
+        overlay = self._build_managed_pool_ai_opinion_overlay_from_refresh_payload(
+            payload,
+            source="manual_ai_refresh",
+        )
+        if not overlay:
+            return {}
+        applied = self._apply_managed_pool_ai_opinion_overlay_payload(overlay)
+        try:
+            self._refresh_ai_managed_cell_widgets_only()
+        except Exception:
+            try:
+                self._refresh_ai_managed_table()
+            except Exception:
+                pass
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ManagedPoolManualAIRefreshLink] event=overlay_applied symbol=%s provider=%s request_id=%s order_execution=False final_action_unchanged=True submitted=0",
+                str(applied.get("symbol") or ""),
+                str(applied.get("provider") or ""),
+                str(applied.get("request_id") or ""),
+            )
+        except Exception:
+            pass
+        return applied
 
     def _get_managed_pool_ai_opinion_overlay(self, symbol: str) -> dict:
         key = str(symbol or "").strip().upper()
@@ -40026,6 +40145,20 @@ class MainWindow(QMainWindow):
                         self._aits_provider_refresh_event_applied_group_id = ""
                 except Exception:
                     pass
+                try:
+                    manual_overlay = self._apply_managed_pool_manual_ai_refresh_overlay(reco_payload)
+                    if manual_overlay:
+                        result_context["managed_pool_overlay_applied"] = True
+                        result_context["managed_pool_overlay_symbol"] = str(manual_overlay.get("symbol") or "")
+                except Exception as exc:
+                    try:
+                        logging.getLogger("aits").warning(
+                            "[AITS][ManagedPoolManualAIRefreshLink] event=overlay_failed symbol=%s error_type=%s submitted=0 order_allowed=False real_order=False",
+                            str(reco_payload.get("target_symbol") or reco_payload.get("symbol") or target_symbol or ""),
+                            type(exc).__name__,
+                        )
+                    except Exception:
+                        pass
                 eventbus.publish("ai.reco.updated", reco_payload)
                 try:
                     if publish_group_id and str(getattr(self, "_aits_provider_refresh_event_applied_group_id", "") or "") != publish_group_id:

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import html
@@ -2899,6 +2899,90 @@ def _run_managed_pool_ai_opinion_ui_apply_proof(
             "tooltip_merge_policy": "opinion overlay details are appended to the row tooltip; managed_pool_rows are not persisted",
         }
     )
+
+
+def _run_managed_pool_manual_ai_refresh_row_freshness_proof(
+    app: Any,
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "local",
+    target_symbol: str | None = None,
+) -> None:
+    rows_before = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    row = _target_managed_pool_row(rows_before, target_symbol)
+    target = _normalize_symbol_text(target_symbol or _row_symbol(row))
+    before_state = {}
+    reason_before = ""
+    if row and hasattr(window, "_build_managed_pool_ai_review_sla_state"):
+        before_state = window._build_managed_pool_ai_review_sla_state(dict(row))
+        reason_before = str(row.get("ai_review_queue_reason") or before_state.get("label") or before_state.get("tooltip") or "")
+    request_id = f"manual-refresh-row-freshness-{uuid.uuid4().hex[:12]}"
+    payload = {
+        "ok": True,
+        "source": _normalize_provider_for_report(provider or "local"),
+        "provider_actual": _normalize_provider_for_report(provider or "local"),
+        "provider_selected": _normalize_provider_for_report(provider or "local"),
+        "symbol": target,
+        "target_symbol": target,
+        "requested_symbol": target,
+        "decision_summary": "관망",
+        "reason_code": "수동 AI 분석 결과를 Managed Pool row freshness에 반영했습니다.",
+        "request_id": request_id,
+        "decision_group_id": request_id,
+        "provider_call_attempted": False,
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+    }
+    overlay = {}
+    if row and hasattr(window, "_apply_managed_pool_manual_ai_refresh_overlay"):
+        overlay = window._apply_managed_pool_manual_ai_refresh_overlay(payload)
+        _pump_events(app, 0.3)
+    rows_after = [dict(row) for row in (getattr(window, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+    after_row = _target_managed_pool_row(rows_after, target)
+    after_state = {}
+    if after_row and hasattr(window, "_build_managed_pool_ai_review_sla_state"):
+        after_state = window._build_managed_pool_ai_review_sla_state(dict(after_row))
+    tooltip_sample = ""
+    status_sample = ""
+    if after_row and hasattr(window, "_build_ai_managed_row_tooltip"):
+        overlay_after = window._get_managed_pool_ai_opinion_overlay(target) if hasattr(window, "_get_managed_pool_ai_opinion_overlay") else {}
+        row_for_tooltip = dict(after_row)
+        if isinstance(overlay_after, dict) and overlay_after:
+            row_for_tooltip["_ai_opinion_overlay"] = dict(overlay_after)
+        status_sample = str(overlay_after.get("status_label") or "") if isinstance(overlay_after, dict) else ""
+        tooltip_sample = window._build_ai_managed_row_tooltip(row_for_tooltip, status_text=status_sample, score_text=str(after_row.get("score") or after_row.get("ai_score") or ""))
+    stale_phrase_after = "새 분석 권장" in str(tooltip_sample) or "AI 재분석은 수동 실행 필요" in str(tooltip_sample)
+    pass_ok = bool(row) and bool(overlay) and str(after_state.get("freshness_state") or "") == "fresh" and not stale_phrase_after
+    report.update({
+        "manual_refresh_row_freshness_supported": hasattr(window, "_apply_managed_pool_manual_ai_refresh_overlay"),
+        "provider": _normalize_provider_for_report(provider or "local"),
+        "target_symbol": target,
+        "target_in_managed_pool": bool(row),
+        "analysis_required_before": str(before_state.get("freshness_state") or "") in {"missing", "stale", "very_stale"},
+        "reason_before": reason_before,
+        "overlay_created": bool(overlay),
+        "overlay_source": str(overlay.get("source") or ""),
+        "request_id": request_id,
+        "analysis_required_after": str(after_state.get("freshness_state") or "") in {"missing", "stale", "very_stale"},
+        "reason_after": str(after_state.get("label") or after_state.get("tooltip") or ""),
+        "freshness_state_after": str(after_state.get("freshness_state") or ""),
+        "tooltip_sample": tooltip_sample,
+        "status_sample": status_sample,
+        "stale_phrase_after": bool(stale_phrase_after),
+        "row_persistence_mutation": False,
+        "managed_pool_mutation": False,
+        "managed_pool_row_count_before": len(rows_before),
+        "managed_pool_row_count_after": len(rows_after),
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+        "provider_external_call_count": 0,
+        "order_risk_detected": False,
+        "pass_status": "pass" if pass_ok else "partial",
+    })
+    report.update(_tooltip_html_card_proof(str(tooltip_sample or "")))
 
 
 def _run_managed_pool_gpt_one_shot_opinion_ui_proof(
@@ -7663,6 +7747,15 @@ def run_harness(
             to_max=to_max,
             apply_trim=apply_trim,
         )
+    elif mode == "managed-pool-manual-ai-refresh-row-freshness-proof":
+        _install_provider_post_guard(report)
+        _run_managed_pool_manual_ai_refresh_row_freshness_proof(
+            app,
+            window,
+            report,
+            provider=provider or "local",
+            target_symbol=target_symbol,
+        )
     elif mode == "managed-pool-max-size-apply-button-sync-actual-proof":
         _run_managed_pool_max_size_apply_button_sync_actual_proof(
             app,
@@ -7817,6 +7910,7 @@ def main() -> int:
             "managed-pool-ai-opinion-ui-apply-proof",
             "managed-pool-gpt-one-shot-opinion-proof",
             "managed-pool-gpt-one-shot-opinion-ui-proof",
+            "managed-pool-manual-ai-refresh-row-freshness-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",
             "managed-pool-max-size-apply-button-actual-proof",

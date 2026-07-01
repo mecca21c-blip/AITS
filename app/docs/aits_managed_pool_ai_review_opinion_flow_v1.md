@@ -96,3 +96,9 @@ calling the provider.
 The UI overlay proofs additionally require `overlay_created=true`, a visible
 status sample, a tooltip sample, Managed Pool mutation false, and provider call
 count `0` for LOCAL or `<= 1` for GPT/Gemini one-shot proof.
+
+## Manual AI Refresh Row Freshness Link
+
+Manual `AI 분석 새로고침` results are linked to the matching Managed Pool row through a display-only `managed_pool_ai_opinion_v1` overlay. When the refresh result symbol matches a Managed Pool row, the row freshness state can be treated as fresh with the label `최신 · 수동 AI 분석 반영`; the row tooltip then shows provider, opinion, reason, next action, request id, and the safety note that no order or final action changed.
+
+This overlay does not persist or mutate `managed_pool_rows`; it is UI/freshness state only. If the refresh result has no target symbol or the symbol is not in the Managed Pool, the existing stale/manual-required copy remains.
