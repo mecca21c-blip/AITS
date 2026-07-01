@@ -136,6 +136,25 @@ When the user runs manual `AI 분석 새로고침` for a symbol that belongs to 
 
 The result is normalized into `managed_pool_ai_opinion_v1`, then applied to the display-only row opinion/freshness overlay. The overlay may update status and tooltip copy, but it does not persist row changes. Provider calls remain behind an explicit proof flag and a one-call budget. Execution-block-only or stale manual-required rationale is not used as the primary user-facing reason.
 
+### Fresh Opinion Reason Consistency
+
+Fresh Managed Pool AI opinion overlays must keep freshness and explanation copy
+consistent. When `freshness` starts with `fresh_`, or the source is
+`manual_ai_refresh`, `gpt_one_shot_opinion`, or `local_calculation` with a
+confirmed response, stale/manual-required fallback phrases are not shown as the
+main `reason` or `next_action`.
+
+Examples of stale phrases guarded in fresh overlays include manual refresh
+required, analysis required, no current AI analysis, until AI analysis
+completes, and Korean equivalents such as "AI 재분석은 수동 실행 필요" and
+"수동 AI 재분석". For fresh `data_insufficient` opinions, the display fallback
+is conservative observation copy: current data is insufficient, re-evaluate
+after more data, and no order is executed.
+
+This is display normalization only. It does not change the provider payload
+schema, freshness decision ownership, Managed Pool persistence, DecisionRouter
+final action, or any execution path.
+
 ## Manual Refresh Target Symbol E2E
 
 Manual Managed Pool AI refresh must preserve the selected row symbol through the

@@ -35879,8 +35879,21 @@ class MainWindow(QMainWindow):
             return {}
         provider = str(payload.get("provider") or "").strip().lower() or "local"
         status_label = str(payload.get("status_label") or payload.get("opinion") or "").strip()
+        opinion = str(payload.get("opinion") or "").strip()
         reason = str(payload.get("reason") or "").strip()
         next_action = str(payload.get("next_action") or "").strip()
+        freshness = str(payload.get("freshness") or "").strip()
+        source = str(payload.get("source") or "").strip()
+        response_confirmed = bool(payload.get("response_confirmed", True))
+        reason, next_action, reason_consistency_flags = self._sanitize_managed_pool_ai_opinion_reason_fields(
+            opinion=opinion,
+            status_label=status_label,
+            reason=reason,
+            next_action=next_action,
+            freshness=freshness,
+            source=source,
+            response_confirmed=response_confirmed,
+        )
         try:
             confidence = float(payload.get("confidence"))
         except Exception:
@@ -35893,12 +35906,12 @@ class MainWindow(QMainWindow):
             "confidence": confidence,
             "reason": reason,
             "next_action": next_action,
-            "freshness": str(payload.get("freshness") or "").strip(),
+            "freshness": freshness,
             "request_id": str(payload.get("request_id") or "").strip(),
-            "source": str(payload.get("source") or "").strip(),
+            "source": source,
             "event_time": str(payload.get("event_time") or payload.get("generated_at") or "").strip(),
             "generated_at": str(payload.get("generated_at") or payload.get("event_time") or "").strip(),
-            "response_confirmed": bool(payload.get("response_confirmed", True)),
+            "response_confirmed": response_confirmed,
             "provider_external_call": bool(payload.get("provider_external_call")),
             "response_id": str(payload.get("response_id") or ""),
             "usage_input_tokens": payload.get("usage_input_tokens"),
@@ -35907,6 +35920,7 @@ class MainWindow(QMainWindow):
             "order_execution": bool(payload.get("order_execution")) is True,
             "final_action_unchanged": bool(payload.get("final_action_unchanged", True)),
             "actual_order": bool(payload.get("actual_order")) is True,
+            "reason_consistency_flags": reason_consistency_flags,
         }
 
     def _apply_managed_pool_ai_opinion_overlay_payload(self, payload: dict) -> dict:
@@ -35964,10 +35978,90 @@ class MainWindow(QMainWindow):
         stale_tokens = (
             "\uc0c8 \ubd84\uc11d \uad8c\uc7a5",
             "ai \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+            "\ud604\uc7ac ai \ubd84\uc11d\uc774 \uc5c6",
+            "\ubd84\uc11d\uc774 \uc5c6",
+            "\uc218\ub3d9 ai \uc7ac\ubd84\uc11d",
+            "ai \uc7ac\ubd84\uc11d",
+            "\uc218\ub3d9 \uc7ac\ubd84\uc11d",
+            "\uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+            "ai \ubd84\uc11d\uc774 \uc644\ub8cc\ub420 \ub54c\uae4c\uc9c0",
+            "\ubd84\uc11d\uc774 \uc644\ub8cc\ub420 \ub54c\uae4c\uc9c0",
+            "\uc7ac\ubd84\uc11d \uad8c\uc7a5",
             "analysis_required",
             "manual_required",
+            "manual refresh required",
+            "analysis required",
+            "until ai analysis completes",
+            "until analysis completes",
         )
         return any(token in text for token in stale_tokens)
+
+    def _is_fresh_managed_pool_ai_opinion_payload(self, payload: dict | None) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        freshness = str(payload.get("freshness") or "").strip().lower()
+        source = str(payload.get("source") or "").strip().lower()
+        if freshness.startswith("fresh_"):
+            return True
+        if source in {"manual_ai_refresh", "gpt_one_shot_opinion", "local_calculation"} and bool(payload.get("response_confirmed", True)):
+            return True
+        return False
+
+    def _managed_pool_fresh_opinion_fallback_text(self, opinion: str, status_label: str) -> tuple[str, str]:
+        opinion_text = str(opinion or "").strip().lower()
+        status_text = str(status_label or "").strip()
+        if opinion_text == "data_insufficient" or status_text == "\ub370\uc774\ud130\ubd80\uc871":
+            return (
+                "\ud604\uc7ac \ub370\uc774\ud130\uac00 \ucda9\ubd84\ud558\uc9c0 \uc54a\uc544 \ubcf4\uc218\uc801\uc73c\ub85c \uad00\ub9dd\ud569\ub2c8\ub2e4.",
+                "\ucd94\uac00 \ub370\uc774\ud130 \ud655\uc778 \ud6c4 \uc7ac\ud3c9\uac00\ud569\ub2c8\ub2e4. \uc8fc\ubb38\uc740 \uc2e4\ud589\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
+            )
+        return (
+            "\ucd94\uac00 \uc0c1\uc2b9 \uadfc\uac70\uac00 \ucda9\ubd84\ud558\uc9c0 \uc54a\uc544 \uad00\ub9dd \uc758\uacac\uc744 \uc720\uc9c0\ud569\ub2c8\ub2e4.",
+            "\ub2e4\uc74c \ub370\uc774\ud130 \uac31\uc2e0 \ud6c4 \uc7ac\ud3c9\uac00\ud569\ub2c8\ub2e4. \uc8fc\ubb38\uc740 \uc2e4\ud589\ud558\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4.",
+        )
+
+    def _sanitize_managed_pool_ai_opinion_reason_fields(
+        self,
+        *,
+        opinion: str,
+        status_label: str,
+        reason: str,
+        next_action: str,
+        freshness: str,
+        source: str,
+        response_confirmed: bool = True,
+    ) -> tuple[str, str, dict]:
+        probe_payload = {
+            "freshness": freshness,
+            "source": source,
+            "response_confirmed": response_confirmed,
+        }
+        is_fresh = self._is_fresh_managed_pool_ai_opinion_payload(probe_payload)
+        fallback_reason, fallback_next_action = self._managed_pool_fresh_opinion_fallback_text(opinion, status_label)
+        stale_reason_leaked = self._is_managed_pool_stale_refresh_reason(reason)
+        stale_next_action_leaked = self._is_managed_pool_stale_refresh_reason(next_action)
+        execution_block_reason_only = self._is_managed_pool_execution_block_reason_only(reason)
+        stale_reason_replaced = False
+        stale_next_action_replaced = False
+        if is_fresh and (not str(reason or "").strip() or stale_reason_leaked or execution_block_reason_only):
+            reason = fallback_reason
+            stale_reason_replaced = bool(stale_reason_leaked or execution_block_reason_only)
+        if is_fresh and (not str(next_action or "").strip() or stale_next_action_leaked):
+            next_action = fallback_next_action
+            stale_next_action_replaced = bool(stale_next_action_leaked)
+        flags = {
+            "reason_consistency_checked": True,
+            "fresh_opinion_payload": bool(is_fresh),
+            "stale_reason_leaked": bool(is_fresh and self._is_managed_pool_stale_refresh_reason(reason)),
+            "stale_next_action_leaked": bool(is_fresh and self._is_managed_pool_stale_refresh_reason(next_action)),
+            "stale_reason_replaced": bool(stale_reason_replaced),
+            "stale_next_action_replaced": bool(stale_next_action_replaced),
+            "reason_consistent_with_freshness": not bool(is_fresh and (
+                self._is_managed_pool_stale_refresh_reason(reason)
+                or self._is_managed_pool_stale_refresh_reason(next_action)
+            )),
+        }
+        return str(reason or "").strip(), str(next_action or "").strip(), flags
 
     def _normalize_provider_managed_pool_opinion_result_for_ui(
         self,
@@ -35990,6 +36084,7 @@ class MainWindow(QMainWindow):
             confidence = None
         if confidence is not None:
             confidence = max(0.0, min(1.0, confidence))
+        freshness_value = "fresh_manual_refresh"
         reason = str(result.get("reason") or "").strip()
         if (
             not reason
@@ -36001,6 +36096,15 @@ class MainWindow(QMainWindow):
                 fallback = ""
             reason = fallback or "\uc218\ub3d9 AI \ubd84\uc11d\uc774 \ubc18\uc601\ub418\uc5c8\uc2b5\ub2c8\ub2e4. \ud604\uc7ac \uc885\ubaa9 \uc0c1\ud0dc\ub294 \ucd94\uac00 \uc8fc\ubb38 \uc5c6\uc774 \uad00\ub9dd \uae30\uc900\uc73c\ub85c \uac80\ud1a0\ud569\ub2c8\ub2e4."
         next_action = str(result.get("next_action") or "").strip() or "Review opinion only; no order execution."
+        reason, next_action, _reason_flags = self._sanitize_managed_pool_ai_opinion_reason_fields(
+            opinion=opinion,
+            status_label=status_label,
+            reason=reason,
+            next_action=next_action,
+            freshness=freshness_value,
+            source=source,
+            response_confirmed=bool(result.get("response_confirmed")),
+        )
         try:
             from datetime import datetime, timezone
             event_time = datetime.now(timezone.utc).isoformat()
@@ -36025,7 +36129,7 @@ class MainWindow(QMainWindow):
             "confidence": confidence,
             "reason": reason[:500],
             "next_action": next_action[:300],
-            "freshness": "fresh_manual_refresh",
+            "freshness": freshness_value,
             "order_execution": False,
             "final_action_unchanged": True,
             "actual_order": False,

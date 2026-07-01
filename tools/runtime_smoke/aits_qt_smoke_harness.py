@@ -2625,10 +2625,83 @@ def _is_stale_manual_refresh_reason(reason: str) -> bool:
     stale_tokens = (
         "\uc0c8 \ubd84\uc11d \uad8c\uc7a5",
         "ai \uc7ac\ubd84\uc11d\uc740 \uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+        "\ud604\uc7ac ai \ubd84\uc11d\uc774 \uc5c6",
+        "\ubd84\uc11d\uc774 \uc5c6",
+        "\uc218\ub3d9 ai \uc7ac\ubd84\uc11d",
+        "ai \uc7ac\ubd84\uc11d",
+        "\uc218\ub3d9 \uc7ac\ubd84\uc11d",
+        "\uc218\ub3d9 \uc2e4\ud589 \ud544\uc694",
+        "ai \ubd84\uc11d\uc774 \uc644\ub8cc\ub420 \ub54c\uae4c\uc9c0",
+        "\ubd84\uc11d\uc774 \uc644\ub8cc\ub420 \ub54c\uae4c\uc9c0",
+        "\uc7ac\ubd84\uc11d \uad8c\uc7a5",
         "analysis_required",
         "manual_required",
+        "manual refresh required",
+        "analysis required",
+        "until ai analysis completes",
+        "until analysis completes",
     )
     return any(token in text for token in stale_tokens)
+
+
+def _is_fresh_managed_pool_opinion_payload(payload: dict[str, Any]) -> bool:
+    freshness = str(payload.get("freshness") or "").strip().lower()
+    source = str(payload.get("source") or "").strip().lower()
+    if freshness.startswith("fresh_"):
+        return True
+    if source in {"manual_ai_refresh", "gpt_one_shot_opinion", "local_calculation"} and bool(payload.get("response_confirmed", True)):
+        return True
+    return False
+
+
+def _fresh_managed_pool_opinion_fallback_text(opinion: str, status_label: str) -> tuple[str, str]:
+    opinion_text = str(opinion or "").strip().lower()
+    status_text = str(status_label or "").strip()
+    if opinion_text == "data_insufficient" or status_text == "데이터부족":
+        return (
+            "현재 데이터가 충분하지 않아 보수적으로 관망합니다.",
+            "추가 데이터 확인 후 재평가합니다. 주문은 실행하지 않습니다.",
+        )
+    return (
+        "추가 상승 근거가 충분하지 않아 관망 의견을 유지합니다.",
+        "다음 데이터 갱신 후 재평가합니다. 주문은 실행하지 않습니다.",
+    )
+
+
+def _apply_managed_pool_reason_consistency(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    normalized = dict(payload or {})
+    reason = str(normalized.get("reason") or "").strip()
+    next_action = str(normalized.get("next_action") or "").strip()
+    opinion = str(normalized.get("opinion") or "").strip()
+    status_label = str(normalized.get("status_label") or "").strip()
+    is_fresh = _is_fresh_managed_pool_opinion_payload(normalized)
+    stale_reason_input = _is_stale_manual_refresh_reason(reason)
+    stale_next_action_input = _is_stale_manual_refresh_reason(next_action)
+    execution_block_input = _is_execution_block_reason_only(reason)
+    stale_reason_replaced = False
+    stale_next_action_replaced = False
+    if is_fresh:
+        fallback_reason, fallback_next_action = _fresh_managed_pool_opinion_fallback_text(opinion, status_label)
+        if not reason or stale_reason_input or execution_block_input:
+            reason = fallback_reason
+            stale_reason_replaced = bool(stale_reason_input or execution_block_input)
+        if not next_action or stale_next_action_input:
+            next_action = fallback_next_action
+            stale_next_action_replaced = bool(stale_next_action_input)
+    normalized["reason"] = reason
+    normalized["next_action"] = next_action
+    flags = {
+        "reason_consistency_checked": True,
+        "fresh_opinion_payload": bool(is_fresh),
+        "stale_reason_leaked": bool(is_fresh and _is_stale_manual_refresh_reason(reason)),
+        "stale_next_action_leaked": bool(is_fresh and _is_stale_manual_refresh_reason(next_action)),
+        "stale_reason_replaced": bool(stale_reason_replaced),
+        "stale_next_action_replaced": bool(stale_next_action_replaced),
+        "reason_consistent_with_freshness": not bool(is_fresh and (
+            _is_stale_manual_refresh_reason(reason) or _is_stale_manual_refresh_reason(next_action)
+        )),
+    }
+    return normalized, flags
 
 
 def _normalize_managed_pool_provider_opinion_result(
@@ -2689,12 +2762,14 @@ def _normalize_managed_pool_provider_opinion_result(
         "final_action_unchanged": True,
         "actual_order": False,
     }
+    payload, consistency_flags = _apply_managed_pool_reason_consistency(payload)
     flags = {
         "execution_block_reason_only": False,
         "provider_reason_was_execution_block_only": bool(execution_block_only),
         "provider_reason_was_stale_manual_required": bool(stale_manual_reason),
         "user_facing_reason_present": bool(reason) and not _is_execution_block_reason_only(reason) and not _is_stale_manual_refresh_reason(reason),
     }
+    flags.update(consistency_flags)
     return payload, flags
 
 
@@ -2895,7 +2970,13 @@ def _run_managed_pool_gpt_one_shot_opinion_proof(
         }
     tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
     response_confirmed = bool(opinion_payload.get("response_confirmed")) and not str(result.get("error") or "")
-    reason_quality_ok = bool(reason_quality_flags.get("user_facing_reason_present")) and not bool(reason_quality_flags.get("execution_block_reason_only"))
+    reason_quality_ok = (
+        bool(reason_quality_flags.get("user_facing_reason_present"))
+        and not bool(reason_quality_flags.get("execution_block_reason_only"))
+        and not bool(reason_quality_flags.get("stale_reason_leaked"))
+        and not bool(reason_quality_flags.get("stale_next_action_leaked"))
+        and bool(reason_quality_flags.get("reason_consistent_with_freshness", True))
+    )
     pass_status = "pass" if provider_ready and call_count <= 1 and response_confirmed and reason_quality_ok else "partial"
     report.update(
         {
@@ -3146,11 +3227,13 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
         opinion_payload["source"] = "manual_ai_refresh"
         opinion_payload["freshness"] = "fresh_manual_refresh"
         opinion_payload["request_id"] = request_id
+        opinion_payload, consistency_flags = _apply_managed_pool_reason_consistency(opinion_payload)
         reason_quality_flags = {
             "execution_block_reason_only": _is_execution_block_reason_only(str(opinion_payload.get("reason") or "")),
             "provider_reason_was_execution_block_only": False,
             "user_facing_reason_present": bool(str(opinion_payload.get("reason") or "").strip()),
         }
+        reason_quality_flags.update(consistency_flags)
     elif not allow_provider_calls or call_budget < 1:
         opinion_payload = {}
         reason_quality_flags = {
@@ -3235,7 +3318,13 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
             tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
     if not tooltip_sample:
         tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(opinion_payload)
-    reason_quality_ok = bool(reason_quality_flags.get("user_facing_reason_present")) and not bool(reason_quality_flags.get("execution_block_reason_only"))
+    reason_quality_ok = (
+        bool(reason_quality_flags.get("user_facing_reason_present"))
+        and not bool(reason_quality_flags.get("execution_block_reason_only"))
+        and not bool(reason_quality_flags.get("stale_reason_leaked"))
+        and not bool(reason_quality_flags.get("stale_next_action_leaked"))
+        and bool(reason_quality_flags.get("reason_consistent_with_freshness", True))
+    )
     response_confirmed = bool(opinion_payload.get("response_confirmed"))
     pass_ok = bool(row) and bool(compact_context) and bool(opinion_payload) and bool(overlay) and reason_quality_ok
     if provider in {"gpt", "gemini"}:
@@ -3264,7 +3353,19 @@ def _run_managed_pool_manual_refresh_dedicated_opinion_proof(
         "reason": opinion_payload.get("reason"),
         "next_action": opinion_payload.get("next_action"),
         "freshness": opinion_payload.get("freshness"),
+        "reason_consistency_checked": bool(reason_quality_flags.get("reason_consistency_checked")),
+        "stale_reason_leaked": bool(reason_quality_flags.get("stale_reason_leaked")),
+        "stale_next_action_leaked": bool(reason_quality_flags.get("stale_next_action_leaked")),
+        "stale_reason_replaced": bool(reason_quality_flags.get("stale_reason_replaced")),
+        "stale_next_action_replaced": bool(reason_quality_flags.get("stale_next_action_replaced")),
+        "reason_consistent_with_freshness": bool(reason_quality_flags.get("reason_consistent_with_freshness", True)),
         "tooltip_sample": tooltip_sample,
+        "target_tooltip_sample": tooltip_sample,
+        "fresh_overlay_tooltip_sample": tooltip_sample,
+        "fresh_tooltip_stale_phrase_found": bool(
+            _is_stale_manual_refresh_reason(str(tooltip_sample or ""))
+            and bool(reason_quality_flags.get("fresh_opinion_payload"))
+        ),
         "reason_quality_flags": reason_quality_flags,
         "overlay_applied": bool(overlay),
         "analysis_required_after": str(after_state.get("freshness_state") or "") in {"missing", "stale", "very_stale"},
@@ -3359,11 +3460,13 @@ def _run_manual_ai_refresh_target_symbol_e2e_proof(
             opinion_payload["source"] = "manual_ai_refresh"
             opinion_payload["freshness"] = "fresh_manual_refresh"
             opinion_payload["request_id"] = request_id
+            opinion_payload, consistency_flags = _apply_managed_pool_reason_consistency(opinion_payload)
             reason_quality_flags = {
                 "execution_block_reason_only": _is_execution_block_reason_only(str(opinion_payload.get("reason") or "")),
                 "provider_reason_was_execution_block_only": False,
                 "user_facing_reason_present": bool(str(opinion_payload.get("reason") or "").strip()),
             }
+            reason_quality_flags.update(consistency_flags)
         elif allow_provider_calls and int(max_provider_calls or 0) >= 1:
             old_enable = os.environ.get("AITS_ENABLE_REAL_AI_CALL")
             old_one_shot = os.environ.get("AITS_REAL_AI_ONE_SHOT")
@@ -3494,7 +3597,19 @@ def _run_manual_ai_refresh_target_symbol_e2e_proof(
         "token_usage_present": opinion_payload.get("usage_total_tokens") is not None,
         "normalized_opinion": opinion_payload,
         "reason_quality_flags": reason_quality_flags,
+        "reason_consistency_checked": bool(reason_quality_flags.get("reason_consistency_checked")),
+        "stale_reason_leaked": bool(reason_quality_flags.get("stale_reason_leaked")),
+        "stale_next_action_leaked": bool(reason_quality_flags.get("stale_next_action_leaked")),
+        "stale_reason_replaced": bool(reason_quality_flags.get("stale_reason_replaced")),
+        "stale_next_action_replaced": bool(reason_quality_flags.get("stale_next_action_replaced")),
+        "reason_consistent_with_freshness": bool(reason_quality_flags.get("reason_consistent_with_freshness", True)),
         "tooltip_sample": tooltip_sample,
+        "target_tooltip_sample": tooltip_sample,
+        "fresh_overlay_tooltip_sample": tooltip_sample,
+        "fresh_tooltip_stale_phrase_found": bool(
+            _is_stale_manual_refresh_reason(str(tooltip_sample or ""))
+            and bool(reason_quality_flags.get("fresh_opinion_payload"))
+        ),
         "managed_pool_row_count_before": len(rows_before),
         "managed_pool_row_count_after": len(rows_after),
         "managed_pool_mutation": len(rows_before) != len(rows_after),
@@ -3505,6 +3620,159 @@ def _run_manual_ai_refresh_target_symbol_e2e_proof(
         "pass_status": "pass" if pass_ok else ("partial" if not row else "fail"),
     })
     report.update(_tooltip_html_card_proof(str(tooltip_sample or "")))
+
+
+def _run_managed_pool_ai_opinion_reason_consistency_proof(report: dict[str, Any], *, fixture: str = "") -> None:
+    stale_reason = "현재 AI 분석이 없으면 충분한 판단을 위해 수동 실행이 필요합니다."
+    stale_next_action = "AI 분석이 완료될 때까지 관망하십시오."
+    scenarios: list[dict[str, Any]] = [
+        {
+            "name": "fresh_manual_refresh_data_insufficient_stale_reason_replaced",
+            "payload": {
+                "schema": "managed_pool_ai_opinion_v1",
+                "symbol": "KRW-AI",
+                "provider": "local",
+                "source": "manual_ai_refresh",
+                "opinion": "data_insufficient",
+                "status_label": "데이터부족",
+                "reason": stale_reason,
+                "next_action": "추가 데이터 확인 후 재평가합니다. 주문은 실행하지 않습니다.",
+                "freshness": "fresh_manual_refresh",
+                "response_confirmed": True,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            },
+            "expect_stale_allowed": False,
+        },
+        {
+            "name": "fresh_manual_refresh_stale_next_action_replaced",
+            "payload": {
+                "schema": "managed_pool_ai_opinion_v1",
+                "symbol": "KRW-AI",
+                "provider": "local",
+                "source": "manual_ai_refresh",
+                "opinion": "data_insufficient",
+                "status_label": "데이터부족",
+                "reason": "현재 데이터가 충분하지 않아 보수적으로 관망합니다.",
+                "next_action": stale_next_action,
+                "freshness": "fresh_manual_refresh",
+                "response_confirmed": True,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            },
+            "expect_stale_allowed": False,
+        },
+        {
+            "name": "stale_manual_required_keeps_manual_required_reason",
+            "payload": {
+                "schema": "managed_pool_ai_opinion_v1",
+                "symbol": "KRW-AI",
+                "provider": "local",
+                "source": "manual_required",
+                "opinion": "analysis_required",
+                "status_label": "재분석필요",
+                "reason": stale_reason,
+                "next_action": stale_next_action,
+                "freshness": "manual_required",
+                "response_confirmed": False,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            },
+            "expect_stale_allowed": True,
+        },
+        {
+            "name": "fresh_watch_reason_kept_if_user_facing",
+            "payload": {
+                "schema": "managed_pool_ai_opinion_v1",
+                "symbol": "KRW-AI",
+                "provider": "local",
+                "source": "manual_ai_refresh",
+                "opinion": "watch",
+                "status_label": "관망",
+                "reason": "횡보 구간이라 추격보다 조건 충족 여부를 기다립니다.",
+                "next_action": "다음 데이터 갱신 후 재평가합니다. 주문은 실행하지 않습니다.",
+                "freshness": "fresh_manual_refresh",
+                "response_confirmed": True,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            },
+            "expect_stale_allowed": False,
+        },
+        {
+            "name": "execution_block_only_reason_replaced",
+            "payload": {
+                "schema": "managed_pool_ai_opinion_v1",
+                "symbol": "KRW-AI",
+                "provider": "local",
+                "source": "manual_ai_refresh",
+                "opinion": "watch",
+                "status_label": "관망",
+                "reason": "execution not allowed",
+                "next_action": "",
+                "freshness": "fresh_manual_refresh",
+                "response_confirmed": True,
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            },
+            "expect_stale_allowed": False,
+        },
+    ]
+    fixture_results = []
+    for scenario in scenarios:
+        normalized, flags = _apply_managed_pool_reason_consistency(scenario["payload"])
+        tooltip_sample = _managed_pool_ai_opinion_overlay_tooltip_sample(normalized)
+        stale_allowed = bool(scenario.get("expect_stale_allowed"))
+        stale_leak = bool(flags.get("stale_reason_leaked") or flags.get("stale_next_action_leaked"))
+        passed = bool(flags.get("reason_consistent_with_freshness")) and (stale_allowed or not stale_leak)
+        if stale_allowed:
+            passed = _is_stale_manual_refresh_reason(str(normalized.get("reason") or "")) and _is_stale_manual_refresh_reason(str(normalized.get("next_action") or ""))
+        fixture_results.append({
+            "name": scenario["name"],
+            "passed": bool(passed),
+            "freshness": normalized.get("freshness"),
+            "reason": normalized.get("reason"),
+            "next_action": normalized.get("next_action"),
+            "stale_reason_leaked": bool(flags.get("stale_reason_leaked")),
+            "stale_next_action_leaked": bool(flags.get("stale_next_action_leaked")),
+            "stale_reason_replaced": bool(flags.get("stale_reason_replaced")),
+            "stale_next_action_replaced": bool(flags.get("stale_next_action_replaced")),
+            "reason_consistent_with_freshness": bool(flags.get("reason_consistent_with_freshness")),
+            "tooltip_sample": tooltip_sample,
+            "reason_consistency_tooltip_sample": tooltip_sample,
+        })
+    target_result = fixture_results[0] if fixture_results else {}
+    all_passed = all(bool(item.get("passed")) for item in fixture_results)
+    report.update({
+        "ai_opinion_reason_consistency_supported": True,
+        "mode": "managed-pool-ai-opinion-reason-consistency-proof",
+        "fixture": fixture or "fresh-data-insufficient-stale-reason",
+        "fixture_results": fixture_results,
+        "stale_reason_replaced": bool(target_result.get("stale_reason_replaced")),
+        "stale_next_action_replaced": any(bool(item.get("stale_next_action_replaced")) for item in fixture_results),
+        "stale_reason_allowed_when_stale": bool(fixture_results[2].get("passed")) if len(fixture_results) > 2 else False,
+        "reason_consistent_with_freshness": bool(all_passed),
+        "freshness": target_result.get("freshness"),
+        "reason": target_result.get("reason"),
+        "next_action": target_result.get("next_action"),
+        "stale_reason_leaked": bool(target_result.get("stale_reason_leaked")),
+        "stale_next_action_leaked": bool(target_result.get("stale_next_action_leaked")),
+        "tooltip_sample": target_result.get("tooltip_sample"),
+        "reason_consistency_tooltip_sample": target_result.get("reason_consistency_tooltip_sample"),
+        "fresh_tooltip_stale_phrase_found": bool(_is_stale_manual_refresh_reason(str(target_result.get("tooltip_sample") or ""))),
+        "provider_external_call_count": 0,
+        "managed_pool_mutation": False,
+        "row_persistence_mutation": False,
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+        "order_risk_detected": False,
+        "pass_status": "pass" if all_passed else "fail",
+    })
 
 
 def _run_managed_pool_manual_ai_refresh_row_freshness_proof(
@@ -8377,6 +8645,9 @@ def run_harness(
             allow_provider_calls=allow_provider_calls,
             max_provider_calls=max_provider_calls,
         )
+    elif mode == "managed-pool-ai-opinion-reason-consistency-proof":
+        _install_provider_post_guard(report)
+        _run_managed_pool_ai_opinion_reason_consistency_proof(report, fixture=fixture or "")
     elif mode == "managed-pool-manual-ai-refresh-row-freshness-proof":
         _install_provider_post_guard(report)
         _run_managed_pool_manual_ai_refresh_row_freshness_proof(
@@ -8542,6 +8813,7 @@ def main() -> int:
             "managed-pool-gpt-one-shot-opinion-ui-proof",
             "managed-pool-manual-refresh-dedicated-opinion-proof",
             "manual-ai-refresh-target-symbol-e2e-proof",
+            "managed-pool-ai-opinion-reason-consistency-proof",
             "managed-pool-manual-ai-refresh-row-freshness-proof",
             "managed-pool-auto-promotion-apply-proof",
             "managed-pool-max-size-apply-button-proof",

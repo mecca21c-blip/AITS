@@ -904,6 +904,25 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-manual-r
 
 PASS requires `dedicated_payload_used=true`, `payload_schema=managed_pool_ai_opinion_request_v1`, a normalized opinion payload, overlay application, `order_execution=false`, `final_action_unchanged=true`, `actual_order=false`, `managed_pool_mutation=false`, and `order_risk_detected=false`. LOCAL proof keeps provider calls at `0`; GPT/Gemini proof requires the explicit provider-call flag and a call budget of `<= 1`.
 
+### managed-pool-ai-opinion-reason-consistency-proof
+
+`managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed
+Pool AI opinion overlays do not leak stale/manual-required fallback copy into
+the user-facing `reason` or `next_action`.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode managed-pool-ai-opinion-reason-consistency-proof --fixture fresh-data-insufficient-stale-reason
+```
+
+PASS requires `stale_reason_leaked=false`,
+`stale_next_action_leaked=false`, `stale_reason_replaced=true` for the fresh
+stale-reason fixture, `reason_consistent_with_freshness=true`,
+`provider_external_call_count=0`, `order_execution=false`,
+`final_action_unchanged=true`, `actual_order=false`, and
+`managed_pool_mutation=false`. The manual refresh and target-symbol E2E proofs
+also expose `fresh_overlay_tooltip_sample` so the target overlay sample is not
+confused with the generic table tooltip sample collected during dry reads.
+
 ### manual-ai-refresh-target-symbol-e2e-proof
 
 `manual-ai-refresh-target-symbol-e2e-proof` verifies that the manual Managed
