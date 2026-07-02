@@ -1138,6 +1138,16 @@ keeping `would_call_riskguard=false`, `risk_guard_called=false`,
 `actual_order_intent_emitted=false`, `submitted_count=0`, and
 `provider_external_call_count=0`.
 
+The LivePreflight actual-readonly adapter design review is documented in
+`app/docs/aits_live_preflight_readonly_actual_adapter_design_v1.md`. It is not a
+runtime smoke mode and does not change the harness. The next proof Goal may add
+a harness mode, but the default contract remains
+`would_call_live_preflight=false`, `live_preflight_called=false`,
+`live_preflight_decision=not_evaluated`,
+`live_preflight_result_present=false`, `actual_order=false`,
+`actual_order_intent_emitted=false`, `submitted_count=0`, and
+`provider_external_call_count=0`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

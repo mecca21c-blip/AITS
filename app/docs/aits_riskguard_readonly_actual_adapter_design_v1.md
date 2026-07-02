@@ -231,6 +231,15 @@ then, the safe default remains:
 - no Router, LivePreflight, unlock, ExecutionBridge, OrderService, OrderAdapter,
   exchange, or provider calls
 
+After the RiskGuard actual-readonly proof is complete, the adjacent design step
+is:
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-DESIGN-REVIEW-01`
+
+That design step documents LivePreflight callable shape and side-effect
+boundaries only. It still must not import or call LivePreflight, RiskGuard,
+Router, unlock, ExecutionBridge, OrderService, or OrderAdapter.
+
 ## Proof Implementation
 
 `AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-PROOF-01` implements this boundary in

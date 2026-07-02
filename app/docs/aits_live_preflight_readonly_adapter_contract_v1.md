@@ -156,6 +156,26 @@ The final live-order sequence should be:
 7. LivePreflight read-only validation
 8. One-shot unlock confirmation
 9. Duplicate/repeat/relock final check
+
+## Actual-Readonly Design Relationship
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-DESIGN-REVIEW-01` extends this
+skeleton contract as a documentation-only design step. It defines:
+
+- `aits_live_preflight_readonly_actual_adapter_design_v1`
+- `aits_live_preflight_readonly_actual_adapter_input_v1`
+- `aits_live_preflight_readonly_actual_adapter_output_v1`
+
+The actual-readonly design aligns future harness payloads with the callable
+shape documented in `app/services/live_order_preflight.py`, but it still must
+not import or call LivePreflight. It keeps `would_call_live_preflight=false`,
+`live_preflight_called=false`, `live_preflight_decision=not_evaluated`,
+`live_preflight_result_present=false`, `submitted_count=0`, and
+`actual_order=false`.
+
+RiskGuard actual-readonly proof remains immediately before LivePreflight
+actual-readonly proof. Neither adapter readiness result is permission to consume
+unlock, emit an intent, or submit an order.
 10. ExecutionBridge
 11. OrderService
 12. OrderAdapter

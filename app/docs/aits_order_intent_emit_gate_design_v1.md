@@ -461,3 +461,24 @@ Scope:
   `risk_decision=not_evaluated`, `risk_result_present=false`,
   `actual_order=false`, `actual_order_intent_emitted=false`, and
   `submitted_count=0`
+
+Completed LivePreflight actual-readonly adapter design review:
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-DESIGN-REVIEW-01`
+
+Scope:
+
+- document the callable contract shape found in
+  `app/services/live_order_preflight.py` without importing or calling it
+- define `aits_live_preflight_readonly_actual_adapter_design_v1`,
+  `aits_live_preflight_readonly_actual_adapter_input_v1`, and
+  `aits_live_preflight_readonly_actual_adapter_output_v1`
+- keep RiskGuard actual-readonly proof before LivePreflight actual-readonly
+  proof in the final readiness chain
+- keep `would_call_live_preflight=false`, `live_preflight_called=false`,
+  `live_preflight_decision=not_evaluated`,
+  `live_preflight_result_present=false`, `actual_order=false`,
+  `actual_order_intent_emitted=false`, and `submitted_count=0`
+- keep actual LivePreflight, RiskGuard, unlock consumption, actual emit,
+  Router, ExecutionBridge, OrderService, OrderAdapter, exchange, provider, and
+  runtime mutation paths disabled
