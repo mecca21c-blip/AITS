@@ -80,3 +80,47 @@ Valid proof output must keep:
 The next live-facing Goal may shape a candidate into a gated intent only after
 separate review. Router, RiskGuard, Preflight, unlock, and OrderService wiring
 remain out of scope for this schema proof.
+
+## Router Handoff Readiness
+
+Schema name: `aits_order_intent_router_handoff_readiness_v1`
+
+The readiness object is read-only. It answers whether an inert candidate has the
+minimum pre-handoff fields required before any future Router validation Goal.
+It does not call Router.
+
+Required checks:
+
+- `candidate_valid`
+- `actual_order_false`
+- `submitted_zero`
+- `order_execution_false`
+- `final_action_unchanged`
+- `ai_freshness_ok`
+- `min_order_ok`
+- `hard_cap_ok`
+- `total_window_cap_ok`
+- `one_shot_unlock_required`
+- `one_shot_unlock_not_consumed`
+- `duplicate_guard_required`
+- `repeat_guard_required`
+- `relock_required`
+- `market_feed_ok`
+- `managed_row_exists`
+- `target_symbol_match`
+- `no_dust_holding_conflict`
+- `provider_call_not_required`
+- `order_service_not_reachable`
+
+If every check passes, the report may show `router_handoff_ready=true`. Even in
+that case, these fields must remain false:
+
+- `actual_order_intent_emitted`
+- `decision_router_called`
+- `risk_guard_called`
+- `live_preflight_called`
+- `order_service_called`
+- `order_adapter_called`
+
+Warnings are allowed for policy-sensitive states such as `user_added`, but they
+must not trigger a live Router call in this proof.

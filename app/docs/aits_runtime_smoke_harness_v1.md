@@ -993,6 +993,25 @@ PASS requires `candidate_created=true`, `candidate_valid=true`,
 `submitted_count=0`, `provider_external_call_count=0`, and
 `order_risk_detected=false`.
 
+`order-intent-router-handoff-readiness-proof` evaluates the inert candidate
+against `aits_order_intent_router_handoff_readiness_v1`. It reports
+`router_handoff_ready`, `blockers`, `warnings`, and per-check details, but it
+does not call DecisionRouter, RiskGuard, LivePreflight, OrderService, or
+OrderAdapter.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-router-handoff-readiness-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-router-handoff-readiness-live-proof --target-symbol KRW-PYTH --observe-only
+```
+
+PASS requires `router_handoff_ready=true` for the valid/live candidate and
+blocked readiness for invalid fixtures while keeping
+`actual_order_intent_emitted=false`, `decision_router_called=false`,
+`risk_guard_called=false`, `live_preflight_called=false`,
+`order_service_called=false`, `order_adapter_called=false`,
+`submitted_count=0`, `provider_external_call_count=0`, and
+`order_risk_detected=false`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

@@ -254,7 +254,7 @@ Scope:
 The candidate schema is documented in
 `app/docs/aits_order_intent_candidate_v1.md`.
 
-Recommended next Goal:
+Completed read-only Router pre-handoff Goal:
 
 `AITS-ORDER-INTENT-CANDIDATE-ROUTER-PREFLIGHT-READONLY-CONTRACT-01`
 
@@ -263,4 +263,18 @@ Scope:
 - define how an inert candidate would be validated before Router handoff
 - keep Router/RiskGuard/LivePreflight/OrderService uncalled
 - keep `actual_order_intent_emitted=false`
+- keep actual orders forbidden
+
+This Goal records `aits_order_intent_router_handoff_readiness_v1` with
+`router_handoff_ready=true/false`, blockers, warnings, and check-level detail.
+
+Recommended next Goal:
+
+`AITS-ORDER-INTENT-CANDIDATE-ROUTER-VALIDATION-STUB-PROOF-01`
+
+Scope:
+
+- define a no-call Router validation adapter contract
+- prove candidate-to-Router payload shape without invoking DecisionRouter
+- keep RiskGuard/LivePreflight/OrderService uncalled
 - keep actual orders forbidden

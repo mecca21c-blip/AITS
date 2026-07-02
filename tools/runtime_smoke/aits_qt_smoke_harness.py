@@ -2062,6 +2062,74 @@ def _validate_inert_order_intent_candidate_v1(candidate: dict[str, Any] | None) 
     return errors
 
 
+def _evaluate_order_intent_router_handoff_readiness(
+    candidate: dict[str, Any] | None,
+    *,
+    target_symbol: str = "",
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    context = context or {}
+    blockers: list[str] = []
+    warnings: list[str] = []
+    validation_errors = _validate_inert_order_intent_candidate_v1(candidate)
+    candidate = candidate or {}
+    symbol = str(candidate.get("symbol") or "").strip()
+    intended_amount = int(candidate.get("intended_amount_krw") or 0)
+    total_cap = int(candidate.get("total_window_cap_krw") or 20_000)
+    current_total = int(context.get("current_window_total_krw") or 0)
+    total_after = current_total + intended_amount
+    normalized_target = _normalize_symbol_text(target_symbol or symbol)
+    checks = {
+        "candidate_valid": not validation_errors,
+        "actual_order_false": candidate.get("actual_order") is False,
+        "submitted_zero": int(candidate.get("submitted") or 0) == 0 and int(context.get("submitted_count") or 0) == 0,
+        "order_execution_false": bool(candidate.get("order_execution", context.get("order_execution", False))) is False,
+        "final_action_unchanged": bool(candidate.get("final_action_unchanged", context.get("final_action_unchanged", True))) is True,
+        "ai_freshness_ok": str(candidate.get("ai_freshness") or "") not in {"", "missing", "stale", "very_stale", "analysis_required", "manual_required"},
+        "min_order_ok": intended_amount >= int(candidate.get("min_order_krw") or 10_000),
+        "hard_cap_ok": intended_amount <= int(candidate.get("per_order_hard_cap_krw") or 12_000),
+        "total_window_cap_ok": total_after <= total_cap,
+        "one_shot_unlock_required": candidate.get("one_shot_unlock_required") is True,
+        "one_shot_unlock_not_consumed": bool(context.get("one_shot_unlock_consumed", False)) is False,
+        "duplicate_guard_required": candidate.get("duplicate_guard_required") is True,
+        "repeat_guard_required": candidate.get("repeat_guard_required") is True,
+        "relock_required": candidate.get("relock_required") is True,
+        "market_feed_ok": bool(context.get("market_feed_ok", True)) is True,
+        "managed_row_exists": bool(context.get("managed_row_exists", True)) is True,
+        "target_symbol_match": bool(symbol and normalized_target == symbol),
+        "no_dust_holding_conflict": not bool(candidate.get("holding_state") or candidate.get("dust_state")),
+        "provider_call_not_required": bool(context.get("provider_call_not_required", True)) is True,
+        "order_service_not_reachable": bool(context.get("order_service_reachable", False)) is False,
+    }
+    for key, ok in checks.items():
+        if not ok:
+            blockers.append(key)
+    for error in validation_errors:
+        blockers.append(f"candidate_validation:{error}")
+    if candidate.get("managed_source") == "user_added":
+        warnings.append("user_added_requires_live_policy_confirmation")
+    ready = not blockers
+    return {
+        "schema": "aits_order_intent_router_handoff_readiness_v1",
+        "candidate_schema": str(candidate.get("schema") or ""),
+        "symbol": symbol,
+        "side": str(candidate.get("side") or ""),
+        "router_handoff_ready": ready,
+        "blockers": blockers,
+        "warnings": warnings,
+        "checks": checks,
+        "total_window_after_candidate": total_after,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "actual_order": False,
+        "submitted": 0,
+    }
+
+
 def _run_buy_ready_order_intent_contract_fixture_proof(
     report: dict[str, Any], *, min_score: float = 60.0
 ) -> None:
@@ -2503,6 +2571,136 @@ def _run_order_intent_candidate_inert_bridge_live_proof(
         }
     )
     report["pass_status"] = "pass" if candidate_valid else "partial" if target_row else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_router_handoff_readiness_fixture_proof(
+    report: dict[str, Any], *, min_score: float = 60.0
+) -> None:
+    base = {"symbol": "KRW-PYTH", "score": 64, "source": "user_added", "reason": "router handoff fixture"}
+    promoted_row = _inject_mock_fresh_ai_opinion(base, status_label="매수대기")
+    contract = _candidate_order_intent_contract(promoted_row, min_score=min_score, market_feed_ok=True)
+    valid_candidate, _ = _build_inert_order_intent_candidate_v1(contract, promoted_row, intended_amount_krw=10_000)
+    scenarios: list[tuple[str, dict[str, Any] | None, dict[str, Any], bool, list[str]]] = [
+        ("valid_inert_candidate_router_handoff_ready", valid_candidate, {}, True, []),
+        ("candidate_invalid_blocks", {}, {}, False, ["candidate_valid"]),
+        ("actual_order_true_blocks", {**(valid_candidate or {}), "actual_order": True}, {}, False, ["actual_order_false"]),
+        ("submitted_nonzero_blocks", {**(valid_candidate or {}), "submitted": 1}, {}, False, ["submitted_zero"]),
+        ("amount_below_min_blocks", {**(valid_candidate or {}), "intended_amount_krw": 9_000}, {}, False, ["min_order_ok"]),
+        ("amount_above_hard_cap_blocks", {**(valid_candidate or {}), "intended_amount_krw": 13_000}, {}, False, ["hard_cap_ok"]),
+        ("total_window_cap_exceeded_blocks", valid_candidate, {"current_window_total_krw": 15_000}, False, ["total_window_cap_ok"]),
+        ("missing_freshness_blocks", {**(valid_candidate or {}), "ai_freshness": ""}, {}, False, ["ai_freshness_ok"]),
+        (
+            "missing_one_shot_unlock_requirement_blocks",
+            {**(valid_candidate or {}), "one_shot_unlock_required": False},
+            {},
+            False,
+            ["one_shot_unlock_required"],
+        ),
+        ("router_never_called", valid_candidate, {}, True, []),
+        ("risk_order_never_called", valid_candidate, {}, True, []),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, candidate, context, expected_ready, expected_blockers in scenarios:
+        readiness = _evaluate_order_intent_router_handoff_readiness(
+            candidate,
+            target_symbol=str((candidate or {}).get("symbol") or "KRW-PYTH"),
+            context=context,
+        )
+        blockers = list(readiness.get("blockers") or [])
+        expected_ok = all(reason in blockers for reason in expected_blockers)
+        passed = bool(readiness.get("router_handoff_ready")) == bool(expected_ready)
+        passed = passed and expected_ok
+        passed = passed and not bool(readiness.get("decision_router_called"))
+        passed = passed and not bool(readiness.get("risk_guard_called"))
+        passed = passed and not bool(readiness.get("order_service_called"))
+        results.append(
+            {
+                "name": name,
+                "pass": passed,
+                "expected_router_handoff_ready": expected_ready,
+                "readiness": readiness,
+            }
+        )
+    report.update(
+        {
+            "schema": "aits_order_intent_router_handoff_readiness_v1",
+            "evaluator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_order_intent_router_handoff_readiness",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_router_handoff_readiness_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+) -> None:
+    live_report: dict[str, Any] = {"mode": "order-intent-candidate-inert-bridge-live-proof", "embedded": True}
+    _run_order_intent_candidate_inert_bridge_live_proof(
+        live_report,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+    )
+    candidate = dict(live_report.get("candidate") or {})
+    context = {
+        "current_window_total_krw": 0,
+        "submitted_count": 0,
+        "order_execution": False,
+        "final_action_unchanged": True,
+        "one_shot_unlock_consumed": False,
+        "market_feed_ok": True,
+        "managed_row_exists": bool(live_report.get("target_is_buy_ready")),
+        "provider_call_not_required": True,
+        "order_service_reachable": False,
+    }
+    readiness = _evaluate_order_intent_router_handoff_readiness(
+        candidate,
+        target_symbol=str(live_report.get("target_symbol") or target_symbol or ""),
+        context=context,
+    )
+    report.update(
+        {
+            "mode": "order-intent-router-handoff-readiness-live-proof",
+            "schema": "aits_order_intent_router_handoff_readiness_v1",
+            "evaluator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_order_intent_router_handoff_readiness",
+            "candidate": candidate,
+            "handoff_readiness": readiness,
+            "target_symbol": live_report.get("target_symbol"),
+            "router_handoff_ready": bool(readiness.get("router_handoff_ready")),
+            "blockers": list(readiness.get("blockers") or []),
+            "warnings": list(readiness.get("warnings") or []),
+            "checks": dict(readiness.get("checks") or {}),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if readiness.get("router_handoff_ready") else "partial" if candidate else "fail"
     report["status"] = report["pass_status"]
 
 
@@ -9144,6 +9342,8 @@ def run_harness(
         "buy-ready-ai-opinion-freshness-unblock-proof",
         "order-intent-candidate-inert-bridge-fixture-proof",
         "order-intent-candidate-inert-bridge-live-proof",
+        "order-intent-router-handoff-readiness-fixture-proof",
+        "order-intent-router-handoff-readiness-live-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -9195,6 +9395,16 @@ def run_harness(
         elif mode == "order-intent-candidate-inert-bridge-live-proof":
             _install_provider_post_guard(report)
             _run_order_intent_candidate_inert_bridge_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+            )
+        elif mode == "order-intent-router-handoff-readiness-fixture-proof":
+            _run_order_intent_router_handoff_readiness_fixture_proof(report, min_score=min_score)
+        elif mode == "order-intent-router-handoff-readiness-live-proof":
+            _install_provider_post_guard(report)
+            _run_order_intent_router_handoff_readiness_live_proof(
                 report,
                 output_dir=output_dir,
                 target_symbol=target_symbol,
@@ -9657,6 +9867,8 @@ def main() -> int:
             "buy-ready-ai-opinion-freshness-unblock-proof",
             "order-intent-candidate-inert-bridge-fixture-proof",
             "order-intent-candidate-inert-bridge-live-proof",
+            "order-intent-router-handoff-readiness-fixture-proof",
+            "order-intent-router-handoff-readiness-live-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",
