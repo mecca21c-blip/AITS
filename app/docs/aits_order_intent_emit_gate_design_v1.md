@@ -425,3 +425,21 @@ Scope:
 - keep actual RiskGuard, LivePreflight, unlock consumption, actual emit,
   Router, OrderService, OrderAdapter, provider calls, and submitted increments
   disabled
+
+Completed RiskGuard actual-readonly adapter design review:
+
+`AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-DESIGN-REVIEW-01`
+
+Scope:
+
+- document the callable contract shape found in `app/services/risk_guard.py`
+  without importing or calling it
+- define `aits_riskguard_readonly_actual_adapter_design_v1`,
+  `aits_riskguard_readonly_actual_adapter_input_v1`, and
+  `aits_riskguard_readonly_actual_adapter_output_v1`
+- keep `would_call_riskguard=false`, `risk_guard_called=false`,
+  `risk_decision=not_evaluated`, `actual_order=false`,
+  `actual_order_intent_emitted=false`, and `submitted_count=0`
+- keep actual RiskGuard, LivePreflight, unlock consumption, actual emit,
+  Router, ExecutionBridge, OrderService, OrderAdapter, exchange, provider, and
+  runtime mutation paths disabled

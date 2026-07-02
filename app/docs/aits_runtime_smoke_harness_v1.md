@@ -1120,6 +1120,14 @@ requires `would_call_riskguard=false`, `risk_guard_called=false`,
 `actual_order_intent_emitted=false`, `actual_order=false`, `submitted=0`, and
 `provider_external_call_count=0`.
 
+The actual-readonly RiskGuard adapter design review is documented in
+`app/docs/aits_riskguard_readonly_actual_adapter_design_v1.md`. It is not a
+runtime smoke mode and does not change the harness. The next proof Goal may
+consider a harness mode, but the default contract remains
+`would_call_riskguard=false`, `risk_guard_called=false`,
+`risk_decision=not_evaluated`, `actual_order=false`,
+`actual_order_intent_emitted=false`, and `submitted_count=0`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

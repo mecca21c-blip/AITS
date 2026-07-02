@@ -231,3 +231,14 @@ still keep `would_call_riskguard=false`, `risk_guard_called=false`,
 `would_call_live_preflight=false`, `live_preflight_called=false`,
 `unlock_consumed=false`, `actual_order_intent_emitted=false`,
 `actual_order=false`, and `submitted=0`.
+
+## Actual-Readonly Adapter Design Review
+
+`AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-DESIGN-REVIEW-01` is documented in
+`app/docs/aits_riskguard_readonly_actual_adapter_design_v1.md`.
+
+That review identifies the `app/services/risk_guard.py` callable contract shape
+and future side-effect boundary only. It does not import or call RiskGuard. It
+keeps `would_call_riskguard=false`, `risk_guard_called=false`,
+`risk_decision=not_evaluated`, `actual_order=false`,
+`actual_order_intent_emitted=false`, and `submitted_count=0`.
