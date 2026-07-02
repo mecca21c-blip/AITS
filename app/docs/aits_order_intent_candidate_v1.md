@@ -124,3 +124,47 @@ that case, these fields must remain false:
 
 Warnings are allowed for policy-sensitive states such as `user_added`, but they
 must not trigger a live Router call in this proof.
+
+## Router Validation Stub
+
+Schema name: `aits_order_intent_router_validation_stub_v1`
+
+The validation stub is the next read-only shape after Router handoff readiness.
+It converts an inert `aits_order_intent_candidate_v1` and
+`aits_order_intent_router_handoff_readiness_v1` into the payload a future Router
+validation boundary could inspect. It is not a Router call.
+
+Required payload fields:
+
+- `candidate_schema`
+- `symbol`
+- `side`
+- `source`
+- `basic_score`
+- `ai_opinion`
+- `ai_freshness`
+- `confidence`
+- `reason`
+- `intended_amount_krw`
+- `min_order_krw`
+- `per_order_hard_cap_krw`
+- `total_window_cap_krw`
+- `managed_source`
+- `router_handoff_ready`
+- `router_validation_payload_ready`
+- `policy_warnings`
+- `policy_blockers`
+- `required_safety_flags`
+
+`required_safety_flags` must keep the payload inert:
+
+- `actual_order=false`
+- `submitted=0`
+- `final_action_unchanged=true`
+- `order_execution=false`
+- `suggestion_only=true`
+- `validation_only=true`
+
+For this proof, `user_added` remains a policy warning:
+`user_added_requires_live_policy_confirmation`. Promoting that warning to a
+blocker is reserved for a later live policy Goal.

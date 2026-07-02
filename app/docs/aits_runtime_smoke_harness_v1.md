@@ -1012,6 +1012,21 @@ blocked readiness for invalid fixtures while keeping
 `submitted_count=0`, `provider_external_call_count=0`, and
 `order_risk_detected=false`.
 
+`order-intent-router-validation-stub-proof` builds
+`aits_order_intent_router_validation_stub_v1` from the inert candidate and
+handoff readiness report. It validates the payload shape only; it does not call
+DecisionRouter, RiskGuard, LivePreflight, OrderService, or OrderAdapter.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-router-validation-stub-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-router-validation-stub-live-proof --target-symbol KRW-PYTH --observe-only
+```
+
+PASS requires `router_validation_payload_ready=true` for the valid/live
+candidate, invalid fixtures to return validation errors, `user_added` to remain
+`user_added_requires_live_policy_confirmation` as a policy warning, and all
+order/Router/Risk/Preflight/Order call flags to remain false.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

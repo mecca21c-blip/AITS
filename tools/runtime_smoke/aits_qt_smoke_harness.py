@@ -2130,6 +2130,127 @@ def _evaluate_order_intent_router_handoff_readiness(
     }
 
 
+def _build_router_validation_stub_payload_v1(
+    candidate: dict[str, Any] | None,
+    handoff_readiness: dict[str, Any] | None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidate = candidate or {}
+    handoff_readiness = handoff_readiness or {}
+    context = context or {}
+    policy_warnings = list(handoff_readiness.get("warnings") or [])
+    policy_blockers = list(handoff_readiness.get("blockers") or [])
+    router_handoff_ready = bool(handoff_readiness.get("router_handoff_ready"))
+    payload = {
+        "schema": "aits_order_intent_router_validation_stub_v1",
+        "candidate_schema": str(candidate.get("schema") or ""),
+        "symbol": str(candidate.get("symbol") or "").strip(),
+        "side": str(candidate.get("side") or "").strip(),
+        "source": str(candidate.get("source") or "").strip(),
+        "basic_score": _safe_float(candidate.get("basic_score"), 0.0),
+        "ai_opinion": str(candidate.get("ai_opinion") or "").strip(),
+        "ai_freshness": str(candidate.get("ai_freshness") or "").strip(),
+        "confidence": _safe_float(candidate.get("confidence"), 0.0),
+        "reason": str(candidate.get("reason") or "").strip(),
+        "intended_amount_krw": int(candidate.get("intended_amount_krw") or 0),
+        "min_order_krw": int(candidate.get("min_order_krw") or 10_000),
+        "per_order_hard_cap_krw": int(candidate.get("per_order_hard_cap_krw") or 12_000),
+        "total_window_cap_krw": int(candidate.get("total_window_cap_krw") or 20_000),
+        "managed_source": str(candidate.get("managed_source") or "").strip(),
+        "router_handoff_ready": router_handoff_ready,
+        "router_validation_payload_ready": False,
+        "policy_warnings": policy_warnings,
+        "policy_blockers": policy_blockers,
+        "required_safety_flags": {
+            "actual_order": False,
+            "submitted": 0,
+            "final_action_unchanged": True,
+            "order_execution": False,
+            "suggestion_only": True,
+            "validation_only": True,
+        },
+        "suggestion_only": True,
+        "validation_only": True,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "final_action_unchanged": bool(context.get("final_action_unchanged", True)),
+        "order_execution": bool(context.get("order_execution", False)),
+        "actual_order": bool(candidate.get("actual_order", False)),
+        "submitted": int(candidate.get("submitted") or context.get("submitted_count") or 0),
+    }
+    errors = _validate_router_validation_stub_payload_v1(payload)
+    payload["validation_errors"] = errors
+    payload["router_validation_payload_ready"] = not errors
+    return payload
+
+
+def _validate_router_validation_stub_payload_v1(payload: dict[str, Any] | None) -> list[str]:
+    if not payload:
+        return ["payload_missing"]
+    errors: list[str] = []
+    required_exact = {
+        "schema": "aits_order_intent_router_validation_stub_v1",
+        "candidate_schema": "aits_order_intent_candidate_v1",
+        "side": "buy",
+        "suggestion_only": True,
+        "validation_only": True,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "final_action_unchanged": True,
+        "order_execution": False,
+        "actual_order": False,
+        "submitted": 0,
+        "router_handoff_ready": True,
+    }
+    for key, expected in required_exact.items():
+        if payload.get(key) != expected:
+            errors.append(f"{key}_invalid")
+    for key in (
+        "symbol",
+        "source",
+        "ai_opinion",
+        "ai_freshness",
+        "reason",
+        "managed_source",
+    ):
+        if payload.get(key) in (None, ""):
+            errors.append(f"{key}_missing")
+    amount = int(payload.get("intended_amount_krw") or 0)
+    min_order = int(payload.get("min_order_krw") or 10_000)
+    hard_cap = int(payload.get("per_order_hard_cap_krw") or 12_000)
+    if amount < min_order:
+        errors.append("amount_below_min_order")
+    if amount > hard_cap:
+        errors.append("amount_above_per_order_hard_cap")
+    safety = payload.get("required_safety_flags") or {}
+    required_safety = {
+        "actual_order": False,
+        "submitted": 0,
+        "final_action_unchanged": True,
+        "order_execution": False,
+        "suggestion_only": True,
+        "validation_only": True,
+    }
+    for key, expected in required_safety.items():
+        if safety.get(key) != expected:
+            errors.append(f"required_safety_flags.{key}_invalid")
+    if payload.get("policy_blockers"):
+        errors.append("policy_blockers_present")
+    if payload.get("managed_source") == "user_added" and "user_added_requires_live_policy_confirmation" not in set(
+        payload.get("policy_warnings") or []
+    ):
+        errors.append("user_added_policy_warning_missing")
+    return errors
+
+
 def _run_buy_ready_order_intent_contract_fixture_proof(
     report: dict[str, Any], *, min_score: float = 60.0
 ) -> None:
@@ -2701,6 +2822,206 @@ def _run_order_intent_router_handoff_readiness_live_proof(
         }
     )
     report["pass_status"] = "pass" if readiness.get("router_handoff_ready") else "partial" if candidate else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_router_validation_stub_fixture_proof(
+    report: dict[str, Any], *, min_score: float = 60.0
+) -> None:
+    del min_score
+    valid_candidate = {
+        "schema": "aits_order_intent_candidate_v1",
+        "symbol": "KRW-PYTH",
+        "side": "buy",
+        "source": "basic_buy_ready_ai_confirmed",
+        "basic_score": 64.0,
+        "ai_opinion": "매수대기",
+        "ai_freshness": "fresh_manual_refresh",
+        "confidence": 0.8,
+        "reason": "Fresh observe opinion confirms buy-ready conditions.",
+        "intended_amount_krw": 10_000,
+        "min_order_krw": 10_000,
+        "per_order_hard_cap_krw": 12_000,
+        "total_window_cap_krw": 20_000,
+        "managed_source": "basic_added",
+        "holding_state": False,
+        "dust_state": False,
+        "duplicate_guard_required": True,
+        "repeat_guard_required": True,
+        "relock_required": True,
+        "risk_guard_required": True,
+        "preflight_required": True,
+        "one_shot_unlock_required": True,
+        "actual_order": False,
+        "submitted": 0,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+    }
+    scenarios: list[tuple[str, dict[str, Any], dict[str, Any], bool, list[str]]] = [
+        ("valid_candidate_builds_router_validation_stub", valid_candidate, {}, True, []),
+        (
+            "handoff_not_ready_blocks_payload",
+            valid_candidate,
+            {"handoff_context": {"market_feed_ok": False}},
+            False,
+            ["router_handoff_ready_invalid"],
+        ),
+        ("missing_symbol_blocks_payload", {**valid_candidate, "symbol": ""}, {}, False, ["symbol_missing"]),
+        ("invalid_side_blocks_payload", {**valid_candidate, "side": "sell"}, {}, False, ["side_invalid"]),
+        (
+            "amount_below_min_blocks_payload",
+            {**valid_candidate, "intended_amount_krw": 5_000},
+            {},
+            False,
+            ["amount_below_min_order"],
+        ),
+        (
+            "amount_above_hard_cap_blocks_payload",
+            {**valid_candidate, "intended_amount_krw": 13_000},
+            {},
+            False,
+            ["amount_above_per_order_hard_cap"],
+        ),
+        (
+            "user_added_keeps_policy_warning",
+            {**valid_candidate, "managed_source": "user_added"},
+            {},
+            True,
+            ["user_added_requires_live_policy_confirmation"],
+        ),
+        ("actual_order_true_blocks_payload", {**valid_candidate, "actual_order": True}, {}, False, ["actual_order_invalid"]),
+        ("submitted_nonzero_blocks_payload", {**valid_candidate, "submitted": 1}, {}, False, ["submitted_invalid"]),
+        (
+            "final_action_changed_blocks_payload",
+            valid_candidate,
+            {"payload_context": {"final_action_unchanged": False}},
+            False,
+            ["final_action_unchanged_invalid"],
+        ),
+        ("router_never_called", valid_candidate, {}, True, []),
+        ("risk_order_never_called", valid_candidate, {}, True, []),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, candidate, opts, expected_ready, expected_markers in scenarios:
+        handoff = _evaluate_order_intent_router_handoff_readiness(
+            candidate,
+            target_symbol=str(candidate.get("symbol") or "KRW-PYTH"),
+            context=opts.get("handoff_context") or {},
+        )
+        payload = _build_router_validation_stub_payload_v1(
+            candidate,
+            handoff,
+            opts.get("payload_context") or {},
+        )
+        validation_errors = list(payload.get("validation_errors") or [])
+        policy_warnings = list(payload.get("policy_warnings") or [])
+        marker_pool = set(validation_errors) | set(policy_warnings)
+        passed = bool(payload.get("router_validation_payload_ready")) == bool(expected_ready)
+        passed = passed and all(marker in marker_pool for marker in expected_markers)
+        passed = passed and not any(
+            bool(payload.get(key))
+            for key in (
+                "actual_order_intent_emitted",
+                "decision_router_called",
+                "risk_guard_called",
+                "live_preflight_called",
+                "order_service_called",
+                "order_adapter_called",
+            )
+        )
+        results.append(
+            {
+                "name": name,
+                "pass": passed,
+                "expected_router_validation_payload_ready": expected_ready,
+                "router_validation_payload_ready": bool(payload.get("router_validation_payload_ready")),
+                "validation_errors": validation_errors,
+                "policy_warnings": policy_warnings,
+                "policy_blockers": list(payload.get("policy_blockers") or []),
+                "payload": payload,
+            }
+        )
+    report.update(
+        {
+            "router_validation_stub_supported": True,
+            "schema": "aits_order_intent_router_validation_stub_v1",
+            "builder_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_build_router_validation_stub_payload_v1",
+            "validator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_validate_router_validation_stub_payload_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_router_validation_stub_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+) -> None:
+    embedded: dict[str, Any] = {"mode": "order-intent-router-handoff-readiness-live-proof", "embedded": True}
+    _run_order_intent_router_handoff_readiness_live_proof(
+        embedded,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+    )
+    candidate = dict(embedded.get("candidate") or {})
+    readiness = dict(embedded.get("handoff_readiness") or {})
+    payload = _build_router_validation_stub_payload_v1(
+        candidate,
+        readiness,
+        {"final_action_unchanged": True, "order_execution": False, "submitted_count": 0},
+    )
+    report.update(
+        {
+            "mode": "order-intent-router-validation-stub-live-proof",
+            "router_validation_stub_supported": True,
+            "schema": "aits_order_intent_router_validation_stub_v1",
+            "builder_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_build_router_validation_stub_payload_v1",
+            "validator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_validate_router_validation_stub_payload_v1",
+            "target_symbol": str(target_symbol or embedded.get("target_symbol") or candidate.get("symbol") or ""),
+            "candidate_created": bool(candidate),
+            "candidate_valid": not _validate_inert_order_intent_candidate_v1(candidate),
+            "router_handoff_ready": bool(readiness.get("router_handoff_ready")),
+            "router_validation_payload_ready": bool(payload.get("router_validation_payload_ready")),
+            "router_validation_payload": payload,
+            "validation_errors": list(payload.get("validation_errors") or []),
+            "policy_warnings": list(payload.get("policy_warnings") or []),
+            "policy_blockers": list(payload.get("policy_blockers") or []),
+            "readiness": readiness,
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if payload.get("router_validation_payload_ready") else "partial" if candidate else "fail"
     report["status"] = report["pass_status"]
 
 
@@ -9344,6 +9665,8 @@ def run_harness(
         "order-intent-candidate-inert-bridge-live-proof",
         "order-intent-router-handoff-readiness-fixture-proof",
         "order-intent-router-handoff-readiness-live-proof",
+        "order-intent-router-validation-stub-fixture-proof",
+        "order-intent-router-validation-stub-live-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -9405,6 +9728,16 @@ def run_harness(
         elif mode == "order-intent-router-handoff-readiness-live-proof":
             _install_provider_post_guard(report)
             _run_order_intent_router_handoff_readiness_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+            )
+        elif mode == "order-intent-router-validation-stub-fixture-proof":
+            _run_order_intent_router_validation_stub_fixture_proof(report, min_score=min_score)
+        elif mode == "order-intent-router-validation-stub-live-proof":
+            _install_provider_post_guard(report)
+            _run_order_intent_router_validation_stub_live_proof(
                 report,
                 output_dir=output_dir,
                 target_symbol=target_symbol,
@@ -9869,6 +10202,8 @@ def main() -> int:
             "order-intent-candidate-inert-bridge-live-proof",
             "order-intent-router-handoff-readiness-fixture-proof",
             "order-intent-router-handoff-readiness-live-proof",
+            "order-intent-router-validation-stub-fixture-proof",
+            "order-intent-router-validation-stub-live-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",

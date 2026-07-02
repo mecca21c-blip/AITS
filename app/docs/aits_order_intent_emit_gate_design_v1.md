@@ -268,7 +268,7 @@ Scope:
 This Goal records `aits_order_intent_router_handoff_readiness_v1` with
 `router_handoff_ready=true/false`, blockers, warnings, and check-level detail.
 
-Recommended next Goal:
+Completed Router validation stub Goal:
 
 `AITS-ORDER-INTENT-CANDIDATE-ROUTER-VALIDATION-STUB-PROOF-01`
 
@@ -278,3 +278,17 @@ Scope:
 - prove candidate-to-Router payload shape without invoking DecisionRouter
 - keep RiskGuard/LivePreflight/OrderService uncalled
 - keep actual orders forbidden
+
+This Goal records `aits_order_intent_router_validation_stub_v1` with
+`router_validation_payload_ready=true/false`, validation errors, policy
+warnings, and policy blockers. `user_added` remains
+`user_added_requires_live_policy_confirmation` as a warning in this proof.
+
+Recommended next Goal:
+
+`AITS-ORDER-INTENT-CANDIDATE-ROUTER-VALIDATION-STUB-POLICY-REVIEW-01`
+
+Scope:
+
+- decide whether `user_added` should remain a warning or become a live blocker
+- still avoid actual Router/RiskGuard/Order calls unless separately approved
