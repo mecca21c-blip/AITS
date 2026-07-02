@@ -61,6 +61,7 @@ CORE_WIDGETS = {
 PUBLIC_MARKET_READ_MODES = {
     "top-markets-feed-proof",
     "basic-candidate-discovery-proof",
+    "buy-ready-order-intent-contract-proof",
     "managed-pool-auto-promotion-apply-proof",
     "managed-pool-max-size-apply-button-actual-proof",
     "managed-pool-max-size-apply-button-sync-actual-proof",
@@ -1831,6 +1832,256 @@ def _latest_basic_candidate_report(output_dir: Path) -> dict[str, Any]:
             data["_report_path"] = str(path)
             return data
     return {}
+
+
+def _normalize_contract_source(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"system_default", "system_seed", "default", "seed"}:
+        return "system_seed"
+    if text in {"user", "user_added", "manual"}:
+        return "user_added"
+    if text in {"basic", "basic_added", "auto", "auto_added"}:
+        return "basic_added" if text != "basic" else "basic"
+    return text or "unknown"
+
+
+def _last_managed_pool_freshness_from_log(*, max_lines: int = 4000) -> dict[str, str]:
+    log_path = ROOT / "data" / "logs" / "aits.log"
+    if not log_path.exists():
+        return {}
+    try:
+        lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-max_lines:]
+    except Exception:
+        return {}
+    out: dict[str, str] = {}
+    pattern = re.compile(r"symbol=(KRW-[A-Z0-9]+).*?freshness=([A-Za-z0-9_\-]+)")
+    for line in lines:
+        if "[AITS][ManagedPoolAIReviewSLA]" not in line:
+            continue
+        match = pattern.search(line)
+        if match:
+            out[_normalize_symbol_text(match.group(1))] = str(match.group(2) or "").strip()
+    return out
+
+
+def _latest_managed_rows_for_contract(output_dir: Path) -> tuple[list[dict[str, Any]], str]:
+    latest = _latest_basic_candidate_report(output_dir)
+    rows = latest.get("would_keep") or []
+    if isinstance(rows, list) and rows:
+        return [dict(row) for row in rows if isinstance(row, dict)], str(latest.get("_report_path") or "")
+    return _load_saved_managed_pool_rows_readonly(), "saved_managed_pool_rows"
+
+
+def _candidate_order_intent_contract(
+    row: dict[str, Any],
+    *,
+    min_score: float = 60.0,
+    market_feed_ok: bool = True,
+    freshness_by_symbol: dict[str, str] | None = None,
+    duplicate_symbols: set[str] | None = None,
+    repeat_symbols: set[str] | None = None,
+    allowed_sources: set[str] | None = None,
+) -> dict[str, Any]:
+    symbol = _row_symbol(row)
+    source = _normalize_contract_source(row.get("source") or row.get("source_type"))
+    score = _safe_float(row.get("ai_score", row.get("score")), 0.0)
+    status = str(row.get("ai_status") or row.get("status") or row.get("status_label") or row.get("opinion") or "").strip()
+    freshness = str(row.get("freshness") or (freshness_by_symbol or {}).get(symbol) or "").strip()
+    ai_opinion_status = str(row.get("ai_opinion_status") or row.get("status_label") or row.get("opinion") or "").strip()
+    reason = str(row.get("reason") or row.get("ai_reason_summary") or row.get("reason_summary") or "").strip()
+    allowed = allowed_sources or {"basic", "basic_added", "user_added"}
+    duplicate = symbol in (duplicate_symbols or set())
+    repeat = symbol in (repeat_symbols or set())
+    holding = bool(row.get("holding") or row.get("holding_display") or row.get("is_holding") or row.get("has_position"))
+    dust = bool(row.get("dust_holding") or row.get("holding_dust") or row.get("dust_filtered"))
+    basic_buy_ready = bool(score >= float(min_score))
+    block_reasons: list[str] = []
+    if not symbol:
+        block_reasons.append("missing_symbol")
+    if not basic_buy_ready:
+        block_reasons.append("score_below_order_intent_min")
+    if source not in allowed:
+        block_reasons.append(f"source_not_allowed:{source}")
+    if not market_feed_ok:
+        block_reasons.append("market_feed_not_ok")
+    if not ai_opinion_status:
+        block_reasons.append("ai_opinion_missing")
+    elif ai_opinion_status in {"데이터부족", "data_insufficient"}:
+        block_reasons.append("ai_opinion_data_insufficient")
+    if not freshness:
+        block_reasons.append("freshness_missing")
+    elif freshness in {"missing", "very_stale", "stale", "analysis_required", "manual_required"}:
+        block_reasons.append(f"freshness_not_acceptable:{freshness}")
+    if duplicate:
+        block_reasons.append("duplicate_block")
+    if repeat:
+        block_reasons.append("repeat_block")
+    if holding:
+        block_reasons.append("holding_state_block")
+    if dust:
+        block_reasons.append("dust_state_block")
+    return {
+        "schema": "aits_order_intent_candidate_contract_v1",
+        "symbol": symbol,
+        "score": score,
+        "source": source,
+        "status": status,
+        "reason": reason,
+        "basic_buy_ready": basic_buy_ready,
+        "ai_opinion_status": ai_opinion_status,
+        "freshness": freshness,
+        "market_feed_ok": bool(market_feed_ok),
+        "duplicate_block": duplicate,
+        "repeat_block": repeat,
+        "holding_state": holding,
+        "dust_state": dust,
+        "would_promote_to_order_intent": bool(basic_buy_ready and not block_reasons),
+        "block_reasons": block_reasons,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "actual_order": False,
+    }
+
+
+def _contract_reasons_summary(candidates: list[dict[str, Any]]) -> dict[str, int]:
+    summary: dict[str, int] = {}
+    for item in candidates:
+        for reason in item.get("block_reasons") or []:
+            key = str(reason)
+            summary[key] = summary.get(key, 0) + 1
+    return dict(sorted(summary.items()))
+
+
+def _run_buy_ready_order_intent_contract_fixture_proof(
+    report: dict[str, Any], *, min_score: float = 60.0
+) -> None:
+    fixtures = [
+        (
+            "buy_ready_score64_fresh_watch_pass",
+            {"symbol": "KRW-PASS", "score": 64, "source": "basic_added", "status_label": "매수대기", "freshness": "fresh"},
+            True,
+            {},
+        ),
+        (
+            "buy_ready_stale_block",
+            {"symbol": "KRW-STALE", "score": 64, "source": "basic_added", "status_label": "매수대기", "freshness": "stale"},
+            False,
+            {},
+        ),
+        (
+            "buy_ready_data_insufficient_block",
+            {"symbol": "KRW-DATA", "score": 66, "source": "basic_added", "status_label": "데이터부족", "freshness": "fresh"},
+            False,
+            {},
+        ),
+        (
+            "buy_ready_market_feed_error_block",
+            {"symbol": "KRW-FEED", "score": 66, "source": "basic_added", "status_label": "매수대기", "freshness": "fresh"},
+            False,
+            {"market_feed_ok": False},
+        ),
+        (
+            "buy_ready_duplicate_block",
+            {"symbol": "KRW-DUP", "score": 66, "source": "basic_added", "status_label": "매수대기", "freshness": "fresh"},
+            False,
+            {"duplicate_symbols": {"KRW-DUP"}},
+        ),
+        (
+            "buy_ready_repeat_block",
+            {"symbol": "KRW-REPEAT", "score": 66, "source": "basic_added", "status_label": "매수대기", "freshness": "fresh"},
+            False,
+            {"repeat_symbols": {"KRW-REPEAT"}},
+        ),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, row, expected, kwargs in fixtures:
+        plan = _candidate_order_intent_contract(
+            dict(row),
+            min_score=min_score,
+            market_feed_ok=bool(kwargs.get("market_feed_ok", True)),
+            duplicate_symbols=set(kwargs.get("duplicate_symbols") or set()),
+            repeat_symbols=set(kwargs.get("repeat_symbols") or set()),
+        )
+        passed = bool(plan.get("would_promote_to_order_intent")) == bool(expected)
+        passed = passed and not bool(plan.get("actual_order_intent_emitted"))
+        results.append({"name": name, "pass": passed, "expected_would_promote": expected, "candidate": plan})
+    report.update(
+        {
+            "contract_supported": True,
+            "contract_schema": "aits_order_intent_candidate_contract_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_buy_ready_order_intent_contract_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    min_score: float = 60.0,
+) -> None:
+    rows, source_report = _latest_managed_rows_for_contract(output_dir)
+    latest = _latest_basic_candidate_report(output_dir)
+    freshness = _last_managed_pool_freshness_from_log()
+    market_feed_ok = True
+    if latest:
+        market_feed_ok = bool(latest.get("market_data_ready", True)) and int(latest.get("top_markets_count") or 0) > 0
+    candidates: list[dict[str, Any]] = []
+    for row in rows:
+        plan = _candidate_order_intent_contract(
+            dict(row),
+            min_score=min_score,
+            market_feed_ok=market_feed_ok,
+            freshness_by_symbol=freshness,
+        )
+        if bool(plan.get("basic_buy_ready")):
+            candidates.append(plan)
+    would_promote = [item for item in candidates if item.get("would_promote_to_order_intent")]
+    blocked = [item for item in candidates if not item.get("would_promote_to_order_intent")]
+    report.update(
+        {
+            "contract_supported": True,
+            "contract_schema": "aits_order_intent_candidate_contract_v1",
+            "contract_source_report": source_report,
+            "buy_ready_owner_path": "MainWindow._update_ai_pool_statuses",
+            "buy_ready_criteria": "ai_score >= entry_score_threshold(default 60) and row remains candidate eligible",
+            "order_intent_min_score": float(min_score),
+            "market_feed_ok": bool(market_feed_ok),
+            "managed_row_count": len(rows),
+            "buy_ready_count": len(candidates),
+            "buy_ready_symbols": [str(item.get("symbol") or "") for item in candidates if item.get("symbol")],
+            "candidates": candidates,
+            "would_promote_count": len(would_promote),
+            "would_promote_symbols": [str(item.get("symbol") or "") for item in would_promote if item.get("symbol")],
+            "blocked_count": len(blocked),
+            "block_reasons_summary": _contract_reasons_summary(candidates),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if candidates else "partial"
+    report["status"] = report["pass_status"]
 
 
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
@@ -8465,6 +8716,8 @@ def run_harness(
     if mode in {
         "riskguard-proof",
         "top-markets-feed-proof",
+        "buy-ready-order-intent-contract-fixture-proof",
+        "buy-ready-order-intent-contract-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -8492,6 +8745,15 @@ def run_harness(
         elif mode == "top-markets-feed-proof":
             _install_provider_post_guard(report)
             _run_top_markets_feed_proof(report, max_markets=max_markets)
+        elif mode == "buy-ready-order-intent-contract-fixture-proof":
+            _run_buy_ready_order_intent_contract_fixture_proof(report, min_score=min_score)
+        elif mode == "buy-ready-order-intent-contract-proof":
+            _install_provider_post_guard(report)
+            _run_buy_ready_order_intent_contract_proof(
+                report,
+                output_dir=output_dir,
+                min_score=min_score,
+            )
         elif mode == "managed-pool-promotion-policy-proof":
             _run_managed_pool_promotion_policy_proof(
                 report,
@@ -8943,6 +9205,8 @@ def main() -> int:
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",
             "top-markets-feed-proof",
+            "buy-ready-order-intent-contract-fixture-proof",
+            "buy-ready-order-intent-contract-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",

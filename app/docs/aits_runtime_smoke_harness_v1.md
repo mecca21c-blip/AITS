@@ -946,6 +946,25 @@ provider responses, API keys, or secret bodies. PASS for GPT/Gemini requires
 and `managed_pool_mutation=false`. LOCAL observe-only proof emits the same audit
 schema with safe null response metadata and provider calls fixed at `0`.
 
+### buy-ready-order-intent-contract-proof
+
+`buy-ready-order-intent-contract-proof` verifies the observe-only contract
+between Basic `Buy Ready` display state and a possible order-intent candidate.
+It reads the latest Basic candidate report and Managed Pool rows, reports
+`buy_ready_symbols`, evaluates `aits_order_intent_candidate_contract_v1`, and
+keeps actual emission disabled.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode buy-ready-order-intent-contract-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode buy-ready-order-intent-contract-proof --observe-only
+```
+
+PASS requires the candidate symbols and block reasons to be explicit while
+keeping `actual_order_intent_emitted=false`, `decision_router_called=false`,
+`risk_guard_called=false`, `live_preflight_called=false`,
+`order_service_called=false`, `submitted_count=0`,
+`provider_external_call_count=0`, and `order_risk_detected=false`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed
