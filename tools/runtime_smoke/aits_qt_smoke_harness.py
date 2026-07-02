@@ -2084,6 +2084,180 @@ def _run_buy_ready_order_intent_contract_proof(
     report["status"] = report["pass_status"]
 
 
+def _inject_mock_fresh_ai_opinion(row: dict[str, Any], *, status_label: str = "매수대기") -> dict[str, Any]:
+    updated = dict(row)
+    opinion = "buy_wait" if status_label == "매수대기" else "data_insufficient" if status_label == "데이터부족" else "watch"
+    updated.update(
+        {
+            "ai_opinion_status": status_label,
+            "status_label": status_label,
+            "opinion": opinion,
+            "freshness": "fresh_manual_refresh",
+            "provider": "local",
+            "source": row.get("source") or row.get("source_type") or "basic_added",
+            "mock_opinion_payload": {
+                "schema": "managed_pool_ai_opinion_v1",
+                "symbol": _row_symbol(row),
+                "provider": "local",
+                "source": "manual_ai_refresh_mock",
+                "freshness": "fresh_manual_refresh",
+                "opinion": opinion,
+                "status_label": status_label,
+                "confidence": 0.74,
+                "reason": "observe-only mock opinion for order-intent contract proof",
+                "next_action": "계약 검증용 mock 의견; 주문 실행 없음",
+                "order_execution": False,
+                "final_action_unchanged": True,
+                "actual_order": False,
+            },
+        }
+    )
+    return updated
+
+
+def _run_buy_ready_ai_opinion_freshness_unblock_fixture_proof(
+    report: dict[str, Any], *, min_score: float = 60.0
+) -> None:
+    base = {"symbol": "KRW-PYTH", "score": 64, "source": "user_added", "reason": "분석 대기"}
+    scenarios = [
+        ("buy_ready_missing_opinion_blocks", dict(base), False, ["ai_opinion_missing", "freshness_missing"]),
+        ("buy_ready_fresh_buy_wait_unblocks", _inject_mock_fresh_ai_opinion(base, status_label="매수대기"), True, []),
+        (
+            "buy_ready_fresh_data_insufficient_blocks",
+            _inject_mock_fresh_ai_opinion(base, status_label="데이터부족"),
+            False,
+            ["ai_opinion_data_insufficient"],
+        ),
+        (
+            "buy_ready_stale_opinion_blocks",
+            {**_inject_mock_fresh_ai_opinion(base, status_label="매수대기"), "freshness": "stale"},
+            False,
+            ["freshness_not_acceptable:stale"],
+        ),
+        (
+            "buy_ready_fresh_watch_allowed_observe_only",
+            _inject_mock_fresh_ai_opinion(base, status_label="관망"),
+            True,
+            [],
+        ),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, row, expected_promote, expected_reasons in scenarios:
+        plan = _candidate_order_intent_contract(dict(row), min_score=min_score, market_feed_ok=True)
+        reasons = list(plan.get("block_reasons") or [])
+        expected_reasons_ok = all(reason in reasons for reason in expected_reasons)
+        passed = bool(plan.get("would_promote_to_order_intent")) == bool(expected_promote)
+        passed = passed and expected_reasons_ok and not bool(plan.get("actual_order_intent_emitted"))
+        results.append(
+            {
+                "name": name,
+                "pass": passed,
+                "expected_would_promote": expected_promote,
+                "expected_reasons": expected_reasons,
+                "candidate": plan,
+            }
+        )
+    report.update(
+        {
+            "contract_supported": True,
+            "contract_schema": "aits_order_intent_candidate_contract_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_buy_ready_ai_opinion_freshness_unblock_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+) -> None:
+    rows, source_report = _latest_managed_rows_for_contract(output_dir)
+    freshness = _last_managed_pool_freshness_from_log()
+    latest = _latest_basic_candidate_report(output_dir)
+    market_feed_ok = True
+    if latest:
+        market_feed_ok = bool(latest.get("market_data_ready", True)) and int(latest.get("top_markets_count") or 0) > 0
+    buy_ready_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for row in rows:
+        before = _candidate_order_intent_contract(
+            dict(row),
+            min_score=min_score,
+            market_feed_ok=market_feed_ok,
+            freshness_by_symbol=freshness,
+        )
+        if before.get("basic_buy_ready"):
+            buy_ready_rows.append((dict(row), before))
+    normalized_target = _normalize_symbol_text(target_symbol or "")
+    target_row: dict[str, Any] = {}
+    before_plan: dict[str, Any] = {}
+    if normalized_target:
+        for row, before in buy_ready_rows:
+            if _row_symbol(row) == normalized_target:
+                target_row, before_plan = row, before
+                break
+    if not target_row and buy_ready_rows:
+        target_row, before_plan = buy_ready_rows[0]
+    target = _row_symbol(target_row)
+    injected = _inject_mock_fresh_ai_opinion(target_row, status_label="매수대기") if target_row else {}
+    after_plan = (
+        _candidate_order_intent_contract(dict(injected), min_score=min_score, market_feed_ok=market_feed_ok)
+        if injected
+        else {}
+    )
+    before_reasons = set(before_plan.get("block_reasons") or [])
+    after_reasons = set(after_plan.get("block_reasons") or [])
+    unblocked = sorted(before_reasons - after_reasons)
+    remaining = sorted(after_reasons)
+    opinion_unblocked = "ai_opinion_missing" in unblocked
+    freshness_unblocked = any(str(item).startswith("freshness_not_acceptable") or item == "freshness_missing" for item in unblocked)
+    pass_status = bool(target_row and opinion_unblocked and freshness_unblocked and after_plan.get("would_promote_to_order_intent"))
+    report.update(
+        {
+            "contract_supported": True,
+            "contract_schema": "aits_order_intent_candidate_contract_v1",
+            "contract_source_report": source_report,
+            "target_symbol": target,
+            "target_is_buy_ready": bool(before_plan.get("basic_buy_ready")),
+            "score": before_plan.get("score"),
+            "source": before_plan.get("source"),
+            "buy_ready_symbols": [str(item.get("symbol") or "") for _, item in buy_ready_rows if item.get("symbol")],
+            "before_would_promote": bool(before_plan.get("would_promote_to_order_intent")),
+            "before_block_reasons": list(before_plan.get("block_reasons") or []),
+            "injected_opinion": "매수대기",
+            "injected_freshness": "fresh_manual_refresh",
+            "injected_payload": injected.get("mock_opinion_payload") if isinstance(injected, dict) else {},
+            "after_would_promote": bool(after_plan.get("would_promote_to_order_intent")),
+            "after_block_reasons": list(after_plan.get("block_reasons") or []),
+            "unblocked_reasons": unblocked,
+            "remaining_block_reasons": remaining,
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if pass_status else "partial" if target_row and opinion_unblocked and freshness_unblocked else "fail"
+    report["status"] = report["pass_status"]
+
+
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
     return {
         "name": name,
@@ -8718,6 +8892,8 @@ def run_harness(
         "top-markets-feed-proof",
         "buy-ready-order-intent-contract-fixture-proof",
         "buy-ready-order-intent-contract-proof",
+        "buy-ready-ai-opinion-freshness-unblock-fixture-proof",
+        "buy-ready-ai-opinion-freshness-unblock-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -8752,6 +8928,16 @@ def run_harness(
             _run_buy_ready_order_intent_contract_proof(
                 report,
                 output_dir=output_dir,
+                min_score=min_score,
+            )
+        elif mode == "buy-ready-ai-opinion-freshness-unblock-fixture-proof":
+            _run_buy_ready_ai_opinion_freshness_unblock_fixture_proof(report, min_score=min_score)
+        elif mode == "buy-ready-ai-opinion-freshness-unblock-proof":
+            _install_provider_post_guard(report)
+            _run_buy_ready_ai_opinion_freshness_unblock_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
                 min_score=min_score,
             )
         elif mode == "managed-pool-promotion-policy-proof":
@@ -9207,6 +9393,8 @@ def main() -> int:
             "top-markets-feed-proof",
             "buy-ready-order-intent-contract-fixture-proof",
             "buy-ready-order-intent-contract-proof",
+            "buy-ready-ai-opinion-freshness-unblock-fixture-proof",
+            "buy-ready-ai-opinion-freshness-unblock-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",

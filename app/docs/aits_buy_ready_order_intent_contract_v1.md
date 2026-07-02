@@ -54,6 +54,26 @@ Even when the contract reports `would_promote_to_order_intent=true`, this Goal
 keeps `actual_order_intent_emitted=false`. Real order-intent emission and
 DecisionRouter/RiskGuard/Execution wiring require a separate high-risk Goal.
 
+## Fresh Opinion Unblock Proof
+
+`AITS-BUY-READY-AI-OPINION-FRESHNESS-UNBLOCK-PROOF-01` verifies the missing
+AI-opinion/freshness side of the contract with a mock/LOCAL-only payload. The
+proof may inject an in-memory `managed_pool_ai_opinion_v1` context with:
+
+- `provider=local`
+- `source=manual_ai_refresh_mock`
+- `status_label=매수대기`
+- `freshness=fresh_manual_refresh`
+- `order_execution=false`
+- `final_action_unchanged=true`
+- `actual_order=false`
+
+If the Basic row already satisfies the other contract conditions, this mock
+context may make `would_promote_to_order_intent=true`. This is still only a
+report result. The proof must keep `actual_order_intent_emitted=false`,
+`decision_router_called=false`, `risk_guard_called=false`,
+`live_preflight_called=false`, and `order_service_called=false`.
+
 ## Current Policy Notes
 
 For this proof, `basic`, `basic_added`, and `user_added` are allowed sources for

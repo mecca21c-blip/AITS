@@ -965,6 +965,17 @@ keeping `actual_order_intent_emitted=false`, `decision_router_called=false`,
 `order_service_called=false`, `submitted_count=0`,
 `provider_external_call_count=0`, and `order_risk_detected=false`.
 
+`buy-ready-ai-opinion-freshness-unblock-proof` verifies the same contract after
+injecting an in-memory LOCAL/mock `managed_pool_ai_opinion_v1` context for a
+Buy Ready row. It checks that missing opinion/freshness reasons are removed and
+that `would_promote_to_order_intent=true` can be reported without actual
+emission.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode buy-ready-ai-opinion-freshness-unblock-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode buy-ready-ai-opinion-freshness-unblock-proof --target-symbol KRW-PYTH --observe-only
+```
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed
