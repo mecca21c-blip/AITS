@@ -230,3 +230,42 @@ then, the safe default remains:
 - `submitted_count=0`
 - no Router, LivePreflight, unlock, ExecutionBridge, OrderService, OrderAdapter,
   exchange, or provider calls
+
+## Proof Implementation
+
+`AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-PROOF-01` implements this boundary in
+the runtime smoke harness only. It adds:
+
+- `riskguard-readonly-actual-adapter-fixture-proof`
+- `riskguard-readonly-actual-adapter-live-proof`
+- `_build_riskguard_readonly_actual_adapter_input_v1`
+- `_evaluate_riskguard_readonly_actual_adapter_contract_v1`
+- `_validate_riskguard_readonly_actual_adapter_contract_v1`
+
+The proof uses static callable-contract names only. It does not import
+`app.services.risk_guard`, does not instantiate `RiskGuard`, and does not call
+`RiskGuard.evaluate_order_candidate`, the module-level
+`evaluate_order_candidate`, or `build_risk_guard_input_from_action`.
+
+The proof output schema is `aits_riskguard_readonly_actual_adapter_contract_v1`.
+`actual_readonly_adapter_ready=true` means only that the candidate and static
+callable contract are shaped for a future explicitly-scoped RiskGuard boundary
+test. It is not a RiskGuard decision and it is not live-order permission.
+
+Required invariant fields remain:
+
+- `adapter_mode=actual_readonly_contract`
+- `would_call_riskguard=false`
+- `risk_guard_called=false`
+- `risk_decision=not_evaluated`
+- `risk_result_present=false`
+- `risk_guard_reachable=false`
+- `live_preflight_called=false`
+- `order_service_reachable=false`
+- `order_adapter_reachable=false`
+- `execution_bridge_reachable=false`
+- `unlock_consumed=false`
+- `submitted_count=0`
+- `actual_order=false`
+- `actual_order_intent_emitted=false`
+- `provider_external_call_count=0`

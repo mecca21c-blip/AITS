@@ -1120,13 +1120,23 @@ requires `would_call_riskguard=false`, `risk_guard_called=false`,
 `actual_order_intent_emitted=false`, `actual_order=false`, `submitted=0`, and
 `provider_external_call_count=0`.
 
-The actual-readonly RiskGuard adapter design review is documented in
-`app/docs/aits_riskguard_readonly_actual_adapter_design_v1.md`. It is not a
-runtime smoke mode and does not change the harness. The next proof Goal may
-consider a harness mode, but the default contract remains
-`would_call_riskguard=false`, `risk_guard_called=false`,
-`risk_decision=not_evaluated`, `actual_order=false`,
-`actual_order_intent_emitted=false`, and `submitted_count=0`.
+The actual-readonly RiskGuard adapter proof is documented in
+`app/docs/aits_riskguard_readonly_actual_adapter_design_v1.md` and is covered
+by:
+
+- `riskguard-readonly-actual-adapter-fixture-proof`
+- `riskguard-readonly-actual-adapter-live-proof`
+
+Both modes build `aits_riskguard_readonly_actual_adapter_contract_v1` objects in
+the harness. They identify the RiskGuard callable contract from static strings
+only and do not import or call the real RiskGuard service. PASS requires
+`actual_readonly_adapter_ready=true` for the mock-approved valid chain while
+keeping `would_call_riskguard=false`, `risk_guard_called=false`,
+`risk_decision=not_evaluated`, `risk_result_present=false`,
+`risk_guard_reachable=false`, `live_preflight_called=false`,
+`unlock_consumed=false`, `actual_order=false`,
+`actual_order_intent_emitted=false`, `submitted_count=0`, and
+`provider_external_call_count=0`.
 
 ### managed-pool-ai-opinion-reason-consistency-proof
 

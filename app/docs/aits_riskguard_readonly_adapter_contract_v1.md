@@ -218,6 +218,27 @@ the runtime smoke harness only. It adds:
 - `_evaluate_riskguard_readonly_adapter_contract_v1`
 - `_validate_riskguard_readonly_adapter_contract_v1`
 
+## Actual-Readonly Proof Relationship
+
+`AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-PROOF-01` builds on the skeleton
+contract and adds a second harness-only contract:
+
+- `aits_riskguard_readonly_actual_adapter_input_v1`
+- `aits_riskguard_readonly_actual_adapter_contract_v1`
+- `riskguard-readonly-actual-adapter-fixture-proof`
+- `riskguard-readonly-actual-adapter-live-proof`
+
+The actual-readonly proof aligns field names with the callable shape documented
+for `app/services/risk_guard.py`, but still uses static strings only. It must
+not import or call the RiskGuard service. It must keep
+`would_call_riskguard=false`, `risk_guard_called=false`,
+`risk_decision=not_evaluated`, `risk_result_present=false`, and
+`submitted_count=0`.
+
+`actual_readonly_adapter_ready=true` is a contract-readiness result. It is not a
+RiskGuard pass, not a Router decision, not a LivePreflight result, and not
+permission to emit or submit an order.
+
 The skeleton proof builds and validates read-only contract objects. It does not
 import `app/services/risk_guard.py`, does not call RiskGuard, does not call
 LivePreflight, does not consume unlock, does not emit an order intent, and does

@@ -4825,6 +4825,14 @@ def _validate_riskguard_readonly_adapter_contract_v1(result: dict[str, Any] | No
     return errors
 
 
+_RISKGUARD_STATIC_CALLABLE_CONTRACT_ALLOWLIST = (
+    "RiskGuard.evaluate_order_candidate",
+    "evaluate_order_candidate",
+    "build_risk_guard_input_from_action",
+    "RiskGuard.log_summary",
+)
+
+
 def _build_riskguard_readonly_adapter_skeleton_result(
     candidate: dict[str, Any],
     *,
@@ -5054,6 +5062,536 @@ def _run_riskguard_readonly_adapter_skeleton_live_proof(
                 "live_preflight_called": embedded.get("live_preflight_called"),
                 "risk_guard_called": embedded.get("risk_guard_called"),
                 "blockers": embedded.get("blockers"),
+                "validation_errors": embedded.get("validation_errors"),
+            },
+            **result,
+        }
+    )
+    report["pass_status"] = "pass" if expected_safe and not result.get("validation_errors") else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _build_riskguard_readonly_actual_adapter_input_v1(
+    skeleton_result: dict[str, Any] | None,
+    *,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    skeleton_result = dict(skeleton_result or {})
+    skeleton_input = dict(skeleton_result.get("adapter_input") or {})
+    candidate = dict(skeleton_result.get("candidate") or {})
+    target_symbol = _normalize_symbol_text(
+        str(skeleton_input.get("target_symbol") or skeleton_result.get("target_symbol") or candidate.get("symbol") or "")
+    )
+    intended_amount = int(skeleton_input.get("intended_amount_krw") or candidate.get("intended_amount_krw") or 0)
+    total_window_used = int(skeleton_input.get("mock_total_window_used_krw") or 0)
+    payload = {
+        "schema": "aits_riskguard_readonly_actual_adapter_input_v1",
+        "target_symbol": target_symbol,
+        "source": str(skeleton_input.get("source") or candidate.get("source") or "unknown"),
+        "managed_source": str(skeleton_input.get("managed_source") or candidate.get("managed_source") or candidate.get("source") or "unknown"),
+        "intended_side": str(skeleton_input.get("intended_side") or candidate.get("side") or "buy"),
+        "intended_amount_krw": intended_amount,
+        "min_order_krw": int(skeleton_input.get("min_order_krw") or 10_000),
+        "per_order_hard_cap_krw": int(skeleton_input.get("per_order_hard_cap_krw") or 12_000),
+        "total_guarded_window_cap_krw": int(skeleton_input.get("total_guarded_window_cap_krw") or 20_000),
+        "mock_total_window_used_krw": total_window_used,
+        "total_window_after_candidate_krw": total_window_used + intended_amount,
+        "submitted_count": int(skeleton_input.get("submitted_count") or 0),
+        "session_approved_symbols": list(skeleton_input.get("session_approved_symbols") or []),
+        "ai_opinion": str(skeleton_input.get("ai_opinion") or candidate.get("ai_opinion") or ""),
+        "ai_opinion_freshness_status": str(skeleton_input.get("ai_opinion_freshness_status") or candidate.get("ai_freshness") or ""),
+        "source_policy_ready": bool(skeleton_input.get("source_policy_ready")),
+        "router_validation_payload_ready": bool(skeleton_input.get("router_validation_payload_ready")),
+        "one_shot_unlock_ready": bool(skeleton_input.get("one_shot_unlock_ready")),
+        "live_preflight_readiness": bool(skeleton_input.get("live_preflight_readiness")),
+        "riskguard_adapter_ready": bool(skeleton_result.get("riskguard_adapter_ready")),
+        "duplicate_guard_required": bool(skeleton_input.get("duplicate_guard_required")),
+        "repeat_guard_required": bool(skeleton_input.get("repeat_guard_required")),
+        "relock_required": bool(skeleton_input.get("relock_required")),
+        "order_context": {
+            "dry_run": True,
+            "execution_mode": "disabled",
+            "order_allowed": False,
+            "real_order": False,
+        },
+        "portfolio_context": {
+            "cash_available_krw": None,
+            "holdings_value_krw": None,
+            "source": "not_read_for_readonly_contract",
+        },
+        "guarded_window_context": {
+            "total_window_used_krw": total_window_used,
+            "total_window_after_candidate_krw": total_window_used + intended_amount,
+            "total_guarded_window_cap_krw": int(skeleton_input.get("total_guarded_window_cap_krw") or 20_000),
+            "submitted_count": int(skeleton_input.get("submitted_count") or 0),
+        },
+        "duplicate_relock_context": {
+            "duplicate_guard_required": bool(skeleton_input.get("duplicate_guard_required")),
+            "repeat_guard_required": bool(skeleton_input.get("repeat_guard_required")),
+            "relock_required": bool(skeleton_input.get("relock_required")),
+        },
+        "callable_contract_source": "static_design_contract",
+        "static_callable_inspection_only": True,
+        "allowed_callable_names": list(_RISKGUARD_STATIC_CALLABLE_CONTRACT_ALLOWLIST),
+        "risk_guard_callable_name": "RiskGuard.evaluate_order_candidate",
+        "risk_guard_callable_identified": True,
+        "risk_guard_input_contract_ready": True,
+        "risk_guard_output_contract_ready": True,
+        "risk_guard_call_boundary_defined": True,
+        "risk_guard_side_effect_boundary_defined": True,
+        "risk_guard_mutation_forbidden": True,
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "validation_only": True,
+    }
+    if overrides:
+        payload.update(dict(overrides))
+    return payload
+
+
+def _evaluate_riskguard_readonly_actual_adapter_contract_v1(
+    adapter_input: dict[str, Any] | None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    adapter_input = dict(adapter_input or {})
+    context = dict(context or {})
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if str(adapter_input.get("schema") or "") != "aits_riskguard_readonly_actual_adapter_input_v1":
+        blockers.append("adapter_input_schema_invalid")
+    target_symbol = _normalize_symbol_text(str(adapter_input.get("target_symbol") or ""))
+    if not target_symbol:
+        blockers.append("target_symbol_missing")
+
+    intended_amount = int(adapter_input.get("intended_amount_krw") or 0)
+    min_order = int(adapter_input.get("min_order_krw") or 10_000)
+    per_order_cap = int(adapter_input.get("per_order_hard_cap_krw") or 12_000)
+    total_cap = int(adapter_input.get("total_guarded_window_cap_krw") or 20_000)
+    total_used = int(adapter_input.get("mock_total_window_used_krw") or 0)
+    total_after = total_used + intended_amount
+    submitted_count = int(adapter_input.get("submitted_count") or 0)
+    session_approved = set(_normalized_session_approved_symbols(adapter_input.get("session_approved_symbols")))
+    managed_source = str(adapter_input.get("managed_source") or adapter_input.get("source") or "")
+    freshness = str(adapter_input.get("ai_opinion_freshness_status") or "").strip().lower()
+    callable_name = str(adapter_input.get("risk_guard_callable_name") or "")
+    allowed_callables = set(str(item) for item in (adapter_input.get("allowed_callable_names") or []))
+
+    if intended_amount < min_order:
+        blockers.append("intended_amount_below_min_order")
+    if intended_amount > per_order_cap:
+        blockers.append("intended_amount_exceeds_per_order_hard_cap")
+    if total_after > total_cap:
+        blockers.append("total_guarded_window_cap_exceeded")
+    if submitted_count != 0:
+        blockers.append("submitted_count_not_zero")
+    if target_symbol not in session_approved:
+        blockers.append("target_symbol_not_session_approved")
+    if managed_source == "user_added" and target_symbol not in session_approved:
+        blockers.append("user_added_not_session_approved")
+    if freshness in {"", "missing", "stale", "very_stale", "analysis_required", "manual_required"}:
+        blockers.append("stale_or_missing_ai_opinion")
+
+    required_truthy = {
+        "source_policy_ready": "source_policy_not_ready",
+        "router_validation_payload_ready": "router_validation_payload_not_ready",
+        "one_shot_unlock_ready": "one_shot_unlock_not_ready",
+        "live_preflight_readiness": "live_preflight_readiness_not_ready",
+        "riskguard_adapter_ready": "riskguard_adapter_not_ready",
+        "duplicate_guard_required": "duplicate_guard_missing",
+        "repeat_guard_required": "repeat_guard_missing",
+        "relock_required": "relock_missing",
+        "static_callable_inspection_only": "static_callable_inspection_only_missing",
+        "risk_guard_callable_identified": "risk_guard_callable_not_identified",
+        "risk_guard_input_contract_ready": "risk_guard_input_contract_not_ready",
+        "risk_guard_output_contract_ready": "risk_guard_output_contract_not_ready",
+        "risk_guard_call_boundary_defined": "risk_guard_call_boundary_not_defined",
+        "risk_guard_side_effect_boundary_defined": "risk_guard_side_effect_boundary_not_defined",
+        "risk_guard_mutation_forbidden": "risk_guard_mutation_boundary_not_defined",
+        "validation_only": "validation_only_missing",
+    }
+    for key, blocker in required_truthy.items():
+        if not bool(adapter_input.get(key)):
+            blockers.append(blocker)
+    if callable_name not in allowed_callables or callable_name not in _RISKGUARD_STATIC_CALLABLE_CONTRACT_ALLOWLIST:
+        blockers.append("risk_guard_callable_not_identified")
+
+    if bool(adapter_input.get("actual_order")) or bool(context.get("actual_order", False)):
+        blockers.append("actual_order_flag_detected")
+    if bool(adapter_input.get("actual_order_intent_emitted")) or bool(context.get("actual_order_intent_emitted", False)):
+        blockers.append("actual_emit_detected")
+
+    forced_false_flags = (
+        "would_call_riskguard",
+        "risk_guard_called",
+        "risk_result_present",
+        "risk_guard_reachable",
+        "would_call_live_preflight",
+        "live_preflight_called",
+        "decision_router_called",
+        "order_service_called",
+        "order_adapter_called",
+        "order_service_reachable",
+        "order_adapter_reachable",
+        "execution_bridge_reachable",
+        "unlock_service_called",
+        "unlock_consumed",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    )
+    for key in forced_false_flags:
+        if bool(context.get(key, False)):
+            blockers.append(f"{key}_true")
+    provider_external_call_count = int(context.get("provider_external_call_count") or 0)
+    if provider_external_call_count != 0:
+        blockers.append("provider_external_call_count_nonzero")
+
+    blockers = list(dict.fromkeys(blockers))
+    warnings = list(dict.fromkeys(warnings))
+    input_contract_ready = bool(target_symbol and intended_amount and not any(item in blockers for item in ("adapter_input_schema_invalid", "target_symbol_missing")))
+    actual_readonly_adapter_ready = bool(input_contract_ready and not blockers)
+    return {
+        "schema": "aits_riskguard_readonly_actual_adapter_contract_v1",
+        "input_schema": str(adapter_input.get("schema") or ""),
+        "target_symbol": target_symbol,
+        "source": str(adapter_input.get("source") or ""),
+        "managed_source": managed_source,
+        "intended_side": str(adapter_input.get("intended_side") or "buy"),
+        "intended_amount_krw": intended_amount,
+        "min_order_krw": min_order,
+        "per_order_hard_cap_krw": per_order_cap,
+        "total_guarded_window_cap_krw": total_cap,
+        "total_window_after_candidate_krw": total_after,
+        "adapter_mode": "actual_readonly_contract",
+        "actual_readonly_adapter_ready": actual_readonly_adapter_ready,
+        "adapter_ready": actual_readonly_adapter_ready,
+        "riskguard_adapter_ready": bool(adapter_input.get("riskguard_adapter_ready")),
+        "risk_guard_callable_identified": bool(adapter_input.get("risk_guard_callable_identified")) and callable_name in _RISKGUARD_STATIC_CALLABLE_CONTRACT_ALLOWLIST,
+        "risk_guard_callable_name": callable_name,
+        "risk_guard_input_contract_ready": bool(adapter_input.get("risk_guard_input_contract_ready")),
+        "risk_guard_output_contract_ready": bool(adapter_input.get("risk_guard_output_contract_ready")),
+        "risk_guard_call_boundary_defined": bool(adapter_input.get("risk_guard_call_boundary_defined")),
+        "risk_guard_side_effect_boundary_defined": bool(adapter_input.get("risk_guard_side_effect_boundary_defined")),
+        "risk_guard_mutation_forbidden": bool(adapter_input.get("risk_guard_mutation_forbidden")),
+        "would_call_riskguard": False,
+        "risk_guard_called": False,
+        "risk_decision": "not_evaluated",
+        "risk_result_present": False,
+        "risk_guard_result_present": False,
+        "risk_guard_reachable": False,
+        "blockers": blockers,
+        "risk_blockers": blockers,
+        "warnings": warnings,
+        "risk_warnings": warnings,
+        "would_call_live_preflight": False,
+        "live_preflight_called": False,
+        "decision_router_called": False,
+        "order_service_reachable": False,
+        "order_adapter_reachable": False,
+        "execution_bridge_reachable": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "unlock_service_called": False,
+        "unlock_consumed": False,
+        "submitted": 0,
+        "submitted_count": 0,
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "provider_external_call_count": 0,
+        "final_action_unchanged": True,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+        "required_next_goal": "AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-DESIGN-REVIEW-01",
+    }
+
+
+def _validate_riskguard_readonly_actual_adapter_contract_v1(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return ["riskguard_readonly_actual_adapter_result_missing"]
+    errors: list[str] = []
+    if result.get("schema") != "aits_riskguard_readonly_actual_adapter_contract_v1":
+        errors.append("schema_invalid")
+    if result.get("adapter_mode") != "actual_readonly_contract":
+        errors.append("adapter_mode_invalid")
+    if result.get("risk_decision") != "not_evaluated":
+        errors.append("risk_decision_must_be_not_evaluated")
+    for key in (
+        "would_call_riskguard",
+        "risk_guard_called",
+        "risk_result_present",
+        "risk_guard_result_present",
+        "risk_guard_reachable",
+        "would_call_live_preflight",
+        "live_preflight_called",
+        "decision_router_called",
+        "order_service_reachable",
+        "order_adapter_reachable",
+        "execution_bridge_reachable",
+        "order_service_called",
+        "order_adapter_called",
+        "unlock_service_called",
+        "unlock_consumed",
+        "actual_order",
+        "actual_order_intent_emitted",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    ):
+        if bool(result.get(key)):
+            errors.append(f"{key}_must_be_false")
+    if int(result.get("submitted") or 0) != 0:
+        errors.append("submitted_must_be_zero")
+    if int(result.get("submitted_count") or 0) != 0:
+        errors.append("submitted_count_must_be_zero")
+    if int(result.get("provider_external_call_count") or 0) != 0:
+        errors.append("provider_call_count_must_be_zero")
+    if result.get("actual_readonly_adapter_ready") and result.get("blockers"):
+        errors.append("actual_readonly_adapter_ready_with_blockers")
+    return errors
+
+
+def _build_riskguard_readonly_actual_adapter_result(
+    candidate: dict[str, Any],
+    *,
+    target_symbol: str = "",
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int | None = None,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+    actual_input_overrides: dict[str, Any] | None = None,
+    adapter_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    skeleton_result = _build_riskguard_readonly_adapter_skeleton_result(
+        candidate,
+        target_symbol=target_symbol or str(candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    actual_input = _build_riskguard_readonly_actual_adapter_input_v1(skeleton_result, overrides=actual_input_overrides)
+    actual_contract = _evaluate_riskguard_readonly_actual_adapter_contract_v1(actual_input, context=adapter_context)
+    validation_errors = _validate_riskguard_readonly_actual_adapter_contract_v1(actual_contract)
+    return {
+        "candidate": dict(candidate or {}),
+        "riskguard_readonly_adapter_skeleton_result": skeleton_result,
+        "actual_adapter_input": actual_input,
+        "actual_adapter_contract": actual_contract,
+        "schema": actual_contract.get("schema"),
+        "target_symbol": actual_contract.get("target_symbol"),
+        "actual_readonly_adapter_ready": bool(actual_contract.get("actual_readonly_adapter_ready")),
+        "adapter_ready": bool(actual_contract.get("adapter_ready")),
+        "adapter_mode": actual_contract.get("adapter_mode"),
+        "risk_guard_callable_identified": bool(actual_contract.get("risk_guard_callable_identified")),
+        "risk_guard_callable_name": actual_contract.get("risk_guard_callable_name"),
+        "risk_guard_input_contract_ready": bool(actual_contract.get("risk_guard_input_contract_ready")),
+        "risk_guard_output_contract_ready": bool(actual_contract.get("risk_guard_output_contract_ready")),
+        "risk_guard_call_boundary_defined": bool(actual_contract.get("risk_guard_call_boundary_defined")),
+        "risk_guard_side_effect_boundary_defined": bool(actual_contract.get("risk_guard_side_effect_boundary_defined")),
+        "risk_guard_mutation_forbidden": bool(actual_contract.get("risk_guard_mutation_forbidden")),
+        "would_call_riskguard": bool(actual_contract.get("would_call_riskguard")),
+        "risk_guard_called": bool(actual_contract.get("risk_guard_called")),
+        "risk_decision": actual_contract.get("risk_decision"),
+        "risk_result_present": bool(actual_contract.get("risk_result_present")),
+        "risk_guard_result_present": bool(actual_contract.get("risk_guard_result_present")),
+        "risk_guard_reachable": bool(actual_contract.get("risk_guard_reachable")),
+        "blockers": list(actual_contract.get("blockers") or []),
+        "warnings": list(actual_contract.get("warnings") or []),
+        "actual_order": bool(actual_contract.get("actual_order")),
+        "actual_order_intent_emitted": bool(actual_contract.get("actual_order_intent_emitted")),
+        "decision_router_called": bool(actual_contract.get("decision_router_called")),
+        "would_call_live_preflight": bool(actual_contract.get("would_call_live_preflight")),
+        "live_preflight_called": bool(actual_contract.get("live_preflight_called")),
+        "order_service_reachable": bool(actual_contract.get("order_service_reachable")),
+        "order_adapter_reachable": bool(actual_contract.get("order_adapter_reachable")),
+        "execution_bridge_reachable": bool(actual_contract.get("execution_bridge_reachable")),
+        "order_service_called": bool(actual_contract.get("order_service_called")),
+        "order_adapter_called": bool(actual_contract.get("order_adapter_called")),
+        "unlock_service_called": bool(actual_contract.get("unlock_service_called")),
+        "unlock_consumed": bool(actual_contract.get("unlock_consumed")),
+        "final_action_unchanged": bool(actual_contract.get("final_action_unchanged")),
+        "submitted_count": int(actual_contract.get("submitted_count") or 0),
+        "provider_external_call_count": int(actual_contract.get("provider_external_call_count") or 0),
+        "managed_pool_mutation": bool(actual_contract.get("managed_pool_mutation")),
+        "order_risk_detected": bool(actual_contract.get("order_risk_detected")),
+        "validation_errors": validation_errors,
+    }
+
+
+def _run_riskguard_readonly_actual_adapter_fixture_proof(report: dict[str, Any]) -> None:
+    valid = _base_source_policy_candidate("user_added", "KRW-PYTH")
+    scenarios: list[dict[str, Any]] = [
+        {"name": "valid_actual_readonly_adapter_ready", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": True, "expected_blockers": []},
+        {"name": "callable_not_identified_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"risk_guard_callable_name": "UnsafeRiskGuard.call"}, "expected_ready": False, "expected_blockers": ["risk_guard_callable_not_identified"]},
+        {"name": "input_contract_not_ready_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"risk_guard_input_contract_ready": False}, "expected_ready": False, "expected_blockers": ["risk_guard_input_contract_not_ready"]},
+        {"name": "output_contract_not_ready_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"risk_guard_output_contract_ready": False}, "expected_ready": False, "expected_blockers": ["risk_guard_output_contract_not_ready"]},
+        {"name": "side_effect_boundary_not_defined_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"risk_guard_side_effect_boundary_defined": False}, "expected_ready": False, "expected_blockers": ["risk_guard_side_effect_boundary_not_defined"]},
+        {"name": "amount_below_min_blocks", "candidate": {**valid, "intended_amount_krw": 9_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 9_000, "expected_ready": False, "expected_blockers": ["intended_amount_below_min_order"]},
+        {"name": "amount_above_hard_cap_blocks", "candidate": {**valid, "intended_amount_krw": 13_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 13_000, "expected_ready": False, "expected_blockers": ["intended_amount_exceeds_per_order_hard_cap"]},
+        {"name": "submitted_nonzero_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "submitted": 1, "expected_ready": False, "expected_blockers": ["submitted_count_not_zero"]},
+        {"name": "user_added_not_session_approved_blocks", "candidate": valid, "approved": [], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["user_added_not_session_approved"]},
+        {"name": "stale_ai_opinion_blocks", "candidate": {**valid, "ai_freshness": "stale"}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["stale_or_missing_ai_opinion"]},
+        {"name": "actual_order_flag_detected_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"actual_order": True}, "expected_ready": False, "expected_blockers": ["actual_order_flag_detected"]},
+        {"name": "would_call_riskguard_true_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "context": {"would_call_riskguard": True}, "expected_ready": False, "expected_blockers": ["would_call_riskguard_true"]},
+    ]
+    forced_false_keys = (
+        "would_call_riskguard",
+        "risk_guard_called",
+        "risk_result_present",
+        "risk_guard_result_present",
+        "risk_guard_reachable",
+        "actual_order",
+        "actual_order_intent_emitted",
+        "decision_router_called",
+        "would_call_live_preflight",
+        "live_preflight_called",
+        "order_service_reachable",
+        "order_adapter_reachable",
+        "execution_bridge_reachable",
+        "order_service_called",
+        "order_adapter_called",
+        "unlock_service_called",
+        "unlock_consumed",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    )
+    results: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        result = _build_riskguard_readonly_actual_adapter_result(
+            scenario["candidate"],
+            target_symbol=str(scenario["candidate"].get("symbol") or ""),
+            session_approved_symbols=scenario.get("approved"),
+            mock_unlock_approved_symbols=scenario.get("unlock"),
+            intended_amount_krw=scenario.get("amount"),
+            mock_total_window_used_krw=int(scenario.get("used") or 0),
+            mock_submitted_count=int(scenario.get("submitted") or 0),
+            actual_input_overrides=scenario.get("overrides"),
+            adapter_context=scenario.get("context"),
+        )
+        blockers = set(result.get("blockers") or [])
+        passed = bool(result.get("actual_readonly_adapter_ready")) == bool(scenario["expected_ready"])
+        passed = passed and all(blocker in blockers for blocker in scenario.get("expected_blockers") or [])
+        passed = passed and result.get("risk_decision") == "not_evaluated"
+        passed = passed and not result.get("validation_errors")
+        passed = passed and not any(bool(result.get(key)) for key in forced_false_keys)
+        results.append({"name": scenario["name"], "pass": passed, **result})
+    report.update(
+        {
+            "riskguard_readonly_actual_adapter_supported": True,
+            "schema": "aits_riskguard_readonly_actual_adapter_contract_v1",
+            "adapter_helper_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_riskguard_readonly_actual_adapter_contract_v1",
+            "callable_contract_source": "static_design_contract",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order": False,
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "would_call_riskguard": False,
+            "risk_guard_called": False,
+            "risk_decision": "not_evaluated",
+            "risk_result_present": False,
+            "risk_guard_reachable": False,
+            "live_preflight_called": False,
+            "would_call_live_preflight": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "order_service_reachable": False,
+            "order_adapter_reachable": False,
+            "execution_bridge_reachable": False,
+            "unlock_service_called": False,
+            "unlock_consumed": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_riskguard_readonly_actual_adapter_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int = 10_000,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+) -> None:
+    embedded: dict[str, Any] = {"mode": "riskguard-readonly-adapter-skeleton-live-proof", "embedded": True}
+    _run_riskguard_readonly_adapter_skeleton_live_proof(
+        embedded,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    candidate = dict(embedded.get("candidate") or {})
+    if not candidate:
+        candidate = _base_source_policy_candidate("user_added", str(target_symbol or "KRW-PYTH"))
+    result = _build_riskguard_readonly_actual_adapter_result(
+        candidate,
+        target_symbol=str(target_symbol or embedded.get("target_symbol") or candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    expected_safe = not any(
+        bool(result.get(key))
+        for key in (
+            "would_call_riskguard",
+            "risk_guard_called",
+            "risk_result_present",
+            "risk_guard_result_present",
+            "risk_guard_reachable",
+            "actual_order",
+            "actual_order_intent_emitted",
+            "decision_router_called",
+            "would_call_live_preflight",
+            "live_preflight_called",
+            "order_service_reachable",
+            "order_adapter_reachable",
+            "execution_bridge_reachable",
+            "order_service_called",
+            "order_adapter_called",
+            "unlock_service_called",
+            "unlock_consumed",
+            "managed_pool_mutation",
+            "order_risk_detected",
+        )
+    )
+    report.update(
+        {
+            "mode": "riskguard-readonly-actual-adapter-live-proof",
+            "riskguard_readonly_actual_adapter_supported": True,
+            "schema": "aits_riskguard_readonly_actual_adapter_contract_v1",
+            "adapter_helper_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_riskguard_readonly_actual_adapter_contract_v1",
+            "callable_contract_source": "static_design_contract",
+            "target_symbol": str(target_symbol or embedded.get("target_symbol") or result.get("target_symbol") or ""),
+            "session_approved_symbols": _normalized_session_approved_symbols(session_approved_symbols),
+            "mock_unlock_approved_symbols": _normalized_session_approved_symbols(mock_unlock_approved_symbols),
+            "embedded_riskguard_readonly_adapter_report": {
+                "status": embedded.get("status"),
+                "adapter_ready": embedded.get("adapter_ready"),
+                "riskguard_adapter_ready": embedded.get("riskguard_adapter_ready"),
+                "would_call_riskguard": embedded.get("would_call_riskguard"),
+                "risk_guard_called": embedded.get("risk_guard_called"),
+                "risk_decision": embedded.get("risk_decision"),
+                "risk_blockers": embedded.get("risk_blockers"),
                 "validation_errors": embedded.get("validation_errors"),
             },
             **result,
@@ -11723,6 +12261,8 @@ def run_harness(
         "live-preflight-readonly-adapter-skeleton-live-proof",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
         "riskguard-readonly-adapter-skeleton-live-proof",
+        "riskguard-readonly-actual-adapter-fixture-proof",
+        "riskguard-readonly-actual-adapter-live-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -11860,6 +12400,21 @@ def run_harness(
         elif mode == "riskguard-readonly-adapter-skeleton-live-proof":
             _install_provider_post_guard(report)
             _run_riskguard_readonly_adapter_skeleton_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+                session_approved_symbols=session_approved_symbols,
+                mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+                intended_amount_krw=intended_amount_krw,
+                mock_total_window_used_krw=mock_total_window_used_krw,
+                mock_submitted_count=mock_submitted_count,
+            )
+        elif mode == "riskguard-readonly-actual-adapter-fixture-proof":
+            _run_riskguard_readonly_actual_adapter_fixture_proof(report)
+        elif mode == "riskguard-readonly-actual-adapter-live-proof":
+            _install_provider_post_guard(report)
+            _run_riskguard_readonly_actual_adapter_live_proof(
                 report,
                 output_dir=output_dir,
                 target_symbol=target_symbol,
@@ -12341,6 +12896,8 @@ def main() -> int:
             "live-preflight-readonly-adapter-skeleton-live-proof",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
             "riskguard-readonly-adapter-skeleton-live-proof",
+            "riskguard-readonly-actual-adapter-fixture-proof",
+            "riskguard-readonly-actual-adapter-live-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",

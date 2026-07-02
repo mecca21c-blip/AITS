@@ -443,3 +443,21 @@ Scope:
 - keep actual RiskGuard, LivePreflight, unlock consumption, actual emit,
   Router, ExecutionBridge, OrderService, OrderAdapter, exchange, provider, and
   runtime mutation paths disabled
+
+Completed RiskGuard actual-readonly adapter proof:
+
+`AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-PROOF-01`
+
+Scope:
+
+- implement harness-only actual-readonly builders and validators for
+  `aits_riskguard_readonly_actual_adapter_input_v1` and
+  `aits_riskguard_readonly_actual_adapter_contract_v1`
+- add fixture/live proof modes that use static callable-contract names only
+- do not import or call `app/services/risk_guard.py`
+- keep `actual_readonly_adapter_ready=true` as contract readiness only, not a
+  RiskGuard decision and not order permission
+- keep `would_call_riskguard=false`, `risk_guard_called=false`,
+  `risk_decision=not_evaluated`, `risk_result_present=false`,
+  `actual_order=false`, `actual_order_intent_emitted=false`, and
+  `submitted_count=0`
