@@ -139,3 +139,13 @@ also needs exact one-shot unlock readiness for the same symbol. The proof uses
 mock unlock context only and keeps actual unlock execution, order intent
 emission, Router, RiskGuard, LivePreflight, OrderService, OrderAdapter, and real
 orders disabled.
+
+## LivePreflight Readiness Stub
+
+`AITS-ORDER-INTENT-CANDIDATE-LIVE-PREFLIGHT-READINESS-STUB-PROOF-01` adds
+`aits_order_intent_live_preflight_readiness_v1` after one-shot unlock readiness.
+
+That proof rechecks minimum order amount, per-order cap, guarded-window cap,
+duplicate/repeat/relock requirements, `submitted_count=0`,
+`actual_order=false`, and `final_action_unchanged=true` without calling the
+real LivePreflight service.

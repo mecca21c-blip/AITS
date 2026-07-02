@@ -348,3 +348,15 @@ Result:
   `live_order_readiness=true`;
 - approval is mock proof input only. No live unlock token is created, consumed,
   or reused, and no Router/Risk/Preflight/Order path is called.
+
+Completed LivePreflight readiness stub proof:
+
+`AITS-ORDER-INTENT-CANDIDATE-LIVE-PREFLIGHT-READINESS-STUB-PROOF-01`
+
+Scope:
+
+- define `aits_order_intent_live_preflight_readiness_v1`
+- prove 10,000 / 12,000 / 20,000 KRW caps before real LivePreflight
+- prove duplicate/repeat/relock/submitted/final-action checks
+- keep actual emit, real LivePreflight, Router, RiskGuard, OrderService, and
+  OrderAdapter disabled

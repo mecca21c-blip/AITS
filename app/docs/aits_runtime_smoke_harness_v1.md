@@ -1066,6 +1066,23 @@ Without mock unlock approval, PASS requires `one_shot_unlock_ready=false`,
 false, `submitted_count=0`, `provider_external_call_count=0`, and
 `order_risk_detected=false`.
 
+`order-intent-live-preflight-readiness-proof` applies
+`aits_order_intent_live_preflight_readiness_v1` after one-shot unlock readiness.
+It verifies preflight-before-preflight conditions only; it does not call the
+real LivePreflight service.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-live-preflight-readiness-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-live-preflight-readiness-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-live-preflight-readiness-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --observe-only
+```
+
+PASS requires the valid mock-unlock path to report
+`live_preflight_readiness=true` while keeping `live_preflight_called=false`,
+`actual_order_intent_emitted=false`, Router/Risk/Order call flags false,
+`submitted_count=0`, and `provider_external_call_count=0`. Without mock unlock,
+the live proof remains blocked before LivePreflight readiness.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

@@ -84,3 +84,14 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-one-shot
 
 The mock approval flag is proof input only. It does not create, consume, or
 reuse a live unlock token.
+
+## Next Readiness Layer
+
+`AITS-ORDER-INTENT-CANDIDATE-LIVE-PREFLIGHT-READINESS-STUB-PROOF-01` adds
+`aits_order_intent_live_preflight_readiness_v1` after one-shot unlock readiness.
+
+That layer rechecks the 10,000 KRW minimum, 12,000 KRW per-order hard cap,
+20,000 KRW guarded-window cap, duplicate/repeat/relock requirements,
+`submitted_count=0`, `actual_order=false`, and
+`final_action_unchanged=true`. It still does not call the real LivePreflight
+service and does not emit an order intent.

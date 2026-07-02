@@ -215,3 +215,19 @@ policy readiness:
   `live_order_readiness=true`;
 - actual unlock execution, actual emission, Router, Risk, Preflight, and Order
   calls remain false in both cases.
+
+## LivePreflight Readiness
+
+The LivePreflight readiness decision is documented in
+`app/docs/aits_order_intent_live_preflight_readiness_v1.md`.
+
+The stub proof adds a no-call check before any future real LivePreflight
+handoff:
+
+- `intended_amount_krw` must stay within 10,000 KRW and 12,000 KRW;
+- `total_window_after_candidate_krw` must stay within 20,000 KRW;
+- duplicate, repeat, and relock guards must be required;
+- `submitted_count=0`, `actual_order=false`, and
+  `final_action_unchanged=true` remain mandatory;
+- `live_preflight_readiness=true` still does not emit an intent or call
+  LivePreflight.

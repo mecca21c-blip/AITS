@@ -2561,6 +2561,160 @@ def _validate_order_intent_one_shot_unlock_readiness_v1(result: dict[str, Any] |
     return errors
 
 
+def _evaluate_order_intent_live_preflight_readiness_v1(
+    candidate_or_payload: dict[str, Any] | None,
+    *,
+    unlock_readiness: dict[str, Any] | None = None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    candidate = dict(candidate_or_payload or {})
+    unlock_readiness = dict(unlock_readiness or {})
+    context = context or {}
+    symbol = _normalize_symbol_text(str(candidate.get("symbol") or unlock_readiness.get("symbol") or ""))
+    side = str(candidate.get("side") or "buy")
+    source = str(candidate.get("managed_source") or unlock_readiness.get("source") or candidate.get("source") or "unknown")
+    intended_amount = int(context.get("intended_amount_krw") or candidate.get("intended_amount_krw") or 0)
+    min_order = int(candidate.get("min_order_krw") or 10_000)
+    per_order_cap = int(candidate.get("per_order_hard_cap_krw") or 12_000)
+    total_window_cap = int(candidate.get("total_window_cap_krw") or 20_000)
+    total_window_used = int(context.get("mock_total_window_used_krw") or context.get("current_window_total_krw") or 0)
+    total_after = total_window_used + intended_amount
+    submitted_count = int(context.get("mock_submitted_count", candidate.get("submitted", 0)) or 0)
+    live_order_readiness = bool(unlock_readiness.get("live_order_readiness"))
+    actual_order = bool(context.get("actual_order", candidate.get("actual_order", False)))
+    final_action_unchanged = bool(context.get("final_action_unchanged", candidate.get("final_action_unchanged", True)))
+    checks = {
+        "source_policy_ok": bool(unlock_readiness.get("source_policy_ready")),
+        "router_payload_ok": bool(unlock_readiness.get("router_validation_payload_ready")),
+        "unlock_ready": bool(unlock_readiness.get("one_shot_unlock_ready")),
+        "min_order_ok": intended_amount >= min_order,
+        "per_order_cap_ok": intended_amount <= per_order_cap,
+        "total_window_cap_ok": total_after <= total_window_cap,
+        "duplicate_guard_required": candidate.get("duplicate_guard_required") is True,
+        "repeat_guard_required": candidate.get("repeat_guard_required") is True,
+        "relock_required": candidate.get("relock_required") is True,
+        "submitted_zero": submitted_count == 0,
+        "actual_order_false": actual_order is False,
+        "final_action_unchanged": final_action_unchanged is True,
+    }
+    policy_warnings = [str(item) for item in (unlock_readiness.get("policy_warnings") or [])]
+    policy_blockers = [str(item) for item in (unlock_readiness.get("policy_blockers") or [])]
+    if not live_order_readiness and "live_order_readiness_not_ready" not in policy_blockers:
+        policy_blockers.append("live_order_readiness_not_ready")
+    check_blockers = {
+        "source_policy_ok": "source_policy_not_ready",
+        "router_payload_ok": "router_validation_payload_not_ready",
+        "unlock_ready": "one_shot_unlock_not_ready",
+        "min_order_ok": "amount_below_min_order",
+        "per_order_cap_ok": "amount_above_per_order_hard_cap",
+        "total_window_cap_ok": "total_window_cap_exceeded",
+        "duplicate_guard_required": "duplicate_guard_missing",
+        "repeat_guard_required": "repeat_guard_missing",
+        "relock_required": "relock_missing",
+        "submitted_zero": "submitted_nonzero",
+        "actual_order_false": "actual_order_true",
+        "final_action_unchanged": "final_action_changed",
+    }
+    for key, blocker in check_blockers.items():
+        if not checks.get(key) and blocker not in policy_blockers:
+            policy_blockers.append(blocker)
+    live_preflight_readiness = bool(live_order_readiness and all(checks.values()) and not policy_blockers)
+    safety_flags = {
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "final_action_unchanged": True,
+        "submitted": 0,
+    }
+    return {
+        "schema": "aits_order_intent_live_preflight_readiness_v1",
+        "symbol": symbol,
+        "side": side,
+        "source": source,
+        "source_policy_ready": bool(unlock_readiness.get("source_policy_ready")),
+        "router_validation_payload_ready": bool(unlock_readiness.get("router_validation_payload_ready")),
+        "one_shot_unlock_required": bool(unlock_readiness.get("one_shot_unlock_required")),
+        "one_shot_unlock_ready": bool(unlock_readiness.get("one_shot_unlock_ready")),
+        "live_order_readiness": live_order_readiness,
+        "live_preflight_readiness": live_preflight_readiness,
+        "live_preflight_required": True,
+        "min_order_krw": min_order,
+        "per_order_hard_cap_krw": per_order_cap,
+        "total_window_cap_krw": total_window_cap,
+        "intended_amount_krw": intended_amount,
+        "total_window_after_candidate_krw": total_after,
+        "duplicate_guard_required": candidate.get("duplicate_guard_required") is True,
+        "repeat_guard_required": candidate.get("repeat_guard_required") is True,
+        "relock_required": candidate.get("relock_required") is True,
+        "submitted_count": submitted_count,
+        "policy_warnings": policy_warnings,
+        "policy_blockers": policy_blockers,
+        "checks": checks,
+        "safety_flags": safety_flags,
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "unlock_service_called": False,
+        "final_action_unchanged": True,
+        "provider_external_call_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+    }
+
+
+def _validate_order_intent_live_preflight_readiness_v1(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return ["live_preflight_readiness_missing"]
+    errors: list[str] = []
+    if result.get("schema") != "aits_order_intent_live_preflight_readiness_v1":
+        errors.append("schema_invalid")
+    if not result.get("symbol"):
+        errors.append("symbol_missing")
+    for key in (
+        "actual_order",
+        "actual_order_intent_emitted",
+        "decision_router_called",
+        "risk_guard_called",
+        "live_preflight_called",
+        "order_service_called",
+        "order_adapter_called",
+        "unlock_service_called",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    ):
+        if result.get(key) is not False:
+            errors.append(f"{key}_invalid")
+    if result.get("final_action_unchanged") is not True:
+        errors.append("final_action_unchanged_invalid")
+    if int(result.get("provider_external_call_count") or 0) != 0:
+        errors.append("provider_external_call_count_invalid")
+    safety = result.get("safety_flags") or {}
+    for key, expected in {
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "final_action_unchanged": True,
+        "submitted": 0,
+    }.items():
+        if safety.get(key) != expected:
+            errors.append(f"safety_flags.{key}_invalid")
+    if result.get("live_preflight_readiness") and result.get("policy_blockers"):
+        errors.append("live_preflight_ready_with_policy_blockers")
+    return errors
+
+
 def _run_buy_ready_order_intent_contract_fixture_proof(
     report: dict[str, Any], *, min_score: float = 60.0
 ) -> None:
@@ -3575,6 +3729,9 @@ def _build_one_shot_unlock_readiness_stub_result(
     mock_unlock_expired: bool = False,
     mock_unlock_consumed: bool = False,
     mock_unlock_reusable: bool = False,
+    intended_amount_krw: int = 10_000,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
 ) -> dict[str, Any]:
     source_result = _build_source_policy_stub_result(
         candidate,
@@ -3844,6 +4001,202 @@ def _run_order_intent_one_shot_unlock_readiness_live_proof(
                 "status": embedded.get("status"),
                 "source_policy_ready": embedded.get("source_policy_ready"),
                 "router_validation_payload_ready": embedded.get("router_validation_payload_ready"),
+                "policy_blockers": embedded.get("policy_blockers"),
+            },
+            **result,
+        }
+    )
+    report["pass_status"] = "pass" if expected_safe and not result.get("validation_errors") else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _build_live_preflight_readiness_stub_result(
+    candidate: dict[str, Any],
+    *,
+    target_symbol: str = "",
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int | None = None,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+    mock_unlock_expired: bool = False,
+    mock_unlock_consumed: bool = False,
+    mock_unlock_reusable: bool = False,
+) -> dict[str, Any]:
+    candidate = dict(candidate or {})
+    if intended_amount_krw is not None:
+        candidate["intended_amount_krw"] = int(intended_amount_krw)
+    unlock_result = _build_one_shot_unlock_readiness_stub_result(
+        candidate,
+        target_symbol=target_symbol or str(candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        mock_unlock_expired=mock_unlock_expired,
+        mock_unlock_consumed=mock_unlock_consumed,
+        mock_unlock_reusable=mock_unlock_reusable,
+    )
+    unlock_readiness = dict(unlock_result.get("one_shot_unlock_readiness") or {})
+    preflight = _evaluate_order_intent_live_preflight_readiness_v1(
+        candidate,
+        unlock_readiness=unlock_readiness,
+        context={
+            "intended_amount_krw": int(candidate.get("intended_amount_krw") or intended_amount_krw or 0),
+            "mock_total_window_used_krw": int(mock_total_window_used_krw or 0),
+            "mock_submitted_count": int(mock_submitted_count or 0),
+            "actual_order": bool(candidate.get("actual_order", False)),
+            "final_action_unchanged": bool(candidate.get("final_action_unchanged", True)),
+        },
+    )
+    validation_errors = _validate_order_intent_live_preflight_readiness_v1(preflight)
+    return {
+        "candidate": candidate,
+        "unlock_readiness_result": unlock_result,
+        "live_preflight_readiness_payload": preflight,
+        "schema": preflight.get("schema"),
+        "target_symbol": preflight.get("symbol"),
+        "source_policy_ready": bool(preflight.get("source_policy_ready")),
+        "router_validation_payload_ready": bool(preflight.get("router_validation_payload_ready")),
+        "one_shot_unlock_required": bool(preflight.get("one_shot_unlock_required")),
+        "one_shot_unlock_ready": bool(preflight.get("one_shot_unlock_ready")),
+        "live_order_readiness": bool(preflight.get("live_order_readiness")),
+        "live_preflight_readiness": bool(preflight.get("live_preflight_readiness")),
+        "live_preflight_required": bool(preflight.get("live_preflight_required")),
+        "intended_amount_krw": int(preflight.get("intended_amount_krw") or 0),
+        "total_window_after_candidate_krw": int(preflight.get("total_window_after_candidate_krw") or 0),
+        "policy_warnings": list(preflight.get("policy_warnings") or []),
+        "policy_blockers": list(preflight.get("policy_blockers") or []),
+        "checks": dict(preflight.get("checks") or {}),
+        "validation_errors": validation_errors,
+        "safety_flags": dict(preflight.get("safety_flags") or {}),
+        "unlock_consumed": bool(unlock_readiness.get("unlock_consumed")),
+        "unlock_service_called": False,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "final_action_unchanged": True,
+        "actual_order": False,
+        "submitted_count": int(preflight.get("submitted_count") or 0),
+        "provider_external_call_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+    }
+
+
+def _run_order_intent_live_preflight_readiness_fixture_proof(report: dict[str, Any]) -> None:
+    valid = _base_source_policy_candidate("user_added", "KRW-PYTH")
+    scenarios: list[dict[str, Any]] = [
+        {"name": "valid_live_preflight_readiness_passes", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": True, "expected_blockers": []},
+        {"name": "unlock_missing_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": [], "expected_ready": False, "expected_blockers": ["one_shot_unlock_required"]},
+        {"name": "source_policy_not_ready_blocks", "candidate": valid, "approved": [], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["source_policy_not_ready"]},
+        {"name": "router_payload_not_ready_blocks", "candidate": {**valid, "intended_amount_krw": 5_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["router_validation_payload_not_ready"]},
+        {"name": "amount_below_min_blocks", "candidate": {**valid, "intended_amount_krw": 9_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 9_000, "expected_ready": False, "expected_blockers": ["amount_below_min_order"]},
+        {"name": "amount_above_hard_cap_blocks", "candidate": {**valid, "intended_amount_krw": 13_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 13_000, "expected_ready": False, "expected_blockers": ["amount_above_per_order_hard_cap"]},
+        {"name": "total_window_cap_exceeded_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "used": 15_000, "expected_ready": False, "expected_blockers": ["total_window_cap_exceeded"]},
+        {"name": "submitted_nonzero_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "submitted": 1, "expected_ready": False, "expected_blockers": ["submitted_nonzero"]},
+        {"name": "duplicate_guard_missing_blocks", "candidate": {**valid, "duplicate_guard_required": False}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["duplicate_guard_missing"]},
+        {"name": "repeat_guard_missing_blocks", "candidate": {**valid, "repeat_guard_required": False}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["repeat_guard_missing"]},
+        {"name": "relock_missing_blocks", "candidate": {**valid, "relock_required": False}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["relock_missing"]},
+        {"name": "actual_order_true_blocks", "candidate": {**valid, "actual_order": True}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["actual_order_true"]},
+        {"name": "final_action_changed_blocks", "candidate": {**valid, "final_action_unchanged": False}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["final_action_changed"]},
+        {"name": "live_preflight_never_called", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": True, "expected_blockers": []},
+        {"name": "router_risk_order_never_called", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": True, "expected_blockers": []},
+        {"name": "actual_emit_never", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": True, "expected_blockers": []},
+    ]
+    results: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        result = _build_live_preflight_readiness_stub_result(
+            scenario["candidate"],
+            target_symbol=str(scenario["candidate"].get("symbol") or ""),
+            session_approved_symbols=scenario.get("approved"),
+            mock_unlock_approved_symbols=scenario.get("unlock"),
+            intended_amount_krw=scenario.get("amount"),
+            mock_total_window_used_krw=int(scenario.get("used") or 0),
+            mock_submitted_count=int(scenario.get("submitted") or 0),
+        )
+        blockers = set(result.get("policy_blockers") or [])
+        passed = bool(result.get("live_preflight_readiness")) == bool(scenario["expected_ready"])
+        passed = passed and all(blocker in blockers for blocker in scenario.get("expected_blockers") or [])
+        passed = passed and not result.get("validation_errors")
+        passed = passed and not any(bool(result.get(key)) for key in ("actual_order_intent_emitted", "decision_router_called", "risk_guard_called", "live_preflight_called", "order_service_called", "order_adapter_called", "unlock_service_called", "actual_order", "managed_pool_mutation", "order_risk_detected"))
+        results.append({"name": scenario["name"], "pass": passed, **result})
+    report.update(
+        {
+            "live_preflight_readiness_stub_supported": True,
+            "schema": "aits_order_intent_live_preflight_readiness_v1",
+            "evaluator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_order_intent_live_preflight_readiness_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "unlock_service_called": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_live_preflight_readiness_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int = 10_000,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+) -> None:
+    embedded: dict[str, Any] = {"mode": "order-intent-one-shot-unlock-readiness-live-proof", "embedded": True}
+    _run_order_intent_one_shot_unlock_readiness_live_proof(
+        embedded,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+    )
+    candidate = dict(embedded.get("candidate") or {})
+    if not candidate:
+        candidate = _base_source_policy_candidate("user_added", str(target_symbol or "KRW-PYTH"))
+    result = _build_live_preflight_readiness_stub_result(
+        candidate,
+        target_symbol=str(target_symbol or embedded.get("target_symbol") or candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    expected_safe = not any(bool(result.get(key)) for key in ("actual_order_intent_emitted", "decision_router_called", "risk_guard_called", "live_preflight_called", "order_service_called", "order_adapter_called", "unlock_service_called", "actual_order", "managed_pool_mutation", "order_risk_detected"))
+    report.update(
+        {
+            "mode": "order-intent-live-preflight-readiness-live-proof",
+            "live_preflight_readiness_stub_supported": True,
+            "schema": "aits_order_intent_live_preflight_readiness_v1",
+            "evaluator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_order_intent_live_preflight_readiness_v1",
+            "target_symbol": str(target_symbol or embedded.get("target_symbol") or result.get("target_symbol") or ""),
+            "session_approved_symbols": _normalized_session_approved_symbols(session_approved_symbols),
+            "mock_unlock_approved_symbols": _normalized_session_approved_symbols(mock_unlock_approved_symbols),
+            "embedded_unlock_readiness_report": {
+                "status": embedded.get("status"),
+                "source_policy_ready": embedded.get("source_policy_ready"),
+                "router_validation_payload_ready": embedded.get("router_validation_payload_ready"),
+                "one_shot_unlock_ready": embedded.get("one_shot_unlock_ready"),
+                "live_order_readiness": embedded.get("live_order_readiness"),
                 "policy_blockers": embedded.get("policy_blockers"),
             },
             **result,
@@ -10475,6 +10828,9 @@ def run_harness(
     mock_unlock_expired: bool = False,
     mock_unlock_consumed: bool = False,
     mock_unlock_reusable: bool = False,
+    intended_amount_krw: int = 10_000,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -10504,6 +10860,8 @@ def run_harness(
         "order-intent-source-live-policy-stub-live-proof",
         "order-intent-one-shot-unlock-readiness-fixture-proof",
         "order-intent-one-shot-unlock-readiness-live-proof",
+        "order-intent-live-preflight-readiness-fixture-proof",
+        "order-intent-live-preflight-readiness-live-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -10605,6 +10963,21 @@ def run_harness(
                 mock_unlock_expired=mock_unlock_expired,
                 mock_unlock_consumed=mock_unlock_consumed,
                 mock_unlock_reusable=mock_unlock_reusable,
+            )
+        elif mode == "order-intent-live-preflight-readiness-fixture-proof":
+            _run_order_intent_live_preflight_readiness_fixture_proof(report)
+        elif mode == "order-intent-live-preflight-readiness-live-proof":
+            _install_provider_post_guard(report)
+            _run_order_intent_live_preflight_readiness_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+                session_approved_symbols=session_approved_symbols,
+                mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+                intended_amount_krw=intended_amount_krw,
+                mock_total_window_used_krw=mock_total_window_used_krw,
+                mock_submitted_count=mock_submitted_count,
             )
         elif mode == "managed-pool-promotion-policy-proof":
             _run_managed_pool_promotion_policy_proof(
@@ -11071,6 +11444,8 @@ def main() -> int:
             "order-intent-source-live-policy-stub-live-proof",
             "order-intent-one-shot-unlock-readiness-fixture-proof",
             "order-intent-one-shot-unlock-readiness-live-proof",
+            "order-intent-live-preflight-readiness-fixture-proof",
+            "order-intent-live-preflight-readiness-live-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",
@@ -11164,6 +11539,9 @@ def main() -> int:
     parser.add_argument("--mock-unlock-expired", action="store_true")
     parser.add_argument("--mock-unlock-consumed", action="store_true")
     parser.add_argument("--mock-unlock-reusable", action="store_true")
+    parser.add_argument("--intended-amount-krw", type=int, default=10000)
+    parser.add_argument("--mock-total-window-used-krw", type=int, default=0)
+    parser.add_argument("--mock-submitted-count", type=int, default=0)
     parser.add_argument("--from-max", type=int, default=10)
     parser.add_argument("--from-count", type=int, default=8)
     parser.add_argument("--to-max", type=int, default=8)
@@ -11207,6 +11585,9 @@ def main() -> int:
         mock_unlock_expired=args.mock_unlock_expired,
         mock_unlock_consumed=args.mock_unlock_consumed,
         mock_unlock_reusable=args.mock_unlock_reusable,
+        intended_amount_krw=args.intended_amount_krw,
+        mock_total_window_used_krw=args.mock_total_window_used_krw,
+        mock_submitted_count=args.mock_submitted_count,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1
