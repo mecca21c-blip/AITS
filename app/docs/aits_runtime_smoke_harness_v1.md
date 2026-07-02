@@ -1194,6 +1194,32 @@ mock-approved valid chain while keeping `would_emit_order_intent=false`,
 `order_adapter_called=false`, `execution_bridge_called=false`,
 `submitted_count=0`, and `provider_external_call_count=0`.
 
+The live minimal order armed-but-not-submitted proof is covered by:
+
+- `live-minimal-order-armed-fixture-proof`
+- `live-minimal-order-armed-live-proof`
+
+Example:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 10000" --observe-only
+```
+
+Both modes build `aits_live_minimal_order_armed_contract_v1` objects with
+`armed_mode=not_submitted`. PASS may set `live_minimal_order_armed=true`, but it
+must keep `actual_order=false`, `actual_order_intent_emitted=false`,
+`would_emit_order_intent=false`, `would_consume_unlock=false`,
+`unlock_consumed=false`, `order_service_called=false`,
+`order_adapter_called=false`, `execution_bridge_called=false`,
+`submitted_count=0`, and `provider_external_call_count=0`.
+
+The current expected operator confirm phrase is:
+
+`AITS LIVE ORDER KRW-PYTH BUY 10000`
+
+The next allowed Goal is
+`AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

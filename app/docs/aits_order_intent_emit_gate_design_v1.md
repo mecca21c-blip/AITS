@@ -523,3 +523,25 @@ Scope:
 - the next adjacent Goal may be
   `AITS-LIVE-MINIMAL-ORDER-ARMED-BUT-NOT-SUBMITTED-01`; actual submit remains
   forbidden until a later explicitly approved live-order test Goal
+
+Completed live minimal order armed-but-not-submitted proof:
+
+`AITS-LIVE-MINIMAL-ORDER-ARMED-BUT-NOT-SUBMITTED-01`
+
+Scope:
+
+- add `live-minimal-order-armed-fixture-proof` and
+  `live-minimal-order-armed-live-proof`
+- require the exact operator confirm phrase, for example
+  `AITS LIVE ORDER KRW-PYTH BUY 10000`
+- lock `intended_amount_krw` to exactly 10,000 KRW for the minimal test path
+- produce `live_minimal_order_armed=true` only as a not-submitted readiness
+  result
+- keep `armed_mode=not_submitted`, `would_emit_order_intent=false`,
+  `order_intent_emitted=false`, `would_consume_unlock=false`,
+  `unlock_consumed=false`, `actual_order=false`,
+  `actual_order_intent_emitted=false`, and `submitted_count=0`
+- the next Goal may be
+  `AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01`; only that Goal may
+  consider a single real 10,000 KRW submit with explicit user approval and no
+  retry

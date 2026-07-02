@@ -6714,6 +6714,555 @@ def _run_live_order_final_gate_integration_live_proof(
     report["status"] = report["pass_status"]
 
 
+def _build_live_minimal_order_armed_input_v1(
+    final_gate_result: dict[str, Any] | None,
+    *,
+    operator_confirm_phrase: str = "",
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    final_gate_result = dict(final_gate_result or {})
+    final_gate_contract = dict(final_gate_result.get("final_gate_contract") or {})
+    final_gate_input = dict(final_gate_result.get("final_gate_input") or {})
+    target_symbol = _normalize_symbol_text(
+        str(final_gate_contract.get("target_symbol") or final_gate_input.get("target_symbol") or final_gate_result.get("target_symbol") or "")
+    )
+    intended_side = str(final_gate_contract.get("intended_side") or final_gate_input.get("intended_side") or "buy").strip().lower()
+    intended_amount = int(final_gate_contract.get("intended_amount_krw") or final_gate_input.get("intended_amount_krw") or 0)
+    expected_confirm_phrase = f"AITS LIVE ORDER {target_symbol} {intended_side.upper()} {intended_amount}" if target_symbol else ""
+    payload = {
+        "schema": "aits_live_minimal_order_armed_input_v1",
+        "target_symbol": target_symbol,
+        "source": str(final_gate_contract.get("source") or final_gate_input.get("source") or "unknown"),
+        "managed_source": str(final_gate_contract.get("managed_source") or final_gate_input.get("managed_source") or final_gate_input.get("source") or "unknown"),
+        "intended_side": intended_side,
+        "intended_amount_krw": intended_amount,
+        "required_amount_krw": 10_000,
+        "min_order_krw": int(final_gate_input.get("min_order_krw") or 10_000),
+        "per_order_hard_cap_krw": int(final_gate_input.get("per_order_hard_cap_krw") or 12_000),
+        "total_guarded_window_cap_krw": int(final_gate_input.get("total_guarded_window_cap_krw") or 20_000),
+        "mock_total_window_used_krw": int(final_gate_input.get("mock_total_window_used_krw") or 0),
+        "submitted_count": int(final_gate_input.get("submitted_count") or final_gate_contract.get("submitted_count") or 0),
+        "session_approved_symbols": list(final_gate_input.get("session_approved_symbols") or []),
+        "ai_opinion_freshness_status": str(final_gate_input.get("ai_opinion_freshness_status") or ""),
+        "live_order_final_gate_ready": bool(final_gate_contract.get("live_order_final_gate_ready")),
+        "final_confirmation_ready": bool(final_gate_contract.get("final_confirmation_ready")),
+        "duplicate_repeat_relock_ready": bool(final_gate_contract.get("duplicate_repeat_relock_ready")),
+        "final_emit_gate_ready": bool(final_gate_contract.get("final_emit_gate_ready")),
+        "live_minimal_order_readiness_ready": bool(final_gate_contract.get("live_minimal_order_readiness_ready")),
+        "riskguard_actual_readonly_adapter_ready": bool(final_gate_input.get("riskguard_actual_readonly_adapter_ready")),
+        "live_preflight_actual_readonly_adapter_ready": bool(final_gate_input.get("live_preflight_actual_readonly_adapter_ready")),
+        "one_shot_unlock_ready": bool(final_gate_input.get("one_shot_unlock_ready")),
+        "unlock_token_present_or_mocked": bool(final_gate_input.get("unlock_token_present_or_mocked")),
+        "unlock_scope_symbol": _normalize_symbol_text(str(final_gate_input.get("unlock_scope_symbol") or "")),
+        "unlock_scope_side": str(final_gate_input.get("unlock_scope_side") or "").strip().lower(),
+        "unlock_scope_amount_krw": int(final_gate_input.get("unlock_scope_amount_krw") or 0),
+        "unlock_expiry_status": str(final_gate_input.get("unlock_expiry_status") or ""),
+        "operator_confirm_required": True,
+        "operator_confirm_phrase": str(operator_confirm_phrase or ""),
+        "expected_confirm_phrase": expected_confirm_phrase,
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "provider_external_call_count": 0,
+    }
+    if overrides:
+        payload.update(dict(overrides))
+    return payload
+
+
+def _evaluate_live_minimal_order_armed_contract_v1(
+    armed_input: dict[str, Any] | None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    armed_input = dict(armed_input or {})
+    context = dict(context or {})
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if str(armed_input.get("schema") or "") != "aits_live_minimal_order_armed_input_v1":
+        blockers.append("input_schema_invalid")
+    target_symbol = _normalize_symbol_text(str(armed_input.get("target_symbol") or ""))
+    if not target_symbol:
+        blockers.append("target_symbol_missing")
+    intended_side = str(armed_input.get("intended_side") or "").strip().lower()
+    intended_amount = int(armed_input.get("intended_amount_krw") or 0)
+    required_amount = int(armed_input.get("required_amount_krw") or 10_000)
+    min_order = int(armed_input.get("min_order_krw") or 10_000)
+    per_order_cap = int(armed_input.get("per_order_hard_cap_krw") or 12_000)
+    total_cap = int(armed_input.get("total_guarded_window_cap_krw") or 20_000)
+    total_used = int(armed_input.get("mock_total_window_used_krw") or 0)
+    total_after = total_used + intended_amount
+    submitted_count = int(armed_input.get("submitted_count") or 0)
+    session_approved = set(_normalized_session_approved_symbols(armed_input.get("session_approved_symbols")))
+    managed_source = str(armed_input.get("managed_source") or armed_input.get("source") or "")
+    unlock_symbol = _normalize_symbol_text(str(armed_input.get("unlock_scope_symbol") or ""))
+    unlock_side = str(armed_input.get("unlock_scope_side") or "").strip().lower()
+    unlock_amount = int(armed_input.get("unlock_scope_amount_krw") or 0)
+    unlock_expiry = str(armed_input.get("unlock_expiry_status") or "").strip().lower()
+    expected_confirm_phrase = str(armed_input.get("expected_confirm_phrase") or "")
+    operator_confirm_phrase = str(armed_input.get("operator_confirm_phrase") or "")
+
+    if intended_side != "buy":
+        blockers.append("intended_side_not_buy")
+    if intended_amount != required_amount:
+        blockers.append("intended_amount_not_10000")
+    if intended_amount < min_order:
+        blockers.append("intended_amount_below_min_order")
+    if intended_amount > per_order_cap:
+        blockers.append("intended_amount_exceeds_per_order_hard_cap")
+    if total_after > total_cap:
+        blockers.append("total_guarded_window_cap_exceeded")
+    if submitted_count != 0:
+        blockers.append("submitted_count_not_zero")
+    if managed_source == "user_added" and target_symbol not in session_approved:
+        blockers.append("user_added_not_session_approved")
+
+    required_truthy = {
+        "live_order_final_gate_ready": "live_order_final_gate_not_ready",
+        "final_confirmation_ready": "final_confirmation_not_ready",
+        "duplicate_repeat_relock_ready": "duplicate_repeat_relock_not_ready",
+        "final_emit_gate_ready": "final_emit_gate_not_ready",
+        "live_minimal_order_readiness_ready": "live_minimal_order_readiness_not_ready",
+        "riskguard_actual_readonly_adapter_ready": "riskguard_actual_readonly_adapter_not_ready",
+        "live_preflight_actual_readonly_adapter_ready": "live_preflight_actual_readonly_adapter_not_ready",
+        "one_shot_unlock_ready": "one_shot_unlock_not_ready",
+        "unlock_token_present_or_mocked": "unlock_token_missing",
+        "operator_confirm_required": "operator_confirm_not_required",
+    }
+    for key, blocker in required_truthy.items():
+        if not bool(armed_input.get(key)):
+            blockers.append(blocker)
+    if unlock_symbol != target_symbol:
+        blockers.append("unlock_scope_symbol_mismatch")
+    if unlock_side != intended_side:
+        blockers.append("unlock_scope_side_mismatch")
+    if intended_amount > unlock_amount:
+        blockers.append("unlock_amount_scope_exceeded")
+    if unlock_expiry == "expired":
+        blockers.append("unlock_expired")
+    if not operator_confirm_phrase:
+        blockers.append("operator_confirm_phrase_missing")
+    elif operator_confirm_phrase != expected_confirm_phrase:
+        blockers.append("operator_confirm_phrase_mismatch")
+    if bool(armed_input.get("actual_order")) or bool(context.get("actual_order", False)):
+        blockers.append("actual_order_flag_detected")
+    if bool(armed_input.get("actual_order_intent_emitted")) or bool(context.get("actual_order_intent_emitted", False)):
+        blockers.append("actual_emit_detected")
+    if bool(armed_input.get("would_emit_order_intent")) or bool(context.get("would_emit_order_intent", False)):
+        blockers.append("would_emit_order_intent_detected")
+    if bool(armed_input.get("order_intent_emitted")) or bool(context.get("order_intent_emitted", False)):
+        blockers.append("actual_emit_detected")
+    if bool(armed_input.get("would_consume_unlock")) or bool(context.get("would_consume_unlock", False)):
+        blockers.append("unlock_would_consume_detected")
+    if bool(armed_input.get("unlock_consumed")) or bool(context.get("unlock_consumed", False)):
+        blockers.append("unlock_already_consumed")
+    provider_external_call_count = int(armed_input.get("provider_external_call_count") or context.get("provider_external_call_count") or 0)
+    if provider_external_call_count != 0:
+        blockers.append("provider_external_call_detected")
+
+    blockers = list(dict.fromkeys(blockers))
+    warnings = list(dict.fromkeys(warnings))
+    final_gate_passed = bool(armed_input.get("live_order_final_gate_ready")) and "live_order_final_gate_not_ready" not in blockers
+    amount_locked_to_10000 = intended_amount == required_amount == 10_000
+    caps_validated = not any(
+        item in blockers
+        for item in (
+            "intended_amount_not_10000",
+            "intended_amount_below_min_order",
+            "intended_amount_exceeds_per_order_hard_cap",
+            "total_guarded_window_cap_exceeded",
+        )
+    )
+    source_policy_validated = "user_added_not_session_approved" not in blockers
+    riskguard_readonly_validated = "riskguard_actual_readonly_adapter_not_ready" not in blockers
+    live_preflight_readonly_validated = "live_preflight_actual_readonly_adapter_not_ready" not in blockers
+    unlock_final_confirmation_validated = not any(
+        item in blockers
+        for item in (
+            "one_shot_unlock_not_ready",
+            "unlock_token_missing",
+            "unlock_scope_symbol_mismatch",
+            "unlock_scope_side_mismatch",
+            "unlock_amount_scope_exceeded",
+            "unlock_expired",
+            "unlock_would_consume_detected",
+            "unlock_already_consumed",
+        )
+    )
+    duplicate_repeat_relock_validated = bool(armed_input.get("duplicate_repeat_relock_ready")) and "duplicate_repeat_relock_not_ready" not in blockers
+    final_emit_gate_validated = bool(armed_input.get("final_emit_gate_ready")) and "final_emit_gate_not_ready" not in blockers
+    operator_confirm_phrase_matched = bool(operator_confirm_phrase) and operator_confirm_phrase == expected_confirm_phrase
+    live_minimal_order_armed = bool(not blockers)
+    safety_flags = {
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "unlock_service_called": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "execution_bridge_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "provider_external_call_count": 0,
+        "submitted_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+    }
+    return {
+        "schema": "aits_live_minimal_order_armed_contract_v1",
+        "input_schema": str(armed_input.get("schema") or ""),
+        "target_symbol": target_symbol,
+        "source": str(armed_input.get("source") or ""),
+        "managed_source": managed_source,
+        "intended_side": intended_side,
+        "intended_amount_krw": intended_amount,
+        "required_amount_krw": required_amount,
+        "total_window_after_candidate_krw": total_after,
+        "live_minimal_order_armed": live_minimal_order_armed,
+        "armed_mode": "not_submitted",
+        "next_allowed_goal": "AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01",
+        "operator_confirm_required": True,
+        "expected_confirm_phrase": expected_confirm_phrase,
+        "operator_confirm_phrase_matched": operator_confirm_phrase_matched,
+        "final_gate_passed": final_gate_passed,
+        "amount_locked_to_10000": amount_locked_to_10000,
+        "caps_validated": caps_validated,
+        "source_policy_validated": source_policy_validated,
+        "riskguard_readonly_validated": riskguard_readonly_validated,
+        "live_preflight_readonly_validated": live_preflight_readonly_validated,
+        "unlock_final_confirmation_validated": unlock_final_confirmation_validated,
+        "duplicate_repeat_relock_validated": duplicate_repeat_relock_validated,
+        "final_emit_gate_validated": final_emit_gate_validated,
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "unlock_service_called": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "execution_bridge_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "provider_external_call_count": 0,
+        "submitted_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+        "blockers": blockers,
+        "warnings": warnings,
+        "safety_summary": {
+            "mode": "armed_but_not_submitted",
+            "actual_order": False,
+            "submitted_count": 0,
+            "unlock_consumed": False,
+            "order_adapter_called": False,
+            "operator_confirm_phrase_required_for_next_goal": True,
+        },
+        "safety_flags": safety_flags,
+    }
+
+
+def _validate_live_minimal_order_armed_contract_v1(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return ["live_minimal_order_armed_result_missing"]
+    errors: list[str] = []
+    if result.get("schema") != "aits_live_minimal_order_armed_contract_v1":
+        errors.append("schema_invalid")
+    if result.get("armed_mode") != "not_submitted":
+        errors.append("armed_mode_invalid")
+    for key in (
+        "actual_order",
+        "actual_order_intent_emitted",
+        "would_emit_order_intent",
+        "order_intent_emitted",
+        "would_consume_unlock",
+        "unlock_consumed",
+        "unlock_service_called",
+        "decision_router_called",
+        "risk_guard_called",
+        "live_preflight_called",
+        "execution_bridge_called",
+        "order_service_called",
+        "order_adapter_called",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    ):
+        if bool(result.get(key)):
+            errors.append(f"{key}_must_be_false")
+    if int(result.get("submitted_count") or 0) != 0:
+        errors.append("submitted_count_must_be_zero")
+    if int(result.get("provider_external_call_count") or 0) != 0:
+        errors.append("provider_call_count_must_be_zero")
+    if result.get("live_minimal_order_armed") and result.get("blockers"):
+        errors.append("armed_ready_with_blockers")
+    if result.get("live_minimal_order_armed") and not result.get("operator_confirm_phrase_matched"):
+        errors.append("armed_without_confirm_phrase_match")
+    return errors
+
+
+def _build_live_minimal_order_armed_result(
+    candidate: dict[str, Any],
+    *,
+    target_symbol: str = "",
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int | None = None,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+    operator_confirm_phrase: str = "",
+    armed_input_overrides: dict[str, Any] | None = None,
+    armed_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    final_gate_result = _build_live_order_final_gate_integration_result(
+        candidate,
+        target_symbol=target_symbol or str(candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    armed_input = _build_live_minimal_order_armed_input_v1(
+        final_gate_result,
+        operator_confirm_phrase=operator_confirm_phrase,
+        overrides=armed_input_overrides,
+    )
+    armed_contract = _evaluate_live_minimal_order_armed_contract_v1(
+        armed_input,
+        context=armed_context,
+    )
+    validation_errors = _validate_live_minimal_order_armed_contract_v1(armed_contract)
+    return {
+        "candidate": dict(candidate or {}),
+        "final_gate_result": final_gate_result,
+        "armed_input": armed_input,
+        "armed_contract": armed_contract,
+        "schema": armed_contract.get("schema"),
+        "target_symbol": armed_contract.get("target_symbol"),
+        "intended_side": armed_contract.get("intended_side"),
+        "intended_amount_krw": armed_contract.get("intended_amount_krw"),
+        "live_minimal_order_armed": bool(armed_contract.get("live_minimal_order_armed")),
+        "armed_mode": armed_contract.get("armed_mode"),
+        "next_allowed_goal": armed_contract.get("next_allowed_goal"),
+        "expected_confirm_phrase": armed_contract.get("expected_confirm_phrase"),
+        "operator_confirm_phrase_matched": bool(armed_contract.get("operator_confirm_phrase_matched")),
+        "final_gate_passed": bool(armed_contract.get("final_gate_passed")),
+        "amount_locked_to_10000": bool(armed_contract.get("amount_locked_to_10000")),
+        "caps_validated": bool(armed_contract.get("caps_validated")),
+        "source_policy_validated": bool(armed_contract.get("source_policy_validated")),
+        "riskguard_readonly_validated": bool(armed_contract.get("riskguard_readonly_validated")),
+        "live_preflight_readonly_validated": bool(armed_contract.get("live_preflight_readonly_validated")),
+        "unlock_final_confirmation_validated": bool(armed_contract.get("unlock_final_confirmation_validated")),
+        "duplicate_repeat_relock_validated": bool(armed_contract.get("duplicate_repeat_relock_validated")),
+        "final_emit_gate_validated": bool(armed_contract.get("final_emit_gate_validated")),
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "unlock_service_called": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "execution_bridge_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "provider_external_call_count": 0,
+        "submitted_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+        "blockers": list(armed_contract.get("blockers") or []),
+        "warnings": list(armed_contract.get("warnings") or []),
+        "safety_summary": dict(armed_contract.get("safety_summary") or {}),
+        "validation_errors": validation_errors,
+    }
+
+
+def _run_live_minimal_order_armed_fixture_proof(report: dict[str, Any]) -> None:
+    valid = _base_source_policy_candidate("user_added", "KRW-PYTH")
+    phrase = "AITS LIVE ORDER KRW-PYTH BUY 10000"
+    scenarios: list[dict[str, Any]] = [
+        {"name": "valid_armed_not_submitted", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "phrase": phrase, "expected_armed": True, "expected_blockers": []},
+        {"name": "intended_amount_13000_blocks", "candidate": {**valid, "intended_amount_krw": 13_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 13_000, "phrase": "AITS LIVE ORDER KRW-PYTH BUY 13000", "expected_armed": False, "expected_blockers": ["intended_amount_not_10000", "intended_amount_exceeds_per_order_hard_cap"]},
+        {"name": "intended_amount_5000_blocks", "candidate": {**valid, "intended_amount_krw": 5_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 5_000, "phrase": "AITS LIVE ORDER KRW-PYTH BUY 5000", "expected_armed": False, "expected_blockers": ["intended_amount_not_10000", "intended_amount_below_min_order"]},
+        {"name": "mock_submitted_count_1_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "submitted": 1, "phrase": phrase, "expected_armed": False, "expected_blockers": ["submitted_count_not_zero"]},
+        {"name": "session_approved_empty_blocks", "candidate": valid, "approved": [], "unlock": ["KRW-PYTH"], "phrase": phrase, "expected_armed": False, "expected_blockers": ["user_added_not_session_approved"]},
+        {"name": "operator_confirm_phrase_missing_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "phrase": "", "expected_armed": False, "expected_blockers": ["operator_confirm_phrase_missing"]},
+        {"name": "operator_confirm_phrase_mismatch_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "phrase": "AITS LIVE ORDER KRW-PYTH BUY 9999", "expected_armed": False, "expected_blockers": ["operator_confirm_phrase_mismatch"]},
+        {"name": "would_emit_order_intent_true_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "phrase": phrase, "context": {"would_emit_order_intent": True}, "expected_armed": False, "expected_blockers": ["would_emit_order_intent_detected"]},
+    ]
+    forced_false_keys = (
+        "actual_order",
+        "actual_order_intent_emitted",
+        "would_emit_order_intent",
+        "order_intent_emitted",
+        "would_consume_unlock",
+        "unlock_consumed",
+        "unlock_service_called",
+        "decision_router_called",
+        "risk_guard_called",
+        "live_preflight_called",
+        "execution_bridge_called",
+        "order_service_called",
+        "order_adapter_called",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    )
+    results: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        result = _build_live_minimal_order_armed_result(
+            scenario["candidate"],
+            target_symbol=str(scenario["candidate"].get("symbol") or ""),
+            session_approved_symbols=scenario.get("approved"),
+            mock_unlock_approved_symbols=scenario.get("unlock"),
+            intended_amount_krw=scenario.get("amount"),
+            mock_total_window_used_krw=int(scenario.get("used") or 0),
+            mock_submitted_count=int(scenario.get("submitted") or 0),
+            operator_confirm_phrase=str(scenario.get("phrase") or ""),
+            armed_input_overrides=scenario.get("overrides"),
+            armed_context=scenario.get("context"),
+        )
+        blockers = set(result.get("blockers") or [])
+        passed = bool(result.get("live_minimal_order_armed")) == bool(scenario["expected_armed"])
+        passed = passed and all(blocker in blockers for blocker in scenario.get("expected_blockers") or [])
+        passed = passed and result.get("armed_mode") == "not_submitted"
+        passed = passed and result.get("next_allowed_goal") == "AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01"
+        passed = passed and not result.get("validation_errors")
+        passed = passed and not any(bool(result.get(key)) for key in forced_false_keys)
+        results.append({"name": scenario["name"], "pass": passed, **result})
+    valid_result = next((item for item in results if item.get("name") == "valid_armed_not_submitted"), {})
+    report.update(
+        {
+            "live_minimal_order_armed_supported": True,
+            "schema": "aits_live_minimal_order_armed_contract_v1",
+            "contract_helper_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_live_minimal_order_armed_contract_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "live_minimal_order_armed": bool(valid_result.get("live_minimal_order_armed")),
+            "armed_mode": valid_result.get("armed_mode"),
+            "next_allowed_goal": valid_result.get("next_allowed_goal"),
+            "expected_confirm_phrase": valid_result.get("expected_confirm_phrase"),
+            "operator_confirm_phrase_matched": bool(valid_result.get("operator_confirm_phrase_matched")),
+            "actual_order": False,
+            "actual_order_intent_emitted": False,
+            "would_emit_order_intent": False,
+            "order_intent_emitted": False,
+            "would_consume_unlock": False,
+            "unlock_consumed": False,
+            "unlock_service_called": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "execution_bridge_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_live_minimal_order_armed_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int = 10_000,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+    operator_confirm_phrase: str = "",
+) -> None:
+    embedded: dict[str, Any] = {"mode": "live-order-final-gate-integration-live-proof", "embedded": True}
+    _run_live_order_final_gate_integration_live_proof(
+        embedded,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    candidate = dict(embedded.get("candidate") or {})
+    if not candidate:
+        candidate = _base_source_policy_candidate("user_added", str(target_symbol or "KRW-PYTH"))
+    result = _build_live_minimal_order_armed_result(
+        candidate,
+        target_symbol=str(target_symbol or embedded.get("target_symbol") or candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+        operator_confirm_phrase=operator_confirm_phrase,
+    )
+    expected_safe = not any(
+        bool(result.get(key))
+        for key in (
+            "actual_order",
+            "actual_order_intent_emitted",
+            "would_emit_order_intent",
+            "order_intent_emitted",
+            "would_consume_unlock",
+            "unlock_consumed",
+            "unlock_service_called",
+            "decision_router_called",
+            "risk_guard_called",
+            "live_preflight_called",
+            "execution_bridge_called",
+            "order_service_called",
+            "order_adapter_called",
+            "managed_pool_mutation",
+            "order_risk_detected",
+        )
+    )
+    report.update(
+        {
+            "mode": "live-minimal-order-armed-live-proof",
+            "live_minimal_order_armed_supported": True,
+            "schema": "aits_live_minimal_order_armed_contract_v1",
+            "contract_helper_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_live_minimal_order_armed_contract_v1",
+            "target_symbol": str(target_symbol or embedded.get("target_symbol") or result.get("target_symbol") or ""),
+            "session_approved_symbols": _normalized_session_approved_symbols(session_approved_symbols),
+            "mock_unlock_approved_symbols": _normalized_session_approved_symbols(mock_unlock_approved_symbols),
+            "embedded_final_gate_report": {
+                "status": embedded.get("status"),
+                "live_order_final_gate_ready": embedded.get("live_order_final_gate_ready"),
+                "final_confirmation_ready": embedded.get("final_confirmation_ready"),
+                "duplicate_repeat_relock_ready": embedded.get("duplicate_repeat_relock_ready"),
+                "final_emit_gate_ready": embedded.get("final_emit_gate_ready"),
+                "live_minimal_order_readiness_ready": embedded.get("live_minimal_order_readiness_ready"),
+                "blockers": embedded.get("blockers"),
+                "validation_errors": embedded.get("validation_errors"),
+            },
+            **result,
+        }
+    )
+    report["pass_status"] = "pass" if expected_safe and not result.get("validation_errors") and result.get("live_minimal_order_armed") else "fail"
+    report["status"] = report["pass_status"]
+
+
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
     return {
         "name": name,
@@ -13339,6 +13888,7 @@ def run_harness(
     intended_amount_krw: int = 10_000,
     mock_total_window_used_krw: int = 0,
     mock_submitted_count: int = 0,
+    operator_confirm_phrase: str = "",
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -13376,6 +13926,8 @@ def run_harness(
         "live-preflight-readonly-actual-adapter-live-proof",
         "live-order-final-gate-integration-fixture-proof",
         "live-order-final-gate-integration-live-proof",
+        "live-minimal-order-armed-fixture-proof",
+        "live-minimal-order-armed-live-proof",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
         "riskguard-readonly-adapter-skeleton-live-proof",
         "riskguard-readonly-actual-adapter-fixture-proof",
@@ -13541,6 +14093,22 @@ def run_harness(
                 intended_amount_krw=intended_amount_krw,
                 mock_total_window_used_krw=mock_total_window_used_krw,
                 mock_submitted_count=mock_submitted_count,
+            )
+        elif mode == "live-minimal-order-armed-fixture-proof":
+            _run_live_minimal_order_armed_fixture_proof(report)
+        elif mode == "live-minimal-order-armed-live-proof":
+            _install_provider_post_guard(report)
+            _run_live_minimal_order_armed_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+                session_approved_symbols=session_approved_symbols,
+                mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+                intended_amount_krw=intended_amount_krw,
+                mock_total_window_used_krw=mock_total_window_used_krw,
+                mock_submitted_count=mock_submitted_count,
+                operator_confirm_phrase=operator_confirm_phrase,
             )
         elif mode == "riskguard-readonly-adapter-skeleton-fixture-proof":
             _run_riskguard_readonly_adapter_skeleton_fixture_proof(report)
@@ -14045,6 +14613,8 @@ def main() -> int:
             "live-preflight-readonly-actual-adapter-live-proof",
             "live-order-final-gate-integration-fixture-proof",
             "live-order-final-gate-integration-live-proof",
+            "live-minimal-order-armed-fixture-proof",
+            "live-minimal-order-armed-live-proof",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
             "riskguard-readonly-adapter-skeleton-live-proof",
             "riskguard-readonly-actual-adapter-fixture-proof",
@@ -14145,6 +14715,7 @@ def main() -> int:
     parser.add_argument("--intended-amount-krw", type=int, default=10000)
     parser.add_argument("--mock-total-window-used-krw", type=int, default=0)
     parser.add_argument("--mock-submitted-count", type=int, default=0)
+    parser.add_argument("--operator-confirm-phrase", default="")
     parser.add_argument("--from-max", type=int, default=10)
     parser.add_argument("--from-count", type=int, default=8)
     parser.add_argument("--to-max", type=int, default=8)
@@ -14191,6 +14762,7 @@ def main() -> int:
         intended_amount_krw=args.intended_amount_krw,
         mock_total_window_used_krw=args.mock_total_window_used_krw,
         mock_submitted_count=args.mock_submitted_count,
+        operator_confirm_phrase=args.operator_confirm_phrase,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1

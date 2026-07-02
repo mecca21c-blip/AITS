@@ -185,3 +185,8 @@ Recommended next Goal:
 Only that Goal may examine an armed-but-not-submitted path. Actual submit must
 still remain forbidden until a later explicitly approved one-shot live-order
 test Goal.
+
+That armed-but-not-submitted step must keep the same final gate readiness as
+input, add the exact operator confirm phrase contract, lock the intended amount
+to 10,000 KRW, and still keep `actual_order=false`, `would_emit_order_intent=false`,
+`would_consume_unlock=false`, `unlock_consumed=false`, and `submitted_count=0`.
