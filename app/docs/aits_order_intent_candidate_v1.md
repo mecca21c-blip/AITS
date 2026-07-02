@@ -198,3 +198,20 @@ payload:
   `policy_blockers=[]`, the `user_added` warning is removed for that symbol,
   and `router_validation_payload_ready=true`;
 - actual emission and Router/Risk/Order calls remain false in both cases.
+
+## One-Shot Unlock Readiness
+
+The one-shot unlock readiness decision is documented in
+`app/docs/aits_order_intent_one_shot_unlock_readiness_v1.md`.
+
+The stub proof adds `aits_order_intent_one_shot_unlock_readiness_v1` after source
+policy readiness:
+
+- without exact mock unlock approval, `one_shot_unlock_ready=false`,
+  `policy_blockers` contains `one_shot_unlock_required`, and
+  `live_order_readiness=false`;
+- with exact mock unlock approval for the same symbol,
+  `one_shot_unlock_ready=true`, `policy_blockers=[]`, and
+  `live_order_readiness=true`;
+- actual unlock execution, actual emission, Router, Risk, Preflight, and Order
+  calls remain false in both cases.

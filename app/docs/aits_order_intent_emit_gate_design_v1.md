@@ -328,7 +328,7 @@ Result:
   ready and keeps `router_validation_payload_ready=true`.
 - Approval does not emit an intent and does not call Router/Risk/Preflight/Order.
 
-Recommended next Goal:
+Completed one-shot unlock readiness stub proof:
 
 `AITS-ORDER-INTENT-CANDIDATE-ONE-SHOT-UNLOCK-READINESS-STUB-PROOF-01`
 
@@ -337,3 +337,14 @@ Scope:
 - prove the one-shot unlock readiness contract after source policy readiness
 - keep actual unlock execution, actual emit, Router, RiskGuard,
   LivePreflight, OrderService, and OrderAdapter disabled
+
+Result:
+
+- without exact mock unlock approval, `one_shot_unlock_ready=false`,
+  `policy_blockers` contains `one_shot_unlock_required`, and
+  `live_order_readiness=false`;
+- with exact mock unlock approval for the same symbol,
+  `one_shot_unlock_ready=true`, `policy_blockers=[]`, and
+  `live_order_readiness=true`;
+- approval is mock proof input only. No live unlock token is created, consumed,
+  or reused, and no Router/Risk/Preflight/Order path is called.

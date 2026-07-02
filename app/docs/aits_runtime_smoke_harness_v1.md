@@ -1046,6 +1046,26 @@ Without approval, PASS requires `source_policy_ready=false`,
 `router_validation_payload_ready=true`. Both paths must keep all emit and
 Router/Risk/Preflight/Order call flags false.
 
+`order-intent-one-shot-unlock-readiness-proof` applies
+`aits_order_intent_one_shot_unlock_readiness_v1` after source policy readiness.
+It proves only the readiness contract. It does not execute or consume a
+one-shot unlock and does not emit an order intent.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-one-shot-unlock-readiness-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-one-shot-unlock-readiness-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-one-shot-unlock-readiness-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --observe-only
+```
+
+Without mock unlock approval, PASS requires `one_shot_unlock_ready=false`,
+`policy_blockers` containing `one_shot_unlock_required`, and
+`live_order_readiness=false`. With exact mock approval, PASS requires
+`one_shot_unlock_ready=true`, `policy_blockers=[]`, and
+`live_order_readiness=true`. Both paths must keep `unlock_service_called=false`,
+`actual_order_intent_emitted=false`, all Router/Risk/Preflight/Order call flags
+false, `submitted_count=0`, `provider_external_call_count=0`, and
+`order_risk_detected=false`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

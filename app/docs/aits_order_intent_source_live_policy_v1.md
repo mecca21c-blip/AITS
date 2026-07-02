@@ -128,12 +128,14 @@ Proof expectations:
 - In both cases, `actual_order_intent_emitted=false`, all Router/Risk/Preflight
   and Order call flags remain false, and `submitted_count=0`.
 
-## Next Goal
-
-Recommended next proof:
+## One-Shot Unlock Readiness
 
 `AITS-ORDER-INTENT-CANDIDATE-ONE-SHOT-UNLOCK-READINESS-STUB-PROOF-01`
+adds the next read-only contract:
+`aits_order_intent_one_shot_unlock_readiness_v1`.
 
-That Goal should remain read-only and prove the one-shot unlock readiness
-contract after source policy readiness, without invoking Router, RiskGuard,
-LivePreflight, OrderService, OrderAdapter, or real orders.
+Source policy readiness alone is not live order readiness. A future live path
+also needs exact one-shot unlock readiness for the same symbol. The proof uses
+mock unlock context only and keeps actual unlock execution, order intent
+emission, Router, RiskGuard, LivePreflight, OrderService, OrderAdapter, and real
+orders disabled.
