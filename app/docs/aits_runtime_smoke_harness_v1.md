@@ -1148,6 +1148,31 @@ a harness mode, but the default contract remains
 `actual_order_intent_emitted=false`, `submitted_count=0`, and
 `provider_external_call_count=0`.
 
+The LivePreflight actual-readonly adapter proof is covered by:
+
+- `live-preflight-readonly-actual-adapter-fixture-proof`
+- `live-preflight-readonly-actual-adapter-live-proof`
+
+Example:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-readonly-actual-adapter-fixture-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-readonly-actual-adapter-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --observe-only
+```
+
+Both modes build `aits_live_preflight_readonly_actual_adapter_contract_v1`
+objects in the harness. They identify the LivePreflight callable contract from
+static strings only and do not import or call the real LivePreflight service.
+PASS requires `live_preflight_actual_readonly_adapter_ready=true` for the
+mock-approved valid chain while keeping `would_call_live_preflight=false`,
+`live_preflight_called=false`, `live_preflight_decision=not_evaluated`,
+`live_preflight_result_present=false`, `live_preflight_reachable=false`,
+`would_call_riskguard=false`, `risk_guard_called=false`,
+`order_service_called=false`, `order_adapter_called=false`,
+`execution_bridge_reachable=false`, `unlock_consumed=false`,
+`actual_order=false`, `actual_order_intent_emitted=false`,
+`submitted_count=0`, and `provider_external_call_count=0`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

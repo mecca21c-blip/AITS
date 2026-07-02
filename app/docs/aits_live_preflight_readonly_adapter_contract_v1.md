@@ -176,6 +176,25 @@ not import or call LivePreflight. It keeps `would_call_live_preflight=false`,
 RiskGuard actual-readonly proof remains immediately before LivePreflight
 actual-readonly proof. Neither adapter readiness result is permission to consume
 unlock, emit an intent, or submit an order.
+
+## Actual-Readonly Proof Implementation
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-PROOF-01` builds on the skeleton
+contract and adds:
+
+- `aits_live_preflight_readonly_actual_adapter_input_v1`
+- `aits_live_preflight_readonly_actual_adapter_contract_v1`
+- `live-preflight-readonly-actual-adapter-fixture-proof`
+- `live-preflight-readonly-actual-adapter-live-proof`
+
+The skeleton proof verifies only the harness-side read-only adapter contract.
+The actual-readonly proof verifies that the harness payload can align with the
+documented LivePreflight callable contract by static name and schema only.
+Neither proof imports or calls `app/services/live_order_preflight.py`.
+
+`live_preflight_actual_readonly_adapter_ready=true` is contract readiness only.
+It is not a LivePreflight result, not a RiskGuard result, not a Router result,
+and not permission to consume unlock, emit an intent, or submit an order.
 10. ExecutionBridge
 11. OrderService
 12. OrderAdapter

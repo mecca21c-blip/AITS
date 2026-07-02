@@ -229,21 +229,61 @@ The recommended live-order sequence remains:
 12. OrderAdapter
 13. Exchange response reconciliation
 
-## Next Goal
+## Proof Implementation
 
-Recommended next Goal:
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-PROOF-01` implements this boundary
+in the runtime smoke harness only. It adds:
 
-`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-PROOF-01`
+- `live-preflight-readonly-actual-adapter-fixture-proof`
+- `live-preflight-readonly-actual-adapter-live-proof`
+- `_build_live_preflight_readonly_actual_adapter_input_v1`
+- `_evaluate_live_preflight_readonly_actual_adapter_contract_v1`
+- `_validate_live_preflight_readonly_actual_adapter_contract_v1`
 
-Only that Goal may consider adding a harness actual-readonly proof mode. Even
-then, the safe default remains:
+The proof uses static callable-contract names only. It does not import
+`app.services.live_order_preflight`, does not instantiate
+`LiveOrderPreflight`, and does not call `LiveOrderPreflight.evaluate`, the
+module-level `evaluate_live_order_preflight`, or
+`build_preflight_input_from_order_request`.
+
+The proof output schema is
+`aits_live_preflight_readonly_actual_adapter_contract_v1`.
+`live_preflight_actual_readonly_adapter_ready=true` means only that the
+candidate and static callable contract are shaped for a future explicitly-scoped
+LivePreflight boundary test. It is not a LivePreflight decision and it is not
+live-order permission.
+
+Required invariant fields remain:
 
 - `would_call_live_preflight=false`
 - `live_preflight_called=false`
 - `live_preflight_decision=not_evaluated`
 - `live_preflight_result_present=false`
+- `live_preflight_reachable=false`
+- `would_call_riskguard=false`
+- `risk_guard_called=false`
+- `order_service_reachable=false`
+- `order_adapter_reachable=false`
+- `execution_bridge_reachable=false`
+- `unlock_consumed=false`
 - `actual_order=false`
 - `actual_order_intent_emitted=false`
 - `submitted_count=0`
-- no RiskGuard, unlock, ExecutionBridge, OrderService, OrderAdapter, exchange,
-  or provider calls
+- `provider_external_call_count=0`
+
+The fixture proof covers at least these blocker cases:
+
+- empty session-approved symbols
+- `intended_amount_krw=13000`
+- `submitted_count=1`
+- `live_preflight_callable_identified=false`
+
+## Next Goal
+
+Recommended next Goal:
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-CALL-BOUNDARY-DESIGN-REVIEW-01`
+
+That future design Goal may discuss whether any actual LivePreflight callable
+can be invoked in a still-read-only boundary test. Until then, actual
+LivePreflight calls remain forbidden.

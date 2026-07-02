@@ -482,3 +482,24 @@ Scope:
 - keep actual LivePreflight, RiskGuard, unlock consumption, actual emit,
   Router, ExecutionBridge, OrderService, OrderAdapter, exchange, provider, and
   runtime mutation paths disabled
+
+Completed LivePreflight actual-readonly adapter proof:
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-PROOF-01`
+
+Scope:
+
+- implement harness-only actual-readonly builders and validators for
+  `aits_live_preflight_readonly_actual_adapter_input_v1` and
+  `aits_live_preflight_readonly_actual_adapter_contract_v1`
+- add fixture/live proof modes that use static callable-contract names only
+- do not import or call `app/services/live_order_preflight.py`
+- keep `live_preflight_actual_readonly_adapter_ready=true` as contract
+  readiness only, not a LivePreflight decision and not order permission
+- keep `would_call_live_preflight=false`, `live_preflight_called=false`,
+  `live_preflight_decision=not_evaluated`,
+  `live_preflight_result_present=false`, `actual_order=false`,
+  `actual_order_intent_emitted=false`, and `submitted_count=0`
+- keep actual emit, Router, RiskGuard, LivePreflight, unlock consumption,
+  ExecutionBridge, OrderService, OrderAdapter, provider calls, and submitted
+  increments disabled

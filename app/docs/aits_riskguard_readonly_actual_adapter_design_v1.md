@@ -240,6 +240,13 @@ That design step documents LivePreflight callable shape and side-effect
 boundaries only. It still must not import or call LivePreflight, RiskGuard,
 Router, unlock, ExecutionBridge, OrderService, or OrderAdapter.
 
+The subsequent proof step is:
+
+`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-ADAPTER-PROOF-01`
+
+That proof remains harness-only and static-contract based. It must still keep
+actual RiskGuard and actual LivePreflight calls forbidden.
+
 ## Proof Implementation
 
 `AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-PROOF-01` implements this boundary in
