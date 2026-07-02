@@ -168,3 +168,22 @@ Required payload fields:
 For this proof, `user_added` remains a policy warning:
 `user_added_requires_live_policy_confirmation`. Promoting that warning to a
 blocker is reserved for a later live policy Goal.
+
+## Source Live Policy Review
+
+The source policy decision is documented in
+`app/docs/aits_order_intent_source_live_policy_v1.md`.
+
+Decision summary:
+
+- `user_added` is not globally allowed for live order intent.
+- `user_added` requires symbol-scoped session approval through
+  `session_approved_symbols`.
+- Without exact symbol approval, the next policy-aware proof must block with
+  `user_added_not_session_approved`.
+- With exact symbol approval, the source warning can be cleared for that symbol
+  only; Basic Buy Ready, fresh AI opinion, freshness, validation stub readiness,
+  amount caps, one-shot unlock, duplicate/repeat guards, and relock remain
+  required.
+- `system_seed`, `holding`, `holding_display`, `holding_eligible`,
+  `trade_hold`, `dust`, and `unknown` remain separate source policies.

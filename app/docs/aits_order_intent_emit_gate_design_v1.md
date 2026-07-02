@@ -284,11 +284,39 @@ This Goal records `aits_order_intent_router_validation_stub_v1` with
 warnings, and policy blockers. `user_added` remains
 `user_added_requires_live_policy_confirmation` as a warning in this proof.
 
-Recommended next Goal:
+Completed source live policy review:
 
 `AITS-ORDER-INTENT-CANDIDATE-ROUTER-VALIDATION-STUB-POLICY-REVIEW-01`
 
 Scope:
 
-- decide whether `user_added` should remain a warning or become a live blocker
-- still avoid actual Router/RiskGuard/Order calls unless separately approved
+- decide `user_added` source policy before any live-intent handoff
+- keep code unchanged and document the source policy only
+- keep actual Router/RiskGuard/Order calls forbidden
+
+Decision:
+
+- `user_added` is blocked by default for live order intent.
+- Only exact `session_approved_symbols` can clear the `user_added` source
+  blocker for the current session.
+- `KRW-PYTH` is an example of a symbol that would require explicit
+  session-scoped approval before the next source policy proof can report
+  source readiness.
+- One-shot unlock, amount caps, duplicate/repeat guards, relock, and all
+  order-safety gates remain required.
+
+Policy document:
+
+`app/docs/aits_order_intent_source_live_policy_v1.md`
+
+Recommended next Goal:
+
+`AITS-ORDER-INTENT-CANDIDATE-SOURCE-LIVE-POLICY-STUB-PROOF-01`
+
+Scope:
+
+- implement a read-only source policy evaluator
+- prove `user_added_not_session_approved` without `session_approved_symbols`
+- prove exact symbol approval clears only the source blocker
+- keep actual emit, Router, RiskGuard, LivePreflight, OrderService, and
+  OrderAdapter disabled
