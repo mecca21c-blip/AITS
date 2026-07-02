@@ -1083,6 +1083,14 @@ PASS requires the valid mock-unlock path to report
 `submitted_count=0`, and `provider_external_call_count=0`. Without mock unlock,
 the live proof remains blocked before LivePreflight readiness.
 
+The future actual read-only adapter design is documented in
+`app/docs/aits_live_preflight_readonly_adapter_contract_v1.md`. It is not a
+runtime smoke mode yet. The contract requires `would_call_live_preflight=false`,
+`live_preflight_called=false`, `unlock_consumed=false`,
+`actual_order_intent_emitted=false`, `actual_order=false`, and `submitted=0`.
+The next implementation Goal is limited to a skeleton/proof adapter and must not
+call the real LivePreflight service.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

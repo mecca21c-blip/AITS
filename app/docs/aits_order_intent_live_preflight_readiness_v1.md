@@ -77,3 +77,21 @@ The readiness result is not execution permission. Even when
 `live_preflight_readiness=true`, actual order intent emission and the real
 LivePreflight call remain forbidden until a separate Goal explicitly changes
 that boundary.
+
+## Actual Read-Only Adapter Design Boundary
+
+The design review for the future actual read-only adapter is documented in
+`app/docs/aits_live_preflight_readonly_adapter_contract_v1.md`.
+
+The adapter contract is intentionally separate from this readiness stub:
+
+- readiness proves the candidate has enough no-call preconditions for a future
+  preflight preview;
+- the read-only adapter may only normalize and inspect the future preflight
+  request shape;
+- it must keep `would_call_live_preflight=false`,
+  `live_preflight_called=false`, `unlock_consumed=false`,
+  `actual_order_intent_emitted=false`, `actual_order=false`, and `submitted=0`.
+
+`live_preflight_readiness=true` remains a proof state only. It is not order
+permission and must not make OrderService or OrderAdapter reachable.

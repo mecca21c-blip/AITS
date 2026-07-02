@@ -360,3 +360,18 @@ Scope:
 - prove duplicate/repeat/relock/submitted/final-action checks
 - keep actual emit, real LivePreflight, Router, RiskGuard, OrderService, and
   OrderAdapter disabled
+
+Completed actual read-only adapter design review:
+
+`AITS-ORDER-INTENT-CANDIDATE-LIVE-PREFLIGHT-ACTUAL-READONLY-ADAPTER-DESIGN-REVIEW-01`
+
+Scope:
+
+- define the future `aits_live_preflight_readonly_adapter_contract_v1`
+- keep the adapter as a validation-only shape check, not a service call
+- separate one-shot unlock readiness from unlock consumption
+- confirm the final live sequence should run Router validation, RiskGuard
+  validation, LivePreflight validation, then final unlock confirmation before
+  any ExecutionBridge/OrderService/OrderAdapter path
+- keep actual LivePreflight, unlock consumption, actual emit, Router, RiskGuard,
+  OrderService, and OrderAdapter disabled
