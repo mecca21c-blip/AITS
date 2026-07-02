@@ -1224,6 +1224,21 @@ The expected operator confirm phrase is based on `configured_order_amount_krw`:
 The next allowed Goal is
 `AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`.
 
+The setting read-path preflight is covered by:
+
+- `live-minimal-order-setting-readpath-preflight`
+
+Example:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-setting-readpath-preflight --target-symbol KRW-PYTH --observe-only
+```
+
+This mode reports the read-only mapping from UI/runtime/prefs/schema to
+`configured_order_amount_krw`. The expected SSOT is
+`settings.strategy.order_amount_krw`; 10,000 KRW is the current/default example,
+not a hardcoded live-order amount.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

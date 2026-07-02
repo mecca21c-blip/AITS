@@ -546,3 +546,8 @@ Scope:
   `AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`; only that Goal may
   consider a single real setting-amount submit with explicit user approval and
   no retry
+- before that actual test, the setting read-path preflight must confirm
+  `settings.strategy.order_amount_krw` as the configured amount SSOT
+- emit gate amount logic must not hardcode 10,000 KRW as the live-order amount;
+  10,000 KRW is only the current/default configured value unless the user
+  changes it in the UI before ON

@@ -7317,6 +7317,134 @@ def _run_live_minimal_order_armed_live_proof(
     report["status"] = report["pass_status"]
 
 
+def _run_live_minimal_order_setting_readpath_preflight(
+    report: dict[str, Any],
+    *,
+    target_symbol: str | None = None,
+) -> None:
+    blockers: list[str] = []
+    warnings: list[str] = []
+    configured_amount = 0
+    configured_source = "unknown"
+    prefs_path = ""
+    load_error = ""
+
+    try:
+        from app.utils.prefs import _get_prefs_path, load_settings
+
+        prefs_path = str(_get_prefs_path() or "")
+        settings = load_settings()
+        strategy = getattr(settings, "strategy", None)
+        if hasattr(strategy, "model_dump"):
+            strategy_payload = strategy.model_dump()
+        elif isinstance(strategy, dict):
+            strategy_payload = dict(strategy)
+        else:
+            strategy_payload = {}
+        configured_amount = int(strategy_payload.get("order_amount_krw") or 0)
+        configured_source = "prefs.load_settings.strategy.order_amount_krw"
+    except Exception as exc:
+        load_error = f"{type(exc).__name__}: {exc}"
+        blockers.append("configured_order_amount_read_path_missing")
+
+    schema_default = 0
+    try:
+        from app.utils.settings_schema import StrategyConfig
+
+        schema_default = int(getattr(StrategyConfig(), "order_amount_krw", 0) or 0)
+    except Exception as exc:
+        warnings.append(f"settings_schema_default_unavailable:{type(exc).__name__}")
+
+    target = _normalize_symbol_text(str(target_symbol or "KRW-PYTH"))
+    min_order = 10_000
+    per_order_cap = 12_000
+    window_cap = 20_000
+    total_window_used = 0
+    total_after = total_window_used + configured_amount
+    template = "AITS LIVE ORDER {symbol} {side.upper()} {configured_order_amount_krw}"
+    sample_phrase = f"AITS LIVE ORDER {target} BUY {configured_amount}" if target and configured_amount else ""
+
+    amount_ssot_confirmed = bool(
+        configured_amount
+        and configured_source == "prefs.load_settings.strategy.order_amount_krw"
+        and schema_default == 10_000
+    )
+    amount_is_hardcoded = False
+    if not configured_amount:
+        blockers.append("configured_order_amount_read_path_missing")
+    if not amount_ssot_confirmed:
+        blockers.append("amount_ssot_not_confirmed")
+    if amount_is_hardcoded:
+        blockers.append("amount_hardcoded_to_10000")
+    if configured_amount and configured_amount < min_order:
+        blockers.append("configured_amount_below_min_order")
+    if configured_amount and configured_amount > per_order_cap:
+        blockers.append("configured_amount_exceeds_per_order_hard_cap")
+    if configured_amount and total_after > window_cap:
+        blockers.append("guarded_window_cap_not_verifiable")
+    if "{configured_order_amount_krw}" not in template:
+        blockers.append("confirm_phrase_not_setting_amount_based")
+
+    safety_flags = {
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "unlock_service_called": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "execution_bridge_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "provider_external_call_count": 0,
+        "submitted_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+    }
+    ready = bool(not blockers)
+    report.update(
+        {
+            "mode": "live-minimal-order-setting-readpath-preflight",
+            "schema": "aits_live_minimal_order_setting_readpath_preflight_v1",
+            "configured_order_amount_krw": configured_amount,
+            "configured_order_amount_source": configured_source,
+            "ui_setting_key": "StrategyTab.spn_order_amount -> settings.strategy.order_amount_krw",
+            "runtime_setting_key": "MainWindow._settings.strategy.order_amount_krw",
+            "prefs_key": "prefs.json.strategy.order_amount_krw",
+            "settings_schema_key": "StrategyConfig.order_amount_krw",
+            "prefs_path": prefs_path,
+            "read_error": load_error,
+            "amount_ssot_confirmed": amount_ssot_confirmed,
+            "amount_is_hardcoded": amount_is_hardcoded,
+            "current_default_or_current_value_krw": configured_amount or schema_default,
+            "settings_schema_default_order_amount_krw": schema_default,
+            "min_order_krw": min_order,
+            "ui_preflight_min_order_krw": 5_000,
+            "per_order_hard_cap_krw": per_order_cap,
+            "total_guarded_window_cap_krw": window_cap,
+            "hard_cap_validated": bool(configured_amount and min_order <= configured_amount <= per_order_cap),
+            "window_cap_validated": bool(configured_amount and total_after <= window_cap),
+            "next_confirm_phrase_template": template,
+            "sample_confirm_phrase_for_current_amount": sample_phrase,
+            "ready_for_setting_amount_one_shot_test": ready,
+            "next_allowed_goal": "AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01",
+            "blockers": list(dict.fromkeys(blockers)),
+            "warnings": list(dict.fromkeys(warnings)),
+            "actual_order": False,
+            "actual_order_intent_emitted": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "safety_flags": safety_flags,
+            **safety_flags,
+        }
+    )
+    report["pass_status"] = "pass" if ready else "blocked"
+    report["status"] = report["pass_status"]
+
+
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
     return {
         "name": name,
@@ -13983,6 +14111,7 @@ def run_harness(
         "live-order-final-gate-integration-live-proof",
         "live-minimal-order-armed-fixture-proof",
         "live-minimal-order-armed-live-proof",
+        "live-minimal-order-setting-readpath-preflight",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
         "riskguard-readonly-adapter-skeleton-live-proof",
         "riskguard-readonly-actual-adapter-fixture-proof",
@@ -14171,6 +14300,12 @@ def run_harness(
                 mock_submitted_count=mock_submitted_count,
                 operator_confirm_phrase=operator_confirm_phrase,
                 configured_order_amount_krw=int(configured_order_amount_krw if configured_order_amount_krw is not None else intended_amount_krw),
+            )
+        elif mode == "live-minimal-order-setting-readpath-preflight":
+            _install_provider_post_guard(report)
+            _run_live_minimal_order_setting_readpath_preflight(
+                report,
+                target_symbol=target_symbol,
             )
         elif mode == "riskguard-readonly-adapter-skeleton-fixture-proof":
             _run_riskguard_readonly_adapter_skeleton_fixture_proof(report)
@@ -14677,6 +14812,7 @@ def main() -> int:
             "live-order-final-gate-integration-live-proof",
             "live-minimal-order-armed-fixture-proof",
             "live-minimal-order-armed-live-proof",
+            "live-minimal-order-setting-readpath-preflight",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
             "riskguard-readonly-adapter-skeleton-live-proof",
             "riskguard-readonly-actual-adapter-fixture-proof",

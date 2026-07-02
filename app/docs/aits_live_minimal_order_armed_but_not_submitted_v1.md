@@ -205,3 +205,9 @@ order amount, and only with explicit user approval, exact confirm phrase match,
 fixed target symbol, no retry, and no additional order. The configured amount
 must remain within the 10,000 KRW minimum, 12,000 KRW per-order hard cap, and
 20,000 KRW guarded-window cap.
+
+Before that actual test, `AITS-LIVE-MINIMAL-ORDER-SETTING-READPATH-PREFLIGHT-01`
+must confirm that the amount comes from the UI/settings path
+`settings.strategy.order_amount_krw`. Users who want to test a different amount
+must change it in the program UI before ON; the harness confirm phrase must then
+use that configured amount.
