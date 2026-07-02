@@ -7445,6 +7445,418 @@ def _run_live_minimal_order_setting_readpath_preflight(
     report["status"] = report["pass_status"]
 
 
+def _read_live_on_runtime_e2e_order_amount() -> tuple[int, str, str]:
+    try:
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+        strategy = getattr(settings, "strategy", None)
+        if hasattr(strategy, "model_dump"):
+            payload = strategy.model_dump()
+        elif isinstance(strategy, dict):
+            payload = dict(strategy)
+        else:
+            payload = {}
+        return int(payload.get("order_amount_krw") or 0), "prefs.load_settings.strategy.order_amount_krw", ""
+    except Exception as exc:
+        return 0, "unavailable", f"{type(exc).__name__}: {exc}"
+
+
+def _live_on_runtime_e2e_tail_log(max_chars: int = 800_000) -> tuple[list[str], str, str]:
+    log_path = ROOT / "data" / "logs" / "aits.log"
+    if not log_path.exists():
+        return [], str(log_path), "log_missing"
+    try:
+        text = log_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        return [], str(log_path), f"log_read_error:{type(exc).__name__}"
+    if len(text) > max_chars:
+        text = text[-max_chars:]
+    return text.splitlines(), str(log_path), ""
+
+
+def _live_on_runtime_e2e_latest_reports(output_dir: Path) -> list[dict[str, Any]]:
+    try:
+        paths = sorted(output_dir.glob("runtime_smoke_report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+    except Exception:
+        paths = []
+    reports: list[dict[str, Any]] = []
+    for path in paths[:80]:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            data["_report_path"] = str(path)
+            reports.append(data)
+    return reports
+
+
+def _live_on_runtime_e2e_latest_report_by_mode(reports: list[dict[str, Any]], mode: str) -> dict[str, Any]:
+    for report in reports:
+        if report.get("mode") == mode:
+            return report
+    return {}
+
+
+def _live_on_runtime_e2e_extract_symbol(line: str) -> str:
+    for pattern in (
+        r"symbol[=:]\s*(KRW-[A-Z0-9]+)",
+        r"target_symbol[=:]\s*(KRW-[A-Z0-9]+)",
+        r"candidate_symbol[=:]\s*(KRW-[A-Z0-9]+)",
+        r"\b(KRW-[A-Z0-9]+)\b",
+    ):
+        match = re.search(pattern, line)
+        if match:
+            return _normalize_symbol_text(match.group(1))
+    return ""
+
+
+def _live_on_runtime_e2e_extract_amount(line: str) -> int:
+    for pattern in (
+        r"amount_krw[=:]\s*([0-9]+)",
+        r"intended_amount_krw[=:]\s*([0-9]+)",
+        r"configured_order_amount_krw[=:]\s*([0-9]+)",
+        r"price[=:]\s*([0-9]+)",
+    ):
+        match = re.search(pattern, line)
+        if match:
+            try:
+                return int(match.group(1))
+            except Exception:
+                return 0
+    return 0
+
+
+def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
+    mapping = {
+        "on_state_not_detected": "no_runtime",
+        "runtime_loop_not_started": "no_runtime",
+        "market_feed_missing": "observing_only",
+        "managed_pool_empty": "candidate_missing",
+        "score_update_missing": "candidate_missing",
+        "no_buy_ready_candidate": "candidate_missing",
+        "ai_opinion_not_fresh": "blocked_before_router",
+        "order_intent_candidate_missing": "blocked_before_router",
+        "router_not_reached": "blocked_before_router",
+        "riskguard_not_reached": "blocked_at_router",
+        "live_preflight_not_reached": "blocked_at_riskguard",
+        "unlock_not_reached": "blocked_at_live_preflight",
+        "execution_bridge_not_reached": "blocked_before_execution",
+        "order_service_not_reached": "blocked_at_execution",
+        "order_adapter_not_reached": "blocked_at_order_service",
+        "submit_not_attempted": "blocked_at_order_adapter",
+        "exchange_response_missing": "submitted_but_no_exchange_response",
+        "trade_log_missing": "submitted",
+        "position_update_missing": "submitted",
+    }
+    return mapping.get(blocker, "observing_only")
+
+
+def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
+    mapping = {
+        "on_state_not_detected": "사용자가 AITS ON 실행 후 로그를 다시 수집",
+        "runtime_loop_not_started": "ON 상태와 runtime loop 시작 로그 연결 확인",
+        "market_feed_missing": "public market feed/top markets feed 회복 확인",
+        "managed_pool_empty": "Managed Pool rows 로드/보존 상태 확인",
+        "score_update_missing": "Basic score update/CandidateFeedState 경로 확인",
+        "no_buy_ready_candidate": "Basic buy_ready 조건과 관리종목 점수 확인",
+        "ai_opinion_not_fresh": "AI opinion freshness 또는 수동 AI 분석 반영 확인",
+        "order_intent_candidate_missing": "buy_ready to order_intent_candidate 계약 입력 확인",
+        "router_not_reached": "Router validation handoff boundary 확인",
+        "riskguard_not_reached": "RiskGuard read-only/actual gate handoff 확인",
+        "live_preflight_not_reached": "LivePreflight gate handoff 확인",
+        "unlock_not_reached": "one-shot unlock final confirmation 연결 확인",
+        "execution_bridge_not_reached": "final emit gate 이후 ExecutionBridge handoff 확인",
+        "order_service_not_reached": "ExecutionBridge to OrderService boundary 확인",
+        "order_adapter_not_reached": "OrderService to OrderAdapter boundary 확인",
+        "submit_not_attempted": "OrderAdapter submit boundary와 final submit 조건 확인",
+        "exchange_response_missing": "Upbit response/reconciliation 로그 확인",
+        "trade_log_missing": "trade log persistence 확인",
+        "position_update_missing": "position/investment UI reflection 확인",
+    }
+    return mapping.get(blocker, "다음 미도달 stage의 owner/path 확인")
+
+
+def _build_live_on_runtime_e2e_diagnostic_report(
+    *,
+    output_dir: Path,
+    mode: str,
+) -> dict[str, Any]:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log()
+    lowered = [line.lower() for line in lines]
+    joined_lower = "\n".join(lowered)
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    dry_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "dry-read")
+    readpath_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "live-minimal-order-setting-readpath-preflight")
+    top_feed_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "top-markets-feed-proof")
+    basic_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "basic-candidate-discovery-proof")
+    contract_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "buy-ready-order-intent-contract-proof")
+
+    configured_amount = int(readpath_report.get("configured_order_amount_krw") or 0)
+    configured_source = str(readpath_report.get("configured_order_amount_source") or "")
+    amount_read_error = ""
+    if not configured_amount:
+        configured_amount, configured_source, amount_read_error = _read_live_on_runtime_e2e_order_amount()
+
+    managed_rows = _load_saved_managed_pool_rows_readonly()
+    managed_pool_count = len(managed_rows)
+    if dry_report.get("managed_row_count") is not None:
+        try:
+            managed_pool_count = int(dry_report.get("managed_row_count") or managed_pool_count)
+        except Exception:
+            pass
+
+    score_lines = [line for line in lines if "CandidateFeedState" in line or "score_update" in line or "ai score update" in line]
+    score_update_count = len(score_lines)
+    buy_ready_count = 0
+    for line in reversed(score_lines):
+        match = re.search(r"buy_ready[=:]\s*([0-9]+)", line)
+        if match:
+            buy_ready_count = int(match.group(1))
+            break
+    if contract_report.get("buy_ready_count") is not None:
+        try:
+            buy_ready_count = max(buy_ready_count, int(contract_report.get("buy_ready_count") or 0))
+        except Exception:
+            pass
+
+    market_feed_ok = bool(
+        (top_feed_report and int(top_feed_report.get("top_markets_count") or 0) > 0)
+        or "market_feed_ok=true" in joined_lower
+        or "top_markets_count=" in joined_lower
+    )
+    on_state_detected = any(
+        token in joined_lower
+        for token in (
+            "[aits][on]",
+            "aits on",
+            "live_on",
+            "on_state=true",
+            "runtime on",
+            "trading_enabled=true",
+        )
+    )
+    runtime_loop_started = any(
+        token in joined_lower
+        for token in (
+            "runtime_loop_started",
+            "runtime loop started",
+            "live monitor started",
+            "guarded window",
+            "[aits][live",
+        )
+    )
+    ai_opinion_fresh_count = sum(
+        1
+        for line in lowered
+        if "fresh_manual_refresh" in line or "freshness=fresh" in line or "freshness: fresh" in line
+    )
+    order_intent_lines = [line for line in lines if "order_intent" in line or "order intent" in line]
+    router_lines = [line for line in lines if "RouterSummary" in line or "router_validation" in line]
+    riskguard_lines = [line for line in lines if "RiskGuard" in line or "risk_guard" in line]
+    preflight_lines = [line for line in lines if "LivePreflight" in line or "live_preflight" in line]
+    unlock_lines = [line for line in lines if "unlock" in line.lower()]
+    execution_lines = [
+        line
+        for line in lines
+        if ("ExecutionBridge" in line or "execution_bridge" in line)
+        and re.search(r"handoff|emit|order|execute|submit", line, flags=re.IGNORECASE)
+    ]
+    order_service_lines = [
+        line
+        for line in lines
+        if ("OrderService" in line or "order_service" in line)
+        and re.search(r"place|submit|buy|sell|order_request|live_order", line, flags=re.IGNORECASE)
+    ]
+    order_adapter_lines = [
+        line
+        for line in lines
+        if ("OrderAdapter" in line or "order_adapter" in line)
+        and re.search(r"place|submit|buy|sell|exchange|request", line, flags=re.IGNORECASE)
+    ]
+    submit_lines = [
+        line
+        for line in lines
+        if re.search(
+            r"submit_attempt|submitted_count[=:]\s*[1-9][0-9]*|submitted[=:]\s*[1-9][0-9]*",
+            line,
+            flags=re.IGNORECASE,
+        )
+    ]
+    retry_count = sum(1 for line in lowered if "retry_order" in line or " retry" in line)
+    exchange_response_detected = bool(
+        submit_lines
+        and any("upbit" in line and ("response" in line or "201" in line or "uuid" in line) for line in lowered)
+    )
+    trade_log_detected = bool(submit_lines and ("trade_log" in joined_lower or "매매기록" in joined_lower))
+    position_update_detected = bool(submit_lines and ("position_update" in joined_lower or "investment" in joined_lower or "투자현황" in joined_lower))
+
+    detected_candidate_symbol = ""
+    for source_lines in (order_intent_lines, router_lines, riskguard_lines, preflight_lines, score_lines):
+        for line in reversed(source_lines):
+            detected_candidate_symbol = _live_on_runtime_e2e_extract_symbol(line)
+            if detected_candidate_symbol:
+                break
+        if detected_candidate_symbol:
+            break
+    if not detected_candidate_symbol:
+        for symbol in contract_report.get("buy_ready_symbols") or []:
+            detected_candidate_symbol = _normalize_symbol_text(symbol)
+            if detected_candidate_symbol:
+                break
+
+    detected_candidate_amount = 0
+    for line in reversed(order_intent_lines + router_lines + order_adapter_lines + submit_lines):
+        detected_candidate_amount = _live_on_runtime_e2e_extract_amount(line)
+        if detected_candidate_amount:
+            break
+
+    submitted_count = 0
+    for line in submit_lines:
+        match = re.search(r"submitted_count[=:]\s*([0-9]+)|submitted[=:]\s*([0-9]+)", line, flags=re.IGNORECASE)
+        if match:
+            submitted_count = max(submitted_count, int(match.group(1) or match.group(2) or 0))
+    if dry_report.get("submitted_count") is not None:
+        try:
+            submitted_count = max(submitted_count, int(dry_report.get("submitted_count") or 0))
+        except Exception:
+            pass
+    submit_attempt_count = len(submit_lines)
+
+    stage_checks = [
+        ("on_state_detected", on_state_detected, "on_state_not_detected"),
+        ("runtime_loop_started", runtime_loop_started, "runtime_loop_not_started"),
+        ("market_feed_ok", market_feed_ok, "market_feed_missing"),
+        ("managed_pool_present", managed_pool_count > 0, "managed_pool_empty"),
+        ("score_update_present", score_update_count > 0, "score_update_missing"),
+        ("buy_ready_present", buy_ready_count > 0, "no_buy_ready_candidate"),
+        ("ai_opinion_fresh_present", ai_opinion_fresh_count > 0, "ai_opinion_not_fresh"),
+        ("order_intent_candidate_detected", bool(order_intent_lines), "order_intent_candidate_missing"),
+        ("router_validation_reached", bool(router_lines), "router_not_reached"),
+        ("riskguard_reached", bool(riskguard_lines), "riskguard_not_reached"),
+        ("live_preflight_reached", bool(preflight_lines), "live_preflight_not_reached"),
+        ("unlock_reached", bool(unlock_lines), "unlock_not_reached"),
+        ("execution_bridge_reached", bool(execution_lines), "execution_bridge_not_reached"),
+        ("order_service_reached", bool(order_service_lines), "order_service_not_reached"),
+        ("order_adapter_reached", bool(order_adapter_lines), "order_adapter_not_reached"),
+        ("submit_attempt_detected", submit_attempt_count > 0, "submit_not_attempted"),
+        ("exchange_response_detected", exchange_response_detected, "exchange_response_missing"),
+        ("trade_log_detected", trade_log_detected, "trade_log_missing"),
+        ("position_update_detected", position_update_detected, "position_update_missing"),
+    ]
+    first_blocker = ""
+    all_blockers: list[str] = []
+    last_reached_stage = "none"
+    for stage, passed, blocker in stage_checks:
+        if passed:
+            last_reached_stage = stage
+            continue
+        all_blockers.append(blocker)
+        if not first_blocker:
+            first_blocker = blocker
+
+    critical_flags: list[str] = []
+    submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
+    if submitted_count > 1:
+        critical_flags.append("submitted_count_above_one")
+    if retry_count > 0:
+        critical_flags.append("retry_detected")
+    if len(submitted_symbols) > 1:
+        critical_flags.append("multiple_submitted_symbols_detected")
+    if detected_candidate_amount and configured_amount and detected_candidate_amount != configured_amount and submit_attempt_count:
+        critical_flags.append("submitted_amount_differs_from_configured_setting")
+    if order_adapter_lines and not riskguard_lines:
+        critical_flags.append("order_adapter_reached_without_riskguard")
+    if submit_attempt_count and not unlock_lines:
+        critical_flags.append("submit_reached_without_unlock")
+
+    order_path_status = "submitted_and_recorded" if submitted_count and trade_log_detected and position_update_detected else ""
+    if not order_path_status and submitted_count:
+        order_path_status = "submitted" if exchange_response_detected else "submitted_but_no_exchange_response"
+    if not order_path_status:
+        order_path_status = _live_on_runtime_e2e_status_from_blocker(first_blocker)
+    diagnostic_status = "critical" if critical_flags else ("blocked" if first_blocker else "complete")
+    if mode.endswith("dryrun") and first_blocker in {"on_state_not_detected", "runtime_loop_not_started"}:
+        diagnostic_status = "ready_for_user_on_log_collection"
+
+    safety_flags = {
+        "actual_order_forced": False,
+        "forced_candidate_injected": False,
+        "forced_symbol_configured": False,
+        "provider_external_call_count": 0,
+        "submitted_count": submitted_count,
+        "critical_flags": critical_flags,
+    }
+    return {
+        "mode": mode,
+        "schema": "aits_live_on_runtime_e2e_diagnostic_v1",
+        "diagnostic_status": diagnostic_status,
+        "log_path": log_path,
+        "log_read_error": log_read_error,
+        "analyzed_log_line_count": len(lines),
+        "recent_report_count": len(reports),
+        "on_state_detected": bool(on_state_detected),
+        "runtime_loop_started": bool(runtime_loop_started),
+        "configured_order_amount_krw": configured_amount,
+        "configured_order_amount_source": configured_source,
+        "configured_order_amount_read_error": amount_read_error,
+        "selected_provider": str(dry_report.get("selected_provider") or dry_report.get("provider") or ""),
+        "market_feed_ok": bool(market_feed_ok),
+        "managed_pool_count": managed_pool_count,
+        "score_update_count": score_update_count,
+        "buy_ready_count": buy_ready_count,
+        "ai_opinion_fresh_count": ai_opinion_fresh_count,
+        "order_intent_candidate_detected": bool(order_intent_lines),
+        "detected_candidate_symbol": detected_candidate_symbol,
+        "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
+        "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
+        "detected_candidate_amount_krw": detected_candidate_amount,
+        "target_symbol_required": False,
+        "fixture_symbol_used_for_runtime": False,
+        "router_validation_reached": bool(router_lines),
+        "riskguard_reached": bool(riskguard_lines),
+        "live_preflight_reached": bool(preflight_lines),
+        "unlock_reached": bool(unlock_lines),
+        "execution_bridge_reached": bool(execution_lines),
+        "order_service_reached": bool(order_service_lines),
+        "order_adapter_reached": bool(order_adapter_lines),
+        "submit_attempt_count": submit_attempt_count,
+        "submitted_count": submitted_count,
+        "exchange_response_detected": bool(exchange_response_detected),
+        "trade_log_detected": bool(trade_log_detected),
+        "position_update_detected": bool(position_update_detected),
+        "ui_reflection_required": bool(submitted_count and not position_update_detected),
+        "last_reached_stage": last_reached_stage,
+        "first_blocker": first_blocker,
+        "all_blockers": all_blockers,
+        "next_fix_target": _live_on_runtime_e2e_next_fix_target(first_blocker),
+        "order_path_status": order_path_status,
+        "stage_checks": [{"stage": stage, "passed": bool(passed), "blocker_if_failed": blocker} for stage, passed, blocker in stage_checks],
+        "safety_flags": safety_flags,
+        "submitted_symbols": submitted_symbols,
+        "retry_count": retry_count,
+        "critical_flags": critical_flags,
+        "actual_order_forced": False,
+        "paper_mode_created": False,
+        "virtual_order_created": False,
+        "provider_external_call_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": bool(critical_flags),
+        "pass_status": "fail" if critical_flags else "pass",
+        "status": "fail" if critical_flags else "pass",
+    }
+
+
+def _run_live_on_runtime_e2e_diagnostic(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    mode: str,
+) -> None:
+    report.update(_build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode=mode))
+
+
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
     return {
         "name": name,
@@ -14112,6 +14524,8 @@ def run_harness(
         "live-minimal-order-armed-fixture-proof",
         "live-minimal-order-armed-live-proof",
         "live-minimal-order-setting-readpath-preflight",
+        "live-on-runtime-e2e-diagnostic-dryrun",
+        "live-on-runtime-e2e-diagnostic-log-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
         "riskguard-readonly-adapter-skeleton-live-proof",
         "riskguard-readonly-actual-adapter-fixture-proof",
@@ -14306,6 +14720,13 @@ def run_harness(
             _run_live_minimal_order_setting_readpath_preflight(
                 report,
                 target_symbol=target_symbol,
+            )
+        elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
+            _install_provider_post_guard(report)
+            _run_live_on_runtime_e2e_diagnostic(
+                report,
+                output_dir=output_dir,
+                mode=mode,
             )
         elif mode == "riskguard-readonly-adapter-skeleton-fixture-proof":
             _run_riskguard_readonly_adapter_skeleton_fixture_proof(report)
@@ -14813,6 +15234,8 @@ def main() -> int:
             "live-minimal-order-armed-fixture-proof",
             "live-minimal-order-armed-live-proof",
             "live-minimal-order-setting-readpath-preflight",
+            "live-on-runtime-e2e-diagnostic-dryrun",
+            "live-on-runtime-e2e-diagnostic-log-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
             "riskguard-readonly-adapter-skeleton-live-proof",
             "riskguard-readonly-actual-adapter-fixture-proof",

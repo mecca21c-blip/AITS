@@ -1276,3 +1276,34 @@ The report records the selection owner, resolver owner, table object name,
 `fallback_used=false`, the three symbols to match, overlay changes limited to
 the target symbol, provider call count `0` for LOCAL, and no order execution,
 final-action change, or Managed Pool mutation.
+
+### live-on-runtime-e2e-diagnostic
+
+The ON runtime E2E diagnostic is covered by:
+
+- `live-on-runtime-e2e-diagnostic-dryrun`
+- `live-on-runtime-e2e-diagnostic-log-summary`
+
+Examples:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-runtime-e2e-diagnostic-dryrun --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-runtime-e2e-diagnostic-log-summary --observe-only
+```
+
+These modes emit `aits_live_on_runtime_e2e_diagnostic_v1`. They read recent
+runtime smoke reports and `data/logs/aits.log`; they do not click AITS ON, do
+not require `--target-symbol`, do not force a candidate, and do not call
+providers, Router, RiskGuard, LivePreflight, ExecutionBridge, OrderService, or
+OrderAdapter.
+
+Runtime diagnostics must keep fixture symbols separate from live runtime
+symbols. The report uses `detected_candidate_symbol` only when the app's own
+runtime logs or recent reports reveal one. If no candidate is visible, it
+reports `first_blocker`, `all_blockers`, `last_reached_stage`, and
+`next_fix_target` instead of injecting a symbol.
+
+PASS means the diagnostic report was generated safely. It is not order
+permission. The safety fields remain `provider_external_call_count=0`,
+`managed_pool_mutation=false`, `actual_order_forced=false`,
+`forced_candidate_injected=false`, and `forced_symbol_configured=false`.

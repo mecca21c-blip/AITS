@@ -96,3 +96,7 @@ Before `AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`, the user
 should confirm the desired order amount in the program UI before pressing ON.
 The actual one-shot test confirm phrase must match that configured amount
 exactly.
+
+For `AITS-LIVE-ON-RUNTIME-E2E-DIAGNOSTIC-01`, the configured amount read path is
+used together with the app's own detected runtime candidate. The diagnostic must
+not force a fixture symbol or invent a target symbol for the ON flow.

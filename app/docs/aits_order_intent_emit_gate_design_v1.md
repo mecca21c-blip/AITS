@@ -551,3 +551,21 @@ Scope:
 - emit gate amount logic must not hardcode 10,000 KRW as the live-order amount;
   10,000 KRW is only the current/default configured value unless the user
   changes it in the UI before ON
+
+Completed live ON runtime E2E diagnostic:
+
+`AITS-LIVE-ON-RUNTIME-E2E-DIAGNOSTIC-01`
+
+Scope:
+
+- add read-only diagnostic modes for the actual AITS ON runtime path:
+  `live-on-runtime-e2e-diagnostic-dryrun` and
+  `live-on-runtime-e2e-diagnostic-log-summary`
+- keep fixture symbols separate from runtime symbols; `KRW-PYTH` remains a
+  harness fixture example and is not a forced live runtime target
+- require the diagnostic to use `detected_candidate_symbol` only when the app's
+  own logs or reports reveal one
+- report `last_reached_stage`, `first_blocker`, `all_blockers`, and
+  `next_fix_target` when the runtime path stops before submit
+- keep forced candidates, forced buys, target-symbol injection, bypasses,
+  paper/virtual modes, provider calls, and order submits out of the diagnostic
