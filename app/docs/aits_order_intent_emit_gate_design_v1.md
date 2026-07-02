@@ -407,3 +407,21 @@ Scope:
   duplicate/repeat/relock final check, then execution services
 - keep actual RiskGuard, LivePreflight, unlock consumption, actual emit,
   Router, OrderService, and OrderAdapter disabled
+
+Completed RiskGuard read-only adapter skeleton proof:
+
+`AITS-RISKGUARD-READONLY-ADAPTER-SKELETON-PROOF-01`
+
+Scope:
+
+- implement harness-only builders and validators for
+  `aits_riskguard_readonly_adapter_input_v1` and
+  `aits_riskguard_readonly_adapter_contract_v1`
+- add fixture/live proof modes without importing or calling
+  `app/services/risk_guard.py`
+- keep `adapter_mode=readonly_contract`,
+  `would_call_riskguard=false`, `risk_guard_called=false`, and
+  `risk_decision=not_evaluated`
+- keep actual RiskGuard, LivePreflight, unlock consumption, actual emit,
+  Router, OrderService, OrderAdapter, provider calls, and submitted increments
+  disabled

@@ -207,6 +207,25 @@ The next implementation should be limited to:
 
 `AITS-RISKGUARD-READONLY-ADAPTER-SKELETON-PROOF-01`
 
+## Skeleton Proof Implementation
+
+`AITS-RISKGUARD-READONLY-ADAPTER-SKELETON-PROOF-01` implements the contract in
+the runtime smoke harness only. It adds:
+
+- `riskguard-readonly-adapter-skeleton-fixture-proof`
+- `riskguard-readonly-adapter-skeleton-live-proof`
+- `_build_riskguard_readonly_adapter_input_v1`
+- `_evaluate_riskguard_readonly_adapter_contract_v1`
+- `_validate_riskguard_readonly_adapter_contract_v1`
+
+The skeleton proof builds and validates read-only contract objects. It does not
+import `app/services/risk_guard.py`, does not call RiskGuard, does not call
+LivePreflight, does not consume unlock, does not emit an order intent, and does
+not reach Router, ExecutionBridge, OrderService, or OrderAdapter.
+
+`adapter_ready=true` remains only a contract-readiness signal for the next proof
+step. It is not RiskGuard approval and not live-order permission.
+
 That Goal may add a harness-only skeleton adapter and proof payload, but it must
 still keep `would_call_riskguard=false`, `risk_guard_called=false`,
 `would_call_live_preflight=false`, `live_preflight_called=false`,
