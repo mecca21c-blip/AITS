@@ -1027,6 +1027,25 @@ candidate, invalid fixtures to return validation errors, `user_added` to remain
 `user_added_requires_live_policy_confirmation` as a policy warning, and all
 order/Router/Risk/Preflight/Order call flags to remain false.
 
+`order-intent-source-live-policy-stub-proof` applies
+`aits_order_intent_source_live_policy_v1` to the Router validation stub payload.
+It proves source policy readiness only; it does not emit an order intent or call
+DecisionRouter, RiskGuard, LivePreflight, OrderService, or OrderAdapter.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-source-live-policy-stub-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-source-live-policy-stub-live-proof --target-symbol KRW-PYTH --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-source-live-policy-stub-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --observe-only
+```
+
+Without approval, PASS requires `source_policy_ready=false`,
+`policy_blockers` containing `user_added_not_session_approved`, and
+`router_validation_payload_ready=false`. With exact approval, PASS requires
+`source_policy_ready=true`, `policy_blockers=[]`, no
+`user_added_requires_live_policy_confirmation` warning, and
+`router_validation_payload_ready=true`. Both paths must keep all emit and
+Router/Risk/Preflight/Order call flags false.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

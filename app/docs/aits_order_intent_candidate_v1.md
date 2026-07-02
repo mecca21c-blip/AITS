@@ -187,3 +187,14 @@ Decision summary:
   required.
 - `system_seed`, `holding`, `holding_display`, `holding_eligible`,
   `trade_hold`, `dust`, and `unknown` remain separate source policies.
+
+The source live policy stub proof applies this decision to the Router validation
+payload:
+
+- without `session_approved_symbols`, `KRW-PYTH` is blocked by
+  `user_added_not_session_approved` and
+  `router_validation_payload_ready=false`;
+- with `session_approved_symbols=["KRW-PYTH"]`, the source policy is ready,
+  `policy_blockers=[]`, the `user_added` warning is removed for that symbol,
+  and `router_validation_payload_ready=true`;
+- actual emission and Router/Risk/Order calls remain false in both cases.

@@ -106,13 +106,34 @@ This policy review does not permit:
 - provider external call
 - real order
 
-## Next Goal
+## Stub Proof Result
 
-Recommended next implementation proof:
+Completed implementation proof:
 
 `AITS-ORDER-INTENT-CANDIDATE-SOURCE-LIVE-POLICY-STUB-PROOF-01`
 
-That Goal should add a read-only policy evaluator for
-`aits_order_intent_source_live_policy_v1`, prove `user_added` blocks without
-`session_approved_symbols`, and prove that a symbol-scoped approval only clears
-the source policy blocker while keeping actual emission disabled.
+That Goal adds a read-only evaluator for
+`aits_order_intent_source_live_policy_v1`.
+
+Proof expectations:
+
+- `source=user_added`, `session_approved_symbols=[]`:
+  `source_policy_ready=false`, `policy_blockers` contains
+  `user_added_not_session_approved`, and the Router validation payload is not
+  ready for live handoff.
+- `source=user_added`, `session_approved_symbols=["KRW-PYTH"]`:
+  `source_policy_ready=true`, `policy_blockers=[]`, the
+  `user_added_requires_live_policy_confirmation` warning is removed for that
+  symbol, and the Router validation payload can remain ready.
+- In both cases, `actual_order_intent_emitted=false`, all Router/Risk/Preflight
+  and Order call flags remain false, and `submitted_count=0`.
+
+## Next Goal
+
+Recommended next proof:
+
+`AITS-ORDER-INTENT-CANDIDATE-ONE-SHOT-UNLOCK-READINESS-STUB-PROOF-01`
+
+That Goal should remain read-only and prove the one-shot unlock readiness
+contract after source policy readiness, without invoking Router, RiskGuard,
+LivePreflight, OrderService, OrderAdapter, or real orders.

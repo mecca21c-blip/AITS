@@ -309,7 +309,7 @@ Policy document:
 
 `app/docs/aits_order_intent_source_live_policy_v1.md`
 
-Recommended next Goal:
+Completed source live policy stub proof:
 
 `AITS-ORDER-INTENT-CANDIDATE-SOURCE-LIVE-POLICY-STUB-PROOF-01`
 
@@ -320,3 +320,20 @@ Scope:
 - prove exact symbol approval clears only the source blocker
 - keep actual emit, Router, RiskGuard, LivePreflight, OrderService, and
   OrderAdapter disabled
+
+Result:
+
+- `KRW-PYTH` without approval is blocked at source policy.
+- `KRW-PYTH` with `session_approved_symbols=["KRW-PYTH"]` is source-policy
+  ready and keeps `router_validation_payload_ready=true`.
+- Approval does not emit an intent and does not call Router/Risk/Preflight/Order.
+
+Recommended next Goal:
+
+`AITS-ORDER-INTENT-CANDIDATE-ONE-SHOT-UNLOCK-READINESS-STUB-PROOF-01`
+
+Scope:
+
+- prove the one-shot unlock readiness contract after source policy readiness
+- keep actual unlock execution, actual emit, Router, RiskGuard,
+  LivePreflight, OrderService, and OrderAdapter disabled

@@ -2244,11 +2244,170 @@ def _validate_router_validation_stub_payload_v1(payload: dict[str, Any] | None) 
             errors.append(f"required_safety_flags.{key}_invalid")
     if payload.get("policy_blockers"):
         errors.append("policy_blockers_present")
-    if payload.get("managed_source") == "user_added" and "user_added_requires_live_policy_confirmation" not in set(
-        payload.get("policy_warnings") or []
+    source_policy = payload.get("source_policy") or {}
+    source_policy_ready = bool(source_policy.get("source_policy_ready")) if source_policy else False
+    if source_policy and not source_policy_ready:
+        errors.append("source_policy_not_ready")
+    if (
+        payload.get("managed_source") == "user_added"
+        and not source_policy_ready
+        and "user_added_requires_live_policy_confirmation" not in set(payload.get("policy_warnings") or [])
     ):
         errors.append("user_added_policy_warning_missing")
     return errors
+
+
+def _normalized_session_approved_symbols(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        raw_items = value.replace(";", ",").split(",")
+    else:
+        raw_items = list(value)
+    seen: set[str] = set()
+    symbols: list[str] = []
+    for item in raw_items:
+        symbol = _normalize_symbol_text(str(item or "").strip())
+        if symbol and symbol not in seen:
+            seen.add(symbol)
+            symbols.append(symbol)
+    return symbols
+
+
+def _evaluate_order_intent_source_live_policy_v1(
+    candidate_or_payload: dict[str, Any] | None,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    source_obj = candidate_or_payload or {}
+    context = context or {}
+    symbol = _normalize_symbol_text(str(source_obj.get("symbol") or ""))
+    source = str(source_obj.get("managed_source") or source_obj.get("source") or "unknown").strip() or "unknown"
+    approved_symbols = _normalized_session_approved_symbols(context.get("session_approved_symbols"))
+    approved_set = set(approved_symbols)
+    policy_warnings: list[str] = []
+    policy_blockers: list[str] = []
+    requires_session_symbol_approval = False
+    requires_one_shot_unlock = True
+    source_policy_mode = "source_default"
+    source_allowed = False
+    ready = False
+
+    if source == "user_added":
+        source_policy_mode = "session_symbol_approval"
+        requires_session_symbol_approval = True
+        if symbol in approved_set:
+            source_allowed = True
+            ready = True
+        else:
+            policy_blockers.append("user_added_not_session_approved")
+    elif source == "basic_added":
+        source_policy_mode = "observe_only_basic_added"
+        source_allowed = True
+        ready = True
+    elif source == "system_seed":
+        source_policy_mode = "separate_system_seed_policy_required"
+        policy_warnings.append("system_seed_live_policy_unconfirmed")
+        policy_blockers.append("system_seed_live_policy_unconfirmed")
+    elif source in {"holding", "holding_display", "holding_eligible"}:
+        source_policy_mode = "holding_source_policy_required"
+        policy_blockers.append("holding_source_buy_intent_unconfirmed")
+    elif source in {"trade_hold", "manual_hold"}:
+        source_policy_mode = "manual_hold_blocks"
+        policy_blockers.append("trade_hold_blocks_live_intent")
+    elif source in {"dust", "dust_holding"}:
+        source_policy_mode = "dust_blocks"
+        policy_blockers.append("dust_holding_blocks_live_intent")
+    else:
+        source_policy_mode = "unknown_source_blocks"
+        policy_blockers.append("unknown_source_blocks_live_intent")
+
+    return {
+        "schema": "aits_order_intent_source_live_policy_v1",
+        "symbol": symbol,
+        "source": source,
+        "source_policy_ready": bool(ready),
+        "source_policy_mode": source_policy_mode,
+        "session_approved_symbols": approved_symbols,
+        "source_allowed_for_live_intent": bool(source_allowed),
+        "policy_warnings": policy_warnings,
+        "policy_blockers": policy_blockers,
+        "requires_session_symbol_approval": bool(requires_session_symbol_approval),
+        "requires_one_shot_unlock": bool(requires_one_shot_unlock),
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+    }
+
+
+def _validate_order_intent_source_live_policy_v1(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return ["source_policy_missing"]
+    errors: list[str] = []
+    if result.get("schema") != "aits_order_intent_source_live_policy_v1":
+        errors.append("schema_invalid")
+    if not result.get("symbol"):
+        errors.append("symbol_missing")
+    if not result.get("source"):
+        errors.append("source_missing")
+    for key in (
+        "actual_order",
+        "actual_order_intent_emitted",
+        "decision_router_called",
+        "risk_guard_called",
+        "live_preflight_called",
+        "order_service_called",
+        "order_adapter_called",
+    ):
+        if result.get(key) is not False:
+            errors.append(f"{key}_invalid")
+    if result.get("source") == "user_added":
+        approved = set(result.get("session_approved_symbols") or [])
+        symbol = str(result.get("symbol") or "")
+        if symbol in approved:
+            if result.get("policy_blockers"):
+                errors.append("approved_user_added_has_blockers")
+            if result.get("source_policy_ready") is not True:
+                errors.append("approved_user_added_not_ready")
+        else:
+            if "user_added_not_session_approved" not in set(result.get("policy_blockers") or []):
+                errors.append("unapproved_user_added_blocker_missing")
+            if result.get("source_policy_ready") is not False:
+                errors.append("unapproved_user_added_ready")
+    return errors
+
+
+def _apply_source_live_policy_to_router_validation_payload(
+    payload: dict[str, Any],
+    source_policy: dict[str, Any],
+) -> dict[str, Any]:
+    updated = dict(payload or {})
+    source_policy = dict(source_policy or {})
+    warnings = [str(item) for item in (updated.get("policy_warnings") or [])]
+    blockers = [str(item) for item in (updated.get("policy_blockers") or [])]
+    if source_policy.get("source_policy_ready"):
+        if updated.get("managed_source") == "user_added":
+            warnings = [item for item in warnings if item != "user_added_requires_live_policy_confirmation"]
+    else:
+        for blocker in source_policy.get("policy_blockers") or []:
+            if blocker not in blockers:
+                blockers.append(str(blocker))
+    for warning in source_policy.get("policy_warnings") or []:
+        if warning not in warnings:
+            warnings.append(str(warning))
+    updated["source_policy"] = source_policy
+    updated["policy_warnings"] = warnings
+    updated["policy_blockers"] = blockers
+    errors = _validate_router_validation_stub_payload_v1(updated)
+    source_errors = _validate_order_intent_source_live_policy_v1(source_policy)
+    for error in source_errors:
+        errors.append(f"source_policy:{error}")
+    updated["validation_errors"] = errors
+    updated["router_validation_payload_ready"] = not errors
+    return updated
 
 
 def _run_buy_ready_order_intent_contract_fixture_proof(
@@ -3022,6 +3181,237 @@ def _run_order_intent_router_validation_stub_live_proof(
         }
     )
     report["pass_status"] = "pass" if payload.get("router_validation_payload_ready") else "partial" if candidate else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _base_source_policy_candidate(source: str = "user_added", symbol: str = "KRW-PYTH") -> dict[str, Any]:
+    return {
+        "schema": "aits_order_intent_candidate_v1",
+        "symbol": symbol,
+        "side": "buy",
+        "source": "basic_buy_ready_ai_confirmed",
+        "basic_score": 64.0,
+        "ai_opinion": "매수대기",
+        "ai_freshness": "fresh_manual_refresh",
+        "confidence": 0.8,
+        "reason": "Fresh observe opinion confirms buy-ready conditions.",
+        "intended_amount_krw": 10_000,
+        "min_order_krw": 10_000,
+        "per_order_hard_cap_krw": 12_000,
+        "total_window_cap_krw": 20_000,
+        "managed_source": source,
+        "holding_state": False,
+        "dust_state": False,
+        "duplicate_guard_required": True,
+        "repeat_guard_required": True,
+        "relock_required": True,
+        "risk_guard_required": True,
+        "preflight_required": True,
+        "one_shot_unlock_required": True,
+        "actual_order": False,
+        "submitted": 0,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+    }
+
+
+def _build_source_policy_stub_result(
+    candidate: dict[str, Any],
+    *,
+    target_symbol: str = "",
+    session_approved_symbols: Any = None,
+) -> dict[str, Any]:
+    handoff = _evaluate_order_intent_router_handoff_readiness(
+        candidate,
+        target_symbol=target_symbol or str(candidate.get("symbol") or ""),
+        context={"market_feed_ok": True, "managed_row_exists": True, "provider_call_not_required": True},
+    )
+    router_payload = _build_router_validation_stub_payload_v1(
+        candidate,
+        handoff,
+        {"final_action_unchanged": True, "order_execution": False, "submitted_count": 0},
+    )
+    source_policy = _evaluate_order_intent_source_live_policy_v1(
+        router_payload,
+        {"session_approved_symbols": session_approved_symbols},
+    )
+    policy_payload = _apply_source_live_policy_to_router_validation_payload(router_payload, source_policy)
+    return {
+        "candidate": candidate,
+        "handoff_readiness": handoff,
+        "source_policy": source_policy,
+        "router_validation_payload": policy_payload,
+        "source_policy_ready": bool(source_policy.get("source_policy_ready")),
+        "router_validation_payload_ready": bool(policy_payload.get("router_validation_payload_ready")),
+        "policy_warnings": list(policy_payload.get("policy_warnings") or []),
+        "policy_blockers": list(policy_payload.get("policy_blockers") or []),
+        "validation_errors": list(policy_payload.get("validation_errors") or []),
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "submitted_count": 0,
+        "provider_external_call_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+    }
+
+
+def _run_order_intent_source_live_policy_stub_fixture_proof(report: dict[str, Any]) -> None:
+    scenarios: list[tuple[str, dict[str, Any], list[str], bool, list[str]]] = [
+        (
+            "user_added_without_session_approval_blocks",
+            _base_source_policy_candidate("user_added", "KRW-PYTH"),
+            [],
+            False,
+            ["user_added_not_session_approved"],
+        ),
+        (
+            "user_added_with_exact_session_approval_passes",
+            _base_source_policy_candidate("user_added", "KRW-PYTH"),
+            ["KRW-PYTH"],
+            True,
+            [],
+        ),
+        (
+            "user_added_with_different_symbol_blocks",
+            _base_source_policy_candidate("user_added", "KRW-PYTH"),
+            ["KRW-BTC"],
+            False,
+            ["user_added_not_session_approved"],
+        ),
+        ("basic_added_policy_ready_observe_only", _base_source_policy_candidate("basic_added", "KRW-BASIC"), [], True, []),
+        (
+            "system_seed_requires_policy_warning",
+            _base_source_policy_candidate("system_seed", "KRW-BTC"),
+            [],
+            False,
+            ["system_seed_live_policy_unconfirmed"],
+        ),
+        (
+            "holding_display_blocks_new_buy_intent",
+            _base_source_policy_candidate("holding_display", "KRW-HOLD"),
+            [],
+            False,
+            ["holding_source_buy_intent_unconfirmed"],
+        ),
+        (
+            "dust_blocks_new_buy_intent",
+            _base_source_policy_candidate("dust", "KRW-DUST"),
+            [],
+            False,
+            ["dust_holding_blocks_live_intent"],
+        ),
+        ("unknown_source_blocks", _base_source_policy_candidate("unknown", "KRW-UNK"), [], False, ["unknown_source_blocks_live_intent"]),
+        ("actual_emit_never", _base_source_policy_candidate("basic_added", "KRW-EMIT"), [], True, []),
+        ("router_risk_order_never_called", _base_source_policy_candidate("basic_added", "KRW-SAFE"), [], True, []),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, candidate, approved, expected_ready, expected_blockers in scenarios:
+        result = _build_source_policy_stub_result(
+            candidate,
+            target_symbol=str(candidate.get("symbol") or ""),
+            session_approved_symbols=approved,
+        )
+        blockers = set(result.get("policy_blockers") or [])
+        passed = bool(result.get("source_policy_ready")) == bool(expected_ready)
+        passed = passed and all(blocker in blockers for blocker in expected_blockers)
+        passed = passed and not any(
+            bool(result.get(key))
+            for key in (
+                "actual_order_intent_emitted",
+                "decision_router_called",
+                "risk_guard_called",
+                "live_preflight_called",
+                "order_service_called",
+                "order_adapter_called",
+            )
+        )
+        if name == "user_added_with_exact_session_approval_passes":
+            passed = passed and "user_added_requires_live_policy_confirmation" not in set(result.get("policy_warnings") or [])
+        results.append(
+            {
+                "name": name,
+                "pass": passed,
+                "expected_source_policy_ready": expected_ready,
+                **result,
+            }
+        )
+    report.update(
+        {
+            "source_live_policy_stub_supported": True,
+            "schema": "aits_order_intent_source_live_policy_v1",
+            "evaluator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_order_intent_source_live_policy_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_source_live_policy_stub_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+    session_approved_symbols: Any = None,
+) -> None:
+    embedded: dict[str, Any] = {"mode": "order-intent-router-validation-stub-live-proof", "embedded": True}
+    _run_order_intent_router_validation_stub_live_proof(
+        embedded,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+    )
+    payload = dict(embedded.get("router_validation_payload") or {})
+    candidate = {
+        **payload,
+        "schema": "aits_order_intent_candidate_v1",
+        "managed_source": payload.get("managed_source"),
+        "duplicate_guard_required": True,
+        "repeat_guard_required": True,
+        "relock_required": True,
+        "risk_guard_required": True,
+        "preflight_required": True,
+        "one_shot_unlock_required": True,
+    }
+    result = _build_source_policy_stub_result(
+        candidate,
+        target_symbol=str(target_symbol or embedded.get("target_symbol") or payload.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+    )
+    report.update(
+        {
+            "mode": "order-intent-source-live-policy-stub-live-proof",
+            "source_live_policy_stub_supported": True,
+            "schema": "aits_order_intent_source_live_policy_v1",
+            "evaluator_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_order_intent_source_live_policy_v1",
+            "target_symbol": str(target_symbol or embedded.get("target_symbol") or payload.get("symbol") or ""),
+            "session_approved_symbols": _normalized_session_approved_symbols(session_approved_symbols),
+            **result,
+        }
+    )
+    report["pass_status"] = "pass" if result.get("router_validation_payload_ready") or result.get("policy_blockers") else "fail"
     report["status"] = report["pass_status"]
 
 
@@ -9642,6 +10032,7 @@ def run_harness(
     apply_trim: bool = False,
     apply_sync: bool = False,
     fixture: str = "",
+    session_approved_symbols: str = "",
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -9667,6 +10058,8 @@ def run_harness(
         "order-intent-router-handoff-readiness-live-proof",
         "order-intent-router-validation-stub-fixture-proof",
         "order-intent-router-validation-stub-live-proof",
+        "order-intent-source-live-policy-stub-fixture-proof",
+        "order-intent-source-live-policy-stub-live-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -9742,6 +10135,17 @@ def run_harness(
                 output_dir=output_dir,
                 target_symbol=target_symbol,
                 min_score=min_score,
+            )
+        elif mode == "order-intent-source-live-policy-stub-fixture-proof":
+            _run_order_intent_source_live_policy_stub_fixture_proof(report)
+        elif mode == "order-intent-source-live-policy-stub-live-proof":
+            _install_provider_post_guard(report)
+            _run_order_intent_source_live_policy_stub_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+                session_approved_symbols=session_approved_symbols,
             )
         elif mode == "managed-pool-promotion-policy-proof":
             _run_managed_pool_promotion_policy_proof(
@@ -10204,6 +10608,8 @@ def main() -> int:
             "order-intent-router-handoff-readiness-live-proof",
             "order-intent-router-validation-stub-fixture-proof",
             "order-intent-router-validation-stub-live-proof",
+            "order-intent-source-live-policy-stub-fixture-proof",
+            "order-intent-source-live-policy-stub-live-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",
@@ -10292,6 +10698,7 @@ def main() -> int:
     parser.add_argument("--max-markets", type=int, default=20)
     parser.add_argument("--max-managed", type=int, default=10)
     parser.add_argument("--min-score", type=float, default=60.0)
+    parser.add_argument("--session-approved-symbols", default="")
     parser.add_argument("--from-max", type=int, default=10)
     parser.add_argument("--from-count", type=int, default=8)
     parser.add_argument("--to-max", type=int, default=8)
@@ -10330,6 +10737,7 @@ def main() -> int:
         apply_trim=args.apply_trim,
         apply_sync=args.apply_sync,
         fixture=args.fixture,
+        session_approved_symbols=args.session_approved_symbols,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1
