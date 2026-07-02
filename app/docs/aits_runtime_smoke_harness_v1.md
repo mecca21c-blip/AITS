@@ -976,6 +976,23 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode buy-ready-ai-opinion-
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode buy-ready-ai-opinion-freshness-unblock-proof --target-symbol KRW-PYTH --observe-only
 ```
 
+`order-intent-candidate-inert-bridge-proof` builds the inert
+`aits_order_intent_candidate_v1` report object from a
+`would_promote_to_order_intent=true` contract result. It never emits the
+candidate to Router/Risk/Preflight/Order paths.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-candidate-inert-bridge-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode order-intent-candidate-inert-bridge-live-proof --target-symbol KRW-PYTH --observe-only
+```
+
+PASS requires `candidate_created=true`, `candidate_valid=true`,
+`actual_order_intent_emitted=false`, `decision_router_called=false`,
+`risk_guard_called=false`, `live_preflight_called=false`,
+`order_service_called=false`, `order_adapter_called=false`,
+`submitted_count=0`, `provider_external_call_count=0`, and
+`order_risk_detected=false`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

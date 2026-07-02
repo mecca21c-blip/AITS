@@ -1955,6 +1955,113 @@ def _contract_reasons_summary(candidates: list[dict[str, Any]]) -> dict[str, int
     return dict(sorted(summary.items()))
 
 
+def _build_inert_order_intent_candidate_v1(
+    contract: dict[str, Any],
+    row: dict[str, Any] | None = None,
+    *,
+    intended_amount_krw: int = 10_000,
+) -> tuple[dict[str, Any] | None, list[str]]:
+    row = row or {}
+    errors: list[str] = []
+    symbol = str(contract.get("symbol") or _row_symbol(row) or "").strip()
+    score = _safe_float(contract.get("score", row.get("score", row.get("ai_score"))), 0.0)
+    source = str(contract.get("source") or _normalize_contract_source(row.get("source") or row.get("source_type"))).strip()
+    ai_opinion = str(contract.get("ai_opinion_status") or row.get("ai_opinion_status") or row.get("opinion") or "").strip()
+    freshness = str(contract.get("freshness") or row.get("freshness") or "").strip()
+    confidence = _safe_float(row.get("confidence", row.get("ai_confidence")), 0.0)
+    reason = str(contract.get("reason") or row.get("reason") or row.get("ai_reason_summary") or "").strip()
+    holding = bool(contract.get("holding_state") or row.get("holding") or row.get("holding_display"))
+    dust = bool(contract.get("dust_state") or row.get("dust_holding") or row.get("holding_dust") or row.get("dust_filtered"))
+    min_order_krw = 10_000
+    per_order_hard_cap_krw = 12_000
+    total_window_cap_krw = 20_000
+    if not bool(contract.get("would_promote_to_order_intent")):
+        errors.append("would_promote_false")
+    if not symbol:
+        errors.append("missing_symbol")
+    if intended_amount_krw < min_order_krw:
+        errors.append("amount_below_min_order")
+    if intended_amount_krw > per_order_hard_cap_krw:
+        errors.append("amount_above_per_order_hard_cap")
+    if errors:
+        return None, errors
+    return (
+        {
+            "schema": "aits_order_intent_candidate_v1",
+            "symbol": symbol,
+            "side": "buy",
+            "source": "basic_buy_ready_ai_confirmed",
+            "basic_score": score,
+            "ai_opinion": ai_opinion,
+            "ai_freshness": freshness,
+            "confidence": confidence,
+            "reason": reason,
+            "intended_amount_krw": int(intended_amount_krw),
+            "min_order_krw": min_order_krw,
+            "per_order_hard_cap_krw": per_order_hard_cap_krw,
+            "total_window_cap_krw": total_window_cap_krw,
+            "managed_source": source,
+            "holding_state": holding,
+            "dust_state": dust,
+            "duplicate_guard_required": True,
+            "repeat_guard_required": True,
+            "relock_required": True,
+            "risk_guard_required": True,
+            "preflight_required": True,
+            "one_shot_unlock_required": True,
+            "actual_order": False,
+            "submitted": 0,
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+        },
+        [],
+    )
+
+
+def _validate_inert_order_intent_candidate_v1(candidate: dict[str, Any] | None) -> list[str]:
+    if not candidate:
+        return ["candidate_missing"]
+    errors: list[str] = []
+    required = {
+        "schema": "aits_order_intent_candidate_v1",
+        "side": "buy",
+        "source": "basic_buy_ready_ai_confirmed",
+        "min_order_krw": 10_000,
+        "per_order_hard_cap_krw": 12_000,
+        "total_window_cap_krw": 20_000,
+        "duplicate_guard_required": True,
+        "repeat_guard_required": True,
+        "relock_required": True,
+        "risk_guard_required": True,
+        "preflight_required": True,
+        "one_shot_unlock_required": True,
+        "actual_order": False,
+        "submitted": 0,
+        "actual_order_intent_emitted": False,
+        "decision_router_called": False,
+        "risk_guard_called": False,
+        "live_preflight_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+    }
+    for key, expected in required.items():
+        if candidate.get(key) != expected:
+            errors.append(f"{key}_invalid")
+    for key in ("symbol", "basic_score", "ai_opinion", "ai_freshness", "reason", "managed_source"):
+        if candidate.get(key) in (None, ""):
+            errors.append(f"{key}_missing")
+    amount = int(candidate.get("intended_amount_krw") or 0)
+    if amount < 10_000:
+        errors.append("amount_below_min_order")
+    if amount > 12_000:
+        errors.append("amount_above_per_order_hard_cap")
+    return errors
+
+
 def _run_buy_ready_order_intent_contract_fixture_proof(
     report: dict[str, Any], *, min_score: float = 60.0
 ) -> None:
@@ -2255,6 +2362,147 @@ def _run_buy_ready_ai_opinion_freshness_unblock_proof(
         }
     )
     report["pass_status"] = "pass" if pass_status else "partial" if target_row and opinion_unblocked and freshness_unblocked else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_candidate_inert_bridge_fixture_proof(
+    report: dict[str, Any], *, min_score: float = 60.0
+) -> None:
+    base = {"symbol": "KRW-PYTH", "score": 64, "source": "user_added", "reason": "inert bridge fixture"}
+    promoted_row = _inject_mock_fresh_ai_opinion(base, status_label="매수대기")
+    blocked_row = dict(base)
+    data_row = _inject_mock_fresh_ai_opinion(base, status_label="데이터부족")
+    scenarios = [
+        ("would_promote_true_builds_inert_candidate", promoted_row, 10_000, True, []),
+        ("would_promote_false_builds_none", blocked_row, 10_000, False, ["would_promote_false"]),
+        ("missing_ai_opinion_blocks_candidate", blocked_row, 10_000, False, ["would_promote_false"]),
+        ("amount_below_min_blocks_candidate", promoted_row, 9_000, False, ["amount_below_min_order"]),
+        ("amount_above_hard_cap_blocks_candidate", promoted_row, 13_000, False, ["amount_above_per_order_hard_cap"]),
+        ("missing_one_shot_unlock_keeps_inert_only", promoted_row, 10_000, True, []),
+        ("actual_emit_never", promoted_row, 10_000, True, []),
+        ("router_risk_order_never_called", promoted_row, 10_000, True, []),
+        ("data_insufficient_blocks_candidate", data_row, 10_000, False, ["would_promote_false"]),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, row, amount, expected_created, expected_errors in scenarios:
+        contract = _candidate_order_intent_contract(dict(row), min_score=min_score, market_feed_ok=True)
+        candidate, build_errors = _build_inert_order_intent_candidate_v1(contract, row, intended_amount_krw=amount)
+        validation_errors = _validate_inert_order_intent_candidate_v1(candidate) if candidate else []
+        candidate_created = candidate is not None
+        expected_errors_ok = all(reason in build_errors for reason in expected_errors)
+        passed = candidate_created == bool(expected_created)
+        passed = passed and expected_errors_ok
+        passed = passed and (not candidate_created or not validation_errors)
+        passed = passed and not bool((candidate or {}).get("actual_order_intent_emitted"))
+        passed = passed and not bool((candidate or {}).get("decision_router_called"))
+        passed = passed and not bool((candidate or {}).get("risk_guard_called"))
+        passed = passed and not bool((candidate or {}).get("order_service_called"))
+        results.append(
+            {
+                "name": name,
+                "pass": passed,
+                "expected_candidate_created": expected_created,
+                "would_promote_to_order_intent": bool(contract.get("would_promote_to_order_intent")),
+                "candidate_created": candidate_created,
+                "candidate": candidate or {},
+                "validation_errors": validation_errors,
+                "blocked_reasons": build_errors,
+            }
+        )
+    report.update(
+        {
+            "inert_bridge_supported": True,
+            "schema": "aits_order_intent_candidate_v1",
+            "schema_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_build_inert_order_intent_candidate_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_order_intent_candidate_inert_bridge_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+) -> None:
+    rows, source_report = _latest_managed_rows_for_contract(output_dir)
+    latest = _latest_basic_candidate_report(output_dir)
+    freshness = _last_managed_pool_freshness_from_log()
+    market_feed_ok = True
+    if latest:
+        market_feed_ok = bool(latest.get("market_data_ready", True)) and int(latest.get("top_markets_count") or 0) > 0
+    buy_ready_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for row in rows:
+        before = _candidate_order_intent_contract(
+            dict(row),
+            min_score=min_score,
+            market_feed_ok=market_feed_ok,
+            freshness_by_symbol=freshness,
+        )
+        if before.get("basic_buy_ready"):
+            buy_ready_rows.append((dict(row), before))
+    normalized_target = _normalize_symbol_text(target_symbol or "")
+    target_row: dict[str, Any] = {}
+    before_plan: dict[str, Any] = {}
+    if normalized_target:
+        for row, before in buy_ready_rows:
+            if _row_symbol(row) == normalized_target:
+                target_row, before_plan = row, before
+                break
+    if not target_row and buy_ready_rows:
+        target_row, before_plan = buy_ready_rows[0]
+    injected = _inject_mock_fresh_ai_opinion(target_row, status_label="매수대기") if target_row else {}
+    after_plan = (
+        _candidate_order_intent_contract(dict(injected), min_score=min_score, market_feed_ok=market_feed_ok)
+        if injected
+        else {}
+    )
+    candidate, build_errors = _build_inert_order_intent_candidate_v1(after_plan, injected, intended_amount_krw=10_000)
+    validation_errors = _validate_inert_order_intent_candidate_v1(candidate)
+    candidate_valid = bool(candidate) and not validation_errors
+    report.update(
+        {
+            "mode": "order-intent-candidate-inert-bridge-live-proof",
+            "schema": "aits_order_intent_candidate_v1",
+            "schema_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_build_inert_order_intent_candidate_v1",
+            "contract_source_report": source_report,
+            "target_symbol": _row_symbol(target_row),
+            "target_is_buy_ready": bool(before_plan.get("basic_buy_ready")),
+            "buy_ready_symbols": [str(item.get("symbol") or "") for _, item in buy_ready_rows if item.get("symbol")],
+            "would_promote_to_order_intent": bool(after_plan.get("would_promote_to_order_intent")),
+            "candidate_created": bool(candidate),
+            "candidate": candidate or {},
+            "candidate_valid": candidate_valid,
+            "validation_errors": validation_errors,
+            "blocked_reasons": build_errors,
+            "actual_order_intent_emitted": False,
+            "decision_router_called": False,
+            "risk_guard_called": False,
+            "live_preflight_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if candidate_valid else "partial" if target_row else "fail"
     report["status"] = report["pass_status"]
 
 
@@ -8894,6 +9142,8 @@ def run_harness(
         "buy-ready-order-intent-contract-proof",
         "buy-ready-ai-opinion-freshness-unblock-fixture-proof",
         "buy-ready-ai-opinion-freshness-unblock-proof",
+        "order-intent-candidate-inert-bridge-fixture-proof",
+        "order-intent-candidate-inert-bridge-live-proof",
         "managed-pool-promotion-policy-proof",
         "managed-pool-promotion-quality-gate-proof",
         "managed-pool-promotion-quality-live-proof",
@@ -8935,6 +9185,16 @@ def run_harness(
         elif mode == "buy-ready-ai-opinion-freshness-unblock-proof":
             _install_provider_post_guard(report)
             _run_buy_ready_ai_opinion_freshness_unblock_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+            )
+        elif mode == "order-intent-candidate-inert-bridge-fixture-proof":
+            _run_order_intent_candidate_inert_bridge_fixture_proof(report, min_score=min_score)
+        elif mode == "order-intent-candidate-inert-bridge-live-proof":
+            _install_provider_post_guard(report)
+            _run_order_intent_candidate_inert_bridge_live_proof(
                 report,
                 output_dir=output_dir,
                 target_symbol=target_symbol,
@@ -9395,6 +9655,8 @@ def main() -> int:
             "buy-ready-order-intent-contract-proof",
             "buy-ready-ai-opinion-freshness-unblock-fixture-proof",
             "buy-ready-ai-opinion-freshness-unblock-proof",
+            "order-intent-candidate-inert-bridge-fixture-proof",
+            "order-intent-candidate-inert-bridge-live-proof",
             "managed-pool-promotion-policy-proof",
             "managed-pool-promotion-quality-gate-proof",
             "managed-pool-promotion-quality-live-proof",

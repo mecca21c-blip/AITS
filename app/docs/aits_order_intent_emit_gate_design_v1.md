@@ -238,7 +238,7 @@ Known risks before real emit:
 
 ## Next Recommended Goal
 
-Recommended next Goal:
+Completed inert bridge proof Goal:
 
 `AITS-ORDER-INTENT-CANDIDATE-INERT-BRIDGE-PROOF-01`
 
@@ -250,3 +250,17 @@ Scope:
 - keep DecisionRouter/RiskGuard/LivePreflight/OrderService uncalled
 - prove amount caps and block reasons in fixture/live observe mode
 - do not place orders
+
+The candidate schema is documented in
+`app/docs/aits_order_intent_candidate_v1.md`.
+
+Recommended next Goal:
+
+`AITS-ORDER-INTENT-CANDIDATE-ROUTER-PREFLIGHT-READONLY-CONTRACT-01`
+
+Scope:
+
+- define how an inert candidate would be validated before Router handoff
+- keep Router/RiskGuard/LivePreflight/OrderService uncalled
+- keep `actual_order_intent_emitted=false`
+- keep actual orders forbidden
