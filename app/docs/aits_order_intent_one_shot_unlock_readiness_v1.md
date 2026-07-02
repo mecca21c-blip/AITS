@@ -95,3 +95,9 @@ That layer rechecks the 10,000 KRW minimum, 12,000 KRW per-order hard cap,
 `submitted_count=0`, `actual_order=false`, and
 `final_action_unchanged=true`. It still does not call the real LivePreflight
 service and does not emit an order intent.
+
+`AITS-LIVE-ORDER-FINAL-GATE-INTEGRATION-PROOF-01` later carries one-shot unlock
+readiness into a final confirmation contract. That proof still keeps
+`would_consume_unlock=false`, `unlock_consumed=false`, and
+`unlock_service_called=false`; readiness and final confirmation remain separate
+from actual unlock consumption.

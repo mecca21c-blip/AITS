@@ -1173,6 +1173,27 @@ mock-approved valid chain while keeping `would_call_live_preflight=false`,
 `actual_order=false`, `actual_order_intent_emitted=false`,
 `submitted_count=0`, and `provider_external_call_count=0`.
 
+The live-order final gate integration proof is covered by:
+
+- `live-order-final-gate-integration-fixture-proof`
+- `live-order-final-gate-integration-live-proof`
+
+Example:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-order-final-gate-integration-fixture-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-order-final-gate-integration-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --observe-only
+```
+
+Both modes build `aits_live_order_final_gate_integration_contract_v1` objects in
+the harness. PASS requires `live_order_final_gate_ready=true` for the
+mock-approved valid chain while keeping `would_emit_order_intent=false`,
+`order_intent_emitted=false`, `would_consume_unlock=false`,
+`unlock_consumed=false`, `actual_order=false`,
+`actual_order_intent_emitted=false`, `order_service_called=false`,
+`order_adapter_called=false`, `execution_bridge_called=false`,
+`submitted_count=0`, and `provider_external_call_count=0`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

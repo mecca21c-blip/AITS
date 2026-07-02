@@ -503,3 +503,23 @@ Scope:
 - keep actual emit, Router, RiskGuard, LivePreflight, unlock consumption,
   ExecutionBridge, OrderService, OrderAdapter, provider calls, and submitted
   increments disabled
+
+Completed live-order final gate integration proof:
+
+`AITS-LIVE-ORDER-FINAL-GATE-INTEGRATION-PROOF-01`
+
+Scope:
+
+- integrate one-shot unlock final confirmation, duplicate/repeat/relock final
+  checks, final emit gate contract, and live minimal order readiness summary
+  into one read-only proof contract
+- add `live-order-final-gate-integration-fixture-proof` and
+  `live-order-final-gate-integration-live-proof`
+- keep `live_order_final_gate_ready=true` as a pre-submit readiness result only
+- keep `would_emit_order_intent=false`, `order_intent_emitted=false`,
+  `would_consume_unlock=false`, `unlock_consumed=false`,
+  `actual_order=false`, `actual_order_intent_emitted=false`, and
+  `submitted_count=0`
+- the next adjacent Goal may be
+  `AITS-LIVE-MINIMAL-ORDER-ARMED-BUT-NOT-SUBMITTED-01`; actual submit remains
+  forbidden until a later explicitly approved live-order test Goal

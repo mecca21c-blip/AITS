@@ -247,6 +247,11 @@ The subsequent proof step is:
 That proof remains harness-only and static-contract based. It must still keep
 actual RiskGuard and actual LivePreflight calls forbidden.
 
+After LivePreflight actual-readonly proof, the adjacent final gate integration
+step is `AITS-LIVE-ORDER-FINAL-GATE-INTEGRATION-PROOF-01`. It remains
+read-only and must still keep order intent emission, unlock consumption, and
+order submission disabled.
+
 ## Proof Implementation
 
 `AITS-RISKGUARD-READONLY-ACTUAL-ADAPTER-PROOF-01` implements this boundary in

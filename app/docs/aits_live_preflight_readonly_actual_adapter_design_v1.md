@@ -282,8 +282,9 @@ The fixture proof covers at least these blocker cases:
 
 Recommended next Goal:
 
-`AITS-LIVE-PREFLIGHT-READONLY-ACTUAL-CALL-BOUNDARY-DESIGN-REVIEW-01`
+`AITS-LIVE-ORDER-FINAL-GATE-INTEGRATION-PROOF-01`
 
-That future design Goal may discuss whether any actual LivePreflight callable
-can be invoked in a still-read-only boundary test. Until then, actual
-LivePreflight calls remain forbidden.
+That proof integrates final unlock confirmation, duplicate/repeat/relock final
+checks, final emit gate readiness, and live minimal order readiness into one
+read-only contract. It still must not consume unlock, emit an intent, call
+LivePreflight, or submit an order.

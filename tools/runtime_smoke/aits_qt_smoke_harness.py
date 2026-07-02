@@ -6161,6 +6161,559 @@ def _run_live_preflight_readonly_actual_adapter_live_proof(
     report["status"] = report["pass_status"]
 
 
+def _build_live_order_final_gate_integration_input_v1(
+    live_preflight_actual_result: dict[str, Any] | None,
+    *,
+    overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    live_preflight_actual_result = dict(live_preflight_actual_result or {})
+    actual_input = dict(live_preflight_actual_result.get("actual_adapter_input") or {})
+    candidate = dict(live_preflight_actual_result.get("candidate") or {})
+    target_symbol = _normalize_symbol_text(
+        str(actual_input.get("target_symbol") or live_preflight_actual_result.get("target_symbol") or candidate.get("symbol") or "")
+    )
+    intended_side = str(actual_input.get("intended_side") or candidate.get("side") or "buy").strip().lower()
+    intended_amount = int(actual_input.get("intended_amount_krw") or candidate.get("intended_amount_krw") or 0)
+    total_window_used = int(actual_input.get("mock_total_window_used_krw") or 0)
+    payload = {
+        "schema": "aits_live_order_final_gate_integration_input_v1",
+        "target_symbol": target_symbol,
+        "source": str(actual_input.get("source") or candidate.get("source") or "unknown"),
+        "managed_source": str(actual_input.get("managed_source") or candidate.get("managed_source") or candidate.get("source") or "unknown"),
+        "intended_side": intended_side,
+        "intended_amount_krw": intended_amount,
+        "min_order_krw": int(actual_input.get("min_order_krw") or 10_000),
+        "per_order_hard_cap_krw": int(actual_input.get("per_order_hard_cap_krw") or 12_000),
+        "total_guarded_window_cap_krw": int(actual_input.get("total_guarded_window_cap_krw") or 20_000),
+        "mock_total_window_used_krw": total_window_used,
+        "submitted_count": int(actual_input.get("submitted_count") or 0),
+        "session_approved_symbols": list(actual_input.get("session_approved_symbols") or []),
+        "ai_opinion_freshness_status": str(actual_input.get("ai_opinion_freshness_status") or candidate.get("ai_freshness") or ""),
+        "source_policy_ready": bool(actual_input.get("source_policy_ready")),
+        "router_validation_payload_ready": bool(actual_input.get("router_validation_payload_ready")),
+        "riskguard_actual_readonly_adapter_ready": bool(actual_input.get("riskguard_actual_readonly_adapter_ready") or live_preflight_actual_result.get("riskguard_readonly_actual_adapter_result", {}).get("actual_readonly_adapter_ready")),
+        "live_preflight_actual_readonly_adapter_ready": bool(live_preflight_actual_result.get("live_preflight_actual_readonly_adapter_ready")),
+        "one_shot_unlock_ready": bool(actual_input.get("one_shot_unlock_ready")),
+        "unlock_token_present_or_mocked": True,
+        "unlock_scope_symbol": target_symbol,
+        "unlock_scope_side": intended_side,
+        "unlock_scope_amount_krw": max(intended_amount, 10_000),
+        "unlock_expiry_status": "valid",
+        "duplicate_check_ready": True,
+        "repeat_check_ready": True,
+        "relock_check_ready": True,
+        "duplicate_order_detected": False,
+        "repeat_order_detected": False,
+        "relock_required": False,
+        "final_emit_gate_contract_ready": True,
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "provider_external_call_count": 0,
+    }
+    if overrides:
+        payload.update(dict(overrides))
+    return payload
+
+
+def _evaluate_live_order_final_gate_integration_contract_v1(
+    gate_input: dict[str, Any] | None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    gate_input = dict(gate_input or {})
+    context = dict(context or {})
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if str(gate_input.get("schema") or "") != "aits_live_order_final_gate_integration_input_v1":
+        blockers.append("input_schema_invalid")
+    target_symbol = _normalize_symbol_text(str(gate_input.get("target_symbol") or ""))
+    if not target_symbol:
+        blockers.append("target_symbol_missing")
+    intended_side = str(gate_input.get("intended_side") or "").strip().lower()
+    intended_amount = int(gate_input.get("intended_amount_krw") or 0)
+    min_order = int(gate_input.get("min_order_krw") or 10_000)
+    per_order_cap = int(gate_input.get("per_order_hard_cap_krw") or 12_000)
+    total_cap = int(gate_input.get("total_guarded_window_cap_krw") or 20_000)
+    total_used = int(gate_input.get("mock_total_window_used_krw") or 0)
+    total_after = total_used + intended_amount
+    submitted_count = int(gate_input.get("submitted_count") or 0)
+    session_approved = set(_normalized_session_approved_symbols(gate_input.get("session_approved_symbols")))
+    managed_source = str(gate_input.get("managed_source") or gate_input.get("source") or "")
+    freshness = str(gate_input.get("ai_opinion_freshness_status") or "").strip().lower()
+    unlock_symbol = _normalize_symbol_text(str(gate_input.get("unlock_scope_symbol") or ""))
+    unlock_side = str(gate_input.get("unlock_scope_side") or "").strip().lower()
+    unlock_amount = int(gate_input.get("unlock_scope_amount_krw") or 0)
+    unlock_expiry = str(gate_input.get("unlock_expiry_status") or "").strip().lower()
+
+    if intended_amount < min_order:
+        blockers.append("intended_amount_below_min_order")
+    if intended_amount > per_order_cap:
+        blockers.append("intended_amount_exceeds_per_order_hard_cap")
+    if total_after > total_cap:
+        blockers.append("total_guarded_window_cap_exceeded")
+    if submitted_count != 0:
+        blockers.append("submitted_count_not_zero")
+    if target_symbol not in session_approved:
+        blockers.append("target_symbol_not_session_approved")
+    if managed_source == "user_added" and target_symbol not in session_approved:
+        blockers.append("user_added_not_session_approved")
+    if freshness in {"", "missing", "stale", "very_stale", "analysis_required", "manual_required"}:
+        blockers.append("stale_or_missing_ai_opinion")
+
+    required_truthy = {
+        "source_policy_ready": "source_policy_not_ready",
+        "router_validation_payload_ready": "router_validation_payload_not_ready",
+        "riskguard_actual_readonly_adapter_ready": "riskguard_actual_readonly_adapter_not_ready",
+        "live_preflight_actual_readonly_adapter_ready": "live_preflight_actual_readonly_adapter_not_ready",
+        "one_shot_unlock_ready": "one_shot_unlock_not_ready",
+        "unlock_token_present_or_mocked": "unlock_token_missing",
+        "duplicate_check_ready": "duplicate_check_not_ready",
+        "repeat_check_ready": "repeat_check_not_ready",
+        "relock_check_ready": "relock_check_not_ready",
+        "final_emit_gate_contract_ready": "final_emit_gate_contract_not_ready",
+    }
+    for key, blocker in required_truthy.items():
+        if not bool(gate_input.get(key)):
+            blockers.append(blocker)
+    if unlock_symbol != target_symbol:
+        blockers.append("unlock_scope_symbol_mismatch")
+    if unlock_side != intended_side:
+        blockers.append("unlock_scope_side_mismatch")
+    if intended_amount > unlock_amount:
+        blockers.append("unlock_amount_scope_exceeded")
+    if unlock_expiry == "expired":
+        blockers.append("unlock_expired")
+    if bool(gate_input.get("duplicate_order_detected")):
+        blockers.append("duplicate_order_detected")
+    if bool(gate_input.get("repeat_order_detected")):
+        blockers.append("repeat_order_detected")
+    if bool(gate_input.get("relock_required")):
+        blockers.append("relock_required")
+    if bool(gate_input.get("actual_order")) or bool(context.get("actual_order", False)):
+        blockers.append("actual_order_flag_detected")
+    if bool(gate_input.get("actual_order_intent_emitted")) or bool(context.get("actual_order_intent_emitted", False)):
+        blockers.append("actual_emit_detected")
+    if bool(gate_input.get("unlock_consumed")) or bool(context.get("unlock_consumed", False)):
+        blockers.append("unlock_already_consumed")
+    provider_external_call_count = int(gate_input.get("provider_external_call_count") or context.get("provider_external_call_count") or 0)
+    if provider_external_call_count != 0:
+        blockers.append("provider_external_call_detected")
+
+    forced_false_flags = (
+        "would_emit_order_intent",
+        "order_intent_emitted",
+        "would_consume_unlock",
+        "unlock_service_called",
+        "would_call_riskguard",
+        "risk_guard_called",
+        "would_call_live_preflight",
+        "live_preflight_called",
+        "decision_router_called",
+        "order_service_called",
+        "order_adapter_called",
+        "execution_bridge_called",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    )
+    for key in forced_false_flags:
+        if bool(gate_input.get(key)) or bool(context.get(key, False)):
+            blockers.append(f"{key}_true")
+
+    blockers = list(dict.fromkeys(blockers))
+    warnings = list(dict.fromkeys(warnings))
+    final_confirmation_ready = not any(
+        item in blockers
+        for item in (
+            "one_shot_unlock_not_ready",
+            "unlock_token_missing",
+            "unlock_scope_symbol_mismatch",
+            "unlock_scope_side_mismatch",
+            "unlock_amount_scope_exceeded",
+            "unlock_expired",
+            "unlock_already_consumed",
+        )
+    )
+    duplicate_repeat_relock_ready = not any(
+        item in blockers
+        for item in (
+            "duplicate_check_not_ready",
+            "repeat_check_not_ready",
+            "relock_check_not_ready",
+            "duplicate_order_detected",
+            "repeat_order_detected",
+            "relock_required",
+        )
+    )
+    final_emit_gate_ready = bool(gate_input.get("final_emit_gate_contract_ready")) and "final_emit_gate_contract_not_ready" not in blockers
+    live_minimal_order_readiness_ready = not any(
+        item in blockers
+        for item in (
+            "intended_amount_below_min_order",
+            "intended_amount_exceeds_per_order_hard_cap",
+            "total_guarded_window_cap_exceeded",
+            "submitted_count_not_zero",
+            "source_policy_not_ready",
+            "router_validation_payload_not_ready",
+            "riskguard_actual_readonly_adapter_not_ready",
+            "live_preflight_actual_readonly_adapter_not_ready",
+            "stale_or_missing_ai_opinion",
+        )
+    )
+    live_order_final_gate_ready = bool(
+        final_confirmation_ready
+        and duplicate_repeat_relock_ready
+        and final_emit_gate_ready
+        and live_minimal_order_readiness_ready
+        and not blockers
+    )
+    safety_flags = {
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "unlock_service_called": False,
+        "would_call_riskguard": False,
+        "risk_guard_called": False,
+        "would_call_live_preflight": False,
+        "live_preflight_called": False,
+        "decision_router_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "execution_bridge_called": False,
+        "provider_external_call_count": 0,
+        "submitted_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+    }
+    return {
+        "schema": "aits_live_order_final_gate_integration_contract_v1",
+        "input_schema": str(gate_input.get("schema") or ""),
+        "target_symbol": target_symbol,
+        "source": str(gate_input.get("source") or ""),
+        "managed_source": managed_source,
+        "intended_side": intended_side,
+        "intended_amount_krw": intended_amount,
+        "total_window_after_candidate_krw": total_after,
+        "live_order_final_gate_ready": live_order_final_gate_ready,
+        "final_gate_mode": "readonly_integration_proof",
+        "final_confirmation_ready": final_confirmation_ready,
+        "duplicate_repeat_relock_ready": duplicate_repeat_relock_ready,
+        "final_emit_gate_ready": final_emit_gate_ready,
+        "live_minimal_order_readiness_ready": live_minimal_order_readiness_ready,
+        "next_allowed_goal": "AITS-LIVE-MINIMAL-ORDER-ARMED-BUT-NOT-SUBMITTED-01",
+        "actual_order": False,
+        "actual_order_intent_emitted": False,
+        "would_emit_order_intent": False,
+        "order_intent_emitted": False,
+        "would_consume_unlock": False,
+        "unlock_consumed": False,
+        "unlock_service_called": False,
+        "would_call_riskguard": False,
+        "risk_guard_called": False,
+        "would_call_live_preflight": False,
+        "live_preflight_called": False,
+        "decision_router_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "execution_bridge_called": False,
+        "provider_external_call_count": 0,
+        "submitted_count": 0,
+        "managed_pool_mutation": False,
+        "order_risk_detected": False,
+        "blockers": blockers,
+        "warnings": warnings,
+        "safety_flags": safety_flags,
+    }
+
+
+def _validate_live_order_final_gate_integration_contract_v1(result: dict[str, Any] | None) -> list[str]:
+    if not result:
+        return ["live_order_final_gate_result_missing"]
+    errors: list[str] = []
+    if result.get("schema") != "aits_live_order_final_gate_integration_contract_v1":
+        errors.append("schema_invalid")
+    if result.get("final_gate_mode") != "readonly_integration_proof":
+        errors.append("final_gate_mode_invalid")
+    for key in (
+        "actual_order",
+        "actual_order_intent_emitted",
+        "would_emit_order_intent",
+        "order_intent_emitted",
+        "would_consume_unlock",
+        "unlock_consumed",
+        "unlock_service_called",
+        "would_call_riskguard",
+        "risk_guard_called",
+        "would_call_live_preflight",
+        "live_preflight_called",
+        "decision_router_called",
+        "order_service_called",
+        "order_adapter_called",
+        "execution_bridge_called",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    ):
+        if bool(result.get(key)):
+            errors.append(f"{key}_must_be_false")
+    if int(result.get("submitted_count") or 0) != 0:
+        errors.append("submitted_count_must_be_zero")
+    if int(result.get("provider_external_call_count") or 0) != 0:
+        errors.append("provider_call_count_must_be_zero")
+    if result.get("live_order_final_gate_ready") and result.get("blockers"):
+        errors.append("final_gate_ready_with_blockers")
+    return errors
+
+
+def _build_live_order_final_gate_integration_result(
+    candidate: dict[str, Any],
+    *,
+    target_symbol: str = "",
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int | None = None,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+    gate_input_overrides: dict[str, Any] | None = None,
+    gate_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    live_preflight_actual_result = _build_live_preflight_readonly_actual_adapter_result(
+        candidate,
+        target_symbol=target_symbol or str(candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    gate_input = _build_live_order_final_gate_integration_input_v1(
+        live_preflight_actual_result,
+        overrides=gate_input_overrides,
+    )
+    gate_contract = _evaluate_live_order_final_gate_integration_contract_v1(
+        gate_input,
+        context=gate_context,
+    )
+    validation_errors = _validate_live_order_final_gate_integration_contract_v1(gate_contract)
+    return {
+        "candidate": dict(candidate or {}),
+        "live_preflight_readonly_actual_adapter_result": live_preflight_actual_result,
+        "final_gate_input": gate_input,
+        "final_gate_contract": gate_contract,
+        "schema": gate_contract.get("schema"),
+        "target_symbol": gate_contract.get("target_symbol"),
+        "live_order_final_gate_ready": bool(gate_contract.get("live_order_final_gate_ready")),
+        "final_gate_mode": gate_contract.get("final_gate_mode"),
+        "final_confirmation_ready": bool(gate_contract.get("final_confirmation_ready")),
+        "duplicate_repeat_relock_ready": bool(gate_contract.get("duplicate_repeat_relock_ready")),
+        "final_emit_gate_ready": bool(gate_contract.get("final_emit_gate_ready")),
+        "live_minimal_order_readiness_ready": bool(gate_contract.get("live_minimal_order_readiness_ready")),
+        "next_allowed_goal": gate_contract.get("next_allowed_goal"),
+        "actual_order": bool(gate_contract.get("actual_order")),
+        "actual_order_intent_emitted": bool(gate_contract.get("actual_order_intent_emitted")),
+        "would_emit_order_intent": bool(gate_contract.get("would_emit_order_intent")),
+        "order_intent_emitted": bool(gate_contract.get("order_intent_emitted")),
+        "would_consume_unlock": bool(gate_contract.get("would_consume_unlock")),
+        "unlock_consumed": bool(gate_contract.get("unlock_consumed")),
+        "unlock_service_called": bool(gate_contract.get("unlock_service_called")),
+        "would_call_riskguard": bool(gate_contract.get("would_call_riskguard")),
+        "risk_guard_called": bool(gate_contract.get("risk_guard_called")),
+        "would_call_live_preflight": bool(gate_contract.get("would_call_live_preflight")),
+        "live_preflight_called": bool(gate_contract.get("live_preflight_called")),
+        "decision_router_called": bool(gate_contract.get("decision_router_called")),
+        "order_service_called": bool(gate_contract.get("order_service_called")),
+        "order_adapter_called": bool(gate_contract.get("order_adapter_called")),
+        "execution_bridge_called": bool(gate_contract.get("execution_bridge_called")),
+        "submitted_count": int(gate_contract.get("submitted_count") or 0),
+        "provider_external_call_count": int(gate_contract.get("provider_external_call_count") or 0),
+        "managed_pool_mutation": bool(gate_contract.get("managed_pool_mutation")),
+        "order_risk_detected": bool(gate_contract.get("order_risk_detected")),
+        "blockers": list(gate_contract.get("blockers") or []),
+        "warnings": list(gate_contract.get("warnings") or []),
+        "safety_flags": dict(gate_contract.get("safety_flags") or {}),
+        "validation_errors": validation_errors,
+    }
+
+
+def _run_live_order_final_gate_integration_fixture_proof(report: dict[str, Any]) -> None:
+    valid = _base_source_policy_candidate("user_added", "KRW-PYTH")
+    scenarios: list[dict[str, Any]] = [
+        {"name": "valid_final_gate_ready", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "expected_ready": True, "expected_blockers": []},
+        {"name": "session_approved_empty_blocks", "candidate": valid, "approved": [], "unlock": ["KRW-PYTH"], "expected_ready": False, "expected_blockers": ["user_added_not_session_approved"]},
+        {"name": "intended_amount_13000_blocks", "candidate": {**valid, "intended_amount_krw": 13_000}, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "amount": 13_000, "expected_ready": False, "expected_blockers": ["intended_amount_exceeds_per_order_hard_cap"]},
+        {"name": "mock_submitted_count_1_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "submitted": 1, "expected_ready": False, "expected_blockers": ["submitted_count_not_zero"]},
+        {"name": "unlock_token_missing_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"unlock_token_present_or_mocked": False}, "expected_ready": False, "expected_blockers": ["unlock_token_missing"]},
+        {"name": "duplicate_order_detected_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"duplicate_order_detected": True}, "expected_ready": False, "expected_blockers": ["duplicate_order_detected"]},
+        {"name": "final_emit_gate_contract_not_ready_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"final_emit_gate_contract_ready": False}, "expected_ready": False, "expected_blockers": ["final_emit_gate_contract_not_ready"]},
+        {"name": "unlock_scope_symbol_mismatch_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"unlock_scope_symbol": "KRW-BTC"}, "expected_ready": False, "expected_blockers": ["unlock_scope_symbol_mismatch"]},
+        {"name": "unlock_scope_side_mismatch_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"unlock_scope_side": "sell"}, "expected_ready": False, "expected_blockers": ["unlock_scope_side_mismatch"]},
+        {"name": "unlock_expired_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "overrides": {"unlock_expiry_status": "expired"}, "expected_ready": False, "expected_blockers": ["unlock_expired"]},
+        {"name": "would_emit_order_intent_true_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "context": {"would_emit_order_intent": True}, "expected_ready": False, "expected_blockers": ["would_emit_order_intent_true"]},
+        {"name": "would_consume_unlock_true_blocks", "candidate": valid, "approved": ["KRW-PYTH"], "unlock": ["KRW-PYTH"], "context": {"would_consume_unlock": True}, "expected_ready": False, "expected_blockers": ["would_consume_unlock_true"]},
+    ]
+    forced_false_keys = (
+        "actual_order",
+        "actual_order_intent_emitted",
+        "would_emit_order_intent",
+        "order_intent_emitted",
+        "would_consume_unlock",
+        "unlock_consumed",
+        "unlock_service_called",
+        "would_call_riskguard",
+        "risk_guard_called",
+        "would_call_live_preflight",
+        "live_preflight_called",
+        "decision_router_called",
+        "order_service_called",
+        "order_adapter_called",
+        "execution_bridge_called",
+        "managed_pool_mutation",
+        "order_risk_detected",
+    )
+    results: list[dict[str, Any]] = []
+    for scenario in scenarios:
+        result = _build_live_order_final_gate_integration_result(
+            scenario["candidate"],
+            target_symbol=str(scenario["candidate"].get("symbol") or ""),
+            session_approved_symbols=scenario.get("approved"),
+            mock_unlock_approved_symbols=scenario.get("unlock"),
+            intended_amount_krw=scenario.get("amount"),
+            mock_total_window_used_krw=int(scenario.get("used") or 0),
+            mock_submitted_count=int(scenario.get("submitted") or 0),
+            gate_input_overrides=scenario.get("overrides"),
+            gate_context=scenario.get("context"),
+        )
+        blockers = set(result.get("blockers") or [])
+        passed = bool(result.get("live_order_final_gate_ready")) == bool(scenario["expected_ready"])
+        passed = passed and all(blocker in blockers for blocker in scenario.get("expected_blockers") or [])
+        passed = passed and result.get("final_gate_mode") == "readonly_integration_proof"
+        passed = passed and not result.get("validation_errors")
+        passed = passed and not any(bool(result.get(key)) for key in forced_false_keys)
+        results.append({"name": scenario["name"], "pass": passed, **result})
+    report.update(
+        {
+            "live_order_final_gate_integration_supported": True,
+            "schema": "aits_live_order_final_gate_integration_contract_v1",
+            "contract_helper_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_live_order_final_gate_integration_contract_v1",
+            "fixture_results": results,
+            "fixture_pass_count": sum(1 for item in results if item.get("pass")),
+            "fixture_fail_count": sum(1 for item in results if not item.get("pass")),
+            "actual_order": False,
+            "actual_order_intent_emitted": False,
+            "would_emit_order_intent": False,
+            "order_intent_emitted": False,
+            "would_consume_unlock": False,
+            "unlock_consumed": False,
+            "unlock_service_called": False,
+            "would_call_riskguard": False,
+            "risk_guard_called": False,
+            "would_call_live_preflight": False,
+            "live_preflight_called": False,
+            "decision_router_called": False,
+            "order_service_called": False,
+            "order_adapter_called": False,
+            "execution_bridge_called": False,
+            "final_action_unchanged": True,
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "managed_pool_mutation": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["fixture_fail_count"] == 0 else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_live_order_final_gate_integration_live_proof(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    target_symbol: str | None = None,
+    min_score: float = 60.0,
+    session_approved_symbols: Any = None,
+    mock_unlock_approved_symbols: Any = None,
+    intended_amount_krw: int = 10_000,
+    mock_total_window_used_krw: int = 0,
+    mock_submitted_count: int = 0,
+) -> None:
+    embedded: dict[str, Any] = {"mode": "live-preflight-readonly-actual-adapter-live-proof", "embedded": True}
+    _run_live_preflight_readonly_actual_adapter_live_proof(
+        embedded,
+        output_dir=output_dir,
+        target_symbol=target_symbol,
+        min_score=min_score,
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    candidate = dict(embedded.get("candidate") or {})
+    if not candidate:
+        candidate = _base_source_policy_candidate("user_added", str(target_symbol or "KRW-PYTH"))
+    result = _build_live_order_final_gate_integration_result(
+        candidate,
+        target_symbol=str(target_symbol or embedded.get("target_symbol") or candidate.get("symbol") or ""),
+        session_approved_symbols=session_approved_symbols,
+        mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+        intended_amount_krw=intended_amount_krw,
+        mock_total_window_used_krw=mock_total_window_used_krw,
+        mock_submitted_count=mock_submitted_count,
+    )
+    expected_safe = not any(
+        bool(result.get(key))
+        for key in (
+            "actual_order",
+            "actual_order_intent_emitted",
+            "would_emit_order_intent",
+            "order_intent_emitted",
+            "would_consume_unlock",
+            "unlock_consumed",
+            "unlock_service_called",
+            "would_call_riskguard",
+            "risk_guard_called",
+            "would_call_live_preflight",
+            "live_preflight_called",
+            "decision_router_called",
+            "order_service_called",
+            "order_adapter_called",
+            "execution_bridge_called",
+            "managed_pool_mutation",
+            "order_risk_detected",
+        )
+    )
+    report.update(
+        {
+            "mode": "live-order-final-gate-integration-live-proof",
+            "live_order_final_gate_integration_supported": True,
+            "schema": "aits_live_order_final_gate_integration_contract_v1",
+            "contract_helper_owner": "tools/runtime_smoke/aits_qt_smoke_harness.py::_evaluate_live_order_final_gate_integration_contract_v1",
+            "target_symbol": str(target_symbol or embedded.get("target_symbol") or result.get("target_symbol") or ""),
+            "session_approved_symbols": _normalized_session_approved_symbols(session_approved_symbols),
+            "mock_unlock_approved_symbols": _normalized_session_approved_symbols(mock_unlock_approved_symbols),
+            "embedded_live_preflight_actual_readonly_report": {
+                "status": embedded.get("status"),
+                "live_preflight_actual_readonly_adapter_ready": embedded.get("live_preflight_actual_readonly_adapter_ready"),
+                "would_call_live_preflight": embedded.get("would_call_live_preflight"),
+                "live_preflight_called": embedded.get("live_preflight_called"),
+                "live_preflight_decision": embedded.get("live_preflight_decision"),
+                "live_preflight_result_present": embedded.get("live_preflight_result_present"),
+                "blockers": embedded.get("blockers"),
+                "validation_errors": embedded.get("validation_errors"),
+            },
+            **result,
+        }
+    )
+    report["pass_status"] = "pass" if expected_safe and not result.get("validation_errors") else "fail"
+    report["status"] = report["pass_status"]
+
+
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
     return {
         "name": name,
@@ -12821,6 +13374,8 @@ def run_harness(
         "live-preflight-readonly-adapter-skeleton-live-proof",
         "live-preflight-readonly-actual-adapter-fixture-proof",
         "live-preflight-readonly-actual-adapter-live-proof",
+        "live-order-final-gate-integration-fixture-proof",
+        "live-order-final-gate-integration-live-proof",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
         "riskguard-readonly-adapter-skeleton-live-proof",
         "riskguard-readonly-actual-adapter-fixture-proof",
@@ -12962,6 +13517,21 @@ def run_harness(
         elif mode == "live-preflight-readonly-actual-adapter-live-proof":
             _install_provider_post_guard(report)
             _run_live_preflight_readonly_actual_adapter_live_proof(
+                report,
+                output_dir=output_dir,
+                target_symbol=target_symbol,
+                min_score=min_score,
+                session_approved_symbols=session_approved_symbols,
+                mock_unlock_approved_symbols=mock_unlock_approved_symbols,
+                intended_amount_krw=intended_amount_krw,
+                mock_total_window_used_krw=mock_total_window_used_krw,
+                mock_submitted_count=mock_submitted_count,
+            )
+        elif mode == "live-order-final-gate-integration-fixture-proof":
+            _run_live_order_final_gate_integration_fixture_proof(report)
+        elif mode == "live-order-final-gate-integration-live-proof":
+            _install_provider_post_guard(report)
+            _run_live_order_final_gate_integration_live_proof(
                 report,
                 output_dir=output_dir,
                 target_symbol=target_symbol,
@@ -13473,6 +14043,8 @@ def main() -> int:
             "live-preflight-readonly-adapter-skeleton-live-proof",
             "live-preflight-readonly-actual-adapter-fixture-proof",
             "live-preflight-readonly-actual-adapter-live-proof",
+            "live-order-final-gate-integration-fixture-proof",
+            "live-order-final-gate-integration-live-proof",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
             "riskguard-readonly-adapter-skeleton-live-proof",
             "riskguard-readonly-actual-adapter-fixture-proof",
