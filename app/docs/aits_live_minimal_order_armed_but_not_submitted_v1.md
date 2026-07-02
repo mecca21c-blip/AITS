@@ -3,8 +3,10 @@
 ## Goal
 
 `AITS-LIVE-MINIMAL-ORDER-ARMED-BUT-NOT-SUBMITTED-01` is the last
-read-only readiness step before a separately approved 10,000 KRW one-shot live
-order test.
+read-only readiness step before a separately approved setting-amount one-shot
+live order test. If the current configured order amount is 10,000 KRW, the
+test amount is 10,000 KRW. If the user changes the configured amount before ON,
+the armed report and confirm phrase must follow that configured amount.
 
 This proof creates an armed report only. It does not submit an order, emit an
 order intent, consume an unlock token, or call Router, RiskGuard,
@@ -36,7 +38,8 @@ Key fields:
 - `source`
 - `intended_side`
 - `intended_amount_krw`
-- `required_amount_krw=10000`
+- `configured_order_amount_krw`
+- `current_setting_order_amount_krw`
 - `min_order_krw=10000`
 - `per_order_hard_cap_krw=12000`
 - `total_guarded_window_cap_krw=20000`
@@ -58,6 +61,8 @@ Key fields:
 - `operator_confirm_required=true`
 - `operator_confirm_phrase`
 - `expected_confirm_phrase`
+- `amount_matches_current_setting`
+- `amount_locked_to_current_setting`
 
 Safety fields must remain false or zero:
 
@@ -77,12 +82,12 @@ Key fields:
 
 - `live_minimal_order_armed`
 - `armed_mode=not_submitted`
-- `next_allowed_goal=AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01`
+- `next_allowed_goal=AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`
 - `operator_confirm_required=true`
 - `expected_confirm_phrase`
 - `operator_confirm_phrase_matched`
 - `final_gate_passed`
-- `amount_locked_to_10000`
+- `amount_locked_to_current_setting` (`amount_locked_to_10000` is deprecated)
 - `caps_validated`
 - `source_policy_validated`
 - `riskguard_readonly_validated`
@@ -96,9 +101,17 @@ Key fields:
 
 ## Confirm Phrase Policy
 
-The expected phrase is generated from the target symbol, side, and amount:
+The expected phrase is generated from the target symbol, side, and configured
+order amount:
 
-`AITS LIVE ORDER KRW-PYTH BUY 10000`
+`AITS LIVE ORDER {symbol} {side.upper()} {configured_order_amount_krw}`
+
+Examples:
+
+- configured amount 10,000 KRW:
+  `AITS LIVE ORDER KRW-PYTH BUY 10000`
+- configured amount 11,000 KRW:
+  `AITS LIVE ORDER KRW-PYTH BUY 11000`
 
 The armed proof requires an exact match. If the phrase is missing or mismatched,
 `live_minimal_order_armed=false`.
@@ -111,7 +124,7 @@ Goal has a precise operator confirmation contract.
 `live_minimal_order_armed=true` means:
 
 - the final gate integration proof is ready
-- the amount is exactly 10,000 KRW
+- the intended amount matches the current configured order amount
 - all caps are still valid
 - the target is session approved
 - read-only RiskGuard and LivePreflight readiness are validated
@@ -133,10 +146,10 @@ The contract blocks armed readiness on:
 
 - `target_symbol_missing`
 - `intended_side_not_buy`
-- `intended_amount_not_10000`
-- `intended_amount_below_min_order`
-- `intended_amount_exceeds_per_order_hard_cap`
-- `total_guarded_window_cap_exceeded`
+- `intended_amount_not_matching_configured_setting`
+- `configured_amount_below_min_order`
+- `configured_amount_exceeds_per_order_hard_cap`
+- `configured_amount_exceeds_guarded_window_cap`
 - `submitted_count_not_zero`
 - `user_added_not_session_approved`
 - `live_order_final_gate_not_ready`
@@ -185,8 +198,10 @@ The proof must keep:
 
 Recommended next Goal:
 
-`AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01`
+`AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`
 
-Only that Goal may consider a single real 10,000 KRW order test, and only with
-explicit user approval, exact confirm phrase match, fixed target symbol, fixed
-amount, no retry, and no additional order.
+Only that Goal may consider a single real order using the current configured
+order amount, and only with explicit user approval, exact confirm phrase match,
+fixed target symbol, no retry, and no additional order. The configured amount
+must remain within the 10,000 KRW minimum, 12,000 KRW per-order hard cap, and
+20,000 KRW guarded-window cap.

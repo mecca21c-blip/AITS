@@ -1202,7 +1202,11 @@ The live minimal order armed-but-not-submitted proof is covered by:
 Example:
 
 ```powershell
-python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 10000" --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --configured-order-amount-krw 10000 --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 10000" --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-fixture-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --configured-order-amount-krw 11000 --intended-amount-krw 11000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 11000" --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-fixture-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --configured-order-amount-krw 11000 --intended-amount-krw 10000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 10000" --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-fixture-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --configured-order-amount-krw 13000 --intended-amount-krw 13000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 13000" --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-minimal-order-armed-fixture-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --configured-order-amount-krw 5000 --intended-amount-krw 5000 --mock-total-window-used-krw 0 --mock-submitted-count 0 --operator-confirm-phrase "AITS LIVE ORDER KRW-PYTH BUY 5000" --observe-only
 ```
 
 Both modes build `aits_live_minimal_order_armed_contract_v1` objects with
@@ -1213,12 +1217,12 @@ must keep `actual_order=false`, `actual_order_intent_emitted=false`,
 `order_adapter_called=false`, `execution_bridge_called=false`,
 `submitted_count=0`, and `provider_external_call_count=0`.
 
-The current expected operator confirm phrase is:
+The expected operator confirm phrase is based on `configured_order_amount_krw`:
 
-`AITS LIVE ORDER KRW-PYTH BUY 10000`
+`AITS LIVE ORDER {symbol} {side.upper()} {configured_order_amount_krw}`
 
 The next allowed Goal is
-`AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01`.
+`AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`.
 
 ### managed-pool-ai-opinion-reason-consistency-proof
 

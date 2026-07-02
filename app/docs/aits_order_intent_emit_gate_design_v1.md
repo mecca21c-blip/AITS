@@ -532,9 +532,10 @@ Scope:
 
 - add `live-minimal-order-armed-fixture-proof` and
   `live-minimal-order-armed-live-proof`
-- require the exact operator confirm phrase, for example
-  `AITS LIVE ORDER KRW-PYTH BUY 10000`
-- lock `intended_amount_krw` to exactly 10,000 KRW for the minimal test path
+- require the exact operator confirm phrase generated from the current
+  configured order amount, for example `AITS LIVE ORDER KRW-PYTH BUY 10000`
+  when the configured amount is 10,000 KRW
+- require `intended_amount_krw` to match the current configured order amount
 - produce `live_minimal_order_armed=true` only as a not-submitted readiness
   result
 - keep `armed_mode=not_submitted`, `would_emit_order_intent=false`,
@@ -542,6 +543,6 @@ Scope:
   `unlock_consumed=false`, `actual_order=false`,
   `actual_order_intent_emitted=false`, and `submitted_count=0`
 - the next Goal may be
-  `AITS-LIVE-MINIMAL-ORDER-10000KRW-ONE-SHOT-TEST-01`; only that Goal may
-  consider a single real 10,000 KRW submit with explicit user approval and no
-  retry
+  `AITS-LIVE-MINIMAL-ORDER-SETTING-AMOUNT-ONE-SHOT-TEST-01`; only that Goal may
+  consider a single real setting-amount submit with explicit user approval and
+  no retry
