@@ -211,3 +211,9 @@ The skeleton proof must still keep
 Recommended next Goal:
 
 `AITS-RISKGUARD-READONLY-ADAPTER-DESIGN-REVIEW-01`
+
+That design review is documented in
+`app/docs/aits_riskguard_readonly_adapter_contract_v1.md`. The RiskGuard
+adapter remains earlier than LivePreflight in the final live sequence, and its
+`riskguard_adapter_ready=true` state is still only a read-only contract state.
+It is not a RiskGuard pass or order permission.

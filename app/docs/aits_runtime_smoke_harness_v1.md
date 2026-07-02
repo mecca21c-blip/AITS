@@ -1106,6 +1106,14 @@ while keeping `would_call_live_preflight=false`, `live_preflight_called=false`,
 `order_service_reachable=false`, `order_adapter_reachable=false`,
 `submitted_count=0`, and `provider_external_call_count=0`.
 
+The future RiskGuard read-only adapter design is documented in
+`app/docs/aits_riskguard_readonly_adapter_contract_v1.md`. It is not a runtime
+smoke mode yet. The contract requires `would_call_riskguard=false`,
+`risk_guard_called=false`, `risk_decision=not_evaluated`,
+`would_call_live_preflight=false`, `live_preflight_called=false`,
+`unlock_consumed=false`, `actual_order_intent_emitted=false`, `actual_order=false`,
+`submitted=0`, and `provider_external_call_count=0`.
+
 ### managed-pool-ai-opinion-reason-consistency-proof
 
 `managed-pool-ai-opinion-reason-consistency-proof` verifies that fresh Managed

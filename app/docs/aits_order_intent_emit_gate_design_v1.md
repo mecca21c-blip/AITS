@@ -389,3 +389,21 @@ Scope:
 - keep `would_call_live_preflight=false`, `live_preflight_called=false`,
   `unlock_consumed=false`, `actual_order_intent_emitted=false`, and
   `submitted=0`
+
+Completed RiskGuard read-only adapter design review:
+
+`AITS-RISKGUARD-READONLY-ADAPTER-DESIGN-REVIEW-01`
+
+Scope:
+
+- define `aits_riskguard_readonly_adapter_contract_v1`
+- keep RiskGuard as a future read-only adapter boundary, not an actual service
+  call
+- require 10,000 / 12,000 / 20,000 KRW cap checks, submitted zero,
+  duplicate/repeat/relock checks, source policy readiness, session approval for
+  `user_added`, and acceptable AI freshness
+- preserve the final sequence: Router validation, RiskGuard read-only
+  validation, LivePreflight read-only validation, final unlock confirmation,
+  duplicate/repeat/relock final check, then execution services
+- keep actual RiskGuard, LivePreflight, unlock consumption, actual emit,
+  Router, OrderService, and OrderAdapter disabled
