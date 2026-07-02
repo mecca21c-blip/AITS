@@ -36858,12 +36858,10 @@ class MainWindow(QMainWindow):
         return root
 
     def _apply_ai_managed_row_tooltip(self, widget, tooltip_text: str) -> int:
-        if widget is None or not tooltip_text:
+        if widget is None:
             return 0
-        count = 0
         try:
-            widget.setToolTip(tooltip_text)
-            count += 1
+            widget.setToolTip("")
         except Exception:
             pass
         try:
@@ -36872,13 +36870,12 @@ class MainWindow(QMainWindow):
                     if str(child.objectName() or "") == "btn_ai_managed_decision_summary":
                         child.setToolTip("AI 판단 요약")
                         continue
-                    child.setToolTip(tooltip_text)
-                    count += 1
+                    child.setToolTip("")
                 except Exception:
                     pass
         except Exception:
             pass
-        return count
+        return 0
 
     def _plain_text_from_aits_tooltip_html(self, tooltip_text: str) -> str:
         try:
@@ -37095,7 +37092,7 @@ class MainWindow(QMainWindow):
                     score_text=str(score),
                 )
                 try:
-                    status_widget.setToolTip(str(row.get("ai_review_queue_reason") or ai_review_sla.get("tooltip") or ""))
+                    status_widget.setToolTip("")
                 except Exception:
                     pass
                 t.setCellWidget(
@@ -37136,8 +37133,7 @@ class MainWindow(QMainWindow):
                         )
                         item = t.item(i, cc)
                         if item is not None:
-                            item.setToolTip(tooltip_text)
-                            tooltip_applied_count += 1
+                            item.setToolTip("")
             except Exception:
                 pass
         try:
