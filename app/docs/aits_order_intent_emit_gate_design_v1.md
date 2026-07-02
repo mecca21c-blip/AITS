@@ -375,3 +375,17 @@ Scope:
   any ExecutionBridge/OrderService/OrderAdapter path
 - keep actual LivePreflight, unlock consumption, actual emit, Router, RiskGuard,
   OrderService, and OrderAdapter disabled
+
+Completed LivePreflight read-only adapter skeleton proof:
+
+`AITS-LIVE-PREFLIGHT-READONLY-ADAPTER-SKELETON-PROOF-01`
+
+Scope:
+
+- implement the documented read-only adapter contract in the harness only
+- build adapter input and output payloads without importing or calling the real
+  LivePreflight service
+- prove valid and invalid chains with fixture/live modes
+- keep `would_call_live_preflight=false`, `live_preflight_called=false`,
+  `unlock_consumed=false`, `actual_order_intent_emitted=false`, and
+  `submitted=0`

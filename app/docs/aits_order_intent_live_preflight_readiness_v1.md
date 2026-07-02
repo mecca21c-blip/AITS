@@ -95,3 +95,21 @@ The adapter contract is intentionally separate from this readiness stub:
 
 `live_preflight_readiness=true` remains a proof state only. It is not order
 permission and must not make OrderService or OrderAdapter reachable.
+
+## Read-Only Adapter Skeleton Proof
+
+`AITS-LIVE-PREFLIGHT-READONLY-ADAPTER-SKELETON-PROOF-01` implements the
+contract as a harness-only skeleton. It builds
+`aits_live_preflight_readonly_adapter_input_v1`, evaluates
+`aits_live_preflight_readonly_adapter_contract_v1`, and validates that
+`adapter_ready=true` never changes the call boundary.
+
+The skeleton modes are:
+
+- `live-preflight-readonly-adapter-skeleton-fixture-proof`
+- `live-preflight-readonly-adapter-skeleton-live-proof`
+
+Both modes keep `would_call_live_preflight=false`,
+`live_preflight_called=false`, `unlock_consumed=false`,
+`actual_order_intent_emitted=false`, `actual_order=false`, `submitted=0`, and
+provider calls at zero.

@@ -181,11 +181,33 @@ are fresh and the final duplicate/repeat/relock checks still pass.
 
 ## Next Implementation Goal
 
-The next implementation should be limited to:
+Completed skeleton proof:
 
 `AITS-LIVE-PREFLIGHT-READONLY-ADAPTER-SKELETON-PROOF-01`
 
-That Goal may add a skeleton adapter and proof payload, but it must still keep
+The skeleton proof adds a validation-only harness adapter with:
+
+- `_build_live_preflight_readonly_adapter_input_v1`
+- `_evaluate_live_preflight_readonly_adapter_contract_v1`
+- `_validate_live_preflight_readonly_adapter_contract_v1`
+
+Harness modes:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-readonly-adapter-skeleton-fixture-proof
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-preflight-readonly-adapter-skeleton-live-proof --target-symbol KRW-PYTH --session-approved-symbols KRW-PYTH --mock-unlock-approved-symbols KRW-PYTH --intended-amount-krw 10000 --mock-total-window-used-krw 0 --observe-only
+```
+
+The skeleton adapter may report `adapter_ready=true` for a valid readiness
+chain. That still means only that the read-only contract input/output is
+complete. It is not permission to call LivePreflight, consume unlock, emit an
+intent, or submit an order.
+
+The skeleton proof must still keep
 `would_call_live_preflight=false`, `live_preflight_called=false`,
 `unlock_consumed=false`, `actual_order_intent_emitted=false`,
 `actual_order=false`, and `submitted=0`.
+
+Recommended next Goal:
+
+`AITS-RISKGUARD-READONLY-ADAPTER-DESIGN-REVIEW-01`
