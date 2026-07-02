@@ -36562,24 +36562,85 @@ class MainWindow(QMainWindow):
             if isinstance(overlay, dict) and overlay:
                 provider = str(overlay.get("provider") or "local").strip().upper()
                 source = str(overlay.get("source") or "").strip()
-                source_text = self._humanize_managed_pool_ai_opinion_source(source)
-                if provider == "GPT" and source == "manual_ai_refresh":
-                    return "GPT 수동 AI 분석 결과입니다."
-                if provider == "GEMINI":
-                    return "Gemini 분석 결과입니다."
+                when = self._managed_pool_opinion_time_text(overlay)
+                if when:
+                    return f"{provider} · {when}"
                 if provider == "LOCAL":
-                    return source_text or "LOCAL 계산 의견입니다."
-                return f"{provider} 분석 결과입니다."
+                    return "LOCAL · 최근 계산 기준"
+                if provider in {"GPT", "GEMINI"}:
+                    return f"{provider} · 최근 분석 기준"
+                source_text = self._humanize_managed_pool_ai_opinion_source(source)
+                return f"{provider or source_text} · 최근 분석 기준"
             if isinstance(row, dict):
                 source = str(row.get("source_type") or row.get("source") or "").strip().lower()
                 if source in {"basic_added", "auto_added", "basic"}:
-                    return "Basic 후보 엔진이 선별했습니다."
+                    return "Basic 후보 엔진 · 최근 계산 기준"
         except Exception:
             pass
-        return "Basic 후보 엔진이 참고 기준을 계산했습니다."
+        return "Basic 후보 엔진 · 최근 계산 기준"
 
-    def _managed_pool_watch_until_text(self, overlay: dict | None, status_text: str = "") -> str:
+    def _managed_pool_opinion_time_text(self, overlay: dict | None) -> str:
+        if not isinstance(overlay, dict):
+            return ""
+        for key in (
+            "event_time",
+            "created_at",
+            "analysis_time",
+            "analyzed_at",
+            "freshness_time",
+            "manual_refresh_time",
+            "updated_at",
+        ):
+            raw = str(overlay.get(key) or "").strip()
+            if not raw:
+                continue
+            try:
+                from datetime import datetime
+
+                text = raw.replace("Z", "+00:00")
+                dt = datetime.fromisoformat(text)
+                return dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                return raw[:16]
+        return ""
+
+    def _managed_pool_eta_text(self, row: dict | None, overlay: dict | None = None) -> str:
+        candidates = []
+        for source in (overlay, row):
+            if not isinstance(source, dict):
+                continue
+            for key in (
+                "eta",
+                "eta_text",
+                "observation_eta",
+                "observation_eta_text",
+                "watch_eta",
+                "watch_until",
+                "expected_hold",
+                "expected_hold_text",
+                "holding_eta",
+                "holding_eta_text",
+                "observed_until",
+                "observation_window",
+                "observation_time",
+            ):
+                value = str(source.get(key) or "").strip()
+                if value:
+                    candidates.append(value)
+        for value in candidates:
+            lower = value.lower()
+            if any(blocked in lower for blocked in ("request_id", "response_id", "token_usage", "prompt_tokens", "completion_tokens", "total_tokens")):
+                continue
+            if "재평가" in value or "관찰" in value:
+                return value[:120]
+            return f"{value[:80]} 관찰 후 재평가"
+        return ""
+
+    def _managed_pool_watch_until_text(self, overlay: dict | None, status_text: str = "", row: dict | None = None) -> str:
         try:
+            eta_text = self._managed_pool_eta_text(row, overlay)
+            if eta_text:
+                return eta_text
             freshness = str((overlay or {}).get("freshness") or "").strip() if isinstance(overlay, dict) else ""
             opinion = str((overlay or {}).get("opinion") or "").strip().lower() if isinstance(overlay, dict) else ""
             status = str(status_text or "").strip()
@@ -36621,8 +36682,8 @@ class MainWindow(QMainWindow):
                 "selected_reason": self._managed_pool_source_summary_text(row, holding_overlay),
                 "judged_by": self._managed_pool_opinion_judge_text(opinion_overlay, row),
                 "expected_action": expected,
-                "watch_until": self._managed_pool_watch_until_text(opinion_overlay, expected),
-                "safety_note": "주문 없음 / 표시만",
+                "watch_until": self._managed_pool_watch_until_text(opinion_overlay, expected, row),
+                "safety_note": "주문 없음 · 표시만",
             }
             if score_text:
                 payload["score_text"] = str(score_text)
@@ -36634,7 +36695,7 @@ class MainWindow(QMainWindow):
                 "judged_by": "Basic 후보 엔진이 참고 기준을 계산했습니다.",
                 "expected_action": "관망",
                 "watch_until": "다음 데이터 갱신 후 재평가합니다.",
-                "safety_note": "주문 없음 / 표시만",
+                "safety_note": "주문 없음 · 표시만",
             }
 
     def _show_ai_managed_decision_summary_popup(
@@ -36705,10 +36766,10 @@ class MainWindow(QMainWindow):
             pass
         root.addWidget(subtitle)
         questions = (
-            ("1. 왜 선택되었나", payload.get("selected_reason")),
-            ("2. 누가 판단했나", payload.get("judged_by")),
-            ("3. 뭘 예상하는가", payload.get("expected_action")),
-            ("4. 언제까지 지켜볼 건가", payload.get("watch_until")),
+            ("선정 이유", payload.get("selected_reason")),
+            ("판단 주체", payload.get("judged_by")),
+            ("예상 판단", payload.get("expected_action")),
+            ("관찰 예상", payload.get("watch_until")),
         )
         for q_title, body in questions:
             q = QLabel(f"{q_title}\n{str(body or '-')}")
@@ -36722,7 +36783,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             root.addWidget(q)
-        safety = QLabel(str(payload.get("safety_note") or "주문 없음 / 표시만"))
+        safety = QLabel(str(payload.get("safety_note") or "주문 없음 · 표시만"))
         try:
             safety.setStyleSheet("font-size:12px;font-weight:900;color:#92400e;margin-top:3px;")
         except Exception:
