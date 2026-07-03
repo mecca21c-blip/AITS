@@ -24927,6 +24927,50 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _log_engine_status_writer_decision(
+        self,
+        *,
+        event: str,
+        source_path: str = "",
+        writer: str = "",
+        provider: str = "",
+        previous_connection_status: str = "",
+        next_connection_status: str = "",
+        analysis_freshness_status: str = "",
+        downgrade_allowed: bool = False,
+        downgrade_blocked_reason: str = "",
+        check_id: str | int = "",
+        key_changed: bool = False,
+        reason: str = "",
+    ) -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(
+                provider or getattr(self, "_selected_ai_provider", "basic")
+            )
+            parts = [
+                "[AITS][EngineStatusWriter]",
+                f"event={str(event or '')[:80]}",
+                f"source_path={str(source_path or '')[:80]}",
+                f"writer={str(writer or '')[:120]}",
+                f"selected_provider={getattr(self, '_selected_ai_provider', '')}",
+                f"normalized_provider={normalized_provider}",
+                f"previous_connection_status={str(previous_connection_status or '')[:80]}",
+                f"next_connection_status={str(next_connection_status or '')[:80]}",
+                f"analysis_freshness_status={str(analysis_freshness_status or '')[:80]}",
+                f"downgrade_allowed={bool(downgrade_allowed)}",
+                f"downgrade_blocked_reason={str(downgrade_blocked_reason or '')[:120]}",
+                f"request_id={str(check_id or '')[:80]}",
+                f"snapshot_updated_at={time.time():.3f}",
+                f"key_changed={bool(key_changed)}",
+                f"reason={str(reason or '')[:120]}",
+                "submitted=0",
+                "order_allowed=False",
+                "real_order=False",
+            ]
+            logging.getLogger("aits").info(" | ".join(parts))
+        except Exception:
+            pass
+
     def _apply_saved_ai_preview(self, provider: str, model: str) -> None:
         try:
             selected_provider = self._normalize_ai_provider_code(provider)
@@ -24943,12 +24987,8 @@ class MainWindow(QMainWindow):
             last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
             if selected_provider == "basic":
                 self._ai_connection_status = "LOCAL"
-            elif selected_provider == last_provider and last_source in ("manual_generation", "startup_generation") and last_status and self._is_ai_generation_fresh(selected_provider):
+            elif selected_provider == last_provider and last_status:
                 self._ai_connection_status = last_status
-            elif selected_provider == last_provider and last_source in ("manual_generation", "startup_generation") and last_status:
-                self._last_ai_connection_status = "기존 응답 참고 · stale"
-                self._last_ai_connection_source = "manual_generation_stale"
-                self._ai_connection_status = self._last_ai_connection_status
             else:
                 self._last_ai_connection_provider = selected_provider
                 self._last_ai_connection_status = "연결확인 필요"
@@ -24998,25 +25038,8 @@ class MainWindow(QMainWindow):
                 getattr(self, "_last_ai_connection_provider", "")
             )
             last_status = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
-            last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
-            if (
-                normalized_provider == last_provider
-                and last_source in ("manual_generation", "startup_generation")
-                and last_status
-                and self._is_ai_generation_fresh(normalized_provider)
-            ):
+            if normalized_provider == last_provider and last_status:
                 self._ai_connection_status = last_status
-                self._render_ai_engine_state()
-                return
-            if (
-                normalized_provider == last_provider
-                and last_source in ("manual_generation", "startup_generation")
-                and last_status
-            ):
-                self._last_ai_connection_provider = normalized_provider
-                self._last_ai_connection_status = "기존 응답 참고 · stale"
-                self._last_ai_connection_source = "manual_generation_stale"
-                self._ai_connection_status = self._last_ai_connection_status
                 self._render_ai_engine_state()
                 return
             self._last_ai_connection_provider = normalized_provider
@@ -40726,10 +40749,6 @@ class MainWindow(QMainWindow):
             if provider not in ("gpt", "gemini"):
                 return
             status = self._provider_failure_connection_status_from_result(result)
-            self._last_ai_connection_provider = provider
-            self._last_ai_connection_status = status
-            self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else (str(((result or {}).get("context") or {}).get("source") or "manual_generation") if isinstance((result or {}).get("context"), dict) else "manual_generation"))
-            self._ai_connection_status = status
             self._last_ai_generation_request_id = str((result or {}).get("generation_request_id") or (result or {}).get("request_id") or (result or {}).get("decision_group_id") or "")
             self._last_ai_generation_provider = provider
             self._last_ai_generation_status = str((result or {}).get("generation_status") or ("failed_timeout" if bool((result or {}).get("timed_out")) else "failed_error"))
@@ -40751,7 +40770,19 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
-            self._ai_engine_last_checked_text = '방금 전'
+            self._log_engine_status_writer_decision(
+                event="downgrade_blocked",
+                source_path=("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else (str(((result or {}).get("context") or {}).get("source") or "manual_generation") if isinstance((result or {}).get("context"), dict) else "manual_generation")),
+                writer="_mark_provider_generation_failure_status",
+                provider=provider,
+                previous_connection_status=str(getattr(self, "_last_ai_connection_status", "") or ""),
+                next_connection_status=status,
+                analysis_freshness_status=str(self._last_ai_generation_status or ""),
+                downgrade_allowed=False,
+                downgrade_blocked_reason="generation_failure_does_not_own_provider_connection_status",
+                check_id=self._last_ai_generation_request_id,
+                reason=str((result or {}).get("error_code") or (result or {}).get("error_summary") or "")[:80],
+            )
             self._render_ai_engine_state()
         except Exception:
             pass
@@ -40880,21 +40911,24 @@ class MainWindow(QMainWindow):
                     pass
                 try:
                     if provider in ("gpt", "gemini"):
-                        self._last_ai_connection_provider = provider
-                        self._last_ai_connection_status = '생성 응답 확인됨'
-                        self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(result_context.get("source") or "manual_generation"))
-                        self._ai_connection_status = self._last_ai_connection_status
-                        self._ai_engine_last_checked_text = '방금 전'
+                        self._log_engine_status_writer_decision(
+                            event="connection_write_skipped",
+                            source_path=("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(result_context.get("source") or "manual_generation")),
+                            writer="_on_aits_provider_refresh_worker_result",
+                            provider=provider,
+                            previous_connection_status=str(getattr(self, "_last_ai_connection_status", "") or ""),
+                            next_connection_status="생성 응답 확인됨",
+                            analysis_freshness_status=str(result.get("generation_status") or "confirmed"),
+                            downgrade_allowed=False,
+                            downgrade_blocked_reason="generation_success_updates_generation_snapshot_only",
+                            check_id=str(result.get("generation_request_id") or result.get("request_id") or result.get("decision_group_id") or ""),
+                            reason="provider_generation_confirmed",
+                        )
                 except Exception:
                     pass
                 try:
                     if provider in ("gpt", "gemini"):
                         generation_request_id = str(result.get("generation_request_id") or result.get("request_id") or result.get("decision_group_id") or "")
-                        self._last_ai_connection_provider = provider
-                        self._last_ai_connection_status = str(result.get("generation_status_text") or "생성 응답 확인됨")
-                        self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(result_context.get("source") or "manual_generation"))
-                        self._ai_connection_status = self._last_ai_connection_status
-                        self._ai_engine_last_checked_text = "방금 전"
                         self._last_ai_generation_request_id = generation_request_id
                         self._last_ai_generation_provider = provider
                         self._last_ai_generation_status = str(result.get("generation_status") or "confirmed")
@@ -42244,8 +42278,24 @@ class MainWindow(QMainWindow):
                         except Exception:
                             pass
                         try:
-                            self._last_ai_connection_status = "키 확인 필요"
-                            self._ai_connection_status = "키 확인 필요"
+                            self._last_ai_generation_provider = "gemini"
+                            self._last_ai_generation_status = "key_missing"
+                            self._last_ai_generation_fresh = False
+                            self._last_ai_generation_stale = False
+                            self._last_ai_generation_response_confirmed = False
+                            self._log_engine_status_writer_decision(
+                                event="downgrade_blocked",
+                                source_path=str(request_context.get("source") or "manual_generation"),
+                                writer="_schedule_aits_main_gpt_reco",
+                                provider="gemini",
+                                previous_connection_status=str(getattr(self, "_last_ai_connection_status", "") or ""),
+                                next_connection_status="키 확인 필요",
+                                analysis_freshness_status="key_missing",
+                                downgrade_allowed=False,
+                                downgrade_blocked_reason="generation_key_missing_does_not_own_provider_connection_status",
+                                check_id=str(request_context.get("decision_group_id") or request_context.get("request_id") or ""),
+                                reason="gemini_generation_key_missing",
+                            )
                             self._render_ai_engine_state()
                         except Exception:
                             pass
@@ -42500,11 +42550,19 @@ class MainWindow(QMainWindow):
                 self._last_ai_generation_response_id_present = False
                 self._last_ai_generation_token_usage_present = False
                 self._last_ai_generation_fallback_used = False
-                self._last_ai_connection_provider = "gpt"
-                self._last_ai_connection_status = "생성 요청 중"
-                self._last_ai_connection_source = ("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(request_context.get("source") or "manual_generation"))
-                self._ai_connection_status = self._last_ai_connection_status
-                self._ai_engine_last_checked_text = "생성 요청 중"
+                self._log_engine_status_writer_decision(
+                    event="connection_write_skipped",
+                    source_path=("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(request_context.get("source") or "manual_generation")),
+                    writer="_schedule_aits_main_gpt_reco",
+                    provider="gpt",
+                    previous_connection_status=str(getattr(self, "_last_ai_connection_status", "") or ""),
+                    next_connection_status="생성 요청 중",
+                    analysis_freshness_status="request_started",
+                    downgrade_allowed=False,
+                    downgrade_blocked_reason="generation_request_does_not_own_provider_connection_status",
+                    check_id=str(group_id or ""),
+                    reason="generation_request_started",
+                )
                 self._render_ai_engine_state()
                 logging.getLogger("aits").info(
                     "[AITS][ProviderGenerationLifecycle] event=request_initialized request_id=%s provider=gpt max_attempts=%s compact_smoke=%s submitted=0 order_allowed=False real_order=False",

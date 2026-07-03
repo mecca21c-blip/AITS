@@ -11625,6 +11625,136 @@ def _run_engine_connection_status_regression_proof(
     report["status"] = report["pass_status"]
 
 
+def _run_engine_connection_key_refresh_regression_proof(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    if requested == "local":
+        requested = "gpt"
+    canonical = "openai" if requested == "gpt" else requested
+    selector = getattr(window, "_select_ai_provider_for_session", None)
+    if callable(selector):
+        selector(requested, reason="key_refresh_regression", start_connection=False)
+
+    # A. startup connecting -> failed -> check_needed
+    setattr(window, "_last_ai_connection_provider", requested)
+    setattr(window, "_last_ai_connection_status", "연결중")
+    setattr(window, "_ai_connection_status", "연결중")
+    startup_connecting = _provider_state_snapshot(window)
+    setattr(window, "_last_ai_connection_status", "연결실패")
+    setattr(window, "_ai_connection_status", "연결실패")
+    startup_failed = _provider_state_snapshot(window)
+    setattr(window, "_last_ai_connection_status", "연결확인 필요")
+    setattr(window, "_last_ai_connection_source", "preview_pending")
+    setattr(window, "_ai_connection_status", "연결확인 필요")
+    startup_check_needed = _provider_state_snapshot(window)
+
+    # B/C. API key update + connection test success.
+    connected_snapshot = _simulate_engine_connection_transition(window, requested, "success")
+    connected_state = connected_snapshot.get("connection_state_simple")
+
+    # D/E/F. Manual AI refresh/generation freshness changes must not downgrade provider connection.
+    setattr(window, "_last_ai_generation_provider", requested)
+    setattr(window, "_last_ai_generation_status", "request_started")
+    setattr(window, "_last_ai_generation_fresh", False)
+    setattr(window, "_last_ai_generation_stale", False)
+    setattr(window, "_last_ai_generation_response_confirmed", False)
+    render = getattr(window, "_render_ai_engine_state", None)
+    if callable(render):
+        render()
+    generation_not_fresh_snapshot = _provider_state_snapshot(window)
+
+    failure_marker = getattr(window, "_mark_provider_generation_failure_status", None)
+    if callable(failure_marker):
+        failure_marker(
+            {
+                "provider": requested,
+                "generation_request_id": "key-refresh-regression-generation",
+                "generation_status": "failed_error",
+                "error_code": "generation_not_confirmed",
+                "context": {"source": "manual_refresh"},
+            }
+        )
+    manual_refresh_failure_snapshot = _provider_state_snapshot(window)
+
+    # Stale old connection failure must not overwrite the newer connected token.
+    current_token = int(getattr(window, "_ai_preview_connection_token", 0) or 0)
+    apply_result = getattr(window, "_apply_ai_preview_connection_result", None)
+    if callable(apply_result):
+        apply_result(
+            canonical,
+            "failed",
+            "OldFailure",
+            "mock-model",
+            "mock_no_external_call",
+            max(current_token - 1, 0),
+            "manual",
+        )
+    stale_old_failure_snapshot = _provider_state_snapshot(window)
+
+    # Latest actual connection failure remains allowed to downgrade.
+    latest_failure_snapshot = _simulate_engine_connection_transition(window, requested, "failed")
+
+    # Provider change intentionally invalidates the snapshot.
+    changed_provider = "gemini" if requested == "gpt" else "gpt"
+    if callable(selector):
+        selector(changed_provider, reason="key_refresh_provider_change", start_connection=False)
+    provider_change_snapshot = _provider_state_snapshot(window)
+
+    generation_did_not_downgrade = (
+        generation_not_fresh_snapshot.get("connection_state_simple") == "정상연결"
+        and manual_refresh_failure_snapshot.get("connection_state_simple") == "정상연결"
+    )
+    stale_failure_blocked = stale_old_failure_snapshot.get("connection_state_simple") == "정상연결"
+    actual_failure_downgraded = latest_failure_snapshot.get("connection_state_simple") == "연결실패"
+    provider_change_invalidated = provider_change_snapshot.get("connection_state_simple") in {
+        "연결 확인 필요",
+        "연결실패",
+        "연결중",
+    }
+    pass_status = (
+        startup_connecting.get("connection_state_simple") == "연결중"
+        and startup_failed.get("connection_state_simple") == "연결실패"
+        and startup_check_needed.get("connection_state_simple") == "연결 확인 필요"
+        and connected_state == "정상연결"
+        and generation_did_not_downgrade
+        and stale_failure_blocked
+        and actual_failure_downgraded
+        and provider_change_invalidated
+    )
+    report.update(
+        {
+            "mode": "engine-connection-key-refresh-regression-proof",
+            "schema": "aits_engine_connection_key_refresh_regression_v1",
+            "provider": requested,
+            "startup_connecting_snapshot": startup_connecting,
+            "startup_failed_snapshot": startup_failed,
+            "startup_check_needed_snapshot": startup_check_needed,
+            "connected_snapshot": connected_snapshot,
+            "generation_not_fresh_snapshot": generation_not_fresh_snapshot,
+            "manual_refresh_failure_snapshot": manual_refresh_failure_snapshot,
+            "stale_old_failure_snapshot": stale_old_failure_snapshot,
+            "latest_failure_snapshot": latest_failure_snapshot,
+            "provider_change_snapshot": provider_change_snapshot,
+            "key_refresh_connected_state": connected_state,
+            "generation_not_fresh_downgrade_blocked": generation_not_fresh_snapshot.get("connection_state_simple") == "정상연결",
+            "manual_refresh_failure_downgrade_blocked": manual_refresh_failure_snapshot.get("connection_state_simple") == "정상연결",
+            "stale_old_failure_downgrade_blocked": stale_failure_blocked,
+            "latest_connection_failure_downgraded": actual_failure_downgraded,
+            "provider_change_invalidated_snapshot": provider_change_invalidated,
+            "connection_freshness_separated": generation_did_not_downgrade,
+            "provider_external_call_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+            "pass_status": "pass" if pass_status else "fail",
+        }
+    )
+    report["status"] = report["pass_status"]
+
+
 def _marker_delta(after: dict[str, Any], before: dict[str, Any], key: str) -> int:
     return int(after.get(key, 0) or 0) - int(before.get(key, 0) or 0)
 
@@ -15122,6 +15252,13 @@ def run_harness(
             report,
             provider=provider or "gpt",
         )
+    elif mode == "engine-connection-key-refresh-regression-proof":
+        _install_provider_post_guard(report)
+        _run_engine_connection_key_refresh_regression_proof(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
             app,
@@ -15333,6 +15470,7 @@ def run_harness(
         "real-app-startup-readiness-proof",
         "engine-connection-status-path-diagnostic",
         "engine-connection-status-regression-proof",
+        "engine-connection-key-refresh-regression-proof",
         "top-markets-feed-proof",
         "save-probe",
         "riskguard-active-path-proof",
@@ -15377,6 +15515,7 @@ def main() -> int:
             "dry-navigation",
             "engine-connection-status-path-diagnostic",
             "engine-connection-status-regression-proof",
+            "engine-connection-key-refresh-regression-proof",
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",

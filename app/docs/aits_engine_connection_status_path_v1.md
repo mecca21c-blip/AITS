@@ -85,6 +85,81 @@ Engine status transitions are logged with prefix:
 
 - `[AITS][EngineStatusPath]`
 
+## Follow-up: Key Refresh Writer Conflict Fix
+
+Goal: `AITS-AI-ENGINE-STATUS-KEY-REFRESH-WRITER-CONFLICT-FIX-01`.
+
+Reproduced symptom:
+
+- Startup/provider selection entered `connecting`, then `failed`, then
+  `check_needed`.
+- Common Settings API connection test with a refreshed OpenAI key could verify
+  the provider and show connected.
+- A later manual AI analysis refresh could overwrite the same connection slot
+  with generation/freshness text such as request-started, stale, or key-needed,
+  causing the provider connection badge to fall back to check-needed.
+
+Root cause:
+
+- Provider connection status and AI generation status still shared
+  `_last_ai_connection_status` / `_ai_connection_status` in several generation
+  paths.
+- `MainWindow._mark_provider_generation_failure_status`,
+  `MainWindow._on_aits_provider_refresh_worker_result`, and the GPT/Gemini
+  generation request initialization path could write generation-only state into
+  the provider connection snapshot.
+- Preview application also had legacy branches that interpreted
+  `manual_generation` / `startup_generation` as connection status.
+
+Fix policy:
+
+- `_last_ai_connection_status` is owned only by provider connection checks,
+  provider selection invalidation, and LOCAL self-check.
+- AI analysis refresh updates only generation/opinion freshness fields:
+  `_last_ai_generation_status`, `_last_ai_generation_fresh`,
+  `_last_ai_generation_stale`, and response-confirmation fields.
+- Generation request start, generation success, generation failure, missing
+  generation key, and stale generation state must not downgrade provider
+  connection status.
+- These blocked writer attempts are logged with
+  `[AITS][EngineStatusWriter]` and `downgrade_blocked_reason`.
+
+Downgrade rules:
+
+- Allowed: `connecting -> connected`.
+- Allowed: `connecting -> failed`.
+- Allowed: `connecting -> timeout`.
+- Allowed: `connected -> failed` only from the latest actual provider
+  connection check result.
+- Allowed: provider/key change may intentionally invalidate the old snapshot to
+  check-needed/connecting before a new check.
+- Forbidden: `connected -> check_needed` because of `generation_not_fresh`.
+- Forbidden: `connected -> check_needed` because manual AI analysis has no fresh
+  result.
+- Forbidden: stale old connection failure overwriting a newer connected result.
+- Forbidden: render-only/timer-only code changing connected back to connecting
+  or unknown.
+
+Regression proof:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode engine-connection-key-refresh-regression-proof --provider gpt --observe-only
+```
+
+The proof simulates:
+
+1. startup connecting/failed/check-needed,
+2. key refresh connection success,
+3. manual AI refresh generation-not-fresh,
+4. generation failure,
+5. stale old failure result,
+6. latest actual connection failure,
+7. provider-change invalidation.
+
+Expected result: provider external calls remain `0`, connected remains connected
+through generation-only events, and only the latest actual connection failure can
+downgrade to failed.
+
 The log includes source path, selected/normalized provider, previous/next status,
 writer, reason, check id, elapsed time, and whether UI update was emitted. It
 does not log API keys, prompts, raw payloads, or provider response bodies.

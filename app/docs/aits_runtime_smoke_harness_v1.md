@@ -16,6 +16,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-read
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-status-path-diagnostic --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-status-regression-proof --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-key-refresh-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
@@ -83,6 +84,13 @@ runtime environments ignore native `QToolTip` background styling.
   `manual_refresh_only_writer=false`, `connection_freshness_separated=true`,
   `connecting_timeout_supported=true`, `provider_external_call_count=0`, and
   no order-risk flags.
+- `engine-connection-key-refresh-regression-proof`: simulates the key-refresh
+  writer conflict: startup connecting/failed/check-needed, API connection test
+  success, manual AI refresh generation-not-fresh, generation failure, stale old
+  failure, latest actual connection failure, and provider-change invalidation.
+  It expects generation-only events to keep provider connection status connected,
+  stale old failures to be ignored, latest connection failure to downgrade to
+  failed, `provider_external_call_count=0`, and no order-risk flags.
 - `provider-smoke`: runs one explicit provider refresh only when
   `--allow-provider-calls` is supplied. For GPT/Gemini it reports
   `generation_response_confirmed`, `generation_response_confirmed_reason`,
