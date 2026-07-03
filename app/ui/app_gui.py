@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
 # ⚠️ 봉인 선언: 역할 변경/이동/삭제/리팩터링 금지
@@ -47807,22 +47807,94 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
-    def _resolve_ai_generation_secret(self, provider: str) -> tuple[str, str, bool]:
+    def _ai_secret_fingerprint(self, value: str) -> str:
+        try:
+            text = str(value or "").strip()
+            if not text or self._is_masked_ai_secret_text(text):
+                return ""
+            return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:8]
+        except Exception:
+            return ""
+
+    def _log_ai_key_resolution(self, *, provider: str, caller: str, source: str, value: str, ui_masked: bool = False) -> None:
+        try:
+            normalized_provider = self._normalize_saved_ai_provider(provider)
+            key_text = str(value or "").strip()
+            logging.getLogger("aits").info(
+                "[AITS][ProviderKeyResolution] event=resolved caller=%s provider=%s normalized_provider=%s key_source=%s key_present=%s key_length=%s key_fp=%s ui_masked=%s settings_loaded=%s runtime_synced=%s submitted=0 order_allowed=False real_order=False",
+                str(caller or "unknown")[:80],
+                str(provider or "")[:40],
+                normalized_provider,
+                str(source or "missing")[:80],
+                bool(key_text),
+                len(key_text),
+                self._ai_secret_fingerprint(key_text),
+                bool(ui_masked),
+                bool(getattr(self, "_settings", None)),
+                bool(getattr(self, "_applied_ai_provider", "")),
+            )
+        except Exception:
+            pass
+
+    def _resolve_ai_provider_secret(self, provider: str, *, caller: str = "unknown", allow_ui: bool = True) -> dict:
         provider = self._normalize_saved_ai_provider(provider)
+        if provider not in ("openai", "gemini"):
+            result = {
+                "provider": provider,
+                "key": "",
+                "source": "local_provider_no_api_key",
+                "ui_masked": False,
+                "key_present": False,
+                "key_length": 0,
+                "key_fp": "",
+            }
+            self._log_ai_key_resolution(provider=provider, caller=caller, source=result["source"], value="")
+            return result
         edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
         ui_value = ""
         try:
-            ui_value = str(edit.text() or "").strip() if edit is not None else ""
+            ui_value = str(edit.text() or "").strip() if edit is not None and hasattr(edit, "text") else ""
         except Exception:
             ui_value = ""
         ui_masked = bool(ui_value and self._is_masked_ai_secret_text(ui_value))
-        stored = self._get_stored_ai_secret(provider)
-        if stored and not self._is_masked_ai_secret_text(stored):
-            return stored, "stored_secret", ui_masked
+        candidates = []
+        if allow_ui and ui_value and not ui_masked:
+            candidates.append(("ui_input", ui_value))
         pending = self._get_pending_verified_ai_secret(provider)
         if pending and not self._is_masked_ai_secret_text(pending):
-            return pending, "pending_verified", ui_masked
-        return "", "masked_blocked" if ui_masked else "missing", ui_masked
+            candidates.append(("pending_verified", pending))
+        stored = self._get_stored_ai_secret(provider)
+        if stored and not self._is_masked_ai_secret_text(stored):
+            candidates.append(("stored_secret", stored))
+        environment = self._get_environment_ai_secret(provider)
+        if environment and not self._is_masked_ai_secret_text(environment):
+            candidates.append(("environment", environment))
+        source, value = candidates[0] if candidates else (("masked_blocked" if ui_masked else "missing"), "")
+        result = {
+            "provider": provider,
+            "key": str(value or "").strip(),
+            "source": source,
+            "ui_masked": ui_masked,
+            "key_present": bool(value),
+            "key_length": len(str(value or "").strip()),
+            "key_fp": self._ai_secret_fingerprint(value),
+        }
+        self._log_ai_key_resolution(provider=provider, caller=caller, source=source, value=str(value or ""), ui_masked=ui_masked)
+        return result
+
+    def _resolve_ai_generation_secret(self, provider: str) -> tuple[str, str, bool]:
+        resolved = self._resolve_ai_provider_secret(provider, caller="ai_analysis_refresh_generation", allow_ui=True)
+        try:
+            if resolved.get("key_present") and self._connection_state_simple() in ("연결실패", "연결 실패"):
+                logging.getLogger("aits").warning(
+                    "[AITS][ProviderBootstrap] event=connection_failed_but_generation_key_available provider=%s key_source=%s key_fp=%s submitted=0 order_allowed=False real_order=False",
+                    str(resolved.get("provider") or "")[:40],
+                    str(resolved.get("source") or "")[:80],
+                    str(resolved.get("key_fp") or "")[:12],
+                )
+        except Exception:
+            pass
+        return str(resolved.get("key") or ""), str(resolved.get("source") or "missing"), bool(resolved.get("ui_masked"))
 
     def _get_stored_ai_secret(self, provider: str) -> str:
         """Return only the persisted secrets.json value, never an env fallback."""
@@ -47860,39 +47932,13 @@ class MainWindow(QMainWindow):
         return ""
 
     def _resolve_ai_test_secret(self, provider: str) -> tuple[str, str]:
-        provider = self._normalize_saved_ai_provider(provider)
-        if provider not in ("openai", "gemini"):
-            return "", "local_provider_no_api_key"
-        edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
-        ui_value = str(edit.text() or "").strip() if edit is not None else ""
-        if ui_value and not self._is_masked_ai_secret_text(ui_value):
-            return ui_value, "ui_input"
-        pending = self._get_pending_verified_ai_secret(provider)
-        if pending:
-            return pending, "pending_verified"
-        stored = self._get_stored_ai_secret(provider)
-        if stored:
-            return stored, "stored_secret"
-        environment = self._get_environment_ai_secret(provider)
-        if environment:
-            return environment, "environment"
-        return "", "missing"
+        resolved = self._resolve_ai_provider_secret(provider, caller="connection_test_or_startup", allow_ui=True)
+        return str(resolved.get("key") or ""), str(resolved.get("source") or "missing")
 
     def _get_effective_ai_secret_from_ui(self, provider: str) -> str:
         try:
-            provider = self._normalize_saved_ai_provider(provider)
-            if provider not in ("openai", "gemini"):
-                return ""
-            edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
-            ui_value = ""
-            if edit is not None and hasattr(edit, "text"):
-                ui_value = str(edit.text() or "").strip()
-            if ui_value and not self._is_masked_ai_secret_text(ui_value):
-                return ui_value
-            pending_value = self._get_pending_verified_ai_secret(provider)
-            if pending_value:
-                return pending_value
-            return self._get_stored_ai_secret(provider)
+            resolved = self._resolve_ai_provider_secret(provider, caller="settings_save", allow_ui=True)
+            return str(resolved.get("key") or "")
         except Exception:
             return ""
 
@@ -48344,8 +48390,17 @@ class MainWindow(QMainWindow):
             provider = self._normalize_saved_ai_provider(provider)
             if provider not in ("openai", "gemini"):
                 return
-            key = (api_key or "").strip() or self._get_stored_ai_secret(provider)
+            resolved_secret = self._resolve_ai_provider_secret(provider, caller="startup_connection_check", allow_ui=True)
+            key = (api_key or "").strip() or str(resolved_secret.get("key") or "").strip()
+            key_source = key_source if (api_key or "").strip() else str(resolved_secret.get("source") or key_source or "missing")
             if not key:
+                normalized_provider = self._normalize_ai_provider_code(provider)
+                if self._normalize_ai_provider_code(getattr(self, "_selected_ai_provider", "")) == normalized_provider:
+                    self._last_ai_connection_provider = normalized_provider
+                    self._last_ai_connection_status = "연결확인 필요"
+                    self._last_ai_connection_source = key_source or "key_missing"
+                    self._ai_connection_status = "연결확인 필요"
+                    self._render_ai_engine_state()
                 return
             self._ai_preview_connection_token = int(
                 getattr(self, "_ai_preview_connection_token", 0)

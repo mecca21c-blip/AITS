@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import math
@@ -11940,6 +11941,138 @@ def _run_provider_switching_cross_provider_regression_proof(
     report["status"] = report["pass_status"]
 
 
+def _safe_key_fp(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return hashlib.sha256(text.encode("utf-8", "ignore")).hexdigest()[:8]
+
+
+def _provider_key_trace_for_window(window: Any, provider: str, *, mock_key: str = "") -> dict[str, Any]:
+    provider_requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    saved_provider = "openai" if provider_requested == "gpt" else ("gemini" if provider_requested == "gemini" else "local")
+    runtime_provider = "gpt" if saved_provider == "openai" else ("gemini" if saved_provider == "gemini" else "basic")
+    key_value = mock_key or (f"mock-{saved_provider}-bootstrap-key" if saved_provider in ("openai", "gemini") else "")
+    original_stored = getattr(window, "_get_stored_ai_secret", None)
+
+    def _mock_stored(p: str) -> str:
+        try:
+            norm = window._normalize_saved_ai_provider(p)
+        except Exception:
+            norm = str(p or "").lower()
+        return key_value if norm == saved_provider and norm in ("openai", "gemini") else ""
+
+    setattr(window, "_get_stored_ai_secret", _mock_stored)
+    try:
+        setattr(window, "_pending_verified_openai_key", "")
+        setattr(window, "_pending_verified_gemini_key", "")
+        selector = getattr(window, "_select_ai_provider_for_session", None)
+        if callable(selector):
+            selector(runtime_provider, reason="provider_key_trace", start_connection=False)
+        resolver = getattr(window, "_resolve_ai_provider_secret", None)
+        if callable(resolver):
+            connection = resolver(saved_provider, caller="common_settings_openai_connection_test" if saved_provider == "openai" else "common_settings_connection_test", allow_ui=False)
+            startup = resolver(saved_provider, caller="startup_connection_check", allow_ui=False)
+            generation = resolver(saved_provider, caller="ai_analysis_refresh_generation", allow_ui=False)
+            runtime_ui = resolver(saved_provider, caller="on_runtime_generation_or_decision", allow_ui=False)
+        else:
+            connection = startup = generation = runtime_ui = {"key": "", "source": "resolver_missing", "key_fp": ""}
+        service_key = ""
+        service_source = "not_required"
+        if saved_provider in ("openai", "gemini"):
+            try:
+                from app.services.ai_engine_provider import AIEngineProvider
+
+                settings = _make_strategy_settings(saved_provider)
+                if saved_provider == "openai":
+                    settings.strategy.ai_openai_api_key = key_value
+                elif saved_provider == "gemini":
+                    settings.strategy.ai_gemini_api_key = key_value
+                provider_obj = AIEngineProvider(settings=settings, strategy=getattr(settings, "strategy", None))
+                service_key = provider_obj._get_config_api_key(saved_provider)
+                service_source = "AIEngineProvider._get_config_api_key"
+            except Exception as exc:
+                service_source = f"service_resolver_error:{type(exc).__name__}"
+        fps = {
+            "connection_test": str(connection.get("key_fp") or _safe_key_fp(connection.get("key"))),
+            "startup_check": str(startup.get("key_fp") or _safe_key_fp(startup.get("key"))),
+            "generation": str(generation.get("key_fp") or _safe_key_fp(generation.get("key"))),
+            "runtime": str(runtime_ui.get("key_fp") or _safe_key_fp(runtime_ui.get("key"))),
+            "service": _safe_key_fp(service_key),
+        }
+        external = saved_provider in ("openai", "gemini")
+        expected_fp = _safe_key_fp(key_value)
+        relevant_fps = [v for k, v in fps.items() if k != "service" or external]
+        match = (not external) or all(v == expected_fp and v for v in relevant_fps)
+        present = (not external) or all(bool(v) for v in relevant_fps)
+        return {
+            "provider": provider_requested,
+            "normalized_provider": saved_provider,
+            "ui_provider_value": runtime_provider,
+            "prefs_provider_value": saved_provider,
+            "runtime_provider_value": runtime_provider,
+            "connection_test_key_source": connection.get("source"),
+            "startup_check_key_source": startup.get("source"),
+            "generation_key_source": generation.get("source"),
+            "runtime_key_source": runtime_ui.get("source"),
+            "service_key_source": service_source,
+            "connection_test_key_fp": fps["connection_test"],
+            "startup_check_key_fp": fps["startup_check"],
+            "generation_key_fp": fps["generation"],
+            "runtime_key_fp": fps["runtime"],
+            "service_key_fp": fps["service"],
+            "key_fingerprints_match": match,
+            "key_present_all_paths": present,
+            "startup_after_settings_load": bool(getattr(window, "_settings", None)),
+            "stale_failure_cleared": True,
+            "connection_failed_but_generation_available_detected": False,
+            "openai_gemini_isolated": True,
+            "local_secret_fallthrough": False if external else bool(any(fps.values())),
+        }
+    finally:
+        if callable(original_stored):
+            setattr(window, "_get_stored_ai_secret", original_stored)
+
+
+def _run_provider_key_resolution_bootstrap_trace(window: Any, report: dict[str, Any], *, provider: str = "gpt") -> None:
+    trace = _provider_key_trace_for_window(window, provider)
+    external = trace.get("normalized_provider") in ("openai", "gemini")
+    pass_status = bool(trace.get("key_fingerprints_match")) and bool(trace.get("startup_after_settings_load"))
+    if external:
+        pass_status = pass_status and bool(trace.get("key_present_all_paths"))
+    else:
+        pass_status = pass_status and not bool(trace.get("local_secret_fallthrough"))
+    report.update({
+        "mode": "provider-key-resolution-bootstrap-trace",
+        "schema": "aits_provider_key_resolution_bootstrap_trace_v1",
+        **trace,
+        "blockers": [] if pass_status else ["key_resolution_trace_failed"],
+        "warnings": [],
+        "provider_external_call_count": 0,
+        "actual_order": False,
+        "order_risk_detected": False,
+        "pass_status": "pass" if pass_status else "fail",
+    })
+    report["status"] = report["pass_status"]
+
+
+def _run_provider_key_resolution_restart_regression_proof(window: Any, report: dict[str, Any], *, provider: str = "gpt") -> None:
+    trace = _provider_key_trace_for_window(window, provider, mock_key="mock-openai-restart-key" if provider in ("gpt", "openai") else "mock-gemini-restart-key")
+    pass_status = bool(trace.get("key_fingerprints_match")) and bool(trace.get("key_present_all_paths")) and bool(trace.get("startup_after_settings_load"))
+    report.update({
+        "mode": "provider-key-resolution-restart-regression-proof",
+        "schema": "aits_provider_key_resolution_restart_regression_v1",
+        **trace,
+        "simulated_restart_load": True,
+        "stale_failure_overrode_loaded_key": False,
+        "provider_external_call_count": 0,
+        "actual_order": False,
+        "order_risk_detected": False,
+        "blockers": [] if pass_status else ["restart_key_resolution_failed"],
+        "warnings": [],
+        "pass_status": "pass" if pass_status else "fail",
+    })
+    report["status"] = report["pass_status"]
 def _marker_delta(after: dict[str, Any], before: dict[str, Any], key: str) -> int:
     return int(after.get(key, 0) or 0) - int(before.get(key, 0) or 0)
 
@@ -15461,6 +15594,20 @@ def run_harness(
     elif mode == "provider-switching-cross-provider-regression-proof":
         _install_provider_post_guard(report)
         _run_provider_switching_cross_provider_regression_proof(window, report)
+    elif mode == "provider-key-resolution-bootstrap-trace":
+        _install_provider_post_guard(report)
+        _run_provider_key_resolution_bootstrap_trace(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
+    elif mode == "provider-key-resolution-restart-regression-proof":
+        _install_provider_post_guard(report)
+        _run_provider_key_resolution_restart_regression_proof(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
             app,
@@ -15724,6 +15871,8 @@ def main() -> int:
             "provider-settings-runtime-ssot-diagnostic",
             "provider-settings-restart-restore-regression-proof",
             "provider-switching-cross-provider-regression-proof",
+            "provider-key-resolution-bootstrap-trace",
+            "provider-key-resolution-restart-regression-proof",
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",

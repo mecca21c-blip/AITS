@@ -78,10 +78,10 @@ class AIEngineProvider:
 
     def _get_config_api_key(self, provider: Any) -> str:
         """
-        Return API key from env first, then strategy/settings/config fallback.
+        Return API key from settings first, then env fallback.
         Never log the key value.
         """
-        provider = str(provider or "").strip().lower()
+        provider = normalize_provider_name(provider)
         resolved_key = ""
         key_method = "missing"
 
@@ -124,36 +124,33 @@ class AIEngineProvider:
             return ""
 
         if provider == "openai":
-            key = os.getenv("OPENAI_API_KEY")
-            if key:
-                resolved_key = key
-                key_method = "environment"
-
+            for obj in _iter_config_roots():
+                key = _read_config_key(obj, ("ai_openai_api_key", "openai_api_key"))
+                if key:
+                    resolved_key = key
+                    key_method = "settings"
+                    break
             if not resolved_key:
-                for obj in _iter_config_roots():
-                    key = _read_config_key(obj, ("ai_openai_api_key", "openai_api_key"))
-                    if key:
-                        resolved_key = key
-                        key_method = "settings"
-                        break
+                key = os.getenv("OPENAI_API_KEY")
+                if key:
+                    resolved_key = key
+                    key_method = "environment"
 
         elif provider == "gemini":
-            key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-            if key:
-                resolved_key = key
-                key_method = "environment"
-
+            for obj in _iter_config_roots():
+                key = _read_config_key(
+                    obj,
+                    ("ai_gemini_api_key", "gemini_api_key", "google_api_key"),
+                )
+                if key:
+                    resolved_key = key
+                    key_method = "settings"
+                    break
             if not resolved_key:
-                for obj in _iter_config_roots():
-                    key = _read_config_key(
-                        obj,
-                        ("ai_gemini_api_key", "gemini_api_key", "google_api_key"),
-                    )
-                    if key:
-                        resolved_key = key
-                        key_method = "settings"
-                        break
-
+                key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+                if key:
+                    resolved_key = key
+                    key_method = "environment"
         try:
             _provider_name = normalize_provider_label(provider)
 

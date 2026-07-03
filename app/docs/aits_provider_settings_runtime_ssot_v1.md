@@ -102,3 +102,14 @@ raw provider payloads, and raw provider responses.
 
 The default proofs use mock/simulated provider state and must keep
 `provider_external_call_count=0`.
+
+## Key Resolution Bootstrap Follow-up
+
+`AITS-AI-PROVIDER-KEY-RESOLUTION-BOOTSTRAP-ACTUAL-TRACE-FIX-01` adds safe
+fingerprint tracing for connection-test, startup-check, generation, and runtime
+service key resolution. The UI path uses `MainWindow._resolve_ai_provider_secret`;
+the service path uses `AIEngineProvider._get_config_api_key` with the same
+provider normalization and settings-first policy.
+
+Safe reports compare `sha256(key)[:8]` fingerprints only. They do not store or
+print raw key values.

@@ -129,6 +129,22 @@ Regression modes:
 .\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-settings-restart-restore-regression-proof --provider gpt --observe-only
 .\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-switching-cross-provider-regression-proof --observe-only
 ```
+
+## Follow-up: Key Resolution Bootstrap Trace
+
+Goal: `AITS-AI-PROVIDER-KEY-RESOLUTION-BOOTSTRAP-ACTUAL-TRACE-FIX-01`.
+
+The startup connection check, manual connection check, AI generation refresh,
+and runtime service provider construction must use the same provider
+normalization and key-source ordering. Safe diagnostics compare key availability
+and `sha256` fingerprints only; raw keys, prefixes, and suffixes are forbidden.
+
+Regression modes:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-key-resolution-bootstrap-trace --provider gpt --observe-only
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-key-resolution-restart-regression-proof --provider gpt --observe-only
+```
 - Common Settings API connection test with a refreshed OpenAI key could verify
   the provider and show connected.
 - A later manual AI analysis refresh could overwrite the same connection slot
