@@ -60,6 +60,8 @@ class StrategyConfig(BaseModel):
     single_order_amount: int = 100_000  # 1회 주문금액
     order_amount_krw: int = 10000  # 1회 주문금액 (SSOT)
     order_amount_pct: float = 0.2  # 주문 비율 (SSOT)
+    per_order_hard_cap_krw: int = 12_000  # live one-shot per-order hard cap
+    total_guarded_window_cap_krw: int = 20_000  # guarded-window total cap
     allow_downscale_order_amount: bool = False  # 잔고/한도 부족 시 주문금액 자동 축소 허용(최소 5,000원)
     max_invest_cap_krw: int = 0  # 최대 투자금액(상한): 보유 코인 평가합계+이번 주문이 이 금액 초과 시 매수 차단. 0=제한 없음
     

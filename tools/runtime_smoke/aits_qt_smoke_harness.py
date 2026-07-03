@@ -7532,6 +7532,7 @@ def _live_on_runtime_e2e_extract_amount(line: str) -> int:
 def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
     mapping = {
         "on_state_not_detected": "no_runtime",
+        "on_preflight_blocked": "blocked_before_runtime",
         "runtime_loop_not_started": "no_runtime",
         "market_feed_missing": "observing_only",
         "managed_pool_empty": "candidate_missing",
@@ -7556,28 +7557,28 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
 
 def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
     mapping = {
-        "on_state_not_detected": "사용자가 AITS ON 실행 후 로그를 다시 수집",
-        "runtime_loop_not_started": "ON 상태와 runtime loop 시작 로그 연결 확인",
-        "market_feed_missing": "public market feed/top markets feed 회복 확인",
-        "managed_pool_empty": "Managed Pool rows 로드/보존 상태 확인",
-        "score_update_missing": "Basic score update/CandidateFeedState 경로 확인",
-        "no_buy_ready_candidate": "Basic buy_ready 조건과 관리종목 점수 확인",
-        "ai_opinion_not_fresh": "AI opinion freshness 또는 수동 AI 분석 반영 확인",
-        "order_intent_candidate_missing": "buy_ready to order_intent_candidate 계약 입력 확인",
-        "router_not_reached": "Router validation handoff boundary 확인",
-        "riskguard_not_reached": "RiskGuard read-only/actual gate handoff 확인",
-        "live_preflight_not_reached": "LivePreflight gate handoff 확인",
-        "unlock_not_reached": "one-shot unlock final confirmation 연결 확인",
-        "execution_bridge_not_reached": "final emit gate 이후 ExecutionBridge handoff 확인",
-        "order_service_not_reached": "ExecutionBridge to OrderService boundary 확인",
-        "order_adapter_not_reached": "OrderService to OrderAdapter boundary 확인",
-        "submit_not_attempted": "OrderAdapter submit boundary와 final submit 조건 확인",
-        "exchange_response_missing": "Upbit response/reconciliation 로그 확인",
-        "trade_log_missing": "trade log persistence 확인",
-        "position_update_missing": "position/investment UI reflection 확인",
+        "on_state_not_detected": "collect AITS ON click logs again",
+        "on_preflight_blocked": "inspect ON preflight setting source and balance/cap blocker",
+        "runtime_loop_not_started": "inspect ON state and runtime loop start logging",
+        "market_feed_missing": "recheck public market feed/top markets feed",
+        "managed_pool_empty": "inspect Managed Pool row load/persistence",
+        "score_update_missing": "inspect Basic score update/CandidateFeedState path",
+        "no_buy_ready_candidate": "inspect Basic buy_ready criteria and Managed Pool scores",
+        "ai_opinion_not_fresh": "inspect AI opinion freshness/manual refresh reflection",
+        "order_intent_candidate_missing": "inspect buy_ready to order_intent_candidate contract input",
+        "router_not_reached": "inspect Router validation handoff boundary",
+        "riskguard_not_reached": "inspect RiskGuard handoff boundary",
+        "live_preflight_not_reached": "inspect LivePreflight handoff boundary",
+        "unlock_not_reached": "inspect one-shot unlock final confirmation boundary",
+        "execution_bridge_not_reached": "inspect final emit gate to ExecutionBridge boundary",
+        "order_service_not_reached": "inspect ExecutionBridge to OrderService boundary",
+        "order_adapter_not_reached": "inspect OrderService to OrderAdapter boundary",
+        "submit_not_attempted": "inspect final submit preconditions",
+        "exchange_response_missing": "inspect Upbit response/reconciliation logs",
+        "trade_log_missing": "inspect trade log recording after submit",
+        "position_update_missing": "inspect investment/position reflection after submit",
     }
-    return mapping.get(blocker, "다음 미도달 stage의 owner/path 확인")
-
+    return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
 def _build_live_on_runtime_e2e_diagnostic_report(
     *,
@@ -7637,6 +7638,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             "runtime on",
             "event=runner_start_after",
             "[runner] start_strategy called",
+            "[preflight]",
+            "[aits][liveonpreflight]",
             "trading_enabled=true",
         )
     )
@@ -7651,6 +7654,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             "guarded window",
             "[aits][live",
         )
+    )
+    live_on_preflight_blocked = any(
+        ("[preflight]" in line and ("ok=0" in line or "check failed" in line or "blocker=" in line))
+        or "[aits][liveonpreflight]" in line
+        for line in lowered
     )
     ai_opinion_fresh_count = sum(
         1
@@ -7760,6 +7768,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         all_blockers.append(blocker)
         if not first_blocker:
             first_blocker = blocker
+    if live_on_preflight_blocked and first_blocker in {"runtime_loop_not_started", "on_state_not_detected"}:
+        if first_blocker in all_blockers:
+            all_blockers[all_blockers.index(first_blocker)] = "on_preflight_blocked"
+        first_blocker = "on_preflight_blocked"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -7803,6 +7815,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "recent_report_count": len(reports),
         "on_state_detected": bool(on_state_detected),
         "runtime_loop_started": bool(runtime_loop_started),
+        "live_on_preflight_blocked": bool(live_on_preflight_blocked),
         "configured_order_amount_krw": configured_amount,
         "configured_order_amount_source": configured_source,
         "configured_order_amount_read_error": amount_read_error,
@@ -7977,6 +7990,136 @@ def _run_live_on_button_state_trace(
                 "provider_external_call_count": 0,
             },
             **trace,
+        }
+    )
+
+
+def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> None:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
+    preflight_lines = [
+        line
+        for line in lines
+        if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line
+    ]
+    latest_line = preflight_lines[-1] if preflight_lines else ""
+
+    configured_amount, configured_source, amount_error = _read_live_on_runtime_e2e_order_amount()
+    strategy_payload: dict[str, Any] = {}
+    settings_error = ""
+    try:
+        from app.utils.prefs import load_settings
+        settings = load_settings()
+        strategy = getattr(settings, "strategy", None)
+        if hasattr(strategy, "model_dump"):
+            strategy_payload = strategy.model_dump()
+        elif isinstance(strategy, dict):
+            strategy_payload = dict(strategy)
+    except Exception as exc:
+        settings_error = f"{type(exc).__name__}:{exc}"
+
+    def _extract_number(key: str) -> int:
+        if not latest_line:
+            return 0
+        patterns = [
+            rf"{re.escape(key)}[=:]\s*([0-9]+)",
+            rf"{re.escape(key)}\s+([0-9]+)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, latest_line, flags=re.IGNORECASE)
+            if match:
+                try:
+                    return int(match.group(1))
+                except Exception:
+                    return 0
+        return 0
+
+    available_krw = _extract_number("available_krw") or _extract_number("krw")
+    pos_limit = _extract_number("pos_limit_krw") or _extract_number("pos_limit")
+    hard_cap = _extract_number("hard_cap_krw") or _extract_number("hard_cap")
+    effective_cap = _extract_number("effective_hard_cap_krw") or _extract_number("effective_cap")
+    total_window_cap = _extract_number("total_guarded_window_cap_krw") or _extract_number("total_guarded_window_cap")
+
+    per_order_cap_setting = int(strategy_payload.get("per_order_hard_cap_krw") or 12_000)
+    total_window_setting = int(strategy_payload.get("total_guarded_window_cap_krw") or 20_000)
+    pos_pct_setting = float(strategy_payload.get("pos_size_pct") or 2.5)
+    if not hard_cap:
+        hard_cap = per_order_cap_setting
+    if not total_window_cap:
+        total_window_cap = total_window_setting
+
+    fallback_fields: list[str] = []
+    for key in ("per_order_hard_cap_krw", "total_guarded_window_cap_krw", "pos_size_pct", "order_amount_krw"):
+        if key not in strategy_payload:
+            fallback_fields.append(key)
+    zero_fields = []
+    if available_krw <= 0:
+        zero_fields.append("available_krw")
+    if pos_limit <= 0:
+        zero_fields.append("pos_limit_krw")
+    if effective_cap <= 0 and latest_line:
+        zero_fields.append("effective_hard_cap_krw")
+
+    first_blocker = ""
+    suspected = ""
+    if latest_line and "blocker=" in latest_line:
+        match = re.search(r"blocker[=:]\s*([A-Za-z0-9_\\-]+)", latest_line)
+        first_blocker = "" if not match or match.group(1) == "-" else match.group(1)
+    if not first_blocker:
+        if available_krw <= 0:
+            first_blocker = "available_krw_zero"
+        elif pos_limit <= 0:
+            first_blocker = "pos_limit_zero"
+        elif configured_amount > hard_cap:
+            first_blocker = "order_amount_exceeds_per_order_hard_cap"
+    if available_krw <= 0:
+        suspected = "balance_source_returned_zero_or_not_loaded"
+    elif fallback_fields:
+        suspected = "preflight_cap_setting_used_schema_fallback"
+    else:
+        suspected = "preflight_settings_source_ok"
+
+    report.update(
+        {
+            "schema": "aits_live_on_preflight_setting_source_summary_v1",
+            "diagnostic_status": "pass",
+            "pass_status": "pass",
+            "report_status": "pass",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "preflight_popup_detected": bool(preflight_lines),
+            "preflight_line_count": len(preflight_lines),
+            "latest_preflight_line": latest_line,
+            "configured_order_amount_krw": int(configured_amount or 0),
+            "available_krw": int(available_krw or 0),
+            "pos_limit_krw": int(pos_limit or 0),
+            "hard_cap_krw": int(hard_cap or 0),
+            "effective_hard_cap_krw": int(effective_cap or 0),
+            "total_guarded_window_cap_krw": int(total_window_cap or 0),
+            "order_amount_source": configured_source,
+            "available_krw_source": "svc_order._compute_available_krw",
+            "pos_limit_source": "available_krw * settings.strategy.pos_size_pct / 100",
+            "hard_cap_source": "settings.strategy.per_order_hard_cap_krw",
+            "total_guarded_window_cap_source": "settings.strategy.total_guarded_window_cap_krw",
+            "pos_size_pct": pos_pct_setting,
+            "fallback_fields": fallback_fields,
+            "zero_value_fields": zero_fields,
+            "first_blocker": first_blocker,
+            "suspected_root_cause": suspected,
+            "next_fix_target": (
+                "refresh_or_verify_live_krw_balance_source"
+                if available_krw <= 0
+                else "rerun_on_click_and_collect_live_preflight_log"
+            ),
+            "settings_error": settings_error,
+            "configured_order_amount_read_error": amount_error,
+            "safety_flags": {
+                "actual_order": False,
+                "submitted_count": 0,
+                "provider_external_call_count": 0,
+            },
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "order_risk_detected": False,
         }
     )
 
@@ -15387,6 +15530,7 @@ def run_harness(
         "live-minimal-order-setting-readpath-preflight",
         "live-on-button-state-trace-dryrun",
         "live-on-button-state-log-summary",
+        "live-on-preflight-setting-source-summary",
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -15589,6 +15733,9 @@ def run_harness(
         elif mode in {"live-on-button-state-trace-dryrun", "live-on-button-state-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_button_state_trace(report, mode=mode)
+        elif mode == "live-on-preflight-setting-source-summary":
+            _install_provider_post_guard(report)
+            _run_live_on_preflight_setting_source_summary(report)
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -16172,6 +16319,7 @@ def main() -> int:
             "live-minimal-order-setting-readpath-preflight",
             "live-on-button-state-trace-dryrun",
             "live-on-button-state-log-summary",
+            "live-on-preflight-setting-source-summary",
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

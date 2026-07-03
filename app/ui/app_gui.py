@@ -52214,57 +52214,108 @@ class MainWindow(QMainWindow):
             simulate = not live_trade
             
             order_amount_krw = int(stg.get("order_amount_krw", 0) or 0)
-            order_amount_source = "user"  # TODO: AI source 감지 로직 추가 가능
+            order_amount_source = "settings.strategy.order_amount_krw"
             pos_size_pct = float(stg.get("pos_size_pct", 2.5) or 2.5)
             max_total_krw = int(getattr(self._settings, "max_total_krw", 50_000) or 50_000)
+            per_order_hard_cap_krw = int(stg.get("per_order_hard_cap_krw", 12_000) or 12_000)
+            total_guarded_window_cap_krw = int(stg.get("total_guarded_window_cap_krw", 20_000) or 20_000)
             allow_downscale = bool(stg.get("allow_downscale_order_amount", False))
-            
-            # 3. 계산된 1종목 한도 및 hard_cap
+            fallback_fields = []
+            if "per_order_hard_cap_krw" not in stg:
+                fallback_fields.append("per_order_hard_cap_krw")
+            if "total_guarded_window_cap_krw" not in stg:
+                fallback_fields.append("total_guarded_window_cap_krw")
+            if "pos_size_pct" not in stg:
+                fallback_fields.append("pos_size_pct")
+            if "order_amount_krw" not in stg:
+                fallback_fields.append("order_amount_krw")
+
+            # 3. Separate configured caps from balance-based effective capacity.
             position_limit = available_krw * pos_size_pct / 100.0
             MIN_ORDER_KRW = 5000
-            hard_cap_candidate = min(available_krw, max_total_krw, position_limit)
+            configured_hard_cap = per_order_hard_cap_krw
+            effective_hard_cap = min(available_krw, max_total_krw, position_limit, configured_hard_cap)
             hard_cap_bypass = False
-            
-            if hard_cap_candidate < MIN_ORDER_KRW:
-                if order_amount_krw >= MIN_ORDER_KRW:
-                    hard_cap = min(available_krw, order_amount_krw)
-                    hard_cap_bypass = True
-                else:
-                    hard_cap = hard_cap_candidate
-            else:
-                hard_cap = hard_cap_candidate
-            
-            can_order = (available_krw >= MIN_ORDER_KRW and order_amount_krw >= MIN_ORDER_KRW and hard_cap >= MIN_ORDER_KRW)
+            if effective_hard_cap < MIN_ORDER_KRW and order_amount_krw >= MIN_ORDER_KRW:
+                hard_cap_bypass = True
+            can_order = (
+                available_krw >= MIN_ORDER_KRW
+                and order_amount_krw >= MIN_ORDER_KRW
+                and order_amount_krw <= configured_hard_cap
+                and order_amount_krw <= total_guarded_window_cap_krw
+                and effective_hard_cap >= MIN_ORDER_KRW
+            )
+            zero_value_fields = []
+            if available_krw <= 0:
+                zero_value_fields.append("available_krw")
+            if position_limit <= 0:
+                zero_value_fields.append("pos_limit_krw")
+            if effective_hard_cap <= 0:
+                zero_value_fields.append("effective_hard_cap_krw")
+            blocker = ""
+            if available_krw < MIN_ORDER_KRW:
+                blocker = "insufficient_available_krw"
+            elif order_amount_krw < MIN_ORDER_KRW:
+                blocker = "order_amount_below_min_order"
+            elif order_amount_krw > configured_hard_cap:
+                blocker = "order_amount_exceeds_per_order_hard_cap"
+            elif order_amount_krw > total_guarded_window_cap_krw:
+                blocker = "order_amount_exceeds_total_guarded_window_cap"
+            elif effective_hard_cap < MIN_ORDER_KRW:
+                blocker = "effective_hard_cap_below_min_order"
             ok_int = 1 if can_order else 0
-            
             # 4. 스냅샷·리스트 상태
             snapshot_on = _SESSION_SNAPSHOT_SYMBOLS is not None and len(_SESSION_SNAPSHOT_SYMBOLS) > 0
             allow_count = len(_SESSION_SNAPSHOT_SYMBOLS) if snapshot_on else len(stg.get("whitelist") or [])
             wl_count = len(stg.get("whitelist") or [])
             bl_count = len(stg.get("blacklist") or [])
             
-            # 5. PREFLIGHT 로그 (표준 1줄, B-5)
+            # 5. PREFLIGHT logs: configured cap and effective cap are separate.
             snapshot_n = allow_count if snapshot_on else 0
             preflight_log = (
                 f"[PREFLIGHT] ok={ok_int} krw={available_krw:.0f} order={order_amount_krw} "
-                f"pos_pct={pos_size_pct} pos_limit={position_limit:.0f} hard_cap={hard_cap:.0f} "
-                f"allow_downscale={1 if allow_downscale else 0} snapshot_n={snapshot_n}"
+                f"pos_pct={pos_size_pct} pos_limit={position_limit:.0f} "
+                f"hard_cap={configured_hard_cap:.0f} effective_cap={effective_hard_cap:.0f} "
+                f"total_guarded_window_cap={total_guarded_window_cap_krw} "
+                f"allow_downscale={1 if allow_downscale else 0} snapshot_n={snapshot_n} blocker={blocker or '-'}"
             )
             self._log.info(preflight_log)
-            
-            # 6. UI 메시지 (표준 문장 B-5)
+            self._log.info(
+                "[AITS][LiveOnPreflight] event=preflight_result source_path=on_button "
+                "configured_order_amount_krw=%s available_krw=%s pos_limit_krw=%s "
+                "hard_cap_krw=%s effective_hard_cap_krw=%s total_guarded_window_cap_krw=%s "
+                "order_allowed_before=False order_allowed_after=False real_order_before=False real_order_after=False "
+                "execution_mode=%s blocker=%s settings_keys_used=%s fallback_used=%s fallback_fields=%s "
+                "zero_value_fields=%s balance_source=%s cap_source=%s submitted=0 order_allowed=False real_order=False",
+                order_amount_krw,
+                int(available_krw),
+                int(position_limit),
+                int(configured_hard_cap),
+                int(effective_hard_cap),
+                int(total_guarded_window_cap_krw),
+                str(self._get_aits_execution_mode() or "unknown"),
+                blocker or "",
+                "strategy.order_amount_krw,strategy.pos_size_pct,strategy.per_order_hard_cap_krw,strategy.total_guarded_window_cap_krw,settings.max_total_krw",
+                bool(fallback_fields),
+                ",".join(fallback_fields) or "-",
+                ",".join(zero_value_fields) or "-",
+                "svc_order._compute_available_krw",
+                "settings.strategy.per_order_hard_cap_krw",
+            )
+
+            # 6. UI message
             msg_lines = [
-                f"가용 KRW {available_krw:,.0f}원 | 1회 주문 {order_amount_krw:,}원 | pos_limit {position_limit:,.0f}원 | hard_cap {hard_cap:,.0f}원",
+                f"가용 KRW {available_krw:,.0f}원 | 1회 주문 {order_amount_krw:,}원 | pos_limit {position_limit:,.0f}원",
+                f"hard_cap {configured_hard_cap:,.0f}원 | effective_cap {effective_hard_cap:,.0f}원 | window_cap {total_guarded_window_cap_krw:,.0f}원",
             ]
             if hard_cap_bypass:
-                msg_lines.append("→ (필요 시) 종목 비중 보호 우회 적용")
+                msg_lines.append("→ 잔고/종목비중 기반 유효 한도가 최소 주문금액보다 낮습니다.")
             if allow_downscale:
-                msg_lines.append("→ (옵션 ON 시) 자동 축소 허용")
-            msg_lines.append("→ 실행 가능" if can_order else "→ 매수 불가(이유: 잔고/한도 부족)")
+                msg_lines.append("→ 옵션 ON · 자동 축소 허용")
+            msg_lines.append("→ 실행 가능" if can_order else f"→ 매수 불가(이유: {blocker or '잔고/한도 부족'})")
             msg = "\n".join(msg_lines)
-            
-            return (can_order, msg)
-            
+
+            return (can_order, msg)            
         except Exception as e:
             self._log.error(f"[PREFLIGHT] check error: {e}")
             return (True, f"[사전 점검] 오류 발생: {e} (계속 진행)")

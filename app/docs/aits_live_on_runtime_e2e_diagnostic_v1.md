@@ -149,3 +149,20 @@ If `live-on-runtime-e2e-diagnostic-log-summary` reports
 `on_state_not_detected`, run the ON button log summary before investigating
 Router/RiskGuard/LivePreflight. A missing ON trace means the blocker is still
 button/runtime state wiring, not order-intent promotion.
+
+## ON Preflight Setting Source
+
+`AITS-LIVE-ON-PREFLIGHT-SETTING-SOURCE-FIX-01` separates configured live caps
+from balance-derived effective caps in the ON preflight popup.
+
+Use:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-preflight-setting-source-summary --observe-only
+```
+
+If the ON click reaches the `실행 전 점검` popup and runtime does not start, the
+blocker is `on_preflight_blocked`, not a missing ON click. The configured
+per-order hard cap source is `settings.strategy.per_order_hard_cap_krw`
+(default `12000`), while `effective_hard_cap_krw` may still be zero when the
+balance source returns `available_krw=0`.
