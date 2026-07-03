@@ -24732,7 +24732,7 @@ class MainWindow(QMainWindow):
                     guard_result="provider_changed",
                 )
                 return
-            status = '인증 확인됨 · 생성 요청 대기'
+            status = "API 응답 확인됨"
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = status
             self._last_ai_connection_source = (key_source or "").strip()
@@ -24804,7 +24804,7 @@ class MainWindow(QMainWindow):
         reason = "not_ready"
         if selected in ("basic", "local"):
             local_status = str(getattr(self, "_last_ai_connection_status", "") or "")
-            ready = any(token in local_status for token in ("LOCAL", "Basic", "ready", "Ready", "연결됨"))
+            ready = any(token in local_status for token in ("LOCAL", "Basic", "ready", "Ready", "준비됨", "연결됨"))
             reason = "local_ready" if ready else "local_not_ready"
         elif selected in ("gpt", "gemini"):
             if actual != selected:
@@ -24854,20 +24854,78 @@ class MainWindow(QMainWindow):
 
     def _connection_state_simple(self) -> str:
         try:
-            readiness = self._build_ai_engine_readiness_state()
-            if bool(readiness.get("engine_ready_for_run")):
-                return "연결됨"
-            reason = str(readiness.get("engine_not_ready_reason") or "")
-            if reason in (
-                "generation_not_fresh",
-                "generation_not_confirmed",
-                "generation_response_unconfirmed",
-                "local_not_ready",
-            ):
+            selected = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+            connection_provider = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_connection_provider", "")
+            )
+            last_status = (
+                str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+                if connection_provider == selected
+                else ""
+            )
+            status = str(
+                last_status
+                or getattr(self, "_ai_connection_status", "")
+                or ""
+            ).strip()
+            if selected in ("basic", "local"):
+                if any(token in status for token in ("준비됨", "LOCAL", "Basic", "ready", "Ready")):
+                    return "정상연결"
+                if any(token in status for token in ("점검중", "확인중", "연결중")):
+                    return "연결중"
+                if any(token in status for token in ("실패", "필요", "불가")):
+                    return "연결실패"
+                return "연결 확인 필요"
+            if any(token in status for token in ("API 응답 확인됨", "정상연결")):
+                return "정상연결"
+            if any(token in status for token in ("연결중", "확인중", "점검중")):
                 return "연결중"
-            return "연결오류"
+            if any(token in status for token in ("실패", "timeout", "시간 초과", "오류")):
+                return "연결실패"
+            return "연결 확인 필요"
         except Exception:
-            return "연결오류"
+            return "연결 확인 필요"
+
+    def _log_engine_status_transition(
+        self,
+        *,
+        source_path: str,
+        previous_status: str = "",
+        next_status: str = "",
+        provider: str = "",
+        writer: str = "",
+        reason: str = "",
+        check_id: str | int = "",
+        elapsed_ms: int | None = None,
+        ui_update_emitted: bool = False,
+    ) -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(
+                provider or getattr(self, "_selected_ai_provider", "basic")
+            )
+            parts = [
+                "[AITS][EngineStatusPath]",
+                "event=status_transition",
+                f"selected_provider={getattr(self, '_selected_ai_provider', '')}",
+                f"normalized_provider={normalized_provider}",
+                f"source_path={source_path}",
+                f"previous_status={previous_status}",
+                f"next_status={next_status}",
+                f"writer={writer}",
+                f"reason={reason}",
+                f"check_id={check_id}",
+                f"elapsed_ms={elapsed_ms if elapsed_ms is not None else ''}",
+                f"ui_update_emitted={bool(ui_update_emitted)}",
+                f"updated_at={time.time():.3f}",
+                "submitted=0",
+                "order_allowed=False",
+                "real_order=False",
+            ]
+            logging.getLogger("aits").info(" | ".join(parts))
+        except Exception:
+            pass
 
     def _apply_saved_ai_preview(self, provider: str, model: str) -> None:
         try:
@@ -24892,8 +24950,11 @@ class MainWindow(QMainWindow):
                 self._last_ai_connection_source = "manual_generation_stale"
                 self._ai_connection_status = self._last_ai_connection_status
             else:
-                self._ai_connection_status = '인증 확인됨 · 생성 요청 대기'
-                self._ai_engine_last_checked_text = '생성 요청 대기'
+                self._last_ai_connection_provider = selected_provider
+                self._last_ai_connection_status = "연결확인 필요"
+                self._last_ai_connection_source = "preview_pending"
+                self._ai_connection_status = "연결확인 필요"
+                self._ai_engine_last_checked_text = "미확인"
             self._trace_provider_state(
                 "apply_saved_preview",
                 normalized_provider=selected_provider,
@@ -24959,8 +25020,8 @@ class MainWindow(QMainWindow):
                 self._render_ai_engine_state()
                 return
             self._last_ai_connection_provider = normalized_provider
-            self._last_ai_connection_status = "인증 확인됨 · 생성 요청 대기"
-            self._last_ai_connection_source = key_source
+            self._last_ai_connection_status = "연결확인 필요"
+            self._last_ai_connection_source = "preview_pending"
             self._ai_connection_status = self._last_ai_connection_status
             self._render_ai_engine_state()
             return
@@ -48043,6 +48104,12 @@ class MainWindow(QMainWindow):
             connection_token = self._ai_preview_connection_token
             normalized_provider = self._normalize_ai_provider_code(provider)
             connection_mode = (mode or "auto").strip().lower()
+            source_path = "manual_refresh" if connection_mode == "manual" else "startup/provider_change/on"
+            previous_status = str(
+                getattr(self, "_last_ai_connection_status", "")
+                or getattr(self, "_ai_connection_status", "")
+                or ""
+            ).strip()
             model_name = self._get_selected_ai_model(
                 "gpt" if provider == "openai" else provider
             )
@@ -48050,6 +48117,7 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_status = "연결중"
             self._last_ai_connection_source = key_source
             self._ai_connection_status = "연결중"
+            self._ai_connection_started_at = time.perf_counter()
             self._trace_provider_state(
                 "auto_connection_start",
                 normalized_provider=normalized_provider,
@@ -48064,6 +48132,24 @@ class MainWindow(QMainWindow):
                 "연결중",
                 model_name,
             )
+            self._log_engine_status_transition(
+                source_path=source_path,
+                previous_status=previous_status,
+                next_status="연결중",
+                provider=normalized_provider,
+                writer="_run_ai_startup_connection_check_async",
+                reason="connection_check_started",
+                check_id=connection_token,
+                ui_update_emitted=True,
+            )
+            self._render_ai_engine_state()
+            try:
+                QTimer.singleShot(
+                    int(getattr(self, "_ai_connection_timeout_ms", 15000) or 15000),
+                    lambda p=normalized_provider, t=connection_token, m=connection_mode: self._on_ai_connection_check_timeout(p, t, m),
+                )
+            except Exception:
+                pass
             proof_start = (
                 "[AITS][ProviderConnectionProof] event=start "
                 f"provider={provider} mode={connection_mode} token={connection_token} "
@@ -48158,6 +48244,45 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _on_ai_connection_check_timeout(
+        self,
+        provider: str,
+        connection_token: int,
+        connection_mode: str = "auto",
+    ) -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            if connection_token != getattr(self, "_ai_preview_connection_token", 0):
+                return
+            if normalized_provider != self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "")
+            ):
+                return
+            if str(getattr(self, "_last_ai_connection_status", "") or "") != "연결중":
+                return
+            started_at = float(getattr(self, "_ai_connection_started_at", 0.0) or 0.0)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000) if started_at else None
+            previous_status = str(getattr(self, "_last_ai_connection_status", "") or "")
+            self._last_ai_connection_provider = normalized_provider
+            self._last_ai_connection_status = "연결실패"
+            self._last_ai_connection_source = f"{connection_mode}_timeout"
+            self._ai_connection_status = "연결실패"
+            self._ai_engine_last_checked_text = "시간 초과"
+            self._log_engine_status_transition(
+                source_path="manual_refresh" if connection_mode == "manual" else "startup/provider_change/on",
+                previous_status=previous_status,
+                next_status="연결실패",
+                provider=normalized_provider,
+                writer="_on_ai_connection_check_timeout",
+                reason="check_timeout",
+                check_id=connection_token,
+                elapsed_ms=elapsed_ms,
+                ui_update_emitted=True,
+            )
+            self._render_ai_engine_state()
+        except Exception:
+            pass
+
     def _apply_ai_preview_connection_result(
         self,
         provider: str,
@@ -48196,11 +48321,25 @@ class MainWindow(QMainWindow):
                 )
                 return
             if status == "success":
+                previous_status = str(getattr(self, "_last_ai_connection_status", "") or "")
+                started_at = float(getattr(self, "_ai_connection_started_at", 0.0) or 0.0)
+                elapsed_ms = int((time.perf_counter() - started_at) * 1000) if started_at else None
                 self._set_ai_key_status_label(provider, "API 응답 확인됨")
                 self._record_ai_connection_result(
                     provider,
                     key_source,
                     connection_token=connection_token,
+                )
+                self._log_engine_status_transition(
+                    source_path="manual_refresh" if connection_mode == "manual" else "startup/provider_change/on",
+                    previous_status=previous_status,
+                    next_status=str(getattr(self, "_last_ai_connection_status", "") or ""),
+                    provider=normalized_provider,
+                    writer="_apply_ai_preview_connection_result",
+                    reason="api_response_verified",
+                    check_id=connection_token,
+                    elapsed_ms=elapsed_ms,
+                    ui_update_emitted=True,
                 )
                 if connection_mode != "manual":
                     self._schedule_startup_provider_readiness_preflight(
@@ -48214,11 +48353,25 @@ class MainWindow(QMainWindow):
                         f"{self._ai_provider_label(normalized_provider)} API API 응답 확인됨 · {model_name}",
                     )
                 return
+            previous_status = str(getattr(self, "_last_ai_connection_status", "") or "")
+            started_at = float(getattr(self, "_ai_connection_started_at", 0.0) or 0.0)
+            elapsed_ms = int((time.perf_counter() - started_at) * 1000) if started_at else None
             self._set_ai_key_status_label(provider, "연결실패")
             self._last_ai_connection_provider = normalized_provider
             self._last_ai_connection_status = "연결실패"
             self._last_ai_connection_source = key_source
             self._ai_connection_status = self._last_ai_connection_status
+            self._log_engine_status_transition(
+                source_path="manual_refresh" if connection_mode == "manual" else "startup/provider_change/on",
+                previous_status=previous_status,
+                next_status="연결실패",
+                provider=normalized_provider,
+                writer="_apply_ai_preview_connection_result",
+                reason=error_type or "api_request_failed",
+                check_id=connection_token,
+                elapsed_ms=elapsed_ms,
+                ui_update_emitted=True,
+            )
             self._render_ai_engine_state()
             if connection_mode == "manual":
                 QMessageBox.warning(

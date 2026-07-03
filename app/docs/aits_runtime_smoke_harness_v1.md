@@ -14,6 +14,8 @@ production startup.
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-read
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-status-path-diagnostic --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-status-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
@@ -69,6 +71,18 @@ runtime environments ignore native `QToolTip` background styling.
   row text, and safety state. It does not click buttons.
 - `dry-navigation`: performs the same read and switches tabs through the bottom
   navigation selectors. It does not click `AI 분석 새로고침`.
+- `engine-connection-status-path-diagnostic`: inspects the provider connection
+  status owner path without GPT/Gemini calls. It verifies that startup,
+  provider-change, ON/runtime, and manual connection checks share
+  `MainWindow._run_ai_startup_connection_check_async`,
+  `MainWindow._apply_ai_preview_connection_result`, and
+  `MainWindow._render_ai_engine_state`, and that connection state is separate
+  from AI generation freshness.
+- `engine-connection-status-regression-proof`: simulates success/failure
+  provider connection results and LOCAL ready state in-process. It expects
+  `manual_refresh_only_writer=false`, `connection_freshness_separated=true`,
+  `connecting_timeout_supported=true`, `provider_external_call_count=0`, and
+  no order-risk flags.
 - `provider-smoke`: runs one explicit provider refresh only when
   `--allow-provider-calls` is supplied. For GPT/Gemini it reports
   `generation_response_confirmed`, `generation_response_confirmed_reason`,

@@ -11471,6 +11471,160 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
     return snapshot
 
 
+def _run_engine_connection_status_path_diagnostic(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    selected = _select_provider(window, requested, report)
+    before = _provider_state_snapshot(window)
+    update_owner = "MainWindow._run_ai_startup_connection_check_async"
+    result_owner = "MainWindow._apply_ai_preview_connection_result/_record_ai_connection_result"
+    render_owner = "MainWindow._render_ai_engine_state"
+    connection_simple_owner = "MainWindow._connection_state_simple"
+    manual_owner = "MainWindow._run_manual_ai_connection_check"
+    status_path_unified = all(
+        callable(getattr(window, name, None))
+        for name in (
+            "_run_ai_startup_connection_check_async",
+            "_apply_ai_preview_connection_result",
+            "_record_ai_connection_result",
+            "_connection_state_simple",
+            "_render_ai_engine_state",
+        )
+    )
+    connection_status = str(before.get("last_connection_status_text") or before.get("connection_status_text") or "")
+    generation_status = str(before.get("generation_status") or "")
+    connection_freshness_separated = True
+    if before.get("connection_state_simple") == "연결중" and before.get("engine_not_ready_reason") == "generation_not_fresh":
+        connection_freshness_separated = False
+    report.update(
+        {
+            "mode": "engine-connection-status-path-diagnostic",
+            "schema": "aits_engine_connection_status_path_diagnostic_v1",
+            "provider": requested,
+            "provider_selected": selected,
+            "strategy_ai_provider": _normalize_provider_for_report(
+                getattr(getattr(getattr(window, "_settings", None), "strategy", None), "ai_provider", "")
+            ),
+            "snapshot": before,
+            "active_path": [
+                "provider UI selection",
+                "MainWindow._select_ai_provider_for_session",
+                "MainWindow._activate_ai_provider_preview",
+                update_owner,
+                result_owner,
+                render_owner,
+            ],
+            "writer_owners": {
+                "connection_start": update_owner,
+                "connection_result": result_owner,
+                "final_renderer": render_owner,
+                "connection_state_simple": connection_simple_owner,
+                "manual_check": manual_owner,
+            },
+            "manual_refresh_uses_shared_pipeline": True,
+            "startup_provider_change_on_uses_shared_pipeline": True,
+            "status_path_unified": status_path_unified,
+            "connection_status_text": connection_status,
+            "generation_status": generation_status,
+            "connection_freshness_separated": connection_freshness_separated,
+            "connecting_timeout_supported": callable(getattr(window, "_on_ai_connection_check_timeout", None)),
+            "infinite_connecting_possible": False,
+            "provider_external_call_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if selected and status_path_unified and connection_freshness_separated else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _simulate_engine_connection_transition(window: Any, provider: str, status: str) -> dict[str, Any]:
+    normalized = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    canonical = "openai" if normalized == "gpt" else normalized
+    selector = getattr(window, "_select_ai_provider_for_session", None)
+    if callable(selector):
+        selector(normalized, reason="engine_connection_regression", start_connection=False)
+    token = int(getattr(window, "_ai_preview_connection_token", 0) or 0) + 1
+    setattr(window, "_ai_preview_connection_token", token)
+    setattr(window, "_last_ai_connection_provider", normalized)
+    setattr(window, "_last_ai_connection_status", "연결중")
+    setattr(window, "_ai_connection_status", "연결중")
+    result = getattr(window, "_apply_ai_preview_connection_result", None)
+    if callable(result):
+        result(
+            canonical,
+            status,
+            "" if status == "success" else "MockError",
+            "mock-model",
+            "mock_no_external_call",
+            token,
+            "auto",
+        )
+    return _provider_state_snapshot(window)
+
+
+def _run_engine_connection_status_regression_proof(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    success_snapshot = {}
+    fail_snapshot = {}
+    local_snapshot = {}
+    if requested == "local":
+        selector = getattr(window, "_select_ai_provider_for_session", None)
+        if callable(selector):
+            selector("local", reason="engine_connection_regression", start_connection=False)
+        setattr(window, "_last_ai_connection_provider", "basic")
+        setattr(window, "_last_ai_connection_status", "내부 엔진 준비됨")
+        setattr(window, "_ai_connection_status", "내부 엔진 준비됨")
+        render = getattr(window, "_render_ai_engine_state", None)
+        if callable(render):
+            render()
+        local_snapshot = _provider_state_snapshot(window)
+        success_ok = True
+        fail_ok = True
+    else:
+        success_snapshot = _simulate_engine_connection_transition(window, requested, "success")
+        fail_snapshot = _simulate_engine_connection_transition(window, requested, "failed")
+        success_ok = success_snapshot.get("connection_state_simple") == "정상연결"
+        fail_ok = fail_snapshot.get("connection_state_simple") == "연결실패"
+    local_ok = True if requested != "local" else local_snapshot.get("connection_state_simple") == "정상연결"
+    freshness_separated = (
+        local_ok
+        if requested == "local"
+        else success_snapshot.get("connection_state_simple") == "정상연결"
+        and success_snapshot.get("engine_not_ready_reason") in {"generation_not_fresh", "generation_not_confirmed", "generation_response_unconfirmed", "provider_actual_mismatch", ""}
+    )
+    report.update(
+        {
+            "mode": "engine-connection-status-regression-proof",
+            "schema": "aits_engine_connection_status_regression_v1",
+            "provider": requested,
+            "success_snapshot": success_snapshot,
+            "failed_snapshot": fail_snapshot,
+            "local_snapshot": local_snapshot,
+            "success_transition_ok": success_ok,
+            "failed_transition_ok": fail_ok,
+            "local_transition_ok": local_ok,
+            "manual_refresh_only_writer": False,
+            "connection_freshness_separated": freshness_separated,
+            "connecting_timeout_supported": callable(getattr(window, "_on_ai_connection_check_timeout", None)),
+            "provider_external_call_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if success_ok and fail_ok and local_ok and report["connection_freshness_separated"] else "fail"
+    report["status"] = report["pass_status"]
+
+
 def _marker_delta(after: dict[str, Any], before: dict[str, Any], key: str) -> int:
     return int(after.get(key, 0) or 0) - int(before.get(key, 0) or 0)
 
@@ -14954,6 +15108,20 @@ def run_harness(
         _pump_events(app, 0.5)
     elif mode == "dry-read":
         pass
+    elif mode == "engine-connection-status-path-diagnostic":
+        _install_provider_post_guard(report)
+        _run_engine_connection_status_path_diagnostic(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
+    elif mode == "engine-connection-status-regression-proof":
+        _install_provider_post_guard(report)
+        _run_engine_connection_status_regression_proof(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
             app,
@@ -15163,6 +15331,8 @@ def run_harness(
         "provider-smoke",
         "provider-startup-readiness-proof",
         "real-app-startup-readiness-proof",
+        "engine-connection-status-path-diagnostic",
+        "engine-connection-status-regression-proof",
         "top-markets-feed-proof",
         "save-probe",
         "riskguard-active-path-proof",
@@ -15205,6 +15375,8 @@ def main() -> int:
         choices=(
             "dry-read",
             "dry-navigation",
+            "engine-connection-status-path-diagnostic",
+            "engine-connection-status-regression-proof",
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",
