@@ -7640,6 +7640,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             "[runner] start_strategy called",
             "[preflight]",
             "[aits][liveonpreflight]",
+            "[aits][krwbalancesource]",
             "trading_enabled=true",
         )
     )
@@ -7658,6 +7659,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     live_on_preflight_blocked = any(
         ("[preflight]" in line and ("ok=0" in line or "check failed" in line or "blocker=" in line))
         or "[aits][liveonpreflight]" in line
+        or "[aits][krwbalancesource]" in line
         for line in lowered
     )
     ai_opinion_fresh_count = sum(
@@ -8096,7 +8098,7 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
             "effective_hard_cap_krw": int(effective_cap or 0),
             "total_guarded_window_cap_krw": int(total_window_cap or 0),
             "order_amount_source": configured_source,
-            "available_krw_source": "svc_order._compute_available_krw",
+            "available_krw_source": "svc_order.compute_available_krw_snapshot",
             "pos_limit_source": "available_krw * settings.strategy.pos_size_pct / 100",
             "hard_cap_source": "settings.strategy.per_order_hard_cap_krw",
             "total_guarded_window_cap_source": "settings.strategy.total_guarded_window_cap_krw",
@@ -8112,6 +8114,104 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
             ),
             "settings_error": settings_error,
             "configured_order_amount_read_error": amount_error,
+            "safety_flags": {
+                "actual_order": False,
+                "submitted_count": 0,
+                "provider_external_call_count": 0,
+            },
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+
+
+def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) -> None:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
+    balance_lines = [line for line in lines if "[AITS][KRWBalanceSource]" in line]
+    account_lines = [line for line in lines if "[AITS][OrderService] fetch_accounts called" in line]
+    preflight_lines = [line for line in lines if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line]
+    latest_balance = balance_lines[-1] if balance_lines else (account_lines[-1] if account_lines else "")
+    latest_preflight = preflight_lines[-1] if preflight_lines else ""
+
+    def _extract_text(line: str, key: str) -> str:
+        if not line:
+            return ""
+        match = re.search(rf"{re.escape(key)}=([^|\s]+)", line)
+        return str(match.group(1)).strip() if match else ""
+
+    def _extract_int(line: str, key: str) -> int:
+        raw = _extract_text(line, key)
+        try:
+            return int(float(raw))
+        except Exception:
+            return 0
+
+    def _extract_bool(line: str, key: str) -> bool:
+        return _extract_text(line, key).lower() in {"1", "true", "yes", "ok"}
+
+    available_krw = _extract_int(latest_balance, "available_krw")
+    balance_status = _extract_text(latest_balance, "balance_status") or "balance_not_loaded"
+    if "fetch_accounts called" in latest_balance:
+        balance_status = _extract_text(latest_balance, "status") or balance_status
+    balance_source = _extract_text(latest_balance, "balance_source") or "svc_order.compute_available_krw_snapshot"
+    if "fetch_accounts called" in latest_balance:
+        balance_source = "svc_order.fetch_accounts"
+    fallback_reason = _extract_text(latest_balance, "fallback_reason")
+    blocker = _extract_text(latest_balance, "blocker")
+    if not blocker and latest_preflight:
+        match = re.search(r"blocker[=:]\s*([A-Za-z0-9_\\-]+)", latest_preflight)
+        blocker = "" if not match or match.group(1) == "-" else match.group(1)
+
+    suspected = "balance_log_not_found"
+    if latest_balance:
+        if balance_status == "private_api_not_connected":
+            suspected = "upbit_private_api_not_connected"
+        elif balance_status == "balance_fetch_failed":
+            suspected = "upbit_balance_fetch_failed"
+        elif balance_status == "actual_krw_balance_zero":
+            suspected = "actual_krw_balance_zero"
+        elif balance_status == "ok":
+            suspected = "balance_source_ok"
+        else:
+            suspected = balance_status or "unknown_balance_source"
+
+    next_fix = {
+        "private_api_not_connected": "verify_upbit_private_api_key_settings",
+        "balance_fetch_failed": "inspect_upbit_accounts_read_failure",
+        "balance_not_loaded": "trigger_or_verify_readonly_balance_refresh_before_on_preflight",
+        "actual_krw_balance_zero": "fund_krw_or_lower_test_until_min_order_policy_allows",
+        "balance_cache_stale": "refresh_balance_cache_before_on_preflight",
+    }.get(balance_status, "rerun_on_click_and_collect_krw_balance_source_log")
+
+    report.update(
+        {
+            "schema": "aits_live_on_preflight_krw_balance_source_summary_v1",
+            "diagnostic_status": "pass",
+            "pass_status": "pass",
+            "report_status": "pass",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "preflight_popup_detected": bool(preflight_lines),
+            "krw_balance_source_line_count": len(balance_lines),
+            "account_fetch_trace_line_count": len(account_lines),
+            "latest_balance_source_line": latest_balance,
+            "latest_preflight_line": latest_preflight,
+            "available_krw": available_krw,
+            "balance_status": balance_status,
+            "balance_source": balance_source,
+            "balance_cache_present": _extract_bool(latest_balance, "balance_cache_present"),
+            "balance_cache_age_sec": _extract_int(latest_balance, "balance_cache_age_sec"),
+            "balance_fetch_attempted": bool(latest_balance),
+            "balance_fetch_success": _extract_bool(latest_balance, "balance_fetch_success") or _extract_bool(latest_balance, "success"),
+            "balance_fetch_error_type": _extract_text(latest_balance, "balance_fetch_error_type"),
+            "upbit_private_connected": _extract_bool(latest_balance, "upbit_private_connected") or _extract_bool(latest_balance, "success"),
+            "account_service_ready": bool(latest_balance),
+            "fallback_used": _extract_bool(latest_balance, "fallback_used") or _extract_bool(latest_balance, "default_used"),
+            "fallback_reason": fallback_reason,
+            "first_blocker": blocker or balance_status,
+            "suspected_root_cause": suspected,
+            "next_fix_target": next_fix,
             "safety_flags": {
                 "actual_order": False,
                 "submitted_count": 0,
@@ -15531,6 +15631,7 @@ def run_harness(
         "live-on-button-state-trace-dryrun",
         "live-on-button-state-log-summary",
         "live-on-preflight-setting-source-summary",
+        "live-on-preflight-krw-balance-source-summary",
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -15736,6 +15837,9 @@ def run_harness(
         elif mode == "live-on-preflight-setting-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_setting_source_summary(report)
+        elif mode == "live-on-preflight-krw-balance-source-summary":
+            _install_provider_post_guard(report)
+            _run_live_on_preflight_krw_balance_source_summary(report)
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -16320,6 +16424,7 @@ def main() -> int:
             "live-on-button-state-trace-dryrun",
             "live-on-button-state-log-summary",
             "live-on-preflight-setting-source-summary",
+            "live-on-preflight-krw-balance-source-summary",
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

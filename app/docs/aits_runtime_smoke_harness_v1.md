@@ -1366,3 +1366,20 @@ PASS means the diagnostic report was generated safely. It is not order
 permission. The safety fields remain `provider_external_call_count=0`,
 `managed_pool_mutation=false`, `actual_order_forced=false`,
 `forced_candidate_injected=false`, and `forced_symbol_configured=false`.
+
+### live-on-preflight-krw-balance-source-summary
+
+`live-on-preflight-krw-balance-source-summary` reads recent
+`[AITS][KRWBalanceSource]` and `[AITS][LiveOnPreflight]` logs to classify why
+ON preflight saw `available_krw=0`.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-krw-balance-source-summary --observe-only
+```
+
+The mode emits `aits_live_on_preflight_krw_balance_source_summary_v1` with
+`balance_status`, `balance_source`, `balance_fetch_attempted`,
+`balance_fetch_success`, `balance_fetch_error_type`,
+`upbit_private_connected`, `fallback_reason`, `first_blocker`, and
+`next_fix_target`. It does not call order submit paths and keeps
+`provider_external_call_count=0` and `submitted_count=0`.

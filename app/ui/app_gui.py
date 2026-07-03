@@ -52198,10 +52198,33 @@ class MainWindow(QMainWindow):
             from app.strategy.runner import get_session_snapshot_summary, _SESSION_SNAPSHOT_SYMBOLS
             
             # 1. 가용 KRW 계산
+            balance_snapshot = {
+                "available_krw": 0.0,
+                "balance_status": "balance_not_loaded",
+                "balance_source": "svc_order.fetch_accounts",
+                "balance_cache_present": False,
+                "balance_cache_age_sec": 0,
+                "balance_fetch_attempted": False,
+                "balance_fetch_success": False,
+                "balance_fetch_error_type": "",
+                "upbit_private_connected": False,
+                "account_service_ready": False,
+                "fallback_used": True,
+                "fallback_reason": "balance_not_loaded",
+            }
             try:
-                available_krw = svc_order._compute_available_krw()
-            except Exception:
+                if hasattr(svc_order, "compute_available_krw_snapshot"):
+                    balance_snapshot = svc_order.compute_available_krw_snapshot(source_path="on_preflight")
+                    available_krw = float(balance_snapshot.get("available_krw") or 0.0)
+                else:
+                    available_krw = float(svc_order._compute_available_krw())
+                    balance_snapshot["available_krw"] = available_krw
+                    balance_snapshot["balance_status"] = "ok" if available_krw > 0 else "unknown_balance_source"
+            except Exception as exc:
                 available_krw = 0.0
+                balance_snapshot["balance_status"] = "balance_fetch_failed"
+                balance_snapshot["balance_fetch_error_type"] = type(exc).__name__
+                balance_snapshot["fallback_reason"] = "balance_fetch_failed"
             
             # 2. 설정값 읽기
             stg = getattr(self._settings, 'strategy', None)
@@ -52253,8 +52276,20 @@ class MainWindow(QMainWindow):
             if effective_hard_cap <= 0:
                 zero_value_fields.append("effective_hard_cap_krw")
             blocker = ""
+            balance_status = str(balance_snapshot.get("balance_status") or "unknown_balance_source")
             if available_krw < MIN_ORDER_KRW:
-                blocker = "insufficient_available_krw"
+                if balance_status in {
+                    "balance_not_loaded",
+                    "balance_fetch_failed",
+                    "balance_cache_stale",
+                    "private_api_not_connected",
+                    "unknown_balance_source",
+                }:
+                    blocker = balance_status
+                elif balance_status == "actual_krw_balance_zero":
+                    blocker = "actual_krw_balance_zero"
+                else:
+                    blocker = "insufficient_available_krw"
             elif order_amount_krw < MIN_ORDER_KRW:
                 blocker = "order_amount_below_min_order"
             elif order_amount_krw > configured_hard_cap:
@@ -52299,8 +52334,29 @@ class MainWindow(QMainWindow):
                 bool(fallback_fields),
                 ",".join(fallback_fields) or "-",
                 ",".join(zero_value_fields) or "-",
-                "svc_order._compute_available_krw",
+                str(balance_snapshot.get("balance_source") or "svc_order.fetch_accounts"),
                 "settings.strategy.per_order_hard_cap_krw",
+            )
+            self._log.info(
+                "[AITS][KRWBalanceSource] event=available_krw_resolved source_path=on_preflight "
+                "available_krw=%s balance_status=%s balance_source=%s balance_cache_present=%s "
+                "balance_cache_age_sec=%s balance_fetch_attempted=%s balance_fetch_success=%s "
+                "balance_fetch_error_type=%s upbit_private_connected=%s account_service_ready=%s "
+                "fallback_used=%s fallback_reason=%s blocker=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                int(available_krw),
+                balance_status,
+                str(balance_snapshot.get("balance_source") or "svc_order.fetch_accounts"),
+                bool(balance_snapshot.get("balance_cache_present")),
+                int(float(balance_snapshot.get("balance_cache_age_sec") or 0)),
+                bool(balance_snapshot.get("balance_fetch_attempted")),
+                bool(balance_snapshot.get("balance_fetch_success")),
+                str(balance_snapshot.get("balance_fetch_error_type") or ""),
+                bool(balance_snapshot.get("upbit_private_connected")),
+                bool(balance_snapshot.get("account_service_ready")),
+                bool(balance_snapshot.get("fallback_used")),
+                str(balance_snapshot.get("fallback_reason") or ""),
+                blocker or "",
+                balance_status,
             )
 
             # 6. UI message

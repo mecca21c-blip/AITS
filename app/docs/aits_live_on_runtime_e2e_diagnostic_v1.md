@@ -166,3 +166,13 @@ blocker is `on_preflight_blocked`, not a missing ON click. The configured
 per-order hard cap source is `settings.strategy.per_order_hard_cap_krw`
 (default `12000`), while `effective_hard_cap_krw` may still be zero when the
 balance source returns `available_krw=0`.
+
+## ON Preflight KRW Balance Source
+
+`AITS-LIVE-ON-PREFLIGHT-KRW-BALANCE-SOURCE-TRACE-01` further classifies the
+balance side of `on_preflight_blocked`. `[AITS][KRWBalanceSource]` lines count
+as ON preflight evidence, and the first blocker can be refined to
+`actual_krw_balance_zero`, `balance_not_loaded`, `balance_fetch_failed`,
+`private_api_not_connected`, `balance_cache_stale`,
+`order_amount_exceeds_available_krw`, or `order_amount_exceeds_effective_cap`
+when the logs contain enough detail.

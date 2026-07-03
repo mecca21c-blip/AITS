@@ -10,6 +10,7 @@ Live order support is deliberately narrow:
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 import uuid
@@ -36,6 +37,17 @@ class OrderService:
         self._settings = None
         self._simulate = True
         self._trading_enabled = True
+        self._last_accounts_fetch_trace = {
+            "status": "not_loaded",
+            "source": "svc_order.fetch_accounts",
+            "attempted": False,
+            "success": False,
+            "error_type": "",
+            "key_present": False,
+            "row_count": 0,
+            "default_used": False,
+            "fetched_at": 0.0,
+        }
         self._aits_last_exec = {
             "action": None,
             "symbol": None,
@@ -65,9 +77,23 @@ class OrderService:
             }
         ]
         rows: list = list(default_rows)
+        trace = {
+            "status": "not_loaded",
+            "source": "svc_order.fetch_accounts",
+            "attempted": True,
+            "success": False,
+            "error_type": "",
+            "key_present": False,
+            "row_count": 0,
+            "default_used": True,
+            "fetched_at": time.time(),
+        }
         try:
             ak, sk = self._extract_upbit_keys()
+            trace["key_present"] = bool(ak and sk and len(ak) >= 10 and len(sk) >= 10)
             if not ak or not sk or len(ak) < 10 or len(sk) < 10:
+                trace["status"] = "private_api_not_connected"
+                trace["error_type"] = "upbit_key_not_ready"
                 rows = list(default_rows)
             else:
                 r = requests.get(
@@ -78,14 +104,82 @@ class OrderService:
                 if r.ok:
                     data = r.json()
                     rows = data if isinstance(data, list) else list(default_rows)
+                    trace["status"] = "ok" if isinstance(data, list) else "balance_fetch_failed"
+                    trace["success"] = isinstance(data, list)
+                    trace["default_used"] = not isinstance(data, list)
+                    trace["error_type"] = "" if isinstance(data, list) else "invalid_accounts_payload"
                 else:
+                    trace["status"] = "balance_fetch_failed"
+                    trace["error_type"] = f"http_{getattr(r, 'status_code', '')}"
                     rows = list(default_rows)
-        except Exception:
+        except Exception as exc:
+            trace["status"] = "balance_fetch_failed"
+            trace["error_type"] = type(exc).__name__
             rows = list(default_rows)
-        print(
-            f"[AITS][OrderService] fetch_accounts called | rows={len(rows) if isinstance(rows, list) else 0}"
+        trace["row_count"] = len(rows) if isinstance(rows, list) else 0
+        self._last_accounts_fetch_trace = trace
+        trace_line = (
+            "[AITS][OrderService] fetch_accounts called | "
+            f"rows={len(rows) if isinstance(rows, list) else 0} status={trace.get('status')} "
+            f"success={trace.get('success')} default_used={trace.get('default_used')}"
         )
+        print(trace_line)
+        try:
+            logging.getLogger("aits").info(trace_line)
+        except Exception:
+            pass
         return rows if isinstance(rows, list) else list(default_rows)
+
+    def get_last_accounts_fetch_trace(self) -> dict:
+        return dict(self._last_accounts_fetch_trace or {})
+
+    def compute_available_krw_snapshot(self, source_path: str = "") -> dict:
+        rows = self.fetch_accounts()
+        trace = self.get_last_accounts_fetch_trace()
+        krw_balance = 0.0
+        krw_locked = 0.0
+        krw_row_found = False
+        try:
+            for row in rows if isinstance(rows, list) else []:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("currency") or "").strip().upper() != "KRW":
+                    continue
+                krw_row_found = True
+                krw_balance = _safe_float(row.get("balance"))
+                krw_locked = _safe_float(row.get("locked"))
+                break
+        except Exception:
+            krw_balance = 0.0
+            krw_locked = 0.0
+            krw_row_found = False
+        available = max(0.0, krw_balance - krw_locked)
+        status = str(trace.get("status") or "unknown_balance_source")
+        if status == "ok":
+            status = "ok" if available > 0 else "actual_krw_balance_zero"
+        elif status == "not_loaded":
+            status = "balance_not_loaded"
+        return {
+            "available_krw": available,
+            "krw_balance": krw_balance,
+            "krw_locked": krw_locked,
+            "balance_status": status,
+            "balance_source": "svc_order.fetch_accounts",
+            "balance_cache_present": bool(trace.get("success")),
+            "balance_cache_age_sec": 0,
+            "balance_fetch_attempted": bool(trace.get("attempted")),
+            "balance_fetch_success": bool(trace.get("success")),
+            "balance_fetch_error_type": str(trace.get("error_type") or ""),
+            "upbit_private_connected": bool(trace.get("success")),
+            "account_service_ready": True,
+            "fallback_used": bool(trace.get("default_used")),
+            "fallback_reason": "" if trace.get("success") else status,
+            "krw_row_found": krw_row_found,
+            "source_path": str(source_path or ""),
+        }
+
+    def _compute_available_krw(self) -> float:
+        return _safe_float(self.compute_available_krw_snapshot().get("available_krw"))
 
     def fetch_order(self, order_uuid: str) -> dict:
         """Read-only Upbit order status lookup by UUID."""
