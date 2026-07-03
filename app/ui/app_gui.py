@@ -24738,6 +24738,18 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_source = (key_source or "").strip()
             self._ai_connection_status = status
             self._ai_engine_last_checked_text = "방금 전"
+            try:
+                cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+                if not isinstance(cache, dict):
+                    cache = {}
+                    self._ai_connection_snapshots_by_provider = cache
+                cache[normalized_provider] = {
+                    "status": status,
+                    "source": (key_source or "").strip(),
+                    "updated_at": time.time(),
+                }
+            except Exception:
+                pass
             self._trace_provider_state(
                 "record_connection_result",
                 normalized_provider=normalized_provider,
@@ -24985,10 +24997,22 @@ class MainWindow(QMainWindow):
             last_provider = self._normalize_ai_provider_code(getattr(self, "_last_ai_connection_provider", ""))
             last_status = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
             last_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
+            cached = {}
+            try:
+                cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+                if isinstance(cache, dict):
+                    cached = dict(cache.get(selected_provider) or {})
+            except Exception:
+                cached = {}
             if selected_provider == "basic":
                 self._ai_connection_status = "LOCAL"
             elif selected_provider == last_provider and last_status:
                 self._ai_connection_status = last_status
+            elif cached.get("status"):
+                self._last_ai_connection_provider = selected_provider
+                self._last_ai_connection_status = str(cached.get("status") or "").strip()
+                self._last_ai_connection_source = str(cached.get("source") or "provider_snapshot_cache").strip()
+                self._ai_connection_status = self._last_ai_connection_status
             else:
                 self._last_ai_connection_provider = selected_provider
                 self._last_ai_connection_status = "연결확인 필요"
@@ -47804,6 +47828,8 @@ class MainWindow(QMainWindow):
         """Return only the persisted secrets.json value, never an env fallback."""
         try:
             provider = self._normalize_saved_ai_provider(provider)
+            if provider not in ("openai", "gemini"):
+                return ""
             key_name = "ai_openai_api_key" if provider == "openai" else "ai_gemini_api_key"
             from app.utils.prefs import _read_secrets_json
 
@@ -47816,6 +47842,8 @@ class MainWindow(QMainWindow):
 
     def _get_pending_verified_ai_secret(self, provider: str) -> str:
         provider = self._normalize_saved_ai_provider(provider)
+        if provider not in ("openai", "gemini"):
+            return ""
         attr = (
             "_pending_verified_openai_key"
             if provider == "openai"
@@ -47827,10 +47855,14 @@ class MainWindow(QMainWindow):
         provider = self._normalize_saved_ai_provider(provider)
         if provider == "openai":
             return str(os.getenv("OPENAI_API_KEY") or "").strip()
-        return str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+        if provider == "gemini":
+            return str(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+        return ""
 
     def _resolve_ai_test_secret(self, provider: str) -> tuple[str, str]:
         provider = self._normalize_saved_ai_provider(provider)
+        if provider not in ("openai", "gemini"):
+            return "", "local_provider_no_api_key"
         edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
         ui_value = str(edit.text() or "").strip() if edit is not None else ""
         if ui_value and not self._is_masked_ai_secret_text(ui_value):
@@ -47849,6 +47881,8 @@ class MainWindow(QMainWindow):
     def _get_effective_ai_secret_from_ui(self, provider: str) -> str:
         try:
             provider = self._normalize_saved_ai_provider(provider)
+            if provider not in ("openai", "gemini"):
+                return ""
             edit = getattr(self, "ed_openai_key", None) if provider == "openai" else getattr(self, "ed_gemini_key", None)
             ui_value = ""
             if edit is not None and hasattr(edit, "text"):
@@ -48001,6 +48035,163 @@ class MainWindow(QMainWindow):
             try:
                 self._log.warning(
                     "[AITS][AIProviderUIRestore] status=failed | error_type=%s",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return False
+
+
+    def _log_provider_runtime_sync(
+        self,
+        *,
+        event: str,
+        source_path: str = "",
+        provider: str = "",
+        settings_provider: str = "",
+        runtime_provider: str = "",
+        key_present: bool = False,
+        previous_status: str = "",
+        next_status: str = "",
+        failure_reason_cleared: bool = False,
+        stale_snapshot_invalidated: bool = False,
+        screen_restore_involved: bool = False,
+    ) -> None:
+        try:
+            saved_provider = self._normalize_saved_ai_provider(settings_provider or provider)
+            runtime_provider = runtime_provider or self._normalize_ai_provider_code(provider or saved_provider)
+            model_key = "strategy.ai_local_model"
+            if saved_provider == "openai":
+                model_key = "strategy.ai_openai_model"
+            elif saved_provider == "gemini":
+                model_key = "strategy.ai_gemini_model"
+            parts = [
+                "[AITS][ProviderRuntimeSync]",
+                f"event={str(event or '')[:80]}",
+                f"source_path={str(source_path or '')[:80]}",
+                f"ui_provider_value={self._normalize_provider_for_ui(saved_provider)}",
+                f"normalized_provider={saved_provider}",
+                f"settings_provider={saved_provider}",
+                f"runtime_provider={runtime_provider}",
+                "prefs_key_used=strategy.ai_provider",
+                f"model_key_used={model_key}",
+                f"key_present_masked={bool(key_present)}",
+                f"previous_status={str(previous_status or '')[:80]}",
+                f"next_status={str(next_status or '')[:80]}",
+                f"failure_reason_cleared={bool(failure_reason_cleared)}",
+                f"stale_snapshot_invalidated={bool(stale_snapshot_invalidated)}",
+                "last_writer=MainWindow._sync_provider_runtime_after_settings_persist",
+                f"screen_restore_involved={bool(screen_restore_involved)}",
+                "submitted=0",
+                "order_allowed=False",
+                "real_order=False",
+            ]
+            logging.getLogger("aits").info(" | ".join(parts))
+        except Exception:
+            pass
+
+    def _sync_provider_runtime_after_settings_persist(
+        self,
+        settings=None,
+        *,
+        source_path: str = "settings_save",
+    ) -> bool:
+        try:
+            settings = settings or getattr(self, "_settings", None)
+            st = getattr(settings, "strategy", None) if settings is not None else None
+            raw_provider = (
+                st.get("ai_provider", "")
+                if isinstance(st, dict)
+                else getattr(st, "ai_provider", "")
+                if st is not None
+                else ""
+            )
+            saved_provider = self._normalize_saved_ai_provider(raw_provider)
+            runtime_provider = self._normalize_ai_provider_code(saved_provider)
+            key_present = bool(
+                saved_provider in ("openai", "gemini")
+                and (
+                    self._get_stored_ai_secret(saved_provider)
+                    or self._get_pending_verified_ai_secret(saved_provider)
+                )
+            )
+            previous_status = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+            previous_provider = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_connection_provider", "")
+            )
+
+            self._sync_ai_provider_ui_from_settings(
+                saved_provider,
+                settings,
+                start_connection=False,
+                reason=source_path,
+            )
+
+            current_status = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+            current_provider = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_connection_provider", "")
+            )
+            failure_reason_cleared = False
+            stale_snapshot_invalidated = False
+            if saved_provider in ("openai", "gemini") and key_present:
+                connected = (
+                    current_provider == runtime_provider
+                    and any(token in current_status for token in ("API 응답 확인됨", "정상연결"))
+                )
+                stale_failure = any(
+                    token in current_status
+                    for token in ("실패", "오류", "timeout", "시간 초과")
+                )
+                if not connected and (current_provider != runtime_provider or stale_failure):
+                    self._last_ai_connection_provider = runtime_provider
+                    self._last_ai_connection_status = "연결확인 필요"
+                    self._last_ai_connection_source = "post_save_runtime_sync"
+                    self._ai_connection_status = "연결확인 필요"
+                    self._ai_engine_last_checked_text = "미확인"
+                    try:
+                        cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+                        if not isinstance(cache, dict):
+                            cache = {}
+                            self._ai_connection_snapshots_by_provider = cache
+                        cache[runtime_provider] = {
+                            "status": "연결확인 필요",
+                            "source": "post_save_runtime_sync",
+                            "updated_at": time.time(),
+                        }
+                    except Exception:
+                        pass
+                    failure_reason_cleared = True
+                    stale_snapshot_invalidated = True
+                    current_status = "연결확인 필요"
+            elif saved_provider == "local":
+                if current_provider not in ("basic", "local") or not current_status:
+                    self._last_ai_connection_provider = "basic"
+                    self._last_ai_connection_status = "LOCAL"
+                    self._last_ai_connection_source = "post_save_runtime_sync"
+                    self._ai_connection_status = "LOCAL"
+                    current_status = "LOCAL"
+                    stale_snapshot_invalidated = previous_provider not in ("basic", "local")
+
+            self._log_provider_runtime_sync(
+                event="post_save_runtime_sync",
+                source_path=source_path,
+                provider=saved_provider,
+                settings_provider=saved_provider,
+                runtime_provider=runtime_provider,
+                key_present=key_present,
+                previous_status=previous_status,
+                next_status=current_status,
+                failure_reason_cleared=failure_reason_cleared,
+                stale_snapshot_invalidated=stale_snapshot_invalidated,
+                screen_restore_involved=False,
+            )
+            self._render_ai_engine_state()
+            return True
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][ProviderRuntimeSync] event=failed source_path=%s error_type=%s submitted=0 order_allowed=False real_order=False",
+                    str(source_path or ""),
                     type(exc).__name__,
                 )
             except Exception:
@@ -48419,6 +48610,18 @@ class MainWindow(QMainWindow):
             self._last_ai_connection_status = "연결실패"
             self._last_ai_connection_source = key_source
             self._ai_connection_status = self._last_ai_connection_status
+            try:
+                cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+                if not isinstance(cache, dict):
+                    cache = {}
+                    self._ai_connection_snapshots_by_provider = cache
+                cache[normalized_provider] = {
+                    "status": "연결실패",
+                    "source": key_source,
+                    "updated_at": time.time(),
+                }
+            except Exception:
+                pass
             self._log_engine_status_transition(
                 source_path="manual_refresh" if connection_mode == "manual" else "startup/provider_change/on",
                 previous_status=previous_status,
@@ -48475,8 +48678,8 @@ class MainWindow(QMainWindow):
         if p in ("gemini", "google", "google_gemini"):
             return "gemini"
         if p in ("local", "basic", "basic ai", "basic_ai", "none", "off", ""):
-            return "basic"
-        return "basic"
+            return "local"
+        return "local"
 
     def _get_save_ai_provider(self, settings_obj=None) -> str:
         for attr in ("_ai_provider_box_active",):
@@ -48506,7 +48709,7 @@ class MainWindow(QMainWindow):
                 return self._normalize_saved_ai_provider(val)
         except Exception:
             pass
-        return "basic"
+        return "local"
 
     def _on_save_settings(self) -> None:
         try:
@@ -49001,6 +49204,10 @@ class MainWindow(QMainWindow):
                     "gemini",
                     "API Key 저장됨"
                     if _verify_gemini_has_key else "API Key 미입력",
+                )
+                self._sync_provider_runtime_after_settings_persist(
+                    self._settings,
+                    source_path="settings_save_post_verify",
                 )
                 self._render_ai_engine_state()
             except Exception:

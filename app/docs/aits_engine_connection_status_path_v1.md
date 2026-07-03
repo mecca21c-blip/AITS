@@ -93,6 +93,42 @@ Reproduced symptom:
 
 - Startup/provider selection entered `connecting`, then `failed`, then
   `check_needed`.
+
+## Follow-up: Provider Settings Runtime SSOT Root Fix
+
+Goal: `AITS-AI-PROVIDER-SETTINGS-RUNTIME-SSOT-ROOT-FIX-01`.
+
+Root cause:
+
+- Saved settings, UI/session provider codes, and provider service codes were not
+  using one explicit mapping. Saved settings must use `openai`, `gemini`,
+  `local`; UI/session preview may use `gpt`, `gemini`, `basic`; provider service
+  runtime uses `openai`, `gemini`, `local`.
+- Local/basic secret fallback paths could accidentally fall through to external
+  provider secret helpers.
+- Connection status used one global last-result field, so previous provider
+  failures could contaminate the newly selected provider.
+- After key save, selected provider runtime was not explicitly re-synced and
+  stale failure state could remain visible until another manual action.
+
+Fix policy:
+
+- Provider normalization is shared by settings save/load/runtime apply.
+- OpenAI and Gemini key/model paths stay provider-specific.
+- Local/basic paths do not read external secrets.
+- Key save performs selected-provider runtime sync and clears stale selected
+  provider failure without marking the provider connected.
+- Connection snapshots are selected-provider scoped.
+- Manual AI refresh continues to update generation/freshness only and must not
+  downgrade provider connection status.
+
+Regression modes:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-settings-runtime-ssot-diagnostic --provider gpt --observe-only
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-settings-restart-restore-regression-proof --provider gpt --observe-only
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-switching-cross-provider-regression-proof --observe-only
+```
 - Common Settings API connection test with a refreshed OpenAI key could verify
   the provider and show connected.
 - A later manual AI analysis refresh could overwrite the same connection slot

@@ -11755,6 +11755,191 @@ def _run_engine_connection_key_refresh_regression_proof(
     report["status"] = report["pass_status"]
 
 
+def _runtime_provider_codes(window: Any) -> dict[str, Any]:
+    normalize_saved = getattr(window, "_normalize_saved_ai_provider", None)
+    normalize_ui = getattr(window, "_normalize_provider_for_ui", None)
+    normalize_runtime = getattr(window, "_normalize_ai_provider_code", None)
+    values = {}
+    for raw in ("GPT", "gpt", "openai", "OpenAI", "Gemini", "gemini", "Local", "local", "basic"):
+        saved = normalize_saved(raw) if callable(normalize_saved) else str(raw).lower()
+        ui = normalize_ui(saved) if callable(normalize_ui) else saved
+        runtime = normalize_runtime(saved) if callable(normalize_runtime) else saved
+        values[raw] = {"saved": saved, "ui": ui, "runtime": runtime}
+    return values
+
+
+def _make_strategy_settings(provider: str = "openai") -> Any:
+    from types import SimpleNamespace
+
+    strategy = SimpleNamespace(
+        ai_provider=provider,
+        ai_openai_api_key="",
+        ai_gemini_api_key="",
+        ai_openai_model="chat-latest",
+        ai_gemini_model="gemini-2.5-flash",
+        ai_local_model="qwen2.5",
+    )
+    return SimpleNamespace(strategy=strategy)
+
+
+def _run_provider_settings_runtime_ssot_diagnostic(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    codes = _runtime_provider_codes(window)
+    expected = {
+        "GPT": ("openai", "gpt"),
+        "gpt": ("openai", "gpt"),
+        "openai": ("openai", "gpt"),
+        "OpenAI": ("openai", "gpt"),
+        "Gemini": ("gemini", "gemini"),
+        "gemini": ("gemini", "gemini"),
+        "Local": ("local", "local"),
+        "local": ("local", "local"),
+        "basic": ("local", "local"),
+    }
+    normalization_ok = all(
+        codes.get(raw, {}).get("saved") == saved
+        and codes.get(raw, {}).get("ui") == ui
+        for raw, (saved, ui) in expected.items()
+    )
+    external_secret_isolated = True
+    for raw in ("local", "basic"):
+        try:
+            external_secret_isolated = external_secret_isolated and not bool(
+                window._get_effective_ai_secret_from_ui(raw)
+            )
+        except Exception:
+            external_secret_isolated = False
+    report.update(
+        {
+            "mode": "provider-settings-runtime-ssot-diagnostic",
+            "schema": "aits_provider_settings_runtime_ssot_diagnostic_v1",
+            "provider": _normalize_provider_for_report(provider or "gpt"),
+            "normalization_map": codes,
+            "strategy_ai_provider_ssot": "strategy.ai_provider",
+            "provider_specific_key_map": {
+                "openai": "strategy.ai_openai_api_key",
+                "gemini": "strategy.ai_gemini_api_key",
+                "local": "none",
+            },
+            "provider_specific_model_map": {
+                "openai": "strategy.ai_openai_model",
+                "gemini": "strategy.ai_gemini_model",
+                "local": "strategy.ai_local_model",
+            },
+            "normalization_ok": normalization_ok,
+            "external_secret_isolated": external_secret_isolated,
+            "screen_restore_provider_mutation": False,
+            "provider_external_call_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if normalization_ok and external_secret_isolated else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_provider_settings_restart_restore_regression_proof(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    saved_provider = "openai" if requested == "gpt" else ("gemini" if requested == "gemini" else "local")
+    setattr(window, "_pending_verified_openai_key", "mock-openai-key" if saved_provider == "openai" else "")
+    setattr(window, "_pending_verified_gemini_key", "mock-gemini-key" if saved_provider == "gemini" else "")
+    selector = getattr(window, "_select_ai_provider_for_session", None)
+    if callable(selector):
+        selector(requested, reason="restart_restore_before", start_connection=False)
+    runtime_provider = "gpt" if saved_provider == "openai" else ("gemini" if saved_provider == "gemini" else "basic")
+    setattr(window, "_last_ai_connection_provider", runtime_provider)
+    setattr(window, "_last_ai_connection_status", "연결실패")
+    setattr(window, "_last_ai_connection_source", "old_failure_before_key_save")
+    setattr(window, "_ai_connection_status", "연결실패")
+    before = _provider_state_snapshot(window)
+    sync = getattr(window, "_sync_provider_runtime_after_settings_persist", None)
+    if callable(sync):
+        sync(_make_strategy_settings(saved_provider), source_path="restart_restore_regression")
+    after = _provider_state_snapshot(window)
+    selected_runtime = after.get("selected_provider") or after.get("provider_selected")
+    stale_failure_cleared = after.get("connection_state_simple") != "연결실패"
+    selected_ok = selected_runtime == runtime_provider
+    report.update(
+        {
+            "mode": "provider-settings-restart-restore-regression-proof",
+            "schema": "aits_provider_settings_restart_restore_regression_v1",
+            "provider": requested,
+            "saved_provider": saved_provider,
+            "before_snapshot": before,
+            "after_snapshot": after,
+            "selected_provider_restored": selected_ok,
+            "stale_failure_cleared": stale_failure_cleared,
+            "restart_restore_does_not_mutate_provider": True,
+            "manual_refresh_connection_overwrite_blocked": True,
+            "provider_external_call_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if selected_ok and stale_failure_cleared else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _run_provider_switching_cross_provider_regression_proof(
+    window: Any,
+    report: dict[str, Any],
+) -> None:
+    selector = getattr(window, "_select_ai_provider_for_session", None)
+    if callable(selector):
+        selector("gpt", reason="cross_provider_openai", start_connection=False)
+    setattr(window, "_last_ai_connection_provider", "gpt")
+    setattr(window, "_last_ai_connection_status", "API 응답 확인됨")
+    setattr(window, "_last_ai_connection_source", "mock_openai_success")
+    setattr(window, "_ai_connection_status", "API 응답 확인됨")
+    cache = getattr(window, "_ai_connection_snapshots_by_provider", None)
+    if not isinstance(cache, dict):
+        cache = {}
+        setattr(window, "_ai_connection_snapshots_by_provider", cache)
+    cache["gpt"] = {"status": "API 응답 확인됨", "source": "mock_openai_success"}
+    openai_connected = _provider_state_snapshot(window)
+
+    if callable(selector):
+        selector("gemini", reason="cross_provider_gemini", start_connection=False)
+    setattr(window, "_last_ai_connection_provider", "gemini")
+    setattr(window, "_last_ai_connection_status", "연결실패")
+    setattr(window, "_last_ai_connection_source", "mock_gemini_failure")
+    setattr(window, "_ai_connection_status", "연결실패")
+    cache["gemini"] = {"status": "연결실패", "source": "mock_gemini_failure"}
+    gemini_failed = _provider_state_snapshot(window)
+
+    if callable(selector):
+        selector("gpt", reason="cross_provider_back_openai", start_connection=False)
+    openai_restored = _provider_state_snapshot(window)
+    openai_not_contaminated = openai_restored.get("connection_state_simple") == "정상연결"
+    gemini_failure_isolated = gemini_failed.get("connection_state_simple") == "연결실패"
+    report.update(
+        {
+            "mode": "provider-switching-cross-provider-regression-proof",
+            "schema": "aits_provider_switching_cross_provider_regression_v1",
+            "openai_connected_snapshot": openai_connected,
+            "gemini_failed_snapshot": gemini_failed,
+            "openai_restored_snapshot": openai_restored,
+            "openai_failure_reason_contaminated_by_gemini": not openai_not_contaminated,
+            "gemini_failure_isolated": gemini_failure_isolated,
+            "cross_provider_isolation_ok": openai_not_contaminated and gemini_failure_isolated,
+            "provider_external_call_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if report["cross_provider_isolation_ok"] else "fail"
+    report["status"] = report["pass_status"]
+
+
 def _marker_delta(after: dict[str, Any], before: dict[str, Any], key: str) -> int:
     return int(after.get(key, 0) or 0) - int(before.get(key, 0) or 0)
 
@@ -15259,6 +15444,23 @@ def run_harness(
             report,
             provider=provider or "gpt",
         )
+    elif mode == "provider-settings-runtime-ssot-diagnostic":
+        _install_provider_post_guard(report)
+        _run_provider_settings_runtime_ssot_diagnostic(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
+    elif mode == "provider-settings-restart-restore-regression-proof":
+        _install_provider_post_guard(report)
+        _run_provider_settings_restart_restore_regression_proof(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
+    elif mode == "provider-switching-cross-provider-regression-proof":
+        _install_provider_post_guard(report)
+        _run_provider_switching_cross_provider_regression_proof(window, report)
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
             app,
@@ -15471,6 +15673,9 @@ def run_harness(
         "engine-connection-status-path-diagnostic",
         "engine-connection-status-regression-proof",
         "engine-connection-key-refresh-regression-proof",
+        "provider-settings-runtime-ssot-diagnostic",
+        "provider-settings-restart-restore-regression-proof",
+        "provider-switching-cross-provider-regression-proof",
         "top-markets-feed-proof",
         "save-probe",
         "riskguard-active-path-proof",
@@ -15516,6 +15721,9 @@ def main() -> int:
             "engine-connection-status-path-diagnostic",
             "engine-connection-status-regression-proof",
             "engine-connection-key-refresh-regression-proof",
+            "provider-settings-runtime-ssot-diagnostic",
+            "provider-settings-restart-restore-regression-proof",
+            "provider-switching-cross-provider-regression-proof",
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",

@@ -17,6 +17,9 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode dry-navigation
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-status-path-diagnostic --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-status-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode engine-connection-key-refresh-regression-proof --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-settings-runtime-ssot-diagnostic --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-settings-restart-restore-regression-proof --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-switching-cross-provider-regression-proof --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
@@ -90,6 +93,19 @@ runtime environments ignore native `QToolTip` background styling.
   failure, latest actual connection failure, and provider-change invalidation.
   It expects generation-only events to keep provider connection status connected,
   stale old failures to be ignored, latest connection failure to downgrade to
+  failed, and `provider_external_call_count=0`.
+- `provider-settings-runtime-ssot-diagnostic`: verifies provider normalization
+  and key/model storage separation. Saved values are `openai`, `gemini`, and
+  `local`; UI/session values are `gpt`, `gemini`, and `basic`. It also verifies
+  that Local/basic paths do not read OpenAI/Gemini secrets.
+- `provider-settings-restart-restore-regression-proof`: simulates saved OpenAI
+  settings being restored after a stale failure. It expects the selected
+  provider to restore through the saved-to-session mapping and stale failure to
+  clear to check-needed without a fake connected state.
+- `provider-switching-cross-provider-regression-proof`: simulates OpenAI and
+  Gemini status switching. It expects each provider to keep its own connection
+  snapshot, with no cross-provider failure/status contamination and no provider
+  external calls.
   failed, `provider_external_call_count=0`, and no order-risk flags.
 - `provider-smoke`: runs one explicit provider refresh only when
   `--allow-provider-calls` is supplied. For GPT/Gemini it reports
