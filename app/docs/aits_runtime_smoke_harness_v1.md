@@ -23,6 +23,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-switching-cr
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resolution-bootstrap-trace --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resolution-restart-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-connection-log-forensic-summary --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-button-state-trace-dryrun --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-button-state-log-summary --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof

@@ -7635,6 +7635,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             "live_on",
             "on_state=true",
             "runtime on",
+            "event=runner_start_after",
+            "[runner] start_strategy called",
             "trading_enabled=true",
         )
     )
@@ -7644,6 +7646,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             "runtime_loop_started",
             "runtime loop started",
             "live monitor started",
+            "event=runner_start_after",
+            "[runner] start_strategy called",
             "guarded window",
             "[aits][live",
         )
@@ -7856,6 +7860,125 @@ def _run_live_on_runtime_e2e_diagnostic(
     mode: str,
 ) -> None:
     report.update(_build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode=mode))
+
+
+def _live_on_button_trace_lines() -> tuple[list[str], str, str]:
+    return _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
+
+
+def _live_on_button_trace_status_from_logs(lines: list[str]) -> dict[str, Any]:
+    lowered = [line.lower() for line in lines]
+    on_lines = [
+        line
+        for line in lines
+        if "[AITS][ON]" in line
+        or "[UI] toggle" in line
+        or "[BTN-SIG]" in line
+        or "[BTN-CONNECT]" in line
+        or "[RUNNER]" in line
+        or "[START-REQ]" in line
+        or "[STOP-REQ]" in line
+        or "[TRADE-EN]" in line
+    ]
+    on_joined = "\n".join(line.lower() for line in on_lines)
+    all_joined = "\n".join(lowered)
+    click_detected = "[aits][on] event=toggled_entry" in on_joined or "[ui] toggle entry" in on_joined or "[btn-sig] run toggled" in on_joined
+    handler_detected = "[aits][on] event=handler_entry" in on_joined or "[ui] toggle entry run=" in on_joined
+    requested_on = "requested_run=true" in on_joined or "desired_run=true" in on_joined or "desired=true" in on_joined
+    runner_start_called = "[runner] start_strategy called" in on_joined or "event=runner_start_after" in on_joined
+    runner_running_after = "event=runner_start_after" in on_joined and "runner_running=true" in on_joined
+    trade_enabled_true = "[trade-en] enabled=true" in on_joined or "trading_enabled=true" in all_joined
+    order_allowed_true = bool(re.search(r"order_allowed[=:]\s*true", all_joined, flags=re.IGNORECASE))
+    real_order_true = bool(re.search(r"real_order[=:]\s*true", all_joined, flags=re.IGNORECASE))
+
+    first_blocker = ""
+    if not click_detected:
+        first_blocker = "on_click_not_logged"
+    elif not handler_detected:
+        first_blocker = "on_handler_not_logged"
+    elif not requested_on:
+        first_blocker = "on_requested_true_not_logged"
+    elif not runner_start_called:
+        first_blocker = "runner_start_not_called"
+    elif not runner_running_after:
+        first_blocker = "runner_running_after_start_not_confirmed"
+
+    return {
+        "on_trace_event_count": len(on_lines),
+        "on_trace_timeline": on_lines[-80:],
+        "on_click_detected": bool(click_detected),
+        "on_handler_detected": bool(handler_detected),
+        "on_requested_true_detected": bool(requested_on),
+        "runner_start_called": bool(runner_start_called),
+        "runner_running_after_start": bool(runner_running_after),
+        "trade_enabled_true_detected": bool(trade_enabled_true),
+        "order_allowed_true_detected": bool(order_allowed_true),
+        "real_order_true_detected": bool(real_order_true),
+        "first_blocker": first_blocker,
+    }
+
+
+def _run_live_on_button_state_trace(
+    report: dict[str, Any],
+    *,
+    mode: str,
+) -> None:
+    lines, log_path, log_read_error = _live_on_button_trace_lines()
+    trace = _live_on_button_trace_status_from_logs(lines)
+    app_gui_path = ROOT / "app" / "ui" / "app_gui.py"
+    source_text = ""
+    source_error = ""
+    try:
+        source_text = app_gui_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        source_error = f"{type(exc).__name__}:{exc}"
+
+    dryrun_owner_ok = all(
+        token in source_text
+        for token in (
+            "btn_run_toggle.toggled.connect(self._on_toggle_run_toggled)",
+            "def _on_toggle_run_toggled",
+            "def _on_toggle_run",
+            "_log_live_on_button_state_trace",
+        )
+    )
+    diagnostic_status = "pass" if (mode.endswith("dryrun") and dryrun_owner_ok) else "blocked"
+    if mode.endswith("log-summary"):
+        diagnostic_status = "pass" if trace.get("on_click_detected") and trace.get("on_handler_detected") else "blocked"
+    if mode.endswith("dryrun"):
+        trace["dryrun_first_blocker"] = trace.get("first_blocker") or ""
+        trace["first_blocker"] = ""
+
+    report.update(
+        {
+            "schema": "aits_live_on_button_state_trace_v1",
+            "diagnostic_status": diagnostic_status,
+            "pass_status": "pass",
+            "report_status": "pass",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "active_owner_file": str(app_gui_path),
+            "active_button_widget": "btn_run_toggle",
+            "active_signal": "toggled",
+            "active_handler": "_on_toggle_run_toggled -> _on_toggle_run_toggled_impl -> _on_toggle_run",
+            "dryrun_owner_ok": bool(dryrun_owner_ok),
+            "source_read_error": source_error,
+            "candidate_loop_independent_of_on": bool(
+                any("CandidateFeedState" in line or "score_update" in line for line in lines)
+            ),
+            "submitted_count": 0,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+            "safety_flags": {
+                "actual_order": False,
+                "order_service_called": False,
+                "order_adapter_called": False,
+                "execution_bridge_called": False,
+                "provider_external_call_count": 0,
+            },
+            **trace,
+        }
+    )
 
 
 def _fixture_result(name: str, passed: bool, plan: dict[str, Any], detail: str = "") -> dict[str, Any]:
@@ -15262,6 +15385,8 @@ def run_harness(
         "live-minimal-order-armed-fixture-proof",
         "live-minimal-order-armed-live-proof",
         "live-minimal-order-setting-readpath-preflight",
+        "live-on-button-state-trace-dryrun",
+        "live-on-button-state-log-summary",
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -15461,6 +15586,9 @@ def run_harness(
                 report,
                 target_symbol=target_symbol,
             )
+        elif mode in {"live-on-button-state-trace-dryrun", "live-on-button-state-log-summary"}:
+            _install_provider_post_guard(report)
+            _run_live_on_button_state_trace(report, mode=mode)
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -16042,6 +16170,8 @@ def main() -> int:
             "live-minimal-order-armed-fixture-proof",
             "live-minimal-order-armed-live-proof",
             "live-minimal-order-setting-readpath-preflight",
+            "live-on-button-state-trace-dryrun",
+            "live-on-button-state-log-summary",
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

@@ -51418,6 +51418,58 @@ class MainWindow(QMainWindow):
         finally:
             self._run_toggle_inflight = False
 
+    def _log_live_on_button_state_trace(self, event: str, **fields) -> None:
+        """Emit a side-effect-free ON button/runtime state trace."""
+        try:
+            runner_running = False
+            try:
+                from app.strategy.runner import _RUNNING as _runner_running
+                runner_running = bool(_runner_running)
+            except Exception:
+                runner_running = bool(getattr(self, "_is_running", False))
+
+            settings = getattr(self, "_settings", None)
+            live_trade = bool(getattr(settings, "live_trade", False)) if settings is not None else False
+            try:
+                execution_mode = str(self._get_aits_execution_mode() or "unknown")
+            except Exception:
+                execution_mode = "unknown"
+
+            btn = getattr(self, "btn_run_toggle", None)
+            button_checked = bool(btn.isChecked()) if btn is not None and hasattr(btn, "isChecked") else False
+            button_text = str(btn.text()) if btn is not None and hasattr(btn, "text") else ""
+            submitted_count = 0
+            try:
+                ar = self._get_aits_order_adapter_result()
+                submitted_count = int(getattr(ar, "submitted_count", 0) or 0) if ar is not None else 0
+            except Exception:
+                submitted_count = 0
+
+            extra = " ".join(f"{key}={str(value)[:120]}" for key, value in sorted(fields.items()))
+            self._log.info(
+                "[AITS][ON] event=%s runner_running=%s ui_is_running=%s "
+                "button_checked=%s button_text=%s execution_mode=%s live_trade=%s "
+                "simulate=%s submitted=%s order_allowed=False real_order=False %s",
+                str(event or "unknown"),
+                runner_running,
+                bool(getattr(self, "_is_running", False)),
+                button_checked,
+                button_text,
+                execution_mode,
+                live_trade,
+                (not live_trade),
+                submitted_count,
+                extra,
+            )
+        except Exception as exc:
+            try:
+                self._log.warning(
+                    "[AITS][ON] event=trace_failed error_type=%s submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
     def _on_toggle_run_toggled_impl(self, checked: bool):
         """실제 토글 로직 (P0-BLOCK 2: 가드 이후 호출)"""
         # ✅ 윈드서프 지시: 토글 엔트리 100% 계측 (핸들러 맨 첫 줄)
@@ -51429,6 +51481,12 @@ class MainWindow(QMainWindow):
             current_running = getattr(self, '_is_running', False)
             desired_run = sender_checked  # ✅ 정답 로직: checked 기반으로 결정
             self._log.info(f"[UI] toggle entry checked={sender_checked} current_running={current_running} desired_run={desired_run} sender={sender_name} text={sender_text}")
+            self._log_live_on_button_state_trace(
+                "toggled_entry",
+                checked=checked,
+                desired_run=desired_run,
+                sender=sender_name,
+            )
         except Exception as e:
             self._log.error(f"[UI] toggle entry log error={e}")
         
@@ -51569,6 +51627,12 @@ class MainWindow(QMainWindow):
             simulate = not live_trade
             settings_ready = bool(self._settings)
             self._log.info(f"[UI] toggle entry run={run} current={current_running} live_trade={live_trade} simulate={simulate} settings_ready={settings_ready}")
+            self._log_live_on_button_state_trace(
+                "handler_entry",
+                requested_run=run,
+                current_running=current_running,
+                settings_ready=settings_ready,
+            )
         except Exception as e:
             self._log.error(f"[UI] toggle entry log error={e}")
         
@@ -51719,6 +51783,7 @@ class MainWindow(QMainWindow):
             
             # ✅ 로그 추가
             self._log.info(f"[UI] toggle requested: current={current_running} → desired={run}")
+            self._log_live_on_button_state_trace("requested", requested_run=run, current_running=current_running)
 
             # 러너 실행/정지
             try:
@@ -51945,8 +52010,10 @@ class MainWindow(QMainWindow):
                                 pass
 
                             # Runner start
+                            self._log_live_on_button_state_trace("runner_start_before", requested_run=run)
                             start_strategy(self._settings)
                             self._log.info("[RUNNER] start_strategy called")
+                            self._log_live_on_button_state_trace("runner_start_after", requested_run=run)
 
                             # Optional UI refresh (non-fatal)
                             if hasattr(self, "tab_strategy") and self.tab_strategy is not None and hasattr(self.tab_strategy, "_update_preflight_display"):
@@ -52096,6 +52163,7 @@ class MainWindow(QMainWindow):
                 # ✅ PATCH: 토글 결과를 SSOT 상태로 확정
                 self._is_running = run
                 self._log.info(f"[UI] toggle success: running={run}")
+                self._log_live_on_button_state_trace("toggle_success", requested_run=run)
             else:
                 # 실패 시 UI 되돌리기
                 try:

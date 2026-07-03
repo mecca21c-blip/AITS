@@ -126,3 +126,26 @@ Do not jump to forced target or forced order tests. If the report shows no
 runtime candidate, fix the earliest missing stage. If the report shows a submit
 attempt, verify the Upbit response, trade log, position update, and UI
 reflection before any further live-order Goal.
+
+## ON Button State Trace
+
+`AITS-LIVE-ON-BUTTON-STATE-LOGGING-TRACE-01` adds an adjacent trace for the
+header ON/OFF control. The active owner is `app/ui/app_gui.py`, widget
+`btn_run_toggle`, signal `toggled`, handler chain
+`_on_toggle_run_toggled -> _on_toggle_run_toggled_impl -> _on_toggle_run`.
+
+The trace writes `[AITS][ON]` log lines for button entry, requested state, and
+runner start confirmation. It does not click ON, force `order_allowed`, emit an
+order intent, or call OrderAdapter/ExecutionBridge.
+
+Use:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-button-state-trace-dryrun --observe-only
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-button-state-log-summary --observe-only
+```
+
+If `live-on-runtime-e2e-diagnostic-log-summary` reports
+`on_state_not_detected`, run the ON button log summary before investigating
+Router/RiskGuard/LivePreflight. A missing ON trace means the blocker is still
+button/runtime state wiring, not order-intent promotion.
