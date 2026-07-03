@@ -216,6 +216,35 @@ The log includes source path, selected/normalized provider, previous/next status
 writer, reason, check id, elapsed time, and whether UI update was emitted. It
 does not log API keys, prompts, raw payloads, or provider response bodies.
 
+## Forensic Timeline Rule
+
+`AITS-AI-PROVIDER-CONNECTION-LOG-FORENSIC-TRACE-01` added a read-only log
+summary for actual GUI sessions. It scans recent `data/logs/aits.log*` entries
+and reconstructs provider key resolution, connection probe results, generation
+success, and status writer transitions.
+
+The 2026-07-03 trace showed this root cause:
+
+- startup connection check resolved `key_source=ui_input` with `key_length=20`
+- that value was the masked UI sentinel, not the persisted OpenAI key
+- the connection probe failed with `UnicodeEncodeError`
+- GPT generation later succeeded because runtime/generation used the stored key
+- generation success did not own provider connection status and correctly
+  logged `connection_write_skipped`
+
+Fix rule:
+
+- bullet-mask sentinels are treated as masked secret text
+- startup connection checks must not use UI text as a key source
+- manual connection tests may use explicit non-masked UI input
+- generation success must not be used as a blanket provider-connected shortcut
+
+Forensic mode:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-connection-log-forensic-summary --provider gpt --observe-only
+```
+
 ## Regression Modes
 
 Default regression modes do not call GPT/Gemini:

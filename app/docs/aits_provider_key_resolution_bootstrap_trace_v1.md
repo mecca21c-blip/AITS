@@ -95,3 +95,34 @@ Expected safety flags:
 6. Compare startup and generation key fingerprints in safe logs.
 7. Run AI analysis refresh and confirm it uses the same key source/fingerprint.
 8. Switch to Gemini and confirm OpenAI/Gemini key isolation remains intact.
+
+## Forensic Follow-Up
+
+`AITS-AI-PROVIDER-CONNECTION-LOG-FORENSIC-TRACE-01` confirmed the actual GUI
+failure pattern from `data/logs/aits.log`:
+
+- startup/connection-check resolution used `key_source=ui_input` with
+  `key_length=20`
+- the provider probe then failed with `UnicodeEncodeError`
+- the later GPT generation path succeeded against OpenAI
+- generation success correctly skipped provider-connection writes and only
+  updated generation freshness
+
+The 20-character UI value was the masked secret sentinel, not a real API key.
+The mask detector did not recognize the bullet mask characters, so startup could
+prefer the masked UI field over the stored secret. Startup connection checks now
+resolve only from non-UI persisted/pending/environment sources, while manual
+connection tests may still use explicit non-masked UI input.
+
+Forensic proof:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode provider-connection-log-forensic-summary --provider gpt --observe-only
+```
+
+Expected indicators:
+
+- `connection_failed_but_generation_success=true`
+- `suspected_root_cause=startup_connection_check_used_masked_ui_placeholder_or_non_ascii_key_text`
+- `provider_external_call_count=0`
+- no raw API key in logs or reports

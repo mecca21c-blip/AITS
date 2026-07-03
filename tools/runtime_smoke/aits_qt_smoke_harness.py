@@ -15041,6 +15041,141 @@ def _run_live_2h_guarded_window_runtime(
     _write_json_report(report, live_report_path)
 
 
+
+def _run_provider_connection_log_forensic_summary(report: dict[str, Any], *, provider: str = "gpt") -> None:
+    patterns = (
+        "ProviderKeyResolution",
+        "ProviderConnectionProof",
+        "EngineStatusPath",
+        "EngineStatusWriter",
+        "ProviderRuntimeSync",
+        "StartupReadinessPreflight",
+        "OpenAIProviderProof",
+        "AIRefreshWorker",
+        "TradeLog",
+        "AIRefreshApply",
+        "AISnapshotStore",
+    )
+    log_candidates = [ROOT / "data" / "logs" / "aits.log", ROOT / "data" / "logs" / "aits.log.1", ROOT / "data" / "logs" / "aits.log.2"]
+    timeline: list[dict[str, Any]] = []
+    scanned: list[str] = []
+    for path in log_candidates:
+        if not path.exists():
+            continue
+        scanned.append(str(path))
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if not any(token in line for token in patterns):
+                        continue
+                    ts = line[:23] if len(line) >= 23 else ""
+                    event = "log"
+                    if "ProviderKeyResolution" in line:
+                        event = "key_resolution"
+                    elif "ProviderConnectionProof" in line and "event=start" in line:
+                        event = "connection_start"
+                    elif "ProviderConnectionProof" in line and "event=finish" in line:
+                        event = "connection_finish"
+                    elif "EngineStatusPath" in line:
+                        event = "status_transition"
+                    elif "EngineStatusWriter" in line:
+                        event = "status_writer"
+                    elif "OpenAIProviderProof" in line and "response_success" in line:
+                        event = "generation_success"
+                    elif "OpenAIProviderProof" in line and "request_attempt" in line:
+                        event = "generation_start"
+                    elif "AIRefreshWorker" in line:
+                        event = "ai_refresh_worker"
+                    elif "StartupReadinessPreflight" in line:
+                        event = "startup_readiness"
+                    item = {"timestamp": ts, "event": event, "line": line.strip()[:1000]}
+                    for key in ("caller", "provider", "normalized_provider", "key_source", "key_present", "key_length", "key_fp", "source_path", "previous_status", "next_status", "writer", "reason", "result", "error_type", "group_id", "request_id"):
+                        match = re.search(rf"{key}=([^ |]+)", line)
+                        if match:
+                            item[key] = match.group(1)
+                    timeline.append(item)
+        except Exception as exc:
+            report.setdefault("warnings", []).append(f"log_read_failed:{path.name}:{type(exc).__name__}")
+    timeline.sort(key=lambda x: str(x.get("timestamp") or ""))
+    recent = timeline[-240:]
+    connection_failures = [x for x in recent if x.get("event") == "connection_finish" and ("ok=False" in x.get("line", "") or "result=api_request_failed" in x.get("line", ""))]
+    generation_successes = [x for x in recent if x.get("event") == "generation_success"]
+    status_transitions = [x for x in recent if x.get("event") in {"status_transition", "status_writer"}]
+    key_events = [x for x in recent if x.get("event") == "key_resolution"]
+    failure = connection_failures[-1] if connection_failures else {}
+    success_after_failure = {}
+    failure_for_success = {}
+    for fail_item in connection_failures:
+        fts = str(fail_item.get("timestamp") or "")
+        for item in generation_successes:
+            if str(item.get("timestamp") or "") >= fts:
+                failure_for_success = fail_item
+                success_after_failure = item
+                break
+        if success_after_failure:
+            break
+    if success_after_failure and failure_for_success:
+        failure = failure_for_success
+    startup_key = next((x for x in reversed(key_events) if x.get("caller") == "startup_connection_check"), {})
+    generation_key = next((x for x in reversed(key_events) if "generation" in str(x.get("caller") or "")), {})
+    connection_test_key = next((x for x in reversed(key_events) if x.get("caller") == "connection_test_or_startup"), {})
+    recovery_writer = {}
+    if success_after_failure:
+        sts = str(success_after_failure.get("timestamp") or "")
+        recovery_writer = next((x for x in status_transitions if str(x.get("timestamp") or "") >= sts and ("정상" in x.get("line", "") or "연결됨" in x.get("line", "") or "API 응답 확인" in x.get("line", ""))), {})
+    connection_failed_but_generation_success = bool(failure and success_after_failure)
+    startup_fp = str(startup_key.get("key_fp") or "")
+    generation_fp = str(generation_key.get("key_fp") or "")
+    key_fp_match = bool(startup_fp and generation_fp and startup_fp == generation_fp)
+    startup_key_len = str(startup_key.get("key_length") or "")
+    suspected = "insufficient_logs"
+    next_fix = "collect_provider_status_timeline_with_key_fp"
+    first_bad_writer = failure.get("line", "")[:300] if failure else ""
+    if connection_failed_but_generation_success:
+        if failure.get("error_type") == "UnicodeEncodeError" or "UnicodeEncodeError" in failure.get("line", ""):
+            suspected = "startup_connection_check_used_masked_ui_placeholder_or_non_ascii_key_text"
+            next_fix = "block_masked_ui_secret_in_startup_connection_check_and_use_stored_secret"
+        elif startup_key_len and startup_key_len != "164":
+            suspected = "startup_connection_check_key_source_differs_from_persisted_generation_key"
+            next_fix = "force_startup_connection_check_to_use_unmasked_stored_secret_resolver"
+        else:
+            suspected = "connection_probe_failed_but_generation_provider_succeeded"
+            next_fix = "inspect_connection_probe_endpoint_and_status_writer"
+    report.update({
+        "schema": "aits_provider_connection_log_forensic_summary_v1",
+        "diagnostic_status": "pass" if recent else "partial",
+        "log_files_scanned": scanned,
+        "event_count": len(recent),
+        "timeline": recent[-80:],
+        "login_start_status": "unknown_from_logs",
+        "restart_startup_status": failure.get("result") or failure.get("line", "")[:220],
+        "connection_failure_writer": "ProviderConnectionProof/_apply_ai_preview_connection_result" if failure else "",
+        "connection_failure_reason": failure.get("error_type") or failure.get("result") or "",
+        "connection_test_success_writer": "ProviderConnectionProof/_apply_ai_preview_connection_result",
+        "generation_success_detected": bool(generation_successes),
+        "generation_success_key_fp": generation_fp,
+        "startup_check_key_fp": startup_fp,
+        "connection_test_key_fp": str(connection_test_key.get("key_fp") or ""),
+        "key_fp_match": key_fp_match,
+        "trade_tab_status_writer_detected": bool(recovery_writer and "TradeLog" in recovery_writer.get("line", "")),
+        "status_writer_after_tab_change_identified": bool(recovery_writer),
+        "connection_recovered_writer": recovery_writer.get("writer") or recovery_writer.get("line", "")[:220],
+        "connection_failed_but_generation_success": connection_failed_but_generation_success,
+        "first_bad_writer": first_bad_writer,
+        "suspected_root_cause": suspected,
+        "next_fix_target": next_fix,
+        "blockers": [] if recent else ["no_provider_log_events_found"],
+        "provider_external_call_count": 0,
+        "actual_order": False,
+        "order_risk_detected": False,
+        "safety_flags": {
+            "actual_order": False,
+            "provider_external_call_count": 0,
+            "raw_key_logged": False,
+        },
+        "pass_status": "pass" if recent else "partial",
+        "status": "pass" if recent else "partial",
+    })
 def run_harness(
     mode: str,
     output_dir: Path,
@@ -15101,6 +15236,7 @@ def run_harness(
     if mode in {
         "riskguard-proof",
         "top-markets-feed-proof",
+        "provider-connection-log-forensic-summary",
         "buy-ready-order-intent-contract-fixture-proof",
         "buy-ready-order-intent-contract-proof",
         "buy-ready-ai-opinion-freshness-unblock-fixture-proof",
@@ -15159,6 +15295,8 @@ def run_harness(
         elif mode == "top-markets-feed-proof":
             _install_provider_post_guard(report)
             _run_top_markets_feed_proof(report, max_markets=max_markets)
+        elif mode == "provider-connection-log-forensic-summary":
+            _run_provider_connection_log_forensic_summary(report, provider=provider or "gpt")
         elif mode == "buy-ready-order-intent-contract-fixture-proof":
             _run_buy_ready_order_intent_contract_fixture_proof(report, min_score=min_score)
         elif mode == "buy-ready-order-intent-contract-proof":
@@ -15824,6 +15962,7 @@ def run_harness(
         "provider-settings-restart-restore-regression-proof",
         "provider-switching-cross-provider-regression-proof",
         "top-markets-feed-proof",
+        "provider-connection-log-forensic-summary",
         "save-probe",
         "riskguard-active-path-proof",
         "riskguard-active-path-candidate-proof",
@@ -15871,6 +16010,7 @@ def main() -> int:
             "provider-settings-runtime-ssot-diagnostic",
             "provider-settings-restart-restore-regression-proof",
             "provider-switching-cross-provider-regression-proof",
+            "provider-connection-log-forensic-summary",
             "provider-key-resolution-bootstrap-trace",
             "provider-key-resolution-restart-regression-proof",
             "provider-smoke",

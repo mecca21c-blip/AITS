@@ -47797,7 +47797,7 @@ class MainWindow(QMainWindow):
             if "..." in text or "?" in text:
                 if any(ch in text for ch in ("?", "?", "*")):
                     return True
-            mask_chars = set("*??")
+            mask_chars = set("*??●•")
             mask_count = sum(1 for ch in text if ch in mask_chars)
             if mask_count >= 3 and (mask_count == len(text) or mask_count / max(len(text), 1) >= 0.5):
                 return True
@@ -48390,7 +48390,7 @@ class MainWindow(QMainWindow):
             provider = self._normalize_saved_ai_provider(provider)
             if provider not in ("openai", "gemini"):
                 return
-            resolved_secret = self._resolve_ai_provider_secret(provider, caller="startup_connection_check", allow_ui=True)
+            resolved_secret = self._resolve_ai_provider_secret(provider, caller="startup_connection_check", allow_ui=False)
             key = (api_key or "").strip() or str(resolved_secret.get("key") or "").strip()
             key_source = key_source if (api_key or "").strip() else str(resolved_secret.get("source") or key_source or "missing")
             if not key:

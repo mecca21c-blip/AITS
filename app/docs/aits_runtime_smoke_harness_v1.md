@@ -22,6 +22,7 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-settings-res
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-switching-cross-provider-regression-proof --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resolution-bootstrap-trace --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resolution-restart-regression-proof --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-connection-log-forensic-summary --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode save-probe
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-proof
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode riskguard-active-path-proof
@@ -116,6 +117,13 @@ runtime environments ignore native `QToolTip` background styling.
   OpenAI key resolution and verifies that startup and generation resolvers see
   the same key fingerprint after settings load. It does not write raw keys or
   call external providers.
+- `provider-connection-log-forensic-summary`: scans recent
+  `data/logs/aits.log*` provider events and builds a read-only forensic timeline
+  for startup connection checks, key resolution, generation success, and
+  connection-status writers. It reports
+  `connection_failed_but_generation_success`, `connection_failure_writer`,
+  `connection_recovered_writer`, and `suspected_root_cause` without provider
+  calls or raw key logging.
   failed, `provider_external_call_count=0`, and no order-risk flags.
 - `provider-smoke`: runs one explicit provider refresh only when
   `--allow-provider-calls` is supplied. For GPT/Gemini it reports
