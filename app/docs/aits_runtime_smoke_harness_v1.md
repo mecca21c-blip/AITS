@@ -1383,3 +1383,37 @@ The mode emits `aits_live_on_preflight_krw_balance_source_summary_v1` with
 `upbit_private_connected`, `fallback_reason`, `first_blocker`, and
 `next_fix_target`. It does not call order submit paths and keeps
 `provider_external_call_count=0` and `submitted_count=0`.
+
+### upbit-accounts-readonly-krw-parse-proof
+
+`upbit-accounts-readonly-krw-parse-proof` verifies `/v1/accounts` KRW row
+parsing with mock responses only. It does not call Upbit.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode upbit-accounts-readonly-krw-parse-proof --observe-only
+```
+
+The mode emits `aits_upbit_accounts_readonly_krw_parse_proof_v1` with fixture
+results for positive KRW, locked KRW, missing KRW row, invalid numeric values,
+empty accounts, HTTP 401, and HTTP 403. Safety fields remain
+`provider_external_call_count=0`, `private_order_call_count=0`, and
+`submitted_count=0`.
+
+### upbit-accounts-readonly-balance-fetch-diagnostic
+
+`upbit-accounts-readonly-balance-fetch-diagnostic` inspects the secret-safe
+Upbit accounts read path. By default it checks key presence, short key
+fingerprint, and local JWT build readiness without calling `/v1/accounts`.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode upbit-accounts-readonly-balance-fetch-diagnostic --observe-only
+```
+
+An actual read-only accounts call requires explicit operator intent:
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode upbit-accounts-readonly-balance-fetch-diagnostic --allow-upbit-readonly-accounts-call --observe-only
+```
+
+The mode emits `aits_upbit_accounts_readonly_balance_fetch_diagnostic_v1`.
+Order endpoints remain forbidden.

@@ -8129,15 +8129,25 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
 def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
     balance_lines = [line for line in lines if "[AITS][KRWBalanceSource]" in line]
-    account_lines = [line for line in lines if "[AITS][OrderService] fetch_accounts called" in line]
+    account_result_lines = [
+        line
+        for line in lines
+        if "[AITS][UpbitAccounts]" in line and "event=accounts_fetch_result" in line
+    ]
+    account_lines = [
+        line
+        for line in lines
+        if "[AITS][OrderService] fetch_accounts called" in line
+        or line in account_result_lines
+    ]
     preflight_lines = [line for line in lines if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line]
-    latest_balance = balance_lines[-1] if balance_lines else (account_lines[-1] if account_lines else "")
+    latest_balance = balance_lines[-1] if balance_lines else (account_result_lines[-1] if account_result_lines else (account_lines[-1] if account_lines else ""))
     latest_preflight = preflight_lines[-1] if preflight_lines else ""
 
     def _extract_text(line: str, key: str) -> str:
         if not line:
             return ""
-        match = re.search(rf"{re.escape(key)}=([^|\s]+)", line)
+        match = re.search(rf"(?:^|[|\s]){re.escape(key)}=([^|\s]+)", line)
         return str(match.group(1)).strip() if match else ""
 
     def _extract_int(line: str, key: str) -> int:
@@ -8153,6 +8163,8 @@ def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) ->
     available_krw = _extract_int(latest_balance, "available_krw")
     balance_status = _extract_text(latest_balance, "balance_status") or "balance_not_loaded"
     if "fetch_accounts called" in latest_balance:
+        balance_status = _extract_text(latest_balance, "status") or balance_status
+    elif "accounts_fetch_result" in latest_balance:
         balance_status = _extract_text(latest_balance, "status") or balance_status
     balance_source = _extract_text(latest_balance, "balance_source") or "svc_order.compute_available_krw_snapshot"
     if "fetch_accounts called" in latest_balance:
@@ -8179,6 +8191,13 @@ def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) ->
     next_fix = {
         "private_api_not_connected": "verify_upbit_private_api_key_settings",
         "balance_fetch_failed": "inspect_upbit_accounts_read_failure",
+        "accounts_response_empty": "verify_actual_accounts_response_or_run_explicit_readonly_accounts_diagnostic",
+        "krw_balance_missing_from_accounts": "verify_upbit_accounts_krw_row",
+        "upbit_response_parse_error": "inspect_upbit_accounts_response_parser",
+        "upbit_http_401_unauthorized": "verify_upbit_key_validity_and_permissions",
+        "upbit_http_403_forbidden": "verify_upbit_accounts_permission_or_ip_allowlist",
+        "upbit_timeout": "inspect_network_timeout_or_upbit_availability",
+        "upbit_network_error": "inspect_network_dns_ssl_firewall",
         "balance_not_loaded": "trigger_or_verify_readonly_balance_refresh_before_on_preflight",
         "actual_krw_balance_zero": "fund_krw_or_lower_test_until_min_order_policy_allows",
         "balance_cache_stale": "refresh_balance_cache_before_on_preflight",
@@ -8204,7 +8223,7 @@ def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) ->
             "balance_cache_age_sec": _extract_int(latest_balance, "balance_cache_age_sec"),
             "balance_fetch_attempted": bool(latest_balance),
             "balance_fetch_success": _extract_bool(latest_balance, "balance_fetch_success") or _extract_bool(latest_balance, "success"),
-            "balance_fetch_error_type": _extract_text(latest_balance, "balance_fetch_error_type"),
+            "balance_fetch_error_type": _extract_text(latest_balance, "balance_fetch_error_type") or _extract_text(latest_balance, "error_type"),
             "upbit_private_connected": _extract_bool(latest_balance, "upbit_private_connected") or _extract_bool(latest_balance, "success"),
             "account_service_ready": bool(latest_balance),
             "fallback_used": _extract_bool(latest_balance, "fallback_used") or _extract_bool(latest_balance, "default_used"),
@@ -8220,6 +8239,253 @@ def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) ->
             "provider_external_call_count": 0,
             "submitted_count": 0,
             "order_risk_detected": False,
+        }
+    )
+
+
+def _run_upbit_accounts_readonly_krw_parse_proof(report: dict[str, Any]) -> None:
+    from app.services.order_service import (
+        classify_upbit_accounts_http_failure,
+        parse_upbit_accounts_krw_snapshot,
+    )
+
+    scenarios = [
+        (
+            "krw_balance_15000_locked_0",
+            [{"currency": "KRW", "balance": "15000", "locked": "0"}],
+            {"status": "ok"},
+            {"balance_status": "ok", "available_krw": 15000.0, "krw_row_found": True},
+        ),
+        (
+            "krw_balance_15000_locked_5000",
+            [{"currency": "KRW", "balance": "15000", "locked": "5000"}],
+            {"status": "ok"},
+            {"balance_status": "ok", "available_krw": 10000.0, "krw_row_found": True},
+        ),
+        (
+            "krw_row_missing",
+            [{"currency": "BTC", "balance": "1", "locked": "0"}],
+            {"status": "ok"},
+            {"balance_status": "krw_balance_missing_from_accounts", "available_krw": 0.0, "krw_row_found": False},
+        ),
+        (
+            "invalid_numeric_balance",
+            [{"currency": "KRW", "balance": "not-a-number", "locked": "0"}],
+            {"status": "ok"},
+            {"balance_status": "upbit_response_parse_error", "available_krw": 0.0, "krw_row_found": True},
+        ),
+        (
+            "empty_accounts_response",
+            [],
+            {"status": "ok"},
+            {"balance_status": "accounts_response_empty", "available_krw": 0.0, "krw_row_found": False},
+        ),
+    ]
+    results: list[dict[str, Any]] = []
+    for name, rows, trace, expected in scenarios:
+        parsed = parse_upbit_accounts_krw_snapshot(rows, trace)
+        passed = True
+        for key, value in expected.items():
+            if key == "available_krw":
+                passed = passed and abs(float(parsed.get(key) or 0.0) - float(value)) < 0.0001
+            else:
+                passed = passed and parsed.get(key) == value
+        results.append(
+            {
+                "name": name,
+                "passed": bool(passed),
+                "expected": expected,
+                "actual": parsed,
+            }
+        )
+
+    http_results = [
+        {
+            "name": "http_401_mock",
+            "passed": classify_upbit_accounts_http_failure(401) == "upbit_http_401_unauthorized",
+            "actual": classify_upbit_accounts_http_failure(401),
+        },
+        {
+            "name": "http_403_mock",
+            "passed": classify_upbit_accounts_http_failure(403) == "upbit_http_403_forbidden",
+            "actual": classify_upbit_accounts_http_failure(403),
+        },
+    ]
+    results.extend(http_results)
+    pass_count = sum(1 for item in results if item.get("passed"))
+    fail_count = len(results) - pass_count
+    report.update(
+        {
+            "schema": "aits_upbit_accounts_readonly_krw_parse_proof_v1",
+            "diagnostic_status": "pass" if fail_count == 0 else "fail",
+            "pass_status": "pass" if fail_count == 0 else "fail",
+            "status": "pass" if fail_count == 0 else "fail",
+            "report_status": "pass" if fail_count == 0 else "fail",
+            "fixture_pass_count": pass_count,
+            "fixture_fail_count": fail_count,
+            "fixture_results": results,
+            "provider_external_call_count": 0,
+            "order_submit_count": 0,
+            "private_order_call_count": 0,
+            "submitted_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+            "safety_flags": {
+                "actual_order": False,
+                "submitted_count": 0,
+                "provider_external_call_count": 0,
+                "private_order_call_count": 0,
+            },
+        }
+    )
+
+
+def _run_upbit_accounts_readonly_balance_fetch_diagnostic(
+    report: dict[str, Any],
+    *,
+    allow_upbit_readonly_accounts_call: bool = False,
+) -> None:
+    from app.services.order_service import svc_order
+
+    settings = None
+    settings_error = ""
+    try:
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+    except Exception as exc:
+        settings_error = f"{type(exc).__name__}: {exc}"
+    try:
+        if settings is not None:
+            svc_order.set_settings(settings)
+    except Exception:
+        pass
+
+    access_key = ""
+    secret_key = ""
+    key_error = ""
+    try:
+        access_key, secret_key = svc_order._extract_upbit_keys()
+    except Exception as exc:
+        key_error = type(exc).__name__
+    access_present = bool(access_key and len(str(access_key)) >= 10)
+    secret_present = bool(secret_key and len(str(secret_key)) >= 10)
+    key_fp = ""
+    if access_present and secret_present:
+        key_fp = hashlib.sha256(f"{access_key}:{secret_key}".encode("utf-8")).hexdigest()[:8]
+
+    jwt_build_attempted = False
+    jwt_build_success = False
+    authorization_header_present = False
+    jwt_error_type = ""
+    if access_present and secret_present:
+        jwt_build_attempted = True
+        try:
+            headers = svc_order._make_auth_headers({})
+            jwt_build_success = True
+            authorization_header_present = bool(headers.get("Authorization"))
+        except Exception as exc:
+            jwt_error_type = type(exc).__name__
+
+    accounts_fetch_attempted = False
+    rows: list[Any] = []
+    if allow_upbit_readonly_accounts_call:
+        accounts_fetch_attempted = True
+        rows = svc_order.fetch_accounts()
+        trace = svc_order.get_last_accounts_fetch_trace()
+    else:
+        trace = {
+            "status": "readonly_accounts_call_not_allowed",
+            "error_type": "readonly_accounts_call_not_allowed",
+            "access_key_present": access_present,
+            "secret_key_present": secret_present,
+            "key_present": access_present and secret_present,
+            "upbit_key_fp": key_fp,
+            "jwt_build_attempted": jwt_build_attempted,
+            "jwt_build_success": jwt_build_success,
+            "authorization_header_present": authorization_header_present,
+            "http_status": None,
+            "response_shape": "not_called",
+            "default_used": True,
+            "fallback_reason": "readonly_accounts_call_not_allowed",
+        }
+
+    failure_type = str(trace.get("error_type") or trace.get("status") or "")
+    if key_error:
+        failure_type = f"key_resolution_error:{key_error}"
+    elif not access_present:
+        failure_type = "upbit_access_key_missing"
+    elif not secret_present:
+        failure_type = "upbit_secret_key_missing"
+    elif jwt_build_attempted and not jwt_build_success:
+        failure_type = "upbit_jwt_generation_failed"
+    elif not allow_upbit_readonly_accounts_call:
+        failure_type = "readonly_accounts_call_not_allowed"
+
+    first_blocker = ""
+    if failure_type and failure_type != "ok":
+        first_blocker = failure_type
+    elif not bool(trace.get("krw_row_found")):
+        first_blocker = "krw_balance_missing_from_accounts"
+    elif float(trace.get("available_krw") or 0.0) <= 0:
+        first_blocker = str(trace.get("balance_status") or "actual_krw_balance_zero")
+
+    next_fix = {
+        "upbit_access_key_missing": "verify_upbit_access_key_storage",
+        "upbit_secret_key_missing": "verify_upbit_secret_key_storage",
+        "upbit_jwt_generation_failed": "inspect_upbit_jwt_generation",
+        "upbit_http_401_unauthorized": "verify_upbit_key_validity_and_permissions",
+        "upbit_http_403_forbidden": "verify_upbit_accounts_permission_or_ip_allowlist",
+        "upbit_http_429_rate_limited": "retry_after_rate_limit_window",
+        "upbit_network_error": "inspect_network_dns_ssl_firewall",
+        "upbit_timeout": "inspect_network_timeout_or_upbit_availability",
+        "readonly_accounts_call_not_allowed": "rerun_with_explicit_readonly_accounts_permission_if_needed",
+    }.get(first_blocker, "inspect_upbit_accounts_read_failure")
+
+    report.update(
+        {
+            "schema": "aits_upbit_accounts_readonly_balance_fetch_diagnostic_v1",
+            "diagnostic_status": "pass",
+            "pass_status": "pass",
+            "status": "pass",
+            "report_status": "pass",
+            "settings_error": settings_error,
+            "accounts_fetch_attempted": accounts_fetch_attempted,
+            "accounts_fetch_success": bool(trace.get("success")),
+            "accounts_fetch_failure_type": failure_type,
+            "access_key_present": access_present,
+            "secret_key_present": secret_present,
+            "upbit_key_fp": key_fp,
+            "jwt_build_attempted": jwt_build_attempted,
+            "jwt_build_success": jwt_build_success,
+            "authorization_header_present": authorization_header_present,
+            "jwt_error_type": jwt_error_type,
+            "http_status": trace.get("http_status"),
+            "response_shape": str(trace.get("response_shape") or ""),
+            "krw_row_found": bool(trace.get("krw_row_found")),
+            "krw_balance_raw_present": bool(trace.get("krw_balance_raw_present")),
+            "krw_locked_raw_present": bool(trace.get("krw_locked_raw_present")),
+            "available_krw": float(trace.get("available_krw") or 0.0),
+            "balance_status": str(trace.get("balance_status") or trace.get("status") or ""),
+            "fallback_used": bool(trace.get("default_used")),
+            "fallback_reason": str(trace.get("fallback_reason") or ""),
+            "first_blocker": first_blocker,
+            "suspected_root_cause": first_blocker or "accounts_read_path_ok",
+            "next_fix_target": next_fix,
+            "actual_readonly_accounts_call_executed": bool(allow_upbit_readonly_accounts_call),
+            "returned_row_count": len(rows) if isinstance(rows, list) else 0,
+            "provider_external_call_count": 0,
+            "order_submit_count": 0,
+            "private_order_call_count": 0,
+            "submitted_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+            "safety_flags": {
+                "actual_order": False,
+                "submitted_count": 0,
+                "provider_external_call_count": 0,
+                "private_order_call_count": 0,
+            },
         }
     )
 
@@ -15587,6 +15853,7 @@ def run_harness(
     mock_total_window_used_krw: int = 0,
     mock_submitted_count: int = 0,
     operator_confirm_phrase: str = "",
+    allow_upbit_readonly_accounts_call: bool = False,
 ) -> dict[str, Any]:
     started_epoch = time.time()
     report: dict[str, Any] = {
@@ -15632,6 +15899,8 @@ def run_harness(
         "live-on-button-state-log-summary",
         "live-on-preflight-setting-source-summary",
         "live-on-preflight-krw-balance-source-summary",
+        "upbit-accounts-readonly-krw-parse-proof",
+        "upbit-accounts-readonly-balance-fetch-diagnostic",
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -15840,6 +16109,15 @@ def run_harness(
         elif mode == "live-on-preflight-krw-balance-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_krw_balance_source_summary(report)
+        elif mode == "upbit-accounts-readonly-krw-parse-proof":
+            _install_provider_post_guard(report)
+            _run_upbit_accounts_readonly_krw_parse_proof(report)
+        elif mode == "upbit-accounts-readonly-balance-fetch-diagnostic":
+            _install_provider_post_guard(report)
+            _run_upbit_accounts_readonly_balance_fetch_diagnostic(
+                report,
+                allow_upbit_readonly_accounts_call=allow_upbit_readonly_accounts_call,
+            )
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -16425,6 +16703,8 @@ def main() -> int:
             "live-on-button-state-log-summary",
             "live-on-preflight-setting-source-summary",
             "live-on-preflight-krw-balance-source-summary",
+            "upbit-accounts-readonly-krw-parse-proof",
+            "upbit-accounts-readonly-balance-fetch-diagnostic",
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -16529,6 +16809,11 @@ def main() -> int:
     parser.add_argument("--mock-total-window-used-krw", type=int, default=0)
     parser.add_argument("--mock-submitted-count", type=int, default=0)
     parser.add_argument("--operator-confirm-phrase", default="")
+    parser.add_argument(
+        "--allow-upbit-readonly-accounts-call",
+        action="store_true",
+        help="Allow the diagnostic harness to call Upbit /v1/accounts; disabled by default.",
+    )
     parser.add_argument("--from-max", type=int, default=10)
     parser.add_argument("--from-count", type=int, default=8)
     parser.add_argument("--to-max", type=int, default=8)
@@ -16577,6 +16862,7 @@ def main() -> int:
         mock_total_window_used_krw=args.mock_total_window_used_krw,
         mock_submitted_count=args.mock_submitted_count,
         operator_confirm_phrase=args.operator_confirm_phrase,
+        allow_upbit_readonly_accounts_call=args.allow_upbit_readonly_accounts_call,
     )
     print(_json_report_text(report))
     return 0 if report.get("status") in ("pass", "partial", "blocked") else 1
