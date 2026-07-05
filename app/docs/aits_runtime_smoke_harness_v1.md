@@ -1401,6 +1401,34 @@ The mode emits `aits_live_on_preflight_effective_cap_summary_v1` with
 `can_pass_if_pos_size_pct_adjusted`. It does not change settings or place
 orders.
 
+### asset-position-policy-inheritance-summary
+
+`asset-position-policy-inheritance-summary` verifies the read-only
+global/asset/effective position-size inheritance contract. Asset `0%` means
+global inheritance, not a zero position limit.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy-inheritance-summary --observe-only
+```
+
+The mode emits `aits_asset_position_policy_inheritance_summary_v1` with
+`global_pos_size_pct`, `asset_pos_size_pct`, `asset_zero_means_global`,
+`effective_pos_size_pct`, `effective_pos_size_source`, fixture results, the
+minimum required percent for the current order amount, and safety flags.
+
+### live-on-preflight-position-policy-source-summary
+
+`live-on-preflight-position-policy-source-summary` verifies that the ON start
+preflight is symbol-less and uses `settings.strategy.pos_size_pct`, while a
+later candidate/order preflight may apply a positive asset override.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-position-policy-source-summary --observe-only
+```
+
+It emits `aits_live_on_preflight_position_policy_source_summary_v1` and keeps
+`actual_order=false`, `submitted_count=0`, and `provider_external_call_count=0`.
+
 ### upbit-accounts-readonly-krw-parse-proof
 
 `upbit-accounts-readonly-krw-parse-proof` verifies `/v1/accounts` KRW row

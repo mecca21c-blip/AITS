@@ -14,6 +14,8 @@ force caps upward, bypass preflight, or submit orders.
 - Position size percent: `settings.strategy.pos_size_pct`
 - Per-order hard cap: `settings.strategy.per_order_hard_cap_krw`
 - Guarded-window cap: `settings.strategy.total_guarded_window_cap_krw`
+- Asset policy snapshots: preview-only at ON start; `0%` means global
+  inheritance, not a zero limit.
 
 ## Calculation
 
@@ -90,3 +92,14 @@ The mode emits `aits_live_on_preflight_effective_cap_summary_v1` with:
 
 Safety fields stay `actual_order=false`, `submitted_count=0`, and
 `provider_external_call_count=0`.
+
+## Asset Policy Inheritance
+
+`AITS-ASSET-POSITION-POLICY-INHERITANCE-ROOT-FIX-01` adds
+`asset-position-policy-inheritance-summary` and
+`live-on-preflight-position-policy-source-summary`.
+
+The ON start preflight has no candidate symbol yet, so it uses the global
+`settings.strategy.pos_size_pct`. A later candidate/order preflight can use an
+asset override only when the asset value is positive. Asset `0%`, missing, or
+`None` inherits the global percent.

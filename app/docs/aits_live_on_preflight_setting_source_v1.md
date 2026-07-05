@@ -23,6 +23,19 @@ limits.
 | `effective_hard_cap_krw` | `min(available_krw, settings.max_total_krw, pos_limit_krw, hard_cap_krw)` | Runtime effective cap after balance and position constraints. |
 | `total_guarded_window_cap_krw` | `settings.strategy.total_guarded_window_cap_krw` | Configured guarded-window cap. Default `20000`. |
 
+## Position Policy Inheritance
+
+The ON start preflight is symbol-less and uses the global
+`settings.strategy.pos_size_pct`. Asset policy snapshots are saved under
+`settings.ui_state.asset_policy_snapshots`, but their `max_weight_pct=0` means
+"inherit the global position percent". It is not a runtime zero-cap setting.
+
+When a future candidate/order preflight has a candidate symbol, the contract is:
+
+- asset percent `> 0`: use the asset override.
+- asset percent `0`, missing, or `None`: inherit the global percent.
+- asset percent `< 0`: invalid policy value.
+
 ## Effective Cap Calculation
 
 `effective_hard_cap_below_min_order` means the configured order amount is at or
