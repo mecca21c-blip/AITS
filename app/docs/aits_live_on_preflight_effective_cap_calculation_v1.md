@@ -69,10 +69,16 @@ effective_hard_cap_krw = min(113201, 11320, 12000, 20000) = 11320
 That is above the 10000 KRW minimum order and below the configured 12000 KRW
 per-order hard cap.
 
+`pos_size_pct` is edited in the AI policy/operation center as `전역 종목 비중`
+next to `1회 진입 한도`. Saving that panel writes
+`settings.strategy.pos_size_pct`; ON preflight reads the same key. Asset-level
+`종목별 최대 비중=0%` inherits this global value.
+
 ## Harness Mode
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-effective-cap-summary --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode ai-policy-center-global-pos-size-ui-binding-proof --observe-only
 ```
 
 The mode emits `aits_live_on_preflight_effective_cap_summary_v1` with:

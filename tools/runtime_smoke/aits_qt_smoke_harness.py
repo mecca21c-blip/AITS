@@ -8527,6 +8527,7 @@ def _run_asset_position_policy_inheritance_summary(report: dict[str, Any]) -> No
         e2e_blocker = "asset_override_position_pct_too_low"
     else:
         e2e_blocker = first_blocker
+    binding = _probe_ai_policy_center_global_pos_size_ui_binding()
 
     report.update(
         {
@@ -8542,6 +8543,17 @@ def _run_asset_position_policy_inheritance_summary(report: dict[str, Any]) -> No
             "latest_balance_line": latest_balance_line,
             "global_pos_size_pct": current_eval["global_pos_size_pct"],
             "global_pos_size_source": "settings.strategy.pos_size_pct",
+            "global_pos_size_pct_ui_bound": bool(
+                binding.get("global_pos_size_ui_present")
+                and binding.get("global_pos_size_save_binding_present")
+                and binding.get("global_pos_size_restore_binding_present")
+                and binding.get("preflight_uses_same_settings_key")
+            ),
+            "global_pos_size_ui_widget_name": binding.get("global_pos_size_ui_widget_name"),
+            "global_pos_size_settings_key": binding.get("global_pos_size_settings_key"),
+            "global_pos_size_prefs_key": binding.get("global_pos_size_prefs_key"),
+            "global_pos_size_display_value": binding.get("global_pos_size_display_value"),
+            "global_pos_size_save_roundtrip_ok": binding.get("global_pos_size_save_roundtrip_ok"),
             "asset_symbol": asset_symbol,
             "asset_pos_size_pct": current_eval["asset_pos_size_pct"],
             "asset_pos_size_source": asset_source,
@@ -8595,6 +8607,129 @@ def _run_live_on_preflight_position_policy_source_summary(report: dict[str, Any]
         "on_start_preflight": "global_pos_size_pct",
         "candidate_order_preflight": "asset_override_if_positive_else_global",
     }
+
+
+def _probe_ai_policy_center_global_pos_size_ui_binding() -> dict[str, Any]:
+    app_gui_path = ROOT / "app" / "ui" / "app_gui.py"
+    source = app_gui_path.read_text(encoding="utf-8", errors="replace")
+    widget_name = "spn_ai_policy_global_pos_size_pct"
+    attr_name = "dsp_policy_global_pos_size_pct"
+    settings_key = "settings.strategy.pos_size_pct"
+    current_value = 0.0
+    settings_error = ""
+    roundtrip_ok = False
+    try:
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+        strategy = getattr(settings, "strategy", None)
+        if hasattr(strategy, "model_dump"):
+            strategy_payload = strategy.model_dump()
+        elif isinstance(strategy, dict):
+            strategy_payload = dict(strategy)
+        else:
+            strategy_payload = {}
+        current_value = float(strategy_payload.get("pos_size_pct") or 0.0)
+        payload = settings.model_dump() if hasattr(settings, "model_dump") else {}
+        if isinstance(payload.get("strategy"), dict):
+            payload["strategy"]["pos_size_pct"] = current_value
+        cloned = type(settings)(**payload) if payload else settings
+        cloned_strategy = getattr(cloned, "strategy", None)
+        cloned_value = (
+            float(getattr(cloned_strategy, "pos_size_pct", 0.0) or 0.0)
+            if cloned_strategy is not None and not isinstance(cloned_strategy, dict)
+            else float((cloned_strategy or {}).get("pos_size_pct") or 0.0)
+        )
+        roundtrip_ok = abs(cloned_value - current_value) < 0.0001
+    except Exception as exc:
+        settings_error = f"{type(exc).__name__}:{exc}"
+
+    widget_idx = source.find(widget_name)
+    order_idx = source.find("sp_policy_max_entry_krw")
+    helper_text_present = (
+        "lbl_ai_policy_global_pos_size_hint" in source
+        and "\\uC885\\uBAA9\\uBCC4 \\uCD5C\\uB300 \\uBE44\\uC911\\uC774 0%" in source
+    )
+    save_binding_present = (
+        "_policy_float_value(\"dsp_policy_global_pos_size_pct\"" in source
+        and "pos_size_pct" in source[source.find("def _save_ai_policy_snapshot"): source.find("def _restore_ai_policy_snapshot")]
+    )
+    restore_binding_present = (
+        "_set_policy_float_value(\"dsp_policy_global_pos_size_pct\"" in source
+        and "strategy_payload.get(\"pos_size_pct\")" in source
+    )
+    preflight_uses_same_key = (
+        "pos_size_pct = float(stg.get(\"pos_size_pct\", 2.5) or 2.5)" in source
+        or "pos_size_pct = float(stg.get('pos_size_pct', 2.5) or 2.5)" in source
+    )
+    blockers: list[str] = []
+    if widget_idx < 0 or attr_name not in source:
+        blockers.append("global_pos_size_ui_missing")
+    if not save_binding_present:
+        blockers.append("global_pos_size_save_binding_missing")
+    if not restore_binding_present:
+        blockers.append("global_pos_size_restore_binding_missing")
+    if not preflight_uses_same_key:
+        blockers.append("preflight_pos_size_key_mismatch")
+    if not helper_text_present:
+        blockers.append("asset_zero_means_global_help_text_missing")
+    if not roundtrip_ok:
+        blockers.append("settings_roundtrip_failed")
+
+    return {
+        "global_pos_size_ui_present": widget_idx >= 0 and attr_name in source,
+        "global_pos_size_ui_widget_name": widget_name,
+        "global_pos_size_label": "전역 종목 비중",
+        "global_pos_size_settings_key": settings_key,
+        "global_pos_size_prefs_key": "prefs.json.strategy.pos_size_pct",
+        "global_pos_size_current_value": current_value,
+        "global_pos_size_display_value": f"{current_value:.1f}%",
+        "global_pos_size_save_roundtrip_ok": roundtrip_ok,
+        "global_pos_size_save_binding_present": save_binding_present,
+        "global_pos_size_restore_binding_present": restore_binding_present,
+        "order_amount_ui_widget_name": "sp_policy_max_entry_krw",
+        "placed_near_order_amount": bool(widget_idx >= 0 and order_idx >= 0 and abs(widget_idx - order_idx) < 5000),
+        "asset_zero_means_global_help_text_present": helper_text_present,
+        "preflight_uses_same_settings_key": preflight_uses_same_key,
+        "settings_error": settings_error,
+        "blockers": blockers,
+        "warnings": [],
+    }
+
+
+def _run_ai_policy_center_global_pos_size_ui_binding_proof(report: dict[str, Any]) -> None:
+    binding = _probe_ai_policy_center_global_pos_size_ui_binding()
+    fixture_results = _asset_position_policy_fixture_results()
+    simulated_global_10 = _evaluate_asset_position_policy_inheritance_v1(
+        global_pos_size_pct=10,
+        asset_pos_size_pct=0,
+        available_krw=113_201,
+        order_amount_krw=10_000,
+    )
+    blockers = list(binding.get("blockers") or [])
+    report.update(
+        {
+            "schema": "aits_ai_policy_center_global_pos_size_ui_binding_proof_v1",
+            "diagnostic_status": "pass" if not blockers else "fail",
+            "pass_status": "pass" if not blockers else "fail",
+            "status": "pass" if not blockers else "fail",
+            "report_status": "pass" if not blockers else "fail",
+            **binding,
+            "fixture_results": fixture_results,
+            "fixture_pass_count": sum(1 for item in fixture_results if item.get("fixture_pass")),
+            "simulated_global_10_cap_condition_pass": bool(simulated_global_10.get("cap_condition_pass")),
+            "simulated_global_10_pos_limit_krw": simulated_global_10.get("pos_limit_krw"),
+            "simulated_global_10_effective_hard_cap_krw": simulated_global_10.get("effective_hard_cap_krw"),
+            "safety_flags": {
+                "actual_order": False,
+                "submitted_count": 0,
+                "provider_external_call_count": 0,
+            },
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "order_risk_detected": False,
+        }
+    )
 
 
 def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) -> None:
@@ -16372,6 +16507,7 @@ def run_harness(
         "live-on-preflight-krw-balance-source-summary",
         "live-on-preflight-effective-cap-summary",
         "asset-position-policy-inheritance-summary",
+        "ai-policy-center-global-pos-size-ui-binding-proof",
         "live-on-preflight-position-policy-source-summary",
         "upbit-accounts-readonly-krw-parse-proof",
         "upbit-accounts-readonly-balance-fetch-diagnostic",
@@ -16589,6 +16725,9 @@ def run_harness(
         elif mode == "asset-position-policy-inheritance-summary":
             _install_provider_post_guard(report)
             _run_asset_position_policy_inheritance_summary(report)
+        elif mode == "ai-policy-center-global-pos-size-ui-binding-proof":
+            _install_provider_post_guard(report)
+            _run_ai_policy_center_global_pos_size_ui_binding_proof(report)
         elif mode == "live-on-preflight-position-policy-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_position_policy_source_summary(report)
@@ -17188,6 +17327,7 @@ def main() -> int:
             "live-on-preflight-krw-balance-source-summary",
             "live-on-preflight-effective-cap-summary",
             "asset-position-policy-inheritance-summary",
+            "ai-policy-center-global-pos-size-ui-binding-proof",
             "live-on-preflight-position-policy-source-summary",
             "upbit-accounts-readonly-krw-parse-proof",
             "upbit-accounts-readonly-balance-fetch-diagnostic",

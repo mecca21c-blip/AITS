@@ -54,6 +54,15 @@ application of an asset-level `0%`.
 
 ## User Setting Guidance
 
+The global position percent is editable in the AI policy/operation center next
+to `1회 진입 한도` as `전역 종목 비중`. The UI is bound directly to
+`settings.strategy.pos_size_pct`, so saving the policy center updates the same
+SSOT that ON preflight reads.
+
+The `종목별 최대 비중` control remains an asset-level override. Its `0%`
+value means "inherit `전역 종목 비중`"; a positive value means that asset gets
+its own override.
+
 For a 10000 KRW test with `available_krw=113201`, the minimum global position
 percent is about `8.84%`. A practical setting is `10%`.
 
@@ -70,6 +79,7 @@ effective cap = min(113201, 16980, 12000, 20000) = 12000
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy-inheritance-summary --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-position-policy-source-summary --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode ai-policy-center-global-pos-size-ui-binding-proof --observe-only
 ```
 
 Both modes keep `actual_order=false`, `submitted_count=0`, and

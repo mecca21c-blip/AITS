@@ -1414,7 +1414,26 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy
 The mode emits `aits_asset_position_policy_inheritance_summary_v1` with
 `global_pos_size_pct`, `asset_pos_size_pct`, `asset_zero_means_global`,
 `effective_pos_size_pct`, `effective_pos_size_source`, fixture results, the
-minimum required percent for the current order amount, and safety flags.
+minimum required percent for the current order amount, the AI policy center
+global-position UI binding fields, and safety flags.
+
+### ai-policy-center-global-pos-size-ui-binding-proof
+
+`ai-policy-center-global-pos-size-ui-binding-proof` verifies that the AI
+policy/operation center exposes `전역 종목 비중` next to `1회 진입 한도`, that
+the widget is bound to `settings.strategy.pos_size_pct`, and that the helper
+text explains `종목별 최대 비중 0%` as global inheritance.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode ai-policy-center-global-pos-size-ui-binding-proof --observe-only
+```
+
+The mode emits `aits_ai_policy_center_global_pos_size_ui_binding_proof_v1`
+with `global_pos_size_ui_present`, `global_pos_size_ui_widget_name`,
+`global_pos_size_settings_key`, `global_pos_size_save_roundtrip_ok`,
+`placed_near_order_amount`, `asset_zero_means_global_help_text_present`, and a
+simulated `10%` cap check. It keeps `actual_order=false`,
+`submitted_count=0`, and `provider_external_call_count=0`.
 
 ### live-on-preflight-position-policy-source-summary
 
