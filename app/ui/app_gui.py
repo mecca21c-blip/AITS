@@ -22787,14 +22787,6 @@ class MainWindow(QMainWindow):
         self.sp_policy_max_entry_krw = self._build_policy_money_spin(
             "한 번의 신규 진입 또는 한 종목 기준 최대 진입 참고 금액입니다. 실제 주문 한도 적용은 아닙니다."
         )
-        self.dsp_policy_global_pos_size_pct = QDoubleSpinBox()
-        self.dsp_policy_global_pos_size_pct.setObjectName("spn_ai_policy_global_pos_size_pct")
-        self.dsp_policy_global_pos_size_pct.setRange(0.1, 100.0)
-        self.dsp_policy_global_pos_size_pct.setDecimals(1)
-        self.dsp_policy_global_pos_size_pct.setSingleStep(0.5)
-        self.dsp_policy_global_pos_size_pct.setSuffix("%")
-        self.dsp_policy_global_pos_size_pct.setValue(2.5)
-        self.dsp_policy_global_pos_size_pct.setToolTip("\uC804\uC5ED \uC885\uBAA9 \uBE44\uC911\uC785\uB2C8\uB2E4. ON preflight\uC758 pos_limit\uC740 settings.strategy.pos_size_pct\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4.")
         self.sp_policy_reserve_cash_krw = self._build_policy_money_spin("항상 남겨둘 최소 KRW 참고값입니다.")
         self.sp_policy_max_positions = QSpinBox()
         self.sp_policy_max_positions.setRange(1, 200)
@@ -22811,7 +22803,6 @@ class MainWindow(QMainWindow):
         risk_fields = (
             ("총 운용 한도", self.sp_policy_total_budget_krw),
             ("1회 진입 한도", self.sp_policy_max_entry_krw),
-            ("\uC804\uC5ED \uC885\uBAA9 \uBE44\uC911", self.dsp_policy_global_pos_size_pct),
             ("예비 현금", self.sp_policy_reserve_cash_krw),
             ("동시 보유 종목 수", self.sp_policy_max_positions),
             ("일일 손실 제한", self.sp_policy_daily_loss_limit_krw),
@@ -22828,17 +22819,11 @@ class MainWindow(QMainWindow):
         for widget in (
             self.sp_policy_total_budget_krw,
             self.sp_policy_max_entry_krw,
-            self.dsp_policy_global_pos_size_pct,
             self.sp_policy_reserve_cash_krw,
             self.sp_policy_max_positions,
             self.sp_policy_daily_loss_limit_krw,
         ):
             widget.valueChanged.connect(self._on_ai_policy_risk_budget_changed)
-        inheritance_hint = QLabel("\uC885\uBAA9\uBCC4 \uCD5C\uB300 \uBE44\uC911\uC774 0%\uC774\uBA74 \uC804\uC5ED \uC885\uBAA9 \uBE44\uC911\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4.")
-        inheritance_hint.setObjectName("lbl_ai_policy_global_pos_size_hint")
-        inheritance_hint.setWordWrap(True)
-        inheritance_hint.setStyleSheet("font-size: 10px; color: #64748b;")
-        layout.addWidget(inheritance_hint)
         return card
 
     def _build_ai_policy_involvement_card(self):
@@ -23206,15 +23191,6 @@ class MainWindow(QMainWindow):
             pass
         return int(default)
 
-    def _policy_float_value(self, attr_name, default=0.0):
-        try:
-            widget = getattr(self, attr_name, None)
-            if widget is not None:
-                return float(widget.value())
-        except Exception:
-            pass
-        return float(default)
-
     def _policy_check_value(self, attr_name, default=True):
         try:
             widget = getattr(self, attr_name, None)
@@ -23230,15 +23206,6 @@ class MainWindow(QMainWindow):
             if widget is None:
                 return
             widget.setValue(int(value if value is not None else default))
-        except Exception:
-            pass
-
-    def _set_policy_float_value(self, attr_name, value, default=0.0):
-        try:
-            widget = getattr(self, attr_name, None)
-            if widget is None:
-                return
-            widget.setValue(float(value if value is not None else default))
         except Exception:
             pass
 
@@ -23614,23 +23581,11 @@ class MainWindow(QMainWindow):
             if not isinstance(ui_state, dict):
                 ui_state = {}
             ui_state["ai_policy_snapshot"] = dict(snapshot)
-            global_pos_size_pct = self._policy_float_value("dsp_policy_global_pos_size_pct", 2.5)
-            try:
-                strategy = getattr(settings, "strategy", None)
-                if isinstance(strategy, dict):
-                    strategy["pos_size_pct"] = global_pos_size_pct
-                elif strategy is not None:
-                    setattr(strategy, "pos_size_pct", global_pos_size_pct)
-            except Exception:
-                pass
             try:
                 setattr(settings, "ui_state", ui_state)
             except Exception:
                 settings_dict = settings.model_dump() if hasattr(settings, "model_dump") else {}
                 settings_dict["ui_state"] = ui_state
-                strategy_dict = settings_dict.get("strategy")
-                if isinstance(strategy_dict, dict):
-                    strategy_dict["pos_size_pct"] = global_pos_size_pct
                 settings = type(settings)(**settings_dict)
             save_settings(settings)
             self._settings = settings
@@ -23677,7 +23632,6 @@ class MainWindow(QMainWindow):
                 getattr(self, "cmb_ai_policy_involvement", None),
                 getattr(self, "sp_policy_total_budget_krw", None),
                 getattr(self, "sp_policy_max_entry_krw", None),
-                getattr(self, "dsp_policy_global_pos_size_pct", None),
                 getattr(self, "sp_policy_reserve_cash_krw", None),
                 getattr(self, "sp_policy_max_positions", None),
                 getattr(self, "sp_policy_daily_loss_limit_krw", None),
@@ -23706,16 +23660,8 @@ class MainWindow(QMainWindow):
                     self.slider_policy_autonomy.setValue(max(0, min(100, autonomy)))
                 self._set_ai_policy_operating_mode(str(ai_policy.get("operating_mode") or "balanced"), save=False)
                 self._set_ai_policy_involvement_level(str(ai_policy.get("ai_involvement_level") or "standard"))
-                strategy = getattr(settings, "strategy", None)
-                if hasattr(strategy, "model_dump"):
-                    strategy_payload = strategy.model_dump()
-                elif isinstance(strategy, dict):
-                    strategy_payload = strategy
-                else:
-                    strategy_payload = {}
                 self._set_policy_spin_value("sp_policy_total_budget_krw", risk_budget.get("total_budget_krw"), 0)
                 self._set_policy_spin_value("sp_policy_max_entry_krw", risk_budget.get("max_entry_krw"), 0)
-                self._set_policy_float_value("dsp_policy_global_pos_size_pct", strategy_payload.get("pos_size_pct"), 2.5)
                 self._set_policy_spin_value("sp_policy_reserve_cash_krw", risk_budget.get("reserve_cash_krw"), 0)
                 self._set_policy_spin_value("sp_policy_max_positions", risk_budget.get("max_positions"), 3)
                 self._set_policy_spin_value("sp_policy_daily_loss_limit_krw", risk_budget.get("daily_loss_limit_krw"), 0)
@@ -23768,7 +23714,6 @@ class MainWindow(QMainWindow):
                 entry_text = self._format_policy_krw(risk_budget.get("max_entry_krw"))
                 reserve_text = self._format_policy_krw(risk_budget.get("reserve_cash_krw"))
                 daily_loss_text = self._format_policy_krw(risk_budget.get("daily_loss_limit_krw"))
-                global_pos_size_text = f"{self._policy_float_value('dsp_policy_global_pos_size_pct', 2.5):.1f}%"
                 max_positions = int(risk_budget.get("max_positions") or 3)
                 auto_manage = "사용" if bool(local_data.get("auto_manage", True)) else "미사용"
                 auto_summary = "사용" if bool(local_data.get("auto_summary_enabled", True)) else "미사용"
@@ -23781,7 +23726,6 @@ class MainWindow(QMainWindow):
                     f"운용 자금 한도\n"
                     f"- 총 운용 한도: {total_text}\n"
                     f"- 1회 진입 한도: {entry_text}\n"
-                    f"- \uC804\uC5ED \uC885\uBAA9 \uBE44\uC911: {global_pos_size_text}\n"
                     f"- 예비 현금: {reserve_text}\n"
                     f"- 동시 보유 종목 수: {max_positions}개\n"
                     f"- 일일 손실 제한: {daily_loss_text}\n\n"
@@ -52294,7 +52238,6 @@ class MainWindow(QMainWindow):
             
             order_amount_krw = int(stg.get("order_amount_krw", 0) or 0)
             order_amount_source = "settings.strategy.order_amount_krw"
-            pos_size_pct = float(stg.get("pos_size_pct", 2.5) or 2.5)
             max_total_krw = int(getattr(self._settings, "max_total_krw", 50_000) or 50_000)
             per_order_hard_cap_krw = int(stg.get("per_order_hard_cap_krw", 12_000) or 12_000)
             total_guarded_window_cap_krw = int(stg.get("total_guarded_window_cap_krw", 20_000) or 20_000)
@@ -52304,16 +52247,17 @@ class MainWindow(QMainWindow):
                 fallback_fields.append("per_order_hard_cap_krw")
             if "total_guarded_window_cap_krw" not in stg:
                 fallback_fields.append("total_guarded_window_cap_krw")
-            if "pos_size_pct" not in stg:
-                fallback_fields.append("pos_size_pct")
             if "order_amount_krw" not in stg:
                 fallback_fields.append("order_amount_krw")
 
-            # 3. Separate configured caps from balance-based effective capacity.
-            position_limit = available_krw * pos_size_pct / 100.0
+            # 3. ON-start preflight has no candidate symbol yet, so user
+            # asset position caps are not applicable here. Candidate/order
+            # gates apply explicit asset overrides later.
+            position_policy_mode = "ai_dynamic_pending_candidate"
+            position_limit = None
             MIN_ORDER_KRW = 5000
             configured_hard_cap = per_order_hard_cap_krw
-            effective_hard_cap = min(available_krw, max_total_krw, position_limit, configured_hard_cap)
+            effective_hard_cap = min(available_krw, configured_hard_cap, total_guarded_window_cap_krw)
             hard_cap_bypass = False
             if effective_hard_cap < MIN_ORDER_KRW and order_amount_krw >= MIN_ORDER_KRW:
                 hard_cap_bypass = True
@@ -52327,8 +52271,6 @@ class MainWindow(QMainWindow):
             zero_value_fields = []
             if available_krw <= 0:
                 zero_value_fields.append("available_krw")
-            if position_limit <= 0:
-                zero_value_fields.append("pos_limit_krw")
             if effective_hard_cap <= 0:
                 zero_value_fields.append("effective_hard_cap_krw")
             blocker = ""
@@ -52365,7 +52307,7 @@ class MainWindow(QMainWindow):
             snapshot_n = allow_count if snapshot_on else 0
             preflight_log = (
                 f"[PREFLIGHT] ok={ok_int} krw={available_krw:.0f} order={order_amount_krw} "
-                f"pos_pct={pos_size_pct} pos_limit={position_limit:.0f} "
+                f"position_policy_mode={position_policy_mode} pos_limit=not_applicable "
                 f"hard_cap={configured_hard_cap:.0f} effective_cap={effective_hard_cap:.0f} "
                 f"total_guarded_window_cap={total_guarded_window_cap_krw} "
                 f"allow_downscale={1 if allow_downscale else 0} snapshot_n={snapshot_n} blocker={blocker or '-'}"
@@ -52373,20 +52315,24 @@ class MainWindow(QMainWindow):
             self._log.info(preflight_log)
             self._log.info(
                 "[AITS][LiveOnPreflight] event=preflight_result source_path=on_button "
-                "configured_order_amount_krw=%s available_krw=%s pos_limit_krw=%s "
+                "configured_order_amount_krw=%s available_krw=%s position_policy_mode=%s "
+                "candidate_symbol=%s user_pos_limit_applied=%s pos_limit_krw=%s "
                 "hard_cap_krw=%s effective_hard_cap_krw=%s total_guarded_window_cap_krw=%s "
                 "order_allowed_before=False order_allowed_after=False real_order_before=False real_order_after=False "
                 "execution_mode=%s blocker=%s settings_keys_used=%s fallback_used=%s fallback_fields=%s "
                 "zero_value_fields=%s balance_source=%s cap_source=%s submitted=0 order_allowed=False real_order=False",
                 order_amount_krw,
                 int(available_krw),
-                int(position_limit),
+                position_policy_mode,
+                "",
+                False,
+                "not_applicable",
                 int(configured_hard_cap),
                 int(effective_hard_cap),
                 int(total_guarded_window_cap_krw),
                 str(self._get_aits_execution_mode() or "unknown"),
                 blocker or "",
-                "strategy.order_amount_krw,strategy.pos_size_pct,strategy.per_order_hard_cap_krw,strategy.total_guarded_window_cap_krw,settings.max_total_krw",
+                "strategy.order_amount_krw,strategy.per_order_hard_cap_krw,strategy.total_guarded_window_cap_krw",
                 bool(fallback_fields),
                 ",".join(fallback_fields) or "-",
                 ",".join(zero_value_fields) or "-",
@@ -52417,7 +52363,7 @@ class MainWindow(QMainWindow):
 
             # 6. UI message
             msg_lines = [
-                f"가용 KRW {available_krw:,.0f}원 | 1회 주문 {order_amount_krw:,}원 | pos_limit {position_limit:,.0f}원",
+                f"가용 KRW {available_krw:,.0f}원 | 1회 주문 {order_amount_krw:,}원 | position policy AI 동적 판단",
                 f"hard_cap {configured_hard_cap:,.0f}원 | effective_cap {effective_hard_cap:,.0f}원 | window_cap {total_guarded_window_cap_krw:,.0f}원",
             ]
             if hard_cap_bypass:

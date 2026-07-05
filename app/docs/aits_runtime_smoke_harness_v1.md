@@ -1394,52 +1394,50 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-eff
 ```
 
 The mode emits `aits_live_on_preflight_effective_cap_summary_v1` with
-`available_krw`, `order_amount_krw`, `pos_limit_krw`, `pos_size_pct`,
+`available_krw`, `order_amount_krw`, `position_policy_mode`,
+`user_pos_limit_applied=false`, `pos_limit_krw=null`,
 `per_order_hard_cap_krw`, `total_guarded_window_cap_krw`,
-`effective_hard_cap_krw`, `min_required_pos_size_pct_for_order`,
-`recommended_pos_size_pct_for_test`, `first_blocker`, and
-`can_pass_if_pos_size_pct_adjusted`. It does not change settings or place
-orders.
+`effective_hard_cap_krw`, `first_blocker`, and `can_on_preflight_pass`. It does
+not change settings or place orders.
 
 ### asset-position-policy-inheritance-summary
 
-`asset-position-policy-inheritance-summary` verifies the read-only
-global/asset/effective position-size inheritance contract. Asset `0%` means
-global inheritance, not a zero position limit.
+`asset-position-policy-inheritance-summary` verifies the read-only asset
+override vs AI dynamic position contract. Asset `0%` or missing means AI
+dynamic mode, not global inheritance and not a zero position limit.
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy-inheritance-summary --observe-only
 ```
 
-The mode emits `aits_asset_position_policy_inheritance_summary_v1` with
-`global_pos_size_pct`, `asset_pos_size_pct`, `asset_zero_means_global`,
-`effective_pos_size_pct`, `effective_pos_size_source`, fixture results, the
-minimum required percent for the current order amount, the AI policy center
-global-position UI binding fields, and safety flags.
+The mode emits `aits_asset_position_policy_ai_dynamic_summary_v1` with
+`asset_pos_size_pct`, `asset_zero_means_ai_dynamic`, `asset_policy_mode`,
+`user_pos_limit_applied`, `user_pos_limit_krw`, fixture results, and safety
+flags.
 
-### ai-policy-center-global-pos-size-ui-binding-proof
+### asset-position-policy-ai-dynamic-summary
 
-`ai-policy-center-global-pos-size-ui-binding-proof` verifies that the AI
-policy/operation center exposes `전역 종목 비중` next to `1회 진입 한도`, that
-the widget is bound to `settings.strategy.pos_size_pct`, and that the helper
-text explains `종목별 최대 비중 0%` as global inheritance.
+`asset-position-policy-ai-dynamic-summary` is the explicit name for the same AI
+dynamic policy contract.
 
 ```powershell
-python tools/runtime_smoke/aits_qt_smoke_harness.py --mode ai-policy-center-global-pos-size-ui-binding-proof --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy-ai-dynamic-summary --observe-only
 ```
 
-The mode emits `aits_ai_policy_center_global_pos_size_ui_binding_proof_v1`
-with `global_pos_size_ui_present`, `global_pos_size_ui_widget_name`,
-`global_pos_size_settings_key`, `global_pos_size_save_roundtrip_ok`,
-`placed_near_order_amount`, `asset_zero_means_global_help_text_present`, and a
-simulated `10%` cap check. It keeps `actual_order=false`,
-`submitted_count=0`, and `provider_external_call_count=0`.
+### live-on-preflight-ai-dynamic-cap-summary
+
+`live-on-preflight-ai-dynamic-cap-summary` verifies that ON-start preflight has
+no candidate symbol and excludes user position cap from effective cap.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-ai-dynamic-cap-summary --observe-only
+```
 
 ### live-on-preflight-position-policy-source-summary
 
 `live-on-preflight-position-policy-source-summary` verifies that the ON start
-preflight is symbol-less and uses `settings.strategy.pos_size_pct`, while a
-later candidate/order preflight may apply a positive asset override.
+preflight is symbol-less and uses `ai_dynamic_pending_candidate`, while a later
+candidate/order preflight may apply a positive asset override.
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-position-policy-source-summary --observe-only

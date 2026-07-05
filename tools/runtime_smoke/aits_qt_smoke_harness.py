@@ -8043,28 +8043,24 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
         return 0
 
     available_krw = _extract_number("available_krw") or _extract_number("krw")
-    pos_limit = _extract_number("pos_limit_krw") or _extract_number("pos_limit")
     hard_cap = _extract_number("hard_cap_krw") or _extract_number("hard_cap")
-    effective_cap = _extract_number("effective_hard_cap_krw") or _extract_number("effective_cap")
     total_window_cap = _extract_number("total_guarded_window_cap_krw") or _extract_number("total_guarded_window_cap")
 
     per_order_cap_setting = int(strategy_payload.get("per_order_hard_cap_krw") or 12_000)
     total_window_setting = int(strategy_payload.get("total_guarded_window_cap_krw") or 20_000)
-    pos_pct_setting = float(strategy_payload.get("pos_size_pct") or 2.5)
     if not hard_cap:
         hard_cap = per_order_cap_setting
     if not total_window_cap:
         total_window_cap = total_window_setting
+    effective_cap = min(value for value in (available_krw, hard_cap, total_window_cap) if value >= 0) if available_krw else 0
 
     fallback_fields: list[str] = []
-    for key in ("per_order_hard_cap_krw", "total_guarded_window_cap_krw", "pos_size_pct", "order_amount_krw"):
+    for key in ("per_order_hard_cap_krw", "total_guarded_window_cap_krw", "order_amount_krw"):
         if key not in strategy_payload:
             fallback_fields.append(key)
     zero_fields = []
     if available_krw <= 0:
         zero_fields.append("available_krw")
-    if pos_limit <= 0:
-        zero_fields.append("pos_limit_krw")
     if effective_cap <= 0 and latest_line:
         zero_fields.append("effective_hard_cap_krw")
 
@@ -8076,8 +8072,6 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
     if not first_blocker:
         if available_krw <= 0:
             first_blocker = "available_krw_zero"
-        elif pos_limit <= 0:
-            first_blocker = "pos_limit_zero"
         elif configured_amount > hard_cap:
             first_blocker = "order_amount_exceeds_per_order_hard_cap"
     if available_krw <= 0:
@@ -8100,16 +8094,19 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
             "latest_preflight_line": latest_line,
             "configured_order_amount_krw": int(configured_amount or 0),
             "available_krw": int(available_krw or 0),
-            "pos_limit_krw": int(pos_limit or 0),
+            "position_policy_mode": "ai_dynamic_pending_candidate",
+            "candidate_symbol": "",
+            "user_pos_limit_applied": False,
+            "pos_limit_krw": None,
             "hard_cap_krw": int(hard_cap or 0),
             "effective_hard_cap_krw": int(effective_cap or 0),
             "total_guarded_window_cap_krw": int(total_window_cap or 0),
             "order_amount_source": configured_source,
             "available_krw_source": "svc_order.compute_available_krw_snapshot",
-            "pos_limit_source": "available_krw * settings.strategy.pos_size_pct / 100",
+            "pos_limit_source": "not_applicable_until_candidate_symbol",
             "hard_cap_source": "settings.strategy.per_order_hard_cap_krw",
             "total_guarded_window_cap_source": "settings.strategy.total_guarded_window_cap_krw",
-            "pos_size_pct": pos_pct_setting,
+            "global_pos_size_used_for_live_preflight": False,
             "fallback_fields": fallback_fields,
             "zero_value_fields": zero_fields,
             "first_blocker": first_blocker,
@@ -8183,10 +8180,7 @@ def _run_live_on_preflight_effective_cap_summary(report: dict[str, Any]) -> None
 
     available_krw = _extract_number("available_krw", "krw")
     order_amount_krw = _extract_number("configured_order_amount_krw", "order") or float(configured_amount or 0)
-    pos_limit_krw = _extract_number("pos_limit_krw", "pos_limit")
-    logged_pos_pct = _extract_number("pos_pct", "pos_size_pct")
     hard_cap_krw = _extract_number("hard_cap_krw", "hard_cap")
-    effective_hard_cap_krw = _extract_number("effective_hard_cap_krw", "effective_cap")
     total_guarded_window_cap_krw = _extract_number("total_guarded_window_cap_krw", "total_guarded_window_cap")
     if not available_krw and latest_balance_line:
         balance_match = re.search(r"(?:^|[|\s])available_krw=([^|\s]+)", latest_balance_line)
@@ -8196,14 +8190,10 @@ def _run_live_on_preflight_effective_cap_summary(report: dict[str, Any]) -> None
             except Exception:
                 available_krw = 0.0
 
-    pos_size_pct = float(logged_pos_pct or strategy_payload.get("pos_size_pct") or 2.5)
     per_order_hard_cap_krw = float(hard_cap_krw or strategy_payload.get("per_order_hard_cap_krw") or 12_000)
     total_window_cap_krw = float(total_guarded_window_cap_krw or strategy_payload.get("total_guarded_window_cap_krw") or 20_000)
-    if not pos_limit_krw and available_krw > 0:
-        pos_limit_krw = available_krw * pos_size_pct / 100.0
-    if not effective_hard_cap_krw:
-        cap_candidates = (available_krw, pos_limit_krw, per_order_hard_cap_krw, total_window_cap_krw)
-        effective_hard_cap_krw = min(cap_candidates) if all(value >= 0 for value in cap_candidates) else 0.0
+    cap_candidates = (available_krw, per_order_hard_cap_krw, total_window_cap_krw)
+    effective_hard_cap_krw = min(cap_candidates) if all(value >= 0 for value in cap_candidates) else 0.0
 
     first_blocker = _extract_text("blocker")
     if first_blocker == "-":
@@ -8218,29 +8208,19 @@ def _run_live_on_preflight_effective_cap_summary(report: dict[str, Any]) -> None
         elif effective_hard_cap_krw < 10_000 <= order_amount_krw:
             first_blocker = "effective_hard_cap_below_min_order"
 
-    min_required_pct = 0.0
-    if available_krw > 0 and order_amount_krw > 0:
-        min_required_pct = order_amount_krw / available_krw * 100.0
-    recommended_pct = max(10.0, math.ceil((min_required_pct + 0.000001) * 10.0) / 10.0) if min_required_pct else 0.0
-    recommended_pos_limit = available_krw * recommended_pct / 100.0 if available_krw and recommended_pct else 0.0
-    adjusted_effective_cap = min(
-        value
-        for value in (available_krw, recommended_pos_limit, per_order_hard_cap_krw, total_window_cap_krw)
-        if value > 0
-    ) if available_krw and recommended_pos_limit and per_order_hard_cap_krw and total_window_cap_krw else 0.0
-    can_pass_adjusted = bool(
+    can_pass_without_user_pos_cap = bool(
         order_amount_krw >= 10_000
         and available_krw >= order_amount_krw
         and order_amount_krw <= per_order_hard_cap_krw
         and order_amount_krw <= total_window_cap_krw
-        and adjusted_effective_cap >= 10_000
+        and effective_hard_cap_krw >= 10_000
     )
 
     blocker_explained = ""
     if first_blocker == "effective_hard_cap_below_min_order":
         blocker_explained = (
-            f"position limit {int(pos_limit_krw)} KRW is below the 10000 KRW minimum order; "
-            f"raise pos_size_pct to at least {min_required_pct:.2f}% or reduce order amount."
+            "ON-start preflight effective cap is below the 10000 KRW minimum order "
+            "after available KRW, per-order hard cap, and guarded-window cap."
         )
     elif first_blocker:
         blocker_explained = first_blocker
@@ -8260,23 +8240,23 @@ def _run_live_on_preflight_effective_cap_summary(report: dict[str, Any]) -> None
             "latest_balance_line": latest_balance_line,
             "available_krw": int(available_krw or 0),
             "order_amount_krw": int(order_amount_krw or 0),
-            "pos_limit_krw": int(pos_limit_krw or 0),
-            "pos_size_pct": pos_size_pct,
+            "on_preflight_has_candidate_symbol": False,
+            "on_preflight_position_policy_mode": "ai_dynamic_pending_candidate",
+            "user_pos_limit_krw": None,
+            "user_pos_limit_applied": False,
+            "pos_limit_krw": None,
+            "global_pos_size_used_for_live_preflight": False,
             "per_order_hard_cap_krw": int(per_order_hard_cap_krw or 0),
             "total_guarded_window_cap_krw": int(total_window_cap_krw or 0),
             "effective_hard_cap_krw": int(effective_hard_cap_krw or 0),
-            "effective_hard_cap_formula": "min(available_krw, pos_limit_krw, per_order_hard_cap_krw, total_guarded_window_cap_krw)",
-            "pos_limit_formula": "available_krw * settings.strategy.pos_size_pct / 100",
-            "min_required_pos_size_pct_for_order": round(min_required_pct, 4),
-            "recommended_pos_size_pct_for_test": recommended_pct,
-            "recommended_pos_limit_krw": int(recommended_pos_limit or 0),
-            "adjusted_effective_hard_cap_krw": int(adjusted_effective_cap or 0),
+            "effective_hard_cap_formula": "min(available_krw, per_order_hard_cap_krw, total_guarded_window_cap_krw)",
             "first_blocker": first_blocker,
             "blocker_explained": blocker_explained,
-            "can_pass_if_pos_size_pct_adjusted": can_pass_adjusted,
+            "can_on_preflight_pass": can_pass_without_user_pos_cap,
+            "can_pass_if_pos_size_pct_adjusted": False,
             "order_amount_source": configured_source,
-            "pos_limit_source": "settings.strategy.pos_size_pct",
-            "pos_size_pct_source": "settings.strategy.pos_size_pct",
+            "pos_limit_source": "not_applicable_until_candidate_symbol",
+            "position_policy_source": "ai_dynamic_pending_candidate",
             "settings_error": settings_error,
             "configured_order_amount_read_error": amount_error,
             "safety_flags": {
@@ -8300,32 +8280,36 @@ def _evaluate_asset_position_policy_inheritance_v1(
     per_order_hard_cap_krw: Any = 12_000,
     total_guarded_window_cap_krw: Any = 20_000,
 ) -> dict[str, Any]:
-    """Evaluate the read-only position-size inheritance contract."""
+    """Evaluate the read-only asset override vs AI dynamic position contract."""
     blockers: list[str] = []
-    global_missing = global_pos_size_pct is None or global_pos_size_pct == ""
     global_pct = _safe_float(global_pos_size_pct, 0.0)
     asset_missing = asset_pos_size_pct is None or asset_pos_size_pct == ""
     asset_pct = _safe_float(asset_pos_size_pct, 0.0)
-    asset_zero_means_global = bool(asset_missing or asset_pct == 0.0)
+    asset_zero_means_ai_dynamic = bool(asset_missing or asset_pct == 0.0)
 
-    if global_missing or global_pct <= 0:
-        blockers.append("global_pos_size_missing")
     if not asset_missing and asset_pct < 0:
         blockers.append("invalid_asset_pos_size_pct")
 
     if not blockers and asset_pct > 0:
         effective_pct = asset_pct
         effective_source = "asset_override"
+        asset_policy_mode = "asset_override"
+        user_pos_limit_applied = True
     else:
-        effective_pct = global_pct
-        effective_source = "global_inherited"
+        effective_pct = 0.0
+        effective_source = "ai_dynamic"
+        asset_policy_mode = "ai_dynamic"
+        user_pos_limit_applied = False
 
     available = _safe_float(available_krw, 0.0)
     order_amount = _safe_float(order_amount_krw, 0.0)
     per_order_cap = _safe_float(per_order_hard_cap_krw, 12_000.0)
     window_cap = _safe_float(total_guarded_window_cap_krw, 20_000.0)
-    pos_limit = available * effective_pct / 100.0 if available > 0 and effective_pct > 0 else 0.0
-    effective_cap = min(available, pos_limit, per_order_cap, window_cap) if available > 0 else 0.0
+    pos_limit = available * effective_pct / 100.0 if user_pos_limit_applied and available > 0 and effective_pct > 0 else 0.0
+    cap_values = [available, per_order_cap, window_cap]
+    if user_pos_limit_applied:
+        cap_values.append(pos_limit)
+    effective_cap = min(cap_values) if available > 0 else 0.0
 
     if available <= 0:
         blockers.append("available_krw_zero")
@@ -8337,29 +8321,26 @@ def _evaluate_asset_position_policy_inheritance_v1(
         blockers.append("order_amount_exceeds_per_order_hard_cap")
     if order_amount > window_cap:
         blockers.append("order_amount_exceeds_total_guarded_window_cap")
-    if effective_cap < 10_000 <= order_amount and available > 0 and effective_pct > 0:
-        if effective_source == "asset_override":
-            blockers.append("asset_override_position_pct_too_low")
-        else:
-            blockers.append("global_position_pct_too_low")
-
-    min_required_pct = (order_amount / available * 100.0) if available > 0 and order_amount > 0 else 0.0
-    recommended_pct = max(10.0, math.ceil((min_required_pct + 0.000001) * 10.0) / 10.0) if min_required_pct else 0.0
+    if user_pos_limit_applied and effective_cap < 10_000 <= order_amount and available > 0 and effective_pct > 0:
+        blockers.append("asset_override_position_pct_too_low")
 
     return {
         "global_pos_size_pct": global_pct,
+        "global_pos_size_used_for_live_preflight": False,
         "asset_pos_size_pct": None if asset_missing else asset_pct,
-        "asset_zero_means_global": asset_zero_means_global,
-        "effective_pos_size_pct": effective_pct,
+        "asset_zero_means_ai_dynamic": asset_zero_means_ai_dynamic,
+        "asset_policy_mode": asset_policy_mode,
+        "position_policy_mode": asset_policy_mode,
+        "effective_pos_size_pct": None if not user_pos_limit_applied else effective_pct,
         "effective_pos_size_source": effective_source,
+        "user_pos_limit_applied": user_pos_limit_applied,
+        "user_pos_limit_krw": int(pos_limit or 0) if user_pos_limit_applied else None,
         "available_krw": int(available or 0),
-        "pos_limit_krw": int(pos_limit or 0),
+        "pos_limit_krw": int(pos_limit or 0) if user_pos_limit_applied else None,
         "order_amount_krw": int(order_amount or 0),
         "per_order_hard_cap_krw": int(per_order_cap or 0),
         "total_guarded_window_cap_krw": int(window_cap or 0),
         "effective_hard_cap_krw": int(effective_cap or 0),
-        "min_required_pos_size_pct_for_order": round(min_required_pct, 4),
-        "recommended_global_pos_size_pct_for_test": recommended_pct,
         "first_blocker": blockers[0] if blockers else "",
         "blockers": blockers,
         "cap_condition_pass": not blockers,
@@ -8385,20 +8366,23 @@ def _pick_latest_usable_balance_line(lines: list[str]) -> str:
 
 def _asset_position_policy_fixture_results() -> list[dict[str, Any]]:
     cases = [
-        ("global_2_5_asset_0_blocks", 2.5, 0, 113_201, 10_000, False),
-        ("global_10_asset_0_passes_cap", 10, 0, 113_201, 10_000, True),
-        ("global_2_5_asset_15_passes_cap", 2.5, 15, 113_201, 10_000, True),
-        ("global_10_asset_0_available_8000_blocks", 10, 0, 8_000, 10_000, False),
-        ("global_missing_asset_0_blocks", None, 0, 113_201, 10_000, False),
-        ("asset_negative_blocks", 10, -1, 113_201, 10_000, False),
+        ("on_preflight_no_candidate_asset_missing_passes_cap", 2.5, None, 113_201, 10_000, 12_000, 20_000, True),
+        ("candidate_asset_0_ai_dynamic_passes_cap", 2.5, 0, 113_201, 10_000, 12_000, 20_000, True),
+        ("candidate_asset_15_override_passes_cap", 2.5, 15, 113_201, 10_000, 12_000, 20_000, True),
+        ("legacy_global_2_5_not_used_for_live_preflight", 2.5, 0, 113_201, 10_000, 12_000, 20_000, True),
+        ("asset_negative_blocks", 10, -1, 113_201, 10_000, 12_000, 20_000, False),
+        ("hard_cap_8000_blocks", 10, 0, 113_201, 10_000, 8_000, 20_000, False),
+        ("available_5000_blocks", 10, 0, 5_000, 10_000, 12_000, 20_000, False),
     ]
     results: list[dict[str, Any]] = []
-    for name, global_pct, asset_pct, available, order_amount, expected_pass in cases:
+    for name, global_pct, asset_pct, available, order_amount, hard_cap, window_cap, expected_pass in cases:
         result = _evaluate_asset_position_policy_inheritance_v1(
             global_pos_size_pct=global_pct,
             asset_pos_size_pct=asset_pct,
             available_krw=available,
             order_amount_krw=order_amount,
+            per_order_hard_cap_krw=hard_cap,
+            total_guarded_window_cap_krw=window_cap,
         )
         result.update(
             {
@@ -8521,17 +8505,14 @@ def _run_asset_position_policy_inheritance_summary(report: dict[str, Any]) -> No
     fixtures = _asset_position_policy_fixture_results()
     fixture_pass_count = sum(1 for item in fixtures if item.get("fixture_pass"))
     first_blocker = str(current_eval.get("first_blocker") or "")
-    if first_blocker == "global_position_pct_too_low":
-        e2e_blocker = "position_size_pct_too_low_for_order_amount"
-    elif first_blocker == "asset_override_position_pct_too_low":
+    if first_blocker == "asset_override_position_pct_too_low":
         e2e_blocker = "asset_override_position_pct_too_low"
     else:
         e2e_blocker = first_blocker
-    binding = _probe_ai_policy_center_global_pos_size_ui_binding()
 
     report.update(
         {
-            "schema": "aits_asset_position_policy_inheritance_summary_v1",
+            "schema": "aits_asset_position_policy_ai_dynamic_summary_v1",
             "diagnostic_status": "pass" if fixture_pass_count == len(fixtures) else "fail",
             "pass_status": "pass" if fixture_pass_count == len(fixtures) else "fail",
             "status": "pass" if fixture_pass_count == len(fixtures) else "fail",
@@ -8542,25 +8523,18 @@ def _run_asset_position_policy_inheritance_summary(report: dict[str, Any]) -> No
             "latest_preflight_line": latest_line,
             "latest_balance_line": latest_balance_line,
             "global_pos_size_pct": current_eval["global_pos_size_pct"],
-            "global_pos_size_source": "settings.strategy.pos_size_pct",
-            "global_pos_size_pct_ui_bound": bool(
-                binding.get("global_pos_size_ui_present")
-                and binding.get("global_pos_size_save_binding_present")
-                and binding.get("global_pos_size_restore_binding_present")
-                and binding.get("preflight_uses_same_settings_key")
-            ),
-            "global_pos_size_ui_widget_name": binding.get("global_pos_size_ui_widget_name"),
-            "global_pos_size_settings_key": binding.get("global_pos_size_settings_key"),
-            "global_pos_size_prefs_key": binding.get("global_pos_size_prefs_key"),
-            "global_pos_size_display_value": binding.get("global_pos_size_display_value"),
-            "global_pos_size_save_roundtrip_ok": binding.get("global_pos_size_save_roundtrip_ok"),
+            "global_pos_size_source": "legacy_settings.strategy.pos_size_pct",
+            "global_pos_size_used_for_live_preflight": current_eval["global_pos_size_used_for_live_preflight"],
             "asset_symbol": asset_symbol,
             "asset_pos_size_pct": current_eval["asset_pos_size_pct"],
             "asset_pos_size_source": asset_source,
             "asset_policy_read_warning": asset_read_warning,
-            "asset_zero_means_global": current_eval["asset_zero_means_global"],
+            "asset_zero_means_ai_dynamic": current_eval["asset_zero_means_ai_dynamic"],
+            "asset_policy_mode": current_eval["asset_policy_mode"],
             "effective_pos_size_pct": current_eval["effective_pos_size_pct"],
             "effective_pos_size_source": current_eval["effective_pos_size_source"],
+            "user_pos_limit_applied": current_eval["user_pos_limit_applied"],
+            "user_pos_limit_krw": current_eval["user_pos_limit_krw"],
             "available_krw": current_eval["available_krw"],
             "pos_limit_krw": current_eval["pos_limit_krw"],
             "order_amount_krw": current_eval["order_amount_krw"],
@@ -8570,15 +8544,13 @@ def _run_asset_position_policy_inheritance_summary(report: dict[str, Any]) -> No
             "effective_hard_cap_krw": current_eval["effective_hard_cap_krw"],
             "first_blocker": e2e_blocker,
             "blocker_explained": (
-                "asset 0% inherits the global position percent; current global percent is too low for the configured order amount"
-                if first_blocker == "global_position_pct_too_low"
+                "explicit asset override is too low for the configured order amount"
+                if first_blocker == "asset_override_position_pct_too_low"
                 else first_blocker
             ),
-            "can_pass_if_global_pos_size_pct_adjusted": bool(current_eval["recommended_global_pos_size_pct_for_test"]),
-            "min_required_pos_size_pct_for_order": current_eval["min_required_pos_size_pct_for_order"],
-            "recommended_global_pos_size_pct_for_test": current_eval["recommended_global_pos_size_pct_for_test"],
-            "symbolless_on_preflight_policy": "global_pos_size_pct_only",
-            "symbol_order_preflight_policy": "asset_pos_size_pct>0 overrides; 0/missing inherits global",
+            "can_pass_if_global_pos_size_pct_adjusted": False,
+            "symbolless_on_preflight_policy": "ai_dynamic_pending_candidate",
+            "symbol_order_preflight_policy": "asset_pos_size_pct>0 overrides; 0/missing uses ai_dynamic",
             "legacy_setting_applied": False,
             "fixture_results": fixtures,
             "fixture_pass_count": fixture_pass_count,
@@ -8600,136 +8572,13 @@ def _run_asset_position_policy_inheritance_summary(report: dict[str, Any]) -> No
 def _run_live_on_preflight_position_policy_source_summary(report: dict[str, Any]) -> None:
     _run_asset_position_policy_inheritance_summary(report)
     report["schema"] = "aits_live_on_preflight_position_policy_source_summary_v1"
-    report["preflight_policy_source"] = "settings.strategy.pos_size_pct"
+    report["preflight_policy_source"] = "ai_dynamic_pending_candidate"
     report["preflight_has_candidate_symbol"] = False
     report["preflight_symbol_context"] = "symbolless_on_start_gate"
     report["position_policy_stage_split"] = {
-        "on_start_preflight": "global_pos_size_pct",
-        "candidate_order_preflight": "asset_override_if_positive_else_global",
+        "on_start_preflight": "ai_dynamic_pending_candidate",
+        "candidate_order_preflight": "asset_override_if_positive_else_ai_dynamic",
     }
-
-
-def _probe_ai_policy_center_global_pos_size_ui_binding() -> dict[str, Any]:
-    app_gui_path = ROOT / "app" / "ui" / "app_gui.py"
-    source = app_gui_path.read_text(encoding="utf-8", errors="replace")
-    widget_name = "spn_ai_policy_global_pos_size_pct"
-    attr_name = "dsp_policy_global_pos_size_pct"
-    settings_key = "settings.strategy.pos_size_pct"
-    current_value = 0.0
-    settings_error = ""
-    roundtrip_ok = False
-    try:
-        from app.utils.prefs import load_settings
-
-        settings = load_settings()
-        strategy = getattr(settings, "strategy", None)
-        if hasattr(strategy, "model_dump"):
-            strategy_payload = strategy.model_dump()
-        elif isinstance(strategy, dict):
-            strategy_payload = dict(strategy)
-        else:
-            strategy_payload = {}
-        current_value = float(strategy_payload.get("pos_size_pct") or 0.0)
-        payload = settings.model_dump() if hasattr(settings, "model_dump") else {}
-        if isinstance(payload.get("strategy"), dict):
-            payload["strategy"]["pos_size_pct"] = current_value
-        cloned = type(settings)(**payload) if payload else settings
-        cloned_strategy = getattr(cloned, "strategy", None)
-        cloned_value = (
-            float(getattr(cloned_strategy, "pos_size_pct", 0.0) or 0.0)
-            if cloned_strategy is not None and not isinstance(cloned_strategy, dict)
-            else float((cloned_strategy or {}).get("pos_size_pct") or 0.0)
-        )
-        roundtrip_ok = abs(cloned_value - current_value) < 0.0001
-    except Exception as exc:
-        settings_error = f"{type(exc).__name__}:{exc}"
-
-    widget_idx = source.find(widget_name)
-    order_idx = source.find("sp_policy_max_entry_krw")
-    helper_text_present = (
-        "lbl_ai_policy_global_pos_size_hint" in source
-        and "\\uC885\\uBAA9\\uBCC4 \\uCD5C\\uB300 \\uBE44\\uC911\\uC774 0%" in source
-    )
-    save_binding_present = (
-        "_policy_float_value(\"dsp_policy_global_pos_size_pct\"" in source
-        and "pos_size_pct" in source[source.find("def _save_ai_policy_snapshot"): source.find("def _restore_ai_policy_snapshot")]
-    )
-    restore_binding_present = (
-        "_set_policy_float_value(\"dsp_policy_global_pos_size_pct\"" in source
-        and "strategy_payload.get(\"pos_size_pct\")" in source
-    )
-    preflight_uses_same_key = (
-        "pos_size_pct = float(stg.get(\"pos_size_pct\", 2.5) or 2.5)" in source
-        or "pos_size_pct = float(stg.get('pos_size_pct', 2.5) or 2.5)" in source
-    )
-    blockers: list[str] = []
-    if widget_idx < 0 or attr_name not in source:
-        blockers.append("global_pos_size_ui_missing")
-    if not save_binding_present:
-        blockers.append("global_pos_size_save_binding_missing")
-    if not restore_binding_present:
-        blockers.append("global_pos_size_restore_binding_missing")
-    if not preflight_uses_same_key:
-        blockers.append("preflight_pos_size_key_mismatch")
-    if not helper_text_present:
-        blockers.append("asset_zero_means_global_help_text_missing")
-    if not roundtrip_ok:
-        blockers.append("settings_roundtrip_failed")
-
-    return {
-        "global_pos_size_ui_present": widget_idx >= 0 and attr_name in source,
-        "global_pos_size_ui_widget_name": widget_name,
-        "global_pos_size_label": "전역 종목 비중",
-        "global_pos_size_settings_key": settings_key,
-        "global_pos_size_prefs_key": "prefs.json.strategy.pos_size_pct",
-        "global_pos_size_current_value": current_value,
-        "global_pos_size_display_value": f"{current_value:.1f}%",
-        "global_pos_size_save_roundtrip_ok": roundtrip_ok,
-        "global_pos_size_save_binding_present": save_binding_present,
-        "global_pos_size_restore_binding_present": restore_binding_present,
-        "order_amount_ui_widget_name": "sp_policy_max_entry_krw",
-        "placed_near_order_amount": bool(widget_idx >= 0 and order_idx >= 0 and abs(widget_idx - order_idx) < 5000),
-        "asset_zero_means_global_help_text_present": helper_text_present,
-        "preflight_uses_same_settings_key": preflight_uses_same_key,
-        "settings_error": settings_error,
-        "blockers": blockers,
-        "warnings": [],
-    }
-
-
-def _run_ai_policy_center_global_pos_size_ui_binding_proof(report: dict[str, Any]) -> None:
-    binding = _probe_ai_policy_center_global_pos_size_ui_binding()
-    fixture_results = _asset_position_policy_fixture_results()
-    simulated_global_10 = _evaluate_asset_position_policy_inheritance_v1(
-        global_pos_size_pct=10,
-        asset_pos_size_pct=0,
-        available_krw=113_201,
-        order_amount_krw=10_000,
-    )
-    blockers = list(binding.get("blockers") or [])
-    report.update(
-        {
-            "schema": "aits_ai_policy_center_global_pos_size_ui_binding_proof_v1",
-            "diagnostic_status": "pass" if not blockers else "fail",
-            "pass_status": "pass" if not blockers else "fail",
-            "status": "pass" if not blockers else "fail",
-            "report_status": "pass" if not blockers else "fail",
-            **binding,
-            "fixture_results": fixture_results,
-            "fixture_pass_count": sum(1 for item in fixture_results if item.get("fixture_pass")),
-            "simulated_global_10_cap_condition_pass": bool(simulated_global_10.get("cap_condition_pass")),
-            "simulated_global_10_pos_limit_krw": simulated_global_10.get("pos_limit_krw"),
-            "simulated_global_10_effective_hard_cap_krw": simulated_global_10.get("effective_hard_cap_krw"),
-            "safety_flags": {
-                "actual_order": False,
-                "submitted_count": 0,
-                "provider_external_call_count": 0,
-            },
-            "provider_external_call_count": 0,
-            "submitted_count": 0,
-            "order_risk_detected": False,
-        }
-    )
 
 
 def _run_live_on_preflight_krw_balance_source_summary(report: dict[str, Any]) -> None:
@@ -16507,7 +16356,8 @@ def run_harness(
         "live-on-preflight-krw-balance-source-summary",
         "live-on-preflight-effective-cap-summary",
         "asset-position-policy-inheritance-summary",
-        "ai-policy-center-global-pos-size-ui-binding-proof",
+        "asset-position-policy-ai-dynamic-summary",
+        "live-on-preflight-ai-dynamic-cap-summary",
         "live-on-preflight-position-policy-source-summary",
         "upbit-accounts-readonly-krw-parse-proof",
         "upbit-accounts-readonly-balance-fetch-diagnostic",
@@ -16725,9 +16575,13 @@ def run_harness(
         elif mode == "asset-position-policy-inheritance-summary":
             _install_provider_post_guard(report)
             _run_asset_position_policy_inheritance_summary(report)
-        elif mode == "ai-policy-center-global-pos-size-ui-binding-proof":
+        elif mode == "asset-position-policy-ai-dynamic-summary":
             _install_provider_post_guard(report)
-            _run_ai_policy_center_global_pos_size_ui_binding_proof(report)
+            _run_asset_position_policy_inheritance_summary(report)
+        elif mode == "live-on-preflight-ai-dynamic-cap-summary":
+            _install_provider_post_guard(report)
+            _run_live_on_preflight_effective_cap_summary(report)
+            report["schema"] = "aits_live_on_preflight_ai_dynamic_cap_summary_v1"
         elif mode == "live-on-preflight-position-policy-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_position_policy_source_summary(report)
@@ -17327,7 +17181,8 @@ def main() -> int:
             "live-on-preflight-krw-balance-source-summary",
             "live-on-preflight-effective-cap-summary",
             "asset-position-policy-inheritance-summary",
-            "ai-policy-center-global-pos-size-ui-binding-proof",
+            "asset-position-policy-ai-dynamic-summary",
+            "live-on-preflight-ai-dynamic-cap-summary",
             "live-on-preflight-position-policy-source-summary",
             "upbit-accounts-readonly-krw-parse-proof",
             "upbit-accounts-readonly-balance-fetch-diagnostic",

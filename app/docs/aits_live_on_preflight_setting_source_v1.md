@@ -2,15 +2,14 @@
 
 ## Goal
 
-`AITS-LIVE-ON-PREFLIGHT-SETTING-SOURCE-FIX-01` separates the ON button
-preflight popup values into configured settings and balance-derived effective
-limits.
+ON preflight separates account readiness, configured order amount, configured
+hard caps, and candidate-stage position policy. It must not apply a
+candidate-specific position cap before a candidate symbol exists.
 
 ## Active Owner
 
 - File: `app/ui/app_gui.py`
 - Handler path: `btn_run_toggle.toggled -> _on_toggle_run_toggled -> _on_toggle_run -> _preflight_check`
-- Popup title: `실행 전 점검`
 
 ## Value Sources
 
@@ -18,57 +17,42 @@ limits.
 | --- | --- | --- |
 | `available_krw` | `svc_order.compute_available_krw_snapshot()` -> `svc_order.fetch_accounts()` | Current KRW available from the read-only account/balance source. |
 | `order_amount_krw` | `settings.strategy.order_amount_krw` | User-configured one-shot order amount SSOT. |
-| `pos_limit_krw` | `available_krw * settings.strategy.pos_size_pct / 100` | Balance-derived position-size limit. |
+| `position_policy_mode` | `ai_dynamic_pending_candidate` | ON-start has no candidate symbol yet. |
+| `pos_limit_krw` | `not_applicable_until_candidate_symbol` | User asset position cap is not applied at ON start. |
 | `hard_cap_krw` | `settings.strategy.per_order_hard_cap_krw` | Configured per-order hard cap. Default `12000`. |
-| `effective_hard_cap_krw` | `min(available_krw, settings.max_total_krw, pos_limit_krw, hard_cap_krw)` | Runtime effective cap after balance and position constraints. |
+| `effective_hard_cap_krw` | `min(available_krw, hard_cap_krw, total_guarded_window_cap_krw)` | Runtime effective cap after balance and configured caps. |
 | `total_guarded_window_cap_krw` | `settings.strategy.total_guarded_window_cap_krw` | Configured guarded-window cap. Default `20000`. |
 
-## Position Policy Inheritance
+## Asset Policy Contract
 
-The ON start preflight is symbol-less and uses the global
-`settings.strategy.pos_size_pct`. Asset policy snapshots are saved under
-`settings.ui_state.asset_policy_snapshots`, but their `max_weight_pct=0` means
-"inherit the global position percent". It is not a runtime zero-cap setting.
-
-When a future candidate/order preflight has a candidate symbol, the contract is:
-
-- asset percent `> 0`: use the asset override.
-- asset percent `0`, missing, or `None`: inherit the global percent.
+- asset percent `> 0`: use the explicit asset override at candidate/order stage.
+- asset percent `0`, missing, or `None`: use AI dynamic position policy.
 - asset percent `< 0`: invalid policy value.
 
-## Effective Cap Calculation
+`settings.strategy.pos_size_pct` is legacy/backward-compatible state and is not
+used as the ON-start live preflight blocker.
 
-`effective_hard_cap_below_min_order` means the configured order amount is at or
-above the 10000 KRW minimum order, but the effective cap after balance and
-position-size constraints is below 10000 KRW.
-
-Example:
+## Effective Cap Example
 
 ```text
 available_krw=113201
-pos_size_pct=2.5
-pos_limit_krw=2830
+order_amount_krw=10000
 hard_cap_krw=12000
 window_cap=20000
-effective_hard_cap_krw=min(113201, 2830, 12000, 20000)=2830
+effective_hard_cap_krw=min(113201, 12000, 20000)=12000
 ```
 
-For a 10000 KRW order with `available_krw=113201`, the minimum required
-`pos_size_pct` is about `8.84%`. A practical test setting is `10%`, which gives
-`pos_limit_krw` about `11320`.
+The cap condition passes because `12000 >= 10000`.
 
 ## Zero Value Interpretation
 
 - `hard_cap_krw=0` should not appear as the configured cap. The configured cap is
   `settings.strategy.per_order_hard_cap_krw`.
-- `effective_hard_cap_krw=0` can still appear when `available_krw=0` or
-  `pos_limit_krw=0`.
-- `pos_limit_krw=0` is expected when `available_krw=0` because it is derived from
-  the balance source.
-- `available_krw=0` must not hide balance-read failures. The preflight now
-  separates `actual_krw_balance_zero`, `balance_not_loaded`,
-  `balance_fetch_failed`, `private_api_not_connected`, and
-  `unknown_balance_source`.
+- `effective_hard_cap_krw=0` can still appear when `available_krw=0`.
+- `pos_limit_krw` is not applicable until candidate/order stage.
+- `available_krw=0` must not hide balance-read failures. The preflight separates
+  `actual_krw_balance_zero`, `balance_not_loaded`, `balance_fetch_failed`,
+  `private_api_not_connected`, and `unknown_balance_source`.
 
 ## Blocker Reclassification
 
@@ -83,10 +67,7 @@ missing ON click. More specific blockers include:
 - `private_api_not_connected`
 - `balance_cache_stale`
 - `insufficient_available_krw`
-- `pos_limit_zero`
 - `effective_hard_cap_below_min_order`
-- `position_limit_below_min_order`
-- `position_size_pct_too_low_for_order_amount`
 - `order_amount_exceeds_per_order_hard_cap`
 - `order_amount_exceeds_total_guarded_window_cap`
 
@@ -95,17 +76,3 @@ missing ON click. More specific blockers include:
 This preflight source fix does not force ON, does not set `order_allowed=True`,
 does not set `real_order=True`, does not emit an order intent, and does not call
 OrderAdapter or ExecutionBridge.
-
-## KRW Balance Source Trace
-
-`AITS-LIVE-ON-PREFLIGHT-KRW-BALANCE-SOURCE-TRACE-01` adds
-`[AITS][KRWBalanceSource]` logs and the
-`live-on-preflight-krw-balance-source-summary` harness mode. The goal is to
-distinguish an actual zero KRW balance from a missing or failed read-only
-account lookup. The popup copy uses the same taxonomy, for example:
-
-- `KRW 잔고 부족` for an actual zero/insufficient KRW balance.
-- `KRW 잔고 미확인 - 잔고 조회 후 다시 ON` when the balance has not been
-  loaded.
-- `KRW 잔고 조회 실패 - Upbit 연결 확인 필요` when the account lookup fails.
-- `Upbit 계정 연결 필요` when the private account API is not configured.

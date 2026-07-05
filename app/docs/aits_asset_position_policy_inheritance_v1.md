@@ -1,86 +1,88 @@
-# AITS Asset Position Policy Inheritance v1
+# AITS Asset Position Policy AI Dynamic v1
 
 ## Goal
 
-`AITS-ASSET-POSITION-POLICY-INHERITANCE-ROOT-FIX-01` defines the read-only
-position-size policy inheritance contract. It does not force ON, raise caps,
-fake balances, emit order intent, or submit orders.
+`AITS-ASSET-POSITION-POLICY-AI-DYNAMIC-NO-GLOBAL-UI-FIX-01` corrects the
+position policy contract. A missing or `0%` asset weight is not global
+inheritance. It means AI dynamic position policy.
+
+This document does not authorize orders, bypass RiskGuard, bypass
+LivePreflight, fake balance, or submit anything.
 
 ## Owners
 
-- Global position percent: `settings.strategy.pos_size_pct`
-- Global default: `StrategyConfig.pos_size_pct = 2.5`
 - Asset policy preview: `settings.ui_state.asset_policy_snapshots[*].max_weight_pct`
 - Asset policy UI owner: `app/ui/app_gui.py` asset policy drawer
 - ON preflight owner: `app/ui/app_gui.py::_preflight_check`
+- Legacy global field: `settings.strategy.pos_size_pct`
 
-The asset policy drawer is currently preview/storage UI. Its saved snapshots
-carry `preview_only=true` and `applied_to_order=false`.
+`settings.strategy.pos_size_pct` may remain for backward compatibility, but it
+is not exposed as a global UI control and is not used as the ON-start live
+preflight blocker.
 
-## Inheritance Contract
+## Policy Contract
 
 ```text
-if asset_pos_size_pct > 0:
-    effective_pos_size_pct = asset_pos_size_pct
-    source = asset_override
+if asset_max_weight_pct > 0:
+    asset_policy_mode = asset_override
+    user_pos_limit_applied = true
 else:
-    effective_pos_size_pct = global_pos_size_pct
-    source = global_inherited
+    asset_policy_mode = ai_dynamic
+    user_pos_limit_applied = false
 ```
 
-`asset_pos_size_pct=0`, missing, or `None` means global inheritance. It is not a
-zero position limit. Negative asset percentages are invalid and must be blocked
-or rejected by validation.
+`asset_max_weight_pct=0`, missing, or `None` means the user did not define a
+manual per-asset cap. AITS leaves the asset allocation decision to AI dynamic
+policy, then keeps the existing hard safety gates:
+
+- configured order amount
+- available KRW
+- per-order hard cap
+- guarded-window cap
+- duplicate/relock
+- RiskGuard
+- LivePreflight
+- one-shot unlock
+
+Negative asset percentages are invalid and must block.
 
 ## Preflight Stage Split
 
-- ON start preflight is symbol-less. It uses `settings.strategy.pos_size_pct`.
-- Candidate/order preflight may use a candidate symbol. At that stage, a
-  positive asset override may replace the global percent.
-- If a candidate asset value is `0%`, that candidate inherits the global
-  percent.
+- ON-start preflight is symbol-less. It cannot apply a candidate-specific asset
+  override. It validates available KRW, configured order amount, per-order hard
+  cap, guarded-window cap, provider readiness, and account readiness.
+- Candidate/order preflight runs after `candidate_symbol` is known. A positive
+  asset override can apply there. If the asset value is `0%` or missing, the
+  candidate remains in AI dynamic mode.
 
-## Current 2.5 Percent Source
+## Current Example
 
-The observed `pos_limit_krw=2830` with `available_krw=113201` comes from the
-current global setting:
-
-```text
-113201 * 2.5 / 100 = 2830
-```
-
-That `2.5%` is the active `settings.strategy.pos_size_pct` value, not a direct
-application of an asset-level `0%`.
-
-## User Setting Guidance
-
-The global position percent is editable in the AI policy/operation center next
-to `1회 진입 한도` as `전역 종목 비중`. The UI is bound directly to
-`settings.strategy.pos_size_pct`, so saving the policy center updates the same
-SSOT that ON preflight reads.
-
-The `종목별 최대 비중` control remains an asset-level override. Its `0%`
-value means "inherit `전역 종목 비중`"; a positive value means that asset gets
-its own override.
-
-For a 10000 KRW test with `available_krw=113201`, the minimum global position
-percent is about `8.84%`. A practical setting is `10%`.
-
-An asset override can also pass the position cap, for example:
+With:
 
 ```text
-global=2.5%, asset=15%, available=113201
-pos_limit_krw = 16980
-effective cap = min(113201, 16980, 12000, 20000) = 12000
+available_krw = 113201
+order_amount_krw = 10000
+per_order_hard_cap_krw = 12000
+total_guarded_window_cap_krw = 20000
 ```
+
+ON-start effective cap is:
+
+```text
+min(113201, 12000, 20000) = 12000
+```
+
+That passes the 10000 KRW cap condition. The old `pos_size_pct=2.5%` value no
+longer reduces ON-start effective cap to 2830 KRW.
 
 ## Harness Modes
 
 ```powershell
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy-inheritance-summary --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode asset-position-policy-ai-dynamic-summary --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-position-policy-source-summary --observe-only
-python tools/runtime_smoke/aits_qt_smoke_harness.py --mode ai-policy-center-global-pos-size-ui-binding-proof --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-ai-dynamic-cap-summary --observe-only
 ```
 
-Both modes keep `actual_order=false`, `submitted_count=0`, and
+All modes keep `actual_order=false`, `submitted_count=0`, and
 `provider_external_call_count=0`.
