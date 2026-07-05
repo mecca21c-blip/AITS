@@ -8003,7 +8003,14 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
         for line in lines
         if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line
     ]
+    balance_lines = [
+        line
+        for line in lines
+        if "[AITS][KRWBalanceSource]" in line
+        or ("[AITS][UpbitAccounts]" in line and "event=accounts_fetch_result" in line)
+    ]
     latest_line = preflight_lines[-1] if preflight_lines else ""
+    latest_balance_line = balance_lines[-1] if balance_lines else ""
 
     configured_amount, configured_source, amount_error = _read_live_on_runtime_e2e_order_amount()
     strategy_payload: dict[str, Any] = {}
@@ -8112,6 +8119,164 @@ def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> Non
                 if available_krw <= 0
                 else "rerun_on_click_and_collect_live_preflight_log"
             ),
+            "settings_error": settings_error,
+            "configured_order_amount_read_error": amount_error,
+            "safety_flags": {
+                "actual_order": False,
+                "submitted_count": 0,
+                "provider_external_call_count": 0,
+            },
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "order_risk_detected": False,
+        }
+    )
+
+
+def _run_live_on_preflight_effective_cap_summary(report: dict[str, Any]) -> None:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
+    preflight_lines = [
+        line
+        for line in lines
+        if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line
+    ]
+    balance_lines = [
+        line
+        for line in lines
+        if "[AITS][KRWBalanceSource]" in line
+        or ("[AITS][UpbitAccounts]" in line and "event=accounts_fetch_result" in line)
+    ]
+    latest_line = preflight_lines[-1] if preflight_lines else ""
+    latest_balance_line = balance_lines[-1] if balance_lines else ""
+
+    configured_amount, configured_source, amount_error = _read_live_on_runtime_e2e_order_amount()
+    strategy_payload: dict[str, Any] = {}
+    settings_error = ""
+    try:
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+        strategy = getattr(settings, "strategy", None)
+        if hasattr(strategy, "model_dump"):
+            strategy_payload = strategy.model_dump()
+        elif isinstance(strategy, dict):
+            strategy_payload = dict(strategy)
+    except Exception as exc:
+        settings_error = f"{type(exc).__name__}:{exc}"
+
+    def _extract_text(key: str) -> str:
+        if not latest_line:
+            return ""
+        match = re.search(rf"(?:^|[|\s]){re.escape(key)}[=:]\s*([^|\s]+)", latest_line)
+        return str(match.group(1)).strip() if match else ""
+
+    def _extract_number(*keys: str) -> float:
+        for key in keys:
+            raw = _extract_text(key)
+            if not raw:
+                continue
+            try:
+                return float(raw.replace(",", ""))
+            except Exception:
+                continue
+        return 0.0
+
+    available_krw = _extract_number("available_krw", "krw")
+    order_amount_krw = _extract_number("configured_order_amount_krw", "order") or float(configured_amount or 0)
+    pos_limit_krw = _extract_number("pos_limit_krw", "pos_limit")
+    logged_pos_pct = _extract_number("pos_pct", "pos_size_pct")
+    hard_cap_krw = _extract_number("hard_cap_krw", "hard_cap")
+    effective_hard_cap_krw = _extract_number("effective_hard_cap_krw", "effective_cap")
+    total_guarded_window_cap_krw = _extract_number("total_guarded_window_cap_krw", "total_guarded_window_cap")
+    if not available_krw and latest_balance_line:
+        balance_match = re.search(r"(?:^|[|\s])available_krw=([^|\s]+)", latest_balance_line)
+        if balance_match:
+            try:
+                available_krw = float(str(balance_match.group(1)).replace(",", ""))
+            except Exception:
+                available_krw = 0.0
+
+    pos_size_pct = float(logged_pos_pct or strategy_payload.get("pos_size_pct") or 2.5)
+    per_order_hard_cap_krw = float(hard_cap_krw or strategy_payload.get("per_order_hard_cap_krw") or 12_000)
+    total_window_cap_krw = float(total_guarded_window_cap_krw or strategy_payload.get("total_guarded_window_cap_krw") or 20_000)
+    if not pos_limit_krw and available_krw > 0:
+        pos_limit_krw = available_krw * pos_size_pct / 100.0
+    if not effective_hard_cap_krw:
+        cap_candidates = (available_krw, pos_limit_krw, per_order_hard_cap_krw, total_window_cap_krw)
+        effective_hard_cap_krw = min(cap_candidates) if all(value >= 0 for value in cap_candidates) else 0.0
+
+    first_blocker = _extract_text("blocker")
+    if first_blocker == "-":
+        first_blocker = ""
+    if not first_blocker:
+        if available_krw <= 0:
+            first_blocker = "available_krw_zero"
+        elif order_amount_krw > per_order_hard_cap_krw:
+            first_blocker = "order_amount_exceeds_per_order_hard_cap"
+        elif order_amount_krw > total_window_cap_krw:
+            first_blocker = "order_amount_exceeds_total_guarded_window_cap"
+        elif effective_hard_cap_krw < 10_000 <= order_amount_krw:
+            first_blocker = "effective_hard_cap_below_min_order"
+
+    min_required_pct = 0.0
+    if available_krw > 0 and order_amount_krw > 0:
+        min_required_pct = order_amount_krw / available_krw * 100.0
+    recommended_pct = max(10.0, math.ceil((min_required_pct + 0.000001) * 10.0) / 10.0) if min_required_pct else 0.0
+    recommended_pos_limit = available_krw * recommended_pct / 100.0 if available_krw and recommended_pct else 0.0
+    adjusted_effective_cap = min(
+        value
+        for value in (available_krw, recommended_pos_limit, per_order_hard_cap_krw, total_window_cap_krw)
+        if value > 0
+    ) if available_krw and recommended_pos_limit and per_order_hard_cap_krw and total_window_cap_krw else 0.0
+    can_pass_adjusted = bool(
+        order_amount_krw >= 10_000
+        and available_krw >= order_amount_krw
+        and order_amount_krw <= per_order_hard_cap_krw
+        and order_amount_krw <= total_window_cap_krw
+        and adjusted_effective_cap >= 10_000
+    )
+
+    blocker_explained = ""
+    if first_blocker == "effective_hard_cap_below_min_order":
+        blocker_explained = (
+            f"position limit {int(pos_limit_krw)} KRW is below the 10000 KRW minimum order; "
+            f"raise pos_size_pct to at least {min_required_pct:.2f}% or reduce order amount."
+        )
+    elif first_blocker:
+        blocker_explained = first_blocker
+
+    report.update(
+        {
+            "schema": "aits_live_on_preflight_effective_cap_summary_v1",
+            "diagnostic_status": "pass",
+            "pass_status": "pass",
+            "status": "pass",
+            "report_status": "pass",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "preflight_popup_detected": bool(preflight_lines),
+            "preflight_line_count": len(preflight_lines),
+            "latest_preflight_line": latest_line,
+            "latest_balance_line": latest_balance_line,
+            "available_krw": int(available_krw or 0),
+            "order_amount_krw": int(order_amount_krw or 0),
+            "pos_limit_krw": int(pos_limit_krw or 0),
+            "pos_size_pct": pos_size_pct,
+            "per_order_hard_cap_krw": int(per_order_hard_cap_krw or 0),
+            "total_guarded_window_cap_krw": int(total_window_cap_krw or 0),
+            "effective_hard_cap_krw": int(effective_hard_cap_krw or 0),
+            "effective_hard_cap_formula": "min(available_krw, pos_limit_krw, per_order_hard_cap_krw, total_guarded_window_cap_krw)",
+            "pos_limit_formula": "available_krw * settings.strategy.pos_size_pct / 100",
+            "min_required_pos_size_pct_for_order": round(min_required_pct, 4),
+            "recommended_pos_size_pct_for_test": recommended_pct,
+            "recommended_pos_limit_krw": int(recommended_pos_limit or 0),
+            "adjusted_effective_hard_cap_krw": int(adjusted_effective_cap or 0),
+            "first_blocker": first_blocker,
+            "blocker_explained": blocker_explained,
+            "can_pass_if_pos_size_pct_adjusted": can_pass_adjusted,
+            "order_amount_source": configured_source,
+            "pos_limit_source": "settings.strategy.pos_size_pct",
+            "pos_size_pct_source": "settings.strategy.pos_size_pct",
             "settings_error": settings_error,
             "configured_order_amount_read_error": amount_error,
             "safety_flags": {
@@ -15899,6 +16064,7 @@ def run_harness(
         "live-on-button-state-log-summary",
         "live-on-preflight-setting-source-summary",
         "live-on-preflight-krw-balance-source-summary",
+        "live-on-preflight-effective-cap-summary",
         "upbit-accounts-readonly-krw-parse-proof",
         "upbit-accounts-readonly-balance-fetch-diagnostic",
         "live-on-runtime-e2e-diagnostic-dryrun",
@@ -16109,6 +16275,9 @@ def run_harness(
         elif mode == "live-on-preflight-krw-balance-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_krw_balance_source_summary(report)
+        elif mode == "live-on-preflight-effective-cap-summary":
+            _install_provider_post_guard(report)
+            _run_live_on_preflight_effective_cap_summary(report)
         elif mode == "upbit-accounts-readonly-krw-parse-proof":
             _install_provider_post_guard(report)
             _run_upbit_accounts_readonly_krw_parse_proof(report)
@@ -16703,6 +16872,7 @@ def main() -> int:
             "live-on-button-state-log-summary",
             "live-on-preflight-setting-source-summary",
             "live-on-preflight-krw-balance-source-summary",
+            "live-on-preflight-effective-cap-summary",
             "upbit-accounts-readonly-krw-parse-proof",
             "upbit-accounts-readonly-balance-fetch-diagnostic",
             "live-on-runtime-e2e-diagnostic-dryrun",

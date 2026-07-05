@@ -1384,6 +1384,23 @@ The mode emits `aits_live_on_preflight_krw_balance_source_summary_v1` with
 `next_fix_target`. It does not call order submit paths and keeps
 `provider_external_call_count=0` and `submitted_count=0`.
 
+### live-on-preflight-effective-cap-summary
+
+`live-on-preflight-effective-cap-summary` reads recent ON preflight logs and
+verifies the effective cap calculation.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-effective-cap-summary --observe-only
+```
+
+The mode emits `aits_live_on_preflight_effective_cap_summary_v1` with
+`available_krw`, `order_amount_krw`, `pos_limit_krw`, `pos_size_pct`,
+`per_order_hard_cap_krw`, `total_guarded_window_cap_krw`,
+`effective_hard_cap_krw`, `min_required_pos_size_pct_for_order`,
+`recommended_pos_size_pct_for_test`, `first_blocker`, and
+`can_pass_if_pos_size_pct_adjusted`. It does not change settings or place
+orders.
+
 ### upbit-accounts-readonly-krw-parse-proof
 
 `upbit-accounts-readonly-krw-parse-proof` verifies `/v1/accounts` KRW row

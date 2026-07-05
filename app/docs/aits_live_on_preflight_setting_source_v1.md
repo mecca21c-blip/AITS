@@ -23,6 +23,27 @@ limits.
 | `effective_hard_cap_krw` | `min(available_krw, settings.max_total_krw, pos_limit_krw, hard_cap_krw)` | Runtime effective cap after balance and position constraints. |
 | `total_guarded_window_cap_krw` | `settings.strategy.total_guarded_window_cap_krw` | Configured guarded-window cap. Default `20000`. |
 
+## Effective Cap Calculation
+
+`effective_hard_cap_below_min_order` means the configured order amount is at or
+above the 10000 KRW minimum order, but the effective cap after balance and
+position-size constraints is below 10000 KRW.
+
+Example:
+
+```text
+available_krw=113201
+pos_size_pct=2.5
+pos_limit_krw=2830
+hard_cap_krw=12000
+window_cap=20000
+effective_hard_cap_krw=min(113201, 2830, 12000, 20000)=2830
+```
+
+For a 10000 KRW order with `available_krw=113201`, the minimum required
+`pos_size_pct` is about `8.84%`. A practical test setting is `10%`, which gives
+`pos_limit_krw` about `11320`.
+
 ## Zero Value Interpretation
 
 - `hard_cap_krw=0` should not appear as the configured cap. The configured cap is
@@ -51,6 +72,8 @@ missing ON click. More specific blockers include:
 - `insufficient_available_krw`
 - `pos_limit_zero`
 - `effective_hard_cap_below_min_order`
+- `position_limit_below_min_order`
+- `position_size_pct_too_low_for_order_amount`
 - `order_amount_exceeds_per_order_hard_cap`
 - `order_amount_exceeds_total_guarded_window_cap`
 
