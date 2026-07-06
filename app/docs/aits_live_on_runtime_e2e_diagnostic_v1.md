@@ -180,3 +180,26 @@ when the logs contain enough detail.
 ## ON Preflight Provider Readiness Source
 
 `AITS-LIVE-ON-PREFLIGHT-PROVIDER-READINESS-SOURCE-FIX-01` reclassifies provider-readiness blockers separately from AI analysis freshness. If ON is blocked before runtime because the selected GPT/Gemini provider is not connected, the blocker should come from `MainWindow._build_on_preflight_provider_readiness_state` and the provider connection snapshot. Stale or missing AI generation freshness is not a provider connection failure.
+
+## ON After Preflight Stage Trace
+
+`AITS-LIVE-ON-RUNTIME-AFTER-PREFLIGHT-STAGE-TRACE-01` adds an adjacent log
+summary for the stages after the ON button handler starts:
+
+- ON button detected
+- ON preflight logged and passed/failed
+- runtime start requested
+- runner start confirmed
+- order/live gate state
+- order-intent and submit reachability
+
+Use:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-runtime-after-preflight-stage-trace --observe-only
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-runtime-after-preflight-stage-summary --observe-only
+```
+
+`CandidateFeedState` score updates alone do not prove live runtime order path
+entry. Treat them as candidate/feed-loop evidence until runtime start and order
+gate logs are present.

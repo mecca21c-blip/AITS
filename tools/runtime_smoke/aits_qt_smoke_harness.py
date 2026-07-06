@@ -7877,6 +7877,181 @@ def _run_live_on_runtime_e2e_diagnostic(
     report.update(_build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode=mode))
 
 
+def _live_on_stage_extract_value(line: str, key: str) -> str:
+    match = re.search(rf"(?:^|[\s|]){re.escape(key)}[=:]\s*([^\s|]+)", line)
+    return str(match.group(1)).strip() if match else ""
+
+
+def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir: Path) -> dict[str, Any]:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_500_000)
+    lower_lines = [line.lower() for line in lines]
+    joined_lower = "\n".join(lower_lines)
+    e2e = _build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode="live-on-runtime-e2e-diagnostic-log-summary")
+
+    on_lines = [
+        line for line in lines
+        if "[AITS][ON]" in line or "[UI] toggle" in line or "[START-REQ]" in line or "[RUNNER]" in line
+    ]
+    preflight_lines = [
+        line for line in lines
+        if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line or "[AITS][KRWBalanceSource]" in line
+    ]
+    runtime_lines = [
+        line for line in lines
+        if "[AITS][RuntimeState]" in line or "[START-REQ]" in line or "[START-ACK]" in line or "[START-TIMEOUT]" in line
+    ]
+    provider_lines = [line for line in lines if "[AITS][LiveOnProviderReadiness]" in line or "[AITS][ProviderReadinessSource]" in line]
+    live_gate_lines = [line for line in lines if "[AITS][LiveGate]" in line or "live_gate" in line]
+    order_allowed_lines = [line for line in lines if "[AITS][OrderAllowedState]" in line or "order_allowed" in line or "real_order" in line]
+
+    preflight_failed = any("preflight_failed" in line.lower() or "[preflight] check failed" in line.lower() or "ok=0" in line.lower() for line in preflight_lines)
+    preflight_passed = any("preflight_passed" in line.lower() or "[preflight] check passed" in line.lower() or "ok=1" in line.lower() for line in preflight_lines)
+    preflight_detected = bool(preflight_lines)
+    runtime_start_requested = any("runtime_start_requested" in line.lower() or "[start-req]" in line.lower() for line in runtime_lines + on_lines)
+    runtime_loop_started = any(
+        token in joined_lower
+        for token in (
+            "event=runtime_started",
+            "event=runner_start_after",
+            "[runner] start_strategy called",
+            "[start-ack]",
+            "runtime_loop_started",
+        )
+    )
+    runtime_not_started = any("event=runtime_not_started" in line.lower() or "[start-timeout]" in line.lower() for line in runtime_lines)
+
+    latest_runtime = runtime_lines[-1] if runtime_lines else ""
+    latest_preflight = preflight_lines[-1] if preflight_lines else ""
+    latest_provider = provider_lines[-1] if provider_lines else ""
+    latest_order_state = order_allowed_lines[-1] if order_allowed_lines else ""
+
+    order_allowed = bool(re.search(r"order_allowed[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    real_order = bool(re.search(r"real_order[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    live_gate_ready = any(re.search(r"live_gate(?:_ready)?[=:]\s*true", line, flags=re.IGNORECASE) for line in live_gate_lines + runtime_lines)
+    candidate_loop_running = bool(e2e.get("score_update_count"))
+    order_intent_candidate_detected = bool(e2e.get("order_intent_candidate_detected"))
+
+    preflight_status = "not_logged"
+    if preflight_failed:
+        preflight_status = "failed"
+    elif preflight_passed:
+        preflight_status = "passed"
+    elif preflight_detected:
+        preflight_status = "logged_unknown"
+
+    if not on_lines:
+        first_blocker = "on_click_not_detected"
+        last_reached_stage = "none"
+    elif not preflight_detected:
+        first_blocker = "on_preflight_not_logged"
+        last_reached_stage = "on_button_detected"
+    elif preflight_failed and not runtime_start_requested:
+        first_blocker = "on_preflight_blocked"
+        last_reached_stage = "on_preflight_failed"
+    elif preflight_passed and not runtime_start_requested:
+        first_blocker = "on_preflight_passed_but_runtime_not_started"
+        last_reached_stage = "on_preflight_passed"
+    elif runtime_start_requested and not runtime_loop_started:
+        first_blocker = "runtime_start_requested_but_not_started"
+        last_reached_stage = "runtime_start_requested"
+    elif runtime_loop_started and not order_allowed:
+        first_blocker = "runtime_started_but_order_allowed_false"
+        last_reached_stage = "runtime_loop_started"
+    elif runtime_loop_started and order_allowed and not real_order:
+        first_blocker = "runtime_started_order_allowed_true_but_real_order_false"
+        last_reached_stage = "runtime_loop_started_order_allowed"
+    elif candidate_loop_running and not order_intent_candidate_detected:
+        first_blocker = "order_intent_candidate_missing"
+        last_reached_stage = "candidate_loop_running"
+    else:
+        first_blocker = str(e2e.get("first_blocker") or "")
+        last_reached_stage = str(e2e.get("last_reached_stage") or "unknown")
+
+    if runtime_not_started and first_blocker in {"", "runtime_started_but_order_allowed_false"}:
+        first_blocker = "runtime_not_started"
+        last_reached_stage = "runtime_start_requested"
+
+    next_fix_map = {
+        "on_click_not_detected": "collect fresh ON click log or inspect button signal wiring",
+        "on_preflight_not_logged": "inspect ON handler preflight logging and call path",
+        "on_preflight_blocked": "fix the reported preflight blocker before runtime start",
+        "on_preflight_passed_but_runtime_not_started": "inspect _on_toggle_run start_strategy scheduling path",
+        "runtime_start_requested_but_not_started": "inspect start_strategy runner acknowledgement path",
+        "runtime_not_started": "inspect start timeout and runner _RUNNING state",
+        "runtime_started_but_order_allowed_false": "inspect live gate/order_allowed ownership after runner start",
+        "runtime_started_order_allowed_true_but_real_order_false": "inspect real_order/live unlock confirmation gate",
+        "order_intent_candidate_missing": "inspect buy_ready to order intent candidate active bridge",
+    }
+
+    timeline = (on_lines + preflight_lines + provider_lines + runtime_lines + live_gate_lines)[-120:]
+    safety_flags = {
+        "actual_order_forced": False,
+        "forced_candidate_injected": False,
+        "fake_live_gate": False,
+        "provider_external_call_count": 0,
+        "submitted_count": int(e2e.get("submitted_count") or 0),
+    }
+
+    return {
+        "mode": mode,
+        "schema": "aits_live_on_runtime_after_preflight_stage_trace_v1",
+        "diagnostic_status": "pass",
+        "pass_status": "pass",
+        "status": "pass",
+        "log_path": log_path,
+        "log_read_error": log_read_error,
+        "analyzed_log_line_count": len(lines),
+        "timeline": timeline,
+        "on_button_detected": bool(on_lines),
+        "on_preflight_detected": preflight_detected,
+        "on_preflight_status": preflight_status,
+        "on_preflight_passed": bool(preflight_passed),
+        "provider_readiness_passed": "engine_ready=True" in latest_provider or "on_preflight_provider_ready=True" in latest_provider,
+        "balance_preflight_passed": not any(token in latest_preflight for token in ("balance_fetch_failed", "balance_not_loaded", "available_krw_zero")),
+        "cap_preflight_passed": not any(token in latest_preflight for token in ("hard_cap_zero", "effective_hard_cap_below_min_order", "order_amount_exceeds")),
+        "runtime_start_requested": bool(runtime_start_requested),
+        "runtime_loop_started": bool(runtime_loop_started),
+        "ui_on_state": _live_on_stage_extract_value(latest_runtime, "ui_on_state") or ("True" if on_lines else ""),
+        "orchestrator_execution_mode": _live_on_stage_extract_value(latest_runtime, "execution_mode") or _live_on_stage_extract_value(latest_order_state, "execution_mode"),
+        "runtime_state": "started" if runtime_loop_started else ("start_requested" if runtime_start_requested else "not_started"),
+        "order_allowed": bool(order_allowed),
+        "real_order": bool(real_order),
+        "live_gate_ready": bool(live_gate_ready),
+        "candidate_loop_running": bool(candidate_loop_running),
+        "buy_ready_count": int(e2e.get("buy_ready_count") or 0),
+        "ai_opinion_fresh_count": int(e2e.get("ai_opinion_fresh_count") or 0),
+        "order_intent_candidate_detected": bool(order_intent_candidate_detected),
+        "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),
+        "router_validation_reached": bool(e2e.get("router_validation_reached")),
+        "riskguard_reached": bool(e2e.get("riskguard_reached")),
+        "live_preflight_reached": bool(e2e.get("live_preflight_reached")),
+        "unlock_reached": bool(e2e.get("unlock_reached")),
+        "execution_bridge_reached": bool(e2e.get("execution_bridge_reached")),
+        "order_service_reached": bool(e2e.get("order_service_reached")),
+        "order_adapter_reached": bool(e2e.get("order_adapter_reached")),
+        "submit_attempt_count": int(e2e.get("submit_attempt_count") or 0),
+        "submitted_count": int(e2e.get("submitted_count") or 0),
+        "first_blocker": first_blocker,
+        "last_reached_stage": last_reached_stage,
+        "next_fix_target": next_fix_map.get(first_blocker) or str(e2e.get("next_fix_target") or "inspect after-preflight stage timeline"),
+        "latest_preflight_line": latest_preflight,
+        "latest_runtime_line": latest_runtime,
+        "latest_provider_readiness_line": latest_provider,
+        "candidate_loop_relation": "candidate_feed_loop_detected_independent_of_order_gate" if candidate_loop_running and not order_intent_candidate_detected else "candidate_feed_loop_not_detected" if not candidate_loop_running else "candidate_loop_reached_order_intent_path",
+        "e2e_first_blocker": str(e2e.get("first_blocker") or ""),
+        "e2e_order_path_status": str(e2e.get("order_path_status") or ""),
+        "safety_flags": safety_flags,
+        "provider_external_call_count": 0,
+        "actual_order": False,
+        "managed_pool_mutation": False,
+        "order_risk_detected": bool(e2e.get("order_risk_detected")),
+    }
+
+
+def _run_live_on_runtime_after_preflight_stage_trace(report: dict[str, Any], *, output_dir: Path, mode: str) -> None:
+    report.update(_build_live_on_runtime_after_preflight_stage_report(mode=mode, output_dir=output_dir))
+
+
 def _live_on_button_trace_lines() -> tuple[list[str], str, str]:
     return _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
 
@@ -16613,6 +16788,8 @@ def run_harness(
         "upbit-accounts-readonly-balance-fetch-diagnostic",
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
+        "live-on-runtime-after-preflight-stage-trace",
+        "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
         "riskguard-readonly-adapter-skeleton-live-proof",
         "riskguard-readonly-actual-adapter-fixture-proof",
@@ -16847,6 +17024,13 @@ def run_harness(
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
+                report,
+                output_dir=output_dir,
+                mode=mode,
+            )
+        elif mode in {"live-on-runtime-after-preflight-stage-trace", "live-on-runtime-after-preflight-stage-summary"}:
+            _install_provider_post_guard(report)
+            _run_live_on_runtime_after_preflight_stage_trace(
                 report,
                 output_dir=output_dir,
                 mode=mode,
@@ -17456,6 +17640,8 @@ def main() -> int:
             "upbit-accounts-readonly-balance-fetch-diagnostic",
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
+            "live-on-runtime-after-preflight-stage-trace",
+            "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
             "riskguard-readonly-adapter-skeleton-live-proof",
             "riskguard-readonly-actual-adapter-fixture-proof",

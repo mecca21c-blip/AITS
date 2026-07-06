@@ -1489,3 +1489,20 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode upbit-accounts-readon
 
 The mode emits `aits_upbit_accounts_readonly_balance_fetch_diagnostic_v1`.
 Order endpoints remain forbidden.
+
+### live-on-runtime-after-preflight-stage-trace
+
+`live-on-runtime-after-preflight-stage-trace` and
+`live-on-runtime-after-preflight-stage-summary` classify the latest ON logs
+after preflight. They separate UI ON, preflight pass/fail, runtime start
+request, runner start, order gate, live gate, order intent reachability, and
+submit reachability.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-runtime-after-preflight-stage-trace --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-runtime-after-preflight-stage-summary --observe-only
+```
+
+The modes emit `aits_live_on_runtime_after_preflight_stage_trace_v1` and do not
+call RiskGuard, LivePreflight, unlock, ExecutionBridge, OrderService,
+OrderAdapter, provider APIs, or exchange order endpoints.
