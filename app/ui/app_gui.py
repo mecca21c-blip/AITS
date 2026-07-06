@@ -51692,6 +51692,10 @@ class MainWindow(QMainWindow):
             # 예외 시 UI 원복
             try:
                 self._log.error(f"[UI] toggle error: {e}")
+                self._log.warning(
+                    "[AITS][ON] event=handler_exception source_path=on_button error_type=%s submitted=0 order_allowed=False real_order=False",
+                    type(e).__name__,
+                )
             except Exception:
                 pass
             try:
@@ -51785,6 +51789,13 @@ class MainWindow(QMainWindow):
             self._log.info(f"[UI] toggle entry run={run} current={current_running} live_trade={live_trade} simulate={simulate} settings_ready={settings_ready}")
             self._log_live_on_button_state_trace(
                 "handler_entry",
+                requested_run=run,
+                current_running=current_running,
+                settings_ready=settings_ready,
+            )
+            self._log_live_on_button_state_trace(
+                "handler_enter",
+                source_path="on_button",
                 requested_run=run,
                 current_running=current_running,
                 settings_ready=settings_ready,
@@ -51976,9 +51987,20 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                     # ✅ P2: 실행 전 사전 점검 (Preflight Check)
+                    self._log_live_on_button_state_trace(
+                        "preflight_start",
+                        source_path="on_button",
+                        requested_run=run,
+                    )
                     preflight_ok, preflight_msg = self._preflight_check()
                     if not preflight_ok:
                         self._log.warning(f"[PREFLIGHT] check failed: {preflight_msg}")
+                        self._log_live_on_button_state_trace(
+                            "preflight_result",
+                            source_path="on_button",
+                            status="fail",
+                            blocker=str(preflight_msg or "")[:120],
+                        )
                         # 사용자에게 알림 (선택적 - 경고만 표시하고 진행 가능)
                         try:
                             QMessageBox.warning(self, "실행 전 점검", preflight_msg)
@@ -51986,6 +52008,12 @@ class MainWindow(QMainWindow):
                             pass
                     else:
                         self._log.info(f"[PREFLIGHT] check passed: {preflight_msg}")
+                        self._log_live_on_button_state_trace(
+                            "preflight_result",
+                            source_path="on_button",
+                            status="pass",
+                            blocker="-",
+                        )
                     
                     # ✅ SSOT 분기 진단 로그 (UI 토글 진입부)
                     # P0-1: svc_order 확보 (크래시 방지)
@@ -52167,6 +52195,10 @@ class MainWindow(QMainWindow):
 
                     ts_req = int(time.time() * 1000)
                     self._log.info("[START-REQ] ts=%d", ts_req)
+                    self._log.info(
+                        "[AITS][RuntimeState] event=start_requested source_path=on_button execution_mode_before=%s order_allowed_before=False real_order_before=False submitted=0",
+                        str(self._get_aits_execution_mode() or "unknown"),
+                    )
 
                     def _do_start_work():
                         """무거운 시작 작업: QTimer.singleShot(0)로 UI 이벤트 루프 이후 실행"""
@@ -52214,6 +52246,11 @@ class MainWindow(QMainWindow):
                             elapsed_ms = int((time.perf_counter() - t_req) * 1000)
                             if started:
                                 self._log.info("[START-ACK] elapsed_ms=%d", elapsed_ms)
+                                self._log.info(
+                                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_started=True elapsed_ms=%s execution_mode_after=%s order_allowed_after=False real_order_after=False submitted=0",
+                                    elapsed_ms,
+                                    str(self._get_aits_execution_mode() or "unknown"),
+                                )
                                 try:
                                     self._set_running_ui(True)
                                 except Exception:
@@ -52221,6 +52258,11 @@ class MainWindow(QMainWindow):
                                 return
                             if elapsed_ms >= 5000:
                                 self._log.info("[START-TIMEOUT] elapsed_ms=%d", elapsed_ms)
+                                self._log.info(
+                                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_started=False elapsed_ms=%s execution_mode_after=%s order_allowed_after=False real_order_after=False blocker=start_timeout submitted=0",
+                                    elapsed_ms,
+                                    str(self._get_aits_execution_mode() or "unknown"),
+                                )
                                 try:
                                     self._set_running_ui(True)
                                 except Exception:
@@ -52239,6 +52281,15 @@ class MainWindow(QMainWindow):
                 else:
                     # ✅ P0-C: 클릭 즉시 경량 플래그 세팅(UI 응답성), 무거운 작업은 QTimer로 지연
                     t_req = time.perf_counter()
+                    self._log_live_on_button_state_trace(
+                        "off_requested",
+                        source_path="on_button",
+                        requested_run=run,
+                    )
+                    self._log.info(
+                        "[AITS][RuntimeState] event=stop_requested source_path=on_button execution_mode_before=%s order_allowed_before=False real_order_before=False submitted=0",
+                        str(self._get_aits_execution_mode() or "unknown"),
+                    )
                     # Stop inflight guard: 재클릭/중복 시그널로 enabled=True 복귀 방지
                     try:
                         self.btn_run_toggle.setEnabled(False)
@@ -52284,6 +52335,11 @@ class MainWindow(QMainWindow):
                             elapsed_ms = int((time.perf_counter() - t_req) * 1000)
                             if stopped:
                                 self._log.info("[STOP-ACK] elapsed_ms=%d", elapsed_ms)
+                                self._log.info(
+                                    "[AITS][RuntimeState] event=stop_result source_path=on_button runtime_stopped=True elapsed_ms=%s execution_mode_after=%s order_allowed_after=False real_order_after=False submitted=0",
+                                    elapsed_ms,
+                                    str(self._get_aits_execution_mode() or "unknown"),
+                                )
                                 try:
                                     self._set_running_ui(False)
                                 except Exception:
@@ -52301,6 +52357,11 @@ class MainWindow(QMainWindow):
                                 return
                             if elapsed_ms >= 5000:
                                 self._log.info("[STOP-TIMEOUT] elapsed_ms=%d", elapsed_ms)
+                                self._log.info(
+                                    "[AITS][RuntimeState] event=stop_result source_path=on_button runtime_stopped=False elapsed_ms=%s execution_mode_after=%s order_allowed_after=False real_order_after=False blocker=stop_timeout submitted=0",
+                                    elapsed_ms,
+                                    str(self._get_aits_execution_mode() or "unknown"),
+                                )
                                 try:
                                     self._set_running_ui(False)
                                 except Exception:

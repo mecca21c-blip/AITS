@@ -203,3 +203,10 @@ Use:
 `CandidateFeedState` score updates alone do not prove live runtime order path
 entry. Treat them as candidate/feed-loop evidence until runtime start and order
 gate logs are present.
+
+`AITS-LIVE-ON-BUTTON-ACTIVE-HANDLER-INSTRUMENTATION-01` adds the active handler
+entry and result markers used by that summary: `handler_enter`,
+`preflight_start`, `preflight_result`, `start_requested`, `start_result`,
+`off_requested`, `stop_requested`, `stop_result`, and `handler_exception`.
+If these markers are missing after a user clicks ON, investigate signal wiring
+before Router/RiskGuard/Order paths.

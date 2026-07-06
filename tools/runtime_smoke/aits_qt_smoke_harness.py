@@ -7907,7 +7907,30 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     preflight_failed = any("preflight_failed" in line.lower() or "[preflight] check failed" in line.lower() or "ok=0" in line.lower() for line in preflight_lines)
     preflight_passed = any("preflight_passed" in line.lower() or "[preflight] check passed" in line.lower() or "ok=1" in line.lower() for line in preflight_lines)
     preflight_detected = bool(preflight_lines)
-    runtime_start_requested = any("runtime_start_requested" in line.lower() or "[start-req]" in line.lower() for line in runtime_lines + on_lines)
+    on_handler_enter_detected = any(
+        "event=handler_enter" in line.lower() or "event=handler_entry" in line.lower()
+        for line in on_lines
+    )
+    preflight_start_detected = any("event=preflight_start" in line.lower() for line in on_lines + preflight_lines)
+    preflight_result_detected = any("event=preflight_result" in line.lower() for line in on_lines + preflight_lines)
+    runtime_start_requested = any(
+        "runtime_start_requested" in line.lower()
+        or "event=start_requested" in line.lower()
+        or "[start-req]" in line.lower()
+        for line in runtime_lines + on_lines
+    )
+    runtime_start_result_detected = any(
+        "event=start_result" in line.lower() or "[start-ack]" in line.lower() or "[start-timeout]" in line.lower()
+        for line in runtime_lines + on_lines
+    )
+    runtime_stop_requested = any(
+        "event=stop_requested" in line.lower() or "event=off_requested" in line.lower() or "[stop-req]" in line.lower()
+        for line in runtime_lines + on_lines
+    )
+    runtime_stop_result_detected = any(
+        "event=stop_result" in line.lower() or "[stop-ack]" in line.lower() or "[stop-timeout]" in line.lower()
+        for line in runtime_lines + on_lines
+    )
     runtime_loop_started = any(
         token in joined_lower
         for token in (
@@ -7927,6 +7950,12 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
 
     order_allowed = bool(re.search(r"order_allowed[=:]\s*true", joined_lower, flags=re.IGNORECASE))
     real_order = bool(re.search(r"real_order[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    order_allowed_before = bool(re.search(r"order_allowed_before[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    order_allowed_after = bool(re.search(r"order_allowed_after[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    real_order_before = bool(re.search(r"real_order_before[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    real_order_after = bool(re.search(r"real_order_after[=:]\s*true", joined_lower, flags=re.IGNORECASE))
+    execution_mode_before = _live_on_stage_extract_value(latest_runtime, "execution_mode_before")
+    execution_mode_after = _live_on_stage_extract_value(latest_runtime, "execution_mode_after")
     live_gate_ready = any(re.search(r"live_gate(?:_ready)?[=:]\s*true", line, flags=re.IGNORECASE) for line in live_gate_lines + runtime_lines)
     candidate_loop_running = bool(e2e.get("score_update_count"))
     order_intent_candidate_detected = bool(e2e.get("order_intent_candidate_detected"))
@@ -7942,6 +7971,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     if not on_lines:
         first_blocker = "on_click_not_detected"
         last_reached_stage = "none"
+    elif not on_handler_enter_detected:
+        first_blocker = "on_handler_not_entered"
+        last_reached_stage = "on_button_detected"
     elif not preflight_detected:
         first_blocker = "on_preflight_not_logged"
         last_reached_stage = "on_button_detected"
@@ -7973,6 +8005,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
 
     next_fix_map = {
         "on_click_not_detected": "collect fresh ON click log or inspect button signal wiring",
+        "on_handler_not_entered": "inspect btn_run_toggle signal connection to _on_toggle_run_toggled/_on_toggle_run",
         "on_preflight_not_logged": "inspect ON handler preflight logging and call path",
         "on_preflight_blocked": "fix the reported preflight blocker before runtime start",
         "on_preflight_passed_but_runtime_not_started": "inspect _on_toggle_run start_strategy scheduling path",
@@ -8003,19 +8036,31 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "analyzed_log_line_count": len(lines),
         "timeline": timeline,
         "on_button_detected": bool(on_lines),
+        "on_handler_enter_detected": bool(on_handler_enter_detected),
         "on_preflight_detected": preflight_detected,
+        "preflight_start_detected": bool(preflight_start_detected),
+        "preflight_result_detected": bool(preflight_result_detected),
         "on_preflight_status": preflight_status,
         "on_preflight_passed": bool(preflight_passed),
         "provider_readiness_passed": "engine_ready=True" in latest_provider or "on_preflight_provider_ready=True" in latest_provider,
         "balance_preflight_passed": not any(token in latest_preflight for token in ("balance_fetch_failed", "balance_not_loaded", "available_krw_zero")),
         "cap_preflight_passed": not any(token in latest_preflight for token in ("hard_cap_zero", "effective_hard_cap_below_min_order", "order_amount_exceeds")),
         "runtime_start_requested": bool(runtime_start_requested),
+        "runtime_start_result_detected": bool(runtime_start_result_detected),
+        "runtime_stop_requested": bool(runtime_stop_requested),
+        "runtime_stop_result_detected": bool(runtime_stop_result_detected),
         "runtime_loop_started": bool(runtime_loop_started),
         "ui_on_state": _live_on_stage_extract_value(latest_runtime, "ui_on_state") or ("True" if on_lines else ""),
         "orchestrator_execution_mode": _live_on_stage_extract_value(latest_runtime, "execution_mode") or _live_on_stage_extract_value(latest_order_state, "execution_mode"),
+        "execution_mode_before": execution_mode_before,
+        "execution_mode_after": execution_mode_after,
         "runtime_state": "started" if runtime_loop_started else ("start_requested" if runtime_start_requested else "not_started"),
         "order_allowed": bool(order_allowed),
+        "order_allowed_before": bool(order_allowed_before),
+        "order_allowed_after": bool(order_allowed_after),
         "real_order": bool(real_order),
+        "real_order_before": bool(real_order_before),
+        "real_order_after": bool(real_order_after),
         "live_gate_ready": bool(live_gate_ready),
         "candidate_loop_running": bool(candidate_loop_running),
         "buy_ready_count": int(e2e.get("buy_ready_count") or 0),

@@ -1506,3 +1506,11 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-runtime-after
 The modes emit `aits_live_on_runtime_after_preflight_stage_trace_v1` and do not
 call RiskGuard, LivePreflight, unlock, ExecutionBridge, OrderService,
 OrderAdapter, provider APIs, or exchange order endpoints.
+
+`AITS-LIVE-ON-BUTTON-ACTIVE-HANDLER-INSTRUMENTATION-01` extends this parser
+with active handler markers: `on_handler_enter_detected`,
+`preflight_start_detected`, `preflight_result_detected`,
+`runtime_start_result_detected`, `runtime_stop_requested`,
+`runtime_stop_result_detected`, `execution_mode_before`,
+`execution_mode_after`, `order_allowed_before`, `order_allowed_after`,
+`real_order_before`, and `real_order_after`.

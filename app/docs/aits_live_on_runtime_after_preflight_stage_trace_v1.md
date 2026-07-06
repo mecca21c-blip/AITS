@@ -7,14 +7,34 @@ This proof is diagnostic only. It must not force candidates, unlock gates, RiskG
 ## Active Owners
 
 - ON button handler: `app/ui/app_gui.py::MainWindow._on_toggle_run`
+- ON button signal chain: `btn_run_toggle.toggled -> _on_toggle_run_toggled -> _on_toggle_run_toggled_impl -> _on_toggle_run`
 - ON state trace writer: `MainWindow._log_live_on_button_state_trace`
 - Preflight owner: `MainWindow._preflight_check`
 - Runtime stage trace prefix: `[AITS][RuntimeState]`
 - Existing E2E parser: `tools/runtime_smoke/aits_qt_smoke_harness.py::live-on-runtime-e2e-diagnostic-log-summary`
 
+## Active Handler Instrumentation
+
+`AITS-LIVE-ON-BUTTON-ACTIVE-HANDLER-INSTRUMENTATION-01` adds read-only trace
+events to the active ON/OFF handler path:
+
+- `[AITS][ON] event=handler_enter`
+- `[AITS][ON] event=preflight_start`
+- `[AITS][ON] event=preflight_result status=pass|fail`
+- `[AITS][RuntimeState] event=start_requested`
+- `[AITS][RuntimeState] event=start_result runtime_started=True|False`
+- `[AITS][ON] event=off_requested`
+- `[AITS][RuntimeState] event=stop_requested`
+- `[AITS][RuntimeState] event=stop_result runtime_stopped=True|False`
+- `[AITS][ON] event=handler_exception`
+
+These events are instrumentation only. They do not change preflight,
+RiskGuard, LivePreflight, unlock, order intent, or submit behavior.
+
 ## Stage Taxonomy
 
 - `on_click_not_detected`: no ON button or handler trace found.
+- `on_handler_not_entered`: ON evidence exists, but the active handler entry trace is missing.
 - `on_preflight_not_logged`: ON was seen, but preflight was not logged.
 - `on_preflight_blocked`: preflight failed before a runtime start request.
 - `on_preflight_passed_but_runtime_not_started`: preflight passed but no start request was logged.
