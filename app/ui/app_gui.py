@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
+
 # ⚠️ 봉인 선언: 역할 변경/이동/삭제/리팩터링 금지
 # - 현 단계에서는 안정화 우선
 # - 구조 변경은 v-next에서만 수행
 # - 이 파일의 역할/위치/구조는 변경하지 말 것
 
 from __future__ import annotations
+AITS_APP_GUI_INSTRUMENTATION_ID = "runtime-provenance-on-widget-a0dc438"
 import sys
 import os
 import logging
@@ -11401,6 +11403,54 @@ class MainWindow(QMainWindow):
         )
         print(runtime_proof, flush=True)
         self._log.info(runtime_proof)
+        try:
+            import sys
+            from pathlib import Path
+
+            app_gui_path = Path(__file__).resolve()
+            app_gui_stat = app_gui_path.stat()
+            git_head = ""
+            try:
+                git_head_file = Path.cwd() / ".git" / "HEAD"
+                head_text = git_head_file.read_text(encoding="utf-8", errors="replace").strip()
+                if head_text.startswith("ref:"):
+                    ref_path = Path.cwd() / ".git" / head_text.split(" ", 1)[1]
+                    git_head = ref_path.read_text(encoding="utf-8", errors="replace").strip()[:12]
+                else:
+                    git_head = head_text[:12]
+            except Exception:
+                git_head = "unavailable"
+            log_file_path = ""
+            try:
+                for handler in self._log.handlers:
+                    base_filename = getattr(handler, "baseFilename", "")
+                    if base_filename:
+                        log_file_path = str(base_filename)
+                        break
+                if not log_file_path:
+                    root_logger = logging.getLogger()
+                    for handler in root_logger.handlers:
+                        base_filename = getattr(handler, "baseFilename", "")
+                        if base_filename:
+                            log_file_path = str(base_filename)
+                            break
+            except Exception:
+                log_file_path = ""
+            provenance_line = (
+                "[AITS][RuntimeProvenance] event=app_start "
+                f"process_pid={os.getpid()} python_executable={sys.executable} "
+                f"frozen={bool(getattr(sys, 'frozen', False))} cwd={os.getcwd()} "
+                f"app_gui_file={app_gui_path} app_gui_mtime={int(app_gui_stat.st_mtime)} "
+                f"app_gui_size={int(app_gui_stat.st_size)} git_head_if_available={git_head} "
+                f"build_marker_if_available={AITS_APP_GUI_INSTRUMENTATION_ID} "
+                f"log_file_path_if_available={log_file_path} timestamp={int(time.time())}"
+            )
+            self._log.info(provenance_line)
+            logging.getLogger("aits").info(provenance_line)
+            print(provenance_line, flush=True)
+        except Exception as provenance_error:
+            self._log.warning("[AITS][RuntimeProvenance] event=app_start_failed error_type=%s", type(provenance_error).__name__)
+            logging.getLogger("aits").warning("[AITS][RuntimeProvenance] event=app_start_failed error_type=%s", type(provenance_error).__name__)
         
         # ✅ BOOT-GUARD: Log UI initialization
         self._ui_init_count += 1
@@ -16751,6 +16801,24 @@ class MainWindow(QMainWindow):
         # 3) 진단 훅(1개만)
         try:
             self.btn_run_toggle.toggled.connect(lambda v: self._log.info(f"[BTN-SIG] run toggled v={v}"))
+            self.btn_run_toggle.toggled.connect(
+                lambda v: logging.getLogger("aits").info(
+                    "[AITS][ONWidget] event=toggled_probe object_name=%s signal_name=toggled checked_state=%s enabled_state=%s visible_state=%s",
+                    str(self.btn_run_toggle.objectName() or ""),
+                    bool(v),
+                    bool(self.btn_run_toggle.isEnabled()),
+                    bool(self.btn_run_toggle.isVisible()),
+                )
+            )
+            self.btn_run_toggle.clicked.connect(
+                lambda v=False: logging.getLogger("aits").info(
+                    "[AITS][ONWidget] event=clicked_probe object_name=%s signal_name=clicked checked_state=%s enabled_state=%s visible_state=%s",
+                    str(self.btn_run_toggle.objectName() or ""),
+                    bool(self.btn_run_toggle.isChecked()),
+                    bool(self.btn_run_toggle.isEnabled()),
+                    bool(self.btn_run_toggle.isVisible()),
+                )
+            )
         except Exception:
             pass
 
@@ -16758,6 +16826,17 @@ class MainWindow(QMainWindow):
         try:
             self.btn_run_toggle.toggled.connect(self._on_toggle_run_toggled)
             self._log.info("[BTN-CONNECT] ok target=_on_toggle_run_toggled (single entrypoint)")
+            logging.getLogger("aits").info(
+                "[AITS][ONWidget] event=on_widget_bound object_name=%s widget_class=%s signal_name=toggled handler_chain=%s handler_names=%s checked_state=%s enabled_state=%s visible_state=%s instrumentation_id=%s",
+                str(self.btn_run_toggle.objectName() or ""),
+                type(self.btn_run_toggle).__name__,
+                "_on_toggle_run_toggled>_on_toggle_run_toggled_impl>_on_toggle_run",
+                "_on_toggle_run_toggled,_on_toggle_run_toggled_impl,_on_toggle_run",
+                bool(self.btn_run_toggle.isChecked()),
+                bool(self.btn_run_toggle.isEnabled()),
+                bool(self.btn_run_toggle.isVisible()),
+                AITS_APP_GUI_INSTRUMENTATION_ID,
+            )
         except Exception as e:
             self._log.error(f"[BTN-CONNECT] error={e}")
         try:

@@ -8118,7 +8118,11 @@ def _live_on_button_trace_status_from_logs(lines: list[str]) -> dict[str, Any]:
     on_joined = "\n".join(line.lower() for line in on_lines)
     all_joined = "\n".join(lowered)
     click_detected = "[aits][on] event=toggled_entry" in on_joined or "[ui] toggle entry" in on_joined or "[btn-sig] run toggled" in on_joined
-    handler_detected = "[aits][on] event=handler_entry" in on_joined or "[ui] toggle entry run=" in on_joined
+    handler_detected = (
+        "[aits][on] event=handler_entry" in on_joined
+        or "[aits][on] event=handler_enter" in on_joined
+        or "[ui] toggle entry run=" in on_joined
+    )
     requested_on = "requested_run=true" in on_joined or "desired_run=true" in on_joined or "desired=true" in on_joined
     runner_start_called = "[runner] start_strategy called" in on_joined or "event=runner_start_after" in on_joined
     runner_running_after = "event=runner_start_after" in on_joined and "runner_running=true" in on_joined
@@ -8212,6 +8216,111 @@ def _run_live_on_button_state_trace(
                 "provider_external_call_count": 0,
             },
             **trace,
+        }
+    )
+
+
+def _runtime_provenance_latest_line(lines: list[str], marker: str) -> str:
+    for line in reversed(lines):
+        if marker in line:
+            return line
+    return ""
+
+
+def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_500_000)
+    app_gui_path = ROOT / "app" / "ui" / "app_gui.py"
+    source_text = ""
+    source_error = ""
+    try:
+        source_text = app_gui_path.read_text(encoding="utf-8", errors="replace")
+    except Exception as exc:
+        source_error = f"{type(exc).__name__}:{exc}"
+
+    provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
+    on_widget_lines = [line for line in lines if "[AITS][ONWidget]" in line]
+    on_lines = [line for line in lines if "[AITS][ON]" in line]
+    latest_provenance = provenance_lines[-1] if provenance_lines else ""
+    latest_widget_bound = _runtime_provenance_latest_line(on_widget_lines, "event=on_widget_bound")
+
+    instrumentation_id = _live_on_stage_extract_value(latest_provenance, "build_marker_if_available")
+    if not instrumentation_id:
+        instrumentation_id = _live_on_stage_extract_value(latest_widget_bound, "instrumentation_id")
+    if not instrumentation_id and "runtime-provenance-on-widget-a0dc438" in source_text:
+        instrumentation_id = "runtime-provenance-on-widget-a0dc438"
+
+    runtime_provenance_detected = bool(latest_provenance)
+    on_widget_bound_detected = bool(latest_widget_bound)
+    clicked_probe_detected = any("event=clicked_probe" in line for line in on_widget_lines)
+    toggled_probe_detected = any("event=toggled_probe" in line for line in on_widget_lines)
+    handler_enter_detected = any("event=handler_enter" in line or "event=handler_entry" in line for line in on_lines)
+    app_gui_file = _live_on_stage_extract_value(latest_provenance, "app_gui_file")
+    git_head_detected = _live_on_stage_extract_value(latest_provenance, "git_head_if_available")
+    frozen_value = _live_on_stage_extract_value(latest_provenance, "frozen")
+    log_file_path = _live_on_stage_extract_value(latest_provenance, "log_file_path_if_available")
+    if log_file_path.startswith("timestamp=") or "log_file_path_if_available= timestamp=" in latest_provenance:
+        log_file_path = ""
+    object_name = _live_on_stage_extract_value(latest_widget_bound, "object_name")
+    handler_chain = _live_on_stage_extract_value(latest_widget_bound, "handler_chain")
+
+    if not runtime_provenance_detected:
+        suspected_root_cause = "runtime_provenance_not_detected"
+        next_fix_target = "restart the active app from current workspace and confirm RuntimeProvenance log"
+    elif log_file_path and str(log_path) and log_file_path != str(log_path):
+        suspected_root_cause = "log_path_mismatch"
+        next_fix_target = "point harness log scan at the runtime log_file_path_if_available value"
+    elif not on_widget_bound_detected:
+        suspected_root_cause = "on_widget_bound_not_detected"
+        next_fix_target = "inspect ON widget binding during MainWindow initialization"
+    elif clicked_probe_detected and toggled_probe_detected and not handler_enter_detected:
+        suspected_root_cause = "on_handler_not_entered_after_widget_probe"
+        next_fix_target = "inspect signal order and active handler chain"
+    elif runtime_provenance_detected and not clicked_probe_detected and not toggled_probe_detected:
+        suspected_root_cause = "awaiting_fresh_on_click"
+        next_fix_target = "click ON in the restarted app and rerun provenance summary"
+    else:
+        suspected_root_cause = "not_reproduced_in_current_logs"
+        next_fix_target = "continue with after-preflight stage summary"
+
+    report.update(
+        {
+            "schema": "aits_runtime_provenance_log_summary_v1",
+            "diagnostic_status": "pass",
+            "pass_status": "pass",
+            "status": "pass",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "log_files_scanned": [log_path] if log_path else [],
+            "runtime_provenance_detected": bool(runtime_provenance_detected),
+            "app_gui_file": app_gui_file,
+            "instrumentation_id": instrumentation_id,
+            "git_head_detected": git_head_detected,
+            "frozen": frozen_value,
+            "log_file_path": log_file_path,
+            "on_widget_bound_detected": bool(on_widget_bound_detected),
+            "on_widget_object_name": object_name,
+            "handler_chain": handler_chain,
+            "clicked_probe_detected": bool(clicked_probe_detected),
+            "toggled_probe_detected": bool(toggled_probe_detected),
+            "handler_enter_detected": bool(handler_enter_detected),
+            "runtime_provenance_line": latest_provenance,
+            "on_widget_bound_line": latest_widget_bound,
+            "on_widget_timeline": on_widget_lines[-40:],
+            "source_marker_present": "runtime-provenance-on-widget-a0dc438" in source_text,
+            "source_read_error": source_error,
+            "suspected_root_cause": suspected_root_cause,
+            "next_fix_target": next_fix_target,
+            "safety_flags": {
+                "actual_order": False,
+                "order_service_called": False,
+                "order_adapter_called": False,
+                "execution_bridge_called": False,
+                "provider_external_call_count": 0,
+                "submitted_count": 0,
+            },
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "order_risk_detected": False,
         }
     )
 
@@ -16822,6 +16931,7 @@ def run_harness(
         "live-minimal-order-setting-readpath-preflight",
         "live-on-button-state-trace-dryrun",
         "live-on-button-state-log-summary",
+        "runtime-provenance-log-summary",
         "live-on-preflight-setting-source-summary",
         "live-on-preflight-krw-balance-source-summary",
         "live-on-preflight-effective-cap-summary",
@@ -17035,6 +17145,9 @@ def run_harness(
         elif mode in {"live-on-button-state-trace-dryrun", "live-on-button-state-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_button_state_trace(report, mode=mode)
+        elif mode == "runtime-provenance-log-summary":
+            _install_provider_post_guard(report)
+            _run_runtime_provenance_log_summary(report)
         elif mode == "live-on-preflight-setting-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_setting_source_summary(report)
@@ -17674,6 +17787,7 @@ def main() -> int:
             "live-minimal-order-setting-readpath-preflight",
             "live-on-button-state-trace-dryrun",
             "live-on-button-state-log-summary",
+            "runtime-provenance-log-summary",
             "live-on-preflight-setting-source-summary",
             "live-on-preflight-krw-balance-source-summary",
             "live-on-preflight-effective-cap-summary",

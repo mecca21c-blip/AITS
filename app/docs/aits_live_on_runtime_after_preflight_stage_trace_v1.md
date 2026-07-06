@@ -31,6 +31,22 @@ events to the active ON/OFF handler path:
 These events are instrumentation only. They do not change preflight,
 RiskGuard, LivePreflight, unlock, order intent, or submit behavior.
 
+## Runtime Provenance
+
+`AITS-RUNTIME-ACTIVE-BUILD-AND-ON-WIDGET-PROVENANCE-TRACE-01` adds startup and
+widget provenance markers:
+
+- `[AITS][RuntimeProvenance] event=app_start`
+- `[AITS][ONWidget] event=on_widget_bound`
+- `[AITS][ONWidget] event=clicked_probe`
+- `[AITS][ONWidget] event=toggled_probe`
+
+Use `runtime-provenance-log-summary` before deeper order-path debugging when
+ON clicks are not detected. If `RuntimeProvenance` is missing after restart,
+suspect a stale build or different runtime entrypoint. If `on_widget_bound` is
+present but click/toggle probes are missing, click ON in that same restarted
+app and rerun the summary.
+
 ## Stage Taxonomy
 
 - `on_click_not_detected`: no ON button or handler trace found.

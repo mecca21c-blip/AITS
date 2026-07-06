@@ -1514,3 +1514,20 @@ with active handler markers: `on_handler_enter_detected`,
 `runtime_stop_result_detected`, `execution_mode_before`,
 `execution_mode_after`, `order_allowed_before`, `order_allowed_after`,
 `real_order_before`, and `real_order_after`.
+
+### runtime-provenance-log-summary
+
+`runtime-provenance-log-summary` reads recent runtime logs and verifies which
+code/build and ON widget are active.
+
+```powershell
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode runtime-provenance-log-summary --observe-only
+```
+
+The mode emits `aits_runtime_provenance_log_summary_v1` with
+`runtime_provenance_detected`, `app_gui_file`, `instrumentation_id`,
+`git_head_detected`, `frozen`, `on_widget_bound_detected`,
+`on_widget_object_name`, `clicked_probe_detected`, `toggled_probe_detected`,
+and `handler_enter_detected`. It is log analysis only and does not call
+RiskGuard, LivePreflight, OrderService, OrderAdapter, provider APIs, or order
+endpoints.
