@@ -7908,9 +7908,22 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     preflight_passed = any("preflight_passed" in line.lower() or "[preflight] check passed" in line.lower() or "ok=1" in line.lower() for line in preflight_lines)
     preflight_detected = bool(preflight_lines)
     on_handler_enter_detected = any(
-        "event=handler_enter" in line.lower() or "event=handler_entry" in line.lower()
+        "event=handler_enter" in line.lower()
+        or "event=handler_entry" in line.lower()
+        or "event=handler_enter_stage" in line.lower()
+        or "event=handler_signal_bridge" in line.lower()
         for line in on_lines
     )
+    handler_stage_lines = [
+        line for line in on_lines
+        if "event=handler_enter_stage" in line.lower() or "event=handler_signal_bridge" in line.lower()
+    ]
+    handler_stage_sequence = [_live_on_stage_extract_value(line, "stage") for line in handler_stage_lines]
+    handler_stage_sequence = [stage for stage in handler_stage_sequence if stage]
+    handler_bridge_stage_detected = "_on_run_toggle_signal_bridge" in handler_stage_sequence
+    handler_toggled_stage_detected = "_on_toggle_run_toggled" in handler_stage_sequence
+    handler_impl_stage_detected = "_on_toggle_run_toggled_impl" in handler_stage_sequence
+    handler_run_stage_detected = "_on_toggle_run" in handler_stage_sequence
     preflight_start_detected = any("event=preflight_start" in line.lower() for line in on_lines + preflight_lines)
     preflight_result_detected = any("event=preflight_result" in line.lower() for line in on_lines + preflight_lines)
     runtime_start_requested = any(
@@ -7972,8 +7985,23 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         first_blocker = "on_click_not_detected"
         last_reached_stage = "none"
     elif not on_handler_enter_detected:
-        first_blocker = "on_handler_not_entered"
+        if "event=clicked_probe" in joined_lower and "event=toggled_probe" in joined_lower:
+            first_blocker = "on_signal_not_connected_to_handler"
+        else:
+            first_blocker = "on_handler_not_entered"
         last_reached_stage = "on_button_detected"
+    elif handler_bridge_stage_detected and not handler_toggled_stage_detected:
+        first_blocker = "on_signal_bridge_not_forwarding"
+        last_reached_stage = "_on_run_toggle_signal_bridge"
+    elif handler_toggled_stage_detected and not handler_impl_stage_detected:
+        first_blocker = "on_handler_wrapper_not_forwarding"
+        last_reached_stage = "_on_toggle_run_toggled"
+    elif handler_impl_stage_detected and not handler_run_stage_detected:
+        first_blocker = "on_handler_impl_not_forwarding"
+        last_reached_stage = "_on_toggle_run_toggled_impl"
+    elif handler_run_stage_detected and not preflight_start_detected:
+        first_blocker = "on_handler_entered_but_preflight_not_called"
+        last_reached_stage = "_on_toggle_run"
     elif not preflight_detected:
         first_blocker = "on_preflight_not_logged"
         last_reached_stage = "on_button_detected"
@@ -8005,7 +8033,12 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
 
     next_fix_map = {
         "on_click_not_detected": "collect fresh ON click log or inspect button signal wiring",
+        "on_signal_not_connected_to_handler": "inspect StopButton toggled signal bridge wiring",
         "on_handler_not_entered": "inspect btn_run_toggle signal connection to _on_toggle_run_toggled/_on_toggle_run",
+        "on_signal_bridge_not_forwarding": "inspect _on_run_toggle_signal_bridge forwarding to _on_toggle_run_toggled",
+        "on_handler_wrapper_not_forwarding": "inspect _on_toggle_run_toggled forwarding to _on_toggle_run_toggled_impl",
+        "on_handler_impl_not_forwarding": "inspect _on_toggle_run_toggled_impl forwarding to _on_toggle_run",
+        "on_handler_entered_but_preflight_not_called": "inspect _on_toggle_run preflight call path",
         "on_preflight_not_logged": "inspect ON handler preflight logging and call path",
         "on_preflight_blocked": "fix the reported preflight blocker before runtime start",
         "on_preflight_passed_but_runtime_not_started": "inspect _on_toggle_run start_strategy scheduling path",
@@ -8037,6 +8070,11 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "timeline": timeline,
         "on_button_detected": bool(on_lines),
         "on_handler_enter_detected": bool(on_handler_enter_detected),
+        "handler_stage_sequence": handler_stage_sequence,
+        "handler_bridge_stage_detected": bool(handler_bridge_stage_detected),
+        "handler_toggled_stage_detected": bool(handler_toggled_stage_detected),
+        "handler_impl_stage_detected": bool(handler_impl_stage_detected),
+        "handler_run_stage_detected": bool(handler_run_stage_detected),
         "on_preflight_detected": preflight_detected,
         "preflight_start_detected": bool(preflight_start_detected),
         "preflight_result_detected": bool(preflight_result_detected),
@@ -8281,6 +8319,9 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
     handler_stage_lines = [line for line in on_lines if "event=handler_enter_stage" in line]
     handler_stage_sequence = [_live_on_stage_extract_value(line, "stage") for line in handler_stage_lines]
     handler_stage_sequence = [stage for stage in handler_stage_sequence if stage]
+    handler_toggled_stage_detected = "_on_toggle_run_toggled" in handler_stage_sequence
+    handler_impl_stage_detected = "_on_toggle_run_toggled_impl" in handler_stage_sequence
+    handler_run_stage_detected = "_on_toggle_run" in handler_stage_sequence
     old_probe_ignored_count = sum(
         1
         for line in old_lines
@@ -8347,6 +8388,9 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
             "handler_enter_detected": bool(handler_enter_detected),
             "fresh_handler_stage_detected": bool(handler_stage_lines),
             "handler_stage_sequence": handler_stage_sequence,
+            "handler_toggled_stage_detected": bool(handler_toggled_stage_detected),
+            "handler_impl_stage_detected": bool(handler_impl_stage_detected),
+            "handler_run_stage_detected": bool(handler_run_stage_detected),
             "runtime_provenance_line": latest_provenance,
             "on_widget_bound_line": latest_widget_bound,
             "on_widget_timeline": on_widget_lines[-40:],

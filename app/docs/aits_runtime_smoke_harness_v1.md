@@ -1537,3 +1537,9 @@ boundary. Probe lines before that timestamp are ignored and reported as
 `old_probe_ignored_count`; fresh-session fields are exposed as
 `fresh_clicked_probe_detected`, `fresh_toggled_probe_detected`,
 `fresh_handler_stage_detected`, and `handler_stage_sequence`.
+
+The ON stage parser also reports `handler_toggled_stage_detected`,
+`handler_impl_stage_detected`, and `handler_run_stage_detected`. Fresh
+click/toggle probes without a handler stage are classified as
+`on_signal_not_connected_to_handler`; later gaps are classified by the missing
+forwarding stage.

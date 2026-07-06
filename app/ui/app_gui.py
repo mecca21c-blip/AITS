@@ -16824,7 +16824,15 @@ class MainWindow(QMainWindow):
 
         # 4) 최종 엔트리포인트 연결(1개만)
         try:
-            self.btn_run_toggle.toggled.connect(self._on_toggle_run_toggled)
+            try:
+                self.btn_run_toggle.toggled.disconnect(self._on_toggle_run_toggled)
+            except Exception:
+                pass
+            try:
+                self.btn_run_toggle.toggled.disconnect(self._on_run_toggle_signal_bridge)
+            except Exception:
+                pass
+            self.btn_run_toggle.toggled.connect(self._on_run_toggle_signal_bridge)
             self._log.info("[BTN-CONNECT] ok target=_on_toggle_run_toggled (single entrypoint)")
             logging.getLogger("aits").info(
                 "[AITS][ONWidget] event=on_widget_bound object_name=%s widget_class=%s signal_name=toggled handler_chain=%s handler_names=%s checked_state=%s enabled_state=%s visible_state=%s instrumentation_id=%s",
@@ -51627,8 +51635,37 @@ class MainWindow(QMainWindow):
     def _sync_run_toggle_text(self):
         self._style_run_toggle_switch(bool(getattr(self.state, "is_running", False)))
 
+    def _on_run_toggle_signal_bridge(self, checked: bool):
+        try:
+            sender = self.sender()
+            sender_name = sender.objectName() if sender is not None and hasattr(sender, 'objectName') else ''
+            self._log_live_on_button_state_trace(
+                'handler_signal_bridge',
+                stage='_on_run_toggle_signal_bridge',
+                checked_arg=checked,
+                ui_checked=bool(self.btn_run_toggle.isChecked()) if hasattr(self, 'btn_run_toggle') else False,
+                sender_object_name=sender_name,
+                source_path='on_button',
+            )
+        except Exception:
+            pass
+        self._on_toggle_run_toggled(bool(checked))
+
     def _on_toggle_run_toggled(self, checked: bool):
         """Start/Stop 토글 엔트리포인트(단일): toggled 시그널만 사용"""
+        try:
+            sender = self.sender()
+            sender_name = sender.objectName() if sender is not None and hasattr(sender, 'objectName') else ''
+            self._log_live_on_button_state_trace(
+                'handler_enter_stage',
+                stage='_on_toggle_run_toggled',
+                checked_arg=checked,
+                ui_checked=bool(self.btn_run_toggle.isChecked()) if hasattr(self, 'btn_run_toggle') else False,
+                sender_object_name=sender_name,
+                source_path='on_button',
+            )
+        except Exception:
+            pass
         # P0-BLOCK 2: 재진입/디바운스 가드 (더블 토글 차단)
         now = int(time.time() * 1000)
         if getattr(self, "_run_toggle_inflight", False):
@@ -51715,6 +51752,14 @@ class MainWindow(QMainWindow):
             sender_checked = getattr(sender, 'isChecked', lambda: False)()
             current_running = getattr(self, '_is_running', False)
             desired_run = sender_checked  # ✅ 정답 로직: checked 기반으로 결정
+            self._log_live_on_button_state_trace(
+                'handler_enter_stage',
+                stage='_on_toggle_run_toggled_impl',
+                checked_arg=checked,
+                ui_checked=bool(sender_checked),
+                sender_object_name=sender_name,
+                source_path='on_button',
+            )
             self._log.info(f"[UI] toggle entry checked={sender_checked} current_running={current_running} desired_run={desired_run} sender={sender_name} text={sender_text}")
             self._log_live_on_button_state_trace(
                 "toggled_entry",
@@ -51853,6 +51898,18 @@ class MainWindow(QMainWindow):
         - 현재 실행 중 → '정지' 수행
         """
         # ✅ PATCH: SSOT 상태 단일 읽기 + 캐시
+        try:
+            self._log_live_on_button_state_trace(
+                'handler_enter_stage',
+                stage='_on_toggle_run',
+                checked_arg=run,
+                ui_checked=bool(self.btn_run_toggle.isChecked()) if hasattr(self, 'btn_run_toggle') else False,
+                sender_object_name='',
+                source_path='on_button',
+            )
+        except Exception:
+            pass
+
         try:
             from app.strategy.runner import _RUNNING as runner_running
             current_running = bool(runner_running)

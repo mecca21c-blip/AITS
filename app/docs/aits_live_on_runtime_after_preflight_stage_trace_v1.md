@@ -52,9 +52,22 @@ fresh session boundary. Older ONWidget/ON probes are counted as
 `old_probe_ignored_count` and are not used to decide whether the current
 session click reached the handler.
 
+ON signal wiring must keep one effective StopButton path: the `toggled(bool)`
+signal may pass through a single bridge, but it must forward to
+`_on_toggle_run_toggled`, `_on_toggle_run_toggled_impl`, and `_on_toggle_run`
+in order. Probe slots are log-only and must not replace the handler chain.
+
 ## Stage Taxonomy
 
 - `on_click_not_detected`: no ON button or handler trace found.
+- `on_signal_not_connected_to_handler`: fresh click/toggle probes fired, but no
+  handler or bridge stage was logged.
+- `on_handler_wrapper_not_forwarding`: `_on_toggle_run_toggled` was reached but
+  did not forward to `_on_toggle_run_toggled_impl`.
+- `on_handler_impl_not_forwarding`: `_on_toggle_run_toggled_impl` was reached
+  but did not forward to `_on_toggle_run`.
+- `on_handler_entered_but_preflight_not_called`: `_on_toggle_run` was reached
+  but no preflight start was logged.
 - `on_handler_not_entered`: ON evidence exists, but the active handler entry trace is missing.
 - `on_preflight_not_logged`: ON was seen, but preflight was not logged.
 - `on_preflight_blocked`: preflight failed before a runtime start request.
