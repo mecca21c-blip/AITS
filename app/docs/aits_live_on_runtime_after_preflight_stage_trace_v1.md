@@ -47,6 +47,11 @@ suspect a stale build or different runtime entrypoint. If `on_widget_bound` is
 present but click/toggle probes are missing, click ON in that same restarted
 app and rerun the summary.
 
+The summary treats the latest `RuntimeProvenance app_start` timestamp as the
+fresh session boundary. Older ONWidget/ON probes are counted as
+`old_probe_ignored_count` and are not used to decide whether the current
+session click reached the handler.
+
 ## Stage Taxonomy
 
 - `on_click_not_detected`: no ON button or handler trace found.

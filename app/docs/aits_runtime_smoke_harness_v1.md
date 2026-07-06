@@ -1531,3 +1531,9 @@ The mode emits `aits_runtime_provenance_log_summary_v1` with
 and `handler_enter_detected`. It is log analysis only and does not call
 RiskGuard, LivePreflight, OrderService, OrderAdapter, provider APIs, or order
 endpoints.
+
+The parser uses the latest `RuntimeProvenance app_start` line as the session
+boundary. Probe lines before that timestamp are ignored and reported as
+`old_probe_ignored_count`; fresh-session fields are exposed as
+`fresh_clicked_probe_detected`, `fresh_toggled_probe_detected`,
+`fresh_handler_stage_detected`, and `handler_stage_sequence`.

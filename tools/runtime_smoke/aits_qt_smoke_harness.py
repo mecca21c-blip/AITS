@@ -8227,6 +8227,16 @@ def _runtime_provenance_latest_line(lines: list[str], marker: str) -> str:
     return ""
 
 
+def _runtime_provenance_line_ts(line: str) -> datetime | None:
+    match = re.match(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(\d{3})", line or "")
+    if not match:
+        return None
+    try:
+        return datetime.strptime(f"{match.group(1)}.{match.group(2)}", "%Y-%m-%d %H:%M:%S.%f")
+    except Exception:
+        return None
+
+
 def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_500_000)
     app_gui_path = ROOT / "app" / "ui" / "app_gui.py"
@@ -8238,9 +8248,23 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
         source_error = f"{type(exc).__name__}:{exc}"
 
     provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
-    on_widget_lines = [line for line in lines if "[AITS][ONWidget]" in line]
-    on_lines = [line for line in lines if "[AITS][ON]" in line]
     latest_provenance = provenance_lines[-1] if provenance_lines else ""
+    session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
+    session_started_at = session_started_at_dt.isoformat(sep=" ") if session_started_at_dt else ""
+    if session_started_at_dt is not None:
+        fresh_lines = [
+            line for line in lines
+            if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= session_started_at_dt)
+        ]
+        old_lines = [
+            line for line in lines
+            if (_runtime_provenance_line_ts(line) is not None and _runtime_provenance_line_ts(line) < session_started_at_dt)
+        ]
+    else:
+        fresh_lines = lines
+        old_lines = []
+    on_widget_lines = [line for line in fresh_lines if "[AITS][ONWidget]" in line]
+    on_lines = [line for line in fresh_lines if "[AITS][ON]" in line]
     latest_widget_bound = _runtime_provenance_latest_line(on_widget_lines, "event=on_widget_bound")
 
     instrumentation_id = _live_on_stage_extract_value(latest_provenance, "build_marker_if_available")
@@ -8254,6 +8278,19 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
     clicked_probe_detected = any("event=clicked_probe" in line for line in on_widget_lines)
     toggled_probe_detected = any("event=toggled_probe" in line for line in on_widget_lines)
     handler_enter_detected = any("event=handler_enter" in line or "event=handler_entry" in line for line in on_lines)
+    handler_stage_lines = [line for line in on_lines if "event=handler_enter_stage" in line]
+    handler_stage_sequence = [_live_on_stage_extract_value(line, "stage") for line in handler_stage_lines]
+    handler_stage_sequence = [stage for stage in handler_stage_sequence if stage]
+    old_probe_ignored_count = sum(
+        1
+        for line in old_lines
+        if "[AITS][ONWidget]" in line or "[AITS][ON]" in line
+    )
+    candidate_lines = [line for line in on_widget_lines if "event=on_widget_candidate" in line]
+    visible_candidate_lines = [
+        line for line in candidate_lines
+        if "visible_state=True" in line or "visible_state=true" in line
+    ]
     app_gui_file = _live_on_stage_extract_value(latest_provenance, "app_gui_file")
     git_head_detected = _live_on_stage_extract_value(latest_provenance, "git_head_if_available")
     frozen_value = _live_on_stage_extract_value(latest_provenance, "frozen")
@@ -8292,6 +8329,9 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
             "log_read_error": log_read_error,
             "log_files_scanned": [log_path] if log_path else [],
             "runtime_provenance_detected": bool(runtime_provenance_detected),
+            "session_started_at": session_started_at,
+            "analyzed_after_timestamp": session_started_at,
+            "old_probe_ignored_count": int(old_probe_ignored_count),
             "app_gui_file": app_gui_file,
             "instrumentation_id": instrumentation_id,
             "git_head_detected": git_head_detected,
@@ -8302,10 +8342,18 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
             "handler_chain": handler_chain,
             "clicked_probe_detected": bool(clicked_probe_detected),
             "toggled_probe_detected": bool(toggled_probe_detected),
+            "fresh_clicked_probe_detected": bool(clicked_probe_detected),
+            "fresh_toggled_probe_detected": bool(toggled_probe_detected),
             "handler_enter_detected": bool(handler_enter_detected),
+            "fresh_handler_stage_detected": bool(handler_stage_lines),
+            "handler_stage_sequence": handler_stage_sequence,
             "runtime_provenance_line": latest_provenance,
             "on_widget_bound_line": latest_widget_bound,
             "on_widget_timeline": on_widget_lines[-40:],
+            "on_widget_candidates": candidate_lines[-40:],
+            "visible_on_widget_candidates": visible_candidate_lines[-40:],
+            "bound_widget_visible": "visible_state=True" in latest_widget_bound or "visible_state=true" in latest_widget_bound,
+            "bound_widget_is_candidate": bool(object_name) and any(f"object_name={object_name}" in line for line in candidate_lines),
             "source_marker_present": "runtime-provenance-on-widget-a0dc438" in source_text,
             "source_read_error": source_error,
             "suspected_root_cause": suspected_root_cause,
