@@ -11,6 +11,7 @@ import sys
 import os
 import logging
 import warnings
+import hashlib
 import time
 import json
 import math
@@ -24541,6 +24542,15 @@ class MainWindow(QMainWindow):
             return "LOCAL"
         return str(provider or "미적용")
 
+    def _safe_secret_fingerprint(self, secret: str) -> str:
+        try:
+            raw = str(secret or "")
+            if not raw:
+                return ""
+            return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:8]
+        except Exception:
+            return ""
+
     def _get_selected_ai_model(self, provider: str = "") -> str:
         p = self._normalize_ai_provider_code(provider or getattr(self, "_selected_ai_provider", "basic"))
         try:
@@ -24778,6 +24788,152 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
+    def _build_on_preflight_provider_readiness_state(self) -> dict:
+        try:
+            selected = self._normalize_ai_provider_code(
+                getattr(self, "_selected_ai_provider", "basic")
+            )
+        except Exception:
+            selected = "basic"
+        selected = selected or "basic"
+        saved_provider = "openai" if selected == "gpt" else selected
+        key_present = False
+        key_source = ""
+        key_fp = ""
+        if selected in ("gpt", "gemini"):
+            try:
+                key, key_source = self._resolve_ai_test_secret(saved_provider)
+                key_present = bool(str(key or "").strip())
+                key_fp = self._safe_secret_fingerprint(key)
+            except Exception:
+                key_present = False
+                key_source = "resolver_error"
+                key_fp = ""
+
+        status_text = ""
+        snapshot_found = False
+        snapshot_updated_at = 0.0
+        try:
+            cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+            if isinstance(cache, dict):
+                candidates = [selected]
+                if selected == "gpt":
+                    candidates.append("openai")
+                for provider_key in candidates:
+                    item = cache.get(provider_key)
+                    if isinstance(item, dict):
+                        status_text = str(item.get("status") or "").strip()
+                        key_source = str(item.get("source") or key_source or "").strip()
+                        snapshot_updated_at = float(item.get("updated_at") or 0.0)
+                        snapshot_found = True
+                        break
+        except Exception:
+            pass
+        if not status_text:
+            try:
+                connection_provider = self._normalize_ai_provider_code(
+                    getattr(self, "_last_ai_connection_provider", "")
+                )
+                if connection_provider == selected:
+                    status_text = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+                    snapshot_found = bool(status_text)
+            except Exception:
+                pass
+
+        connection_state = "연결 확인 필요"
+        if selected in ("basic", "local"):
+            status_text = status_text or str(getattr(self, "_last_ai_connection_status", "") or "")
+            if any(token in status_text for token in ("준비됨", "LOCAL", "Basic", "ready", "Ready", "정상연결", "연결됨")):
+                connection_state = "정상연결"
+            elif any(token in status_text for token in ("연결중", "확인중", "점검중")):
+                connection_state = "연결중"
+            elif any(token in status_text for token in ("실패", "필요", "불가", "오류")):
+                connection_state = "연결실패"
+            else:
+                connection_state = "정상연결"
+        else:
+            if any(token in status_text for token in ("API 응답 확인됨", "정상연결", "connected")):
+                connection_state = "정상연결"
+            elif any(token in status_text for token in ("연결중", "확인중", "점검중", "connecting")):
+                connection_state = "연결중"
+            elif any(token in status_text for token in ("실패", "timeout", "시간 초과", "오류", "failed")):
+                connection_state = "연결실패"
+
+        freshness_status = "missing"
+        try:
+            if bool(getattr(self, "_last_ai_generation_fresh", False)) and self._is_ai_generation_fresh(selected):
+                freshness_status = "fresh"
+            elif bool(getattr(self, "_last_ai_generation_stale", False)):
+                freshness_status = "stale"
+        except Exception:
+            freshness_status = "missing"
+
+        ready = False
+        blocker = ""
+        reason = ""
+        if selected in ("basic", "local"):
+            ready = connection_state == "정상연결"
+            reason = "local_provider_ready" if ready else "local_provider_not_ready"
+            blocker = "" if ready else "local_provider_not_ready"
+        elif not key_present:
+            blocker = "provider_key_missing"
+            reason = blocker
+        elif connection_state == "정상연결":
+            ready = True
+            reason = "provider_connection_ready"
+        elif connection_state == "연결실패":
+            blocker = "provider_connection_failed"
+            reason = blocker
+        elif connection_state == "연결중":
+            blocker = "provider_connection_check_in_progress"
+            reason = blocker
+        else:
+            blocker = "provider_connection_check_needed"
+            reason = blocker
+
+        state = {
+            "schema": "aits_live_on_preflight_provider_readiness_source_v1",
+            "on_preflight_provider_ready": bool(ready),
+            "readiness_reason": reason,
+            "readiness_blocker": blocker,
+            "selected_provider": selected,
+            "normalized_provider": selected,
+            "connection_status": connection_state,
+            "connection_status_raw": status_text,
+            "connection_snapshot_found": bool(snapshot_found),
+            "connection_snapshot_updated_at": snapshot_updated_at,
+            "key_present": bool(key_present),
+            "key_source": key_source,
+            "key_fp": key_fp,
+            "analysis_freshness_status": freshness_status,
+            "analysis_freshness_used_for_readiness": False,
+            "readiness_source": "provider_connection_snapshot",
+            "legacy_generation_readiness_used": False,
+            "ui_text_used_as_readiness_source": False,
+            "message_shown": "" if ready else blocker,
+            "actual_order": False,
+            "submitted_count": 0,
+        }
+        try:
+            self._log.info(
+                "[AITS][ProviderReadinessSource] event=resolved source_path=on_preflight "
+                "selected_provider=%s normalized_provider=%s connection_status=%s "
+                "readiness_ready=%s blocker=%s key_present=%s key_fp=%s "
+                "analysis_freshness_status=%s legacy_generation_readiness_used=False "
+                "ui_text_used_as_readiness_source=False submitted=0 order_allowed=False real_order=False",
+                selected,
+                selected,
+                connection_state,
+                bool(ready),
+                blocker or "-",
+                bool(key_present),
+                key_fp or "-",
+                freshness_status,
+            )
+        except Exception:
+            pass
+        return state
+
     def _build_ai_engine_readiness_state(self) -> dict:
         try:
             selected = self._normalize_ai_provider_code(
@@ -24811,32 +24967,25 @@ class MainWindow(QMainWindow):
             getattr(self, "_last_ai_generation_token_usage_present", False)
         )
         proof_present = bool(response_id_present or token_usage_present)
+        try:
+            provider_readiness = self._build_on_preflight_provider_readiness_state()
+        except Exception:
+            provider_readiness = {}
         active_engine = "local" if selected in ("basic", "local") else selected
         ready = False
         reason = "not_ready"
         if selected in ("basic", "local"):
-            local_status = str(getattr(self, "_last_ai_connection_status", "") or "")
-            ready = any(token in local_status for token in ("LOCAL", "Basic", "ready", "Ready", "준비됨", "연결됨"))
-            reason = "local_ready" if ready else "local_not_ready"
+            ready = bool(provider_readiness.get("on_preflight_provider_ready"))
+            reason = str(provider_readiness.get("readiness_reason") or ("local_ready" if ready else "local_not_ready"))
         elif selected in ("gpt", "gemini"):
-            if actual != selected:
-                reason = "provider_actual_mismatch"
-            elif fallback_used:
+            if fallback_used:
                 reason = "fallback_used"
-            elif generation_stale:
-                reason = "generation_stale"
-            elif not generation_fresh:
-                reason = "generation_not_fresh"
-            elif generation_status != "confirmed":
-                reason = "generation_not_confirmed"
-            elif not generation_confirmed:
-                reason = "generation_response_unconfirmed"
-            elif not proof_present:
-                reason = "generation_response_proof_missing"
-            else:
+            elif bool(provider_readiness.get("on_preflight_provider_ready")):
                 ready = True
-                reason = "fresh_generation_confirmed"
+                reason = "provider_connection_ready"
                 active_engine = selected
+            else:
+                reason = str(provider_readiness.get("readiness_blocker") or "provider_connection_check_needed")
         else:
             reason = "unknown_provider"
         if selected in ("gpt", "gemini") and fallback_used:
@@ -24856,6 +25005,13 @@ class MainWindow(QMainWindow):
             "fallback_used": fallback_used,
             "response_id_present": response_id_present,
             "token_usage_present": token_usage_present,
+            "provider_connection_ready": bool(provider_readiness.get("on_preflight_provider_ready")),
+            "provider_connection_status": str(provider_readiness.get("connection_status") or ""),
+            "provider_readiness_blocker": str(provider_readiness.get("readiness_blocker") or ""),
+            "provider_readiness_source": str(provider_readiness.get("readiness_source") or ""),
+            "analysis_freshness_used_for_readiness": False,
+            "legacy_generation_readiness_used": False,
+            "generation_response_proof_present": proof_present,
         }
 
     def _is_ai_engine_ready_for_run(self) -> bool:
@@ -51665,6 +51821,20 @@ class MainWindow(QMainWindow):
                     except Exception:
                         readiness = {}
                     ready = bool(readiness.get("engine_ready_for_run"))
+                    try:
+                        self._log.info(
+                            "[AITS][LiveOnProviderReadiness] event=preflight_provider_readiness source_path=on_button "
+                            "selected_provider=%s provider_connection_status=%s engine_ready=%s blocker=%s "
+                            "provider_readiness_source=%s analysis_freshness_used_for_readiness=%s submitted=0 order_allowed=False real_order=False",
+                            str(readiness.get("provider_selected") or ""),
+                            str(readiness.get("provider_connection_status") or ""),
+                            bool(ready),
+                            str(readiness.get("provider_readiness_blocker") or readiness.get("engine_not_ready_reason") or "-"),
+                            str(readiness.get("provider_readiness_source") or ""),
+                            bool(readiness.get("analysis_freshness_used_for_readiness")),
+                        )
+                    except Exception:
+                        pass
 
                     if not ready:
                         sel_key = str(self._get_aits_engine_ssot() or "basic").strip().lower()

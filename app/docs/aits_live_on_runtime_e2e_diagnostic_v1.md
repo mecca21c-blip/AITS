@@ -176,3 +176,7 @@ as ON preflight evidence, and the first blocker can be refined to
 `private_api_not_connected`, `balance_cache_stale`,
 `order_amount_exceeds_available_krw`, or `order_amount_exceeds_effective_cap`
 when the logs contain enough detail.
+
+## ON Preflight Provider Readiness Source
+
+`AITS-LIVE-ON-PREFLIGHT-PROVIDER-READINESS-SOURCE-FIX-01` reclassifies provider-readiness blockers separately from AI analysis freshness. If ON is blocked before runtime because the selected GPT/Gemini provider is not connected, the blocker should come from `MainWindow._build_on_preflight_provider_readiness_state` and the provider connection snapshot. Stale or missing AI generation freshness is not a provider connection failure.

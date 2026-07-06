@@ -79,6 +79,19 @@ Connection status does not read AI generation freshness. AI generation freshness
 continues to affect run-readiness and AI opinion state, but not the provider
 connection badge.
 
+## ON Preflight Provider Readiness
+
+`AITS-LIVE-ON-PREFLIGHT-PROVIDER-READINESS-SOURCE-FIX-01` narrows ON preflight
+provider readiness to the selected provider connection snapshot. GPT/Gemini are
+ready for the provider gate when the selected provider has a successful
+connection snapshot and a selected-provider key is present. LOCAL/Basic is ready
+when its local status is ready.
+
+AI analysis freshness is no longer a provider-readiness source. Stale or missing
+AI generation can still affect later AI opinion or order-intent contracts, but
+it must not make the ON preflight provider gate show a connected GPT/Gemini
+engine as not connected.
+
 ## Diagnostics
 
 Engine status transitions are logged with prefix:

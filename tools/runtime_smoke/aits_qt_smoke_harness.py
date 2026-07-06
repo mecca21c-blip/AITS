@@ -12556,6 +12556,18 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
         snapshot["connection_state_simple"] = str(window._connection_state_simple())
     except Exception:
         snapshot["connection_state_simple"] = ""
+    try:
+        provider_readiness = window._build_on_preflight_provider_readiness_state()
+    except Exception:
+        provider_readiness = {}
+    snapshot["on_preflight_provider_ready"] = bool(provider_readiness.get("on_preflight_provider_ready"))
+    snapshot["on_preflight_provider_readiness_source"] = str(provider_readiness.get("readiness_source") or "")
+    snapshot["on_preflight_provider_readiness_blocker"] = str(provider_readiness.get("readiness_blocker") or "")
+    snapshot["on_preflight_connection_status"] = str(provider_readiness.get("connection_status") or "")
+    snapshot["on_preflight_analysis_freshness_status"] = str(provider_readiness.get("analysis_freshness_status") or "")
+    snapshot["analysis_freshness_used_for_readiness"] = bool(provider_readiness.get("analysis_freshness_used_for_readiness"))
+    snapshot["legacy_generation_readiness_used"] = bool(provider_readiness.get("legacy_generation_readiness_used"))
+    snapshot["ui_text_used_as_readiness_source"] = bool(provider_readiness.get("ui_text_used_as_readiness_source"))
     return snapshot
 
 
@@ -12710,6 +12722,244 @@ def _run_engine_connection_status_regression_proof(
         }
     )
     report["pass_status"] = "pass" if success_ok and fail_ok and local_ok and report["connection_freshness_separated"] else "fail"
+    report["status"] = report["pass_status"]
+
+
+def _install_mock_provider_readiness_secret(window: Any, provider: str, *, present: bool = True) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+
+    def _resolver(value: str) -> tuple[str, str]:
+        normalized = _normalize_provider_for_report(value or requested)
+        if normalized == requested and requested in {"gpt", "gemini"} and present:
+            return f"mock-{requested}-secret-for-readiness", "mock_provider_readiness_secret"
+        return "", "missing"
+
+    setattr(window, "_resolve_ai_test_secret", _resolver)
+
+
+def _set_mock_provider_readiness_state(
+    window: Any,
+    provider: str,
+    *,
+    status: str = "API 응답 확인됨",
+    key_present: bool = True,
+    generation_state: str = "missing",
+) -> dict[str, Any]:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    selector = getattr(window, "_select_ai_provider_for_session", None)
+    if callable(selector):
+        selector(requested, reason="live_on_provider_readiness_regression", start_connection=False)
+    _install_mock_provider_readiness_secret(window, requested, present=key_present)
+    cache = getattr(window, "_ai_connection_snapshots_by_provider", None)
+    if not isinstance(cache, dict):
+        cache = {}
+        setattr(window, "_ai_connection_snapshots_by_provider", cache)
+    cache[requested] = {
+        "status": status,
+        "source": "mock_provider_readiness_connection_snapshot",
+        "updated_at": time.time(),
+    }
+    setattr(window, "_last_ai_connection_provider", requested)
+    setattr(window, "_last_ai_connection_status", status)
+    setattr(window, "_ai_connection_status", status)
+    setattr(window, "_last_ai_generation_provider", requested)
+    setattr(window, "_last_ai_generation_fallback_used", False)
+    setattr(window, "_last_ai_generation_status", "")
+    setattr(window, "_last_ai_generation_response_confirmed", False)
+    setattr(window, "_last_ai_generation_response_id_present", False)
+    setattr(window, "_last_ai_generation_token_usage_present", False)
+    setattr(window, "_last_ai_generation_fresh", generation_state == "fresh")
+    setattr(window, "_last_ai_generation_stale", generation_state == "stale")
+    setattr(window, "_last_ai_generation_completed_at", time.time() if generation_state == "fresh" else 0.0)
+    return _provider_state_snapshot(window)
+
+
+def _run_live_on_preflight_provider_readiness_source_summary(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    selected = _select_provider(window, requested, report)
+    snapshot = _provider_state_snapshot(window)
+    report.update(
+        {
+            "mode": "live-on-preflight-provider-readiness-source-summary",
+            "schema": "aits_live_on_preflight_provider_readiness_source_summary_v1",
+            "provider": requested,
+            "provider_selected": selected,
+            "active_owner": "MainWindow._build_on_preflight_provider_readiness_state",
+            "on_button_owner": "MainWindow._on_run_toggled",
+            "readiness_source": snapshot.get("on_preflight_provider_readiness_source"),
+            "connection_status": snapshot.get("on_preflight_connection_status"),
+            "on_preflight_provider_ready": snapshot.get("on_preflight_provider_ready"),
+            "first_blocker": snapshot.get("on_preflight_provider_readiness_blocker"),
+            "analysis_freshness_status": snapshot.get("on_preflight_analysis_freshness_status"),
+            "analysis_freshness_used_for_readiness": snapshot.get("analysis_freshness_used_for_readiness"),
+            "legacy_generation_readiness_used": snapshot.get("legacy_generation_readiness_used"),
+            "ui_text_used_as_readiness_source": snapshot.get("ui_text_used_as_readiness_source"),
+            "snapshot": snapshot,
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    source_ok = snapshot.get("on_preflight_provider_readiness_source") == "provider_connection_snapshot"
+    separated = snapshot.get("analysis_freshness_used_for_readiness") is False
+    no_legacy = snapshot.get("legacy_generation_readiness_used") is False and snapshot.get("ui_text_used_as_readiness_source") is False
+    report["diagnostic_status"] = "pass" if source_ok and separated and no_legacy else "fail"
+    report["pass_status"] = report["diagnostic_status"]
+    report["status"] = report["pass_status"]
+
+
+def _run_live_on_preflight_provider_readiness_regression_proof(
+    window: Any,
+    report: dict[str, Any],
+    *,
+    provider: str = "gpt",
+) -> None:
+    requested = _normalize_provider_for_report(provider or "gpt") or "gpt"
+    cases: list[dict[str, Any]] = []
+    if requested == "local":
+        local_snapshot = _set_mock_provider_readiness_state(
+            window,
+            "local",
+            status="내부 엔진 준비됨",
+            key_present=False,
+            generation_state="missing",
+        )
+        cases.append(
+            {
+                "name": "local_ready_without_secret",
+                "expected_ready": True,
+                "actual_ready": bool(local_snapshot.get("on_preflight_provider_ready")),
+                "snapshot": local_snapshot,
+            }
+        )
+    else:
+        connected_stale = _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="API 응답 확인됨",
+            key_present=True,
+            generation_state="stale",
+        )
+        cases.append(
+            {
+                "name": f"{requested}_connected_generation_stale_still_ready",
+                "expected_ready": True,
+                "actual_ready": bool(connected_stale.get("on_preflight_provider_ready")),
+                "snapshot": connected_stale,
+            }
+        )
+        connected_missing = _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="API 응답 확인됨",
+            key_present=True,
+            generation_state="missing",
+        )
+        cases.append(
+            {
+                "name": f"{requested}_connected_generation_missing_still_ready",
+                "expected_ready": True,
+                "actual_ready": bool(connected_missing.get("on_preflight_provider_ready")),
+                "snapshot": connected_missing,
+            }
+        )
+        failed = _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="연결실패",
+            key_present=True,
+            generation_state="fresh",
+        )
+        cases.append(
+            {
+                "name": f"{requested}_latest_connection_failed_blocks",
+                "expected_ready": False,
+                "actual_ready": bool(failed.get("on_preflight_provider_ready")),
+                "expected_blocker": "provider_connection_failed",
+                "actual_blocker": failed.get("on_preflight_provider_readiness_blocker"),
+                "snapshot": failed,
+            }
+        )
+        missing_key = _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="API 응답 확인됨",
+            key_present=False,
+            generation_state="fresh",
+        )
+        cases.append(
+            {
+                "name": f"{requested}_missing_key_blocks_even_with_snapshot",
+                "expected_ready": False,
+                "actual_ready": bool(missing_key.get("on_preflight_provider_ready")),
+                "expected_blocker": "provider_key_missing",
+                "actual_blocker": missing_key.get("on_preflight_provider_readiness_blocker"),
+                "snapshot": missing_key,
+            }
+        )
+        other = "gemini" if requested == "gpt" else "gpt"
+        _set_mock_provider_readiness_state(
+            window,
+            other,
+            status="API 응답 확인됨",
+            key_present=True,
+            generation_state="fresh",
+        )
+        selector = getattr(window, "_select_ai_provider_for_session", None)
+        if callable(selector):
+            selector(requested, reason="live_on_provider_readiness_cross_provider", start_connection=False)
+        cache = getattr(window, "_ai_connection_snapshots_by_provider", None)
+        if isinstance(cache, dict):
+            cache.pop(requested, None)
+            if requested == "gpt":
+                cache.pop("openai", None)
+        _install_mock_provider_readiness_secret(window, requested, present=True)
+        cross_snapshot = _provider_state_snapshot(window)
+        cases.append(
+            {
+                "name": f"{other}_snapshot_does_not_ready_{requested}",
+                "expected_ready": False,
+                "actual_ready": bool(cross_snapshot.get("on_preflight_provider_ready")),
+                "snapshot": cross_snapshot,
+            }
+        )
+    for case in cases:
+        case["pass"] = case.get("actual_ready") == case.get("expected_ready")
+        if "expected_blocker" in case:
+            case["pass"] = bool(case["pass"] and case.get("actual_blocker") == case.get("expected_blocker"))
+        snap = case.get("snapshot") or {}
+        case["freshness_separated"] = snap.get("analysis_freshness_used_for_readiness") is False
+        case["legacy_generation_readiness_used"] = bool(snap.get("legacy_generation_readiness_used"))
+        case["ui_text_used_as_readiness_source"] = bool(snap.get("ui_text_used_as_readiness_source"))
+        case["pass"] = bool(
+            case["pass"]
+            and case["freshness_separated"]
+            and not case["legacy_generation_readiness_used"]
+            and not case["ui_text_used_as_readiness_source"]
+        )
+    passed = sum(1 for case in cases if case.get("pass"))
+    report.update(
+        {
+            "mode": "live-on-preflight-provider-readiness-regression-proof",
+            "schema": "aits_live_on_preflight_provider_readiness_regression_v1",
+            "provider": requested,
+            "case_count": len(cases),
+            "pass_count": passed,
+            "fail_count": len(cases) - passed,
+            "cases": cases,
+            "provider_external_call_count": 0,
+            "submitted_count": 0,
+            "actual_order": False,
+            "order_risk_detected": False,
+        }
+    )
+    report["pass_status"] = "pass" if passed == len(cases) else "fail"
     report["status"] = report["pass_status"]
 
 
@@ -16879,6 +17129,20 @@ def run_harness(
             report,
             provider=provider or "gpt",
         )
+    elif mode == "live-on-preflight-provider-readiness-source-summary":
+        _install_provider_post_guard(report)
+        _run_live_on_preflight_provider_readiness_source_summary(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
+    elif mode == "live-on-preflight-provider-readiness-regression-proof":
+        _install_provider_post_guard(report)
+        _run_live_on_preflight_provider_readiness_regression_proof(
+            window,
+            report,
+            provider=provider or "gpt",
+        )
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
             app,
@@ -17094,6 +17358,8 @@ def run_harness(
         "provider-settings-runtime-ssot-diagnostic",
         "provider-settings-restart-restore-regression-proof",
         "provider-switching-cross-provider-regression-proof",
+        "live-on-preflight-provider-readiness-source-summary",
+        "live-on-preflight-provider-readiness-regression-proof",
         "top-markets-feed-proof",
         "provider-connection-log-forensic-summary",
         "save-probe",
@@ -17146,6 +17412,8 @@ def main() -> int:
             "provider-connection-log-forensic-summary",
             "provider-key-resolution-bootstrap-trace",
             "provider-key-resolution-restart-regression-proof",
+            "live-on-preflight-provider-readiness-source-summary",
+            "live-on-preflight-provider-readiness-regression-proof",
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",

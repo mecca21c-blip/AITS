@@ -23,6 +23,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-switching-cr
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resolution-bootstrap-trace --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resolution-restart-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-connection-log-forensic-summary --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-provider-readiness-source-summary --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-provider-readiness-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-button-state-trace-dryrun --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-button-state-log-summary --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-setting-source-summary --observe-only
@@ -79,6 +81,14 @@ runtime environments ignore native `QToolTip` background styling.
 - `dry-read`: creates the real Qt main window in a guarded harness process,
   reads objectName/property selectors, label text, row counts, latest trade-log
   row text, and safety state. It does not click buttons.
+
+- `live-on-preflight-provider-readiness-source-summary`: reports the active
+  ON preflight provider readiness owner and confirms it reads the provider
+  connection snapshot instead of AI analysis freshness or UI label text.
+- `live-on-preflight-provider-readiness-regression-proof`: mock-only proof that
+  GPT/Gemini connection readiness is not downgraded by stale or missing AI
+  generation freshness. The mode keeps `provider_external_call_count=0` and
+  `submitted_count=0`.
 - `dry-navigation`: performs the same read and switches tabs through the bottom
   navigation selectors. It does not click `AI 분석 새로고침`.
 - `engine-connection-status-path-diagnostic`: inspects the provider connection
