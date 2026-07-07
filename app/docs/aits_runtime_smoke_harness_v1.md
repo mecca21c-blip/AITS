@@ -1543,3 +1543,8 @@ The ON stage parser also reports `handler_toggled_stage_detected`,
 click/toggle probes without a handler stage are classified as
 `on_signal_not_connected_to_handler`; later gaps are classified by the missing
 forwarding stage.
+
+Bridge diagnostics include `bridge_connected_flag`, `bridge_widget_id`,
+`signal_widget_id`, and `bridge_connection_suspected_failed`. The active
+StopButton handler path uses a single lambda bridge so the same signal shape as
+the probe path is observed before forwarding into the existing handler chain.

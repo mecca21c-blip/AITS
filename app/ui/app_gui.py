@@ -16803,20 +16803,22 @@ class MainWindow(QMainWindow):
             self.btn_run_toggle.toggled.connect(lambda v: self._log.info(f"[BTN-SIG] run toggled v={v}"))
             self.btn_run_toggle.toggled.connect(
                 lambda v: logging.getLogger("aits").info(
-                    "[AITS][ONWidget] event=toggled_probe object_name=%s signal_name=toggled checked_state=%s enabled_state=%s visible_state=%s",
+                    "[AITS][ONWidget] event=toggled_probe object_name=%s signal_name=toggled checked_state=%s enabled_state=%s visible_state=%s signal_widget_id=%s",
                     str(self.btn_run_toggle.objectName() or ""),
                     bool(v),
                     bool(self.btn_run_toggle.isEnabled()),
                     bool(self.btn_run_toggle.isVisible()),
+                    id(self.btn_run_toggle),
                 )
             )
             self.btn_run_toggle.clicked.connect(
                 lambda v=False: logging.getLogger("aits").info(
-                    "[AITS][ONWidget] event=clicked_probe object_name=%s signal_name=clicked checked_state=%s enabled_state=%s visible_state=%s",
+                    "[AITS][ONWidget] event=clicked_probe object_name=%s signal_name=clicked checked_state=%s enabled_state=%s visible_state=%s signal_widget_id=%s",
                     str(self.btn_run_toggle.objectName() or ""),
                     bool(self.btn_run_toggle.isChecked()),
                     bool(self.btn_run_toggle.isEnabled()),
                     bool(self.btn_run_toggle.isVisible()),
+                    id(self.btn_run_toggle),
                 )
             )
         except Exception:
@@ -16832,10 +16834,20 @@ class MainWindow(QMainWindow):
                 self.btn_run_toggle.toggled.disconnect(self._on_run_toggle_signal_bridge)
             except Exception:
                 pass
-            self.btn_run_toggle.toggled.connect(self._on_run_toggle_signal_bridge)
-            self._log.info("[BTN-CONNECT] ok target=_on_toggle_run_toggled (single entrypoint)")
+            self._aits_on_toggle_bridge_widget_id = id(self.btn_run_toggle)
+            self._aits_on_toggle_bridge_connected = True
+            self.btn_run_toggle.toggled.connect(lambda v=False, _self=self: _self._on_run_toggle_signal_bridge(bool(v)))
             logging.getLogger("aits").info(
-                "[AITS][ONWidget] event=on_widget_bound object_name=%s widget_class=%s signal_name=toggled handler_chain=%s handler_names=%s checked_state=%s enabled_state=%s visible_state=%s instrumentation_id=%s",
+                "[AITS][ONWidget] event=on_widget_bridge_connected object_name=%s signal_name=toggled bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
+                str(self.btn_run_toggle.objectName() or ""),
+                bool(getattr(self, "_aits_on_toggle_bridge_connected", False)),
+                int(getattr(self, "_aits_on_toggle_bridge_widget_id", 0) or 0),
+                id(self.btn_run_toggle),
+                AITS_APP_GUI_INSTRUMENTATION_ID,
+            )
+            self._log.info("[BTN-CONNECT] ok target=_on_run_toggle_signal_bridge (single entrypoint)")
+            logging.getLogger("aits").info(
+                "[AITS][ONWidget] event=on_widget_bound object_name=%s widget_class=%s signal_name=toggled handler_chain=%s handler_names=%s checked_state=%s enabled_state=%s visible_state=%s bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
                 str(self.btn_run_toggle.objectName() or ""),
                 type(self.btn_run_toggle).__name__,
                 "_on_toggle_run_toggled>_on_toggle_run_toggled_impl>_on_toggle_run",
@@ -16843,6 +16855,9 @@ class MainWindow(QMainWindow):
                 bool(self.btn_run_toggle.isChecked()),
                 bool(self.btn_run_toggle.isEnabled()),
                 bool(self.btn_run_toggle.isVisible()),
+                bool(getattr(self, "_aits_on_toggle_bridge_connected", False)),
+                int(getattr(self, "_aits_on_toggle_bridge_widget_id", 0) or 0),
+                id(self.btn_run_toggle),
                 AITS_APP_GUI_INSTRUMENTATION_ID,
             )
         except Exception as e:
@@ -51645,6 +51660,9 @@ class MainWindow(QMainWindow):
                 checked_arg=checked,
                 ui_checked=bool(self.btn_run_toggle.isChecked()) if hasattr(self, 'btn_run_toggle') else False,
                 sender_object_name=sender_name,
+                button_object_id=id(self.btn_run_toggle) if hasattr(self, 'btn_run_toggle') else 0,
+                bridge_connected_flag=bool(getattr(self, '_aits_on_toggle_bridge_connected', False)),
+                bridge_widget_id=int(getattr(self, '_aits_on_toggle_bridge_widget_id', 0) or 0),
                 source_path='on_button',
             )
         except Exception:

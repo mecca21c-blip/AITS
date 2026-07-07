@@ -7884,6 +7884,14 @@ def _live_on_stage_extract_value(line: str, key: str) -> str:
 
 def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir: Path) -> dict[str, Any]:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_500_000)
+    provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
+    latest_provenance = provenance_lines[-1] if provenance_lines else ""
+    session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
+    if session_started_at_dt is not None:
+        lines = [
+            line for line in lines
+            if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= session_started_at_dt)
+        ]
     lower_lines = [line.lower() for line in lines]
     joined_lower = "\n".join(lower_lines)
     e2e = _build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode="live-on-runtime-e2e-diagnostic-log-summary")
@@ -7892,6 +7900,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         line for line in lines
         if "[AITS][ON]" in line or "[UI] toggle" in line or "[START-REQ]" in line or "[RUNNER]" in line
     ]
+    on_widget_lines = [line for line in lines if "[AITS][ONWidget]" in line]
     preflight_lines = [
         line for line in lines
         if "[AITS][LiveOnPreflight]" in line or "[PREFLIGHT]" in line or "[AITS][KRWBalanceSource]" in line
@@ -7924,6 +7933,13 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     handler_toggled_stage_detected = "_on_toggle_run_toggled" in handler_stage_sequence
     handler_impl_stage_detected = "_on_toggle_run_toggled_impl" in handler_stage_sequence
     handler_run_stage_detected = "_on_toggle_run" in handler_stage_sequence
+    on_widget_probe_detected = any("event=clicked_probe" in line or "event=toggled_probe" in line for line in on_widget_lines)
+    latest_bridge_connected = _runtime_provenance_latest_line(on_widget_lines, "event=on_widget_bridge_connected")
+    latest_toggled_probe = _runtime_provenance_latest_line(on_widget_lines, "event=toggled_probe")
+    latest_clicked_probe = _runtime_provenance_latest_line(on_widget_lines, "event=clicked_probe")
+    bridge_connected_flag = _live_on_stage_extract_value(latest_bridge_connected, "bridge_connected_flag")
+    bridge_widget_id = _live_on_stage_extract_value(latest_bridge_connected, "bridge_widget_id")
+    signal_widget_id = _live_on_stage_extract_value(latest_toggled_probe or latest_clicked_probe, "signal_widget_id")
     preflight_start_detected = any("event=preflight_start" in line.lower() for line in on_lines + preflight_lines)
     preflight_result_detected = any("event=preflight_result" in line.lower() for line in on_lines + preflight_lines)
     runtime_start_requested = any(
@@ -7981,11 +7997,13 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     elif preflight_detected:
         preflight_status = "logged_unknown"
 
-    if not on_lines:
+    if not on_lines and not on_widget_probe_detected:
         first_blocker = "on_click_not_detected"
         last_reached_stage = "none"
     elif not on_handler_enter_detected:
-        if "event=clicked_probe" in joined_lower and "event=toggled_probe" in joined_lower:
+        if "event=toggled_probe" in joined_lower and not handler_bridge_stage_detected:
+            first_blocker = "on_signal_bridge_not_connected"
+        elif "event=clicked_probe" in joined_lower and "event=toggled_probe" in joined_lower:
             first_blocker = "on_signal_not_connected_to_handler"
         else:
             first_blocker = "on_handler_not_entered"
@@ -8033,6 +8051,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
 
     next_fix_map = {
         "on_click_not_detected": "collect fresh ON click log or inspect button signal wiring",
+        "on_signal_bridge_not_connected": "inspect StopButton toggled lambda bridge connection",
         "on_signal_not_connected_to_handler": "inspect StopButton toggled signal bridge wiring",
         "on_handler_not_entered": "inspect btn_run_toggle signal connection to _on_toggle_run_toggled/_on_toggle_run",
         "on_signal_bridge_not_forwarding": "inspect _on_run_toggle_signal_bridge forwarding to _on_toggle_run_toggled",
@@ -8068,13 +8087,17 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "log_read_error": log_read_error,
         "analyzed_log_line_count": len(lines),
         "timeline": timeline,
-        "on_button_detected": bool(on_lines),
+        "on_button_detected": bool(on_lines or on_widget_probe_detected),
         "on_handler_enter_detected": bool(on_handler_enter_detected),
         "handler_stage_sequence": handler_stage_sequence,
         "handler_bridge_stage_detected": bool(handler_bridge_stage_detected),
         "handler_toggled_stage_detected": bool(handler_toggled_stage_detected),
         "handler_impl_stage_detected": bool(handler_impl_stage_detected),
         "handler_run_stage_detected": bool(handler_run_stage_detected),
+        "bridge_connected_flag": bridge_connected_flag,
+        "bridge_widget_id": bridge_widget_id,
+        "signal_widget_id": signal_widget_id,
+        "bridge_connection_suspected_failed": bool(on_widget_probe_detected and bridge_connected_flag != "True" and not handler_bridge_stage_detected),
         "on_preflight_detected": preflight_detected,
         "preflight_start_detected": bool(preflight_start_detected),
         "preflight_result_detected": bool(preflight_result_detected),
@@ -8315,13 +8338,24 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
     on_widget_bound_detected = bool(latest_widget_bound)
     clicked_probe_detected = any("event=clicked_probe" in line for line in on_widget_lines)
     toggled_probe_detected = any("event=toggled_probe" in line for line in on_widget_lines)
+    latest_toggled_probe = _runtime_provenance_latest_line(on_widget_lines, "event=toggled_probe")
+    latest_clicked_probe = _runtime_provenance_latest_line(on_widget_lines, "event=clicked_probe")
+    latest_bridge_connected = _runtime_provenance_latest_line(on_widget_lines, "event=on_widget_bridge_connected")
     handler_enter_detected = any("event=handler_enter" in line or "event=handler_entry" in line for line in on_lines)
-    handler_stage_lines = [line for line in on_lines if "event=handler_enter_stage" in line]
+    handler_stage_lines = [
+        line for line in on_lines
+        if "event=handler_enter_stage" in line or "event=handler_signal_bridge" in line
+    ]
     handler_stage_sequence = [_live_on_stage_extract_value(line, "stage") for line in handler_stage_lines]
     handler_stage_sequence = [stage for stage in handler_stage_sequence if stage]
+    handler_bridge_stage_detected = "_on_run_toggle_signal_bridge" in handler_stage_sequence
     handler_toggled_stage_detected = "_on_toggle_run_toggled" in handler_stage_sequence
     handler_impl_stage_detected = "_on_toggle_run_toggled_impl" in handler_stage_sequence
     handler_run_stage_detected = "_on_toggle_run" in handler_stage_sequence
+    bridge_connected_flag = _live_on_stage_extract_value(latest_bridge_connected or latest_widget_bound, "bridge_connected_flag")
+    bridge_widget_id = _live_on_stage_extract_value(latest_bridge_connected or latest_widget_bound, "bridge_widget_id")
+    signal_widget_id = _live_on_stage_extract_value(latest_toggled_probe or latest_clicked_probe or latest_widget_bound, "signal_widget_id")
+    bridge_connection_suspected_failed = bool(toggled_probe_detected and bridge_connected_flag != "True" and not handler_bridge_stage_detected)
     old_probe_ignored_count = sum(
         1
         for line in old_lines
@@ -8350,6 +8384,9 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
     elif not on_widget_bound_detected:
         suspected_root_cause = "on_widget_bound_not_detected"
         next_fix_target = "inspect ON widget binding during MainWindow initialization"
+    elif clicked_probe_detected and toggled_probe_detected and not handler_bridge_stage_detected:
+        suspected_root_cause = "on_signal_bridge_not_connected" if bridge_connected_flag != "True" else "on_signal_bridge_not_invoked_after_probe"
+        next_fix_target = "inspect StopButton toggled lambda bridge connection"
     elif clicked_probe_detected and toggled_probe_detected and not handler_enter_detected:
         suspected_root_cause = "on_handler_not_entered_after_widget_probe"
         next_fix_target = "inspect signal order and active handler chain"
@@ -8388,9 +8425,14 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
             "handler_enter_detected": bool(handler_enter_detected),
             "fresh_handler_stage_detected": bool(handler_stage_lines),
             "handler_stage_sequence": handler_stage_sequence,
+            "handler_bridge_stage_detected": bool(handler_bridge_stage_detected),
             "handler_toggled_stage_detected": bool(handler_toggled_stage_detected),
             "handler_impl_stage_detected": bool(handler_impl_stage_detected),
             "handler_run_stage_detected": bool(handler_run_stage_detected),
+            "bridge_connection_suspected_failed": bool(bridge_connection_suspected_failed),
+            "bridge_connected_flag": bridge_connected_flag,
+            "bridge_widget_id": bridge_widget_id,
+            "signal_widget_id": signal_widget_id,
             "runtime_provenance_line": latest_provenance,
             "on_widget_bound_line": latest_widget_bound,
             "on_widget_timeline": on_widget_lines[-40:],

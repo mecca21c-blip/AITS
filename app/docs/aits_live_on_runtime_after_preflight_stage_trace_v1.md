@@ -53,7 +53,7 @@ fresh session boundary. Older ONWidget/ON probes are counted as
 session click reached the handler.
 
 ON signal wiring must keep one effective StopButton path: the `toggled(bool)`
-signal may pass through a single bridge, but it must forward to
+signal is connected through a single lambda bridge, and it must forward to
 `_on_toggle_run_toggled`, `_on_toggle_run_toggled_impl`, and `_on_toggle_run`
 in order. Probe slots are log-only and must not replace the handler chain.
 
@@ -62,6 +62,10 @@ in order. Probe slots are log-only and must not replace the handler chain.
 - `on_click_not_detected`: no ON button or handler trace found.
 - `on_signal_not_connected_to_handler`: fresh click/toggle probes fired, but no
   handler or bridge stage was logged.
+- `on_signal_bridge_not_connected`: fresh toggle probe fired, but no bridge
+  stage was logged.
+- `on_signal_bridge_not_invoked_after_probe`: bridge was recorded as connected,
+  but a fresh toggle probe did not invoke the bridge.
 - `on_handler_wrapper_not_forwarding`: `_on_toggle_run_toggled` was reached but
   did not forward to `_on_toggle_run_toggled_impl`.
 - `on_handler_impl_not_forwarding`: `_on_toggle_run_toggled_impl` was reached
