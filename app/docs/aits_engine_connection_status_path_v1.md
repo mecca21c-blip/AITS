@@ -299,3 +299,7 @@ Expected safety fields:
 
 This change does not modify order, RiskGuard, LivePreflight, ExecutionBridge,
 OrderService, OrderAdapter, or DecisionRouter final action logic.
+
+## 2026-07-08 ON Preflight Provider Auto-Check
+
+When GPT/Gemini ON preflight sees `provider_connection_check_needed`, it may run one provider connection-readiness check if the selected provider key is present. Success records the selected provider snapshot as connected and allows preflight to continue. Failure blocks with `provider_connection_failed`. This check is not AI trading generation, Router validation, RiskGuard, LivePreflight, unlock, ExecutionBridge, OrderService, OrderAdapter, or order submit. Local remains keyless and must not resolve GPT/Gemini secrets.

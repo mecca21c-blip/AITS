@@ -7915,7 +7915,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         line for line in lines
         if "[AITS][RuntimeState]" in line or "[START-REQ]" in line or "[START-ACK]" in line or "[START-TIMEOUT]" in line
     ]
-    provider_lines = [line for line in lines if "[AITS][LiveOnProviderReadiness]" in line or "[AITS][ProviderReadinessSource]" in line]
+    provider_lines = [line for line in lines if "[AITS][LiveOnProviderReadiness]" in line or "[AITS][ProviderReadinessSource]" in line or "[AITS][ProviderReadinessAutoCheck]" in line]
     live_gate_lines = [line for line in lines if "[AITS][LiveGate]" in line or "live_gate" in line]
     order_allowed_lines = [line for line in lines if "[AITS][OrderAllowedState]" in line or "order_allowed" in line or "real_order" in line]
 
@@ -8010,6 +8010,14 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     latest_preflight = preflight_lines[-1] if preflight_lines else ""
     latest_provider = provider_lines[-1] if provider_lines else ""
     latest_order_state = order_allowed_lines[-1] if order_allowed_lines else ""
+    provider_auto_check_lines = [line for line in provider_lines if "[AITS][ProviderReadinessAutoCheck]" in line]
+    latest_provider_auto_check = provider_auto_check_lines[-1] if provider_auto_check_lines else ""
+    provider_auto_check_attempted = any("event=auto_check_start" in line or "auto_check_attempted=True" in line for line in provider_auto_check_lines)
+    provider_auto_check_success = any("auto_check_success=True" in line or "readiness=True" in line for line in provider_auto_check_lines)
+    provider_auto_check_reason = _live_on_stage_extract_value(latest_provider_auto_check, "reason")
+    provider_auto_check_provider = _live_on_stage_extract_value(latest_provider_auto_check, "normalized_provider") or _live_on_stage_extract_value(latest_provider_auto_check, "selected_provider")
+    provider_auto_check_key_fp = _live_on_stage_extract_value(latest_provider_auto_check, "key_fp")
+    provider_external_call_count = int(_live_on_stage_extract_value(latest_provider_auto_check, "provider_external_call_count") or 0)
     status_display_lines = [line for line in on_lines if "event=runtime_status_display" in line]
     latest_status_display = status_display_lines[-1] if status_display_lines else ""
 
@@ -8065,7 +8073,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     elif handler_run_stage_detected and not preflight_start_detected:
         first_blocker = "on_handler_entered_but_preflight_not_started"
         last_reached_stage = "_on_toggle_run"
-    elif not preflight_detected:
+    elif not preflight_detected and not preflight_result_detected:
         first_blocker = "on_preflight_not_logged"
         last_reached_stage = "on_button_detected"
     elif preflight_failed and not runtime_start_requested:
@@ -8158,7 +8166,13 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "start_blocked_blocker": str(start_blocked_blocker or ""),
         "on_preflight_status": preflight_status,
         "on_preflight_passed": bool(preflight_passed),
-        "provider_readiness_passed": "engine_ready=True" in latest_provider or "on_preflight_provider_ready=True" in latest_provider,
+        "provider_readiness_passed": "engine_ready=True" in latest_provider or "on_preflight_provider_ready=True" in latest_provider or bool(provider_auto_check_success),
+        "provider_auto_check_attempted": bool(provider_auto_check_attempted),
+        "provider_auto_check_success": bool(provider_auto_check_success),
+        "provider_auto_check_reason": str(provider_auto_check_reason or ""),
+        "provider_auto_check_provider": str(provider_auto_check_provider or ""),
+        "provider_auto_check_key_fp": str(provider_auto_check_key_fp or ""),
+        "provider_ready_after_auto_check": bool(provider_auto_check_success),
         "balance_preflight_passed": not any(token in latest_preflight for token in ("balance_fetch_failed", "balance_not_loaded", "available_krw_zero")),
         "cap_preflight_passed": not any(token in latest_preflight for token in ("hard_cap_zero", "effective_hard_cap_below_min_order", "order_amount_exceeds")),
         "runtime_start_requested": bool(runtime_start_requested),
@@ -8207,7 +8221,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "e2e_first_blocker": str(e2e.get("first_blocker") or ""),
         "e2e_order_path_status": str(e2e.get("order_path_status") or ""),
         "safety_flags": safety_flags,
-        "provider_external_call_count": 0,
+        "provider_external_call_count": int(provider_external_call_count),
         "actual_order": False,
         "managed_pool_mutation": False,
         "order_risk_detected": bool(e2e.get("order_risk_detected")),
@@ -8524,11 +8538,13 @@ def _run_live_on_runtime_harness_driven_click_run(
     *,
     output_dir: Path,
     wait_seconds: float = 10.0,
+    allow_provider_ready_check_once: bool = False,
 ) -> None:
     report.update(
         {
             "schema": "aits_live_on_runtime_harness_driven_click_run_v1",
-            "mode": "live-on-runtime-harness-driven-click-run",
+            "mode": "live-on-runtime-harness-driven-click-run-provider-check-once" if allow_provider_ready_check_once else "live-on-runtime-harness-driven-click-run",
+            "provider_ready_check_once_allowed": bool(allow_provider_ready_check_once),
             "app_started": False,
             "main_window_detected": False,
             "on_button_found": False,
@@ -8556,6 +8572,25 @@ def _run_live_on_runtime_harness_driven_click_run(
         )
         report["app_started"] = True
         report["main_window_detected"] = window is not None
+        try:
+            setattr(window, "_on_preflight_provider_auto_check_enabled", bool(allow_provider_ready_check_once))
+            if allow_provider_ready_check_once:
+                selected_for_check = _normalize_provider_for_report(getattr(window, "_selected_ai_provider", "gpt") or "gpt") or "gpt"
+                if selected_for_check in {"gpt", "gemini"}:
+                    _install_mock_provider_readiness_secret(window, selected_for_check, present=True)
+
+                    def _mock_on_preflight_auto_check(**_kwargs: Any) -> dict[str, Any]:
+                        return {
+                            "attempted": True,
+                            "success": True,
+                            "reason": "mock_api_response_verified",
+                            "provider": selected_for_check,
+                            "external_call_count": 1,
+                        }
+
+                    setattr(window, "_on_preflight_provider_auto_check_override", _mock_on_preflight_auto_check)
+        except Exception as exc:
+            report["provider_ready_check_setup_error"] = f"{type(exc).__name__}:{exc}"
         _pump_events(app, 2.0)
 
         try:
@@ -13308,6 +13343,14 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
     snapshot["on_preflight_generation_success_key_fp"] = str(provider_readiness.get("generation_success_key_fp") or "")
     snapshot["on_preflight_generation_success_source"] = str(provider_readiness.get("generation_success_source") or "")
     snapshot["on_preflight_analysis_freshness_status"] = str(provider_readiness.get("analysis_freshness_status") or "")
+    snapshot["provider_auto_check_allowed"] = bool(provider_readiness.get("provider_auto_check_allowed"))
+    snapshot["provider_auto_check_attempted"] = bool(provider_readiness.get("provider_auto_check_attempted"))
+    snapshot["provider_auto_check_success"] = bool(provider_readiness.get("provider_auto_check_success"))
+    snapshot["provider_auto_check_reason"] = str(provider_readiness.get("provider_auto_check_reason") or "")
+    snapshot["provider_auto_check_provider"] = str(provider_readiness.get("provider_auto_check_provider") or "")
+    snapshot["provider_auto_check_key_fp"] = str(provider_readiness.get("provider_auto_check_key_fp") or "")
+    snapshot["provider_ready_after_auto_check"] = bool(provider_readiness.get("provider_ready_after_auto_check"))
+    snapshot["provider_external_call_count"] = int(provider_readiness.get("provider_external_call_count") or 0)
     snapshot["analysis_freshness_used_for_readiness"] = bool(provider_readiness.get("analysis_freshness_used_for_readiness"))
     snapshot["legacy_generation_readiness_used"] = bool(provider_readiness.get("legacy_generation_readiness_used"))
     snapshot["ui_text_used_as_readiness_source"] = bool(provider_readiness.get("ui_text_used_as_readiness_source"))
@@ -13646,6 +13689,97 @@ def _run_live_on_preflight_provider_readiness_regression_proof(
                 "snapshot": check_needed_generation,
             }
         )
+        check_needed_disabled = _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="check_needed",
+            key_present=True,
+            generation_state="missing",
+        )
+        cases.append(
+            {
+                "name": f"{requested}_check_needed_key_present_auto_check_disabled_blocks",
+                "expected_ready": False,
+                "actual_ready": bool(check_needed_disabled.get("on_preflight_provider_ready")),
+                "expected_blocker": "provider_connection_check_needed",
+                "actual_blocker": check_needed_disabled.get("on_preflight_provider_readiness_blocker"),
+                "expected_auto_attempted": False,
+                "actual_auto_attempted": bool(check_needed_disabled.get("provider_auto_check_attempted")),
+                "snapshot": check_needed_disabled,
+            }
+        )
+
+        def _mock_auto_success(**_kwargs: Any) -> dict[str, Any]:
+            return {
+                "attempted": True,
+                "success": True,
+                "reason": "mock_api_response_verified",
+                "provider": requested,
+                "external_call_count": 1,
+            }
+
+        setattr(window, "_on_preflight_provider_auto_check_override", _mock_auto_success)
+        _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="check_needed",
+            key_present=True,
+            generation_state="missing",
+        )
+        auto_success_state = window._build_on_preflight_provider_readiness_state(allow_auto_check=True)
+        cases.append(
+            {
+                "name": f"{requested}_check_needed_key_present_auto_check_success_ready",
+                "expected_ready": True,
+                "actual_ready": bool(auto_success_state.get("on_preflight_provider_ready")),
+                "expected_source": "provider_readiness_auto_check",
+                "actual_source": "provider_readiness_auto_check" if auto_success_state.get("provider_auto_check_success") else auto_success_state.get("readiness_source"),
+                "expected_auto_attempted": True,
+                "actual_auto_attempted": bool(auto_success_state.get("provider_auto_check_attempted")),
+                "expected_external_call_count": 1,
+                "actual_external_call_count": int(auto_success_state.get("provider_external_call_count") or 0),
+                "snapshot": auto_success_state,
+            }
+        )
+
+        def _mock_auto_fail(**_kwargs: Any) -> dict[str, Any]:
+            return {
+                "attempted": True,
+                "success": False,
+                "reason": "provider_connection_failed",
+                "error_type": "MockProviderError",
+                "provider": requested,
+                "external_call_count": 1,
+            }
+
+        setattr(window, "_on_preflight_provider_auto_check_override", _mock_auto_fail)
+        _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="check_needed",
+            key_present=True,
+            generation_state="missing",
+        )
+        auto_fail_state = window._build_on_preflight_provider_readiness_state(allow_auto_check=True)
+        cases.append(
+            {
+                "name": f"{requested}_check_needed_key_present_auto_check_failure_blocks",
+                "expected_ready": False,
+                "actual_ready": bool(auto_fail_state.get("on_preflight_provider_ready")),
+                "expected_blocker": "provider_connection_failed",
+                "actual_blocker": auto_fail_state.get("readiness_blocker"),
+                "expected_auto_attempted": True,
+                "actual_auto_attempted": bool(auto_fail_state.get("provider_auto_check_attempted")),
+                "expected_external_call_count": 1,
+                "actual_external_call_count": int(auto_fail_state.get("provider_external_call_count") or 0),
+                "snapshot": auto_fail_state,
+            }
+        )
+        try:
+            delattr(window, "_on_preflight_provider_auto_check_override")
+        except Exception:
+            pass
+
         failed = _set_mock_provider_readiness_state(
             window,
             requested,
@@ -13712,6 +13846,10 @@ def _run_live_on_preflight_provider_readiness_regression_proof(
             case["pass"] = bool(case["pass"] and case.get("actual_blocker") == case.get("expected_blocker"))
         if "expected_source" in case:
             case["pass"] = bool(case["pass"] and case.get("actual_source") == case.get("expected_source"))
+        if "expected_auto_attempted" in case:
+            case["pass"] = bool(case["pass"] and case.get("actual_auto_attempted") == case.get("expected_auto_attempted"))
+        if "expected_external_call_count" in case:
+            case["pass"] = bool(case["pass"] and case.get("actual_external_call_count") == case.get("expected_external_call_count"))
         snap = case.get("snapshot") or {}
         case["freshness_separated"] = snap.get("analysis_freshness_used_for_readiness") is False
         case["legacy_generation_readiness_used"] = bool(snap.get("legacy_generation_readiness_used"))
@@ -17383,6 +17521,7 @@ def run_harness(
         "live-on-button-state-log-summary",
         "runtime-provenance-log-summary",
         "live-on-runtime-harness-driven-click-run",
+        "live-on-runtime-harness-driven-click-run-provider-check-once",
         "live-on-preflight-setting-source-summary",
         "live-on-preflight-krw-balance-source-summary",
         "live-on-preflight-effective-cap-summary",
@@ -17599,12 +17738,13 @@ def run_harness(
         elif mode == "runtime-provenance-log-summary":
             _install_provider_post_guard(report)
             _run_runtime_provenance_log_summary(report)
-        elif mode == "live-on-runtime-harness-driven-click-run":
+        elif mode in {"live-on-runtime-harness-driven-click-run", "live-on-runtime-harness-driven-click-run-provider-check-once"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_harness_driven_click_run(
                 report,
                 output_dir=output_dir,
                 wait_seconds=10.0,
+                allow_provider_ready_check_once=(mode == "live-on-runtime-harness-driven-click-run-provider-check-once"),
             )
         elif mode == "live-on-preflight-setting-source-summary":
             _install_provider_post_guard(report)
@@ -18257,6 +18397,7 @@ def main() -> int:
             "live-on-button-state-log-summary",
             "runtime-provenance-log-summary",
             "live-on-runtime-harness-driven-click-run",
+            "live-on-runtime-harness-driven-click-run-provider-check-once",
             "live-on-preflight-setting-source-summary",
             "live-on-preflight-krw-balance-source-summary",
             "live-on-preflight-effective-cap-summary",

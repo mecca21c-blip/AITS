@@ -223,3 +223,7 @@ runtime contract as handler -> preflight -> runtime start or blocked status.
 reporting. It does not grant order permission and must not set `order_allowed`
 or `real_order`; live submit remains behind the existing RiskGuard,
 LivePreflight, and unlock gates.
+
+## 2026-07-08 Provider Readiness Gate Update
+
+`provider_connection_check_needed` is no longer a terminal ON blocker when the selected GPT/Gemini key is present and one provider readiness check is explicitly allowed. If the check succeeds, E2E diagnostics should continue to balance/cap/runtime-start blockers. If it fails, the blocker is `provider_connection_failed`. Submitted/order counts must remain zero in this diagnostic stage.

@@ -24973,7 +24973,189 @@ class MainWindow(QMainWindow):
         except Exception:
             return False
 
-    def _build_on_preflight_provider_readiness_state(self) -> dict:
+    def _run_on_preflight_provider_readiness_auto_check(
+        self,
+        *,
+        selected_provider: str,
+        key: str,
+        key_source: str,
+        key_fp: str,
+    ) -> dict:
+        provider = self._normalize_ai_provider_code(selected_provider)
+        canonical = "openai" if provider == "gpt" else provider
+        result = {
+            "attempted": False,
+            "success": False,
+            "provider": provider,
+            "reason": "not_attempted",
+            "error_type": "",
+            "external_call_count": 0,
+        }
+        try:
+            override = getattr(self, "_on_preflight_provider_auto_check_override", None)
+            if callable(override):
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][ProviderReadinessAutoCheck] event=auto_check_start source_path=on_preflight "
+                        "selected_provider=%s normalized_provider=%s key_present=%s key_source=%s key_fp=%s "
+                        "submitted=0 order_allowed=False real_order=False",
+                        provider,
+                        provider,
+                        bool(str(key or "").strip()),
+                        str(key_source or "")[:80],
+                        key_fp or "-",
+                    )
+                except Exception:
+                    pass
+                mocked = override(
+                    selected_provider=provider,
+                    key_present=bool(str(key or "").strip()),
+                    key_source=key_source,
+                    key_fp=key_fp,
+                )
+                if isinstance(mocked, dict):
+                    result.update(mocked)
+                result["attempted"] = bool(result.get("attempted", True))
+                result["success"] = bool(result.get("success"))
+                result["external_call_count"] = int(result.get("external_call_count") or 0)
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][ProviderReadinessAutoCheck] event=auto_check_result source_path=on_preflight "
+                        "selected_provider=%s normalized_provider=%s key_present=%s key_source=%s key_fp=%s "
+                        "auto_check_attempted=%s auto_check_success=%s readiness=%s reason=%s error_type=%s "
+                        "provider_external_call_count=%s submitted=0 order_allowed=False real_order=False",
+                        provider,
+                        provider,
+                        bool(str(key or "").strip()),
+                        str(key_source or "")[:80],
+                        key_fp or "-",
+                        bool(result.get("attempted")),
+                        bool(result.get("success")),
+                        bool(result.get("success")),
+                        str(result.get("reason") or "")[:120],
+                        str(result.get("error_type") or "")[:80],
+                        int(result.get("external_call_count") or 0),
+                    )
+                except Exception:
+                    pass
+                return result
+        except Exception as exc:
+            result.update(
+                {
+                    "attempted": True,
+                    "success": False,
+                    "reason": "auto_check_override_exception",
+                    "error_type": type(exc).__name__,
+                    "external_call_count": int(result.get("external_call_count") or 0),
+                }
+            )
+            return result
+
+        if provider not in ("gpt", "gemini"):
+            result.update({"attempted": False, "success": provider in ("basic", "local"), "reason": "local_provider_ready"})
+            return result
+        if not str(key or "").strip():
+            result.update({"attempted": False, "success": False, "reason": "provider_key_missing"})
+            return result
+
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ProviderReadinessAutoCheck] event=auto_check_start source_path=on_preflight "
+                "selected_provider=%s normalized_provider=%s key_present=%s key_source=%s key_fp=%s "
+                "submitted=0 order_allowed=False real_order=False",
+                provider,
+                provider,
+                True,
+                str(key_source or "")[:80],
+                key_fp or "-",
+            )
+        except Exception:
+            pass
+
+        started_at = time.perf_counter()
+        result["attempted"] = True
+        result["external_call_count"] = 1
+        try:
+            if canonical == "openai":
+                from openai import OpenAI
+
+                OpenAI(api_key=key, timeout=4.0).models.list()
+            elif canonical == "gemini":
+                import google.generativeai as genai
+
+                genai.configure(api_key=key)
+                model_name = self._get_selected_ai_model("gemini") or "gemini-2.5-flash"
+                response = genai.GenerativeModel(model_name).generate_content(
+                    "ping",
+                    request_options={"timeout": 4},
+                )
+                if response is None:
+                    raise RuntimeError("empty_response")
+            else:
+                raise RuntimeError("unsupported_provider")
+            result.update({"success": True, "reason": "api_response_verified", "error_type": ""})
+        except Exception as exc:
+            result.update(
+                {
+                    "success": False,
+                    "reason": "provider_connection_failed",
+                    "error_type": type(exc).__name__ or "ProviderError",
+                }
+            )
+
+        elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+        try:
+            status = "connected" if result.get("success") else "failed"
+            cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._ai_connection_snapshots_by_provider = cache
+            snapshot = {
+                "status": status,
+                "source": "on_preflight_auto_check",
+                "updated_at": time.time(),
+                "key_fp": key_fp,
+                "key_present": True,
+                "success_evidence": "provider_readiness_auto_check" if result.get("success") else "",
+                "error_type": str(result.get("error_type") or ""),
+            }
+            cache[provider] = dict(snapshot)
+            if provider == "gpt":
+                cache["openai"] = dict(snapshot)
+            self._last_ai_connection_provider = provider
+            self._last_ai_connection_status = status
+            self._last_ai_connection_source = "on_preflight_auto_check"
+            self._ai_connection_status = status
+            try:
+                self._render_ai_engine_state()
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ProviderReadinessAutoCheck] event=auto_check_result source_path=on_preflight "
+                "selected_provider=%s normalized_provider=%s key_present=%s key_source=%s key_fp=%s "
+                "auto_check_attempted=%s auto_check_success=%s readiness=%s reason=%s error_type=%s "
+                "elapsed_ms=%s provider_external_call_count=%s submitted=0 order_allowed=False real_order=False",
+                provider,
+                provider,
+                True,
+                str(key_source or "")[:80],
+                key_fp or "-",
+                bool(result.get("attempted")),
+                bool(result.get("success")),
+                bool(result.get("success")),
+                str(result.get("reason") or "")[:120],
+                str(result.get("error_type") or "")[:80],
+                elapsed_ms,
+                int(result.get("external_call_count") or 0),
+            )
+        except Exception:
+            pass
+        return result
+
+    def _build_on_preflight_provider_readiness_state(self, allow_auto_check: bool = False) -> dict:
         try:
             selected = self._normalize_ai_provider_code(
                 getattr(self, "_selected_ai_provider", "basic")
@@ -24982,6 +25164,7 @@ class MainWindow(QMainWindow):
             selected = "basic"
         selected = selected or "basic"
         saved_provider = "openai" if selected == "gpt" else selected
+        key = ""
         key_present = False
         key_source = ""
         key_fp = ""
@@ -25129,6 +25312,79 @@ class MainWindow(QMainWindow):
             blocker = "provider_connection_check_needed"
             reason = blocker
 
+        auto_check_allowed = bool(allow_auto_check)
+        auto_check_attempted = False
+        auto_check_success = False
+        auto_check_reason = ""
+        auto_check_error_type = ""
+        auto_check_provider = selected
+        auto_check_external_call_count = 0
+        provider_ready_after_auto_check = bool(ready)
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][LiveOnProviderReadiness] event=on_preflight_provider_check source_path=on_preflight "
+                "selected_provider=%s normalized_provider=%s key_present=%s key_source=%s key_fp=%s "
+                "previous_connection_status=%s previous_snapshot_source=%s auto_check_allowed=%s "
+                "readiness=%s reason=%s blocker=%s submitted=0 order_allowed=False real_order=False",
+                selected,
+                selected,
+                bool(key_present),
+                str(key_source or "")[:80],
+                key_fp or "-",
+                connection_state,
+                snapshot_source or "-",
+                bool(auto_check_allowed),
+                bool(ready),
+                reason or "-",
+                blocker or "-",
+            )
+        except Exception:
+            pass
+        if (
+            not ready
+            and blocker == "provider_connection_check_needed"
+            and selected in ("gpt", "gemini")
+            and bool(key_present)
+        ):
+            if auto_check_allowed:
+                auto_result = self._run_on_preflight_provider_readiness_auto_check(
+                    selected_provider=selected,
+                    key=key,
+                    key_source=key_source,
+                    key_fp=key_fp,
+                )
+                auto_check_attempted = bool(auto_result.get("attempted"))
+                auto_check_success = bool(auto_result.get("success"))
+                auto_check_reason = str(auto_result.get("reason") or "")
+                auto_check_error_type = str(auto_result.get("error_type") or "")
+                auto_check_provider = str(auto_result.get("provider") or selected)
+                auto_check_external_call_count = int(auto_result.get("external_call_count") or 0)
+                if auto_check_success:
+                    ready = True
+                    blocker = ""
+                    reason = "provider_auto_check_ready"
+                    connection_state = "connected"
+                    status_text = "connected"
+                    snapshot_found = True
+                    snapshot_source = "on_preflight_auto_check"
+                    snapshot_key_fp = key_fp
+                    snapshot_updated_at = time.time()
+                    provider_ready_after_auto_check = True
+                else:
+                    ready = False
+                    blocker = "provider_connection_failed"
+                    reason = auto_check_reason or blocker
+                    connection_state = "failed"
+                    status_text = "failed"
+                    snapshot_found = True
+                    snapshot_source = "on_preflight_auto_check"
+                    snapshot_key_fp = key_fp
+                    snapshot_updated_at = time.time()
+                    provider_ready_after_auto_check = False
+            else:
+                auto_check_reason = "auto_check_disabled"
+                provider_ready_after_auto_check = False
+
         state = {
             "schema": "aits_live_on_preflight_provider_readiness_source_v1",
             "on_preflight_provider_ready": bool(ready),
@@ -25154,6 +25410,15 @@ class MainWindow(QMainWindow):
             "legacy_generation_readiness_used": False,
             "ui_text_used_as_readiness_source": False,
             "message_shown": "" if ready else blocker,
+            "provider_auto_check_allowed": bool(auto_check_allowed),
+            "provider_auto_check_attempted": bool(auto_check_attempted),
+            "provider_auto_check_success": bool(auto_check_success),
+            "provider_auto_check_reason": auto_check_reason,
+            "provider_auto_check_error_type": auto_check_error_type,
+            "provider_auto_check_provider": auto_check_provider,
+            "provider_auto_check_key_fp": key_fp if auto_check_attempted else "",
+            "provider_ready_after_auto_check": bool(provider_ready_after_auto_check),
+            "provider_external_call_count": int(auto_check_external_call_count or 0),
             "actual_order": False,
             "submitted_count": 0,
         }
@@ -25184,7 +25449,7 @@ class MainWindow(QMainWindow):
             pass
         return state
 
-    def _build_ai_engine_readiness_state(self) -> dict:
+    def _build_ai_engine_readiness_state(self, allow_provider_auto_check: bool = False) -> dict:
         try:
             selected = self._normalize_ai_provider_code(
                 getattr(self, "_selected_ai_provider", "basic")
@@ -25218,7 +25483,7 @@ class MainWindow(QMainWindow):
         )
         proof_present = bool(response_id_present or token_usage_present)
         try:
-            provider_readiness = self._build_on_preflight_provider_readiness_state()
+            provider_readiness = self._build_on_preflight_provider_readiness_state(allow_auto_check=allow_provider_auto_check)
         except Exception:
             provider_readiness = {}
         active_engine = "local" if selected in ("basic", "local") else selected
@@ -52282,7 +52547,9 @@ class MainWindow(QMainWindow):
                 if selected != "BASIC":
                     readiness = {}
                     try:
-                        readiness = self._build_ai_engine_readiness_state()
+                        readiness = self._build_ai_engine_readiness_state(
+                            allow_provider_auto_check=bool(getattr(self, "_on_preflight_provider_auto_check_enabled", True))
+                        )
                     except Exception:
                         readiness = {}
                     ready = bool(readiness.get("engine_ready_for_run"))

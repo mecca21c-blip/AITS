@@ -115,3 +115,7 @@ Both modes read recent logs only and keep:
 ## Interpretation
 
 `CandidateFeedState` score updates can continue while ON/live order gates are closed. Treat that as a separate candidate/feed loop until runtime start and order-intent bridge logs prove otherwise.
+
+## 2026-07-08 Provider Auto-Check Trace Fields
+
+After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines and reports `provider_auto_check_attempted`, `provider_auto_check_success`, `provider_auto_check_reason`, `provider_auto_check_provider`, `provider_auto_check_key_fp`, `provider_ready_after_auto_check`, and `provider_external_call_count`. A pass through provider readiness can still fail later at balance/cap gates; that is no longer classified as provider readiness failure.

@@ -1579,3 +1579,9 @@ It emits `aits_live_on_runtime_harness_driven_click_run_v1`.
 The mode is a harness-driven ON verification only. It does not create paper
 orders, does not fake balance or caps, and treats any submitted count or order
 adapter/service/execution reach as critical.
+
+## 2026-07-08 ON Provider Readiness Auto-Check Modes
+
+- `live-on-preflight-provider-ready-regression-proof` now covers connected, failed, key-missing, auto-check-disabled, auto-check-success, auto-check-failure, cross-provider isolation, and Local readiness cases.
+- `live-on-runtime-harness-driven-click-run` keeps provider readiness calls disabled and may preserve `provider_connection_check_needed`.
+- `live-on-runtime-harness-driven-click-run-provider-check-once` installs a mock one-shot provider readiness check. It allows at most one provider readiness call marker, keeps submitted/order paths at zero, and verifies the next blocker moves past provider readiness when the mock check succeeds.

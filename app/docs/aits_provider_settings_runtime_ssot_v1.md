@@ -113,3 +113,7 @@ provider normalization and settings-first policy.
 
 Safe reports compare `sha256(key)[:8]` fingerprints only. They do not store or
 print raw key values.
+
+## 2026-07-08 ON Provider Readiness Use Of SSOT
+
+The ON preflight auto-check uses the normalized selected provider and the provider-specific key resolver. GPT/OpenAI uses the OpenAI key/snapshot only, Gemini uses the Gemini key/snapshot only, and Local uses local readiness without external secrets. The result updates the provider connection snapshot only; analysis freshness remains separate.
