@@ -16836,8 +16836,8 @@ class MainWindow(QMainWindow):
                 pass
             self._aits_on_toggle_bridge_widget_id = id(self.btn_run_toggle)
             self._aits_on_toggle_bridge_connected = True
-            self.btn_run_toggle.toggled.connect(lambda v=False, _self=self: _self._on_run_toggle_signal_bridge(bool(v)))
-            self.btn_run_toggle.clicked.connect(lambda v=False, _self=self: _self._on_run_toggle_signal_bridge(bool(getattr(_self, "btn_run_toggle", None).isChecked()) if getattr(_self, "btn_run_toggle", None) is not None else bool(v)))
+            self.btn_run_toggle.toggled.connect(self._on_run_toggle_signal_bridge)
+            self.btn_run_toggle.clicked.connect(self._on_run_toggle_signal_bridge)
             logging.getLogger("aits").info(
                 "[AITS][ONWidget] event=on_widget_bridge_connected object_name=%s signal_name=toggled,clicked bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
                 str(self.btn_run_toggle.objectName() or ""),

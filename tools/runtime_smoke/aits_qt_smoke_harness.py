@@ -7464,16 +7464,22 @@ def _read_live_on_runtime_e2e_order_amount() -> tuple[int, str, str]:
 
 
 def _live_on_runtime_e2e_tail_log(max_chars: int = 800_000) -> tuple[list[str], str, str]:
-    log_path = ROOT / "data" / "logs" / "aits.log"
-    if not log_path.exists():
-        return [], str(log_path), "log_missing"
+    log_dir = ROOT / "data" / "logs"
+    log_candidates = [
+        log_dir / "aits.log.2",
+        log_dir / "aits.log.1",
+        log_dir / "aits.log",
+    ]
+    existing_paths = [path for path in log_candidates if path.exists()]
+    if not existing_paths:
+        return [], str(log_dir / "aits.log"), "log_missing"
     try:
-        text = log_path.read_text(encoding="utf-8", errors="replace")
+        text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in existing_paths)
     except Exception as exc:
-        return [], str(log_path), f"log_read_error:{type(exc).__name__}"
+        return [], ",".join(str(path) for path in existing_paths), f"log_read_error:{type(exc).__name__}"
     if len(text) > max_chars:
         text = text[-max_chars:]
-    return text.splitlines(), str(log_path), ""
+    return text.splitlines(), ",".join(str(path) for path in existing_paths), ""
 
 
 def _live_on_runtime_e2e_latest_reports(output_dir: Path) -> list[dict[str, Any]]:
