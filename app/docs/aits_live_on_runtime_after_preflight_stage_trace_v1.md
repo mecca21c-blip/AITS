@@ -53,7 +53,8 @@ fresh session boundary. Older ONWidget/ON probes are counted as
 session click reached the handler.
 
 ON signal wiring must keep one effective StopButton path: the `toggled(bool)`
-signal is connected through a single lambda bridge, and it must forward to
+and `clicked()` signals are connected directly to the bound
+`_on_run_toggle_signal_bridge` method, and that bridge must forward to
 `_on_toggle_run_toggled`, `_on_toggle_run_toggled_impl`, and `_on_toggle_run`
 in order. Probe slots are log-only and must not replace the handler chain.
 
@@ -92,6 +93,7 @@ runtime start while order submission remains behind the existing live gates.
 ```powershell
 .\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-runtime-after-preflight-stage-trace --observe-only
 .\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-runtime-after-preflight-stage-summary --observe-only
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode live-on-runtime-harness-driven-click-run --observe-only
 ```
 
 Both modes read recent logs only and keep:

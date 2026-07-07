@@ -1551,3 +1551,14 @@ the probe path is observed before forwarding into the existing handler chain.
 The after-preflight summary reads `runtime_status_display` as `ui_on_state` so
 the harness can distinguish OFF, blocked, and observing states without treating
 that display as order permission.
+
+### live-on-runtime-harness-driven-click-run
+
+`live-on-runtime-harness-driven-click-run` starts the GUI from the project
+workspace, finds `btn_run_toggle`/`StopButton`, clicks it once, waits ten
+seconds, then reuses the runtime provenance, after-preflight, and E2E parsers.
+It emits `aits_live_on_runtime_harness_driven_click_run_v1`.
+
+The mode is a harness-driven ON verification only. It does not create paper
+orders, does not fake balance or caps, and treats any submitted count or order
+adapter/service/execution reach as critical.

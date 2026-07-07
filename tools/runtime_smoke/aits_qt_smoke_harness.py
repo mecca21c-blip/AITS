@@ -8472,6 +8472,220 @@ def _run_runtime_provenance_log_summary(report: dict[str, Any]) -> None:
     )
 
 
+def _run_live_on_runtime_harness_driven_click_run(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+    wait_seconds: float = 10.0,
+) -> None:
+    report.update(
+        {
+            "schema": "aits_live_on_runtime_harness_driven_click_run_v1",
+            "mode": "live-on-runtime-harness-driven-click-run",
+            "app_started": False,
+            "main_window_detected": False,
+            "on_button_found": False,
+            "click_executed": False,
+            "click_count": 0,
+            "wait_seconds": float(wait_seconds),
+            "critical_flags": [],
+            "safety_flags": {
+                "actual_order": False,
+                "order_adapter_called": False,
+                "order_service_called": False,
+                "execution_bridge_called": False,
+                "provider_external_call_count": 0,
+                "submitted_count": 0,
+            },
+        }
+    )
+    app = None
+    window = None
+    try:
+        app, window, _paths = _build_window(
+            report,
+            skip_ai_reco_updates=True,
+            skip_startup_restore=False,
+        )
+        report["app_started"] = True
+        report["main_window_detected"] = window is not None
+        _pump_events(app, 2.0)
+
+        try:
+            from PySide6.QtWidgets import QMessageBox
+            original_warning = getattr(QMessageBox, "warning", None)
+
+            def _harness_warning(*args: Any, **kwargs: Any) -> Any:
+                report["qmessagebox_warning_suppressed"] = True
+                return QMessageBox.Ok
+
+            QMessageBox.warning = _harness_warning
+            report["_qmessagebox_warning_original"] = original_warning
+        except Exception:
+            pass
+
+        button = getattr(window, "btn_run_toggle", None)
+        if button is None:
+            try:
+                from PySide6.QtWidgets import QPushButton
+                for candidate in window.findChildren(QPushButton):
+                    if str(candidate.objectName() or "") == "StopButton":
+                        button = candidate
+                        break
+            except Exception:
+                button = None
+
+        report["on_button_found"] = button is not None
+        if button is not None:
+            report.update(
+                {
+                    "on_button_object_name": str(button.objectName() or ""),
+                    "on_button_enabled": bool(button.isEnabled()),
+                    "on_button_visible": bool(button.isVisible()),
+                    "on_button_checked_before": bool(button.isChecked()),
+                    "on_button_checkable": bool(button.isCheckable()) if hasattr(button, "isCheckable") else False,
+                }
+            )
+        if button is None:
+            report["first_blocker"] = "on_button_not_found"
+            report["next_fix_target"] = "inspect MainWindow btn_run_toggle/StopButton creation"
+        elif not bool(button.isEnabled()):
+            report["first_blocker"] = "on_button_disabled"
+            report["next_fix_target"] = "inspect ON button enabled state before click"
+        else:
+            click_method = ""
+            try:
+                from PySide6.QtCore import Qt
+                from PySide6.QtTest import QTest
+                QTest.mouseClick(button, Qt.LeftButton)
+                click_method = "QTest.mouseClick"
+            except Exception as exc:
+                report["qtest_click_error"] = f"{type(exc).__name__}:{exc}"
+                try:
+                    button.click()
+                    click_method = "button.click"
+                except Exception as click_exc:
+                    report["button_click_error"] = f"{type(click_exc).__name__}:{click_exc}"
+                    click_method = ""
+            report["click_method_used"] = click_method
+            report["click_executed"] = bool(click_method)
+            report["click_count"] = 1 if click_method else 0
+            _pump_events(app, max(float(wait_seconds), 0.0))
+            report["on_button_checked_after"] = bool(button.isChecked())
+
+        provenance: dict[str, Any] = {}
+        after_preflight = _build_live_on_runtime_after_preflight_stage_report(
+            mode="live-on-runtime-after-preflight-stage-summary",
+            output_dir=output_dir,
+        )
+        e2e = _build_live_on_runtime_e2e_diagnostic_report(
+            output_dir=output_dir,
+            mode="live-on-runtime-e2e-diagnostic-log-summary",
+        )
+        _run_runtime_provenance_log_summary(provenance)
+
+        critical_flags: list[str] = []
+        if int(after_preflight.get("submitted_count") or e2e.get("submitted_count") or 0) > 0:
+            critical_flags.append("submitted_count_nonzero")
+        if bool(after_preflight.get("order_adapter_reached") or e2e.get("order_adapter_reached")):
+            critical_flags.append("order_adapter_reached")
+        if bool(after_preflight.get("order_service_reached") or e2e.get("order_service_reached")):
+            critical_flags.append("order_service_reached")
+        if bool(after_preflight.get("execution_bridge_reached") or e2e.get("execution_bridge_reached")):
+            critical_flags.append("execution_bridge_reached")
+        if bool(after_preflight.get("actual_order") or e2e.get("actual_order_forced")):
+            critical_flags.append("actual_order_detected")
+
+        handler_bridge = bool(after_preflight.get("handler_bridge_stage_detected") or provenance.get("handler_bridge_stage_detected"))
+        preflight_start = bool(after_preflight.get("preflight_start_detected"))
+        diagnostic_status = "pass" if bool(report.get("click_executed")) and handler_bridge and not critical_flags else "blocked"
+        if critical_flags:
+            diagnostic_status = "critical"
+
+        report.update(
+            {
+                "git_head_detected": str(provenance.get("git_head_detected") or ""),
+                "runtime_provenance_detected": bool(provenance.get("runtime_provenance_detected")),
+                "fresh_clicked_probe_detected": bool(provenance.get("fresh_clicked_probe_detected")),
+                "fresh_toggled_probe_detected": bool(provenance.get("fresh_toggled_probe_detected")),
+                "handler_bridge_stage_detected": handler_bridge,
+                "handler_toggled_stage_detected": bool(after_preflight.get("handler_toggled_stage_detected") or provenance.get("handler_toggled_stage_detected")),
+                "handler_impl_stage_detected": bool(after_preflight.get("handler_impl_stage_detected") or provenance.get("handler_impl_stage_detected")),
+                "handler_run_stage_detected": bool(after_preflight.get("handler_run_stage_detected") or provenance.get("handler_run_stage_detected")),
+                "handler_stage_sequence": after_preflight.get("handler_stage_sequence") or provenance.get("handler_stage_sequence") or [],
+                "preflight_start_detected": preflight_start,
+                "preflight_result_detected": bool(after_preflight.get("preflight_result_detected")),
+                "on_preflight_status": str(after_preflight.get("on_preflight_status") or ""),
+                "runtime_start_requested": bool(after_preflight.get("runtime_start_requested")),
+                "runtime_start_result_detected": bool(after_preflight.get("runtime_start_result_detected")),
+                "runtime_loop_started": bool(after_preflight.get("runtime_loop_started") or e2e.get("runtime_loop_started")),
+                "ui_on_state": str(after_preflight.get("ui_on_state") or ""),
+                "first_blocker": str(after_preflight.get("first_blocker") or report.get("first_blocker") or ""),
+                "next_fix_target": str(after_preflight.get("next_fix_target") or report.get("next_fix_target") or ""),
+                "submitted_count": int(after_preflight.get("submitted_count") or e2e.get("submitted_count") or 0),
+                "provider_external_call_count": int(after_preflight.get("provider_external_call_count") or e2e.get("provider_external_call_count") or 0),
+                "order_risk_detected": bool(after_preflight.get("order_risk_detected") or e2e.get("order_risk_detected") or critical_flags),
+                "critical_flags": critical_flags,
+                "safety_flags": {
+                    "actual_order": False,
+                    "order_adapter_called": bool(after_preflight.get("order_adapter_reached") or e2e.get("order_adapter_reached")),
+                    "order_service_called": bool(after_preflight.get("order_service_reached") or e2e.get("order_service_reached")),
+                    "execution_bridge_called": bool(after_preflight.get("execution_bridge_reached") or e2e.get("execution_bridge_reached")),
+                    "provider_external_call_count": int(after_preflight.get("provider_external_call_count") or e2e.get("provider_external_call_count") or 0),
+                    "submitted_count": int(after_preflight.get("submitted_count") or e2e.get("submitted_count") or 0),
+                },
+                "runtime_provenance_summary": {
+                    "suspected_root_cause": provenance.get("suspected_root_cause"),
+                    "next_fix_target": provenance.get("next_fix_target"),
+                    "report_path": provenance.get("report_path", ""),
+                },
+                "after_preflight_summary": {
+                    "first_blocker": after_preflight.get("first_blocker"),
+                    "last_reached_stage": after_preflight.get("last_reached_stage"),
+                    "next_fix_target": after_preflight.get("next_fix_target"),
+                },
+                "e2e_summary": {
+                    "diagnostic_status": e2e.get("diagnostic_status"),
+                    "first_blocker": e2e.get("first_blocker"),
+                    "order_path_status": e2e.get("order_path_status"),
+                    "last_reached_stage": e2e.get("last_reached_stage"),
+                },
+                "diagnostic_status": diagnostic_status,
+                "pass_status": "fail" if diagnostic_status == "critical" else ("pass" if diagnostic_status == "pass" else "partial"),
+                "status": "fail" if diagnostic_status == "critical" else "pass",
+            }
+        )
+    except Exception as exc:
+        report.update(
+            {
+                "diagnostic_status": "error",
+                "pass_status": "fail",
+                "status": "fail",
+                "first_blocker": "harness_click_run_exception",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc)[:300],
+            }
+        )
+    finally:
+        try:
+            original_warning = report.pop("_qmessagebox_warning_original", None)
+            if original_warning is not None:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning = original_warning
+        except Exception:
+            pass
+        try:
+            if window is not None:
+                window.close()
+        except Exception:
+            pass
+        try:
+            if app is not None:
+                _pump_events(app, 0.5)
+        except Exception:
+            pass
+
+
 def _run_live_on_preflight_setting_source_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_200_000)
     preflight_lines = [
@@ -17079,6 +17293,7 @@ def run_harness(
         "live-on-button-state-trace-dryrun",
         "live-on-button-state-log-summary",
         "runtime-provenance-log-summary",
+        "live-on-runtime-harness-driven-click-run",
         "live-on-preflight-setting-source-summary",
         "live-on-preflight-krw-balance-source-summary",
         "live-on-preflight-effective-cap-summary",
@@ -17295,6 +17510,13 @@ def run_harness(
         elif mode == "runtime-provenance-log-summary":
             _install_provider_post_guard(report)
             _run_runtime_provenance_log_summary(report)
+        elif mode == "live-on-runtime-harness-driven-click-run":
+            _install_provider_post_guard(report)
+            _run_live_on_runtime_harness_driven_click_run(
+                report,
+                output_dir=output_dir,
+                wait_seconds=10.0,
+            )
         elif mode == "live-on-preflight-setting-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_setting_source_summary(report)
@@ -17935,6 +18157,7 @@ def main() -> int:
             "live-on-button-state-trace-dryrun",
             "live-on-button-state-log-summary",
             "runtime-provenance-log-summary",
+            "live-on-runtime-harness-driven-click-run",
             "live-on-preflight-setting-source-summary",
             "live-on-preflight-krw-balance-source-summary",
             "live-on-preflight-effective-cap-summary",
