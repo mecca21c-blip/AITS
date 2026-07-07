@@ -11012,6 +11012,64 @@ class MainWindow(QMainWindow):
             pass
 
 
+    def _log_runtime_feed_readiness(
+        self,
+        *,
+        source: str,
+        reason: str = "",
+        top_markets_count: int | None = None,
+        tickers_count: int | None = None,
+        score_update_total: int | None = None,
+        buy_ready_count: int | None = None,
+        market_data_stale: bool | None = None,
+    ) -> None:
+        try:
+            import logging
+            import time
+
+            now = time.time()
+            top_count = int(top_markets_count if top_markets_count is not None else getattr(self, "_runtime_feed_top_markets_count", 0) or 0)
+            ticker_count = int(tickers_count if tickers_count is not None else getattr(self, "_runtime_feed_tickers_count", 0) or 0)
+            score_total = int(score_update_total if score_update_total is not None else getattr(self, "_runtime_feed_score_update_total", 0) or 0)
+            buy_ready = int(buy_ready_count if buy_ready_count is not None else getattr(self, "_runtime_feed_buy_ready_count", 0) or 0)
+            stale = bool(market_data_stale if market_data_stale is not None else getattr(self, "_candidate_feed_stale", False))
+            if top_markets_count is not None:
+                self._runtime_feed_top_markets_count = top_count
+            if tickers_count is not None:
+                self._runtime_feed_tickers_count = ticker_count
+            if score_update_total is not None:
+                self._runtime_feed_score_update_total = score_total
+            if buy_ready_count is not None:
+                self._runtime_feed_buy_ready_count = buy_ready
+            network_status = str(getattr(self, "_network_status", "unknown") or "unknown")
+            last_ok = getattr(self, "_candidate_feed_last_ok_at", None)
+            last_ok_age = int(max(0.0, now - float(last_ok))) if last_ok else -1
+            readiness = bool((top_count > 0 or ticker_count > 0 or score_total > 0) and not stale)
+            if readiness:
+                reason_text = reason or "feed_ready"
+            elif stale:
+                reason_text = reason or str(getattr(self, "_candidate_feed_last_error", "") or "market_data_stale")
+            else:
+                reason_text = reason or "feed_snapshot_missing"
+            logging.getLogger("aits").info(
+                "[AITS][RuntimeFeedReadiness] event=feed_check source_path=%s market_feed_ok=%s "
+                "top_markets_count=%s tickers_count=%s score_update_total=%s buy_ready_count=%s "
+                "market_data_stale=%s network_status=%s last_ok_age_sec=%s reason=%s "
+                "submitted=0 order_allowed=False real_order=False",
+                str(source or "unknown")[:80],
+                readiness,
+                top_count,
+                ticker_count,
+                score_total,
+                buy_ready,
+                stale,
+                network_status,
+                last_ok_age,
+                str(reason_text or "unknown").replace("\n", " ")[:120],
+            )
+        except Exception:
+            pass
+
     def _mark_candidate_feed_state(self, ok: bool, source: str = "top_markets", reason: str = "", rows: int = 0) -> None:
         """Track market/candidate feed health separately from provider/key status."""
         try:
@@ -11028,6 +11086,13 @@ class MainWindow(QMainWindow):
                 self._candidate_feed_stale = False
                 self._candidate_feed_last_ok_at = now
                 self._candidate_feed_last_rows = int(rows or 0)
+                self._log_runtime_feed_readiness(
+                    source=source,
+                    reason=reason_text or "feed_ready",
+                    top_markets_count=int(rows or 0) if source == "top_markets" else None,
+                    tickers_count=int(rows or 0) if "ticker" in source else None,
+                    market_data_stale=False,
+                )
                 self._note_network_state(True, source)
                 if prev in {"degraded", "disconnected", "stale"} and not recovery_running:
                     try:
@@ -11061,6 +11126,13 @@ class MainWindow(QMainWindow):
             self._candidate_feed_stale = True
             self._candidate_feed_last_failed_at = now
             self._candidate_feed_last_error = reason_text or "candidate_feed_degraded"
+            self._log_runtime_feed_readiness(
+                source=source,
+                reason=reason_text or "candidate_feed_degraded",
+                top_markets_count=0 if source == "top_markets" else None,
+                tickers_count=0 if "ticker" in source else None,
+                market_data_stale=True,
+            )
             self._note_network_state(False, source, reason_text or "candidate_feed_degraded")
             try:
                 logging.getLogger("aits").warning(
@@ -39337,6 +39409,13 @@ class MainWindow(QMainWindow):
                     buy_ready_count,
                     watching_count,
                     market_data_stale,
+                )
+                self._log_runtime_feed_readiness(
+                    source="score_update",
+                    reason="score_update",
+                    score_update_total=len(rows),
+                    buy_ready_count=buy_ready_count,
+                    market_data_stale=market_data_stale,
                 )
             except Exception:
                 pass

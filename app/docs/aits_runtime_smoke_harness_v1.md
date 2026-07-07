@@ -1585,3 +1585,9 @@ adapter/service/execution reach as critical.
 - `live-on-preflight-provider-ready-regression-proof` now covers connected, failed, key-missing, auto-check-disabled, auto-check-success, auto-check-failure, cross-provider isolation, and Local readiness cases.
 - `live-on-runtime-harness-driven-click-run` keeps provider readiness calls disabled and may preserve `provider_connection_check_needed`.
 - `live-on-runtime-harness-driven-click-run-provider-check-once` installs a mock one-shot provider readiness check. It allows at most one provider readiness call marker, keeps submitted/order paths at zero, and verifies the next blocker moves past provider readiness when the mock check succeeds.
+## 2026-07-08 - ON Runtime Feed/Balance SSOT Fields
+
+- `live-on-runtime-e2e-diagnostic-log-summary` now reports runtime market-feed readiness from `RuntimeFeedReadiness` first, then latest-session `CandidateFeedState`, `top_markets_return`, `tickers_return`, and `NetworkState`.
+- New feed fields include `market_feed_source`, `market_feed_reason`, `market_feed_blocker`, `latest_candidate_feed_total`, `latest_candidate_feed_buy_ready`, `latest_top_markets_count`, `latest_tickers_count`, and `latest_network_status`.
+- Balance/cap fields are parsed from `LiveOnPreflight` and `KRWBalanceSource`: `balance_gate_detected`, `available_krw`, `accounts_fetch_status`, `balance_fallback_reason`, `effective_cap_krw`, and `balance_gate_blocker`.
+- Harness diagnostics must keep `actual_order=false`, `submitted_count=0`, and must not synthesize market feed or balance values.

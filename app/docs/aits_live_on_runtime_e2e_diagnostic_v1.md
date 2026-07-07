@@ -227,3 +227,10 @@ LivePreflight, and unlock gates.
 ## 2026-07-08 Provider Readiness Gate Update
 
 `provider_connection_check_needed` is no longer a terminal ON blocker when the selected GPT/Gemini key is present and one provider readiness check is explicitly allowed. If the check succeeds, E2E diagnostics should continue to balance/cap/runtime-start blockers. If it fails, the blocker is `provider_connection_failed`. Submitted/order counts must remain zero in this diagnostic stage.
+## 2026-07-08 - Market Feed / Balance Gate SSOT
+
+- E2E diagnostic now treats `[AITS][RuntimeFeedReadiness]` as the runtime market-feed readiness snapshot.
+- If `RuntimeFeedReadiness` is absent, the parser falls back to latest-session `CandidateFeedState event=score_update`, `top_markets_return`, `tickers_return`, and `NetworkState`.
+- `market_feed_missing` is split into more specific blockers: `market_feed_ticker_empty`, `market_feed_top_markets_empty`, `market_feed_degraded`, `market_feed_snapshot_missing`, and `market_feed_not_ready`.
+- Balance/cap blockers are surfaced from `[AITS][LiveOnPreflight]` and `[AITS][KRWBalanceSource]` with `available_krw`, `accounts_fetch_status`, `fallback_reason`, and `effective_cap_krw`.
+- This is observability only: no fake market feed, no fake balance, no order enablement.

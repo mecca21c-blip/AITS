@@ -119,3 +119,8 @@ Both modes read recent logs only and keep:
 ## 2026-07-08 Provider Auto-Check Trace Fields
 
 After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines and reports `provider_auto_check_attempted`, `provider_auto_check_success`, `provider_auto_check_reason`, `provider_auto_check_provider`, `provider_auto_check_key_fp`, `provider_ready_after_auto_check`, and `provider_external_call_count`. A pass through provider readiness can still fail later at balance/cap gates; that is no longer classified as provider readiness failure.
+## 2026-07-08 - Feed And Balance Gate Fields
+
+- After-preflight summary now mirrors E2E market-feed fields: `market_feed_ok`, `market_feed_source`, `market_feed_reason`, `latest_candidate_feed_total`, `latest_top_markets_count`, `latest_tickers_count`, and `latest_network_status`.
+- It also mirrors balance/cap gate fields: `balance_gate_detected`, `available_krw`, `accounts_fetch_status`, `balance_fallback_reason`, `effective_cap_krw`, and `balance_gate_blocker`.
+- A preflight failure after provider readiness can now be read as feed, balance, or cap state instead of a generic ON/preflight blocker.

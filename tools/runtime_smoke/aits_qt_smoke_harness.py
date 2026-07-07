@@ -7482,6 +7482,177 @@ def _live_on_runtime_e2e_tail_log(max_chars: int = 800_000) -> tuple[list[str], 
     return text.splitlines(), ",".join(str(path) for path in existing_paths), ""
 
 
+
+def _aits_extract_kv_text(line: str, key: str) -> str:
+    match = re.search(rf"(?:^|[\s|]){re.escape(key)}[=:]\s*([^\s|]+)", str(line or ""))
+    return str(match.group(1)).strip() if match else ""
+
+
+def _aits_extract_kv_int(line: str, key: str, default: int = 0) -> int:
+    raw = _aits_extract_kv_text(line, key)
+    if raw == "":
+        return default
+    try:
+        return int(float(str(raw).replace(",", "")))
+    except Exception:
+        return default
+
+
+def _aits_extract_kv_bool(line: str, key: str, default: bool = False) -> bool:
+    raw = _aits_extract_kv_text(line, key).lower()
+    if raw in {"true", "1", "yes", "ok", "ready"}:
+        return True
+    if raw in {"false", "0", "no", "failed", "degraded"}:
+        return False
+    return default
+
+
+def _aits_latest_line_with(lines: list[str], *needles: str) -> str:
+    lowered_needles = [str(n).lower() for n in needles if str(n or "")]
+    for line in reversed(lines):
+        low = line.lower()
+        if all(n in low for n in lowered_needles):
+            return line
+    return ""
+
+
+def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
+    runtime_line = _aits_latest_line_with(lines, "[aits][runtimefeedreadiness]")
+    score_line = ""
+    for line in reversed(lines):
+        low = line.lower()
+        if "candidatefeedstate" in low and "event=score_update" in low:
+            score_line = line
+            break
+        if "ai score update" in low:
+            score_line = line
+            break
+    top_line = _aits_latest_line_with(lines, "top_markets_return")
+    ticker_line = _aits_latest_line_with(lines, "tickers_return")
+    network_line = _aits_latest_line_with(lines, "[aits][networkstate]")
+
+    runtime_ok = _aits_extract_kv_bool(runtime_line, "market_feed_ok", False) if runtime_line else False
+    score_total = _aits_extract_kv_int(runtime_line, "score_update_total", 0) if runtime_line else 0
+    if score_total <= 0:
+        score_total = _aits_extract_kv_int(score_line, "total", 0)
+    buy_ready = _aits_extract_kv_int(runtime_line, "buy_ready_count", 0) if runtime_line else 0
+    if buy_ready <= 0:
+        buy_ready = _aits_extract_kv_int(score_line, "buy_ready", 0)
+    top_count = _aits_extract_kv_int(runtime_line, "top_markets_count", 0) if runtime_line else 0
+    if top_count <= 0:
+        top_count = _aits_extract_kv_int(top_line, "count", 0)
+    ticker_count = _aits_extract_kv_int(runtime_line, "tickers_count", 0) if runtime_line else 0
+    if ticker_count <= 0:
+        ticker_count = _aits_extract_kv_int(ticker_line, "count", 0)
+
+    stale = _aits_extract_kv_bool(runtime_line, "market_data_stale", False) if runtime_line else False
+    if score_line:
+        stale = _aits_extract_kv_bool(score_line, "market_data_stale", stale)
+    network_status = _aits_extract_kv_text(runtime_line, "network_status") if runtime_line else ""
+    if not network_status:
+        network_status = _aits_extract_kv_text(network_line, "status")
+    last_ok_age = _aits_extract_kv_int(runtime_line, "last_ok_age_sec", -1) if runtime_line else -1
+    reason = _aits_extract_kv_text(runtime_line, "reason") if runtime_line else ""
+
+    source = "runtime_feed_readiness" if runtime_line else ""
+    market_ok = False
+    if runtime_line:
+        market_ok = bool(runtime_ok)
+    if not market_ok and score_total > 0 and not stale:
+        market_ok = True
+        source = source or "candidate_score_update"
+        reason = reason or "score_update_ready"
+    if not market_ok and (top_count > 0 or ticker_count > 0) and not stale:
+        market_ok = True
+        source = source or "market_feed_counts"
+        reason = reason or "feed_count_ready"
+
+    if not source:
+        source = "log_summary"
+    if not reason:
+        if stale:
+            reason = "market_data_stale"
+        elif ticker_line and ticker_count <= 0:
+            reason = "ticker_empty"
+        elif top_line and top_count <= 0:
+            reason = "top_markets_empty"
+        elif network_status in {"degraded", "disconnected"}:
+            reason = "network_degraded"
+        else:
+            reason = "market_feed_snapshot_missing"
+
+    if market_ok:
+        blocker = ""
+    elif reason in {"ticker_empty", "top_markets_empty"}:
+        blocker = "market_feed_ticker_empty" if reason == "ticker_empty" else "market_feed_top_markets_empty"
+    elif reason in {"network_degraded", "market_data_stale"} or network_status in {"degraded", "disconnected"}:
+        blocker = "market_feed_degraded"
+    elif runtime_line or score_line or top_line or ticker_line or network_line:
+        blocker = "market_feed_not_ready"
+    else:
+        blocker = "market_feed_snapshot_missing"
+
+    return {
+        "market_feed_ok": bool(market_ok),
+        "market_feed_source": source,
+        "market_feed_reason": reason,
+        "market_feed_blocker": blocker,
+        "latest_candidate_feed_total": int(score_total or 0),
+        "latest_candidate_feed_buy_ready": int(buy_ready or 0),
+        "latest_candidate_feed_market_data_stale": bool(stale),
+        "latest_top_markets_count": int(top_count or 0),
+        "latest_tickers_count": int(ticker_count or 0),
+        "latest_network_status": network_status or "unknown",
+        "market_feed_last_ok_age_sec": int(last_ok_age),
+        "latest_runtime_feed_line": runtime_line,
+    }
+
+
+def _analyze_live_on_balance_gate(lines: list[str]) -> dict[str, Any]:
+    balance_line = _aits_latest_line_with(lines, "[aits][krwbalancesource]")
+    preflight_line = _aits_latest_line_with(lines, "[aits][liveonpreflight]")
+    on_preflight_line = ""
+    for line in reversed(lines):
+        low = line.lower()
+        if "[aits][on]" in low and "event=preflight_result" in low and "status=fail" in low:
+            on_preflight_line = line
+            break
+    detected = bool(balance_line or preflight_line or on_preflight_line)
+    available = _aits_extract_kv_int(balance_line, "available_krw", _aits_extract_kv_int(preflight_line, "available_krw", 0))
+    effective = _aits_extract_kv_int(preflight_line, "effective_hard_cap_krw", 0)
+    hard_cap = _aits_extract_kv_int(preflight_line, "hard_cap_krw", 0)
+    window_cap = _aits_extract_kv_int(preflight_line, "total_guarded_window_cap_krw", 0)
+    order_amount = _aits_extract_kv_int(preflight_line, "configured_order_amount_krw", 0)
+    if available <= 0 and on_preflight_line:
+        match = re.search(r"(?:available_krw=|KRW\s*)([0-9,]+)", on_preflight_line, flags=re.IGNORECASE)
+        if match:
+            available = int(str(match.group(1)).replace(",", "") or 0)
+    if order_amount <= 0 and on_preflight_line:
+        match = re.search(r"(?:configured_order_amount_krw=|order\s*)([0-9,]+)|(?:1[^0-9]*)([0-9,]+)", on_preflight_line, flags=re.IGNORECASE)
+        if match:
+            order_amount = int(str(match.group(1) or match.group(2) or "0").replace(",", "") or 0)
+    fallback_used = _aits_extract_kv_bool(balance_line, "fallback_used", False)
+    balance_status = _aits_extract_kv_text(balance_line, "balance_status")
+    blocker = _aits_extract_kv_text(balance_line, "blocker") or _aits_extract_kv_text(preflight_line, "blocker")
+    if not blocker and on_preflight_line and available <= 0:
+        blocker = "insufficient_available_krw"
+    return {
+        "balance_gate_detected": detected,
+        "available_krw": available,
+        "available_krw_source": _aits_extract_kv_text(balance_line, "balance_source") or _aits_extract_kv_text(preflight_line, "balance_source"),
+        "accounts_fetch_status": balance_status,
+        "accounts_response_shape": _aits_extract_kv_text(balance_line, "response_shape"),
+        "balance_fallback_used": fallback_used,
+        "balance_fallback_reason": _aits_extract_kv_text(balance_line, "fallback_reason"),
+        "order_amount_krw": order_amount,
+        "per_order_hard_cap_krw": hard_cap,
+        "total_guarded_window_cap_krw": window_cap,
+        "effective_cap_krw": effective,
+        "balance_gate_blocker": blocker,
+        "latest_balance_gate_line": balance_line,
+        "latest_balance_preflight_line": preflight_line or on_preflight_line,
+    }
+
 def _live_on_runtime_e2e_latest_reports(output_dir: Path) -> list[dict[str, Any]]:
     try:
         paths = sorted(output_dir.glob("runtime_smoke_report_*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -7541,6 +7712,11 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
         "on_preflight_blocked": "blocked_before_runtime",
         "runtime_loop_not_started": "no_runtime",
         "market_feed_missing": "observing_only",
+        "market_feed_ticker_empty": "observing_only",
+        "market_feed_top_markets_empty": "observing_only",
+        "market_feed_degraded": "observing_only",
+        "market_feed_snapshot_missing": "observing_only",
+        "market_feed_not_ready": "observing_only",
         "managed_pool_empty": "candidate_missing",
         "score_update_missing": "candidate_missing",
         "no_buy_ready_candidate": "candidate_missing",
@@ -7567,6 +7743,11 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "on_preflight_blocked": "inspect ON preflight setting source and balance/cap blocker",
         "runtime_loop_not_started": "inspect ON state and runtime loop start logging",
         "market_feed_missing": "recheck public market feed/top markets feed",
+        "market_feed_ticker_empty": "inspect ticker feed empty response and recovery state",
+        "market_feed_top_markets_empty": "inspect top markets feed empty response and recovery state",
+        "market_feed_degraded": "inspect public market feed network recovery",
+        "market_feed_snapshot_missing": "inspect RuntimeFeedReadiness/CandidateFeedState writer",
+        "market_feed_not_ready": "inspect latest market feed readiness reason",
         "managed_pool_empty": "inspect Managed Pool row load/persistence",
         "score_update_missing": "inspect Basic score update/CandidateFeedState path",
         "no_buy_ready_candidate": "inspect Basic buy_ready criteria and Managed Pool scores",
@@ -7592,6 +7773,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     mode: str,
 ) -> dict[str, Any]:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log()
+    provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
+    latest_provenance = provenance_lines[-1] if provenance_lines else ""
+    session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
+    if session_started_at_dt is not None:
+        lines = [
+            line for line in lines
+            if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= session_started_at_dt)
+        ]
     lowered = [line.lower() for line in lines]
     joined_lower = "\n".join(lowered)
     reports = _live_on_runtime_e2e_latest_reports(output_dir)
@@ -7629,11 +7818,15 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         except Exception:
             pass
 
-    market_feed_ok = bool(
-        (top_feed_report and int(top_feed_report.get("top_markets_count") or 0) > 0)
-        or "market_feed_ok=true" in joined_lower
-        or "top_markets_count=" in joined_lower
-    )
+    market_feed = _analyze_live_on_market_feed_readiness(lines)
+    market_feed_ok = bool(market_feed.get("market_feed_ok"))
+    if top_feed_report and int(top_feed_report.get("top_markets_count") or 0) > 0:
+        market_feed_ok = True
+        market_feed["market_feed_ok"] = True
+        market_feed["market_feed_source"] = market_feed.get("market_feed_source") or "top_markets_feed_proof"
+        market_feed["market_feed_reason"] = market_feed.get("market_feed_reason") or "top_markets_feed_proof_ready"
+        market_feed["market_feed_blocker"] = ""
+    balance_gate = _analyze_live_on_balance_gate(lines)
     on_state_detected = any(
         token in joined_lower
         for token in (
@@ -7748,7 +7941,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     stage_checks = [
         ("on_state_detected", on_state_detected, "on_state_not_detected"),
         ("runtime_loop_started", runtime_loop_started, "runtime_loop_not_started"),
-        ("market_feed_ok", market_feed_ok, "market_feed_missing"),
+        ("market_feed_ok", market_feed_ok, str(market_feed.get("market_feed_blocker") or "market_feed_missing")),
         ("managed_pool_present", managed_pool_count > 0, "managed_pool_empty"),
         ("score_update_present", score_update_count > 0, "score_update_missing"),
         ("buy_ready_present", buy_ready_count > 0, "no_buy_ready_candidate"),
@@ -7829,6 +8022,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "configured_order_amount_read_error": amount_read_error,
         "selected_provider": str(dry_report.get("selected_provider") or dry_report.get("provider") or ""),
         "market_feed_ok": bool(market_feed_ok),
+        "market_feed_source": str(market_feed.get("market_feed_source") or ""),
+        "market_feed_reason": str(market_feed.get("market_feed_reason") or ""),
+        "market_feed_blocker": str(market_feed.get("market_feed_blocker") or ""),
+        "latest_candidate_feed_total": int(market_feed.get("latest_candidate_feed_total") or 0),
+        "latest_candidate_feed_buy_ready": int(market_feed.get("latest_candidate_feed_buy_ready") or 0),
+        "latest_candidate_feed_market_data_stale": bool(market_feed.get("latest_candidate_feed_market_data_stale")),
+        "latest_top_markets_count": int(market_feed.get("latest_top_markets_count") or 0),
+        "latest_tickers_count": int(market_feed.get("latest_tickers_count") or 0),
+        "latest_network_status": str(market_feed.get("latest_network_status") or ""),
+        "market_feed_last_ok_age_sec": int(market_feed.get("market_feed_last_ok_age_sec") or -1),
+        "balance_gate_detected": bool(balance_gate.get("balance_gate_detected")),
+        "available_krw": int(balance_gate.get("available_krw") or 0),
+        "available_krw_source": str(balance_gate.get("available_krw_source") or ""),
+        "accounts_fetch_status": str(balance_gate.get("accounts_fetch_status") or ""),
+        "accounts_response_shape": str(balance_gate.get("accounts_response_shape") or ""),
+        "balance_fallback_used": bool(balance_gate.get("balance_fallback_used")),
+        "balance_fallback_reason": str(balance_gate.get("balance_fallback_reason") or ""),
+        "effective_cap_krw": int(balance_gate.get("effective_cap_krw") or 0),
+        "balance_gate_blocker": str(balance_gate.get("balance_gate_blocker") or ""),
         "managed_pool_count": managed_pool_count,
         "score_update_count": score_update_count,
         "buy_ready_count": buy_ready_count,
@@ -8173,7 +8385,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "provider_auto_check_provider": str(provider_auto_check_provider or ""),
         "provider_auto_check_key_fp": str(provider_auto_check_key_fp or ""),
         "provider_ready_after_auto_check": bool(provider_auto_check_success),
-        "balance_preflight_passed": not any(token in latest_preflight for token in ("balance_fetch_failed", "balance_not_loaded", "available_krw_zero")),
+        "balance_preflight_passed": not bool(e2e.get("balance_gate_blocker")) and not any(token in latest_preflight for token in ("balance_fetch_failed", "balance_not_loaded", "available_krw_zero")),
         "cap_preflight_passed": not any(token in latest_preflight for token in ("hard_cap_zero", "effective_hard_cap_below_min_order", "order_amount_exceeds")),
         "runtime_start_requested": bool(runtime_start_requested),
         "runtime_start_result_detected": bool(runtime_start_result_detected),
@@ -8198,6 +8410,26 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "real_order_after": bool(real_order_after),
         "live_gate_ready": bool(live_gate_ready),
         "candidate_loop_running": bool(candidate_loop_running),
+        "market_feed_ok": bool(e2e.get("market_feed_ok")),
+        "market_feed_source": str(e2e.get("market_feed_source") or ""),
+        "market_feed_reason": str(e2e.get("market_feed_reason") or ""),
+        "market_feed_blocker": str(e2e.get("market_feed_blocker") or ""),
+        "latest_candidate_feed_total": int(e2e.get("latest_candidate_feed_total") or 0),
+        "latest_candidate_feed_buy_ready": int(e2e.get("latest_candidate_feed_buy_ready") or 0),
+        "latest_candidate_feed_market_data_stale": bool(e2e.get("latest_candidate_feed_market_data_stale")),
+        "latest_top_markets_count": int(e2e.get("latest_top_markets_count") or 0),
+        "latest_tickers_count": int(e2e.get("latest_tickers_count") or 0),
+        "latest_network_status": str(e2e.get("latest_network_status") or ""),
+        "market_feed_last_ok_age_sec": int(e2e.get("market_feed_last_ok_age_sec") or -1),
+        "balance_gate_detected": bool(e2e.get("balance_gate_detected")),
+        "available_krw": int(e2e.get("available_krw") or 0),
+        "available_krw_source": str(e2e.get("available_krw_source") or ""),
+        "accounts_fetch_status": str(e2e.get("accounts_fetch_status") or ""),
+        "accounts_response_shape": str(e2e.get("accounts_response_shape") or ""),
+        "balance_fallback_used": bool(e2e.get("balance_fallback_used")),
+        "balance_fallback_reason": str(e2e.get("balance_fallback_reason") or ""),
+        "effective_cap_krw": int(e2e.get("effective_cap_krw") or 0),
+        "balance_gate_blocker": str(e2e.get("balance_gate_blocker") or ""),
         "buy_ready_count": int(e2e.get("buy_ready_count") or 0),
         "ai_opinion_fresh_count": int(e2e.get("ai_opinion_fresh_count") or 0),
         "order_intent_candidate_detected": bool(order_intent_candidate_detected),
