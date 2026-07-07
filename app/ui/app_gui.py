@@ -24854,10 +24854,19 @@ class MainWindow(QMainWindow):
                 if not isinstance(cache, dict):
                     cache = {}
                     self._ai_connection_snapshots_by_provider = cache
+                key_fp = ""
+                try:
+                    secret_provider = "openai" if normalized_provider == "gpt" else normalized_provider
+                    secret_value, _secret_source = self._resolve_ai_test_secret(secret_provider)
+                    key_fp = self._safe_secret_fingerprint(secret_value)
+                except Exception:
+                    key_fp = ""
                 cache[normalized_provider] = {
                     "status": status,
                     "source": (key_source or "").strip(),
                     "updated_at": time.time(),
+                    "key_fp": key_fp,
+                    "success_evidence": "connection_check",
                 }
             except Exception:
                 pass
@@ -24868,6 +24877,81 @@ class MainWindow(QMainWindow):
                 result_status=status,
             )
             self._render_ai_engine_state()
+        except Exception:
+            pass
+
+    def _record_ai_generation_success_evidence(
+        self,
+        provider: str,
+        result: dict,
+        source_path: str = "manual_generation",
+    ) -> None:
+        try:
+            normalized_provider = self._normalize_ai_provider_code(provider)
+            if normalized_provider not in ("gpt", "gemini"):
+                return
+            if bool(result.get("fallback_used") or result.get("fallback_required")):
+                return
+            response_confirmed = bool(result.get("generation_response_confirmed", True))
+            response_id_present = bool(result.get("response_id"))
+            token_usage_present = bool(result.get("usage_total_tokens"))
+            if not (response_confirmed or response_id_present or token_usage_present):
+                return
+            secret_provider = "openai" if normalized_provider == "gpt" else normalized_provider
+            key_fp = ""
+            key_present = False
+            key_source = ""
+            try:
+                secret_value, key_source = self._resolve_ai_test_secret(secret_provider)
+                key_present = bool(str(secret_value or "").strip())
+                key_fp = self._safe_secret_fingerprint(secret_value)
+            except Exception:
+                key_source = "resolver_error"
+            request_id = str(
+                result.get("generation_request_id")
+                or result.get("request_id")
+                or result.get("decision_group_id")
+                or ""
+            )
+            now_ts = time.time()
+            try:
+                self._last_ai_generation_key_fp = key_fp
+                self._last_ai_generation_key_source = key_source
+            except Exception:
+                pass
+            cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
+            if not isinstance(cache, dict):
+                cache = {}
+                self._ai_connection_snapshots_by_provider = cache
+            snapshot = {
+                "status": "connected",
+                "source": "generation_success_evidence",
+                "updated_at": now_ts,
+                "key_fp": key_fp,
+                "key_present": bool(key_present),
+                "generation_success_evidence": True,
+                "generation_request_id": request_id,
+            }
+            cache[normalized_provider] = dict(snapshot)
+            if normalized_provider == "gpt":
+                cache["openai"] = dict(snapshot)
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][ProviderReadinessSource] event=generation_success_evidence_recorded "
+                    "source_path=%s provider=%s key_present=%s key_fp=%s request_id=%s "
+                    "response_confirmed=%s response_id_present=%s token_usage_present=%s "
+                    "submitted=0 order_allowed=False real_order=False",
+                    str(source_path or "")[:80],
+                    normalized_provider,
+                    bool(key_present),
+                    key_fp or "-",
+                    request_id or "-",
+                    bool(response_confirmed),
+                    bool(response_id_present),
+                    bool(token_usage_present),
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -24914,6 +24998,9 @@ class MainWindow(QMainWindow):
         status_text = ""
         snapshot_found = False
         snapshot_updated_at = 0.0
+        snapshot_source = ""
+        snapshot_key_fp = ""
+        snapshot_generation_success_evidence = False
         try:
             cache = getattr(self, "_ai_connection_snapshots_by_provider", None)
             if isinstance(cache, dict):
@@ -24926,6 +25013,9 @@ class MainWindow(QMainWindow):
                         status_text = str(item.get("status") or "").strip()
                         key_source = str(item.get("source") or key_source or "").strip()
                         snapshot_updated_at = float(item.get("updated_at") or 0.0)
+                        snapshot_source = str(item.get("source") or "").strip()
+                        snapshot_key_fp = str(item.get("key_fp") or "").strip()
+                        snapshot_generation_success_evidence = bool(item.get("generation_success_evidence"))
                         snapshot_found = True
                         break
         except Exception:
@@ -24937,6 +25027,7 @@ class MainWindow(QMainWindow):
                 )
                 if connection_provider == selected:
                     status_text = str(getattr(self, "_last_ai_connection_status", "") or "").strip()
+                    snapshot_source = str(getattr(self, "_last_ai_connection_source", "") or "").strip()
                     snapshot_found = bool(status_text)
             except Exception:
                 pass
@@ -24969,6 +25060,44 @@ class MainWindow(QMainWindow):
         except Exception:
             freshness_status = "missing"
 
+        generation_success_evidence = False
+        generation_success_key_fp = ""
+        generation_success_source = ""
+        try:
+            generation_provider = self._normalize_ai_provider_code(
+                getattr(self, "_last_ai_generation_provider", "")
+            )
+            generation_success_key_fp = str(getattr(self, "_last_ai_generation_key_fp", "") or "").strip()
+            generation_fallback = bool(getattr(self, "_last_ai_generation_fallback_used", False))
+            generation_confirmed = bool(getattr(self, "_last_ai_generation_response_confirmed", False))
+            generation_proof_present = bool(
+                getattr(self, "_last_ai_generation_response_id_present", False)
+                or getattr(self, "_last_ai_generation_token_usage_present", False)
+                or generation_confirmed
+            )
+            if (
+                selected in ("gpt", "gemini")
+                and generation_provider == selected
+                and self._is_ai_generation_fresh(selected)
+                and generation_proof_present
+                and not generation_fallback
+                and key_fp
+                and generation_success_key_fp == key_fp
+            ):
+                generation_success_evidence = True
+                generation_success_source = "latest_generation_success"
+        except Exception:
+            generation_success_evidence = False
+        if (
+            selected in ("gpt", "gemini")
+            and bool(snapshot_generation_success_evidence)
+            and key_fp
+            and snapshot_key_fp == key_fp
+        ):
+            generation_success_evidence = True
+            generation_success_key_fp = snapshot_key_fp
+            generation_success_source = snapshot_source or "generation_success_evidence"
+
         ready = False
         blocker = ""
         reason = ""
@@ -24979,9 +25108,17 @@ class MainWindow(QMainWindow):
         elif not key_present:
             blocker = "provider_key_missing"
             reason = blocker
+        elif snapshot_key_fp and key_fp and snapshot_key_fp != key_fp:
+            blocker = "provider_key_fp_mismatch"
+            reason = blocker
         elif connection_state == "정상연결":
             ready = True
             reason = "provider_connection_ready"
+            if generation_success_evidence:
+                reason = "provider_generation_success_evidence_ready"
+        elif generation_success_evidence:
+            ready = True
+            reason = "provider_generation_success_evidence_ready"
         elif connection_state == "연결실패":
             blocker = "provider_connection_failed"
             reason = blocker
@@ -25003,12 +25140,17 @@ class MainWindow(QMainWindow):
             "connection_status_raw": status_text,
             "connection_snapshot_found": bool(snapshot_found),
             "connection_snapshot_updated_at": snapshot_updated_at,
+            "connection_snapshot_source": snapshot_source,
+            "connection_snapshot_key_fp": snapshot_key_fp,
             "key_present": bool(key_present),
             "key_source": key_source,
             "key_fp": key_fp,
             "analysis_freshness_status": freshness_status,
             "analysis_freshness_used_for_readiness": False,
-            "readiness_source": "provider_connection_snapshot",
+            "generation_success_evidence": bool(generation_success_evidence),
+            "generation_success_key_fp": generation_success_key_fp,
+            "generation_success_source": generation_success_source,
+            "readiness_source": "generation_success_evidence" if generation_success_evidence and ready else "provider_connection_snapshot",
             "legacy_generation_readiness_used": False,
             "ui_text_used_as_readiness_source": False,
             "message_shown": "" if ready else blocker,
@@ -25020,6 +25162,8 @@ class MainWindow(QMainWindow):
                 "[AITS][ProviderReadinessSource] event=resolved source_path=on_preflight "
                 "selected_provider=%s normalized_provider=%s connection_status=%s "
                 "readiness_ready=%s blocker=%s key_present=%s key_fp=%s "
+                "snapshot_source=%s snapshot_key_fp=%s generation_success_evidence=%s "
+                "generation_success_key_fp=%s readiness_source=%s "
                 "analysis_freshness_status=%s legacy_generation_readiness_used=False "
                 "ui_text_used_as_readiness_source=False submitted=0 order_allowed=False real_order=False",
                 selected,
@@ -25029,6 +25173,11 @@ class MainWindow(QMainWindow):
                 blocker or "-",
                 bool(key_present),
                 key_fp or "-",
+                snapshot_source or "-",
+                snapshot_key_fp or "-",
+                bool(generation_success_evidence),
+                generation_success_key_fp or "-",
+                ("generation_success_evidence" if generation_success_evidence and ready else "provider_connection_snapshot"),
                 freshness_status,
             )
         except Exception:
@@ -41234,6 +41383,11 @@ class MainWindow(QMainWindow):
                             result.get("generation_attempt_count") or result.get("generation_attempt") or "",
                             bool(result.get("response_id")),
                             bool(result.get("usage_total_tokens")),
+                        )
+                        self._record_ai_generation_success_evidence(
+                            provider,
+                            result,
+                            source_path=("startup_generation" if bool(getattr(self, "_startup_provider_readiness_compact_generation", False)) else str(result_context.get("source") or "manual_generation")),
                         )
                 except Exception:
                     pass

@@ -25,6 +25,8 @@ python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-key-resoluti
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode provider-connection-log-forensic-summary --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-provider-readiness-source-summary --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-provider-readiness-regression-proof --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-provider-ready-snapshot-summary --provider gpt --observe-only
+python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-provider-ready-regression-proof --provider gpt --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-button-state-trace-dryrun --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-button-state-log-summary --observe-only
 python tools/runtime_smoke/aits_qt_smoke_harness.py --mode live-on-preflight-setting-source-summary --observe-only
@@ -89,6 +91,15 @@ runtime environments ignore native `QToolTip` background styling.
   GPT/Gemini connection readiness is not downgraded by stale or missing AI
   generation freshness. The mode keeps `provider_external_call_count=0` and
   `submitted_count=0`.
+- `live-on-preflight-provider-ready-snapshot-summary`: alias for the ON
+  preflight provider-ready snapshot report. It exposes connection snapshot
+  source, key fingerprint, and generation success evidence without logging key
+  material.
+- `live-on-preflight-provider-ready-regression-proof`: mock-only proof that a
+  fresh confirmed GPT/Gemini generation with the same provider key fingerprint
+  can satisfy ON preflight provider readiness when the connection snapshot is
+  otherwise check-needed. Stale freshness, cross-provider snapshots, missing
+  keys, and key fingerprint mismatches still block readiness.
 - `dry-navigation`: performs the same read and switches tabs through the bottom
   navigation selectors. It does not click `AI 분석 새로고침`.
 - `engine-connection-status-path-diagnostic`: inspects the provider connection

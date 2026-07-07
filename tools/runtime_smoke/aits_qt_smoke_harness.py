@@ -13300,7 +13300,13 @@ def _provider_state_snapshot(window: Any) -> dict[str, str]:
     snapshot["on_preflight_provider_ready"] = bool(provider_readiness.get("on_preflight_provider_ready"))
     snapshot["on_preflight_provider_readiness_source"] = str(provider_readiness.get("readiness_source") or "")
     snapshot["on_preflight_provider_readiness_blocker"] = str(provider_readiness.get("readiness_blocker") or "")
+    snapshot["on_preflight_provider_readiness_reason"] = str(provider_readiness.get("readiness_reason") or "")
     snapshot["on_preflight_connection_status"] = str(provider_readiness.get("connection_status") or "")
+    snapshot["on_preflight_connection_snapshot_source"] = str(provider_readiness.get("connection_snapshot_source") or "")
+    snapshot["on_preflight_connection_snapshot_key_fp"] = str(provider_readiness.get("connection_snapshot_key_fp") or "")
+    snapshot["on_preflight_generation_success_evidence"] = bool(provider_readiness.get("generation_success_evidence"))
+    snapshot["on_preflight_generation_success_key_fp"] = str(provider_readiness.get("generation_success_key_fp") or "")
+    snapshot["on_preflight_generation_success_source"] = str(provider_readiness.get("generation_success_source") or "")
     snapshot["on_preflight_analysis_freshness_status"] = str(provider_readiness.get("analysis_freshness_status") or "")
     snapshot["analysis_freshness_used_for_readiness"] = bool(provider_readiness.get("analysis_freshness_used_for_readiness"))
     snapshot["legacy_generation_readiness_used"] = bool(provider_readiness.get("legacy_generation_readiness_used"))
@@ -13491,10 +13497,12 @@ def _set_mock_provider_readiness_state(
     if not isinstance(cache, dict):
         cache = {}
         setattr(window, "_ai_connection_snapshots_by_provider", cache)
+    key_fp = hashlib.sha256(f"mock-{requested}-secret-for-readiness".encode("utf-8")).hexdigest()[:8] if key_present and requested in {"gpt", "gemini"} else ""
     cache[requested] = {
         "status": status,
         "source": "mock_provider_readiness_connection_snapshot",
         "updated_at": time.time(),
+        "key_fp": key_fp,
     }
     setattr(window, "_last_ai_connection_provider", requested)
     setattr(window, "_last_ai_connection_status", status)
@@ -13532,6 +13540,12 @@ def _run_live_on_preflight_provider_readiness_source_summary(
             "connection_status": snapshot.get("on_preflight_connection_status"),
             "on_preflight_provider_ready": snapshot.get("on_preflight_provider_ready"),
             "first_blocker": snapshot.get("on_preflight_provider_readiness_blocker"),
+            "readiness_reason": snapshot.get("on_preflight_provider_readiness_reason"),
+            "connection_snapshot_source": snapshot.get("on_preflight_connection_snapshot_source"),
+            "connection_snapshot_key_fp": snapshot.get("on_preflight_connection_snapshot_key_fp"),
+            "generation_success_evidence": snapshot.get("on_preflight_generation_success_evidence"),
+            "generation_success_key_fp": snapshot.get("on_preflight_generation_success_key_fp"),
+            "generation_success_source": snapshot.get("on_preflight_generation_success_source"),
             "analysis_freshness_status": snapshot.get("on_preflight_analysis_freshness_status"),
             "analysis_freshness_used_for_readiness": snapshot.get("analysis_freshness_used_for_readiness"),
             "legacy_generation_readiness_used": snapshot.get("legacy_generation_readiness_used"),
@@ -13543,7 +13557,10 @@ def _run_live_on_preflight_provider_readiness_source_summary(
             "order_risk_detected": False,
         }
     )
-    source_ok = snapshot.get("on_preflight_provider_readiness_source") == "provider_connection_snapshot"
+    source_ok = snapshot.get("on_preflight_provider_readiness_source") in {
+        "provider_connection_snapshot",
+        "generation_success_evidence",
+    }
     separated = snapshot.get("analysis_freshness_used_for_readiness") is False
     no_legacy = snapshot.get("legacy_generation_readiness_used") is False and snapshot.get("ui_text_used_as_readiness_source") is False
     report["diagnostic_status"] = "pass" if source_ok and separated and no_legacy else "fail"
@@ -13604,6 +13621,29 @@ def _run_live_on_preflight_provider_readiness_regression_proof(
                 "expected_ready": True,
                 "actual_ready": bool(connected_missing.get("on_preflight_provider_ready")),
                 "snapshot": connected_missing,
+            }
+        )
+        check_needed_generation = _set_mock_provider_readiness_state(
+            window,
+            requested,
+            status="check_needed",
+            key_present=True,
+            generation_state="fresh",
+        )
+        key_fp = hashlib.sha256(f"mock-{requested}-secret-for-readiness".encode("utf-8")).hexdigest()[:8]
+        setattr(window, "_last_ai_generation_key_fp", key_fp)
+        setattr(window, "_last_ai_generation_response_confirmed", True)
+        setattr(window, "_last_ai_generation_response_id_present", True)
+        setattr(window, "_last_ai_generation_token_usage_present", False)
+        check_needed_generation = _provider_state_snapshot(window)
+        cases.append(
+            {
+                "name": f"{requested}_check_needed_generation_success_same_key_ready",
+                "expected_ready": True,
+                "actual_ready": bool(check_needed_generation.get("on_preflight_provider_ready")),
+                "expected_source": "generation_success_evidence",
+                "actual_source": check_needed_generation.get("on_preflight_provider_readiness_source"),
+                "snapshot": check_needed_generation,
             }
         )
         failed = _set_mock_provider_readiness_state(
@@ -13670,6 +13710,8 @@ def _run_live_on_preflight_provider_readiness_regression_proof(
         case["pass"] = case.get("actual_ready") == case.get("expected_ready")
         if "expected_blocker" in case:
             case["pass"] = bool(case["pass"] and case.get("actual_blocker") == case.get("expected_blocker"))
+        if "expected_source" in case:
+            case["pass"] = bool(case["pass"] and case.get("actual_source") == case.get("expected_source"))
         snap = case.get("snapshot") or {}
         case["freshness_separated"] = snap.get("analysis_freshness_used_for_readiness") is False
         case["legacy_generation_readiness_used"] = bool(snap.get("legacy_generation_readiness_used"))
@@ -17887,20 +17929,26 @@ def run_harness(
             report,
             provider=provider or "gpt",
         )
-    elif mode == "live-on-preflight-provider-readiness-source-summary":
+    elif mode in {"live-on-preflight-provider-readiness-source-summary", "live-on-preflight-provider-ready-snapshot-summary"}:
         _install_provider_post_guard(report)
         _run_live_on_preflight_provider_readiness_source_summary(
             window,
             report,
             provider=provider or "gpt",
         )
-    elif mode == "live-on-preflight-provider-readiness-regression-proof":
+        if mode == "live-on-preflight-provider-ready-snapshot-summary":
+            report["mode"] = mode
+            report["schema"] = "aits_live_on_preflight_provider_ready_snapshot_summary_v1"
+    elif mode in {"live-on-preflight-provider-readiness-regression-proof", "live-on-preflight-provider-ready-regression-proof"}:
         _install_provider_post_guard(report)
         _run_live_on_preflight_provider_readiness_regression_proof(
             window,
             report,
             provider=provider or "gpt",
         )
+        if mode == "live-on-preflight-provider-ready-regression-proof":
+            report["mode"] = mode
+            report["schema"] = "aits_live_on_preflight_provider_ready_regression_v1"
     elif mode == "basic-candidate-discovery-proof":
         _run_basic_candidate_discovery_proof(
             app,
@@ -18118,6 +18166,8 @@ def run_harness(
         "provider-switching-cross-provider-regression-proof",
         "live-on-preflight-provider-readiness-source-summary",
         "live-on-preflight-provider-readiness-regression-proof",
+        "live-on-preflight-provider-ready-snapshot-summary",
+        "live-on-preflight-provider-ready-regression-proof",
         "top-markets-feed-proof",
         "provider-connection-log-forensic-summary",
         "save-probe",
@@ -18172,6 +18222,8 @@ def main() -> int:
             "provider-key-resolution-restart-regression-proof",
             "live-on-preflight-provider-readiness-source-summary",
             "live-on-preflight-provider-readiness-regression-proof",
+            "live-on-preflight-provider-ready-snapshot-summary",
+            "live-on-preflight-provider-ready-regression-proof",
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",

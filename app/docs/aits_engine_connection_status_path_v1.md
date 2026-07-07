@@ -251,6 +251,11 @@ Fix rule:
 - startup connection checks must not use UI text as a key source
 - manual connection tests may use explicit non-masked UI input
 - generation success must not be used as a blanket provider-connected shortcut
+- ON preflight may use fresh confirmed generation success as provider-ready
+  evidence only when the normalized provider matches, fallback was not used, and
+  the current resolved provider key fingerprint matches the generation evidence
+  fingerprint. Key mismatch, missing key, stale generation, fallback generation,
+  and cross-provider evidence remain blockers.
 
 Forensic mode:
 

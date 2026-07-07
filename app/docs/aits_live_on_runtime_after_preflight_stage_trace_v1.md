@@ -88,6 +88,9 @@ runtime start while order submission remains behind the existing live gates.
 - `on_handler_not_entered`: ON evidence exists, but the active handler entry trace is missing.
 - `on_preflight_not_logged`: ON was seen, but preflight was not logged.
 - `on_preflight_blocked`: preflight failed before a runtime start request.
+  For provider blockers, inspect `ProviderReadinessSource`; a fresh confirmed
+  generation can clear `provider_connection_check_needed` only when provider
+  and key fingerprint match the current selected runtime provider.
 - `on_preflight_passed_but_runtime_not_started`: preflight passed but no start request was logged.
 - `runtime_start_requested_but_not_started`: start was requested but runner start was not confirmed.
 - `runtime_started_but_order_allowed_false`: runner started, but live order gate still reports order not allowed.
