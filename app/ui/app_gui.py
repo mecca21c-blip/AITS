@@ -16837,8 +16837,9 @@ class MainWindow(QMainWindow):
             self._aits_on_toggle_bridge_widget_id = id(self.btn_run_toggle)
             self._aits_on_toggle_bridge_connected = True
             self.btn_run_toggle.toggled.connect(lambda v=False, _self=self: _self._on_run_toggle_signal_bridge(bool(v)))
+            self.btn_run_toggle.clicked.connect(lambda v=False, _self=self: _self._on_run_toggle_signal_bridge(bool(getattr(_self, "btn_run_toggle", None).isChecked()) if getattr(_self, "btn_run_toggle", None) is not None else bool(v)))
             logging.getLogger("aits").info(
-                "[AITS][ONWidget] event=on_widget_bridge_connected object_name=%s signal_name=toggled bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
+                "[AITS][ONWidget] event=on_widget_bridge_connected object_name=%s signal_name=toggled,clicked bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
                 str(self.btn_run_toggle.objectName() or ""),
                 bool(getattr(self, "_aits_on_toggle_bridge_connected", False)),
                 int(getattr(self, "_aits_on_toggle_bridge_widget_id", 0) or 0),
@@ -51650,7 +51651,40 @@ class MainWindow(QMainWindow):
     def _sync_run_toggle_text(self):
         self._style_run_toggle_switch(bool(getattr(self.state, "is_running", False)))
 
+    def _set_aits_runtime_status_display(self, state: str, reason: str = '') -> None:
+        try:
+            text = f"AITS: {state}"
+            if reason:
+                text = f"{text} - {reason}"
+            self._aits_runtime_status_text = text
+            label = getattr(self, 'lbl_statusbar', None)
+            if label is not None:
+                label.setText(text)
+                label.show()
+            self._log_live_on_button_state_trace(
+                'runtime_status_display',
+                on_state=state,
+                blocker=reason,
+                source_path='on_button',
+            )
+        except Exception:
+            pass
+
     def _on_run_toggle_signal_bridge(self, checked: bool):
+        try:
+            now_ms = int(time.time() * 1000)
+            last_ms = int(getattr(self, '_aits_on_bridge_last_ms', 0) or 0)
+            if last_ms > 0 and now_ms - last_ms < 350:
+                self._log_live_on_button_state_trace(
+                    'handler_signal_bridge_deduped',
+                    stage='_on_run_toggle_signal_bridge',
+                    checked_arg=checked,
+                    source_path='on_button',
+                )
+                return
+            self._aits_on_bridge_last_ms = now_ms
+        except Exception:
+            pass
         try:
             sender = self.sender()
             sender_name = sender.objectName() if sender is not None and hasattr(sender, 'objectName') else ''
@@ -52160,8 +52194,25 @@ class MainWindow(QMainWindow):
                             QMessageBox.warning(self, "실행 전 점검", preflight_msg)
                         except Exception:
                             pass
+                        try:
+                            self._set_aits_runtime_status_display('blocked', str(preflight_msg or 'preflight_failed')[:120])
+                        except Exception:
+                            pass
+                        try:
+                            self.btn_run_toggle.blockSignals(True)
+                            self.btn_run_toggle.setChecked(False)
+                            self._style_run_toggle_switch(False)
+                            self.btn_run_toggle.blockSignals(False)
+                            self.btn_run_toggle.setEnabled(True)
+                        except Exception:
+                            pass
+                        return
                     else:
                         self._log.info(f"[PREFLIGHT] check passed: {preflight_msg}")
+                        try:
+                            self._set_aits_runtime_status_display('on_preflight_passed', 'runtime_start_pending')
+                        except Exception:
+                            pass
                         self._log_live_on_button_state_trace(
                             "preflight_result",
                             source_path="on_button",
@@ -52370,6 +52421,10 @@ class MainWindow(QMainWindow):
                             start_strategy(self._settings)
                             self._log.info("[RUNNER] start_strategy called")
                             self._log_live_on_button_state_trace("runner_start_after", requested_run=run)
+                            try:
+                                self._set_aits_runtime_status_display('on_observing', 'runtime_started')
+                            except Exception:
+                                pass
 
                             # Optional UI refresh (non-fatal)
                             if hasattr(self, "tab_strategy") and self.tab_strategy is not None and hasattr(self.tab_strategy, "_update_preflight_display"):

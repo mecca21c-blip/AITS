@@ -1548,3 +1548,6 @@ Bridge diagnostics include `bridge_connected_flag`, `bridge_widget_id`,
 `signal_widget_id`, and `bridge_connection_suspected_failed`. The active
 StopButton handler path uses a single lambda bridge so the same signal shape as
 the probe path is observed before forwarding into the existing handler chain.
+The after-preflight summary reads `runtime_status_display` as `ui_on_state` so
+the harness can distinguish OFF, blocked, and observing states without treating
+that display as order permission.

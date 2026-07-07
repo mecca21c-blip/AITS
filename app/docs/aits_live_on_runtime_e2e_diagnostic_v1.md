@@ -210,3 +210,10 @@ entry and result markers used by that summary: `handler_enter`,
 `off_requested`, `stop_requested`, `stop_result`, and `handler_exception`.
 If these markers are missing after a user clicks ON, investigate signal wiring
 before Router/RiskGuard/Order paths.
+
+`AITS-LIVE-ON-BUTTON-RUNTIME-CONTRACT-IMPLEMENT-01` defines the active ON
+runtime contract as handler -> preflight -> runtime start or blocked status.
+`runtime_status_display` is the UI-visible state source for ON/blocked/error
+reporting. It does not grant order permission and must not set `order_allowed`
+or `real_order`; live submit remains behind the existing RiskGuard,
+LivePreflight, and unlock gates.

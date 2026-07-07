@@ -57,6 +57,12 @@ signal is connected through a single lambda bridge, and it must forward to
 `_on_toggle_run_toggled`, `_on_toggle_run_toggled_impl`, and `_on_toggle_run`
 in order. Probe slots are log-only and must not replace the handler chain.
 
+The ON runtime contract is handler -> preflight -> runtime start. A failed
+preflight must restore the toggle to OFF, emit `preflight_result status=fail`,
+update the runtime status display, and return before any runtime start request.
+A passed preflight emits `preflight_result status=pass` and may then request
+runtime start while order submission remains behind the existing live gates.
+
 ## Stage Taxonomy
 
 - `on_click_not_detected`: no ON button or handler trace found.

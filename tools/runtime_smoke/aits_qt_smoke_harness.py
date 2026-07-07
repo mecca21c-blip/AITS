@@ -7976,6 +7976,8 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     latest_preflight = preflight_lines[-1] if preflight_lines else ""
     latest_provider = provider_lines[-1] if provider_lines else ""
     latest_order_state = order_allowed_lines[-1] if order_allowed_lines else ""
+    status_display_lines = [line for line in on_lines if "event=runtime_status_display" in line]
+    latest_status_display = status_display_lines[-1] if status_display_lines else ""
 
     order_allowed = bool(re.search(r"order_allowed[=:]\s*true", joined_lower, flags=re.IGNORECASE))
     real_order = bool(re.search(r"real_order[=:]\s*true", joined_lower, flags=re.IGNORECASE))
@@ -8111,7 +8113,12 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "runtime_stop_requested": bool(runtime_stop_requested),
         "runtime_stop_result_detected": bool(runtime_stop_result_detected),
         "runtime_loop_started": bool(runtime_loop_started),
-        "ui_on_state": _live_on_stage_extract_value(latest_runtime, "ui_on_state") or ("True" if on_lines else ""),
+        "ui_on_state": (
+            _live_on_stage_extract_value(latest_status_display, "on_state")
+            or _live_on_stage_extract_value(latest_runtime, "ui_on_state")
+            or ("True" if on_lines else "")
+        ),
+        "ui_status_blocker": _live_on_stage_extract_value(latest_status_display, "blocker"),
         "orchestrator_execution_mode": _live_on_stage_extract_value(latest_runtime, "execution_mode") or _live_on_stage_extract_value(latest_order_state, "execution_mode"),
         "execution_mode_before": execution_mode_before,
         "execution_mode_after": execution_mode_after,
