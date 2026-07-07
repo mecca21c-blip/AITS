@@ -42,6 +42,12 @@ shape and current read paths.
 `live-on-runtime-e2e-diagnostic-log-summary` is intended after the user manually
 turns AITS ON and lets the runtime produce logs.
 
+For ON button failures, pair this report with
+`live-on-runtime-after-preflight-stage-summary`. The stage summary distinguishes
+signal wiring, `_on_toggle_run` ON/OFF branch selection, preflight pass/fail,
+preflight exceptions, and runtime start request/result before the broader E2E
+stage list is evaluated.
+
 ## Symbol Policy
 
 Harness fixture symbols such as `KRW-PYTH` are not runtime order targets. The ON

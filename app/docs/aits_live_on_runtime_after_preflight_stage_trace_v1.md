@@ -78,8 +78,13 @@ runtime start while order submission remains behind the existing live gates.
   did not forward to `_on_toggle_run_toggled_impl`.
 - `on_handler_impl_not_forwarding`: `_on_toggle_run_toggled_impl` was reached
   but did not forward to `_on_toggle_run`.
-- `on_handler_entered_but_preflight_not_called`: `_on_toggle_run` was reached
-  but no preflight start was logged.
+- `on_checked_value_false`: `_on_toggle_run` was reached with the OFF branch.
+- `on_run_early_return`: `_on_toggle_run` returned before preflight; inspect
+  the logged blocker such as provider readiness or real guard cancellation.
+- `on_handler_entered_but_preflight_not_started`: `_on_toggle_run` was reached
+  on the ON branch but no preflight start was logged.
+- `on_preflight_exception`: `_preflight_check()` raised before returning a
+  pass/fail result.
 - `on_handler_not_entered`: ON evidence exists, but the active handler entry trace is missing.
 - `on_preflight_not_logged`: ON was seen, but preflight was not logged.
 - `on_preflight_blocked`: preflight failed before a runtime start request.

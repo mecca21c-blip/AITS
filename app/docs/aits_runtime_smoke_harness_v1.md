@@ -1553,6 +1553,10 @@ handler.
 The after-preflight summary reads `runtime_status_display` as `ui_on_state` so
 the harness can distinguish OFF, blocked, and observing states without treating
 that display as order permission.
+It also parses `_on_toggle_run` branch traces: `run_branch`, early returns,
+preflight exceptions, `start_blocked`, `start_requested`, and `start_result`.
+This separates signal wiring failures from provider/preflight/runtime-start
+blockers.
 
 ### live-on-runtime-harness-driven-click-run
 

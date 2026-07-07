@@ -7919,8 +7919,21 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     live_gate_lines = [line for line in lines if "[AITS][LiveGate]" in line or "live_gate" in line]
     order_allowed_lines = [line for line in lines if "[AITS][OrderAllowedState]" in line or "order_allowed" in line or "real_order" in line]
 
-    preflight_failed = any("preflight_failed" in line.lower() or "[preflight] check failed" in line.lower() or "ok=0" in line.lower() for line in preflight_lines)
-    preflight_passed = any("preflight_passed" in line.lower() or "[preflight] check passed" in line.lower() or "ok=1" in line.lower() for line in preflight_lines)
+    preflight_event_lines = on_lines + preflight_lines
+    preflight_failed = any(
+        "preflight_failed" in line.lower()
+        or "[preflight] check failed" in line.lower()
+        or "ok=0" in line.lower()
+        or ("event=preflight_result" in line.lower() and "status=fail" in line.lower())
+        for line in preflight_event_lines
+    )
+    preflight_passed = any(
+        "preflight_passed" in line.lower()
+        or "[preflight] check passed" in line.lower()
+        or "ok=1" in line.lower()
+        or ("event=preflight_result" in line.lower() and "status=pass" in line.lower())
+        for line in preflight_event_lines
+    )
     preflight_detected = bool(preflight_lines)
     on_handler_enter_detected = any(
         "event=handler_enter" in line.lower()
@@ -7948,6 +7961,21 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     signal_widget_id = _live_on_stage_extract_value(latest_toggled_probe or latest_clicked_probe, "signal_widget_id")
     preflight_start_detected = any("event=preflight_start" in line.lower() for line in on_lines + preflight_lines)
     preflight_result_detected = any("event=preflight_result" in line.lower() for line in on_lines + preflight_lines)
+    run_branch_lines = [line for line in on_lines if "event=run_branch" in line.lower()]
+    latest_run_branch = run_branch_lines[-1] if run_branch_lines else ""
+    run_branch = _live_on_stage_extract_value(latest_run_branch, "branch")
+    run_early_return_lines = [line for line in on_lines if "event=run_early_return" in line.lower()]
+    latest_run_early_return = run_early_return_lines[-1] if run_early_return_lines else ""
+    run_early_return_detected = bool(run_early_return_lines)
+    run_early_return_reason = (
+        _live_on_stage_extract_value(latest_run_early_return, "blocker")
+        or _live_on_stage_extract_value(latest_run_early_return, "reason")
+    )
+    preflight_exception_detected = any("event=preflight_exception" in line.lower() for line in on_lines + preflight_lines)
+    start_blocked_lines = [line for line in runtime_lines + on_lines if "event=start_blocked" in line.lower()]
+    latest_start_blocked = start_blocked_lines[-1] if start_blocked_lines else ""
+    start_blocked_detected = bool(start_blocked_lines)
+    start_blocked_blocker = _live_on_stage_extract_value(latest_start_blocked, "blocker")
     runtime_start_requested = any(
         "runtime_start_requested" in line.lower()
         or "event=start_requested" in line.lower()
@@ -8025,8 +8053,17 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     elif handler_impl_stage_detected and not handler_run_stage_detected:
         first_blocker = "on_handler_impl_not_forwarding"
         last_reached_stage = "_on_toggle_run_toggled_impl"
+    elif handler_run_stage_detected and str(run_branch).lower() == "off":
+        first_blocker = "on_checked_value_false"
+        last_reached_stage = "_on_toggle_run_off_branch"
+    elif run_early_return_detected:
+        first_blocker = "on_run_early_return"
+        last_reached_stage = str(run_early_return_reason or "_on_toggle_run")
+    elif preflight_exception_detected:
+        first_blocker = "on_preflight_exception"
+        last_reached_stage = "on_preflight_exception"
     elif handler_run_stage_detected and not preflight_start_detected:
-        first_blocker = "on_handler_entered_but_preflight_not_called"
+        first_blocker = "on_handler_entered_but_preflight_not_started"
         last_reached_stage = "_on_toggle_run"
     elif not preflight_detected:
         first_blocker = "on_preflight_not_logged"
@@ -8065,7 +8102,11 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "on_signal_bridge_not_forwarding": "inspect _on_run_toggle_signal_bridge forwarding to _on_toggle_run_toggled",
         "on_handler_wrapper_not_forwarding": "inspect _on_toggle_run_toggled forwarding to _on_toggle_run_toggled_impl",
         "on_handler_impl_not_forwarding": "inspect _on_toggle_run_toggled_impl forwarding to _on_toggle_run",
+        "on_checked_value_false": "inspect StopButton checked state propagation into _on_toggle_run",
+        "on_run_early_return": "inspect _on_toggle_run early return blocker",
+        "on_handler_entered_but_preflight_not_started": "inspect _on_toggle_run branch before preflight_start",
         "on_handler_entered_but_preflight_not_called": "inspect _on_toggle_run preflight call path",
+        "on_preflight_exception": "inspect _preflight_check exception path",
         "on_preflight_not_logged": "inspect ON handler preflight logging and call path",
         "on_preflight_blocked": "fix the reported preflight blocker before runtime start",
         "on_preflight_passed_but_runtime_not_started": "inspect _on_toggle_run start_strategy scheduling path",
@@ -8109,6 +8150,12 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "on_preflight_detected": preflight_detected,
         "preflight_start_detected": bool(preflight_start_detected),
         "preflight_result_detected": bool(preflight_result_detected),
+        "run_branch": str(run_branch or ""),
+        "on_run_early_return_detected": bool(run_early_return_detected),
+        "on_run_early_return_reason": str(run_early_return_reason or ""),
+        "preflight_exception_detected": bool(preflight_exception_detected),
+        "start_blocked_detected": bool(start_blocked_detected),
+        "start_blocked_blocker": str(start_blocked_blocker or ""),
         "on_preflight_status": preflight_status,
         "on_preflight_passed": bool(preflight_passed),
         "provider_readiness_passed": "engine_ready=True" in latest_provider or "on_preflight_provider_ready=True" in latest_provider,

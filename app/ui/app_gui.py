@@ -52040,6 +52040,21 @@ class MainWindow(QMainWindow):
         self._on_toggle_run(desired_run)
 
     def _on_toggle_run(self, run: bool):
+        try:
+            ui_checked = bool(self.btn_run_toggle.isChecked()) if hasattr(self, "btn_run_toggle") else bool(run)
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_enter_stage stage=_on_toggle_run_actual checked_arg=%s ui_checked=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(run),
+                bool(ui_checked),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=run_branch branch=%s checked_arg=%s ui_checked=%s reason=checked_arg source_path=on_button submitted=0 order_allowed=False real_order=False",
+                "on" if bool(run) else "off",
+                bool(run),
+                bool(ui_checked),
+            )
+        except Exception:
+            pass
         """
         실행 버튼 핸들러(견고화):
         - runner의 _RUNNING 상태를 단일 소스로 사용
@@ -52118,6 +52133,13 @@ class MainWindow(QMainWindow):
                         readiness = {}
                     ready = bool(readiness.get("engine_ready_for_run"))
                     try:
+                        logging.getLogger("aits").info(
+                            "[AITS][ON] event=preflight_start phase=provider_readiness source_path=on_button requested_run=%s submitted=0 order_allowed=False real_order=False",
+                            bool(run),
+                        )
+                    except Exception:
+                        pass
+                    try:
                         self._log.info(
                             "[AITS][LiveOnProviderReadiness] event=preflight_provider_readiness source_path=on_button "
                             "selected_provider=%s provider_connection_status=%s engine_ready=%s blocker=%s "
@@ -52168,6 +52190,20 @@ class MainWindow(QMainWindow):
                             self.btn_run_toggle.setChecked(False)
                             self.btn_run_toggle.blockSignals(False)
                             self._set_running_ui(False)
+                        except Exception:
+                            pass
+                        try:
+                            logging.getLogger("aits").info(
+                                "[AITS][ON] event=preflight_result status=fail blocker=provider_not_ready reason=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                                str(readiness.get("provider_readiness_blocker") or readiness.get("engine_not_ready_reason") or "provider_not_ready")[:120],
+                            )
+                            logging.getLogger("aits").info(
+                                "[AITS][ON] event=run_early_return blocker=provider_not_ready reason=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                                str(readiness.get("provider_readiness_blocker") or readiness.get("engine_not_ready_reason") or "provider_not_ready")[:120],
+                            )
+                            logging.getLogger("aits").info(
+                                "[AITS][RuntimeState] event=start_blocked source_path=on_button blocker=provider_not_ready submitted=0 order_allowed=False real_order=False"
+                            )
                         except Exception:
                             pass
 
@@ -52240,6 +52276,15 @@ class MainWindow(QMainWindow):
                         yes = QMessageBox.question(self, "실거래 시작 확인", msg, QMessageBox.Yes | QMessageBox.No)
                         if yes != QMessageBox.Yes:
                             self._log.info("[REAL-GUARD] user cancelled start")
+                            try:
+                                logging.getLogger("aits").info(
+                                    "[AITS][ON] event=run_early_return blocker=real_guard_user_cancelled reason=real_guard source_path=on_button submitted=0 order_allowed=False real_order=False"
+                                )
+                                logging.getLogger("aits").info(
+                                    "[AITS][RuntimeState] event=start_blocked source_path=on_button blocker=real_guard_user_cancelled submitted=0 order_allowed=False real_order=False"
+                                )
+                            except Exception:
+                                pass
                             return
             except Exception as e:
                 self._log.error(f"[REAL-GUARD] error={e}")
@@ -52272,14 +52317,45 @@ class MainWindow(QMainWindow):
                     except Exception:
                         pass
                     # ✅ P2: 실행 전 사전 점검 (Preflight Check)
+                    try:
+                        logging.getLogger("aits").info(
+                            "[AITS][ON] event=preflight_start source_path=on_button requested_run=%s submitted=0 order_allowed=False real_order=False",
+                            bool(run),
+                        )
+                    except Exception:
+                        pass
                     self._log_live_on_button_state_trace(
                         "preflight_start",
                         source_path="on_button",
                         requested_run=run,
                     )
-                    preflight_ok, preflight_msg = self._preflight_check()
+                    try:
+                        preflight_ok, preflight_msg = self._preflight_check()
+                    except Exception as preflight_exc:
+                        try:
+                            logging.getLogger("aits").warning(
+                                "[AITS][ON] event=preflight_exception error_type=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                                type(preflight_exc).__name__,
+                            )
+                            logging.getLogger("aits").info(
+                                "[AITS][RuntimeState] event=start_blocked source_path=on_button blocker=preflight_exception submitted=0 order_allowed=False real_order=False"
+                            )
+                        except Exception:
+                            pass
+                        raise
                     if not preflight_ok:
                         self._log.warning(f"[PREFLIGHT] check failed: {preflight_msg}")
+                        try:
+                            logging.getLogger("aits").info(
+                                "[AITS][ON] event=preflight_result status=fail blocker=%s reason=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                                str(preflight_msg or "preflight_failed")[:120],
+                                str(preflight_msg or "preflight_failed")[:120],
+                            )
+                            logging.getLogger("aits").info(
+                                "[AITS][RuntimeState] event=start_blocked source_path=on_button blocker=preflight_failed submitted=0 order_allowed=False real_order=False"
+                            )
+                        except Exception:
+                            pass
                         self._log_live_on_button_state_trace(
                             "preflight_result",
                             source_path="on_button",
@@ -52308,6 +52384,13 @@ class MainWindow(QMainWindow):
                         self._log.info(f"[PREFLIGHT] check passed: {preflight_msg}")
                         try:
                             self._set_aits_runtime_status_display('on_preflight_passed', 'runtime_start_pending')
+                        except Exception:
+                            pass
+                        try:
+                            logging.getLogger("aits").info(
+                                "[AITS][ON] event=preflight_result status=pass blocker=- reason=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                                str(preflight_msg or "preflight_passed")[:120],
+                            )
                         except Exception:
                             pass
                         self._log_live_on_button_state_trace(
