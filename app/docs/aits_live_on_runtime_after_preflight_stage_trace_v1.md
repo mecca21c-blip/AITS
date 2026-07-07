@@ -53,10 +53,11 @@ fresh session boundary. Older ONWidget/ON probes are counted as
 session click reached the handler.
 
 ON signal wiring must keep one effective StopButton path: the `toggled(bool)`
-and `clicked()` signals are connected directly to the bound
-`_on_run_toggle_signal_bridge` method, and that bridge must forward to
-`_on_toggle_run_toggled`, `_on_toggle_run_toggled_impl`, and `_on_toggle_run`
-in order. Probe slots are log-only and must not replace the handler chain.
+and `clicked()` signals are connected to stored single-entry slots. Each slot
+logs its probe event, applies a short duplicate-signal guard, records the
+bridge/wrapper stage sequence, and forwards once into the active `_on_toggle_run`
+runtime handler. Probe logging must live inside that entry path so it cannot
+replace or bypass the handler chain.
 
 The ON runtime contract is handler -> preflight -> runtime start. A failed
 preflight must restore the toggle to OFF, emit `preflight_result status=fail`,

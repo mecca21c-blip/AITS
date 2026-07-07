@@ -16798,33 +16798,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-        # 3) 진단 훅(1개만)
+        # 3) ON widget signal slots: keep one stored slot per signal.
         try:
             self.btn_run_toggle.toggled.connect(lambda v: self._log.info(f"[BTN-SIG] run toggled v={v}"))
-            self.btn_run_toggle.toggled.connect(
-                lambda v: logging.getLogger("aits").info(
-                    "[AITS][ONWidget] event=toggled_probe object_name=%s signal_name=toggled checked_state=%s enabled_state=%s visible_state=%s signal_widget_id=%s",
-                    str(self.btn_run_toggle.objectName() or ""),
-                    bool(v),
-                    bool(self.btn_run_toggle.isEnabled()),
-                    bool(self.btn_run_toggle.isVisible()),
-                    id(self.btn_run_toggle),
-                )
-            )
-            self.btn_run_toggle.clicked.connect(
-                lambda v=False: logging.getLogger("aits").info(
-                    "[AITS][ONWidget] event=clicked_probe object_name=%s signal_name=clicked checked_state=%s enabled_state=%s visible_state=%s signal_widget_id=%s",
-                    str(self.btn_run_toggle.objectName() or ""),
-                    bool(self.btn_run_toggle.isChecked()),
-                    bool(self.btn_run_toggle.isEnabled()),
-                    bool(self.btn_run_toggle.isVisible()),
-                    id(self.btn_run_toggle),
-                )
-            )
         except Exception:
             pass
 
-        # 4) 최종 엔트리포인트 연결(1개만)
+        # 4) Final entrypoint wiring. The slot logs the probe and forwards to the ON handler.
         try:
             try:
                 self.btn_run_toggle.toggled.disconnect(self._on_toggle_run_toggled)
@@ -16834,10 +16814,28 @@ class MainWindow(QMainWindow):
                 self.btn_run_toggle.toggled.disconnect(self._on_run_toggle_signal_bridge)
             except Exception:
                 pass
+            try:
+                old_toggled_slot = getattr(self, "_aits_on_toggled_handler_slot", None)
+                if old_toggled_slot is not None:
+                    self.btn_run_toggle.toggled.disconnect(old_toggled_slot)
+            except Exception:
+                pass
+            try:
+                old_clicked_slot = getattr(self, "_aits_on_clicked_handler_slot", None)
+                if old_clicked_slot is not None:
+                    self.btn_run_toggle.clicked.disconnect(old_clicked_slot)
+            except Exception:
+                pass
             self._aits_on_toggle_bridge_widget_id = id(self.btn_run_toggle)
             self._aits_on_toggle_bridge_connected = True
-            self.btn_run_toggle.toggled.connect(self._on_run_toggle_signal_bridge)
-            self.btn_run_toggle.clicked.connect(self._on_run_toggle_signal_bridge)
+            self._aits_on_toggled_handler_slot = (
+                lambda checked=False: self._on_run_toggle_widget_signal_entry("toggled", checked)
+            )
+            self._aits_on_clicked_handler_slot = (
+                lambda checked=False: self._on_run_toggle_widget_signal_entry("clicked", checked)
+            )
+            self.btn_run_toggle.toggled.connect(self._aits_on_toggled_handler_slot)
+            self.btn_run_toggle.clicked.connect(self._aits_on_clicked_handler_slot)
             logging.getLogger("aits").info(
                 "[AITS][ONWidget] event=on_widget_bridge_connected object_name=%s signal_name=toggled,clicked bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
                 str(self.btn_run_toggle.objectName() or ""),
@@ -16846,13 +16844,13 @@ class MainWindow(QMainWindow):
                 id(self.btn_run_toggle),
                 AITS_APP_GUI_INSTRUMENTATION_ID,
             )
-            self._log.info("[BTN-CONNECT] ok target=_on_run_toggle_signal_bridge (single entrypoint)")
+            self._log.info("[BTN-CONNECT] ok target=_on_run_toggle_widget_signal_entry (single entrypoint)")
             logging.getLogger("aits").info(
-                "[AITS][ONWidget] event=on_widget_bound object_name=%s widget_class=%s signal_name=toggled handler_chain=%s handler_names=%s checked_state=%s enabled_state=%s visible_state=%s bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
+                "[AITS][ONWidget] event=on_widget_bound object_name=%s widget_class=%s signal_name=toggled,clicked handler_chain=%s handler_names=%s checked_state=%s enabled_state=%s visible_state=%s bridge_connected_flag=%s bridge_widget_id=%s signal_widget_id=%s instrumentation_id=%s",
                 str(self.btn_run_toggle.objectName() or ""),
                 type(self.btn_run_toggle).__name__,
-                "_on_toggle_run_toggled>_on_toggle_run_toggled_impl>_on_toggle_run",
-                "_on_toggle_run_toggled,_on_toggle_run_toggled_impl,_on_toggle_run",
+                "single_entry>_on_run_toggle_signal_bridge>_on_toggle_run_toggled>_on_toggle_run_toggled_impl>_on_toggle_run",
+                "single_entry,_on_run_toggle_signal_bridge,_on_toggle_run_toggled,_on_toggle_run_toggled_impl,_on_toggle_run",
                 bool(self.btn_run_toggle.isChecked()),
                 bool(self.btn_run_toggle.isEnabled()),
                 bool(self.btn_run_toggle.isVisible()),
@@ -51670,7 +51668,104 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
-    def _on_run_toggle_signal_bridge(self, checked: bool):
+    def _on_run_toggle_widget_signal_entry(self, signal_name: str, checked: bool = False):
+        try:
+            ui_checked = bool(self.btn_run_toggle.isChecked()) if hasattr(self, "btn_run_toggle") else bool(checked)
+        except Exception:
+            ui_checked = bool(checked)
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ONWidget] event=%s object_name=%s signal_name=%s checked_state=%s enabled_state=%s visible_state=%s signal_widget_id=%s",
+                "toggled_probe" if str(signal_name) == "toggled" else "clicked_probe",
+                str(self.btn_run_toggle.objectName() or ""),
+                str(signal_name or "unknown"),
+                bool(ui_checked),
+                bool(self.btn_run_toggle.isEnabled()),
+                bool(self.btn_run_toggle.isVisible()),
+                id(self.btn_run_toggle),
+            )
+        except Exception:
+            pass
+        try:
+            now_ms = int(time.time() * 1000)
+            last_ms = int(getattr(self, "_aits_on_bridge_last_ms", 0) or 0)
+            if last_ms > 0 and now_ms - last_ms < 350:
+                self._log_live_on_button_state_trace(
+                    "handler_signal_bridge_deduped",
+                    stage="single_entry",
+                    checked_arg=checked,
+                    ui_checked=ui_checked,
+                    signal_name=signal_name,
+                    source_path="on_button",
+                )
+                return
+            self._aits_on_bridge_last_ms = now_ms
+        except Exception:
+            pass
+        try:
+            sender = self.sender()
+            sender_name = sender.objectName() if sender is not None and hasattr(sender, "objectName") else ""
+        except Exception:
+            sender_name = ""
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_enter stage=single_entry checked_arg=%s ui_checked=%s sender_object_name=%s signal_name=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(checked),
+                bool(ui_checked),
+                str(sender_name or ""),
+                str(signal_name or "unknown"),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_enter_stage stage=single_entry checked_arg=%s ui_checked=%s sender_object_name=%s signal_name=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(checked),
+                bool(ui_checked),
+                str(sender_name or ""),
+                str(signal_name or "unknown"),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_signal_bridge stage=_on_run_toggle_signal_bridge checked_arg=%s ui_checked=%s sender_object_name=%s signal_name=%s bridge_connected_flag=%s bridge_widget_id=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(checked),
+                bool(ui_checked),
+                str(sender_name or ""),
+                str(signal_name or "unknown"),
+                bool(getattr(self, "_aits_on_toggle_bridge_connected", False)),
+                int(getattr(self, "_aits_on_toggle_bridge_widget_id", 0) or 0),
+            )
+        except Exception:
+            pass
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_enter_stage stage=_on_toggle_run_toggled checked_arg=%s ui_checked=%s sender_object_name=%s signal_name=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(ui_checked),
+                bool(ui_checked),
+                str(sender_name or ""),
+                str(signal_name or "unknown"),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_enter_stage stage=_on_toggle_run_toggled_impl checked_arg=%s ui_checked=%s sender_object_name=%s signal_name=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(ui_checked),
+                bool(ui_checked),
+                str(sender_name or ""),
+                str(signal_name or "unknown"),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][ON] event=handler_enter_stage stage=_on_toggle_run checked_arg=%s ui_checked=%s sender_object_name=%s signal_name=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                bool(ui_checked),
+                bool(ui_checked),
+                str(sender_name or ""),
+                str(signal_name or "unknown"),
+            )
+            self._on_toggle_run(bool(ui_checked))
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][ON] event=handler_forward_failed stage=single_entry error_type=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+
+    def _on_run_toggle_signal_bridge(self, checked: bool = False, signal_name: str = "unknown"):
         try:
             now_ms = int(time.time() * 1000)
             last_ms = int(getattr(self, '_aits_on_bridge_last_ms', 0) or 0)
@@ -51679,6 +51774,7 @@ class MainWindow(QMainWindow):
                     'handler_signal_bridge_deduped',
                     stage='_on_run_toggle_signal_bridge',
                     checked_arg=checked,
+                    signal_name=signal_name,
                     source_path='on_button',
                 )
                 return
@@ -51692,6 +51788,7 @@ class MainWindow(QMainWindow):
                 'handler_signal_bridge',
                 stage='_on_run_toggle_signal_bridge',
                 checked_arg=checked,
+                signal_name=signal_name,
                 ui_checked=bool(self.btn_run_toggle.isChecked()) if hasattr(self, 'btn_run_toggle') else False,
                 sender_object_name=sender_name,
                 button_object_id=id(self.btn_run_toggle) if hasattr(self, 'btn_run_toggle') else 0,

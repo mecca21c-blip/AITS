@@ -1546,8 +1546,10 @@ forwarding stage.
 
 Bridge diagnostics include `bridge_connected_flag`, `bridge_widget_id`,
 `signal_widget_id`, and `bridge_connection_suspected_failed`. The active
-StopButton handler path uses a single lambda bridge so the same signal shape as
-the probe path is observed before forwarding into the existing handler chain.
+StopButton handler path uses stored single-entry slots for `toggled` and
+`clicked`; the slot logs the probe, dedupes paired signals, records the
+bridge/wrapper stage sequence, and forwards once into the existing runtime
+handler.
 The after-preflight summary reads `runtime_status_display` as `ui_on_state` so
 the harness can distinguish OFF, blocked, and observing states without treating
 that display as order permission.
