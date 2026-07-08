@@ -1629,3 +1629,10 @@ adapter/service/execution reach as critical.
 - Preview-only handoff is reported through `router_handoff_preview_detected`, `router_handoff_request_id`, `router_handoff_symbol`, `router_handoff_side`, `router_handoff_amount_krw`, `router_apply`, `final_action_applied`, and `router_validation_observe_only`.
 - `RouterHandoff` preview lines do not count as `router_called`; DecisionRouter validation/final-action logs remain separate.
 - If preview exists without Router validation, summaries report `router_handoff_preview_only` and keep all submit/order-path fields at zero/false.
+
+## 2026-07-08 - RouterValidation Preview Parser
+
+- The harness recognizes `[AITS][RouterValidation] event=validation_preview` as `aits_router_validation_preview.v1`.
+- New fields include `router_validation_preview_detected`, `router_validation_schema`, `router_validation_request_id`, `router_validation_source_request_id`, `router_validation_status`, `router_validation_input_valid`, `router_validation_action_preview`, `router_validation_confidence_preview`, `router_validation_blocker`, and `router_validation_next_fix_target`.
+- A passed validation preview reports `first_blocker=router_validation_observe_only`; it is still no-apply and must not call RiskGuard, LivePreflight, ExecutionBridge, OrderService submit, or OrderAdapter.
+- `[AITS][OrderService] fetch_accounts called` is parsed separately as `order_service_readonly_accounts_called` and no longer counts as `order_service_reached`.

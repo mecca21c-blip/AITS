@@ -39479,6 +39479,24 @@ class MainWindow(QMainWindow):
                                 except Exception:
                                     preview_provider = ""
                                 preview_runtime_state = "runtime_contract_active" if runtime_contract_active else "runtime_not_confirmed"
+                                router_preview_payload = {
+                                    "request_id": preview_request_id,
+                                    "source": candidate_source,
+                                    "observe_only": True,
+                                    "symbol": candidate_symbol,
+                                    "side": "buy",
+                                    "amount_krw": intended_amount,
+                                    "provider": preview_provider or "unknown",
+                                    "confidence": 0,
+                                    "score": candidate_score,
+                                    "reason": "buy_ready_candidate",
+                                    "runtime_state": preview_runtime_state,
+                                    "preflight_status": "passed",
+                                    "provider_ready": True,
+                                    "market_feed_ok": True,
+                                    "balance_preflight_passed": True,
+                                    "cap_preflight_passed": True,
+                                }
                                 logging.getLogger("aits").info(
                                     "[AITS][RouterHandoff] event=handoff_preview schema=aits_router_handoff_preview.v1 request_id=%s source=%s observe_only=True symbol=%s side=buy amount_krw=%s provider=%s confidence=0 score=%s reason=buy_ready_candidate runtime_state=%s preflight_status=passed provider_ready=True market_feed_ok=True balance_preflight_passed=True cap_preflight_passed=True router_apply=False final_action_applied=False router_called=False riskguard_called=False live_preflight_called=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False order_allowed=False real_order=False blocker=router_handoff_preview_only next_fix_target=router_validation_observe_only_goal",
                                     preview_request_id,
@@ -39488,6 +39506,48 @@ class MainWindow(QMainWindow):
                                     preview_provider or "unknown",
                                     candidate_score,
                                     preview_runtime_state,
+                                )
+                                try:
+                                    from app.services.decision_router import validate_handoff_payload_preview
+
+                                    validation_preview = validate_handoff_payload_preview(router_preview_payload)
+                                except Exception:
+                                    validation_preview = {
+                                        "schema": "aits_router_validation_preview.v1",
+                                        "source_request_id": preview_request_id,
+                                        "symbol": candidate_symbol,
+                                        "side": "buy",
+                                        "amount_krw": intended_amount,
+                                        "input_valid": False,
+                                        "validation_status": "failed",
+                                        "action_preview": "wait",
+                                        "confidence_preview": 0,
+                                        "reason": "router_validation_preview_exception",
+                                        "blocker": "router_validation_failed",
+                                        "next_fix_target": "inspect_router_validation_preview_input",
+                                    }
+                                validation_request_id = f"router-validation-{int(time.time() * 1000)}"
+                                validation_status = str(validation_preview.get("validation_status") or "failed")
+                                validation_blocker = str(validation_preview.get("blocker") or "")
+                                validation_next_fix_target = str(validation_preview.get("next_fix_target") or "")
+                                logging.getLogger("aits").info(
+                                    "[AITS][RouterValidation] event=validation_preview schema=aits_router_validation_preview.v1 request_id=%s source_request_id=%s symbol=%s side=%s amount_krw=%s input_valid=%s validation_status=%s action_preview=%s confidence_preview=%s reason=%s observe_only=True router_apply=False final_action_applied=False riskguard_called=False live_preflight_called=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False blocker=%s next_fix_target=%s",
+                                    validation_request_id,
+                                    str(validation_preview.get("source_request_id") or preview_request_id),
+                                    str(validation_preview.get("symbol") or candidate_symbol),
+                                    str(validation_preview.get("side") or "buy"),
+                                    int(validation_preview.get("amount_krw") or intended_amount or 0),
+                                    bool(validation_preview.get("input_valid")),
+                                    validation_status,
+                                    str(validation_preview.get("action_preview") or "wait"),
+                                    validation_preview.get("confidence_preview", 0),
+                                    str(validation_preview.get("reason") or ""),
+                                    validation_blocker or ("router_validation_observe_only" if validation_status == "passed" else "router_validation_failed"),
+                                    validation_next_fix_target or (
+                                        "prepare_separate_riskguard_livepreflight_observe_only_goal"
+                                        if validation_status == "passed"
+                                        else "inspect_router_validation_preview_input"
+                                    ),
                                 )
                             except Exception:
                                 pass

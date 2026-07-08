@@ -156,3 +156,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - The preview schema is `aits_router_handoff_preview.v1` and keeps `observe_only=True`, `router_apply=False`, `final_action_applied=False`, `submitted=0`, and `actual_order=False`.
 - It is not a DecisionRouter final action and must not call RiskGuard, LivePreflight, ExecutionBridge, OrderService, or OrderAdapter.
 - After-preflight summaries expose `router_handoff_preview_detected`, `router_handoff_schema`, `router_handoff_request_id`, `router_handoff_symbol`, `router_handoff_side`, `router_handoff_amount_krw`, `router_apply`, `final_action_applied`, and `router_validation_observe_only`.
+
+## 2026-07-08 - RouterValidation Observe-Only Boundary
+
+- `[AITS][RouterValidation] event=validation_preview` validates the RouterHandoff payload without calling `DecisionRouter.route()` or applying a final action.
+- The preview schema is `aits_router_validation_preview.v1` and keeps `observe_only=True`, `router_apply=False`, `final_action_applied=False`, `submitted=0`, and `actual_order=False`.
+- A passed preview stops at `first_blocker=router_validation_observe_only`; the next separated Goal may inspect RiskGuard/LivePreflight observe-only handoff.
+- After-preflight summaries expose `router_validation_preview_detected`, `router_validation_schema`, `router_validation_request_id`, `router_validation_source_request_id`, `router_validation_status`, `router_validation_input_valid`, `router_validation_action_preview`, and `router_validation_confidence_preview`.

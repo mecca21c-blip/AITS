@@ -273,3 +273,12 @@ LivePreflight, and unlock gates.
 - The preview keeps `router_apply=False`, `final_action_applied=False`, `submitted=0`, `actual_order=False`, and all downstream call flags false.
 - If preview exists and DecisionRouter validation is not called, E2E reports `first_blocker=router_handoff_preview_only` instead of `router_not_reached`.
 - Summary fields include `router_handoff_preview_detected`, `router_handoff_schema`, `router_handoff_request_id`, `router_handoff_symbol`, `router_handoff_side`, `router_handoff_amount_krw`, `router_handoff_observe_only`, `router_apply`, `final_action_applied`, and `router_validation_observe_only`.
+
+## 2026-07-08 - RouterValidation Observe-Only Preview
+
+- E2E diagnostics now recognize `[AITS][RouterValidation] event=validation_preview` as a no-apply validation boundary after RouterHandoff.
+- The preview validates symbol, side, amount, runtime state, preflight status, provider readiness, market feed, balance gate, and cap gate inputs.
+- It must keep `router_apply=False`, `final_action_applied=False`, `submitted=0`, `actual_order=False`, and all RiskGuard/LivePreflight/Execution/Order flags false.
+- If validation passes, E2E reports `first_blocker=router_validation_observe_only` and `order_path_status=blocked_at_router`.
+- If validation fails, E2E reports `first_blocker=router_validation_failed`.
+- Read-only `[AITS][OrderService] fetch_accounts called` lines are reported as account reads, not submit/order path reach.

@@ -70,6 +70,96 @@ def normalize_provider(provider: str) -> str:
     return "local"
 
 
+def validate_handoff_payload_preview(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Validate a RouterHandoff payload without calling route() or applying actions.
+    This is a no-side-effect contract preview for live ON diagnostics only.
+    """
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    blockers: list[str] = []
+
+    source_request_id = str(data.get("request_id") or "").strip()
+    symbol = str(data.get("symbol") or "").strip().upper()
+    side = str(data.get("side") or "").strip().lower()
+    provider = normalize_provider(str(data.get("provider") or "local"))
+    runtime_state = str(data.get("runtime_state") or "").strip()
+    preflight_status = str(data.get("preflight_status") or "").strip().lower()
+    reason = str(data.get("reason") or "").strip() or "router_validation_preview"
+
+    try:
+        amount_krw = int(float(data.get("amount_krw") or 0))
+    except Exception:
+        amount_krw = 0
+    try:
+        confidence_preview = float(data.get("confidence") or 0.0)
+    except Exception:
+        confidence_preview = 0.0
+    try:
+        score = float(data.get("score") or 0.0)
+    except Exception:
+        score = 0.0
+    if confidence_preview <= 0.0 and score > 0.0:
+        confidence_preview = max(0.0, min(score / 100.0, 1.0))
+
+    if not symbol or not symbol.startswith("KRW-"):
+        blockers.append("invalid_symbol")
+    if side not in {"buy", "sell", "hold", "wait"}:
+        blockers.append("invalid_side")
+    if amount_krw <= 0:
+        blockers.append("invalid_amount")
+    if not runtime_state:
+        blockers.append("missing_runtime_state")
+    if preflight_status != "passed":
+        blockers.append("missing_preflight_status")
+    if not bool(data.get("provider_ready")):
+        blockers.append("provider_not_ready")
+    if not bool(data.get("market_feed_ok")):
+        blockers.append("market_feed_not_ok")
+    if not bool(data.get("balance_preflight_passed")):
+        blockers.append("balance_not_passed")
+    if not bool(data.get("cap_preflight_passed")):
+        blockers.append("cap_not_passed")
+
+    action_preview = "wait"
+    if not blockers and side in {"buy", "sell"}:
+        action_preview = side
+    elif side in {"hold", "wait"}:
+        action_preview = "wait"
+    elif "invalid_side" not in blockers:
+        blockers.append("unsupported_action")
+
+    validation_status = "passed" if not blockers else "failed"
+    return {
+        "schema": "aits_router_validation_preview.v1",
+        "source_request_id": source_request_id,
+        "symbol": symbol,
+        "side": side,
+        "amount_krw": amount_krw,
+        "provider": provider,
+        "input_valid": not blockers,
+        "validation_status": validation_status,
+        "action_preview": action_preview,
+        "confidence_preview": round(float(confidence_preview or 0.0), 3),
+        "reason": reason if not blockers else ",".join(blockers),
+        "blocker": "router_validation_observe_only" if not blockers else "router_validation_failed",
+        "next_fix_target": (
+            "prepare_separate_riskguard_livepreflight_observe_only_goal"
+            if not blockers
+            else "inspect_router_validation_preview_input"
+        ),
+        "observe_only": True,
+        "router_apply": False,
+        "final_action_applied": False,
+        "riskguard_called": False,
+        "live_preflight_called": False,
+        "execution_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "submitted": 0,
+        "actual_order": False,
+    }
+
+
 class DecisionRouter:
     def __init__(
         self,
