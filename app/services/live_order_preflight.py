@@ -337,6 +337,119 @@ def build_guarded_execution_contract_preview(payload: Optional[Dict[str, Any]]) 
     }
 
 
+def build_guarded_execution_contract_apply(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Validate the explicit guarded live-order approval contract.
+    This is pure: it does not unlock, execute, submit, or call external services.
+    """
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    blockers: List[str] = []
+    symbol = str(data.get("symbol") or "").strip().upper()
+    side = str(data.get("side") or "").strip().lower()
+    try:
+        amount_krw = int(float(data.get("amount_krw") or 0))
+    except Exception:
+        amount_krw = 0
+    try:
+        min_order_krw = int(float(data.get("min_order_krw") or 10000))
+    except Exception:
+        min_order_krw = 10000
+    try:
+        per_order_hard_cap_krw = int(float(data.get("per_order_hard_cap_krw") or data.get("max_order_amount_krw") or 12000))
+    except Exception:
+        per_order_hard_cap_krw = 12000
+    try:
+        total_guarded_window_remaining_krw = int(float(data.get("total_guarded_window_remaining_krw") or data.get("total_guarded_window_cap_krw") or 20000))
+    except Exception:
+        total_guarded_window_remaining_krw = 20000
+    try:
+        submit_attempt_count = int(float(data.get("submit_attempt_count") or 0))
+    except Exception:
+        submit_attempt_count = 0
+    try:
+        submitted_count = int(float(data.get("submitted_count") or 0))
+    except Exception:
+        submitted_count = 0
+
+    expected_phrase = str(
+        data.get("confirm_phrase_expected")
+        or data.get("expected_confirm_phrase")
+        or f"AITS LIVE ORDER {symbol} {side.upper()} {amount_krw}"
+    ).strip()
+    actual_phrase = str(data.get("confirm_phrase") or data.get("user_confirm_phrase") or "").strip()
+    confirm_phrase_required = bool(data.get("confirm_phrase_required", True))
+    confirm_phrase_matched = bool(confirm_phrase_required and actual_phrase == expected_phrase)
+    unlock_required = bool(data.get("unlock_required", True))
+    unlock_performed = bool(data.get("unlock_performed", False))
+    unlock_valid = bool(data.get("unlock_valid", data.get("one_shot_unlock_valid", False)))
+    unlock_expired = bool(data.get("unlock_expired", False))
+    unlock_consumed = bool(data.get("unlock_consumed", data.get("one_shot_unlock_consumed", False)))
+
+    if not _SYMBOL_RE.match(symbol):
+        blockers.append("invalid_symbol")
+    if side != "buy":
+        blockers.append("side_not_buy")
+    if amount_krw != 10000:
+        blockers.append("amount_not_10000")
+    if amount_krw < min_order_krw:
+        blockers.append("amount_below_min_order")
+    if per_order_hard_cap_krw <= 0 or amount_krw > per_order_hard_cap_krw:
+        blockers.append("amount_exceeds_per_order_hard_cap")
+    if total_guarded_window_remaining_krw < amount_krw:
+        blockers.append("total_guarded_window_cap_exceeded")
+    if str(data.get("router_validation_status") or "").strip().lower() != "passed":
+        blockers.append("router_validation_not_passed")
+    if str(data.get("riskguard_preview_status") or "").strip().lower() != "passed":
+        blockers.append("riskguard_not_passed")
+    if str(data.get("live_preflight_preview_status") or "").strip().lower() not in {"blocked", "passed"}:
+        blockers.append("live_preflight_preview_not_confirmed")
+    if confirm_phrase_required and not confirm_phrase_matched:
+        blockers.append("confirm_phrase_not_matched")
+    if unlock_required and not unlock_performed:
+        blockers.append("unlock_not_performed")
+    if unlock_required and not unlock_valid:
+        blockers.append("unlock_not_valid")
+    if unlock_expired:
+        blockers.append("unlock_expired")
+    if unlock_consumed:
+        blockers.append("unlock_already_consumed")
+    if submit_attempt_count != 0:
+        blockers.append("submit_attempt_count_not_zero")
+    if submitted_count != 0:
+        blockers.append("submitted_count_not_zero")
+
+    execution_allowed = not blockers
+    return {
+        "schema": "aits_guarded_execution_contract_apply.v1",
+        "source_request_id": str(data.get("request_id") or data.get("source_request_id") or "").strip(),
+        "symbol": symbol,
+        "side": side,
+        "amount_krw": amount_krw,
+        "min_order_krw": min_order_krw,
+        "per_order_hard_cap_krw": per_order_hard_cap_krw,
+        "total_guarded_window_remaining_krw": total_guarded_window_remaining_krw,
+        "confirm_phrase_required": confirm_phrase_required,
+        "confirm_phrase_expected": expected_phrase,
+        "confirm_phrase_matched": confirm_phrase_matched,
+        "unlock_required": unlock_required,
+        "unlock_performed": unlock_performed,
+        "unlock_valid": unlock_valid,
+        "unlock_expired": unlock_expired,
+        "unlock_consumed": unlock_consumed,
+        "submit_attempt_count": submit_attempt_count,
+        "submitted_count": submitted_count,
+        "execution_allowed": execution_allowed,
+        "execution_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "submitted": 0,
+        "actual_order": False,
+        "blocker": ",".join(blockers),
+        "next_required_user_action": "" if execution_allowed else "explicit_live_order_approval_required",
+        "live_order_approval_required": not execution_allowed,
+    }
+
+
 def build_preflight_input_from_order_request(
     order_request: Dict[str, Any],
     *,

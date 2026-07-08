@@ -351,6 +351,9 @@ class AITSOrderAdapter:
                                 "live_guarded_window_order": bool(
                                     risk_meta.get("live_guarded_window_order", False)
                                 ),
+                                "live_guarded_one_shot_order": bool(
+                                    risk_meta.get("live_guarded_one_shot_order", False)
+                                ),
                                 "guarded_window_per_order_krw": self._safe_float(
                                     risk_meta.get("guarded_window_per_order_krw"),
                                     GUARDED_WINDOW_ORDER_AMOUNT_KRW,
@@ -366,7 +369,7 @@ class AITSOrderAdapter:
                                 "guarded_window_max_order_count": int(
                                     self._safe_float(
                                         risk_meta.get("guarded_window_max_order_count"),
-                                        GUARDED_WINDOW_MAX_ORDER_COUNT,
+                                        1 if risk_meta.get("live_guarded_one_shot_order", False) else GUARDED_WINDOW_MAX_ORDER_COUNT,
                                     )
                                 ),
                                 "guarded_window_min_order_interval_sec": int(
@@ -374,6 +377,15 @@ class AITSOrderAdapter:
                                         risk_meta.get("guarded_window_min_order_interval_sec"),
                                         GUARDED_WINDOW_MIN_INTERVAL_SEC,
                                     )
+                                ),
+                                "guarded_confirm_phrase_matched": bool(
+                                    risk_meta.get("confirm_phrase_matched", False)
+                                ),
+                                "guarded_one_shot_unlock_valid": bool(
+                                    risk_meta.get("one_shot_unlock_valid", False)
+                                ),
+                                "guarded_one_shot_unlock_consumed": bool(
+                                    risk_meta.get("one_shot_unlock_consumed", False)
                                 ),
                             }
                             try:

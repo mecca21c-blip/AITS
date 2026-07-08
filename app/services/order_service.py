@@ -3,8 +3,8 @@
 Live order support is deliberately narrow:
 - the completed minimum real-order test: KRW-BTC market buy for 5,000 KRW
   with a 6,000 KRW hard cap;
-- the future guarded-window path: KRW-BTC market buy for 10,000 KRW with a
-  12,000 KRW hard cap.
+- the guarded one-shot path: current KRW market candidate buy for 10,000 KRW
+  with explicit confirm phrase, one-shot unlock, and a 12,000 KRW hard cap.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ GUARDED_WINDOW_ORDER_AMOUNT_KRW = 10000.0
 GUARDED_WINDOW_ORDER_HARD_CAP_KRW = 12000.0
 GUARDED_WINDOW_TOTAL_CAP_KRW = 20000.0
 GUARDED_WINDOW_MAX_ORDER_COUNT = 2
+GUARDED_ONE_SHOT_MAX_ORDER_COUNT = 1
 GUARDED_WINDOW_MIN_INTERVAL_SEC = 600
 
 
@@ -405,10 +406,15 @@ class OrderService:
             request_id = str(order_request.get("request_id") or uuid.uuid4().hex)
             is_minimum_test = bool(order_request.get("live_minimum_real_order_test", False))
             is_guarded_window = bool(order_request.get("live_guarded_window_order", False))
+            is_guarded_one_shot = bool(order_request.get("live_guarded_one_shot_order", False))
 
-            if not is_minimum_test and not is_guarded_window:
+            if not is_minimum_test and not is_guarded_window and not is_guarded_one_shot:
                 return _fail("live_order_scope_flag_missing")
-            if symbol != "KRW-BTC":
+            if is_minimum_test and symbol != "KRW-BTC":
+                return _fail("unsupported_live_symbol")
+            if (is_guarded_window or is_guarded_one_shot) and not (
+                symbol.startswith("KRW-") and 5 <= len(symbol) <= 31
+            ):
                 return _fail("unsupported_live_symbol")
             if side != "buy":
                 return _fail("unsupported_live_side")
@@ -419,7 +425,7 @@ class OrderService:
                     return _fail("unsupported_live_amount")
                 if amount_krw > MINIMUM_REAL_ORDER_HARD_CAP_KRW:
                     return _fail("hard_cap_exceeded")
-            if is_guarded_window:
+            if is_guarded_window or is_guarded_one_shot:
                 expected_amount = _safe_float(
                     order_request.get("guarded_window_per_order_krw"),
                     GUARDED_WINDOW_ORDER_AMOUNT_KRW,
@@ -433,7 +439,10 @@ class OrderService:
                     GUARDED_WINDOW_TOTAL_CAP_KRW,
                 )
                 max_count = int(
-                    _safe_float(order_request.get("guarded_window_max_order_count"), GUARDED_WINDOW_MAX_ORDER_COUNT)
+                    _safe_float(
+                        order_request.get("guarded_window_max_order_count"),
+                        GUARDED_ONE_SHOT_MAX_ORDER_COUNT if is_guarded_one_shot else GUARDED_WINDOW_MAX_ORDER_COUNT,
+                    )
                 )
                 min_interval = int(
                     _safe_float(
@@ -449,10 +458,18 @@ class OrderService:
                     return _fail("guarded_window_hard_cap_exceeded")
                 if total_cap > GUARDED_WINDOW_TOTAL_CAP_KRW:
                     return _fail("guarded_window_total_cap_policy_invalid")
-                if max_count > GUARDED_WINDOW_MAX_ORDER_COUNT:
+                if is_guarded_one_shot and max_count != GUARDED_ONE_SHOT_MAX_ORDER_COUNT:
+                    return _fail("guarded_one_shot_max_order_count_policy_invalid")
+                if not is_guarded_one_shot and max_count > GUARDED_WINDOW_MAX_ORDER_COUNT:
                     return _fail("guarded_window_max_order_count_policy_invalid")
                 if min_interval < GUARDED_WINDOW_MIN_INTERVAL_SEC:
                     return _fail("guarded_window_min_interval_policy_invalid")
+                if is_guarded_one_shot and not bool(order_request.get("guarded_confirm_phrase_matched", False)):
+                    return _fail("guarded_confirm_phrase_missing")
+                if is_guarded_one_shot and not bool(order_request.get("guarded_one_shot_unlock_valid", False)):
+                    return _fail("guarded_unlock_missing")
+                if is_guarded_one_shot and bool(order_request.get("guarded_one_shot_unlock_consumed", False)):
+                    return _fail("guarded_unlock_already_consumed")
 
             ak, sk = self._extract_upbit_keys()
             if not ak or not sk or len(ak) < 10 or len(sk) < 10:
@@ -481,7 +498,7 @@ class OrderService:
 
             identifier = f"aits-{uuid.uuid4().hex[:24]}"
             params = {
-                "market": "KRW-BTC",
+                "market": symbol,
                 "side": "bid",
                 "price": str(int(amount_krw)),
                 "ord_type": "price",

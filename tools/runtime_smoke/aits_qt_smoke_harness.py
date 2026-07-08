@@ -8924,6 +8924,107 @@ def _run_live_on_runtime_e2e_diagnostic(
     report.update(_build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode=mode))
 
 
+def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_dir: Path) -> None:
+    e2e = _build_live_on_runtime_e2e_diagnostic_report(
+        output_dir=output_dir,
+        mode="live-order-guarded-readiness-summary",
+    )
+    direct_blocked: dict[str, Any] = {}
+    direct_allowed: dict[str, Any] = {}
+    direct_errors: list[str] = []
+    try:
+        from app.services.live_order_preflight import (
+            build_guarded_execution_contract_apply,
+            build_guarded_execution_contract_preview,
+            build_live_preflight_preview,
+        )
+
+        base = {
+            "request_id": "guarded-readiness-proof",
+            "symbol": "KRW-PYTH",
+            "side": "buy",
+            "amount_krw": 10000,
+            "min_order_krw": 10000,
+            "max_order_amount_krw": 12000,
+            "risk_status": "passed",
+            "input_valid": True,
+            "router_validation_status": "passed",
+            "riskguard_preview_status": "passed",
+        }
+        live_preview = build_live_preflight_preview(base)
+        preview = build_guarded_execution_contract_preview(
+            {
+                **base,
+                "preflight_status": live_preview.get("preflight_status"),
+                "live_preflight_preview_status": live_preview.get("preflight_status"),
+                "confirm_phrase_expected": live_preview.get("confirm_phrase_expected"),
+            }
+        )
+        common = {
+            **preview,
+            "router_validation_status": "passed",
+            "riskguard_preview_status": "passed",
+            "live_preflight_preview_status": "blocked",
+            "submit_attempt_count": 0,
+            "submitted_count": 0,
+        }
+        direct_blocked = build_guarded_execution_contract_apply(
+            {**common, "confirm_phrase": "", "unlock_performed": False, "unlock_valid": False}
+        )
+        direct_allowed = build_guarded_execution_contract_apply(
+            {
+                **common,
+                "confirm_phrase": preview.get("confirm_phrase_expected"),
+                "unlock_performed": True,
+                "unlock_valid": True,
+                "unlock_expired": False,
+                "unlock_consumed": False,
+            }
+        )
+    except Exception as exc:
+        direct_errors.append(f"{type(exc).__name__}:{str(exc)[:120]}")
+
+    readiness_ok = bool(
+        direct_blocked
+        and direct_allowed
+        and not bool(direct_blocked.get("execution_allowed"))
+        and bool(direct_allowed.get("execution_allowed"))
+        and int(direct_allowed.get("amount_krw") or 0) == 10000
+        and not direct_errors
+    )
+    report.update(e2e)
+    report.update(
+        {
+            "schema": "aits_live_order_guarded_readiness_summary_v1",
+            "mode": "live-order-guarded-readiness-summary",
+            "diagnostic_status": "pass" if readiness_ok else "blocked",
+            "live_order_approval_detected": bool(e2e.get("live_order_approval_required")),
+            "live_preflight_apply_detected": False,
+            "live_preflight_apply_status": "",
+            "execution_bridge_detected": False,
+            "order_submit_attempt_detected": False,
+            "order_submit_result_detected": False,
+            "locked_after_submit": False,
+            "locked_after_failed_submit": False,
+            "retry_detected": False,
+            "duplicate_submit_detected": False,
+            "sanitized_exchange_response_detected": False,
+            "direct_blocked_execution_allowed": bool(direct_blocked.get("execution_allowed")),
+            "direct_blocked_blocker": str(direct_blocked.get("blocker") or ""),
+            "direct_allowed_execution_allowed": bool(direct_allowed.get("execution_allowed")),
+            "direct_allowed_blocker": str(direct_allowed.get("blocker") or ""),
+            "readiness_errors": direct_errors,
+            "safety_flags": {
+                "submitted_count": int(e2e.get("submitted_count") or 0),
+                "actual_order": False,
+                "provider_external_call_count": 0,
+            },
+            "pass_status": "pass" if readiness_ok else "blocked",
+            "status": "pass" if readiness_ok else "blocked",
+        }
+    )
+
+
 def _live_on_stage_extract_value(line: str, key: str) -> str:
     match = re.search(rf"(?:^|[\s|]){re.escape(key)}[=:]\s*([^\s|]+)", line)
     return str(match.group(1)).strip() if match else ""
@@ -18816,6 +18917,7 @@ def run_harness(
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
         "live-order-post-trade-reconciliation",
+        "live-order-guarded-readiness-summary",
         "live-2h-guarded-window-preflight-proof",
         "live-2h-guarded-window-order-path-cap-proof",
     }:
@@ -19013,6 +19115,9 @@ def run_harness(
                 wait_seconds=10.0,
                 allow_provider_ready_check_once=(mode == "live-on-runtime-harness-driven-click-run-provider-check-once"),
             )
+        elif mode == "live-order-guarded-readiness-summary":
+            _install_provider_post_guard(report)
+            _run_live_order_guarded_readiness_summary(report, output_dir=output_dir)
         elif mode == "live-on-preflight-setting-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_setting_source_summary(report)
@@ -19723,6 +19828,7 @@ def main() -> int:
             "live-one-shot-unlock-contract-proof",
             "live-minimum-real-order-test",
             "live-order-post-trade-reconciliation",
+            "live-order-guarded-readiness-summary",
             "live-2h-guarded-window-preflight-proof",
             "live-2h-guarded-window-order-path-cap-proof",
             "live-2h-guarded-window",

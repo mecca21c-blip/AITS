@@ -1650,3 +1650,11 @@ adapter/service/execution reach as critical.
 - New fields include `guarded_execution_contract_detected`, `guarded_execution_contract_schema`, `guarded_execution_request_id`, `guarded_execution_symbol`, `guarded_execution_side`, `guarded_execution_amount_krw`, `confirm_phrase_required`, `confirm_phrase_matched`, `unlock_required`, `unlock_performed`, `execution_allowed`, and `next_required_user_action`.
 - A contract with `live_order_approval_required=True` and `execution_allowed=False` is reported as `first_blocker=live_order_approval_required`.
 - This parser treats the contract as pre-execution visibility only; execution, order service, order adapter, submit, or actual-order markers remain critical.
+
+## 2026-07-08 - Guarded Live Order Readiness Summary
+
+- Added `live-order-guarded-readiness-summary`.
+- The mode never submits. It summarizes current guarded approval logs and runs a direct contract proof for blocked and approved states.
+- A blocked proof must keep `execution_allowed=false` without confirm phrase and unlock.
+- An approved proof may set `execution_allowed=true` only when exact phrase, valid unlock, `amount_krw=10000`, caps, and zero submit counts are present.
+- Any actual submit must be performed later by explicit user UI action, not by the harness.

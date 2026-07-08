@@ -261,7 +261,7 @@ QLineEdit[readOnly="true"] {
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStyle,
     QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QFormLayout, QHeaderView,
-    QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
+    QMessageBox, QInputDialog, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
     QAbstractItemView, QAbstractScrollArea, QMenu, QSizePolicy, QScrollArea, QCheckBox,
     QGroupBox, QLineEdit, QTextEdit, QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem,
     QProgressDialog, QStackedWidget,
@@ -13612,8 +13612,19 @@ class MainWindow(QMainWindow):
         _stop_title_v.setSpacing(1)
         _stop_title_v.addWidget(self.lbl_power_title)
         _stop_title_v.addWidget(self.lbl_power_sub)
+        self.btn_live_order_approval = QPushButton("LIVE 1-SHOT")
+        self.btn_live_order_approval.setObjectName("btnLiveOrderApproval")
+        self.btn_live_order_approval.setEnabled(False)
+        self.btn_live_order_approval.setToolTip(
+            "Requires exact confirm phrase and one-shot unlock before a single live order."
+        )
+        try:
+            self.btn_live_order_approval.clicked.connect(self._on_live_order_approval_clicked)
+        except Exception:
+            pass
         stop_h.addWidget(self._frm_header_toggle_wrap, 0)
         stop_h.addLayout(_stop_title_v, 1)
+        stop_h.addWidget(self.btn_live_order_approval, 0)
         try:
             self.lbl_power_title.setProperty("runBlink", False)
             for _pol in (self.lbl_power_title, self.lbl_power_sub):
@@ -39687,6 +39698,17 @@ class MainWindow(QMainWindow):
                                                 "live_order_approval_required": True,
                                             }
                                         guarded_request_id = f"guarded-execution-contract-{int(time.time() * 1000)}"
+                                        try:
+                                            guarded_preview["request_id"] = guarded_request_id
+                                            self._latest_guarded_execution_contract = dict(guarded_preview)
+                                            self._live_guarded_submit_attempt_count = int(
+                                                getattr(self, "_live_guarded_submit_attempt_count", 0) or 0
+                                            )
+                                            _approval_btn = getattr(self, "btn_live_order_approval", None)
+                                            if _approval_btn is not None:
+                                                _approval_btn.setEnabled(self._live_guarded_submit_attempt_count == 0)
+                                        except Exception:
+                                            pass
                                         logging.getLogger("aits").info(
                                             "[AITS][GuardedExecutionContract] event=contract_preview schema=aits_guarded_execution_contract_preview.v1 request_id=%s source_request_id=%s symbol=%s side=%s amount_krw=%s min_order_krw=%s provider_ready=%s market_feed_ok=%s balance_preflight_passed=%s cap_preflight_passed=%s router_validation_status=%s riskguard_preview_status=%s live_preflight_preview_status=%s confirm_phrase_required=%s confirm_phrase_expected=%s confirm_phrase_matched=False unlock_required=%s unlock_performed=False execution_allowed=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False next_required_user_action=%s live_order_approval_required=True",
                                             guarded_request_id,
@@ -52484,6 +52506,144 @@ class MainWindow(QMainWindow):
                 blocker=reason,
                 source_path='on_button',
             )
+        except Exception:
+            pass
+
+
+    def _guarded_order_log(self, prefix: str, **fields) -> None:
+        try:
+            parts = [str(prefix or "")]
+            for key, value in fields.items():
+                parts.append(f"{key}={value}")
+            logging.getLogger("aits").info(" ".join(parts))
+        except Exception:
+            pass
+
+    def _guarded_order_current_price(self, symbol: str) -> float:
+        symbol = str(symbol or "").strip().upper()
+        try:
+            rows = getattr(self, "ai_managed_rows", None) or []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                raw_symbol = str(row.get("symbol") or row.get("market") or "").strip().upper()
+                if raw_symbol != symbol:
+                    continue
+                price = self._managed_pool_review_float(row, "current_price", "price", "trade_price", "market_price", default=0.0) or 0.0
+                if price > 0:
+                    return float(price)
+        except Exception:
+            pass
+        try:
+            holdings = self._managed_pool_holding_review_rows()
+            info = holdings.get(symbol) or {}
+            price = self._managed_pool_review_float(info, "current_price", default=0.0) or 0.0
+            if price > 0:
+                return float(price)
+        except Exception:
+            pass
+        return 0.0
+
+    def _on_live_order_approval_clicked(self) -> None:
+        contract = dict(getattr(self, "_latest_guarded_execution_contract", {}) or {})
+        if not contract:
+            self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_required", blocker="guarded_contract_missing", submitted=0, actual_order=False)
+            QMessageBox.warning(self, "LIVE 1-SHOT", "Guarded execution contract is not ready.")
+            return
+        expected = str(contract.get("confirm_phrase_expected") or "").strip()
+        symbol = str(contract.get("symbol") or "").strip().upper()
+        side = str(contract.get("side") or "buy").strip().lower()
+        try:
+            amount_krw = int(float(contract.get("amount_krw") or 0))
+        except Exception:
+            amount_krw = 0
+        self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_required", request_id=str(contract.get("request_id") or ""), symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_required=True, unlock_required=True, submit_attempt_count=int(getattr(self, "_live_guarded_submit_attempt_count", 0) or 0), submitted_count=0, actual_order=False)
+        phrase, ok = QInputDialog.getText(self, "LIVE 1-SHOT", f"Type exact phrase to unlock one 10000 KRW order:\n{expected}")
+        if not ok:
+            self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_input", request_id=str(contract.get("request_id") or ""), symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_entered=False, confirm_phrase_matched=False, submitted_count=0, actual_order=False)
+            return
+        self._execute_live_guarded_one_shot_order(str(phrase or ""), contract)
+
+    def _execute_live_guarded_one_shot_order(self, confirm_phrase: str, contract: dict) -> None:
+        request_id = f"live-guarded-submit-{int(time.time() * 1000)}"
+        symbol = str((contract or {}).get("symbol") or "").strip().upper()
+        side = str((contract or {}).get("side") or "buy").strip().lower()
+        try:
+            amount_krw = int(float((contract or {}).get("amount_krw") or 0))
+        except Exception:
+            amount_krw = 0
+        submit_attempt_count = int(getattr(self, "_live_guarded_submit_attempt_count", 0) or 0)
+        if bool(getattr(self, "_live_guarded_submit_locked", False)) or submit_attempt_count > 0:
+            self._guarded_order_log("[AITS][OrderSubmit] event=submit_blocked", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, blocker="one_shot_submit_already_locked", submit_attempt_count=submit_attempt_count, submitted_count=0, actual_order=False)
+            return
+        try:
+            from datetime import datetime, timedelta, timezone
+            from app.services.execution_bridge import ExecutionBridge
+            from app.services.live_order_preflight import build_guarded_execution_contract_apply
+            from app.services.live_order_unlock import LiveOneShotUnlock, LiveOneShotUnlockRequest
+            from app.services.order_adapter import AITSOrderAdapter
+            from app.services.order_service import svc_order
+        except Exception as exc:
+            self._guarded_order_log("[AITS][OrderSubmit] event=submit_blocked", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, blocker="guarded_import_failed", reason=type(exc).__name__, submit_attempt_count=submit_attempt_count, submitted_count=0, actual_order=False)
+            return
+        expected = str((contract or {}).get("confirm_phrase_expected") or f"AITS LIVE ORDER {symbol} {side.upper()} {amount_krw}").strip()
+        confirm_matched = str(confirm_phrase or "").strip() == expected
+        self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_input", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_entered=bool(str(confirm_phrase or "").strip()), confirm_phrase_matched=confirm_matched, submitted_count=0, actual_order=False)
+        if not confirm_matched:
+            self._guarded_order_log("[AITS][OrderSubmit] event=submit_blocked", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, blocker="confirm_phrase_not_matched", submit_attempt_count=0, submitted_count=0, actual_order=False)
+            return
+        unlock_service = getattr(self, "_live_one_shot_unlock_service", None)
+        if unlock_service is None:
+            unlock_service = LiveOneShotUnlock()
+            self._live_one_shot_unlock_service = unlock_service
+        now = datetime.now(timezone.utc)
+        duplicate_lock_key = f"{symbol}:{side}:{amount_krw}"
+        unlock_request = LiveOneShotUnlockRequest(request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, max_order_amount_krw=12000, min_order_amount_krw=10000, user_confirm_phrase="[redacted]", confirm_token=confirm_phrase, expires_at_utc=(now + timedelta(seconds=60)).isoformat(timespec="seconds"), ttl_sec=60, duplicate_lock_key=duplicate_lock_key, created_at_utc=now.isoformat(timespec="seconds"), source="live_order_approval_ui")
+        self._guarded_order_log("[AITS][LiveOrderApproval] event=unlock_requested", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, ttl_sec=60, submit_attempt_count=0, submitted_count=0, actual_order=False)
+        unlock_state = unlock_service.create_one_shot_unlock(unlock_request)
+        unlock_result = unlock_service.validate_one_shot_unlock(unlock_state, unlock_request)
+        self._guarded_order_log("[AITS][LiveOrderApproval] event=unlock_granted", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, unlock_id=str(getattr(unlock_result, "unlock_id", "") or ""), unlock_performed=bool(getattr(unlock_result, "unlock_valid", False)), unlock_expired=bool(getattr(unlock_result, "expired", False)), blocker=str(getattr(unlock_result, "blocked_reason", "") or "-"), submit_attempt_count=0, submitted_count=0, actual_order=False)
+        apply_payload = dict(contract or {})
+        apply_payload.update({"request_id": request_id, "symbol": symbol, "side": side, "amount_krw": amount_krw, "min_order_krw": 10000, "per_order_hard_cap_krw": 12000, "total_guarded_window_remaining_krw": 20000, "confirm_phrase": confirm_phrase, "confirm_phrase_expected": expected, "confirm_phrase_required": True, "unlock_required": True, "unlock_performed": bool(getattr(unlock_result, "unlock_valid", False)), "unlock_valid": bool(getattr(unlock_result, "unlock_valid", False)), "unlock_expired": bool(getattr(unlock_result, "expired", False)), "unlock_consumed": False, "submit_attempt_count": 0, "submitted_count": 0})
+        self._guarded_order_log("[AITS][LivePreflightApply] event=live_preflight_apply_start", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submit_attempt_count=0, submitted_count=0, actual_order=False)
+        apply_result = build_guarded_execution_contract_apply(apply_payload)
+        execution_allowed = bool(apply_result.get("execution_allowed"))
+        self._guarded_order_log("[AITS][LivePreflightApply] event=live_preflight_apply_result", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, live_preflight_apply_status="passed" if execution_allowed else "blocked", blocker=str(apply_result.get("blocker") or "-"), execution_allowed=execution_allowed, submit_attempt_count=0, submitted_count=0, actual_order=False)
+        if not execution_allowed:
+            return
+        price = self._guarded_order_current_price(symbol)
+        risk_guard = {"aits_enabled": True, "live_order_unlock": True, "user_confirm_token": "[redacted]", "risk_guard_checked": True, "risk_allowed": True, "one_shot_unlock_valid": True, "one_shot_unlock_id": str(getattr(unlock_result, "unlock_id", "") or ""), "one_shot_unlock_consumed": False, "emergency_stop": False, "max_order_amount_krw": 12000, "max_daily_loss_krw": 20000, "max_order_count_per_cycle": 1, "duplicate_order_lock": True, "min_real_order_amount_krw": 10000, "account_ready": True, "api_key_ready": True, "price_fresh": bool(price > 0), "price": price, "source_provider": str(getattr(self, "_applied_ai_provider", "") or ""), "live_guarded_window_order": True, "live_guarded_one_shot_order": True, "guarded_window_per_order_krw": 10000, "guarded_window_per_order_hard_cap_krw": 12000, "guarded_window_total_cap_krw": 20000, "guarded_window_max_order_count": 1, "confirm_phrase_matched": True}
+        bridge_contract = dict(apply_result)
+        bridge_contract.update({"request_id": request_id, "execution_allowed": True, "risk_guard": risk_guard})
+        bridge = ExecutionBridge(logger=logging.getLogger("aits")).build_guarded_one_shot_bridge(bridge_contract)
+        self._guarded_order_log("[AITS][ExecutionBridge] event=execution_start", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, execution_allowed=True, bridge_action_count=getattr(bridge, "action_count", 0), submit_attempt_count=1, submitted_count=0, actual_order=False)
+        self._live_guarded_submit_attempt_count = 1
+        self._guarded_order_log("[AITS][OrderSubmit] event=submit_attempt", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submit_attempt_count=1, submitted_count=0, actual_order=False)
+        result = None
+        try:
+            svc_order.set_settings(getattr(self, "_settings", None))
+            svc_order.set_trading_enabled(True)
+            adapter = AITSOrderAdapter(execution_mode="live", min_order_krw=10000.0, allow_reduce_live=False, logger=logging.getLogger("aits"))
+            result = adapter.execute(bridge, order_service=svc_order)
+        finally:
+            try:
+                unlock_service.consume_one_shot_unlock(unlock_state, reason="submit_attempt_finished")
+            except Exception:
+                pass
+        submitted_count = int(getattr(result, "submitted_count", 0) or 0) if result is not None else 0
+        failed_count = int(getattr(result, "failed_count", 0) or 0) if result is not None else 0
+        success = submitted_count == 1
+        self._live_guarded_submit_locked = True
+        try:
+            btn = getattr(self, "btn_live_order_approval", None)
+            if btn is not None:
+                btn.setEnabled(False)
+        except Exception:
+            pass
+        self._guarded_order_log("[AITS][LiveOrderResult] event=submit_result", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submit_success=success, failed_count=failed_count, submit_attempt_count=1, submitted_count=submitted_count, actual_order=success)
+        self._guarded_order_log("[AITS][LiveOrderResult] event=locked_after_submit" if success else "[AITS][LiveOrderResult] event=locked_after_failed_submit", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, no_retry=True, no_repeat_order=True, submit_attempt_count=1, submitted_count=submitted_count, actual_order=success)
+        try:
+            self._set_aits_runtime_status_display("live_order_submitted_once" if success else "locked_after_failed_submit", f"{symbol} {side} {amount_krw} KRW submit_attempt=1 submitted={submitted_count}")
         except Exception:
             pass
 

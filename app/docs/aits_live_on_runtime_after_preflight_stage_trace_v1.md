@@ -177,3 +177,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - The contract keeps `confirm_phrase_matched=False`, `unlock_performed=False`, `execution_allowed=False`, `execution_called=False`, `submitted=0`, and `actual_order=False`.
 - When present after a blocked LivePreflightPreview, after-preflight summary reports `first_blocker=live_order_approval_required` and `last_reached_stage=guarded_execution_contract_preview`.
 - This is UI/log visibility only. It does not call ExecutionBridge, OrderService, OrderAdapter, or unlock services.
+
+## 2026-07-08 - Guarded One-Shot Approval Trace
+
+- After a preview, the app may expose a `LIVE 1-SHOT` approval action.
+- The action must log `LiveOrderApproval`, `LivePreflightApply`, `ExecutionBridge`, `OrderSubmit`, and `LiveOrderResult` stages.
+- Without exact confirm phrase and one-shot unlock, the trace must stop before ExecutionBridge.
+- After one submit attempt, the trace must end in `locked_after_submit` or `locked_after_failed_submit`; repeat and retry are not allowed.

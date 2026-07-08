@@ -297,3 +297,10 @@ LivePreflight, and unlock gates.
 - The contract separates `confirm_phrase_required`, `confirm_phrase_matched`, `unlock_required`, `unlock_performed`, and `execution_allowed`.
 - A blocked LivePreflightPreview with this contract becomes `first_blocker=live_order_approval_required` and `order_path_status=blocked_before_execution`.
 - Any `execution_allowed=True`, `execution_called=True`, `order_service_called=True`, `order_adapter_called=True`, `submitted_count>0`, or `actual_order=true` is critical.
+
+## 2026-07-08 - Guarded One-Shot Execution Boundary
+
+- The actual live path remains closed until the user enters the exact confirm phrase and grants a one-shot unlock in the app.
+- The only opened amount is `10000 KRW`; `submit_attempt_count` and `submitted_count` must start at zero.
+- After one attempt the app must log `locked_after_submit` or `locked_after_failed_submit` and must not retry.
+- E2E keeps readiness and submit-result fields separate so a readiness proof does not imply that a live order was submitted.

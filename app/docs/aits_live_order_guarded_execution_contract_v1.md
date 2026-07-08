@@ -65,3 +65,27 @@ This contract must not:
 
 The next live-order Goal must require explicit user approval before any guarded
 execution path can be considered.
+
+## 10,000 KRW Guarded One-Shot Execution
+
+The only live submit path opened by this contract is a single market buy for
+the current guarded candidate with `amount_krw=10000`.
+
+Required gates:
+
+- exact confirm phrase: `AITS LIVE ORDER {symbol} {SIDE} {amount_krw}`
+- one-shot unlock with a short TTL
+- RouterValidation preview passed
+- RiskGuard preview passed
+- LivePreflight apply passed
+- `submit_attempt_count=0` and `submitted_count=0`
+- per-order hard cap `12000 KRW`
+- guarded window cap `20000 KRW`
+
+The UI exposes this as the `LIVE 1-SHOT` approval button after a
+`GuardedExecutionContract` preview is available. Codex validation must not
+press that button or run the submit mode automatically.
+
+After one submit attempt, successful or failed, the runtime enters a locked
+state. There is no retry, repeat order, automatic averaging down, or loss-based
+re-entry in this contract.
