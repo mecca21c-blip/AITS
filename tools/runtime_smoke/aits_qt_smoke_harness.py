@@ -8508,6 +8508,26 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     guarded_order_adapter_called = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "order_adapter_called")
     next_required_user_action = _live_on_stage_extract_value(latest_guarded_execution_contract, "next_required_user_action")
     live_order_approval_required = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "live_order_approval_required")
+    live_order_ux_ready_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderUX]" in line and "event=approval_ui_ready" in line
+    ]
+    approval_dialog_opened_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderUX]" in line and "event=approval_dialog_opened" in line
+    ]
+    approval_cancelled_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderApproval]" in line and "event=approval_cancelled" in line
+    ]
+    confirm_phrase_validated_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderApproval]" in line and "event=confirm_phrase_validated" in line
+    ]
+    confirm_phrase_rejected_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderApproval]" in line and "event=confirm_phrase_rejected" in line
+    ]
     router_lines = [
         line for line in lines
         if "[AITS][RouterSummary]" in line
@@ -8866,6 +8886,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "guarded_order_adapter_called": bool(guarded_order_adapter_called),
         "next_required_user_action": str(next_required_user_action or ""),
         "live_order_approval_required": bool(live_order_approval_required),
+        "live_order_ux_ready": bool(live_order_ux_ready_lines),
+        "approval_dialog_opened": bool(approval_dialog_opened_lines),
+        "approval_cancelled": bool(approval_cancelled_lines),
+        "confirm_phrase_validated": bool(confirm_phrase_validated_lines),
+        "confirm_phrase_rejected": bool(confirm_phrase_rejected_lines),
         "detected_candidate_symbol": detected_candidate_symbol,
         "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
         "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
@@ -8992,6 +9017,14 @@ def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_
         and int(direct_allowed.get("amount_krw") or 0) == 10000
         and not direct_errors
     )
+    app_gui_source = ""
+    try:
+        app_gui_source = (ROOT / "app" / "ui" / "app_gui.py").read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        app_gui_source = ""
+    header_button_removed = "stop_h.addWidget(self.btn_live_order_approval" not in app_gui_source
+    approval_dialog_present = "_open_live_order_approval_dialog" in app_gui_source and "edGuardedConfirmPhrase" in app_gui_source
+    readiness_ok = bool(readiness_ok and header_button_removed and approval_dialog_present)
     report.update(e2e)
     report.update(
         {
@@ -9009,6 +9042,13 @@ def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_
             "retry_detected": False,
             "duplicate_submit_detected": False,
             "sanitized_exchange_response_detected": False,
+            "live_order_ux_ready": bool(e2e.get("live_order_ux_ready")) or approval_dialog_present,
+            "approval_dialog_opened": bool(e2e.get("approval_dialog_opened")),
+            "approval_cancelled": bool(e2e.get("approval_cancelled")),
+            "confirm_phrase_validated": bool(e2e.get("confirm_phrase_validated")),
+            "confirm_phrase_rejected": bool(e2e.get("confirm_phrase_rejected")),
+            "live_order_button_header_removed": bool(header_button_removed),
+            "on_button_layout_restored": bool(header_button_removed),
             "direct_blocked_execution_allowed": bool(direct_blocked.get("execution_allowed")),
             "direct_blocked_blocker": str(direct_blocked.get("blocker") or ""),
             "direct_allowed_execution_allowed": bool(direct_allowed.get("execution_allowed")),
@@ -9548,6 +9588,11 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "guarded_order_adapter_called": bool(e2e.get("guarded_order_adapter_called")),
         "next_required_user_action": str(e2e.get("next_required_user_action") or ""),
         "live_order_approval_required": bool(e2e.get("live_order_approval_required")),
+        "live_order_ux_ready": bool(e2e.get("live_order_ux_ready")),
+        "approval_dialog_opened": bool(e2e.get("approval_dialog_opened")),
+        "approval_cancelled": bool(e2e.get("approval_cancelled")),
+        "confirm_phrase_validated": bool(e2e.get("confirm_phrase_validated")),
+        "confirm_phrase_rejected": bool(e2e.get("confirm_phrase_rejected")),
         "router_handoff_blocker": str(e2e.get("router_handoff_blocker") or ""),
         "router_handoff_next_fix_target": str(e2e.get("router_handoff_next_fix_target") or ""),
         "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),

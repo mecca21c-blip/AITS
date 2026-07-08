@@ -180,7 +180,9 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 
 ## 2026-07-08 - Guarded One-Shot Approval Trace
 
-- After a preview, the app may expose a `LIVE 1-SHOT` approval action.
-- The action must log `LiveOrderApproval`, `LivePreflightApply`, `ExecutionBridge`, `OrderSubmit`, and `LiveOrderResult` stages.
+- After a preview, the app exposes guarded approval outside the header ON/OFF area.
+- The approval surface is a confirmation dialog or scoped panel, not a permanent header button.
+- The dialog must show symbol, side, amount, required phrase, phrase input, and current blocker/status.
+- The action must log `LiveOrderUX`, `LiveOrderApproval`, `LivePreflightApply`, `ExecutionBridge`, `OrderSubmit`, and `LiveOrderResult` stages.
 - Without exact confirm phrase and one-shot unlock, the trace must stop before ExecutionBridge.
 - After one submit attempt, the trace must end in `locked_after_submit` or `locked_after_failed_submit`; repeat and retry are not allowed.

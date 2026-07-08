@@ -1658,3 +1658,6 @@ adapter/service/execution reach as critical.
 - A blocked proof must keep `execution_allowed=false` without confirm phrase and unlock.
 - An approved proof may set `execution_allowed=true` only when exact phrase, valid unlock, `amount_krw=10000`, caps, and zero submit counts are present.
 - Any actual submit must be performed later by explicit user UI action, not by the harness.
+- The mode also reports the restored UX fields `live_order_ux_ready`, `approval_dialog_opened`,
+  `confirm_phrase_validated`, `confirm_phrase_rejected`,
+  `live_order_button_header_removed`, and `on_button_layout_restored`.

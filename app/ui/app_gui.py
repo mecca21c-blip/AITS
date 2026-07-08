@@ -261,12 +261,12 @@ QLineEdit[readOnly="true"] {
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStyle,
     QTabWidget, QLabel, QPushButton, QFrame, QGridLayout, QFormLayout, QHeaderView,
-    QMessageBox, QInputDialog, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
+    QMessageBox, QFileDialog, QSplitter, QToolBar, QComboBox, QSpinBox, QDoubleSpinBox,
     QAbstractItemView, QAbstractScrollArea, QMenu, QSizePolicy, QScrollArea, QCheckBox,
     QGroupBox, QLineEdit, QTextEdit, QPlainTextEdit, QProgressBar, QTableWidget, QTableWidgetItem,
     QProgressDialog, QStackedWidget,
     QTreeView, QAbstractItemView, QStyleFactory, QDockWidget, QListWidget,
-    QButtonGroup, QRadioButton, QSlider, QToolButton, QDialog, QProgressDialog,
+    QButtonGroup, QRadioButton, QSlider, QToolButton, QDialog, QDialogButtonBox, QProgressDialog,
 )
 from PySide6.QtCore import (
     Qt, QTimer, QThread, Signal, QMutex, QMutexLocker, QWaitCondition,
@@ -13615,8 +13615,9 @@ class MainWindow(QMainWindow):
         self.btn_live_order_approval = QPushButton("LIVE 1-SHOT")
         self.btn_live_order_approval.setObjectName("btnLiveOrderApproval")
         self.btn_live_order_approval.setEnabled(False)
+        self.btn_live_order_approval.setVisible(False)
         self.btn_live_order_approval.setToolTip(
-            "Requires exact confirm phrase and one-shot unlock before a single live order."
+            "Guarded live approval opens as a separate confirmation dialog."
         )
         try:
             self.btn_live_order_approval.clicked.connect(self._on_live_order_approval_clicked)
@@ -13624,7 +13625,6 @@ class MainWindow(QMainWindow):
             pass
         stop_h.addWidget(self._frm_header_toggle_wrap, 0)
         stop_h.addLayout(_stop_title_v, 1)
-        stop_h.addWidget(self.btn_live_order_approval, 0)
         try:
             self.lbl_power_title.setProperty("runBlink", False)
             for _pol in (self.lbl_power_title, self.lbl_power_sub):
@@ -39736,6 +39736,23 @@ class MainWindow(QMainWindow):
                                             )
                                         except Exception:
                                             pass
+                                        try:
+                                            self._guarded_order_log(
+                                                "[AITS][LiveOrderUX] event=approval_ui_ready",
+                                                request_id=guarded_request_id,
+                                                symbol=str(guarded_preview.get("symbol") or candidate_symbol),
+                                                side=str(guarded_preview.get("side") or "buy"),
+                                                amount_krw=int(guarded_preview.get("amount_krw") or intended_amount or 0),
+                                                confirm_phrase_required=True,
+                                                unlock_required=True,
+                                                submitted_count=0,
+                                                actual_order=False,
+                                            )
+                                            if str(getattr(self, "_last_guarded_approval_dialog_request_id", "") or "") != guarded_request_id:
+                                                self._last_guarded_approval_dialog_request_id = guarded_request_id
+                                                QTimer.singleShot(0, lambda _contract=dict(guarded_preview): self._open_live_order_approval_dialog(_contract))
+                                        except Exception:
+                                            pass
                             except Exception:
                                 pass
                 except Exception:
@@ -52544,12 +52561,8 @@ class MainWindow(QMainWindow):
             pass
         return 0.0
 
-    def _on_live_order_approval_clicked(self) -> None:
-        contract = dict(getattr(self, "_latest_guarded_execution_contract", {}) or {})
-        if not contract:
-            self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_required", blocker="guarded_contract_missing", submitted=0, actual_order=False)
-            QMessageBox.warning(self, "LIVE 1-SHOT", "Guarded execution contract is not ready.")
-            return
+    def _open_live_order_approval_dialog(self, contract: dict) -> None:
+        contract = dict(contract or {})
         expected = str(contract.get("confirm_phrase_expected") or "").strip()
         symbol = str(contract.get("symbol") or "").strip().upper()
         side = str(contract.get("side") or "buy").strip().lower()
@@ -52557,12 +52570,66 @@ class MainWindow(QMainWindow):
             amount_krw = int(float(contract.get("amount_krw") or 0))
         except Exception:
             amount_krw = 0
-        self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_required", request_id=str(contract.get("request_id") or ""), symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_required=True, unlock_required=True, submit_attempt_count=int(getattr(self, "_live_guarded_submit_attempt_count", 0) or 0), submitted_count=0, actual_order=False)
-        phrase, ok = QInputDialog.getText(self, "LIVE 1-SHOT", f"Type exact phrase to unlock one 10000 KRW order:\n{expected}")
-        if not ok:
-            self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_input", request_id=str(contract.get("request_id") or ""), symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_entered=False, confirm_phrase_matched=False, submitted_count=0, actual_order=False)
+        request_id = str(contract.get("request_id") or "")
+        self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_opened", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_required=True, unlock_required=True, submitted_count=0, actual_order=False)
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Guarded live order approval")
+        layout = QVBoxLayout(dialog)
+        info = QLabel(
+            "Guarded live order pending\n"
+            f"Symbol: {symbol}\n"
+            f"Side: {side.upper()}\n"
+            f"Amount: {amount_krw:,} KRW\n"
+            "Actual order: not submitted yet\n"
+            "Required phrase:"
+        )
+        info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(info)
+        phrase_label = QLabel(expected)
+        phrase_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        phrase_label.setObjectName("lblGuardedConfirmPhrase")
+        layout.addWidget(phrase_label)
+        phrase_edit = QLineEdit()
+        phrase_edit.setObjectName("edGuardedConfirmPhrase")
+        phrase_edit.setPlaceholderText("Type the exact phrase shown above")
+        layout.addWidget(phrase_edit)
+        blocker = str(contract.get("blocker") or contract.get("live_preflight_preview_status") or "")
+        detail = QLabel(f"Current blocker/status: {blocker or '-'}")
+        detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(detail)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        ok_button = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if ok_button is not None:
+            ok_button.setText("Approve one-shot order")
+            ok_button.setEnabled(False)
+        cancel_button = buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        if cancel_button is not None:
+            cancel_button.setText("Cancel")
+        def _sync_ok(text: str) -> None:
+            if ok_button is not None:
+                ok_button.setEnabled(str(text or "").strip() == expected and bool(expected))
+        phrase_edit.textChanged.connect(_sync_ok)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_cancelled", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submitted_count=0, actual_order=False)
             return
-        self._execute_live_guarded_one_shot_order(str(phrase or ""), contract)
+        phrase = str(phrase_edit.text() or "")
+        matched = phrase.strip() == expected and bool(expected)
+        self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_validated", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_matched=matched, submitted_count=0, actual_order=False)
+        if not matched:
+            self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_rejected", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submitted_count=0, actual_order=False)
+            return
+        self._execute_live_guarded_one_shot_order(phrase, contract)
+
+    def _on_live_order_approval_clicked(self) -> None:
+        contract = dict(getattr(self, "_latest_guarded_execution_contract", {}) or {})
+        if not contract:
+            self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_required", blocker="guarded_contract_missing", submitted=0, actual_order=False)
+            QMessageBox.warning(self, "Guarded live order", "Guarded execution contract is not ready.")
+            return
+        self._open_live_order_approval_dialog(contract)
 
     def _execute_live_guarded_one_shot_order(self, confirm_phrase: str, contract: dict) -> None:
         request_id = f"live-guarded-submit-{int(time.time() * 1000)}"

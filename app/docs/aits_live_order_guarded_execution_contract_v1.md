@@ -66,6 +66,20 @@ This contract must not:
 The next live-order Goal must require explicit user approval before any guarded
 execution path can be considered.
 
+## Normal UX Approval Flow
+
+The header ON/OFF area is reserved for runtime state only. Guarded live-order
+approval must not add a permanent header button next to ON.
+
+When a `GuardedExecutionContract` preview is available, the app presents the
+approval in a separate confirmation dialog or clearly scoped approval panel.
+That surface shows the symbol, side, amount, required phrase, phrase input
+field, current blocker/status, and the fact that no actual order has been
+submitted yet.
+
+The approve action remains disabled until the entered phrase exactly matches the
+required phrase. Cancel closes the dialog without unlock or submit.
+
 ## 10,000 KRW Guarded One-Shot Execution
 
 The only live submit path opened by this contract is a single market buy for
@@ -82,9 +96,9 @@ Required gates:
 - per-order hard cap `12000 KRW`
 - guarded window cap `20000 KRW`
 
-The UI exposes this as the `LIVE 1-SHOT` approval button after a
+The UI exposes this through the guarded approval dialog after a
 `GuardedExecutionContract` preview is available. Codex validation must not
-press that button or run the submit mode automatically.
+approve the dialog or run the submit mode automatically.
 
 After one submit attempt, successful or failed, the runtime enters a locked
 state. There is no retry, repeat order, automatic averaging down, or loss-based
