@@ -234,6 +234,60 @@ def evaluate_order_candidate(candidate: RiskGuardInput | Dict[str, Any]) -> Risk
     return RiskGuard().evaluate_order_candidate(candidate)
 
 
+def build_riskguard_preview(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Build a no-apply RiskGuard preview from a RouterValidation preview payload.
+    This does not call RiskGuard.evaluate_order_candidate() or open order paths.
+    """
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    blockers: List[str] = []
+    source_request_id = str(data.get("request_id") or "").strip()
+    symbol = str(data.get("symbol") or "").strip().upper()
+    side = str(data.get("side") or "").strip().lower()
+    try:
+        amount_krw = int(float(data.get("amount_krw") or 0))
+    except Exception:
+        amount_krw = 0
+    try:
+        max_order_amount_krw = int(float(data.get("max_order_amount_krw") or 12000))
+    except Exception:
+        max_order_amount_krw = 12000
+
+    if str(data.get("validation_status") or "").lower() != "passed":
+        blockers.append("router_validation_not_passed")
+    if not bool(data.get("input_valid", True)):
+        blockers.append("router_validation_input_invalid")
+    if not _SYMBOL_RE.match(symbol):
+        blockers.append("invalid_symbol")
+    if side not in {"buy", "sell"}:
+        blockers.append("invalid_side")
+    if amount_krw <= 0:
+        blockers.append("invalid_amount")
+    if max_order_amount_krw > 0 and amount_krw > max_order_amount_krw:
+        blockers.append("max_order_amount_exceeded")
+
+    risk_status = "passed" if not blockers else "blocked"
+    return {
+        "schema": "aits_riskguard_preview.v1",
+        "source_request_id": source_request_id,
+        "symbol": symbol,
+        "side": side,
+        "amount_krw": amount_krw,
+        "input_valid": not blockers,
+        "risk_status": risk_status,
+        "blocker": "" if not blockers else ",".join(blockers),
+        "reason": "risk_preview_contract_passed" if not blockers else ",".join(blockers),
+        "observe_only": True,
+        "riskguard_apply": False,
+        "live_preflight_called": False,
+        "execution_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "submitted": 0,
+        "actual_order": False,
+    }
+
+
 def build_risk_guard_input_from_action(action: Any, context: Optional[Dict[str, Any]] = None) -> RiskGuardInput:
     ctx = dict(context or {})
     action_type = _read_value(action, "action_type", "action")

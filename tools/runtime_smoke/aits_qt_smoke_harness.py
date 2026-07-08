@@ -8188,6 +8188,11 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
         "router_validation_preview_missing": "blocked_before_router",
         "router_validation_failed": "blocked_at_router",
         "router_validation_observe_only": "blocked_at_router",
+        "riskguard_preview_missing": "blocked_at_router",
+        "riskguard_preview_blocked": "blocked_at_riskguard",
+        "live_preflight_preview_missing": "blocked_at_riskguard",
+        "live_preflight_preview_blocked": "blocked_at_live_preflight",
+        "live_preflight_preview_observe_only": "blocked_at_live_preflight",
         "router_not_reached": "blocked_before_router",
         "riskguard_not_reached": "blocked_at_router",
         "live_preflight_not_reached": "blocked_at_riskguard",
@@ -8227,6 +8232,11 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "router_validation_preview_missing": "inspect RouterHandoff to RouterValidation preview writer",
         "router_validation_failed": "inspect RouterValidation preview input contract",
         "router_validation_observe_only": "prepare separate high-risk Router/RiskGuard/LivePreflight goal",
+        "riskguard_preview_missing": "inspect RouterValidation to RiskGuardPreview writer",
+        "riskguard_preview_blocked": "inspect RiskGuardPreview blocker",
+        "live_preflight_preview_missing": "inspect RiskGuardPreview to LivePreflightPreview writer",
+        "live_preflight_preview_blocked": "inspect LivePreflightPreview blocker",
+        "live_preflight_preview_observe_only": "prepare separate ExecutionBridge/order submit guarded goal",
         "router_not_reached": "inspect Router validation handoff boundary",
         "riskguard_not_reached": "inspect RiskGuard handoff boundary",
         "live_preflight_not_reached": "inspect LivePreflight handoff boundary",
@@ -8436,6 +8446,35 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     router_validation_observe_only = _live_on_runtime_bool_marker(latest_router_validation_preview, "observe_only")
     router_validation_blocker = _live_on_stage_extract_value(latest_router_validation_preview, "blocker")
     router_validation_next_fix_target = _live_on_stage_extract_value(latest_router_validation_preview, "next_fix_target")
+    riskguard_preview_lines = [
+        line
+        for line in lines
+        if "[AITS][RiskGuardPreview]" in line and "event=risk_preview" in line
+    ]
+    latest_riskguard_preview = riskguard_preview_lines[-1] if riskguard_preview_lines else ""
+    riskguard_preview_detected = bool(riskguard_preview_lines)
+    riskguard_preview_schema = _live_on_stage_extract_value(latest_riskguard_preview, "schema")
+    riskguard_preview_request_id = _live_on_stage_extract_value(latest_riskguard_preview, "request_id")
+    riskguard_preview_source_request_id = _live_on_stage_extract_value(latest_riskguard_preview, "source_request_id")
+    riskguard_preview_status = _live_on_stage_extract_value(latest_riskguard_preview, "risk_status")
+    riskguard_preview_blocker = _live_on_stage_extract_value(latest_riskguard_preview, "blocker")
+    riskguard_preview_observe_only = _live_on_runtime_bool_marker(latest_riskguard_preview, "observe_only")
+    riskguard_apply = _live_on_runtime_bool_marker(latest_riskguard_preview, "riskguard_apply")
+    live_preflight_preview_lines = [
+        line
+        for line in lines
+        if "[AITS][LivePreflightPreview]" in line and "event=live_preflight_preview" in line
+    ]
+    latest_live_preflight_preview = live_preflight_preview_lines[-1] if live_preflight_preview_lines else ""
+    live_preflight_preview_detected = bool(live_preflight_preview_lines)
+    live_preflight_preview_schema = _live_on_stage_extract_value(latest_live_preflight_preview, "schema")
+    live_preflight_preview_request_id = _live_on_stage_extract_value(latest_live_preflight_preview, "request_id")
+    live_preflight_preview_source_request_id = _live_on_stage_extract_value(latest_live_preflight_preview, "source_request_id")
+    live_preflight_preview_status = _live_on_stage_extract_value(latest_live_preflight_preview, "preflight_status")
+    live_preflight_preview_blocker = _live_on_stage_extract_value(latest_live_preflight_preview, "blocker")
+    live_preflight_preview_observe_only = _live_on_runtime_bool_marker(latest_live_preflight_preview, "observe_only")
+    live_preflight_apply = _live_on_runtime_bool_marker(latest_live_preflight_preview, "live_preflight_apply")
+    unlock_performed = _live_on_runtime_bool_marker(latest_live_preflight_preview, "unlock_performed")
     router_lines = [
         line for line in lines
         if "[AITS][RouterSummary]" in line
@@ -8554,8 +8593,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             router_validation_preview_detected,
             "router_validation_preview_missing" if router_handoff_preview_detected else "router_not_reached",
         ),
-        ("riskguard_reached", bool(riskguard_lines), "riskguard_not_reached"),
-        ("live_preflight_reached", bool(preflight_lines), "live_preflight_not_reached"),
+        (
+            "riskguard_preview_detected",
+            riskguard_preview_detected,
+            "riskguard_preview_missing" if str(router_validation_status or "").lower() == "passed" else "riskguard_not_reached",
+        ),
+        (
+            "live_preflight_preview_detected",
+            live_preflight_preview_detected,
+            "live_preflight_preview_missing" if str(riskguard_preview_status or "").lower() == "passed" else "live_preflight_not_reached",
+        ),
         ("unlock_reached", bool(unlock_lines), "unlock_not_reached"),
         ("execution_bridge_reached", bool(execution_lines), "execution_bridge_not_reached"),
         ("order_service_reached", bool(order_service_lines), "order_service_not_reached"),
@@ -8591,6 +8638,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         elif str(router_validation_status or "").lower() == "failed":
             first_blocker = "router_validation_failed"
             last_reached_stage = "router_validation_preview"
+    if riskguard_preview_detected and not riskguard_apply:
+        if str(riskguard_preview_status or "").lower() == "passed":
+            first_blocker = "riskguard_preview_missing" if not live_preflight_preview_detected else first_blocker
+            last_reached_stage = "riskguard_preview"
+        elif str(riskguard_preview_status or "").lower() in {"blocked", "failed"}:
+            first_blocker = "riskguard_preview_blocked"
+            last_reached_stage = "riskguard_preview"
+    if live_preflight_preview_detected and not live_preflight_apply and not unlock_performed:
+        if str(live_preflight_preview_status or "").lower() == "passed":
+            first_blocker = "live_preflight_preview_observe_only"
+            last_reached_stage = "live_preflight_preview"
+        elif str(live_preflight_preview_status or "").lower() in {"blocked", "failed"}:
+            first_blocker = "live_preflight_preview_blocked"
+            last_reached_stage = "live_preflight_preview"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -8610,6 +8671,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         critical_flags.append("router_apply_true_detected")
     if final_action_applied:
         critical_flags.append("final_action_applied_true_detected")
+    if riskguard_apply:
+        critical_flags.append("riskguard_apply_true_detected")
+    if live_preflight_apply:
+        critical_flags.append("live_preflight_apply_true_detected")
+    if unlock_performed:
+        critical_flags.append("unlock_performed_true_detected")
 
     order_path_status = "submitted_and_recorded" if submitted_count and trade_log_detected and position_update_detected else ""
     if not order_path_status and submitted_count:
@@ -8711,6 +8778,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "router_validation_observe_only": bool(router_validation_observe_only),
         "router_validation_blocker": str(router_validation_blocker or ""),
         "router_validation_next_fix_target": str(router_validation_next_fix_target or ""),
+        "riskguard_preview_detected": bool(riskguard_preview_detected),
+        "riskguard_preview_schema": str(riskguard_preview_schema or ""),
+        "riskguard_preview_request_id": str(riskguard_preview_request_id or ""),
+        "riskguard_preview_source_request_id": str(riskguard_preview_source_request_id or ""),
+        "riskguard_preview_status": str(riskguard_preview_status or ""),
+        "riskguard_preview_blocker": str(riskguard_preview_blocker or ""),
+        "riskguard_preview_observe_only": bool(riskguard_preview_observe_only),
+        "riskguard_apply": bool(riskguard_apply),
+        "live_preflight_preview_detected": bool(live_preflight_preview_detected),
+        "live_preflight_preview_schema": str(live_preflight_preview_schema or ""),
+        "live_preflight_preview_request_id": str(live_preflight_preview_request_id or ""),
+        "live_preflight_preview_source_request_id": str(live_preflight_preview_source_request_id or ""),
+        "live_preflight_preview_status": str(live_preflight_preview_status or ""),
+        "live_preflight_preview_blocker": str(live_preflight_preview_blocker or ""),
+        "live_preflight_preview_observe_only": bool(live_preflight_preview_observe_only),
+        "live_preflight_apply": bool(live_preflight_apply),
+        "unlock_performed": bool(unlock_performed),
         "detected_candidate_symbol": detected_candidate_symbol,
         "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
         "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
@@ -8953,6 +9037,13 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     router_validation_observe_only = bool(e2e.get("router_validation_observe_only"))
     router_validation_preview_detected = bool(e2e.get("router_validation_preview_detected"))
     router_validation_status = str(e2e.get("router_validation_status") or "")
+    riskguard_preview_detected = bool(e2e.get("riskguard_preview_detected"))
+    riskguard_preview_status = str(e2e.get("riskguard_preview_status") or "")
+    riskguard_apply = bool(e2e.get("riskguard_apply"))
+    live_preflight_preview_detected = bool(e2e.get("live_preflight_preview_detected"))
+    live_preflight_preview_status = str(e2e.get("live_preflight_preview_status") or "")
+    live_preflight_apply = bool(e2e.get("live_preflight_apply"))
+    unlock_performed = bool(e2e.get("unlock_performed"))
 
     preflight_status = "not_logged"
     if preflight_failed:
@@ -9015,6 +9106,18 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         else:
             first_blocker = "router_validation_failed"
         last_reached_stage = "router_validation_preview"
+    elif riskguard_preview_detected and not riskguard_apply:
+        if riskguard_preview_status.lower() == "passed":
+            first_blocker = "riskguard_preview_missing" if not live_preflight_preview_detected else "riskguard_preview_blocked"
+        else:
+            first_blocker = "riskguard_preview_blocked"
+        last_reached_stage = "riskguard_preview"
+    elif live_preflight_preview_detected and not live_preflight_apply and not unlock_performed:
+        if live_preflight_preview_status.lower() == "passed":
+            first_blocker = "live_preflight_preview_observe_only"
+        else:
+            first_blocker = "live_preflight_preview_blocked"
+        last_reached_stage = "live_preflight_preview"
     elif router_handoff_preview_detected and not router_apply and not final_action_applied and not e2e.get("router_called"):
         first_blocker = "router_validation_preview_missing"
         last_reached_stage = "router_handoff_preview"
@@ -9030,6 +9133,21 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     else:
         first_blocker = str(e2e.get("first_blocker") or "")
         last_reached_stage = str(e2e.get("last_reached_stage") or "unknown")
+
+    if riskguard_preview_detected and not riskguard_apply:
+        if riskguard_preview_status.lower() == "passed":
+            if not live_preflight_preview_detected:
+                first_blocker = "live_preflight_preview_missing"
+                last_reached_stage = "riskguard_preview"
+        else:
+            first_blocker = "riskguard_preview_blocked"
+            last_reached_stage = "riskguard_preview"
+    if live_preflight_preview_detected and not live_preflight_apply and not unlock_performed:
+        if live_preflight_preview_status.lower() == "passed":
+            first_blocker = "live_preflight_preview_observe_only"
+        else:
+            first_blocker = "live_preflight_preview_blocked"
+        last_reached_stage = "live_preflight_preview"
 
     if runtime_not_started and first_blocker in {"", "runtime_started_but_order_allowed_false"}:
         first_blocker = "runtime_not_started"
@@ -9063,6 +9181,11 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "router_validation_preview_missing": "inspect RouterHandoff to RouterValidation preview writer",
         "router_validation_failed": "inspect RouterValidation preview input contract",
         "router_validation_observe_only": "prepare separate high-risk Router/RiskGuard/LivePreflight goal",
+        "riskguard_preview_missing": "inspect RouterValidation to RiskGuardPreview writer",
+        "riskguard_preview_blocked": "inspect RiskGuardPreview blocker",
+        "live_preflight_preview_missing": "inspect RiskGuardPreview to LivePreflightPreview writer",
+        "live_preflight_preview_blocked": "inspect LivePreflightPreview blocker",
+        "live_preflight_preview_observe_only": "prepare separate ExecutionBridge/order submit guarded goal",
     }
 
     timeline = (on_lines + preflight_lines + provider_lines + runtime_lines + live_gate_lines)[-120:]
@@ -9204,6 +9327,23 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "router_validation_observe_only": bool(router_validation_observe_only),
         "router_validation_blocker": str(e2e.get("router_validation_blocker") or ""),
         "router_validation_next_fix_target": str(e2e.get("router_validation_next_fix_target") or ""),
+        "riskguard_preview_detected": bool(riskguard_preview_detected),
+        "riskguard_preview_schema": str(e2e.get("riskguard_preview_schema") or ""),
+        "riskguard_preview_request_id": str(e2e.get("riskguard_preview_request_id") or ""),
+        "riskguard_preview_source_request_id": str(e2e.get("riskguard_preview_source_request_id") or ""),
+        "riskguard_preview_status": str(riskguard_preview_status or ""),
+        "riskguard_preview_blocker": str(e2e.get("riskguard_preview_blocker") or ""),
+        "riskguard_preview_observe_only": bool(e2e.get("riskguard_preview_observe_only")),
+        "riskguard_apply": bool(riskguard_apply),
+        "live_preflight_preview_detected": bool(live_preflight_preview_detected),
+        "live_preflight_preview_schema": str(e2e.get("live_preflight_preview_schema") or ""),
+        "live_preflight_preview_request_id": str(e2e.get("live_preflight_preview_request_id") or ""),
+        "live_preflight_preview_source_request_id": str(e2e.get("live_preflight_preview_source_request_id") or ""),
+        "live_preflight_preview_status": str(live_preflight_preview_status or ""),
+        "live_preflight_preview_blocker": str(e2e.get("live_preflight_preview_blocker") or ""),
+        "live_preflight_preview_observe_only": bool(e2e.get("live_preflight_preview_observe_only")),
+        "live_preflight_apply": bool(live_preflight_apply),
+        "unlock_performed": bool(unlock_performed),
         "router_handoff_blocker": str(e2e.get("router_handoff_blocker") or ""),
         "router_handoff_next_fix_target": str(e2e.get("router_handoff_next_fix_target") or ""),
         "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),

@@ -39549,6 +39549,92 @@ class MainWindow(QMainWindow):
                                         else "inspect_router_validation_preview_input"
                                     ),
                                 )
+                                if validation_status == "passed":
+                                    try:
+                                        from app.services.risk_guard import build_riskguard_preview
+
+                                        risk_preview_payload = {
+                                            "request_id": validation_request_id,
+                                            "symbol": str(validation_preview.get("symbol") or candidate_symbol),
+                                            "side": str(validation_preview.get("side") or "buy"),
+                                            "amount_krw": int(validation_preview.get("amount_krw") or intended_amount or 0),
+                                            "validation_status": validation_status,
+                                            "input_valid": bool(validation_preview.get("input_valid")),
+                                            "max_order_amount_krw": 12000,
+                                        }
+                                        risk_preview = build_riskguard_preview(risk_preview_payload)
+                                    except Exception:
+                                        risk_preview = {
+                                            "schema": "aits_riskguard_preview.v1",
+                                            "source_request_id": validation_request_id,
+                                            "symbol": candidate_symbol,
+                                            "side": "buy",
+                                            "amount_krw": intended_amount,
+                                            "input_valid": False,
+                                            "risk_status": "failed",
+                                            "blocker": "riskguard_preview_exception",
+                                            "reason": "riskguard_preview_exception",
+                                        }
+                                    risk_preview_request_id = f"riskguard-preview-{int(time.time() * 1000)}"
+                                    risk_status = str(risk_preview.get("risk_status") or "failed")
+                                    logging.getLogger("aits").info(
+                                        "[AITS][RiskGuardPreview] event=risk_preview schema=aits_riskguard_preview.v1 request_id=%s source_request_id=%s symbol=%s side=%s amount_krw=%s input_valid=%s risk_status=%s blocker=%s reason=%s observe_only=True riskguard_apply=False live_preflight_called=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False",
+                                        risk_preview_request_id,
+                                        str(risk_preview.get("source_request_id") or validation_request_id),
+                                        str(risk_preview.get("symbol") or candidate_symbol),
+                                        str(risk_preview.get("side") or "buy"),
+                                        int(risk_preview.get("amount_krw") or intended_amount or 0),
+                                        bool(risk_preview.get("input_valid")),
+                                        risk_status,
+                                        str(risk_preview.get("blocker") or ""),
+                                        str(risk_preview.get("reason") or ""),
+                                    )
+                                    if risk_status == "passed":
+                                        try:
+                                            from app.services.live_order_preflight import build_live_preflight_preview
+
+                                            live_preview_payload = {
+                                                "request_id": risk_preview_request_id,
+                                                "symbol": str(risk_preview.get("symbol") or candidate_symbol),
+                                                "side": str(risk_preview.get("side") or "buy"),
+                                                "amount_krw": int(risk_preview.get("amount_krw") or intended_amount or 0),
+                                                "risk_status": risk_status,
+                                                "input_valid": bool(risk_preview.get("input_valid")),
+                                                "min_order_krw": 10000,
+                                                "max_order_amount_krw": 12000,
+                                            }
+                                            live_preview = build_live_preflight_preview(live_preview_payload)
+                                        except Exception:
+                                            live_preview = {
+                                                "schema": "aits_live_preflight_preview.v1",
+                                                "source_request_id": risk_preview_request_id,
+                                                "symbol": candidate_symbol,
+                                                "side": "buy",
+                                                "amount_krw": intended_amount,
+                                                "input_valid": False,
+                                                "preflight_status": "failed",
+                                                "blocker": "live_preflight_preview_exception",
+                                                "reason": "live_preflight_preview_exception",
+                                                "confirm_phrase_required": True,
+                                                "confirm_phrase_matched": False,
+                                                "unlock_required": True,
+                                                "unlock_performed": False,
+                                            }
+                                        live_preview_request_id = f"live-preflight-preview-{int(time.time() * 1000)}"
+                                        logging.getLogger("aits").info(
+                                            "[AITS][LivePreflightPreview] event=live_preflight_preview schema=aits_live_preflight_preview.v1 request_id=%s source_request_id=%s symbol=%s side=%s amount_krw=%s input_valid=%s preflight_status=%s blocker=%s reason=%s confirm_phrase_required=%s confirm_phrase_matched=False unlock_required=%s unlock_performed=False observe_only=True live_preflight_apply=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False",
+                                            live_preview_request_id,
+                                            str(live_preview.get("source_request_id") or risk_preview_request_id),
+                                            str(live_preview.get("symbol") or candidate_symbol),
+                                            str(live_preview.get("side") or "buy"),
+                                            int(live_preview.get("amount_krw") or intended_amount or 0),
+                                            bool(live_preview.get("input_valid")),
+                                            str(live_preview.get("preflight_status") or "failed"),
+                                            str(live_preview.get("blocker") or ""),
+                                            str(live_preview.get("reason") or ""),
+                                            bool(live_preview.get("confirm_phrase_required", True)),
+                                            bool(live_preview.get("unlock_required", True)),
+                                        )
                             except Exception:
                                 pass
                 except Exception:

@@ -282,3 +282,11 @@ LivePreflight, and unlock gates.
 - If validation passes, E2E reports `first_blocker=router_validation_observe_only` and `order_path_status=blocked_at_router`.
 - If validation fails, E2E reports `first_blocker=router_validation_failed`.
 - Read-only `[AITS][OrderService] fetch_accounts called` lines are reported as account reads, not submit/order path reach.
+
+## 2026-07-08 - RiskGuard/LivePreflight Observe-Only Preview
+
+- E2E diagnostics now recognize `[AITS][RiskGuardPreview] event=risk_preview` and `[AITS][LivePreflightPreview] event=live_preflight_preview`.
+- Preview lines are not actual RiskGuard or LivePreflight calls and do not count as execution/order path reach.
+- `riskguard_apply=True`, `live_preflight_apply=True`, `unlock_performed=True`, `submitted_count>0`, or any execution/order adapter reach is critical.
+- New blockers are `riskguard_preview_missing`, `riskguard_preview_blocked`, `live_preflight_preview_missing`, `live_preflight_preview_blocked`, and `live_preflight_preview_observe_only`.
+- The live preflight preview may require confirm phrase and unlock while keeping `confirm_phrase_matched=False` and `unlock_performed=False`.

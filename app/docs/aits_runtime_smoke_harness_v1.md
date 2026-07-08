@@ -1636,3 +1636,10 @@ adapter/service/execution reach as critical.
 - New fields include `router_validation_preview_detected`, `router_validation_schema`, `router_validation_request_id`, `router_validation_source_request_id`, `router_validation_status`, `router_validation_input_valid`, `router_validation_action_preview`, `router_validation_confidence_preview`, `router_validation_blocker`, and `router_validation_next_fix_target`.
 - A passed validation preview reports `first_blocker=router_validation_observe_only`; it is still no-apply and must not call RiskGuard, LivePreflight, ExecutionBridge, OrderService submit, or OrderAdapter.
 - `[AITS][OrderService] fetch_accounts called` is parsed separately as `order_service_readonly_accounts_called` and no longer counts as `order_service_reached`.
+
+## 2026-07-08 - RiskGuard/LivePreflight Preview Parser
+
+- The harness recognizes `[AITS][RiskGuardPreview] event=risk_preview` and `[AITS][LivePreflightPreview] event=live_preflight_preview`.
+- New fields include `riskguard_preview_detected`, `riskguard_preview_status`, `riskguard_preview_blocker`, `riskguard_apply`, `live_preflight_preview_detected`, `live_preflight_preview_status`, `live_preflight_preview_blocker`, `live_preflight_apply`, and `unlock_performed`.
+- Preview false markers such as `riskguard_apply=False`, `live_preflight_apply=False`, and `unlock_performed=False` are not treated as calls.
+- The next blocked stage becomes `riskguard_preview_blocked`, `live_preflight_preview_blocked`, or `live_preflight_preview_observe_only` while submit/order fields remain zero/false.

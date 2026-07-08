@@ -163,3 +163,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - The preview schema is `aits_router_validation_preview.v1` and keeps `observe_only=True`, `router_apply=False`, `final_action_applied=False`, `submitted=0`, and `actual_order=False`.
 - A passed preview stops at `first_blocker=router_validation_observe_only`; the next separated Goal may inspect RiskGuard/LivePreflight observe-only handoff.
 - After-preflight summaries expose `router_validation_preview_detected`, `router_validation_schema`, `router_validation_request_id`, `router_validation_source_request_id`, `router_validation_status`, `router_validation_input_valid`, `router_validation_action_preview`, and `router_validation_confidence_preview`.
+
+## 2026-07-08 - RiskGuard/LivePreflight Preview Boundary
+
+- `[AITS][RiskGuardPreview] event=risk_preview` is the only allowed handoff after a passed RouterValidation preview in this phase.
+- `[AITS][LivePreflightPreview] event=live_preflight_preview` is the only allowed handoff after a passed RiskGuard preview in this phase.
+- Both previews are no-apply contracts: `riskguard_apply=False`, `live_preflight_apply=False`, `unlock_performed=False`, `submitted=0`, and `actual_order=False`.
+- A blocked preview reports `riskguard_preview_blocked` or `live_preflight_preview_blocked`; a passed live preflight preview stops at `live_preflight_preview_observe_only`.

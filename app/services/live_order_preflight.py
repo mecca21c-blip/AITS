@@ -196,6 +196,76 @@ def evaluate_live_order_preflight(data: LiveOrderPreflightInput | Dict[str, Any]
     return LiveOrderPreflight().evaluate(data)
 
 
+def build_live_preflight_preview(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Build a no-apply LivePreflight preview from a RiskGuard preview payload.
+    This never performs unlock, confirm phrase entry, execution, or submit.
+    """
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    blockers: List[str] = []
+    source_request_id = str(data.get("request_id") or "").strip()
+    symbol = str(data.get("symbol") or "").strip().upper()
+    side = str(data.get("side") or "").strip().lower()
+    try:
+        amount_krw = int(float(data.get("amount_krw") or 0))
+    except Exception:
+        amount_krw = 0
+    try:
+        min_order_krw = int(float(data.get("min_order_krw") or 10000))
+    except Exception:
+        min_order_krw = 10000
+    try:
+        max_order_amount_krw = int(float(data.get("max_order_amount_krw") or 12000))
+    except Exception:
+        max_order_amount_krw = 12000
+
+    if str(data.get("risk_status") or "").lower() != "passed":
+        blockers.append("riskguard_preview_not_passed")
+    if not bool(data.get("input_valid", True)):
+        blockers.append("riskguard_preview_input_invalid")
+    if not _SYMBOL_RE.match(symbol):
+        blockers.append("invalid_symbol")
+    if side not in {"buy", "sell"}:
+        blockers.append("invalid_side")
+    if amount_krw < min_order_krw:
+        blockers.append("amount_below_min_order")
+    if max_order_amount_krw > 0 and amount_krw > max_order_amount_krw:
+        blockers.append("amount_exceeds_max_order")
+
+    confirm_phrase_required = True
+    unlock_required = True
+    confirm_phrase_matched = False
+    unlock_performed = False
+    if confirm_phrase_required and not confirm_phrase_matched:
+        blockers.append("confirm_phrase_not_matched")
+    if unlock_required and not unlock_performed:
+        blockers.append("unlock_not_performed")
+
+    preflight_status = "passed" if not blockers else "blocked"
+    return {
+        "schema": "aits_live_preflight_preview.v1",
+        "source_request_id": source_request_id,
+        "symbol": symbol,
+        "side": side,
+        "amount_krw": amount_krw,
+        "input_valid": not any(b for b in blockers if b not in {"confirm_phrase_not_matched", "unlock_not_performed"}),
+        "preflight_status": preflight_status,
+        "blocker": "" if not blockers else ",".join(blockers),
+        "reason": "live_preflight_preview_passed" if not blockers else ",".join(blockers),
+        "confirm_phrase_required": confirm_phrase_required,
+        "confirm_phrase_matched": confirm_phrase_matched,
+        "unlock_required": unlock_required,
+        "unlock_performed": unlock_performed,
+        "observe_only": True,
+        "live_preflight_apply": False,
+        "execution_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "submitted": 0,
+        "actual_order": False,
+    }
+
+
 def build_preflight_input_from_order_request(
     order_request: Dict[str, Any],
     *,
