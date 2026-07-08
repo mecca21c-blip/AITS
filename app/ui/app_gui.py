@@ -30448,6 +30448,14 @@ class MainWindow(QMainWindow):
         text = str(message or "").strip()
         low = text.lower()
         replacements = (
+            ("approval_waiting_status", "승인 대기 상태"),
+            ("live_order_approval_required", "실주문 승인 대기"),
+            ("approval_required", "승인 대기"),
+            ("provider_connection_check_needed", "AI 엔진 연결 확인 필요"),
+            ("provider_not_ready", "AI 엔진 준비 미완료"),
+            ("runtime_started_waiting_for_order_candidate", "ON 실행 중 · 주문 후보 탐색 중"),
+            ("runtime_start_pending", "ON 실행 준비 중"),
+            ("runtime_started", "ON 실행 중"),
             ("live monitoring", "실거래 감시 중"),
             ("waiting_for_order_info", "주문 정보 대기"),
             ("waiting_for_order_candidate", "주문 후보 대기 중"),
@@ -30462,6 +30470,10 @@ class MainWindow(QMainWindow):
             ("live_preflight_blocked", "주문 전 안전조건 미충족"),
             ("order_submit_attempt", "주문 제출 시도"),
             ("order_submit_result", "주문 결과 수신"),
+            ("on_preflight_passed", "ON 실행 전 점검 통과"),
+            ("on_observing", "ON 관측 중"),
+            ("on - blocked", "ON 차단"),
+            ("on - error", "ON 오류"),
             ("actual_order=false", "실제 주문 없음"),
             ("submitted_count=0", "제출 0건"),
             ("submitted=0", "제출 0건"),
@@ -30492,7 +30504,7 @@ class MainWindow(QMainWindow):
             if not isinstance(entries, list):
                 entries = []
             lines = []
-            for item in entries[-50:]:
+            for item in reversed(entries[-50:]):
                 if isinstance(item, dict):
                     ts = str(item.get("timestamp") or "").strip()
                     msg = str(item.get("message_ko") or "").strip()
@@ -30527,7 +30539,7 @@ class MainWindow(QMainWindow):
             self._aits_live_log_entries = entries[-50:]
             self._aits_recent_logs = [
                 f"{item.get('timestamp', '')} {item.get('message_ko', '')}".strip()
-                for item in self._aits_live_log_entries[-50:]
+                for item in reversed(self._aits_live_log_entries[-50:])
                 if isinstance(item, dict)
             ]
             self._sync_recent_log_label()
@@ -30558,7 +30570,7 @@ class MainWindow(QMainWindow):
             entries = getattr(self, "_aits_live_log_entries", None)
             if not isinstance(entries, list):
                 entries = []
-            recent = entries[-5:] or [{"timestamp": "", "message_ko": "내용 로그 대기 중"}]
+            recent = list(reversed(entries[-5:])) or [{"timestamp": "", "message_ko": "내용 로그 대기 중"}]
             for item in recent:
                 msg = str(item.get("message_ko") if isinstance(item, dict) else item or "").strip()
                 ts = str(item.get("timestamp") if isinstance(item, dict) else "" or "").strip()
@@ -30606,7 +30618,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             logs = getattr(self, "_aits_recent_logs", None) or []
-            latest = str(logs[-1] if logs else msg).strip()
+            latest = str(logs[0] if logs else msg).strip()
             raw_text = "\n".join(str(x or "").strip() for x in logs if str(x or "").strip()) or latest
             bar = getattr(self, "lbl_ai_recent_log_bar", None)
             lb = getattr(self, "lbl_ai_recent_log", None)
@@ -30689,7 +30701,7 @@ class MainWindow(QMainWindow):
         latest = ""
         if buf:
             raw_text = "\n".join(str(x or "").strip() for x in buf if str(x or "").strip())
-            latest = str(buf[-1] or "").strip()
+            latest = str(buf[0] or "").strip()
         else:
             try:
                 jh = getattr(self, "lbl_ai_detail_judgment_header", None)
@@ -53135,22 +53147,70 @@ class MainWindow(QMainWindow):
                 pass
             return True
 
-    def _emit_live_approval_waiting_status(self, waiting_reason: str = "waiting_for_order_candidate") -> None:
+    def _schedule_aits_live_waiting_reason_log(self, waiting_reason: str = "waiting_for_order_candidate") -> None:
         try:
-            self._set_aits_runtime_status_display(
-                "ON - live monitoring",
-                f"waiting_for_order_info:{waiting_reason}; actual_order=False; submitted=0",
+            if not bool(getattr(getattr(self, "state", None), "is_running", False)):
+                return
+            self._aits_live_waiting_reason = str(waiting_reason or "waiting_for_order_candidate")
+            timer = getattr(self, "_aits_live_waiting_reason_timer", None)
+            if timer is None:
+                timer = QTimer(self)
+                timer.setInterval(300000)
+                timer.timeout.connect(lambda: self._emit_live_waiting_reason_tick())
+                self._aits_live_waiting_reason_timer = timer
+            if not timer.isActive():
+                timer.start()
+        except Exception:
+            pass
+
+    def _stop_aits_live_waiting_reason_log(self) -> None:
+        try:
+            timer = getattr(self, "_aits_live_waiting_reason_timer", None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        except Exception:
+            pass
+
+    def _emit_live_waiting_reason_tick(self) -> None:
+        try:
+            if not bool(getattr(getattr(self, "state", None), "is_running", False)):
+                self._stop_aits_live_waiting_reason_log()
+                return
+            reason = str(getattr(self, "_aits_live_waiting_reason", "") or "waiting_for_order_candidate")
+            self._append_aits_live_log(
+                f"ON 대기 중 - {reason}",
+                category="runtime",
+                level="info",
+                event="periodic_waiting_reason",
+            )
+            self._log_live_trading_ux_status(
+                "periodic_waiting_reason",
+                waiting_reason=reason,
+                submitted=0,
+                actual_order=False,
             )
         except Exception:
             pass
-        self._log_live_trading_ux_status(
-            "approval_waiting_status",
-            waiting_reason=str(waiting_reason or "waiting_for_order_candidate"),
-            router_validation_status="",
-            riskguard_preview_status="",
-            live_preflight_preview_status="",
-        )
 
+    def _emit_live_approval_waiting_status(self, waiting_reason: str = "waiting_for_order_candidate") -> None:
+        try:
+            reason = str(waiting_reason or "waiting_for_order_candidate")
+            self._set_aits_runtime_status_display(
+                "ON - live monitoring",
+                reason,
+            )
+            self._schedule_aits_live_waiting_reason_log(reason)
+            self._log_live_trading_ux_status(
+                "approval_waiting_status",
+                waiting_reason=reason,
+                approval_waiting_reason=reason,
+                order_intent_candidate_detected=bool(getattr(self, "_last_order_intent_candidate", None)),
+                candidate_loop_running=True,
+                submitted=0,
+                actual_order=False,
+            )
+        except Exception:
+            pass
     def _guarded_order_log(self, prefix: str, **fields) -> None:
         try:
             parts = [str(prefix or "")]
