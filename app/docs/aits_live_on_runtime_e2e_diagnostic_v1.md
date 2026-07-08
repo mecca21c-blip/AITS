@@ -334,3 +334,16 @@ LivePreflight, and unlock gates.
 - The active user-facing stream is the central LIVE LOG plus the common-settings system log mirror.
 - LIVE LOG events are emitted with `[AITS][LiveLogUX]` and retain `submitted=0` / `actual_order=false` safety markers.
 - Missing LIVE LOG widgets or missing Korean user-facing messages are UI visibility blockers, not trading blockers.
+### Runtime contract and long-run heartbeat
+
+The E2E log summary distinguishes runtime contract readiness from submit
+permission. `runtime_contract_active=true` means the live evaluation pipeline may
+advance from Buy Ready candidate handling toward the guarded live pipeline.
+`order_allowed` and `real_order` still describe final order-submit permission and
+must not be used as the runtime-contract source.
+
+If Buy Ready exists while `runtime_contract_active=false`, the blocker is reported
+as `buy_ready_blocked_by_runtime_contract_inactive` or
+`runtime_contract_not_set_after_start`, depending on the latest start result.
+The summary also reports heartbeat fields so a long ON observation can show
+whether the user-facing LIVE LOG kept explaining why trading was waiting.

@@ -211,3 +211,16 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - ON button sub-status widgets remain in their existing control area; raw bottom status text is hidden from the user-facing surface.
 - Runtime, managed-pool, detail, and normal live pipeline status updates are appended to one 50-entry in-memory LIVE LOG buffer.
 - Clicking the LIVE LOG opens the latest five entries. This is visibility only and does not trigger ON, approval, Router, RiskGuard, LivePreflight, Execution, or submit.
+### Runtime contract active SSOT update
+
+`runtime_contract_active` is now written from one GUI-side contract snapshot instead
+of being inferred from a status-label string. The active contract requires:
+ON state, preflight passed, runtime start result `started` or `already_running`,
+candidate loop/runner evidence, and live execution mode. It does not depend on
+`order_allowed` or `real_order`; those remain final submit permission fields.
+
+When a Buy Ready candidate is blocked because the runtime contract is inactive,
+the app logs `[AITS][RuntimeContract] event=candidate_blocked_by_runtime_contract`
+with the explicit blocker reason. The after-preflight summary reports
+`runtime_contract_active`, `runtime_contract_reason`, and
+`runtime_contract_last_writer`.

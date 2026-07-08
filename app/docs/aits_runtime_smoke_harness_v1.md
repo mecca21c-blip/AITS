@@ -1691,3 +1691,23 @@ adapter/service/execution reach as critical.
 - New fields include `bottom_raw_status_removed`, `live_log_repositioned_to_main_top`, `live_log_latest_visible`, `live_log_latest_message`, `live_log_recent_count`, `live_log_recent_popup_supported`, `live_log_animation_supported`, `common_settings_live_log_integrated`, `common_settings_live_log_count`, `live_log_korean_message_detected`, and `live_log_silent_failure`.
 - The common-settings right-side log is a mirror of the same in-memory LIVE LOG buffer, not a separate source of truth.
 - These checks are UI/diagnostic only and must keep `submitted_detected=false` and `order_risk_detected=false`.
+### Runtime contract and log retention fields
+
+`live-on-runtime-after-preflight-stage-summary` and
+`live-on-runtime-e2e-diagnostic-log-summary` parse
+`[AITS][RuntimeContract]` logs. Reports include:
+
+- `runtime_contract_active`
+- `runtime_contract_reason`
+- `runtime_contract_last_writer`
+- `candidate_blocked_by_runtime_contract_count`
+- `buy_ready_but_runtime_contract_inactive_count`
+- `provider_ready_mismatch_count`
+- `heartbeat_expected`
+- `heartbeat_detected`
+- `heartbeat_missing_reason`
+- `log_retention_policy_detected`
+- `log_retention_estimated_hours`
+
+The development `run.py` logger retains larger rotated logs so 6-8 hour ON
+observations can be reviewed after the app is stopped.

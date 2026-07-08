@@ -39576,12 +39576,14 @@ class MainWindow(QMainWindow):
                     market_data_stale=market_data_stale,
                 )
                 try:
-                    runtime_status = str(getattr(self, "_aits_runtime_status_text", "") or "")
-                    runtime_contract_active = (
-                        "on_preflight_passed" in runtime_status
-                        or "on_observing" in runtime_status
-                        or "running" in runtime_status.lower()
+                    contract_state = self._build_live_runtime_contract_state(
+                        source_path="candidate_feed",
+                        reason="score_update",
+                        emit_log=False,
+                        last_writer="candidate_feed",
                     )
+                    runtime_contract_active = bool(contract_state.get("runtime_contract_active"))
+                    runtime_contract_reason = str(contract_state.get("reason") or "runtime_contract_inactive")
                     stg_obj = getattr(getattr(self, "_settings", None), "strategy", None)
                     provider_ready = bool(getattr(self, "_aits_provider_ready", False))
                     preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
@@ -39702,7 +39704,7 @@ class MainWindow(QMainWindow):
                         candidate_source = str(first_buy_ready.get("source") or "managed_pool").strip()
                         candidate_score = int(first_buy_ready.get("ai_score") or first_buy_ready.get("score") or 0)
                         candidate_event = "candidate_detected" if runtime_contract_active else "candidate_blocked"
-                        candidate_blocker = "" if runtime_contract_active else "runtime_start_not_confirmed"
+                        candidate_blocker = "" if runtime_contract_active else runtime_contract_reason
                         try:
                             candidate_observe_only = not (
                                 runtime_contract_active
@@ -39712,7 +39714,7 @@ class MainWindow(QMainWindow):
                         except Exception:
                             candidate_observe_only = True
                         logging.getLogger("aits").info(
-                            "[AITS][OrderIntentCandidate] event=%s observe_only=%s symbol=%s source=%s side=buy amount_krw=%s score=%s reason=buy_ready_candidate blocker=%s runtime_contract_active=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
+                            "[AITS][OrderIntentCandidate] event=%s observe_only=%s symbol=%s source=%s side=buy amount_krw=%s score=%s reason=buy_ready_candidate blocker=%s runtime_contract_active=%s runtime_contract_reason=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
                             candidate_event,
                             bool(candidate_observe_only),
                             candidate_symbol,
@@ -39721,7 +39723,25 @@ class MainWindow(QMainWindow):
                             candidate_score,
                             candidate_blocker,
                             bool(runtime_contract_active),
+                            runtime_contract_reason,
                         )
+                        if not runtime_contract_active and candidate_symbol:
+                            try:
+                                logging.getLogger("aits").info(
+                                    "[AITS][RuntimeContract] event=candidate_blocked_by_runtime_contract source_path=candidate_feed symbol=%s side=buy amount_krw=%s runtime_contract_active=False reason=%s runtime_start_result=%s runtime_loop_started=%s candidate_loop_running=%s order_allowed=False real_order=False submitted_count=0 actual_order=false",
+                                    candidate_symbol,
+                                    intended_amount,
+                                    runtime_contract_reason,
+                                    str(contract_state.get("runtime_start_result") or "unknown"),
+                                    bool(contract_state.get("runtime_loop_started")),
+                                    bool(contract_state.get("candidate_loop_running")),
+                                )
+                            except Exception:
+                                pass
+                            try:
+                                self._schedule_aits_live_waiting_reason_log(runtime_contract_reason)
+                            except Exception:
+                                pass
                         if runtime_contract_active and candidate_symbol:
                             try:
                                 if bool(self._run_live_auto_order_pipeline_from_candidate(first_buy_ready, intended_amount, candidate_score, candidate_source)):
@@ -52911,6 +52931,137 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+
+    def _build_live_runtime_contract_state(
+        self,
+        *,
+        source_path: str = "",
+        reason: str = "",
+        runtime_start_result: str = "",
+        emit_log: bool = False,
+        last_writer: str = "",
+    ) -> dict:
+        try:
+            preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
+        except Exception:
+            preflight_snapshot = {}
+        try:
+            preflight_passed = bool(preflight_snapshot.get("preflight_passed"))
+        except Exception:
+            preflight_passed = False
+        try:
+            ui_checked = bool(self.btn_run_toggle.isChecked()) if hasattr(self, "btn_run_toggle") else False
+        except Exception:
+            ui_checked = False
+        try:
+            on_state = bool(
+                ui_checked
+                or getattr(self, "_desired_running", False)
+                or getattr(self, "_is_running", False)
+                or getattr(getattr(self, "state", None), "is_running", False)
+            )
+        except Exception:
+            on_state = bool(ui_checked)
+        runner_running = False
+        try:
+            from app.strategy import runner as _runner_mod
+            runner_running = bool(getattr(_runner_mod, "_RUNNING", False))
+        except Exception:
+            runner_running = False
+        start_result = str(runtime_start_result or getattr(self, "_aits_runtime_start_result", "") or "").strip().lower()
+        if not start_result and runner_running:
+            start_result = "already_running"
+        runtime_started = bool(start_result in {"started", "already_running"} or runner_running)
+        candidate_loop_running = bool(getattr(self, "_aits_candidate_loop_running", False) or getattr(self, "_aits_latest_buy_ready_count", 0))
+        try:
+            execution_mode = str(self._get_aits_execution_mode() or "").strip().lower()
+        except Exception:
+            execution_mode = ""
+        order_allowed = False
+        real_order = False
+        active = bool(on_state and preflight_passed and runtime_started and (candidate_loop_running or runner_running) and execution_mode == "live")
+        if active:
+            contract_reason = "active"
+        elif not on_state:
+            contract_reason = "on_state_false"
+        elif not preflight_passed:
+            contract_reason = "preflight_not_passed"
+        elif not runtime_started:
+            contract_reason = "runtime_start_not_confirmed"
+        elif not (candidate_loop_running or runner_running):
+            contract_reason = "candidate_loop_not_running"
+        elif execution_mode != "live":
+            contract_reason = "execution_mode_not_live"
+        else:
+            contract_reason = "runtime_contract_inactive"
+        state = {
+            "runtime_contract_active": active,
+            "reason": contract_reason,
+            "on_state": on_state,
+            "preflight_status": "passed" if preflight_passed else "not_passed",
+            "runtime_start_requested": bool(getattr(self, "_aits_runtime_start_requested", False)),
+            "runtime_start_result": start_result or "unknown",
+            "runtime_loop_started": runtime_started,
+            "candidate_loop_running": candidate_loop_running,
+            "execution_mode": execution_mode or "unknown",
+            "order_allowed": order_allowed,
+            "real_order": real_order,
+            "last_writer": str(last_writer or source_path or "unknown")[:80],
+            "updated_at": time.time(),
+        }
+        self._aits_runtime_contract_state = state
+        self._aits_runtime_contract_active = active
+        self._aits_runtime_contract_reason = contract_reason
+        if emit_log:
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][RuntimeContract] event=contract_state source_path=%s last_writer=%s runtime_contract_active=%s reason=%s on_state=%s preflight_status=%s runtime_start_requested=%s runtime_start_result=%s runtime_loop_started=%s candidate_loop_running=%s execution_mode=%s order_allowed=%s real_order=%s submitted_count=0 actual_order=false",
+                    str(source_path or "")[:80],
+                    state["last_writer"],
+                    bool(active),
+                    contract_reason,
+                    bool(on_state),
+                    state["preflight_status"],
+                    bool(state["runtime_start_requested"]),
+                    state["runtime_start_result"],
+                    bool(runtime_started),
+                    bool(candidate_loop_running),
+                    state["execution_mode"],
+                    bool(order_allowed),
+                    bool(real_order),
+                )
+            except Exception:
+                pass
+        return state
+
+    def _mark_live_runtime_contract_start_result(self, status: str, *, source_path: str = "on_button", reason: str = "") -> dict:
+        try:
+            self._aits_runtime_start_result = str(status or "").strip().lower()
+            self._aits_runtime_start_requested = True
+        except Exception:
+            pass
+        return self._build_live_runtime_contract_state(
+            source_path=source_path,
+            reason=reason or "runtime_start_result",
+            runtime_start_result=str(status or ""),
+            emit_log=True,
+            last_writer="runtime_start_result",
+        )
+
+    def _clear_live_runtime_contract_state(self, *, source_path: str = "on_button", reason: str = "runtime_stopped") -> None:
+        try:
+            self._aits_runtime_start_result = "stopped"
+            self._aits_runtime_start_requested = False
+        except Exception:
+            pass
+        self._build_live_runtime_contract_state(
+            source_path=source_path,
+            reason=reason,
+            runtime_start_result="stopped",
+            emit_log=True,
+            last_writer="runtime_stop",
+        )
+
     def _run_live_auto_order_pipeline_from_candidate(
         self,
         candidate_row: dict,
@@ -53147,9 +53298,27 @@ class MainWindow(QMainWindow):
                 pass
             return True
 
+    def _aits_live_waiting_heartbeat_allowed(self) -> bool:
+        try:
+            if bool(getattr(getattr(self, "state", None), "is_running", False)):
+                return True
+            if bool(getattr(self, "_desired_running", False)):
+                return True
+            if bool(getattr(self, "_is_running", False)):
+                return True
+            if hasattr(self, "btn_run_toggle") and bool(self.btn_run_toggle.isChecked()):
+                return True
+            if str(getattr(self, "_aits_runtime_start_result", "") or "").strip().lower() in {"started", "already_running"}:
+                return True
+            if bool(getattr(self, "_aits_candidate_loop_running", False)) and bool(getattr(self, "_aits_runtime_contract_state", None)):
+                return True
+        except Exception:
+            pass
+        return False
+
     def _schedule_aits_live_waiting_reason_log(self, waiting_reason: str = "waiting_for_order_candidate") -> None:
         try:
-            if not bool(getattr(getattr(self, "state", None), "is_running", False)):
+            if not self._aits_live_waiting_heartbeat_allowed():
                 return
             self._aits_live_waiting_reason = str(waiting_reason or "waiting_for_order_candidate")
             timer = getattr(self, "_aits_live_waiting_reason_timer", None)
@@ -53173,12 +53342,18 @@ class MainWindow(QMainWindow):
 
     def _emit_live_waiting_reason_tick(self) -> None:
         try:
-            if not bool(getattr(getattr(self, "state", None), "is_running", False)):
+            if not self._aits_live_waiting_heartbeat_allowed():
                 self._stop_aits_live_waiting_reason_log()
                 return
             reason = str(getattr(self, "_aits_live_waiting_reason", "") or "waiting_for_order_candidate")
+            try:
+                contract_state = self._build_live_runtime_contract_state(source_path="heartbeat", reason=reason, emit_log=True, last_writer="heartbeat")
+                if not bool(contract_state.get("runtime_contract_active")):
+                    reason = str(contract_state.get("reason") or reason)
+            except Exception:
+                pass
             self._append_aits_live_log(
-                f"ON 대기 중 - {reason}",
+                f"ON ?? ? - {reason}",
                 category="runtime",
                 level="info",
                 event="periodic_waiting_reason",
@@ -53549,6 +53724,10 @@ class MainWindow(QMainWindow):
                     bool(getattr(self, "_aits_candidate_loop_running", False)),
                     int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                 )
+                try:
+                    self._mark_live_runtime_contract_start_result("already_running", source_path="on_button", reason="already_running")
+                except Exception:
+                    pass
                 return True
 
             if bool(getattr(self, "_aits_runtime_start_request_inflight", False)):
@@ -53561,6 +53740,8 @@ class MainWindow(QMainWindow):
                 return True
 
             self._aits_runtime_start_request_inflight = True
+            self._aits_runtime_start_requested = True
+            self._aits_runtime_start_result = "requested"
             t_req = time.perf_counter()
             ts_req = int(time.time() * 1000)
             self._log.info("[START-REQ] ts=%d", ts_req)
@@ -53623,6 +53804,10 @@ class MainWindow(QMainWindow):
                             int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                         )
                         try:
+                            self._mark_live_runtime_contract_start_result("started", source_path="on_button", reason="start_ack")
+                        except Exception:
+                            pass
+                        try:
                             self._set_running_ui(True)
                         except Exception:
                             pass
@@ -53636,6 +53821,10 @@ class MainWindow(QMainWindow):
                             bool(getattr(self, "_aits_candidate_loop_running", False)),
                             int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                         )
+                        try:
+                            self._mark_live_runtime_contract_start_result("timeout", source_path="on_button", reason="start_timeout")
+                        except Exception:
+                            pass
                         self._aits_runtime_start_request_inflight = False
                         return
                     QTimer.singleShot(100, lambda: _check_started(attempt + 1))
@@ -54507,6 +54696,8 @@ class MainWindow(QMainWindow):
                     _probe_net_async(_on_probe_before_start)
 
                     # ✅ P0-START/HANG-UX: ...
+                    self._aits_runtime_start_requested = True
+                    self._aits_runtime_start_result = "requested"
                     t_req = time.perf_counter()
 
                     ts_req = int(time.time() * 1000)
@@ -54588,6 +54779,10 @@ class MainWindow(QMainWindow):
                                     int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                                 )
                                 try:
+                                    self._mark_live_runtime_contract_start_result("started", source_path="on_button", reason="start_ack")
+                                except Exception:
+                                    pass
+                                try:
                                     self._set_running_ui(True)
                                 except Exception:
                                     pass
@@ -54607,6 +54802,10 @@ class MainWindow(QMainWindow):
                                     bool(getattr(self, "_aits_candidate_loop_running", False)),
                                     int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                                 )
+                                try:
+                                    self._mark_live_runtime_contract_start_result("timeout", source_path="on_button", reason="start_timeout")
+                                except Exception:
+                                    pass
                                 try:
                                     self._set_running_ui(True)
                                 except Exception:
@@ -54684,6 +54883,10 @@ class MainWindow(QMainWindow):
                                     elapsed_ms,
                                     str(self._get_aits_execution_mode() or "unknown"),
                                 )
+                                try:
+                                    self._clear_live_runtime_contract_state(source_path="on_button", reason="stop_ack")
+                                except Exception:
+                                    pass
                                 try:
                                     self._set_running_ui(False)
                                 except Exception:

@@ -56,8 +56,8 @@ def init_logging(log_dir: str) -> logging.Logger:
     log_path = os.path.join(log_dir, "aits.log")
     fh = RotatingFileHandler(
         log_path,
-        maxBytes=2 * 1024 * 1024,
-        backupCount=3,
+        maxBytes=16 * 1024 * 1024,
+        backupCount=12,
         encoding="utf-8",
     )
     fh.setFormatter(fmt)

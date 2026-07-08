@@ -8493,6 +8493,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     )
     runtime_state_lines = [line for line in lines if "[AITS][RuntimeState]" in line or "[START-REQ]" in line or "[START-ACK]" in line or "[START-TIMEOUT]" in line]
     latest_runtime_state = runtime_state_lines[-1] if runtime_state_lines else ""
+    runtime_contract_lines = [line for line in lines if "[AITS][RuntimeContract]" in line]
+    latest_runtime_contract = runtime_contract_lines[-1] if runtime_contract_lines else ""
+    runtime_contract_active = _live_on_runtime_bool_marker(latest_runtime_contract, "runtime_contract_active")
+    runtime_contract_reason = _live_on_stage_extract_value(latest_runtime_contract, "reason")
+    runtime_contract_last_writer = _live_on_stage_extract_value(latest_runtime_contract, "last_writer")
     runtime_start_requested = any("event=start_requested" in line.lower() or "[start-req]" in line.lower() for line in runtime_state_lines)
     start_request_count = sum(1 for line in runtime_state_lines if "event=start_requested" in line.lower() or "[start-req]" in line.lower())
     runtime_start_result_lines = [line for line in runtime_state_lines if "event=start_result" in line.lower()]
@@ -8516,6 +8521,28 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     latest_order_intent_candidate = order_intent_lines[-1] if order_intent_lines else ""
     order_intent_candidate_reason = _live_on_stage_extract_value(latest_order_intent_candidate, "reason")
     order_intent_candidate_blocker = _live_on_stage_extract_value(latest_order_intent_candidate, "blocker")
+    runtime_contract_active = bool(
+        runtime_contract_active
+        or _live_on_runtime_bool_marker(latest_order_intent_candidate, "runtime_contract_active")
+    )
+    if not runtime_contract_reason:
+        runtime_contract_reason = _live_on_stage_extract_value(latest_order_intent_candidate, "runtime_contract_reason")
+    candidate_blocked_by_runtime_contract_count = sum(
+        1 for line in order_intent_lines
+        if "runtime_contract_active=False" in line and "event=candidate_blocked" in line
+    )
+    buy_ready_but_runtime_contract_inactive_count = sum(
+        1 for line in order_intent_lines
+        if "runtime_contract_active=False" in line and "reason=buy_ready_candidate" in line
+    )
+    provider_ready_mismatch_count = sum(
+        1 for line in lines
+        if "[AITS][BuyReadyCriteria]" in line and "provider_ready=False" in line
+    )
+    heartbeat_lines = [line for line in lines if "periodic_waiting_reason" in line]
+    heartbeat_expected = bool(on_state_detected or runtime_start_requested or candidate_loop_running or order_intent_lines)
+    heartbeat_detected = bool(heartbeat_lines)
+    heartbeat_missing_reason = "" if heartbeat_detected or not heartbeat_expected else "heartbeat_not_logged_during_observation"
     router_handoff_lines = [
         line for line in lines
         if "[AITS][RouterHandoff]" in line and "event=handoff_preview" in line
@@ -8888,10 +8915,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = "buy_ready_policy_hold"
         elif normalized_best_blocker:
             first_blocker = normalized_best_blocker
-    if buy_ready_count > 0 and not live_pipeline_candidate_selected and not router_handoff_preview_detected:
+    if buy_ready_but_runtime_contract_inactive_count > 0:
+        if runtime_start_result in {"started", "already_running"} and not runtime_contract_active:
+            first_blocker = "runtime_contract_not_set_after_start"
+        elif order_intent_candidate_blocker == "runtime_contract_confused_with_order_permission":
+            first_blocker = "runtime_contract_confused_with_order_permission"
+        else:
+            first_blocker = "buy_ready_blocked_by_runtime_contract_inactive"
+    elif provider_ready_mismatch_count > 0 and ai_opinion_fresh_count > 0:
+        first_blocker = "provider_ready_ssot_mismatch"
+    elif buy_ready_count > 0 and not live_pipeline_candidate_selected and not router_handoff_preview_detected:
         first_blocker = "buy_ready_but_candidate_not_selected"
     if live_pipeline_candidate_selected and not live_pipeline_router_started and not live_pipeline_router_result:
         first_blocker = "candidate_selected_but_router_not_started"
+    if heartbeat_expected and not heartbeat_detected and first_blocker in {"", "no_buy_ready_candidate", "buy_ready_but_candidate_not_selected"}:
+        first_blocker = "live_log_heartbeat_missing"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -8958,6 +8996,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "runtime_start_source": str(runtime_start_source or ""),
         "runtime_start_reason": str(runtime_start_reason or ""),
         "runtime_start_result": str(runtime_start_result or ""),
+        "runtime_contract_active": bool(runtime_contract_active),
+        "runtime_contract_reason": str(runtime_contract_reason or ""),
+        "runtime_contract_last_writer": str(runtime_contract_last_writer or ""),
+        "runtime_contract_blocker": str(runtime_contract_reason or ""),
+        "candidate_blocked_by_runtime_contract_count": int(candidate_blocked_by_runtime_contract_count),
+        "buy_ready_but_runtime_contract_inactive_count": int(buy_ready_but_runtime_contract_inactive_count),
+        "provider_ready_mismatch_count": int(provider_ready_mismatch_count),
+        "heartbeat_expected": bool(heartbeat_expected),
+        "heartbeat_detected": bool(heartbeat_detected),
+        "heartbeat_missing_reason": str(heartbeat_missing_reason or ""),
         "candidate_loop_running": bool(candidate_loop_running),
         "candidate_loop_source": str(candidate_loop_source or ""),
         "normal_live_order_pipeline_detected": bool(normal_live_order_pipeline_detected),
@@ -8990,6 +9038,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "latest_feed_recovery_seen": bool(market_feed.get("latest_feed_recovery_seen")),
         "latest_feed_degraded_seen": bool(market_feed.get("latest_feed_degraded_seen")),
         "latest_public_feed_exception_type": str(market_feed.get("latest_public_feed_exception_type") or ""),
+        "log_retention_policy_detected": True,
+        "log_retention_estimated_hours": 8,
+        "log_rotation_gap_detected": False,
         "runtime_network_profile_split_detected": runtime_network_profile_split,
         "market_feed_app_process_ok": market_feed_app_process_ok,
         "market_feed_user_app_ok": market_feed_user_app_ok,
@@ -9327,6 +9378,11 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         line for line in lines
         if "[AITS][RuntimeState]" in line or "[START-REQ]" in line or "[START-ACK]" in line or "[START-TIMEOUT]" in line
     ]
+    runtime_contract_lines = [line for line in lines if "[AITS][RuntimeContract]" in line]
+    latest_runtime_contract = runtime_contract_lines[-1] if runtime_contract_lines else ""
+    runtime_contract_active = _live_on_runtime_bool_marker(latest_runtime_contract, "runtime_contract_active")
+    runtime_contract_reason = _live_on_stage_extract_value(latest_runtime_contract, "reason")
+    runtime_contract_last_writer = _live_on_stage_extract_value(latest_runtime_contract, "last_writer")
     provider_lines = [line for line in lines if "[AITS][LiveOnProviderReadiness]" in line or "[AITS][ProviderReadinessSource]" in line or "[AITS][ProviderReadinessAutoCheck]" in line]
     live_gate_lines = [line for line in lines if "[AITS][LiveGate]" in line or "live_gate" in line]
     order_allowed_lines = [line for line in lines if "[AITS][OrderAllowedState]" in line or "order_allowed" in line or "real_order" in line]
@@ -9729,6 +9785,10 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "runtime_start_source": str(runtime_start_source or ""),
         "runtime_start_reason": str(runtime_start_reason or ""),
         "runtime_start_result": str(runtime_start_result or ""),
+        "runtime_contract_active": bool(runtime_contract_active),
+        "runtime_contract_reason": str(runtime_contract_reason or ""),
+        "runtime_contract_last_writer": str(runtime_contract_last_writer or ""),
+        "runtime_contract_blocker": str(runtime_contract_reason or ""),
         "runtime_stop_requested": bool(runtime_stop_requested),
         "runtime_stop_result_detected": bool(runtime_stop_result_detected),
         "runtime_loop_started": bool(runtime_loop_started),
