@@ -52262,17 +52262,33 @@ class MainWindow(QMainWindow):
         try:
             now_ms = int(time.time() * 1000)
             last_ms = int(getattr(self, "_aits_on_bridge_last_ms", 0) or 0)
-            if last_ms > 0 and now_ms - last_ms < 350:
+            last_checked = bool(getattr(self, "_aits_on_bridge_last_checked", False))
+            last_signal = str(getattr(self, "_aits_on_bridge_last_signal", "") or "")
+            is_paired_clicked = (
+                str(signal_name or "") == "clicked"
+                and last_signal == "toggled"
+                and last_ms > 0
+                and now_ms - last_ms < 1200
+            )
+            is_same_state_duplicate = (
+                last_ms > 0
+                and now_ms - last_ms < 1200
+                and last_checked == bool(ui_checked)
+            )
+            if is_paired_clicked or is_same_state_duplicate:
                 self._log_live_on_button_state_trace(
-                    "handler_signal_bridge_deduped",
+                    "duplicate_suppressed",
                     stage="single_entry",
                     checked_arg=checked,
                     ui_checked=ui_checked,
                     signal_name=signal_name,
                     source_path="on_button",
+                    reason="paired_toggled_clicked",
                 )
                 return
             self._aits_on_bridge_last_ms = now_ms
+            self._aits_on_bridge_last_checked = bool(ui_checked)
+            self._aits_on_bridge_last_signal = str(signal_name or "")
         except Exception:
             pass
         try:
@@ -52337,6 +52353,141 @@ class MainWindow(QMainWindow):
                 )
             except Exception:
                 pass
+
+    def _request_aits_runtime_start_once(self, requested_run: bool, reason: str = "post_preflight_contract") -> bool:
+        try:
+            import app.strategy.runner as _runner_mod
+            from app.strategy.runner import start_strategy
+            from PySide6.QtCore import QTimer
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=failed runtime_started=False runtime_loop_started=False blocker=start_import_failed error_type=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                    str(reason or "")[:80],
+                )
+            except Exception:
+                pass
+            return False
+
+        try:
+            if bool(getattr(_runner_mod, "_RUNNING", False)):
+                logging.getLogger("aits").info(
+                    "[AITS][RuntimeState] event=start_skipped source_path=on_button start_skipped_reason=already_running runtime_start_result=already_running runtime_started=True runtime_loop_started=True candidate_loop_running=%s latest_buy_ready_count=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                    str(reason or "")[:80],
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=True runtime_loop_started=True candidate_loop_running=%s latest_buy_ready_count=%s source=start_skipped reason=already_running submitted=0 order_allowed=False real_order=False",
+                    str(self._get_aits_execution_mode() or "unknown"),
+                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                )
+                return True
+
+            if bool(getattr(self, "_aits_runtime_start_request_inflight", False)):
+                logging.getLogger("aits").info(
+                    "[AITS][RuntimeState] event=start_skipped source_path=on_button start_skipped_reason=duplicate_start_request runtime_start_result=blocked runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s reason=%s submitted=0 order_allowed=False real_order=False",
+                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                    str(reason or "")[:80],
+                )
+                return True
+
+            self._aits_runtime_start_request_inflight = True
+            t_req = time.perf_counter()
+            ts_req = int(time.time() * 1000)
+            self._log.info("[START-REQ] ts=%d", ts_req)
+            logging.getLogger("aits").info(
+                "[AITS][RuntimeState] event=start_requested source_path=on_button on_state=True runtime_start_source=on_button runtime_start_reason=%s execution_mode_before=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s order_allowed_before=False real_order_before=False submitted=0",
+                str(reason or "post_preflight_contract")[:80],
+                str(self._get_aits_execution_mode() or "unknown"),
+                bool(getattr(self, "_aits_candidate_loop_running", False)),
+                int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s source=start_requested reason=runner_not_acknowledged submitted=0 order_allowed=False real_order=False",
+                str(self._get_aits_execution_mode() or "unknown"),
+                bool(getattr(self, "_aits_candidate_loop_running", False)),
+                int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+            )
+
+            def _do_start_work():
+                try:
+                    self._log_live_on_button_state_trace("runner_start_before", requested_run=requested_run)
+                    start_strategy(self._settings)
+                    self._log.info("[RUNNER] start_strategy called")
+                    self._log_live_on_button_state_trace("runner_start_after", requested_run=requested_run)
+                    try:
+                        self._set_aits_runtime_status_display('on_observing', 'runtime_started')
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    elapsed_ms = int((time.perf_counter() - t_req) * 1000)
+                    logging.getLogger("aits").warning(
+                        "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=failed runtime_started=False runtime_loop_started=False elapsed_ms=%s execution_mode_after=%s blocker=start_strategy_exception error_type=%s submitted=0 order_allowed=False real_order=False",
+                        elapsed_ms,
+                        str(self._get_aits_execution_mode() or "unknown"),
+                        type(exc).__name__,
+                    )
+                    self._aits_runtime_start_request_inflight = False
+
+            def _check_started(attempt=0):
+                try:
+                    started = bool(getattr(_runner_mod, "_RUNNING", False))
+                    elapsed_ms = int((time.perf_counter() - t_req) * 1000)
+                    if started:
+                        self._log.info("[START-ACK] elapsed_ms=%d", elapsed_ms)
+                        logging.getLogger("aits").info(
+                            "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=started runtime_started=True runtime_loop_started=True elapsed_ms=%s execution_mode_after=%s candidate_loop_running=%s latest_buy_ready_count=%s order_allowed_after=False real_order_after=False submitted=0",
+                            elapsed_ms,
+                            str(self._get_aits_execution_mode() or "unknown"),
+                            bool(getattr(self, "_aits_candidate_loop_running", False)),
+                            int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                        )
+                        logging.getLogger("aits").info(
+                            "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=True runtime_loop_started=True candidate_loop_running=%s latest_buy_ready_count=%s source=start_result reason=start_ack submitted=0 order_allowed=False real_order=False",
+                            str(self._get_aits_execution_mode() or "unknown"),
+                            bool(getattr(self, "_aits_candidate_loop_running", False)),
+                            int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                        )
+                        try:
+                            self._set_running_ui(True)
+                        except Exception:
+                            pass
+                        self._aits_runtime_start_request_inflight = False
+                        return
+                    if elapsed_ms >= 5000:
+                        logging.getLogger("aits").info(
+                            "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=timeout runtime_started=False runtime_loop_started=False elapsed_ms=%s execution_mode_after=%s candidate_loop_running=%s latest_buy_ready_count=%s order_allowed_after=False real_order_after=False blocker=start_timeout submitted=0",
+                            elapsed_ms,
+                            str(self._get_aits_execution_mode() or "unknown"),
+                            bool(getattr(self, "_aits_candidate_loop_running", False)),
+                            int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                        )
+                        self._aits_runtime_start_request_inflight = False
+                        return
+                    QTimer.singleShot(100, lambda: _check_started(attempt + 1))
+                except Exception:
+                    self._aits_runtime_start_request_inflight = False
+
+            QTimer.singleShot(0, _do_start_work)
+            QTimer.singleShot(100, lambda: _check_started(0))
+            return True
+        except Exception as exc:
+            try:
+                logging.getLogger("aits").warning(
+                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=failed runtime_started=False runtime_loop_started=False blocker=start_schedule_exception error_type=%s submitted=0 order_allowed=False real_order=False",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            try:
+                self._aits_runtime_start_request_inflight = False
+            except Exception:
+                pass
+            return False
 
     def _on_run_toggle_signal_bridge(self, checked: bool = False, signal_name: str = "unknown"):
         try:
@@ -53002,6 +53153,14 @@ class MainWindow(QMainWindow):
                             str(self._get_aits_execution_mode() or "unknown"),
                             bool(getattr(self, "_aits_candidate_loop_running", False)),
                             int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                        )
+                    except Exception:
+                        pass
+                    if self._request_aits_runtime_start_once(bool(run), "post_preflight_contract"):
+                        return
+                    try:
+                        logging.getLogger("aits").info(
+                            "[AITS][RuntimeState] event=start_skipped source_path=on_button start_skipped_reason=start_helper_returned_false runtime_start_result=blocked runtime_started=False runtime_loop_started=False submitted=0 order_allowed=False real_order=False"
                         )
                     except Exception:
                         pass

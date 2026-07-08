@@ -1621,3 +1621,4 @@ adapter/service/execution reach as critical.
 - `live-on-runtime-e2e-diagnostic-log-summary` and `live-on-runtime-after-preflight-stage-summary` now read runtime start from `[AITS][RuntimeState]` instead of broad live/feed tokens.
 - New summary fields include `runtime_start_source`, `runtime_start_reason`, `runtime_start_result`, `candidate_loop_source`, `latest_buy_ready_count`, `order_intent_candidate_reason`, `order_intent_candidate_blocker`, and `order_intent_candidate_observe_only`.
 - `[AITS][OrderIntentCandidate]` is observe-only in this phase. It may prove that a Buy Ready row is contract-shaped, but it must leave Router, RiskGuard, LivePreflight, ExecutionBridge, OrderService, OrderAdapter, submit, and real-order flags false.
+- The harness now reports `start_request_count`, `start_skipped_reason`, and `duplicate_suppressed_count`, and applies a false-positive guard so `*_called=False` text is not counted as an actual call.

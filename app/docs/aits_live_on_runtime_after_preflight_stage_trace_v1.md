@@ -143,3 +143,9 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - `CandidateFeedState` means the candidate/feed loop is alive; it is not by itself proof that the ON runtime start contract completed.
 - Buy Ready rows can emit `[AITS][OrderIntentCandidate] event=candidate_detected observe_only=True` only as an observation contract. It must keep `router_called=False`, `riskguard_called=False`, `live_preflight_called=False`, `execution_called=False`, `order_allowed=False`, and `real_order=False`.
 - After-preflight summaries expose `runtime_start_source`, `runtime_start_reason`, `runtime_start_result`, `candidate_loop_source`, `latest_buy_ready_count`, `order_intent_candidate_reason`, `order_intent_candidate_blocker`, and `order_intent_candidate_observe_only`.
+
+## 2026-07-08 - Post-Preflight Start Path
+
+- After `post_preflight_contract`, runtime start must emit exactly one of `start_requested`, `start_result`, or `start_skipped`.
+- Paired `toggled`/`clicked` signals from one ON click are suppressed as `duplicate_suppressed reason=paired_toggled_clicked`.
+- Summary fields include `post_preflight_contract_detected`, `start_requested_detected`, `start_request_count`, `start_result_status`, `start_skipped_reason`, and `duplicate_suppressed_count`.

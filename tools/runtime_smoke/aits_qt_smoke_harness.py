@@ -8155,6 +8155,10 @@ def _live_on_runtime_e2e_extract_amount(line: str) -> int:
     return 0
 
 
+def _live_on_runtime_bool_marker(line: str, key: str) -> bool:
+    return bool(re.search(rf"\b{re.escape(key)}[=:]\s*(?:True|true|1)\b", line))
+
+
 def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
     mapping = {
         "on_state_not_detected": "no_runtime",
@@ -8349,6 +8353,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     )
     live_on_preflight_blocked = any(
         ("[preflight]" in line and ("ok=0" in line or "check failed" in line or "blocker=" in line))
+        or ("[aits][on]" in line and "event=preflight_result" in line and "status=fail" in line)
         or "[aits][liveonpreflight]" in line
         or "[aits][krwbalancesource]" in line
         for line in lowered
@@ -8361,6 +8366,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     runtime_state_lines = [line for line in lines if "[AITS][RuntimeState]" in line or "[START-REQ]" in line or "[START-ACK]" in line or "[START-TIMEOUT]" in line]
     latest_runtime_state = runtime_state_lines[-1] if runtime_state_lines else ""
     runtime_start_requested = any("event=start_requested" in line.lower() or "[start-req]" in line.lower() for line in runtime_state_lines)
+    start_request_count = sum(1 for line in runtime_state_lines if "event=start_requested" in line.lower() or "[start-req]" in line.lower())
     runtime_start_result_lines = [line for line in runtime_state_lines if "event=start_result" in line.lower()]
     latest_runtime_start_result = runtime_start_result_lines[-1] if runtime_start_result_lines else ""
     runtime_start_result = (
@@ -8382,9 +8388,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     latest_order_intent_candidate = order_intent_lines[-1] if order_intent_lines else ""
     order_intent_candidate_reason = _live_on_stage_extract_value(latest_order_intent_candidate, "reason")
     order_intent_candidate_blocker = _live_on_stage_extract_value(latest_order_intent_candidate, "blocker")
-    router_lines = [line for line in lines if "RouterSummary" in line or "router_validation" in line]
-    riskguard_lines = [line for line in lines if "RiskGuard" in line or "risk_guard" in line]
-    preflight_lines = [line for line in lines if "LivePreflight" in line or "live_preflight" in line]
+    router_lines = [
+        line for line in lines
+        if "[AITS][RouterSummary]" in line
+        or "[AITS][DecisionRouter]" in line
+        or _live_on_runtime_bool_marker(line, "router_called")
+        or _live_on_runtime_bool_marker(line, "decision_router_called")
+    ]
+    riskguard_lines = [
+        line for line in lines
+        if "[AITS][RiskGuard]" in line
+        or _live_on_runtime_bool_marker(line, "riskguard_called")
+        or _live_on_runtime_bool_marker(line, "risk_guard_called")
+    ]
+    preflight_lines = [
+        line for line in lines
+        if "[AITS][LivePreflight]" in line
+        or _live_on_runtime_bool_marker(line, "live_preflight_called")
+    ]
     unlock_lines = [line for line in lines if "unlock" in line.lower()]
     execution_lines = [
         line
@@ -8485,7 +8506,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         all_blockers.append(blocker)
         if not first_blocker:
             first_blocker = blocker
-    if live_on_preflight_blocked and first_blocker in {"runtime_loop_not_started", "on_state_not_detected"}:
+    if live_on_preflight_blocked and first_blocker in {"runtime_start_not_requested", "runtime_loop_not_started", "on_state_not_detected"}:
         if first_blocker in all_blockers:
             all_blockers[all_blockers.index(first_blocker)] = "on_preflight_blocked"
         first_blocker = "on_preflight_blocked"
@@ -8538,6 +8559,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "on_state_detected": bool(on_state_detected),
         "runtime_loop_started": bool(runtime_loop_started),
         "runtime_start_requested": bool(runtime_start_requested),
+        "start_request_count": int(start_request_count),
         "runtime_start_source": str(runtime_start_source or ""),
         "runtime_start_reason": str(runtime_start_reason or ""),
         "runtime_start_result": str(runtime_start_result or ""),
@@ -8598,7 +8620,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "router_called": bool(router_lines),
         "riskguard_called": bool(riskguard_lines),
         "live_preflight_called": bool(preflight_lines),
+        "live_preflight_called_source": "actual_live_preflight_log" if preflight_lines else "",
         "execution_called": bool(execution_lines),
+        "false_positive_guard_applied": True,
         "unlock_reached": bool(unlock_lines),
         "execution_bridge_reached": bool(execution_lines),
         "order_service_reached": bool(order_service_lines),
@@ -8738,10 +8762,16 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         or "[start-req]" in line.lower()
         for line in runtime_lines + on_lines
     )
+    start_request_count = sum(1 for line in runtime_lines + on_lines if "event=start_requested" in line.lower() or "[start-req]" in line.lower())
     runtime_start_result_detected = any(
         "event=start_result" in line.lower() or "[start-ack]" in line.lower() or "[start-timeout]" in line.lower()
         for line in runtime_lines + on_lines
     )
+    start_skipped_lines = [line for line in runtime_lines + on_lines if "event=start_skipped" in line.lower()]
+    latest_start_skipped = start_skipped_lines[-1] if start_skipped_lines else ""
+    start_skipped_reason = _live_on_stage_extract_value(latest_start_skipped, "start_skipped_reason") or _live_on_stage_extract_value(latest_start_skipped, "reason")
+    post_preflight_contract_detected = any("stage=post_preflight_contract" in line for line in runtime_lines)
+    duplicate_suppressed_lines = [line for line in on_lines if "event=duplicate_suppressed" in line.lower() or "handler_signal_bridge_deduped" in line.lower()]
     runtime_stop_requested = any(
         "event=stop_requested" in line.lower() or "event=off_requested" in line.lower() or "[stop-req]" in line.lower()
         for line in runtime_lines + on_lines
@@ -8861,8 +8891,11 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         first_blocker = "on_preflight_blocked"
         last_reached_stage = "on_preflight_failed"
     elif preflight_passed and not runtime_start_requested:
-        first_blocker = "on_preflight_passed_but_runtime_not_started"
+        first_blocker = "runtime_start_skipped" if start_skipped_reason else "preflight_passed_but_runtime_start_not_requested"
         last_reached_stage = "on_preflight_passed"
+    elif runtime_start_requested and not runtime_start_result_detected:
+        first_blocker = "runtime_start_result_missing"
+        last_reached_stage = "runtime_start_requested"
     elif runtime_start_requested and not runtime_loop_started:
         first_blocker = "runtime_start_requested_but_not_started"
         last_reached_stage = "runtime_start_requested"
@@ -8899,6 +8932,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "on_preflight_not_logged": "inspect ON handler preflight logging and call path",
         "on_preflight_blocked": "fix the reported preflight blocker before runtime start",
         "on_preflight_passed_but_runtime_not_started": "inspect _on_toggle_run start_strategy scheduling path",
+        "preflight_passed_but_runtime_start_not_requested": "inspect _on_toggle_run start_strategy scheduling path",
+        "runtime_start_skipped": "inspect logged start_skipped reason",
+        "runtime_start_result_missing": "inspect QTimer start result acknowledgement path",
         "runtime_start_requested_but_not_started": "inspect start_strategy runner acknowledgement path",
         "runtime_not_started": "inspect start timeout and runner _RUNNING state",
         "runtime_started_but_order_allowed_false": "inspect live gate/order_allowed ownership after runner start",
@@ -8957,7 +8993,13 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "balance_preflight_passed": not bool(e2e.get("balance_gate_blocker")) and not any(token in latest_preflight for token in ("balance_fetch_failed", "balance_not_loaded", "available_krw_zero")),
         "cap_preflight_passed": not any(token in latest_preflight for token in ("hard_cap_zero", "effective_hard_cap_below_min_order", "order_amount_exceeds")),
         "runtime_start_requested": bool(runtime_start_requested),
+        "post_preflight_contract_detected": bool(post_preflight_contract_detected),
+        "start_requested_detected": bool(runtime_start_requested),
+        "start_request_count": int(start_request_count),
         "runtime_start_result_detected": bool(runtime_start_result_detected),
+        "start_result_status": str(runtime_start_result or ""),
+        "start_skipped_reason": str(start_skipped_reason or ""),
+        "duplicate_suppressed_count": len(duplicate_suppressed_lines),
         "runtime_start_source": str(runtime_start_source or ""),
         "runtime_start_reason": str(runtime_start_reason or ""),
         "runtime_start_result": str(runtime_start_result or ""),

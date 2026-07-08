@@ -265,3 +265,4 @@ LivePreflight, and unlock gates.
 - `runtime_loop_started=true` requires explicit runner/start evidence such as `[RUNNER] start_strategy called`, `[START-ACK]`, `runtime_started=True`, or `runtime_loop_started=True`.
 - `CandidateFeedState` contributes to `candidate_loop_running` and `candidate_loop_source`, while `[AITS][OrderIntentCandidate]` contributes to observe-only order intent candidate detection.
 - Observe-only candidate logs are diagnostic only and must not call Router, RiskGuard, LivePreflight, ExecutionBridge, OrderService, or OrderAdapter.
+- Boolean false text such as `live_preflight_called=False` is no longer treated as a LivePreflight call. E2E requires an actual LivePreflight prefix or an explicit true marker.
