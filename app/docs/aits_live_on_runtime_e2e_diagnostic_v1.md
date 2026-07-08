@@ -304,3 +304,11 @@ LivePreflight, and unlock gates.
 - The only opened amount is `10000 KRW`; `submit_attempt_count` and `submitted_count` must start at zero.
 - After one attempt the app must log `locked_after_submit` or `locked_after_failed_submit` and must not retry.
 - E2E keeps readiness and submit-result fields separate so a readiness proof does not imply that a live order was submitted.
+
+## 2026-07-08 - Normal Live Trading UX Visibility
+
+- After ON preflight passes, the app must emit `[AITS][LiveTradingUX] event=live_monitoring_started` and a visible waiting status while it waits for order information.
+- If no `GuardedExecutionContract` is available yet, E2E reports `approval_waiting_status_detected` and `approval_waiting_reason` instead of leaving the user with a silent unchanged screen.
+- When a guarded contract appears, the app opens the approval dialog and E2E reports `approval_dialog_auto_opened`, `approval_dialog_input_visible`, `approval_button_enabled`, and the dialog symbol/side/amount.
+- A running ON session with no waiting status, no approval dialog, and no guarded contract is classified as `live_order_ux_silent_failure`.
+- The ON button remains the normal run/stop control; the hidden one-shot compatibility button must not be added back to the header layout.

@@ -71,6 +71,12 @@ execution path can be considered.
 The header ON/OFF area is reserved for runtime state only. Guarded live-order
 approval must not add a permanent header button next to ON.
 
+Immediately after ON preflight passes, the UI must show that live monitoring is
+active and that the app is waiting for order information. The user must not be
+left staring at an unchanged screen while the runtime is waiting for a buy-ready
+candidate, AI freshness, Router/RiskGuard/LivePreflight preview, or the guarded
+approval contract.
+
 When a `GuardedExecutionContract` preview is available, the app presents the
 approval in a separate confirmation dialog or clearly scoped approval panel.
 That surface shows the symbol, side, amount, required phrase, phrase input
@@ -79,6 +85,10 @@ submitted yet.
 
 The approve action remains disabled until the entered phrase exactly matches the
 required phrase. Cancel closes the dialog without unlock or submit.
+
+If no contract is available yet, the visible status must explain the current
+waiting reason. This is still a no-submit state: `actual_order=false` and
+`submitted=0`.
 
 ## 10,000 KRW Guarded One-Shot Execution
 

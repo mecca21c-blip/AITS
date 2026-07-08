@@ -1661,3 +1661,7 @@ adapter/service/execution reach as critical.
 - The mode also reports the restored UX fields `live_order_ux_ready`, `approval_dialog_opened`,
   `confirm_phrase_validated`, `confirm_phrase_rejected`,
   `live_order_button_header_removed`, and `on_button_layout_restored`.
+- Live trading visibility fields include `live_monitoring_started`,
+  `approval_waiting_status_detected`, `approval_waiting_reason`,
+  `approval_dialog_auto_opened`, `approval_dialog_input_visible`,
+  `approval_button_enabled`, and `live_order_ux_silent_failure`.

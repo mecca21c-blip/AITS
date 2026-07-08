@@ -8512,9 +8512,38 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         line for line in lines
         if "[AITS][LiveOrderUX]" in line and "event=approval_ui_ready" in line
     ]
+    live_monitoring_started_lines = [
+        line for line in lines
+        if "[AITS][LiveTradingUX]" in line and "event=live_monitoring_started" in line
+    ]
+    approval_waiting_status_lines = [
+        line for line in lines
+        if "[AITS][LiveTradingUX]" in line and "event=approval_waiting_status" in line
+    ]
+    latest_approval_waiting_status = approval_waiting_status_lines[-1] if approval_waiting_status_lines else ""
+    approval_waiting_reason = _live_on_stage_extract_value(latest_approval_waiting_status, "waiting_reason")
+    approval_dialog_auto_opened_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderUX]" in line and "event=approval_dialog_auto_opened" in line
+    ]
     approval_dialog_opened_lines = [
         line for line in lines
         if "[AITS][LiveOrderUX]" in line and "event=approval_dialog_opened" in line
+    ]
+    latest_approval_dialog_line = approval_dialog_opened_lines[-1] if approval_dialog_opened_lines else (
+        approval_dialog_auto_opened_lines[-1] if approval_dialog_auto_opened_lines else ""
+    )
+    approval_dialog_already_open_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderUX]" in line and "event=approval_dialog_already_open" in line
+    ]
+    approval_dialog_dismissed_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderUX]" in line and "event=approval_dialog_dismissed" in line
+    ]
+    approval_dialog_suppressed_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderUX]" in line and "event=approval_dialog_suppressed_same_request" in line
     ]
     approval_cancelled_lines = [
         line for line in lines
@@ -8717,6 +8746,17 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         elif not guarded_execution_contract_detected:
             first_blocker = "guarded_execution_contract_missing"
             last_reached_stage = "live_preflight_preview"
+    live_order_ux_silent_failure = bool(
+        on_state_detected
+        and runtime_loop_started
+        and not approval_waiting_status_lines
+        and not approval_dialog_opened_lines
+        and not approval_dialog_auto_opened_lines
+        and not guarded_execution_contract_detected
+    )
+    if live_order_ux_silent_failure:
+        first_blocker = "live_order_ux_silent_failure"
+        last_reached_stage = "runtime_loop_started"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -8886,11 +8926,26 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "guarded_order_adapter_called": bool(guarded_order_adapter_called),
         "next_required_user_action": str(next_required_user_action or ""),
         "live_order_approval_required": bool(live_order_approval_required),
+        "live_monitoring_started": bool(live_monitoring_started_lines),
+        "approval_waiting_status_detected": bool(approval_waiting_status_lines),
+        "approval_waiting_reason": str(approval_waiting_reason or ""),
         "live_order_ux_ready": bool(live_order_ux_ready_lines),
+        "approval_dialog_auto_opened": bool(approval_dialog_auto_opened_lines),
         "approval_dialog_opened": bool(approval_dialog_opened_lines),
+        "approval_dialog_already_open": bool(approval_dialog_already_open_lines),
+        "approval_dialog_dismissed": bool(approval_dialog_dismissed_lines),
+        "approval_dialog_suppressed_same_request": bool(approval_dialog_suppressed_lines),
+        "approval_dialog_request_id": str(_live_on_stage_extract_value(latest_approval_dialog_line, "request_id") or ""),
+        "approval_dialog_symbol": str(_live_on_stage_extract_value(latest_approval_dialog_line, "symbol") or ""),
+        "approval_dialog_side": str(_live_on_stage_extract_value(latest_approval_dialog_line, "side") or ""),
+        "approval_dialog_amount_krw": int(_live_on_runtime_e2e_extract_amount(latest_approval_dialog_line) or 0),
+        "approval_dialog_phrase_required": bool(_live_on_runtime_bool_marker(latest_approval_dialog_line, "confirm_phrase_required")),
+        "approval_dialog_input_visible": bool(approval_dialog_opened_lines or approval_dialog_auto_opened_lines),
+        "approval_button_enabled": bool(confirm_phrase_validated_lines),
         "approval_cancelled": bool(approval_cancelled_lines),
         "confirm_phrase_validated": bool(confirm_phrase_validated_lines),
         "confirm_phrase_rejected": bool(confirm_phrase_rejected_lines),
+        "live_order_ux_silent_failure": bool(live_order_ux_silent_failure),
         "detected_candidate_symbol": detected_candidate_symbol,
         "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
         "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
@@ -9024,7 +9079,8 @@ def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_
         app_gui_source = ""
     header_button_removed = "stop_h.addWidget(self.btn_live_order_approval" not in app_gui_source
     approval_dialog_present = "_open_live_order_approval_dialog" in app_gui_source and "edGuardedConfirmPhrase" in app_gui_source
-    readiness_ok = bool(readiness_ok and header_button_removed and approval_dialog_present)
+    live_monitoring_source_present = "live_monitoring_started" in app_gui_source and "approval_waiting_status" in app_gui_source
+    readiness_ok = bool(readiness_ok and header_button_removed and approval_dialog_present and live_monitoring_source_present)
     report.update(e2e)
     report.update(
         {
@@ -9043,7 +9099,17 @@ def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_
             "duplicate_submit_detected": False,
             "sanitized_exchange_response_detected": False,
             "live_order_ux_ready": bool(e2e.get("live_order_ux_ready")) or approval_dialog_present,
+            "live_monitoring_started": bool(e2e.get("live_monitoring_started")) or live_monitoring_source_present,
+            "approval_waiting_status_detected": bool(e2e.get("approval_waiting_status_detected")) or live_monitoring_source_present,
+            "approval_waiting_reason": str(e2e.get("approval_waiting_reason") or ""),
+            "approval_dialog_auto_opened": bool(e2e.get("approval_dialog_auto_opened")),
             "approval_dialog_opened": bool(e2e.get("approval_dialog_opened")),
+            "approval_dialog_already_open": bool(e2e.get("approval_dialog_already_open")),
+            "approval_dialog_dismissed": bool(e2e.get("approval_dialog_dismissed")),
+            "approval_dialog_suppressed_same_request": bool(e2e.get("approval_dialog_suppressed_same_request")),
+            "approval_dialog_input_visible": bool(e2e.get("approval_dialog_input_visible")) or approval_dialog_present,
+            "approval_button_enabled": bool(e2e.get("approval_button_enabled")),
+            "live_order_ux_silent_failure": bool(e2e.get("live_order_ux_silent_failure")),
             "approval_cancelled": bool(e2e.get("approval_cancelled")),
             "confirm_phrase_validated": bool(e2e.get("confirm_phrase_validated")),
             "confirm_phrase_rejected": bool(e2e.get("confirm_phrase_rejected")),
@@ -9588,11 +9654,26 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "guarded_order_adapter_called": bool(e2e.get("guarded_order_adapter_called")),
         "next_required_user_action": str(e2e.get("next_required_user_action") or ""),
         "live_order_approval_required": bool(e2e.get("live_order_approval_required")),
+        "live_monitoring_started": bool(e2e.get("live_monitoring_started")),
+        "approval_waiting_status_detected": bool(e2e.get("approval_waiting_status_detected")),
+        "approval_waiting_reason": str(e2e.get("approval_waiting_reason") or ""),
         "live_order_ux_ready": bool(e2e.get("live_order_ux_ready")),
+        "approval_dialog_auto_opened": bool(e2e.get("approval_dialog_auto_opened")),
         "approval_dialog_opened": bool(e2e.get("approval_dialog_opened")),
+        "approval_dialog_already_open": bool(e2e.get("approval_dialog_already_open")),
+        "approval_dialog_dismissed": bool(e2e.get("approval_dialog_dismissed")),
+        "approval_dialog_suppressed_same_request": bool(e2e.get("approval_dialog_suppressed_same_request")),
+        "approval_dialog_request_id": str(e2e.get("approval_dialog_request_id") or ""),
+        "approval_dialog_symbol": str(e2e.get("approval_dialog_symbol") or ""),
+        "approval_dialog_side": str(e2e.get("approval_dialog_side") or ""),
+        "approval_dialog_amount_krw": int(e2e.get("approval_dialog_amount_krw") or 0),
+        "approval_dialog_phrase_required": bool(e2e.get("approval_dialog_phrase_required")),
+        "approval_dialog_input_visible": bool(e2e.get("approval_dialog_input_visible")),
+        "approval_button_enabled": bool(e2e.get("approval_button_enabled")),
         "approval_cancelled": bool(e2e.get("approval_cancelled")),
         "confirm_phrase_validated": bool(e2e.get("confirm_phrase_validated")),
         "confirm_phrase_rejected": bool(e2e.get("confirm_phrase_rejected")),
+        "live_order_ux_silent_failure": bool(e2e.get("live_order_ux_silent_failure")),
         "router_handoff_blocker": str(e2e.get("router_handoff_blocker") or ""),
         "router_handoff_next_fix_target": str(e2e.get("router_handoff_next_fix_target") or ""),
         "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),

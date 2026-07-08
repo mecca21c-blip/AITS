@@ -39748,9 +39748,22 @@ class MainWindow(QMainWindow):
                                                 submitted_count=0,
                                                 actual_order=False,
                                             )
-                                            if str(getattr(self, "_last_guarded_approval_dialog_request_id", "") or "") != guarded_request_id:
+                                            if guarded_request_id and str(getattr(self, "_guarded_approval_dialog_open_request_id", "") or "") == guarded_request_id:
+                                                self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_already_open", request_id=guarded_request_id, submitted_count=0, actual_order=False)
+                                            elif str(getattr(self, "_last_guarded_approval_dialog_request_id", "") or "") != guarded_request_id:
                                                 self._last_guarded_approval_dialog_request_id = guarded_request_id
+                                                self._guarded_order_log(
+                                                    "[AITS][LiveOrderUX] event=approval_dialog_auto_opened",
+                                                    request_id=guarded_request_id,
+                                                    symbol=str(guarded_preview.get("symbol") or candidate_symbol),
+                                                    side=str(guarded_preview.get("side") or "buy"),
+                                                    amount_krw=int(guarded_preview.get("amount_krw") or intended_amount or 0),
+                                                    submitted_count=0,
+                                                    actual_order=False,
+                                                )
                                                 QTimer.singleShot(0, lambda _contract=dict(guarded_preview): self._open_live_order_approval_dialog(_contract))
+                                            else:
+                                                self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_suppressed_same_request", request_id=guarded_request_id, submitted_count=0, actual_order=False)
                                         except Exception:
                                             pass
                             except Exception:
@@ -52527,6 +52540,42 @@ class MainWindow(QMainWindow):
             pass
 
 
+    def _log_live_trading_ux_status(self, event: str, **fields) -> None:
+        try:
+            payload = {
+                "on_state": bool(getattr(getattr(self, "state", None), "is_running", False)),
+                "runtime_started": bool(getattr(self, "_aits_runtime_started", False)),
+                "waiting_for_candidate": True,
+                "latest_buy_ready_count": int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                "order_intent_candidate_detected": False,
+                "guarded_execution_contract_detected": bool(getattr(self, "_latest_guarded_execution_contract", {}) or {}),
+                "actual_order": False,
+                "submitted": 0,
+            }
+            payload.update(fields)
+            parts = [f"[AITS][LiveTradingUX] event={event}"]
+            for key, value in payload.items():
+                parts.append(f"{key}={value}")
+            logging.getLogger("aits").info(" ".join(parts))
+        except Exception:
+            pass
+
+    def _emit_live_approval_waiting_status(self, waiting_reason: str = "waiting_for_order_candidate") -> None:
+        try:
+            self._set_aits_runtime_status_display(
+                "ON - live monitoring",
+                f"waiting_for_order_info:{waiting_reason}; actual_order=False; submitted=0",
+            )
+        except Exception:
+            pass
+        self._log_live_trading_ux_status(
+            "approval_waiting_status",
+            waiting_reason=str(waiting_reason or "waiting_for_order_candidate"),
+            router_validation_status="",
+            riskguard_preview_status="",
+            live_preflight_preview_status="",
+        )
+
     def _guarded_order_log(self, prefix: str, **fields) -> None:
         try:
             parts = [str(prefix or "")]
@@ -52571,6 +52620,10 @@ class MainWindow(QMainWindow):
         except Exception:
             amount_krw = 0
         request_id = str(contract.get("request_id") or "")
+        if request_id and str(getattr(self, "_guarded_approval_dialog_open_request_id", "") or "") == request_id:
+            self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_already_open", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submitted_count=0, actual_order=False)
+            return
+        self._guarded_approval_dialog_open_request_id = request_id
         self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_opened", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_required=True, unlock_required=True, submitted_count=0, actual_order=False)
         dialog = QDialog(self)
         dialog.setWindowTitle("Guarded live order approval")
@@ -52613,14 +52666,18 @@ class MainWindow(QMainWindow):
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         if dialog.exec() != QDialog.DialogCode.Accepted:
+            self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_dismissed", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submitted_count=0, actual_order=False)
             self._guarded_order_log("[AITS][LiveOrderApproval] event=approval_cancelled", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submitted_count=0, actual_order=False)
+            self._guarded_approval_dialog_open_request_id = ""
             return
         phrase = str(phrase_edit.text() or "")
         matched = phrase.strip() == expected and bool(expected)
         self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_validated", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, confirm_phrase_matched=matched, submitted_count=0, actual_order=False)
         if not matched:
             self._guarded_order_log("[AITS][LiveOrderApproval] event=confirm_phrase_rejected", request_id=request_id, symbol=symbol, side=side, amount_krw=amount_krw, submitted_count=0, actual_order=False)
+            self._guarded_approval_dialog_open_request_id = ""
             return
+        self._guarded_approval_dialog_open_request_id = ""
         self._execute_live_guarded_one_shot_order(phrase, contract)
 
     def _on_live_order_approval_clicked(self) -> None:
@@ -52894,6 +52951,11 @@ class MainWindow(QMainWindow):
                     self._log_live_on_button_state_trace("runner_start_after", requested_run=requested_run)
                     try:
                         self._set_aits_runtime_status_display('on_observing', 'runtime_started')
+                    except Exception:
+                        pass
+                    try:
+                        self._log_live_trading_ux_status("live_monitoring_started", on_state=True, runtime_started=True, waiting_for_candidate=True)
+                        self._emit_live_approval_waiting_status("runtime_started_waiting_for_order_candidate")
                     except Exception:
                         pass
                 except Exception as exc:
@@ -53583,6 +53645,12 @@ class MainWindow(QMainWindow):
                         self._log.info(f"[PREFLIGHT] check passed: {preflight_msg}")
                         try:
                             self._set_aits_runtime_status_display('on_preflight_passed', 'runtime_start_pending')
+                        except Exception:
+                            pass
+                        try:
+                            self._log_live_trading_ux_status("live_monitoring_started", on_state=True, runtime_started=False, waiting_for_candidate=True)
+                            self._emit_live_approval_waiting_status("waiting_for_order_candidate")
+                            QTimer.singleShot(30000, lambda: self._emit_live_approval_waiting_status("still_waiting_for_order_candidate"))
                         except Exception:
                             pass
                         try:
