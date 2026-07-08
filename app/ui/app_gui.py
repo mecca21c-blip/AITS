@@ -27567,6 +27567,11 @@ class MainWindow(QMainWindow):
                 pass
         log_card = QFrame()
         self._frm_ai_recent_log = log_card
+        try:
+            log_card.setCursor(Qt.CursorShape.PointingHandCursor)
+            log_card.mousePressEvent = lambda event: (self._show_aits_live_log_recent_popup(), event.accept())
+        except Exception:
+            pass
         log_lay = QHBoxLayout(log_card)
         try:
             old_title = getattr(self, "lbl_ai_recent_log_title", None)
@@ -27606,7 +27611,7 @@ class MainWindow(QMainWindow):
             pass
         log_lay.addWidget(self.lbl_ai_recent_log_title, 0)
         log_lay.addWidget(self.lbl_ai_recent_log_bar, 1)
-        root.addWidget(log_card, 0)
+        root.insertWidget(1, log_card, 0)
 
         try:
             self._sync_center_dashboard_reason_from_plaintext()
@@ -30439,10 +30444,139 @@ class MainWindow(QMainWindow):
             pass
         return meta
 
-    def _append_aits_recent_log(self, sym: str, message: str) -> None:
+    def _live_log_message_ko(self, message: str) -> str:
+        text = str(message or "").strip()
+        low = text.lower()
+        replacements = (
+            ("live monitoring", "실거래 감시 중"),
+            ("waiting_for_order_info", "주문 정보 대기"),
+            ("waiting_for_order_candidate", "주문 후보 대기 중"),
+            ("still_waiting_for_order_candidate", "매수 후보 탐색 중"),
+            ("no_buy_ready_candidate", "매수 기준 충족 종목 없음"),
+            ("market_data_stale", "시장 데이터 갱신 대기"),
+            ("provider_ready", "AI 엔진 정상"),
+            ("router_validation_started", "Router 검증 중"),
+            ("router_validation_result", "Router 검증 결과 수신"),
+            ("riskguard_started", "RiskGuard 평가 중"),
+            ("riskguard_result", "RiskGuard 평가 결과 수신"),
+            ("live_preflight_blocked", "주문 전 안전조건 미충족"),
+            ("order_submit_attempt", "주문 제출 시도"),
+            ("order_submit_result", "주문 결과 수신"),
+            ("actual_order=false", "실제 주문 없음"),
+            ("submitted_count=0", "제출 0건"),
+            ("submitted=0", "제출 0건"),
+        )
+        for key, value in replacements:
+            if key in low:
+                text = text.replace(key, value).replace(key.upper(), value)
+        return text or "내용 대기"
+
+    def _highlight_aits_live_log_latest(self) -> None:
+        try:
+            frame = getattr(self, "_frm_ai_recent_log", None)
+            if frame is None:
+                return
+            normal = "QFrame#frmAiRecentLogBar{background:#f8fafc;border:1px solid #dbe3ee;border-radius:10px;}"
+            glow = "QFrame#frmAiRecentLogBar{background:#eef6ff;border:1px solid #60a5fa;border-radius:10px;}"
+            frame.setStyleSheet(glow)
+            QTimer.singleShot(850, lambda: frame.setStyleSheet(normal))
+        except Exception:
+            pass
+
+    def _sync_common_settings_system_log_view(self) -> None:
+        try:
+            view = getattr(self, "aits_common_log_view", None)
+            if view is None:
+                return
+            entries = getattr(self, "_aits_live_log_entries", None)
+            if not isinstance(entries, list):
+                entries = []
+            lines = []
+            for item in entries[-50:]:
+                if isinstance(item, dict):
+                    ts = str(item.get("timestamp") or "").strip()
+                    msg = str(item.get("message_ko") or "").strip()
+                    if msg:
+                        lines.append(f"{ts} {msg}".strip())
+                else:
+                    txt = str(item or "").strip()
+                    if txt:
+                        lines.append(txt)
+            view.setPlainText("\n".join(lines) if lines else "내용 로그 대기 중")
+        except Exception:
+            pass
+
+    def _append_aits_live_log(self, message: str, *, category: str = "runtime", level: str = "info", event: str = "", symbol: str = "", stage: str = "") -> None:
         try:
             from datetime import datetime
+            msg = self._live_log_message_ko(message)
+            ts = datetime.now().strftime("%H:%M:%S")
+            entry = {
+                "timestamp": ts,
+                "level": str(level or "info"),
+                "category": str(category or "runtime"),
+                "message_ko": msg,
+                "raw_event": str(event or message or ""),
+                "symbol": str(symbol or ""),
+                "stage": str(stage or ""),
+            }
+            entries = getattr(self, "_aits_live_log_entries", None)
+            if not isinstance(entries, list):
+                entries = []
+            entries.append(entry)
+            self._aits_live_log_entries = entries[-50:]
+            self._aits_recent_logs = [
+                f"{item.get('timestamp', '')} {item.get('message_ko', '')}".strip()
+                for item in self._aits_live_log_entries[-50:]
+                if isinstance(item, dict)
+            ]
+            self._sync_recent_log_label()
+            self._sync_common_settings_system_log_view()
+            self._highlight_aits_live_log_latest()
+            try:
+                logging.getLogger("aits").info(
+                    "[AITS][LiveLogUX] event=append category=%s level=%s symbol=%s submitted=0 actual_order=false",
+                    entry["category"], entry["level"], entry["symbol"] or "-",
+                )
+            except Exception:
+                pass
+        except Exception:
+            pass
 
+    def _show_aits_live_log_recent_popup(self) -> None:
+        try:
+            dlg = getattr(self, "_aits_live_log_recent_dialog", None)
+            if dlg is not None and dlg.isVisible():
+                dlg.raise_()
+                dlg.activateWindow()
+                return
+            dlg = QDialog(self)
+            dlg.setWindowTitle("최근 AI 내용 로그")
+            lay = QVBoxLayout(dlg)
+            lay.setContentsMargins(14, 14, 14, 14)
+            lay.setSpacing(10)
+            entries = getattr(self, "_aits_live_log_entries", None)
+            if not isinstance(entries, list):
+                entries = []
+            recent = entries[-5:] or [{"timestamp": "", "message_ko": "내용 로그 대기 중"}]
+            for item in recent:
+                msg = str(item.get("message_ko") if isinstance(item, dict) else item or "").strip()
+                ts = str(item.get("timestamp") if isinstance(item, dict) else "" or "").strip()
+                lb = QLabel(f"{ts}  {msg}".strip())
+                lb.setWordWrap(True)
+                lb.setStyleSheet("font-size:12px;color:#111827;")
+                lay.addWidget(lb)
+            btn = QPushButton("닫기")
+            btn.clicked.connect(dlg.close)
+            lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignRight)
+            self._aits_live_log_recent_dialog = dlg
+            logging.getLogger("aits").info("[AITS][LiveLogUX] event=recent_popup_opened submitted=0 actual_order=false")
+            dlg.show()
+        except Exception:
+            pass
+
+    def _append_aits_recent_log(self, sym: str, message: str) -> None:
+        try:
             sym = (sym or "").strip()
             msg = (message or "").strip()
             if not msg:
@@ -30451,13 +30585,7 @@ class MainWindow(QMainWindow):
             if getattr(self, "_aits_last_detail_log_sym_status", "") == st_key:
                 return
             self._aits_last_detail_log_sym_status = st_key
-            ts = datetime.now().strftime("%H:%M")
-            line = f"{ts} {sym + ' ' if sym else ''}{msg}".strip()
-            buf = getattr(self, "_aits_recent_logs", None)
-            if not isinstance(buf, list):
-                buf = []
-            buf.append(line)
-            self._aits_recent_logs = buf[-5:]
+            self._append_aits_live_log(msg, category="detail", event="detail_status", symbol=sym)
         except Exception:
             pass
 
@@ -30470,13 +30598,7 @@ class MainWindow(QMainWindow):
             if not msg:
                 return
             try:
-                from datetime import datetime
-                logs = getattr(self, "_aits_recent_logs", None)
-                if not isinstance(logs, list):
-                    logs = []
-                line = f"{datetime.now().strftime('%H:%M')} {sym + ' ' if sym else ''}{msg}".strip()
-                logs.append(line)
-                self._aits_recent_logs = logs[-5:]
+                self._append_aits_live_log(msg, category="managed", event="managed_status", symbol=sym)
             except Exception:
                 pass
             try:
@@ -30525,8 +30647,7 @@ class MainWindow(QMainWindow):
             try:
                 logging.getLogger("aits").info(
                     "[AITS][ManagedLiveLog] event=append_attempt target=%s ok=%s submitted=0",
-                    target_name,
-                    bool(ok),
+                    target_name, bool(ok),
                 )
             except Exception:
                 pass
@@ -48214,10 +48335,15 @@ class MainWindow(QMainWindow):
 
         self.aits_common_log_view = QTextEdit()
         self.aits_common_log_view.setReadOnly(True)
-        self.aits_common_log_view.setPlainText("[AITS] 공통설정 로그 대기 중...")
+        self.aits_common_log_view.setObjectName("aits_common_live_log_view")
+        self.aits_common_log_view.setPlainText("내용 로그 대기 중")
         self.aits_common_log_view.setMinimumHeight(600)
         self.aits_common_log_view.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         _common_right.addWidget(self.aits_common_log_view, 1)
+        try:
+            self._sync_common_settings_system_log_view()
+        except Exception:
+            pass
         _common_right.addWidget(info_box)
         _common_right.addWidget(self.btn_test_results)
         _common_right.addWidget(self.btn_open_logs)
@@ -52637,14 +52763,18 @@ class MainWindow(QMainWindow):
 
     def _set_aits_runtime_status_display(self, state: str, reason: str = '') -> None:
         try:
-            text = f"AITS: {state}"
+            text = f"{state}"
             if reason:
                 text = f"{text} - {reason}"
             self._aits_runtime_status_text = text
             label = getattr(self, 'lbl_statusbar', None)
             if label is not None:
-                label.setText(text)
-                label.show()
+                label.setText("")
+                label.setVisible(False)
+            try:
+                self._append_aits_live_log(text, category="runtime", event="runtime_status")
+            except Exception:
+                pass
             self._log_live_on_button_state_trace(
                 'runtime_status_display',
                 on_state=state,
@@ -52672,6 +52802,24 @@ class MainWindow(QMainWindow):
             for key, value in payload.items():
                 parts.append(f"{key}={value}")
             logging.getLogger("aits").info(" ".join(parts))
+            try:
+                symbol = str(payload.get("symbol") or "").strip()
+                status = str(payload.get("status") or "").strip()
+                blocker = str(payload.get("blocker") or "").strip()
+                message = str(event or "")
+                if blocker:
+                    message = f"{message} - {blocker}"
+                elif status:
+                    message = f"{message} - {status}"
+                self._append_aits_live_log(
+                    message,
+                    category="pipeline",
+                    level="warning" if blocker else "info",
+                    event=str(event or ""),
+                    symbol=symbol if symbol != "-" else "",
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -52730,6 +52878,24 @@ class MainWindow(QMainWindow):
             for key, value in payload.items():
                 parts.append(f"{key}={value}")
             logging.getLogger("aits").info(" ".join(parts))
+            try:
+                symbol = str(payload.get("symbol") or "").strip()
+                status = str(payload.get("status") or "").strip()
+                blocker = str(payload.get("blocker") or "").strip()
+                message = str(event or "")
+                if blocker:
+                    message = f"{message} - {blocker}"
+                elif status:
+                    message = f"{message} - {status}"
+                self._append_aits_live_log(
+                    message,
+                    category="pipeline",
+                    level="warning" if blocker else "info",
+                    event=str(event or ""),
+                    symbol=symbol if symbol != "-" else "",
+                )
+            except Exception:
+                pass
         except Exception:
             pass
 

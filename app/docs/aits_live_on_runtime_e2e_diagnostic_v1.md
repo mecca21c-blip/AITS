@@ -327,3 +327,10 @@ LivePreflight, and unlock gates.
 - Added fields: `buy_ready_criteria_detected`, `managed_candidate_evaluated_count`, `best_candidate_symbol`, `best_candidate_score`, `best_candidate_status`, `best_candidate_blocker`, `buy_ready_threshold`, `no_candidate_reason`, `live_pipeline_no_candidate_detected`, and `user_visible_candidate_status`.
 - `no_buy_ready_candidate` can be refined to `candidate_evaluation_missing`, `buy_ready_score_below_threshold`, `buy_ready_ai_opinion_stale`, `buy_ready_policy_hold`, `buy_ready_but_candidate_not_selected`, or `candidate_selected_but_router_not_started`.
 - The diagnostic remains observe-only and must not force a buy-ready candidate or submit an order.
+
+## 2026-07-08 - LIVE LOG User Visibility
+
+- E2E interpretation should not rely on the old raw bottom status label for user-facing ON status.
+- The active user-facing stream is the central LIVE LOG plus the common-settings system log mirror.
+- LIVE LOG events are emitted with `[AITS][LiveLogUX]` and retain `submitted=0` / `actual_order=false` safety markers.
+- Missing LIVE LOG widgets or missing Korean user-facing messages are UI visibility blockers, not trading blockers.

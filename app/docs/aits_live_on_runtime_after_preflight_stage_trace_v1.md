@@ -204,3 +204,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - 후보가 없으면 `[AITS][LiveOrderPipeline] event=no_candidate`를 남기며 `best_symbol`, `best_score`, `best_status`, `best_blocker`, `threshold`를 포함한다.
 - UI 상태 표시는 `ON - 매수 후보 탐색 중`과 후보 없음 사유를 보여준다.
 - 이 단계는 합성된 매수 준비 상태나 합성 주문 의도를 만들지 않으며 `submitted=0`, `actual_order=false`를 유지한다.
+
+## 2026-07-08 - LIVE LOG Placement Contract
+
+- The central LIVE LOG bar belongs at the top of the MAIN ANALYSIS CENTER, directly below the center title/toolbar.
+- ON button sub-status widgets remain in their existing control area; raw bottom status text is hidden from the user-facing surface.
+- Runtime, managed-pool, detail, and normal live pipeline status updates are appended to one 50-entry in-memory LIVE LOG buffer.
+- Clicking the LIVE LOG opens the latest five entries. This is visibility only and does not trigger ON, approval, Router, RiskGuard, LivePreflight, Execution, or submit.

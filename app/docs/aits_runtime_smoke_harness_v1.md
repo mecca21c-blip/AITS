@@ -1684,3 +1684,10 @@ adapter/service/execution reach as critical.
 - `live-on-runtime-after-preflight-stage-summary` and `live-on-runtime-e2e-diagnostic-log-summary` parse the new buy-ready visibility logs.
 - New parsed fields include `buy_ready_criteria_detected`, `managed_candidate_evaluated_count`, `best_candidate_symbol`, `best_candidate_score`, `best_candidate_status`, `best_candidate_blocker`, `buy_ready_threshold`, `no_candidate_reason`, `live_pipeline_no_candidate_detected`, and `user_visible_candidate_status`.
 - A normal ON run with no candidate should report `event=no_candidate`, keep `submitted_count=0`, keep `actual_order=false`, and preserve Router/RiskGuard/LivePreflight/Execution boundaries.
+
+## 2026-07-08 - LIVE LOG UX Summary Fields
+
+- `dry-read` reports the central LIVE LOG contract without touching trading paths.
+- New fields include `bottom_raw_status_removed`, `live_log_repositioned_to_main_top`, `live_log_latest_visible`, `live_log_latest_message`, `live_log_recent_count`, `live_log_recent_popup_supported`, `live_log_animation_supported`, `common_settings_live_log_integrated`, `common_settings_live_log_count`, `live_log_korean_message_detected`, and `live_log_silent_failure`.
+- The common-settings right-side log is a mirror of the same in-memory LIVE LOG buffer, not a separate source of truth.
+- These checks are UI/diagnostic only and must keep `submitted_detected=false` and `order_risk_detected=false`.

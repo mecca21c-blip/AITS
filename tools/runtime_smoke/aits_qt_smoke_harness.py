@@ -682,6 +682,20 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
     )[:3]
     tooltip_html_sample = (tooltip_html_samples[:1] or [""])[0]
     tooltip_plain_sample = (tooltip_plain_samples[:1] or [""])[0]
+    live_log_entries = getattr(window, "_aits_live_log_entries", None)
+    if not isinstance(live_log_entries, list):
+        live_log_entries = []
+    live_recent = getattr(window, "_aits_recent_logs", None)
+    if not isinstance(live_recent, list):
+        live_recent = []
+    live_log_bar = getattr(window, "lbl_ai_recent_log_bar", None)
+    live_log_frame = getattr(window, "_frm_ai_recent_log", None)
+    common_log_view = getattr(window, "aits_common_log_view", None)
+    common_log_text = _safe_text(common_log_view)
+    bottom_status = getattr(window, "lbl_statusbar", None)
+    live_latest = _safe_text(live_log_bar)
+    if not live_latest and live_recent:
+        live_latest = str(live_recent[-1] or "")
     result = {
         "window_title": str(window.windowTitle() or ""),
         "current_tab": current_tab,
@@ -727,6 +741,30 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "manual_order_button_risk": any(
             bool(item.get("found")) and bool(item.get("visible")) and bool(item.get("enabled"))
             for item in manual_order_buttons
+        ),
+        "bottom_raw_status_removed": not bool(bottom_status is not None and hasattr(bottom_status, "isVisible") and bottom_status.isVisible()),
+        "live_log_repositioned_to_main_top": bool(live_log_frame is not None and hasattr(window, "_show_aits_live_log_recent_popup")),
+        "live_log_latest_visible": bool(
+            live_log_bar is not None
+            and not (hasattr(live_log_bar, "isHidden") and live_log_bar.isHidden())
+        ),
+        "live_log_latest_message": live_latest,
+        "live_log_recent_count": int(len(live_log_entries) or len(live_recent)),
+        "live_log_recent_popup_supported": bool(hasattr(window, "_show_aits_live_log_recent_popup")),
+        "live_log_animation_supported": bool(hasattr(window, "_highlight_aits_live_log_latest")),
+        "common_settings_live_log_integrated": bool(
+            common_log_view is not None
+            and hasattr(common_log_view, "objectName")
+            and str(common_log_view.objectName() or "") == "aits_common_live_log_view"
+        ),
+        "common_settings_live_log_count": int(len([ln for ln in common_log_text.splitlines() if ln.strip()])),
+        "live_log_korean_message_detected": bool(
+            any("\uac00" <= ch <= "\ud7a3" for ch in str(live_latest or common_log_text or ""))
+        ),
+        "live_log_silent_failure": bool(
+            live_log_frame is None
+            or live_log_bar is None
+            or not hasattr(window, "_append_aits_live_log")
         ),
     }
     result.update(_collect_tooltip_style_proof())
