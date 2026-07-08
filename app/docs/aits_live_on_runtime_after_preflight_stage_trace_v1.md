@@ -134,5 +134,5 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 
 ## 2026-07-08 - Network Profile Split Fields
 
-- After-preflight summary now mirrors `runtime_network_profile_split_detected`, `market_feed_app_process_ok`, and `external_public_read_network_ok` from E2E diagnostics.
-- These fields explain whether a public feed failure belongs to the harness environment or the app runtime profile.
+- After-preflight summary now mirrors `runtime_network_profile_split_detected`, `market_feed_app_process_ok`, `market_feed_user_app_ok`, `user_app_process_detected`, `profile_split_result`, and `external_public_read_network_ok` from E2E diagnostics.
+- These fields explain whether a public feed failure belongs to the harness environment, the observed app runtime profile, or a user-launched app profile.

@@ -251,3 +251,10 @@ LivePreflight, and unlock gates.
 - A successful external/escalated public read is supporting evidence that the public endpoint is reachable outside the sandbox, but it does not clear an app runtime `market_feed_network_error` by itself.
 - If the app runtime profile also fails, `market_feed_network_error` remains the first blocker.
 - This rule prevents a Codex sandbox network restriction from being misclassified as an app runtime feed blocker.
+
+## 2026-07-08 - Real User App Feed Profile
+
+- E2E diagnostics now also read `real-user-app-public-feed-profile-summary` when present.
+- `market_feed_user_app_ok=true` clears a harness-only `market_feed_network_error` for the user app profile and records `market_feed_source=real_user_app_profile`.
+- If the real user app session is missing, E2E can report `first_blocker=user_app_session_missing` with `next_fix_target=ask user to launch app manually and wait for feed logs`.
+- `profile_split_result` distinguishes `user_app_ok_harness_restricted`, `user_app_and_harness_both_restricted`, `external_ok_all_local_restricted`, `harness_launched_app_session_detected`, and `no_user_app_session_detected`.

@@ -1604,5 +1604,14 @@ adapter/service/execution reach as critical.
 
 - Added `public-market-feed-network-profile-proof` to compare public feed reachability across harness process, direct service call, recent app runtime logs, and latest external/escalated public diagnostic reports.
 - The mode emits `aits_public_market_feed_network_profile_proof_v1` with per-profile `python_executable`, `cwd`, `frozen`, `git_head`, market/ticker/top counts, exception fields, elapsed time, and safety flags.
-- If the harness process fails but an app/external public profile succeeds, the report sets `runtime_network_profile_split_detected=true`.
+- If the harness process fails but the observed app runtime public profile succeeds, the report sets `runtime_network_profile_split_detected=true`.
+- A successful external/escalated public read is reported separately as endpoint reachability evidence; it does not clear an app runtime feed blocker by itself.
 - The proof remains read-only public market data only: no provider trading calls, no private balance mutation, no order path.
+
+## 2026-07-08 - Real User App Public Feed Profile Summary
+
+- Added `real-user-app-public-feed-profile-summary` for log-only analysis of a user-launched app session.
+- This mode never starts `run.py`, never clicks ON, and never performs provider/order calls. It reads the latest `RuntimeProvenance` session from existing logs.
+- Output separates `harness_process_network_ok`, `observed_app_process_network_ok`, `user_app_process_network_ok`, and `external_public_read_network_ok`.
+- `profile_split_result` values include `user_app_ok_harness_restricted`, `user_app_and_harness_both_restricted`, `no_user_app_session_detected`, `harness_launched_app_session_detected`, and `external_ok_all_local_restricted`.
+- E2E diagnostics can use `market_feed_user_app_ok=true` to avoid pinning a harness-only `market_feed_network_error` to the user runtime profile.

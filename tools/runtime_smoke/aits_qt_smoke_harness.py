@@ -60,9 +60,10 @@ CORE_WIDGETS = {
 }
 
 PUBLIC_MARKET_READ_MODES = {
-    "public-market-feed-diagnostic",
-    "public-market-feed-network-profile-proof",
-    "top-markets-feed-proof",
+        "public-market-feed-diagnostic",
+        "public-market-feed-network-profile-proof",
+        "real-user-app-public-feed-profile-summary",
+        "top-markets-feed-proof",
     "basic-candidate-discovery-proof",
     "buy-ready-order-intent-contract-proof",
     "managed-pool-auto-promotion-apply-proof",
@@ -7668,6 +7669,187 @@ def _market_feed_profile_from_runtime_logs(profile_name: str, lines: list[str]) 
     }
 
 
+def _runtime_provenance_session_lines(lines: list[str]) -> tuple[list[str], str, datetime | None, int, int]:
+    provenance_indices = [idx for idx, line in enumerate(lines) if "[AITS][RuntimeProvenance]" in line]
+    if not provenance_indices:
+        return [], "", None, -1, -1
+    start_idx = provenance_indices[-1]
+    latest_provenance = lines[start_idx]
+    session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
+    session_lines = lines[start_idx:]
+    if session_started_at_dt is not None:
+        session_lines = [
+            line for line in session_lines
+            if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= session_started_at_dt)
+        ]
+    return session_lines, latest_provenance, session_started_at_dt, start_idx + 1, len(lines)
+
+
+def _dt_from_report_field(item: dict[str, Any], key: str, fallback: str = "") -> datetime | None:
+    raw = str(item.get(key) or item.get(fallback) or "")
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw)
+    except Exception:
+        return None
+
+
+def _harness_report_for_session_start(session_started_at_dt: datetime | None, reports: list[dict[str, Any]]) -> str:
+    if session_started_at_dt is None:
+        return ""
+    harness_launch_modes = {
+        "dry-read",
+        "dry-navigation",
+        "live-on-runtime-harness-driven-click-run",
+        "live-on-runtime-harness-driven-click-run-provider-check-once",
+        "provider-key-resolution-bootstrap-trace",
+        "provider-key-resolution-restart-regression-proof",
+        "engine-connection-status-path-diagnostic",
+        "engine-connection-status-regression-proof",
+        "engine-connection-key-refresh-regression-proof",
+        "provider-settings-runtime-ssot-diagnostic",
+        "provider-settings-restart-restore-regression-proof",
+        "provider-switching-cross-provider-regression-proof",
+    }
+    for item in reports:
+        if str(item.get("mode") or "") not in harness_launch_modes:
+            continue
+        started_dt = _dt_from_report_field(item, "started_at")
+        finished_dt = _dt_from_report_field(item, "finished_at", fallback="started_at")
+        if started_dt is None or finished_dt is None:
+            continue
+        if session_started_at_dt.tzinfo is None and started_dt.tzinfo is not None:
+            session_started_at_dt = session_started_at_dt.replace(tzinfo=started_dt.tzinfo)
+        if session_started_at_dt.tzinfo is None and finished_dt.tzinfo is not None:
+            session_started_at_dt = session_started_at_dt.replace(tzinfo=finished_dt.tzinfo)
+        if started_dt.tzinfo is None and session_started_at_dt.tzinfo is not None:
+            started_dt = started_dt.replace(tzinfo=session_started_at_dt.tzinfo)
+        if finished_dt.tzinfo is None and session_started_at_dt.tzinfo is not None:
+            finished_dt = finished_dt.replace(tzinfo=session_started_at_dt.tzinfo)
+        if started_dt <= session_started_at_dt <= finished_dt:
+            return str(item.get("_report_path") or item.get("report_path") or item.get("mode") or "")
+    return ""
+
+
+def _latest_non_harness_runtime_session(
+    lines: list[str],
+    reports: list[dict[str, Any]],
+) -> tuple[list[str], str, datetime | None, int, int, str]:
+    provenance_indices = [idx for idx, line in enumerate(lines) if "[AITS][RuntimeProvenance]" in line]
+    latest_harness_report = ""
+    for pos in range(len(provenance_indices) - 1, -1, -1):
+        start_idx = provenance_indices[pos]
+        end_idx = provenance_indices[pos + 1] if pos + 1 < len(provenance_indices) else len(lines)
+        provenance = lines[start_idx]
+        started_at = _runtime_provenance_line_ts(provenance)
+        harness_report = _harness_report_for_session_start(started_at, reports)
+        if harness_report:
+            latest_harness_report = latest_harness_report or harness_report
+            continue
+        session_lines = lines[start_idx:end_idx]
+        if started_at is not None:
+            session_lines = [
+                line for line in session_lines
+                if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= started_at)
+            ]
+        return session_lines, provenance, started_at, start_idx + 1, end_idx, latest_harness_report
+    latest_provenance = lines[provenance_indices[-1]] if provenance_indices else ""
+    latest_started = _runtime_provenance_line_ts(latest_provenance)
+    return [], latest_provenance, latest_started, -1, -1, latest_harness_report
+
+
+def _run_real_user_app_public_feed_profile_summary(report: dict[str, Any], *, output_dir: Path) -> None:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=1_500_000)
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    session_lines, latest_provenance, session_started_at_dt, start_line, end_line, harness_session_report = _latest_non_harness_runtime_session(lines, reports)
+    user_session_detected = bool(session_lines)
+    user_profile = _market_feed_profile_from_runtime_logs("user_app_process", session_lines) if user_session_detected else {}
+    network_profile = _live_on_runtime_e2e_latest_report_by_mode(reports, "public-market-feed-network-profile-proof")
+    harness_ok = bool(network_profile.get("harness_process_network_ok"))
+    observed_app_ok = bool(network_profile.get("app_process_network_ok"))
+    external_ok = bool(network_profile.get("external_public_read_network_ok"))
+    user_ok = bool(user_profile.get("network_ok")) if user_profile else False
+    feed = _analyze_live_on_market_feed_readiness(session_lines) if user_session_detected else {}
+    score_lines = [
+        line for line in session_lines
+        if "CandidateFeedState" in line or "score_update" in line or "ai score update" in line
+    ]
+    process_pid = _aits_extract_kv_text(latest_provenance, "process_pid")
+    started_at = session_started_at_dt.isoformat(timespec="seconds") if session_started_at_dt else ""
+    if not session_lines:
+        split_result = "no_user_app_session_detected"
+        next_fix = "ask_user_to_launch_app_manually_and_wait_for_feed_logs"
+    elif harness_session_report and not session_lines:
+        split_result = "harness_launched_app_session_detected"
+        next_fix = "ask_user_to_launch_app_manually_and_wait_for_feed_logs"
+    elif user_ok and not harness_ok:
+        split_result = "user_app_ok_harness_restricted"
+        next_fix = "run_on_runtime_click_in_user_app_profile_or_attach_user_app_event_log"
+    elif (not user_ok) and (not harness_ok) and external_ok:
+        split_result = "external_ok_all_local_restricted"
+        next_fix = "fix_windows_app_process_public_feed_network"
+    elif (not user_ok) and (not harness_ok):
+        split_result = "user_app_and_harness_both_restricted"
+        next_fix = "fix_windows_app_process_public_feed_network"
+    elif user_ok:
+        split_result = "user_app_public_feed_ok"
+        next_fix = "continue_live_on_runtime_stage_trace_in_user_app_profile"
+    else:
+        split_result = "user_app_public_feed_not_ready"
+        next_fix = "inspect_user_app_public_feed_log_reason"
+    report.update(
+        {
+            "schema": "aits_real_user_app_public_feed_profile_summary_v1",
+            "diagnostic_status": "pass",
+            "runtime_provenance_detected": bool(latest_provenance),
+            "user_app_process_detected": user_session_detected,
+            "harness_launched_app_session_detected": bool(harness_session_report),
+            "harness_session_report": harness_session_report,
+            "process_pid": process_pid,
+            "python_executable": _aits_extract_kv_text(latest_provenance, "python_executable"),
+            "cwd": _aits_extract_kv_text(latest_provenance, "cwd"),
+            "frozen": _aits_extract_kv_bool(latest_provenance, "frozen", False),
+            "git_head_detected": _aits_extract_kv_text(latest_provenance, "git_head_if_available"),
+            "app_gui_file": _aits_extract_kv_text(latest_provenance, "app_gui_file"),
+            "started_at": started_at,
+            "session_log_start_line": start_line,
+            "session_log_end_line": end_line,
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "user_app_process_profile": user_profile,
+            "user_app_market_feed_ok": bool(feed.get("market_feed_ok")),
+            "user_app_process_network_ok": user_ok,
+            "user_app_network_status": str(feed.get("latest_network_status") or user_profile.get("network_state") or ""),
+            "user_app_top_markets_count": int(feed.get("latest_top_markets_count") or 0),
+            "user_app_tickers_count": int(feed.get("latest_tickers_count") or 0),
+            "user_app_score_update_total": len(score_lines),
+            "user_app_buy_ready_count": int(feed.get("latest_candidate_feed_buy_ready") or 0),
+            "user_app_market_data_stale": bool(feed.get("latest_candidate_feed_market_data_stale")),
+            "user_app_public_feed_exception_type": str(feed.get("latest_public_feed_exception_type") or user_profile.get("exception_type") or ""),
+            "user_app_public_feed_exception_message_sanitized": str(user_profile.get("exception_message_sanitized") or "")[:220],
+            "user_app_last_ok_age_sec": int(feed.get("market_feed_last_ok_age_sec") or -1),
+            "user_app_market_feed_blocker": str(feed.get("market_feed_blocker") or user_profile.get("market_feed_blocker") or ""),
+            "user_app_market_feed_reason": str(feed.get("market_feed_reason") or user_profile.get("market_feed_reason") or ""),
+            "harness_process_network_ok": harness_ok,
+            "observed_app_process_network_ok": observed_app_ok,
+            "external_public_read_network_ok": external_ok,
+            "profile_split_result": split_result,
+            "runtime_network_profile_split_detected": bool(user_ok and not harness_ok),
+            "market_feed_user_app_ok": user_ok,
+            "next_fix_target": next_fix,
+            "actual_order": False,
+            "submitted_count": 0,
+            "order_allowed": False,
+            "real_order": False,
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+            "pass_status": "pass",
+            "status": "pass",
+        }
+    )
+
+
 def _run_public_market_feed_network_profile_proof(report: dict[str, Any], *, output_dir: Path, max_markets: int = 20) -> None:
     profiles: list[dict[str, Any]] = []
     feed_report: dict[str, Any] = {}
@@ -7985,6 +8167,7 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
         "market_feed_network_error": "observing_only",
         "market_feed_snapshot_missing": "observing_only",
         "market_feed_not_ready": "observing_only",
+        "user_app_session_missing": "no_runtime",
         "managed_pool_empty": "candidate_missing",
         "score_update_missing": "candidate_missing",
         "no_buy_ready_candidate": "candidate_missing",
@@ -8017,6 +8200,7 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "market_feed_network_error": "inspect public market feed HTTP/network failure",
         "market_feed_snapshot_missing": "inspect RuntimeFeedReadiness/CandidateFeedState writer",
         "market_feed_not_ready": "inspect latest market feed readiness reason",
+        "user_app_session_missing": "ask user to launch app manually and wait for feed logs",
         "managed_pool_empty": "inspect Managed Pool row load/persistence",
         "score_update_missing": "inspect Basic score update/CandidateFeedState path",
         "no_buy_ready_candidate": "inspect Basic buy_ready criteria and Managed Pool scores",
@@ -8057,6 +8241,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     readpath_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "live-minimal-order-setting-readpath-preflight")
     top_feed_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "top-markets-feed-proof")
     network_profile_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "public-market-feed-network-profile-proof")
+    user_app_profile_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "real-user-app-public-feed-profile-summary")
     basic_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "basic-candidate-discovery-proof")
     contract_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "buy-ready-order-intent-contract-proof")
 
@@ -8104,6 +8289,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     runtime_network_profile_split = bool(network_profile_report.get("runtime_network_profile_split_detected"))
     market_feed_app_process_ok = bool(network_profile_report.get("market_feed_app_process_ok"))
     external_public_read_ok = bool(network_profile_report.get("external_public_read_network_ok"))
+    user_app_profile_present = bool(user_app_profile_report)
+    user_app_process_detected = bool(user_app_profile_report.get("user_app_process_detected"))
+    market_feed_user_app_ok = bool(user_app_profile_report.get("market_feed_user_app_ok") or user_app_profile_report.get("user_app_process_network_ok"))
+    profile_split_result = str(user_app_profile_report.get("profile_split_result") or "")
     if (
         str(market_feed.get("market_feed_blocker") or "") == "market_feed_network_error"
         and runtime_network_profile_split
@@ -8113,6 +8302,15 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         market_feed["market_feed_ok"] = True
         market_feed["market_feed_source"] = "network_profile_split"
         market_feed["market_feed_reason"] = "harness_network_error_app_or_external_profile_ok"
+        market_feed["market_feed_blocker"] = ""
+    if (
+        str(market_feed.get("market_feed_blocker") or "") == "market_feed_network_error"
+        and market_feed_user_app_ok
+    ):
+        market_feed_ok = True
+        market_feed["market_feed_ok"] = True
+        market_feed["market_feed_source"] = "real_user_app_profile"
+        market_feed["market_feed_reason"] = "harness_network_error_user_app_profile_ok"
         market_feed["market_feed_blocker"] = ""
     on_state_detected = any(
         token in joined_lower
@@ -8260,6 +8458,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         if first_blocker in all_blockers:
             all_blockers[all_blockers.index(first_blocker)] = "on_preflight_blocked"
         first_blocker = "on_preflight_blocked"
+    if user_app_profile_present and not user_app_process_detected:
+        if first_blocker:
+            all_blockers.insert(0, first_blocker)
+        first_blocker = "user_app_session_missing"
+        all_blockers = ["user_app_session_missing"] + [b for b in all_blockers if b != "user_app_session_missing"]
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -8324,6 +8527,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "latest_public_feed_exception_type": str(market_feed.get("latest_public_feed_exception_type") or ""),
         "runtime_network_profile_split_detected": runtime_network_profile_split,
         "market_feed_app_process_ok": market_feed_app_process_ok,
+        "market_feed_user_app_ok": market_feed_user_app_ok,
+        "user_app_process_detected": user_app_process_detected,
+        "profile_split_result": profile_split_result,
         "external_public_read_network_ok": external_public_read_ok,
         "balance_gate_detected": bool(balance_gate.get("balance_gate_detected")),
         "available_krw": int(balance_gate.get("available_krw") or 0),
@@ -8719,6 +8925,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "latest_public_feed_exception_type": str(e2e.get("latest_public_feed_exception_type") or ""),
         "runtime_network_profile_split_detected": bool(e2e.get("runtime_network_profile_split_detected")),
         "market_feed_app_process_ok": bool(e2e.get("market_feed_app_process_ok")),
+        "market_feed_user_app_ok": bool(e2e.get("market_feed_user_app_ok")),
+        "user_app_process_detected": bool(e2e.get("user_app_process_detected")),
+        "profile_split_result": str(e2e.get("profile_split_result") or ""),
         "external_public_read_network_ok": bool(e2e.get("external_public_read_network_ok")),
         "balance_gate_detected": bool(e2e.get("balance_gate_detected")),
         "available_krw": int(e2e.get("available_krw") or 0),
@@ -18024,6 +18233,7 @@ def run_harness(
         "top-markets-feed-proof",
         "public-market-feed-diagnostic",
         "public-market-feed-network-profile-proof",
+        "real-user-app-public-feed-profile-summary",
         "provider-connection-log-forensic-summary",
         "buy-ready-order-intent-contract-fixture-proof",
         "buy-ready-order-intent-contract-proof",
@@ -18105,6 +18315,9 @@ def run_harness(
         elif mode == "public-market-feed-network-profile-proof":
             _install_provider_post_guard(report)
             _run_public_market_feed_network_profile_proof(report, output_dir=output_dir, max_markets=max_markets)
+        elif mode == "real-user-app-public-feed-profile-summary":
+            _install_provider_post_guard(report)
+            _run_real_user_app_public_feed_profile_summary(report, output_dir=output_dir)
         elif mode == "provider-connection-log-forensic-summary":
             _run_provider_connection_log_forensic_summary(report, provider=provider or "gpt")
         elif mode == "buy-ready-order-intent-contract-fixture-proof":
@@ -18849,6 +19062,7 @@ def run_harness(
         "live-on-preflight-provider-ready-regression-proof",
         "public-market-feed-diagnostic",
         "public-market-feed-network-profile-proof",
+        "real-user-app-public-feed-profile-summary",
         "top-markets-feed-proof",
         "provider-connection-log-forensic-summary",
         "save-probe",
@@ -18910,6 +19124,7 @@ def main() -> int:
             "real-app-startup-readiness-proof",
             "public-market-feed-diagnostic",
             "public-market-feed-network-profile-proof",
+            "real-user-app-public-feed-profile-summary",
             "top-markets-feed-proof",
             "buy-ready-order-intent-contract-fixture-proof",
             "buy-ready-order-intent-contract-proof",
