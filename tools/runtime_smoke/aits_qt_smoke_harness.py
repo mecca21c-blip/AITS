@@ -8193,6 +8193,8 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
         "live_preflight_preview_missing": "blocked_at_riskguard",
         "live_preflight_preview_blocked": "blocked_at_live_preflight",
         "live_preflight_preview_observe_only": "blocked_at_live_preflight",
+        "guarded_execution_contract_missing": "blocked_at_live_preflight",
+        "live_order_approval_required": "blocked_before_execution",
         "router_not_reached": "blocked_before_router",
         "riskguard_not_reached": "blocked_at_router",
         "live_preflight_not_reached": "blocked_at_riskguard",
@@ -8237,6 +8239,8 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "live_preflight_preview_missing": "inspect RiskGuardPreview to LivePreflightPreview writer",
         "live_preflight_preview_blocked": "inspect LivePreflightPreview blocker",
         "live_preflight_preview_observe_only": "prepare separate ExecutionBridge/order submit guarded goal",
+        "guarded_execution_contract_missing": "inspect LivePreflightPreview to GuardedExecutionContract writer",
+        "live_order_approval_required": "await explicit user approval for guarded 10000 KRW live order goal",
         "router_not_reached": "inspect Router validation handoff boundary",
         "riskguard_not_reached": "inspect RiskGuard handoff boundary",
         "live_preflight_not_reached": "inspect LivePreflight handoff boundary",
@@ -8474,7 +8478,36 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     live_preflight_preview_blocker = _live_on_stage_extract_value(latest_live_preflight_preview, "blocker")
     live_preflight_preview_observe_only = _live_on_runtime_bool_marker(latest_live_preflight_preview, "observe_only")
     live_preflight_apply = _live_on_runtime_bool_marker(latest_live_preflight_preview, "live_preflight_apply")
+    live_preflight_confirm_phrase_required = _live_on_runtime_bool_marker(latest_live_preflight_preview, "confirm_phrase_required")
+    live_preflight_confirm_phrase_expected = _live_on_stage_extract_value(latest_live_preflight_preview, "confirm_phrase_expected")
+    live_preflight_confirm_phrase_matched = _live_on_runtime_bool_marker(latest_live_preflight_preview, "confirm_phrase_matched")
+    live_preflight_unlock_required = _live_on_runtime_bool_marker(latest_live_preflight_preview, "unlock_required")
     unlock_performed = _live_on_runtime_bool_marker(latest_live_preflight_preview, "unlock_performed")
+    live_preflight_execution_allowed = _live_on_runtime_bool_marker(latest_live_preflight_preview, "execution_allowed")
+    guarded_execution_contract_lines = [
+        line
+        for line in lines
+        if "[AITS][GuardedExecutionContract]" in line and "event=contract_preview" in line
+    ]
+    latest_guarded_execution_contract = guarded_execution_contract_lines[-1] if guarded_execution_contract_lines else ""
+    guarded_execution_contract_detected = bool(guarded_execution_contract_lines)
+    guarded_execution_contract_schema = _live_on_stage_extract_value(latest_guarded_execution_contract, "schema")
+    guarded_execution_request_id = _live_on_stage_extract_value(latest_guarded_execution_contract, "request_id")
+    guarded_execution_source_request_id = _live_on_stage_extract_value(latest_guarded_execution_contract, "source_request_id")
+    guarded_execution_symbol = _live_on_stage_extract_value(latest_guarded_execution_contract, "symbol")
+    guarded_execution_side = _live_on_stage_extract_value(latest_guarded_execution_contract, "side")
+    guarded_execution_amount_krw = _live_on_runtime_e2e_extract_amount(latest_guarded_execution_contract)
+    guarded_confirm_phrase_required = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "confirm_phrase_required")
+    guarded_confirm_phrase_expected = _live_on_stage_extract_value(latest_guarded_execution_contract, "confirm_phrase_expected")
+    guarded_confirm_phrase_matched = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "confirm_phrase_matched")
+    guarded_unlock_required = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "unlock_required")
+    guarded_unlock_performed = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "unlock_performed")
+    guarded_execution_allowed = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "execution_allowed")
+    guarded_execution_called = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "execution_called")
+    guarded_order_service_called = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "order_service_called")
+    guarded_order_adapter_called = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "order_adapter_called")
+    next_required_user_action = _live_on_stage_extract_value(latest_guarded_execution_contract, "next_required_user_action")
+    live_order_approval_required = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "live_order_approval_required")
     router_lines = [
         line for line in lines
         if "[AITS][RouterSummary]" in line
@@ -8603,6 +8636,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             live_preflight_preview_detected,
             "live_preflight_preview_missing" if str(riskguard_preview_status or "").lower() == "passed" else "live_preflight_not_reached",
         ),
+        (
+            "guarded_execution_contract_detected",
+            guarded_execution_contract_detected,
+            "guarded_execution_contract_missing" if str(live_preflight_preview_status or "").lower() in {"blocked", "passed"} else "guarded_execution_not_reached",
+        ),
         ("unlock_reached", bool(unlock_lines), "unlock_not_reached"),
         ("execution_bridge_reached", bool(execution_lines), "execution_bridge_not_reached"),
         ("order_service_reached", bool(order_service_lines), "order_service_not_reached"),
@@ -8652,6 +8690,13 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         elif str(live_preflight_preview_status or "").lower() in {"blocked", "failed"}:
             first_blocker = "live_preflight_preview_blocked"
             last_reached_stage = "live_preflight_preview"
+    if live_preflight_preview_detected and str(live_preflight_preview_status or "").lower() in {"blocked", "passed"}:
+        if guarded_execution_contract_detected and live_order_approval_required and not guarded_execution_allowed:
+            first_blocker = "live_order_approval_required"
+            last_reached_stage = "guarded_execution_contract_preview"
+        elif not guarded_execution_contract_detected:
+            first_blocker = "guarded_execution_contract_missing"
+            last_reached_stage = "live_preflight_preview"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -8677,6 +8722,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         critical_flags.append("live_preflight_apply_true_detected")
     if unlock_performed:
         critical_flags.append("unlock_performed_true_detected")
+    if live_preflight_execution_allowed or guarded_execution_allowed:
+        critical_flags.append("execution_allowed_true_detected")
+    if guarded_execution_called:
+        critical_flags.append("execution_called_true_detected")
+    if guarded_order_service_called:
+        critical_flags.append("order_service_called_true_detected")
+    if guarded_order_adapter_called:
+        critical_flags.append("order_adapter_called_true_detected")
 
     order_path_status = "submitted_and_recorded" if submitted_count and trade_log_detected and position_update_detected else ""
     if not order_path_status and submitted_count:
@@ -8794,7 +8847,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_preflight_preview_blocker": str(live_preflight_preview_blocker or ""),
         "live_preflight_preview_observe_only": bool(live_preflight_preview_observe_only),
         "live_preflight_apply": bool(live_preflight_apply),
+        "confirm_phrase_required": bool(guarded_confirm_phrase_required or live_preflight_confirm_phrase_required),
+        "confirm_phrase_expected": str(guarded_confirm_phrase_expected or live_preflight_confirm_phrase_expected or ""),
+        "confirm_phrase_matched": bool(guarded_confirm_phrase_matched or live_preflight_confirm_phrase_matched),
+        "unlock_required": bool(guarded_unlock_required or live_preflight_unlock_required),
         "unlock_performed": bool(unlock_performed),
+        "execution_allowed": bool(guarded_execution_allowed or live_preflight_execution_allowed),
+        "guarded_execution_contract_detected": bool(guarded_execution_contract_detected),
+        "guarded_execution_contract_schema": str(guarded_execution_contract_schema or ""),
+        "guarded_execution_request_id": str(guarded_execution_request_id or ""),
+        "guarded_execution_source_request_id": str(guarded_execution_source_request_id or ""),
+        "guarded_execution_symbol": str(guarded_execution_symbol or ""),
+        "guarded_execution_side": str(guarded_execution_side or ""),
+        "guarded_execution_amount_krw": int(guarded_execution_amount_krw or 0),
+        "guarded_execution_observe_only": bool(guarded_execution_contract_detected),
+        "guarded_execution_called": bool(guarded_execution_called),
+        "guarded_order_service_called": bool(guarded_order_service_called),
+        "guarded_order_adapter_called": bool(guarded_order_adapter_called),
+        "next_required_user_action": str(next_required_user_action or ""),
+        "live_order_approval_required": bool(live_order_approval_required),
         "detected_candidate_symbol": detected_candidate_symbol,
         "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
         "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
@@ -8813,8 +8884,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "unlock_reached": bool(unlock_lines),
         "execution_bridge_reached": bool(execution_lines),
         "order_service_reached": bool(order_service_lines),
+        "order_service_called": bool(order_service_lines or guarded_order_service_called),
         "order_service_readonly_accounts_called": bool(order_service_readonly_accounts_lines),
         "order_adapter_reached": bool(order_adapter_lines),
+        "order_adapter_called": bool(order_adapter_lines or guarded_order_adapter_called),
         "submit_attempt_count": submit_attempt_count,
         "submitted_count": submitted_count,
         "exchange_response_detected": bool(exchange_response_detected),
@@ -9044,6 +9117,10 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     live_preflight_preview_status = str(e2e.get("live_preflight_preview_status") or "")
     live_preflight_apply = bool(e2e.get("live_preflight_apply"))
     unlock_performed = bool(e2e.get("unlock_performed"))
+    guarded_execution_contract_detected = bool(e2e.get("guarded_execution_contract_detected"))
+    guarded_execution_allowed = bool(e2e.get("execution_allowed"))
+    guarded_execution_called = bool(e2e.get("guarded_execution_called") or e2e.get("execution_called"))
+    live_order_approval_required = bool(e2e.get("live_order_approval_required"))
 
     preflight_status = "not_logged"
     if preflight_failed:
@@ -9148,6 +9225,13 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         else:
             first_blocker = "live_preflight_preview_blocked"
         last_reached_stage = "live_preflight_preview"
+    if live_preflight_preview_detected and live_preflight_preview_status.lower() in {"blocked", "passed"}:
+        if guarded_execution_contract_detected and live_order_approval_required and not guarded_execution_allowed and not guarded_execution_called:
+            first_blocker = "live_order_approval_required"
+            last_reached_stage = "guarded_execution_contract_preview"
+        elif not guarded_execution_contract_detected:
+            first_blocker = "guarded_execution_contract_missing"
+            last_reached_stage = "live_preflight_preview"
 
     if runtime_not_started and first_blocker in {"", "runtime_started_but_order_allowed_false"}:
         first_blocker = "runtime_not_started"
@@ -9186,6 +9270,8 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "live_preflight_preview_missing": "inspect RiskGuardPreview to LivePreflightPreview writer",
         "live_preflight_preview_blocked": "inspect LivePreflightPreview blocker",
         "live_preflight_preview_observe_only": "prepare separate ExecutionBridge/order submit guarded goal",
+        "guarded_execution_contract_missing": "inspect LivePreflightPreview to GuardedExecutionContract writer",
+        "live_order_approval_required": "await explicit user approval for guarded 10000 KRW live order goal",
     }
 
     timeline = (on_lines + preflight_lines + provider_lines + runtime_lines + live_gate_lines)[-120:]
@@ -9343,7 +9429,24 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "live_preflight_preview_blocker": str(e2e.get("live_preflight_preview_blocker") or ""),
         "live_preflight_preview_observe_only": bool(e2e.get("live_preflight_preview_observe_only")),
         "live_preflight_apply": bool(live_preflight_apply),
+        "confirm_phrase_required": bool(e2e.get("confirm_phrase_required")),
+        "confirm_phrase_expected": str(e2e.get("confirm_phrase_expected") or ""),
+        "confirm_phrase_matched": bool(e2e.get("confirm_phrase_matched")),
+        "unlock_required": bool(e2e.get("unlock_required")),
         "unlock_performed": bool(unlock_performed),
+        "execution_allowed": bool(e2e.get("execution_allowed")),
+        "guarded_execution_contract_detected": bool(guarded_execution_contract_detected),
+        "guarded_execution_contract_schema": str(e2e.get("guarded_execution_contract_schema") or ""),
+        "guarded_execution_request_id": str(e2e.get("guarded_execution_request_id") or ""),
+        "guarded_execution_source_request_id": str(e2e.get("guarded_execution_source_request_id") or ""),
+        "guarded_execution_symbol": str(e2e.get("guarded_execution_symbol") or ""),
+        "guarded_execution_side": str(e2e.get("guarded_execution_side") or ""),
+        "guarded_execution_amount_krw": int(e2e.get("guarded_execution_amount_krw") or 0),
+        "guarded_execution_called": bool(e2e.get("guarded_execution_called")),
+        "guarded_order_service_called": bool(e2e.get("guarded_order_service_called")),
+        "guarded_order_adapter_called": bool(e2e.get("guarded_order_adapter_called")),
+        "next_required_user_action": str(e2e.get("next_required_user_action") or ""),
+        "live_order_approval_required": bool(e2e.get("live_order_approval_required")),
         "router_handoff_blocker": str(e2e.get("router_handoff_blocker") or ""),
         "router_handoff_next_fix_target": str(e2e.get("router_handoff_next_fix_target") or ""),
         "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),
@@ -9357,8 +9460,10 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "unlock_reached": bool(e2e.get("unlock_reached")),
         "execution_bridge_reached": bool(e2e.get("execution_bridge_reached")),
         "order_service_reached": bool(e2e.get("order_service_reached")),
+        "order_service_called": bool(e2e.get("order_service_called") or e2e.get("order_service_reached") or e2e.get("guarded_order_service_called")),
         "order_service_readonly_accounts_called": bool(e2e.get("order_service_readonly_accounts_called")),
         "order_adapter_reached": bool(e2e.get("order_adapter_reached")),
+        "order_adapter_called": bool(e2e.get("order_adapter_called") or e2e.get("order_adapter_reached") or e2e.get("guarded_order_adapter_called")),
         "submit_attempt_count": int(e2e.get("submit_attempt_count") or 0),
         "submitted_count": int(e2e.get("submitted_count") or 0),
         "first_blocker": first_blocker,

@@ -290,3 +290,10 @@ LivePreflight, and unlock gates.
 - `riskguard_apply=True`, `live_preflight_apply=True`, `unlock_performed=True`, `submitted_count>0`, or any execution/order adapter reach is critical.
 - New blockers are `riskguard_preview_missing`, `riskguard_preview_blocked`, `live_preflight_preview_missing`, `live_preflight_preview_blocked`, and `live_preflight_preview_observe_only`.
 - The live preflight preview may require confirm phrase and unlock while keeping `confirm_phrase_matched=False` and `unlock_performed=False`.
+
+## 2026-07-08 - Guarded Execution Approval Boundary
+
+- E2E diagnostics now recognize `[AITS][GuardedExecutionContract] event=contract_preview` as `aits_guarded_execution_contract_preview.v1`.
+- The contract separates `confirm_phrase_required`, `confirm_phrase_matched`, `unlock_required`, `unlock_performed`, and `execution_allowed`.
+- A blocked LivePreflightPreview with this contract becomes `first_blocker=live_order_approval_required` and `order_path_status=blocked_before_execution`.
+- Any `execution_allowed=True`, `execution_called=True`, `order_service_called=True`, `order_adapter_called=True`, `submitted_count>0`, or `actual_order=true` is critical.

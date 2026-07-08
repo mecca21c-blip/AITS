@@ -1643,3 +1643,10 @@ adapter/service/execution reach as critical.
 - New fields include `riskguard_preview_detected`, `riskguard_preview_status`, `riskguard_preview_blocker`, `riskguard_apply`, `live_preflight_preview_detected`, `live_preflight_preview_status`, `live_preflight_preview_blocker`, `live_preflight_apply`, and `unlock_performed`.
 - Preview false markers such as `riskguard_apply=False`, `live_preflight_apply=False`, and `unlock_performed=False` are not treated as calls.
 - The next blocked stage becomes `riskguard_preview_blocked`, `live_preflight_preview_blocked`, or `live_preflight_preview_observe_only` while submit/order fields remain zero/false.
+
+## 2026-07-08 - GuardedExecutionContract Parser
+
+- The harness recognizes `[AITS][GuardedExecutionContract] event=contract_preview`.
+- New fields include `guarded_execution_contract_detected`, `guarded_execution_contract_schema`, `guarded_execution_request_id`, `guarded_execution_symbol`, `guarded_execution_side`, `guarded_execution_amount_krw`, `confirm_phrase_required`, `confirm_phrase_matched`, `unlock_required`, `unlock_performed`, `execution_allowed`, and `next_required_user_action`.
+- A contract with `live_order_approval_required=True` and `execution_allowed=False` is reported as `first_blocker=live_order_approval_required`.
+- This parser treats the contract as pre-execution visibility only; execution, order service, order adapter, submit, or actual-order markers remain critical.

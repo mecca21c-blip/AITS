@@ -233,6 +233,11 @@ def build_live_preflight_preview(payload: Optional[Dict[str, Any]]) -> Dict[str,
         blockers.append("amount_exceeds_max_order")
 
     confirm_phrase_required = True
+    confirm_phrase_expected = str(
+        data.get("confirm_phrase_expected")
+        or data.get("expected_confirm_phrase")
+        or f"AITS LIVE ORDER {symbol} {side.upper()} {amount_krw}"
+    ).strip()
     unlock_required = True
     confirm_phrase_matched = False
     unlock_performed = False
@@ -253,9 +258,11 @@ def build_live_preflight_preview(payload: Optional[Dict[str, Any]]) -> Dict[str,
         "blocker": "" if not blockers else ",".join(blockers),
         "reason": "live_preflight_preview_passed" if not blockers else ",".join(blockers),
         "confirm_phrase_required": confirm_phrase_required,
+        "confirm_phrase_expected": confirm_phrase_expected,
         "confirm_phrase_matched": confirm_phrase_matched,
         "unlock_required": unlock_required,
         "unlock_performed": unlock_performed,
+        "execution_allowed": False,
         "observe_only": True,
         "live_preflight_apply": False,
         "execution_called": False,
@@ -263,6 +270,70 @@ def build_live_preflight_preview(payload: Optional[Dict[str, Any]]) -> Dict[str,
         "order_adapter_called": False,
         "submitted": 0,
         "actual_order": False,
+    }
+
+
+def build_guarded_execution_contract_preview(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Build the final no-apply contract preview before any execution bridge.
+    This records the required user approval state and never unlocks or submits.
+    """
+    data = dict(payload or {}) if isinstance(payload, dict) else {}
+    try:
+        amount_krw = int(float(data.get("amount_krw") or 0))
+    except Exception:
+        amount_krw = 0
+    try:
+        min_order_krw = int(float(data.get("min_order_krw") or 10000))
+    except Exception:
+        min_order_krw = 10000
+    symbol = str(data.get("symbol") or "").strip().upper()
+    side = str(data.get("side") or "").strip().lower()
+    confirm_phrase_required = bool(data.get("confirm_phrase_required", True))
+    confirm_phrase_expected = str(
+        data.get("confirm_phrase_expected")
+        or data.get("expected_confirm_phrase")
+        or f"AITS LIVE ORDER {symbol} {side.upper()} {amount_krw}"
+    ).strip()
+    confirm_phrase_matched = False
+    unlock_required = bool(data.get("unlock_required", True))
+    unlock_performed = False
+    live_status = str(data.get("live_preflight_preview_status") or data.get("preflight_status") or "").strip().lower()
+    blockers: List[str] = []
+    if confirm_phrase_required and not confirm_phrase_matched:
+        blockers.append("confirm_phrase_not_matched")
+    if unlock_required and not unlock_performed:
+        blockers.append("unlock_not_performed")
+    if live_status not in {"passed", "blocked"}:
+        blockers.append("live_preflight_preview_not_confirmed")
+    return {
+        "schema": "aits_guarded_execution_contract_preview.v1",
+        "source_request_id": str(data.get("request_id") or data.get("source_request_id") or "").strip(),
+        "symbol": symbol,
+        "side": side,
+        "amount_krw": amount_krw,
+        "min_order_krw": min_order_krw,
+        "provider_ready": bool(data.get("provider_ready", True)),
+        "market_feed_ok": bool(data.get("market_feed_ok", True)),
+        "balance_preflight_passed": bool(data.get("balance_preflight_passed", True)),
+        "cap_preflight_passed": bool(data.get("cap_preflight_passed", True)),
+        "router_validation_status": str(data.get("router_validation_status") or ""),
+        "riskguard_preview_status": str(data.get("riskguard_preview_status") or ""),
+        "live_preflight_preview_status": str(data.get("live_preflight_preview_status") or data.get("preflight_status") or ""),
+        "confirm_phrase_required": confirm_phrase_required,
+        "confirm_phrase_expected": confirm_phrase_expected,
+        "confirm_phrase_matched": confirm_phrase_matched,
+        "unlock_required": unlock_required,
+        "unlock_performed": unlock_performed,
+        "execution_allowed": False,
+        "execution_called": False,
+        "order_service_called": False,
+        "order_adapter_called": False,
+        "submitted": 0,
+        "actual_order": False,
+        "blocker": ",".join(blockers),
+        "next_required_user_action": "explicit_live_order_approval_required",
+        "live_order_approval_required": True,
     }
 
 

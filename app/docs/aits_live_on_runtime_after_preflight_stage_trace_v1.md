@@ -170,3 +170,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - `[AITS][LivePreflightPreview] event=live_preflight_preview` is the only allowed handoff after a passed RiskGuard preview in this phase.
 - Both previews are no-apply contracts: `riskguard_apply=False`, `live_preflight_apply=False`, `unlock_performed=False`, `submitted=0`, and `actual_order=False`.
 - A blocked preview reports `riskguard_preview_blocked` or `live_preflight_preview_blocked`; a passed live preflight preview stops at `live_preflight_preview_observe_only`.
+
+## 2026-07-08 - GuardedExecutionContract Preview
+
+- `[AITS][GuardedExecutionContract] event=contract_preview` is emitted after LivePreflightPreview to explain the remaining user-controlled gates.
+- The contract keeps `confirm_phrase_matched=False`, `unlock_performed=False`, `execution_allowed=False`, `execution_called=False`, `submitted=0`, and `actual_order=False`.
+- When present after a blocked LivePreflightPreview, after-preflight summary reports `first_blocker=live_order_approval_required` and `last_reached_stage=guarded_execution_contract_preview`.
+- This is UI/log visibility only. It does not call ExecutionBridge, OrderService, OrderAdapter, or unlock services.

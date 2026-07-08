@@ -39635,6 +39635,85 @@ class MainWindow(QMainWindow):
                                             bool(live_preview.get("confirm_phrase_required", True)),
                                             bool(live_preview.get("unlock_required", True)),
                                         )
+                                        try:
+                                            from app.services.live_order_preflight import build_guarded_execution_contract_preview
+
+                                            guarded_preview = build_guarded_execution_contract_preview(
+                                                {
+                                                    "request_id": live_preview_request_id,
+                                                    "symbol": str(live_preview.get("symbol") or candidate_symbol),
+                                                    "side": str(live_preview.get("side") or "buy"),
+                                                    "amount_krw": int(live_preview.get("amount_krw") or intended_amount or 0),
+                                                    "min_order_krw": 10000,
+                                                    "provider_ready": True,
+                                                    "market_feed_ok": True,
+                                                    "balance_preflight_passed": True,
+                                                    "cap_preflight_passed": True,
+                                                    "router_validation_status": validation_status,
+                                                    "riskguard_preview_status": risk_status,
+                                                    "live_preflight_preview_status": str(live_preview.get("preflight_status") or "failed"),
+                                                    "confirm_phrase_required": bool(live_preview.get("confirm_phrase_required", True)),
+                                                    "confirm_phrase_expected": str(live_preview.get("confirm_phrase_expected") or ""),
+                                                    "unlock_required": bool(live_preview.get("unlock_required", True)),
+                                                }
+                                            )
+                                        except Exception:
+                                            guarded_preview = {
+                                                "schema": "aits_guarded_execution_contract_preview.v1",
+                                                "source_request_id": live_preview_request_id,
+                                                "symbol": candidate_symbol,
+                                                "side": "buy",
+                                                "amount_krw": intended_amount,
+                                                "min_order_krw": 10000,
+                                                "provider_ready": True,
+                                                "market_feed_ok": True,
+                                                "balance_preflight_passed": True,
+                                                "cap_preflight_passed": True,
+                                                "router_validation_status": validation_status,
+                                                "riskguard_preview_status": risk_status,
+                                                "live_preflight_preview_status": str(live_preview.get("preflight_status") or "failed"),
+                                                "confirm_phrase_required": True,
+                                                "confirm_phrase_expected": "",
+                                                "confirm_phrase_matched": False,
+                                                "unlock_required": True,
+                                                "unlock_performed": False,
+                                                "execution_allowed": False,
+                                                "execution_called": False,
+                                                "order_service_called": False,
+                                                "order_adapter_called": False,
+                                                "submitted": 0,
+                                                "actual_order": False,
+                                                "next_required_user_action": "explicit_live_order_approval_required",
+                                                "live_order_approval_required": True,
+                                            }
+                                        guarded_request_id = f"guarded-execution-contract-{int(time.time() * 1000)}"
+                                        logging.getLogger("aits").info(
+                                            "[AITS][GuardedExecutionContract] event=contract_preview schema=aits_guarded_execution_contract_preview.v1 request_id=%s source_request_id=%s symbol=%s side=%s amount_krw=%s min_order_krw=%s provider_ready=%s market_feed_ok=%s balance_preflight_passed=%s cap_preflight_passed=%s router_validation_status=%s riskguard_preview_status=%s live_preflight_preview_status=%s confirm_phrase_required=%s confirm_phrase_expected=%s confirm_phrase_matched=False unlock_required=%s unlock_performed=False execution_allowed=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False next_required_user_action=%s live_order_approval_required=True",
+                                            guarded_request_id,
+                                            str(guarded_preview.get("source_request_id") or live_preview_request_id),
+                                            str(guarded_preview.get("symbol") or candidate_symbol),
+                                            str(guarded_preview.get("side") or "buy"),
+                                            int(guarded_preview.get("amount_krw") or intended_amount or 0),
+                                            int(guarded_preview.get("min_order_krw") or 10000),
+                                            bool(guarded_preview.get("provider_ready")),
+                                            bool(guarded_preview.get("market_feed_ok")),
+                                            bool(guarded_preview.get("balance_preflight_passed")),
+                                            bool(guarded_preview.get("cap_preflight_passed")),
+                                            str(guarded_preview.get("router_validation_status") or ""),
+                                            str(guarded_preview.get("riskguard_preview_status") or ""),
+                                            str(guarded_preview.get("live_preflight_preview_status") or ""),
+                                            bool(guarded_preview.get("confirm_phrase_required", True)),
+                                            str(guarded_preview.get("confirm_phrase_expected") or ""),
+                                            bool(guarded_preview.get("unlock_required", True)),
+                                            str(guarded_preview.get("next_required_user_action") or "explicit_live_order_approval_required"),
+                                        )
+                                        try:
+                                            self._set_aits_runtime_status_display(
+                                                "ON - order approval pending",
+                                                f"{str(guarded_preview.get('symbol') or candidate_symbol)} buy {int(guarded_preview.get('amount_krw') or intended_amount or 0)} KRW / confirm phrase and unlock required / no actual order",
+                                            )
+                                        except Exception:
+                                            pass
                             except Exception:
                                 pass
                 except Exception:
