@@ -1591,3 +1591,11 @@ adapter/service/execution reach as critical.
 - New feed fields include `market_feed_source`, `market_feed_reason`, `market_feed_blocker`, `latest_candidate_feed_total`, `latest_candidate_feed_buy_ready`, `latest_top_markets_count`, `latest_tickers_count`, and `latest_network_status`.
 - Balance/cap fields are parsed from `LiveOnPreflight` and `KRWBalanceSource`: `balance_gate_detected`, `available_krw`, `accounts_fetch_status`, `balance_fallback_reason`, `effective_cap_krw`, and `balance_gate_blocker`.
 - Harness diagnostics must keep `actual_order=false`, `submitted_count=0`, and must not synthesize market feed or balance values.
+
+## 2026-07-08 - Public Market Feed Diagnostic Mode
+
+- Added `public-market-feed-diagnostic` as a read-only public market diagnostic wrapper around the top-markets feed proof.
+- The mode reports `diagnostic_status=ok|degraded`, `public_feed_failure_type`, `empty_reason`, `exception_type`, `error_message_sanitized`, market/ticker counts, and safety flags.
+- A degraded public feed still exits as harness PASS when the diagnostic is produced; trading/order safety remains enforced separately.
+- E2E summaries ignore pre-session top-market proof successes when a newer RuntimeProvenance session exists.
+- Public feed diagnostics must keep `actual_order=false`, `submitted_count=0`, provider trading calls disabled, and no fake market rows.

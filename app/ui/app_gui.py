@@ -1682,6 +1682,7 @@ from app.services.upbit import (
     test_public_ping,
     get_tickers,
     get_top_markets_by_volume,
+    get_market_feed_diagnostics,
     get_holdings_snapshot,
     get_holdings_snapshot_auto,  # [ADD] 실보유 자동 스냅샷
     get_all_markets,             # [ADD] 전체 마켓 목록 (positions 티커 필터링용)
@@ -11047,14 +11048,17 @@ class MainWindow(QMainWindow):
             readiness = bool((top_count > 0 or ticker_count > 0 or score_total > 0) and not stale)
             if readiness:
                 reason_text = reason or "feed_ready"
+                blocker_text = ""
             elif stale:
                 reason_text = reason or str(getattr(self, "_candidate_feed_last_error", "") or "market_data_stale")
+                blocker_text = "market_feed_degraded"
             else:
                 reason_text = reason or "feed_snapshot_missing"
+                blocker_text = "market_feed_snapshot_missing"
             logging.getLogger("aits").info(
                 "[AITS][RuntimeFeedReadiness] event=feed_check source_path=%s market_feed_ok=%s "
                 "top_markets_count=%s tickers_count=%s score_update_total=%s buy_ready_count=%s "
-                "market_data_stale=%s network_status=%s last_ok_age_sec=%s reason=%s "
+                "market_data_stale=%s network_status=%s last_ok_age_sec=%s reason=%s blocker=%s "
                 "submitted=0 order_allowed=False real_order=False",
                 str(source or "unknown")[:80],
                 readiness,
@@ -11066,6 +11070,7 @@ class MainWindow(QMainWindow):
                 network_status,
                 last_ok_age,
                 str(reason_text or "unknown").replace("\n", " ")[:120],
+                str(blocker_text or "").replace("\n", " ")[:120],
             )
         except Exception:
             pass
@@ -39851,9 +39856,19 @@ class MainWindow(QMainWindow):
                 try:
                     tick_list = get_tickers(mkts) or []
                     if mkts and not tick_list:
-                        self._mark_candidate_feed_state(False, "top_markets", "ticker_empty", 0)
+                        try:
+                            diag = get_market_feed_diagnostics() or {}
+                        except Exception:
+                            diag = {}
+                        diag_reason = str(
+                            diag.get("empty_reason")
+                            or diag.get("exception_type")
+                            or diag.get("network_state")
+                            or ""
+                        ).strip()
+                        self._mark_candidate_feed_state(False, "tickers", diag_reason or "ticker_empty", 0)
                     elif tick_list:
-                        self._mark_candidate_feed_state(True, "top_markets", rows=len(tick_list))
+                        self._mark_candidate_feed_state(True, "tickers", rows=len(tick_list))
                     tick_by_m = {}
                     for t in tick_list:
                         if not isinstance(t, dict):
@@ -39873,7 +39888,17 @@ class MainWindow(QMainWindow):
                     self._mark_candidate_feed_state(False, "top_markets", type(exc).__name__, 0)
 
             if not filtered:
-                self._mark_candidate_feed_state(False, "top_markets", "market_rows_empty", 0)
+                try:
+                    diag = get_market_feed_diagnostics() or {}
+                except Exception:
+                    diag = {}
+                diag_reason = str(
+                    diag.get("empty_reason")
+                    or diag.get("exception_type")
+                    or diag.get("network_state")
+                    or ""
+                ).strip()
+                self._mark_candidate_feed_state(False, "top_markets", diag_reason or "market_rows_empty", 0)
 
             self._market_all_rows = filtered
             try:

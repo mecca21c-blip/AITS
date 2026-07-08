@@ -7,6 +7,7 @@ This module intentionally provides only lightweight wrappers/fallbacks so
 from __future__ import annotations
 
 import re
+import logging
 from typing import Any, Dict, List
 
 import requests
@@ -17,6 +18,46 @@ from app.services.market_feed import (
     get_tickers as _mf_get_tickers,
     get_top_markets_by_volume as _mf_get_top_markets_by_volume,
 )
+
+
+_LOG = logging.getLogger("aits")
+
+
+def _feed_diag() -> Dict[str, Any]:
+    try:
+        return dict(_mf_get_last_diagnostics() or {})
+    except Exception:
+        return {}
+
+
+def _safe_diag_text(value: Any, limit: int = 180) -> str:
+    text = str(value or "").replace("\n", " ").replace("\r", " ").strip()
+    return text[: max(20, int(limit or 180))]
+
+
+def _log_public_feed_event(event: str, **fields: Any) -> None:
+    try:
+        payload = {
+            "event": event,
+            "request_count": int(fields.get("request_count") or 0),
+            "response_count": int(fields.get("response_count") or 0),
+            "valid_symbol_count": int(fields.get("valid_symbol_count") or 0),
+            "empty_reason": _safe_diag_text(fields.get("empty_reason") or ""),
+            "exception_type": _safe_diag_text(fields.get("exception_type") or ""),
+            "network_status": _safe_diag_text(fields.get("network_status") or fields.get("network_state") or "unknown"),
+        }
+        _LOG.info(
+            "[AITS][PublicMarketFeed] event=%s request_count=%s response_count=%s valid_symbol_count=%s empty_reason=%s exception_type=%s network_status=%s submitted=0 order_allowed=False real_order=False",
+            payload["event"],
+            payload["request_count"],
+            payload["response_count"],
+            payload["valid_symbol_count"],
+            payload["empty_reason"],
+            payload["exception_type"],
+            payload["network_status"],
+        )
+    except Exception:
+        pass
 
 
 class _TickerRow(dict):
@@ -115,10 +156,23 @@ def get_tickers(markets, *args, **kwargs):
     print(
         f"[AITS][upbit] tickers_request raw={raw_n} valid={len(valid_markets)} sample={valid_markets[:3]}"
     )
+    _log_public_feed_event(
+        "tickers_request",
+        request_count=raw_n,
+        valid_symbol_count=len(valid_markets),
+    )
 
     if not valid_markets:
         print(
             f"[AITS][upbit] tickers_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        _log_public_feed_event(
+            "tickers_result",
+            request_count=raw_n,
+            response_count=0,
+            valid_symbol_count=0,
+            empty_reason="request_symbol_list_empty",
+            network_status="not_called",
         )
         return out
 
@@ -145,10 +199,30 @@ def get_tickers(markets, *args, **kwargs):
         print(
             f"[AITS][upbit] tickers_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
         )
+        diag = _feed_diag()
+        _log_public_feed_event(
+            "tickers_result",
+            request_count=len(valid_markets),
+            response_count=len(out),
+            valid_symbol_count=len(valid_markets),
+            empty_reason=diag.get("empty_reason") or ("ticker_empty" if not out else ""),
+            exception_type=diag.get("exception_type") or "",
+            network_status=diag.get("network_state") or ("ok" if out else "empty"),
+        )
         return out
-    except Exception:
+    except Exception as exc:
         print(
             f"[AITS][upbit] tickers_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        diag = _feed_diag()
+        _log_public_feed_event(
+            "tickers_result",
+            request_count=len(valid_markets),
+            response_count=0,
+            valid_symbol_count=len(valid_markets),
+            empty_reason=diag.get("empty_reason") or "exception",
+            exception_type=diag.get("exception_type") or type(exc).__name__,
+            network_status=diag.get("network_state") or "error",
         )
         return []
 
@@ -156,6 +230,8 @@ def get_tickers(markets, *args, **kwargs):
 def get_top_markets_by_volume(*args, **kwargs):
     """Return list[dict] top markets (KMTS UI contract). Never raises."""
     out: List[Dict[str, Any]] = []
+    requested_limit = int(kwargs.get("limit") or (args[0] if args else 0) or 0)
+    _log_public_feed_event("top_markets_request", request_count=requested_limit)
     try:
         raw = _mf_get_top_markets_by_volume(*args, **kwargs)
         if not isinstance(raw, list):
@@ -173,10 +249,30 @@ def get_top_markets_by_volume(*args, **kwargs):
         print(
             f"[AITS][upbit] top_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
         )
+        diag = _feed_diag()
+        _log_public_feed_event(
+            "top_markets_result",
+            request_count=requested_limit,
+            response_count=len(out),
+            valid_symbol_count=int(diag.get("krw_market_count") or 0),
+            empty_reason=diag.get("empty_reason") or ("top_markets_empty" if not out else ""),
+            exception_type=diag.get("exception_type") or "",
+            network_status=diag.get("network_state") or ("ok" if out else "empty"),
+        )
         return out
-    except Exception:
+    except Exception as exc:
         print(
             f"[AITS][upbit] top_markets_return count={len(out)} type={type(out[0]).__name__ if out else 'empty'}"
+        )
+        diag = _feed_diag()
+        _log_public_feed_event(
+            "top_markets_result",
+            request_count=requested_limit,
+            response_count=0,
+            valid_symbol_count=int(diag.get("krw_market_count") or 0),
+            empty_reason=diag.get("empty_reason") or "exception",
+            exception_type=diag.get("exception_type") or type(exc).__name__,
+            network_status=diag.get("network_state") or "error",
         )
         return []
 

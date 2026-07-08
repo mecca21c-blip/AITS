@@ -124,3 +124,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - After-preflight summary now mirrors E2E market-feed fields: `market_feed_ok`, `market_feed_source`, `market_feed_reason`, `latest_candidate_feed_total`, `latest_top_markets_count`, `latest_tickers_count`, and `latest_network_status`.
 - It also mirrors balance/cap gate fields: `balance_gate_detected`, `available_krw`, `accounts_fetch_status`, `balance_fallback_reason`, `effective_cap_krw`, and `balance_gate_blocker`.
 - A preflight failure after provider readiness can now be read as feed, balance, or cap state instead of a generic ON/preflight blocker.
+
+## 2026-07-08 - Public Feed Recovery Fields
+
+- After-preflight summary mirrors E2E public feed recovery fields: `latest_feed_recovery_seen`, `latest_feed_degraded_seen`, and `latest_public_feed_exception_type`.
+- `market_feed_network_error` means public `/v1/market/all` or ticker HTTP/read path failed before usable rows were available.
+- `market_feed_ticker_empty` and `market_feed_top_markets_empty` mean the read path returned no usable public rows without opening any order path.
+- A later recovery render or non-stale score update should move classification past the earlier degraded feed blocker.

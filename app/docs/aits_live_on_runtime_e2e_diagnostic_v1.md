@@ -234,3 +234,12 @@ LivePreflight, and unlock gates.
 - `market_feed_missing` is split into more specific blockers: `market_feed_ticker_empty`, `market_feed_top_markets_empty`, `market_feed_degraded`, `market_feed_snapshot_missing`, and `market_feed_not_ready`.
 - Balance/cap blockers are surfaced from `[AITS][LiveOnPreflight]` and `[AITS][KRWBalanceSource]` with `available_krw`, `accounts_fetch_status`, `fallback_reason`, and `effective_cap_krw`.
 - This is observability only: no fake market feed, no fake balance, no order enablement.
+
+## 2026-07-08 - Public Market Feed Recovery Root Fix
+
+- Public market-feed active path is `app.services.market_feed` through the `app.services.upbit` UI wrapper.
+- `[AITS][PublicMarketFeed]` logs distinguish request, result, empty response, and HTTP/network exception states for top markets and tickers.
+- `RuntimeFeedReadiness` remains the runtime SSOT; E2E uses it first, then latest-session public feed, score update, and NetworkState evidence.
+- A recovery or non-stale score update after an empty feed result can clear the earlier degraded state.
+- New blocker split: `market_feed_network_error`, `market_feed_ticker_empty`, `market_feed_top_markets_empty`, `market_feed_degraded`, and `market_feed_snapshot_missing`.
+- Balance/cap gates remain observational only; no fake feed, fake balance, order enablement, or submit path is introduced.

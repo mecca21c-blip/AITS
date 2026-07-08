@@ -60,6 +60,7 @@ CORE_WIDGETS = {
 }
 
 PUBLIC_MARKET_READ_MODES = {
+    "public-market-feed-diagnostic",
     "top-markets-feed-proof",
     "basic-candidate-discovery-proof",
     "buy-ready-order-intent-contract-proof",
@@ -973,6 +974,8 @@ def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20
             "exception_type": "",
             "network_state": "unknown",
             "cache_used": False,
+            "error_message_sanitized": "",
+            "public_feed_failure_type": "",
             "duration_ms": 0,
             "order_risk_detected": False,
             "provider_external_call_count": 0,
@@ -1048,6 +1051,7 @@ def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20
             "exception_type",
             "network_state",
             "cache_used",
+            "error_message_sanitized",
         ):
             if key in diagnostics:
                 report[key] = diagnostics[key]
@@ -1069,6 +1073,32 @@ def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20
             report["network_state"] = "ok"
     except Exception as exc:
         report["exception_type"] = type(exc).__name__
+        report["error_message_sanitized"] = str(exc).replace("\n", " ").replace("\r", " ").strip()[:220]
+        try:
+            from app.services import market_feed
+
+            diagnostics = market_feed.get_last_diagnostics()
+        except Exception:
+            diagnostics = {}
+        for key in (
+            "market_list_called",
+            "market_list_success",
+            "market_count_raw",
+            "krw_market_count",
+            "ticker_called",
+            "ticker_success",
+            "ticker_count",
+            "filtered_count",
+            "top_markets_count",
+            "empty_reason",
+            "exception_type",
+            "network_state",
+            "error_message_sanitized",
+        ):
+            if key in diagnostics:
+                report[key] = diagnostics[key]
+        if not report.get("error_message_sanitized"):
+            report["error_message_sanitized"] = str(exc).replace("\n", " ").replace("\r", " ").strip()[:220]
         if not report.get("empty_reason"):
             report["empty_reason"] = "exception"
         report["network_state"] = "error"
@@ -1084,6 +1114,22 @@ def _run_top_markets_feed_proof(report: dict[str, Any], *, max_markets: int = 20
         report["pass_status"] = "partial"
     else:
         report["pass_status"] = "fail"
+    empty_reason = str(report.get("empty_reason") or "")
+    exception_type = str(report.get("exception_type") or "")
+    if exception_type:
+        report["public_feed_failure_type"] = "network_exception" if empty_reason == "exception" else "parser_or_network_exception"
+    elif empty_reason == "ticker_empty":
+        report["public_feed_failure_type"] = "public_api_response_empty"
+    elif empty_reason in {"market_list_empty", "krw_market_list_empty"}:
+        report["public_feed_failure_type"] = "request_symbol_list_empty"
+    elif empty_reason == "filtered_out_by_min_price":
+        report["public_feed_failure_type"] = "invalid_market_filter"
+    elif top_count <= 0 and krw_count > 0:
+        report["public_feed_failure_type"] = "empty_top_markets"
+    elif top_count > 0:
+        report["public_feed_failure_type"] = ""
+    else:
+        report["public_feed_failure_type"] = empty_reason or "unknown_public_feed_failure"
 
 
 def _public_top_market_candidate_score(row: dict[str, Any], rank: int) -> float:
@@ -7516,8 +7562,27 @@ def _aits_latest_line_with(lines: list[str], *needles: str) -> str:
     return ""
 
 
+def _aits_latest_report_at_or_after(report: dict[str, Any], since: datetime | None) -> bool:
+    if since is None:
+        return True
+    raw = str(report.get("finished_at") or report.get("started_at") or "")
+    if not raw:
+        return False
+    try:
+        dt = datetime.fromisoformat(raw)
+        if dt.tzinfo is None and since.tzinfo is not None:
+            dt = dt.replace(tzinfo=since.tzinfo)
+        return dt >= since
+    except Exception:
+        return False
+
+
 def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
     runtime_line = _aits_latest_line_with(lines, "[aits][runtimefeedreadiness]")
+    public_top_line = _aits_latest_line_with(lines, "[aits][publicmarketfeed]", "event=top_markets_result")
+    public_ticker_line = _aits_latest_line_with(lines, "[aits][publicmarketfeed]", "event=tickers_result")
+    recovery_line = _aits_latest_line_with(lines, "[aits][networkrecovery]", "candidate_refresh_rendered")
+    degraded_line = _aits_latest_line_with(lines, "[aits][networkrecovery]", "candidate_refresh_incomplete")
     score_line = ""
     for line in reversed(lines):
         low = line.lower()
@@ -7541,9 +7606,13 @@ def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
     top_count = _aits_extract_kv_int(runtime_line, "top_markets_count", 0) if runtime_line else 0
     if top_count <= 0:
         top_count = _aits_extract_kv_int(top_line, "count", 0)
+    if top_count <= 0:
+        top_count = _aits_extract_kv_int(public_top_line, "response_count", 0)
     ticker_count = _aits_extract_kv_int(runtime_line, "tickers_count", 0) if runtime_line else 0
     if ticker_count <= 0:
         ticker_count = _aits_extract_kv_int(ticker_line, "count", 0)
+    if ticker_count <= 0:
+        ticker_count = _aits_extract_kv_int(public_ticker_line, "response_count", 0)
 
     stale = _aits_extract_kv_bool(runtime_line, "market_data_stale", False) if runtime_line else False
     if score_line:
@@ -7553,6 +7622,14 @@ def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
         network_status = _aits_extract_kv_text(network_line, "status")
     last_ok_age = _aits_extract_kv_int(runtime_line, "last_ok_age_sec", -1) if runtime_line else -1
     reason = _aits_extract_kv_text(runtime_line, "reason") if runtime_line else ""
+    if not reason:
+        reason = _aits_extract_kv_text(public_top_line, "empty_reason") or _aits_extract_kv_text(public_ticker_line, "empty_reason")
+    exception_type = _aits_extract_kv_text(public_top_line, "exception_type") or _aits_extract_kv_text(public_ticker_line, "exception_type")
+    public_network = _aits_extract_kv_text(public_top_line, "network_status") or _aits_extract_kv_text(public_ticker_line, "network_status")
+    if not network_status and public_network:
+        network_status = public_network
+    recovery_seen = bool(recovery_line)
+    degraded_seen = bool(degraded_line or (public_top_line and _aits_extract_kv_int(public_top_line, "response_count", 0) <= 0))
 
     source = "runtime_feed_readiness" if runtime_line else ""
     market_ok = False
@@ -7566,11 +7643,17 @@ def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
         market_ok = True
         source = source or "market_feed_counts"
         reason = reason or "feed_count_ready"
+    if not market_ok and recovery_seen and score_total > 0 and not stale:
+        market_ok = True
+        source = source or "network_recovery"
+        reason = reason or "feed_recovered"
 
     if not source:
-        source = "log_summary"
+        source = "public_market_feed" if (public_top_line or public_ticker_line) else "log_summary"
     if not reason:
-        if stale:
+        if exception_type:
+            reason = "network_exception"
+        elif stale:
             reason = "market_data_stale"
         elif ticker_line and ticker_count <= 0:
             reason = "ticker_empty"
@@ -7583,6 +7666,8 @@ def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
 
     if market_ok:
         blocker = ""
+    elif exception_type or reason in {"exception", "network_exception"}:
+        blocker = "market_feed_network_error"
     elif reason in {"ticker_empty", "top_markets_empty"}:
         blocker = "market_feed_ticker_empty" if reason == "ticker_empty" else "market_feed_top_markets_empty"
     elif reason in {"network_degraded", "market_data_stale"} or network_status in {"degraded", "disconnected"}:
@@ -7605,6 +7690,9 @@ def _analyze_live_on_market_feed_readiness(lines: list[str]) -> dict[str, Any]:
         "latest_network_status": network_status or "unknown",
         "market_feed_last_ok_age_sec": int(last_ok_age),
         "latest_runtime_feed_line": runtime_line,
+        "latest_feed_recovery_seen": bool(recovery_seen),
+        "latest_feed_degraded_seen": bool(degraded_seen),
+        "latest_public_feed_exception_type": exception_type,
     }
 
 
@@ -7715,6 +7803,7 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
         "market_feed_ticker_empty": "observing_only",
         "market_feed_top_markets_empty": "observing_only",
         "market_feed_degraded": "observing_only",
+        "market_feed_network_error": "observing_only",
         "market_feed_snapshot_missing": "observing_only",
         "market_feed_not_ready": "observing_only",
         "managed_pool_empty": "candidate_missing",
@@ -7746,6 +7835,7 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "market_feed_ticker_empty": "inspect ticker feed empty response and recovery state",
         "market_feed_top_markets_empty": "inspect top markets feed empty response and recovery state",
         "market_feed_degraded": "inspect public market feed network recovery",
+        "market_feed_network_error": "inspect public market feed HTTP/network failure",
         "market_feed_snapshot_missing": "inspect RuntimeFeedReadiness/CandidateFeedState writer",
         "market_feed_not_ready": "inspect latest market feed readiness reason",
         "managed_pool_empty": "inspect Managed Pool row load/persistence",
@@ -7820,7 +7910,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
 
     market_feed = _analyze_live_on_market_feed_readiness(lines)
     market_feed_ok = bool(market_feed.get("market_feed_ok"))
-    if top_feed_report and int(top_feed_report.get("top_markets_count") or 0) > 0:
+    if (
+        top_feed_report
+        and int(top_feed_report.get("top_markets_count") or 0) > 0
+        and _aits_latest_report_at_or_after(top_feed_report, session_started_at_dt)
+    ):
         market_feed_ok = True
         market_feed["market_feed_ok"] = True
         market_feed["market_feed_source"] = market_feed.get("market_feed_source") or "top_markets_feed_proof"
@@ -8032,6 +8126,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "latest_tickers_count": int(market_feed.get("latest_tickers_count") or 0),
         "latest_network_status": str(market_feed.get("latest_network_status") or ""),
         "market_feed_last_ok_age_sec": int(market_feed.get("market_feed_last_ok_age_sec") or -1),
+        "latest_feed_recovery_seen": bool(market_feed.get("latest_feed_recovery_seen")),
+        "latest_feed_degraded_seen": bool(market_feed.get("latest_feed_degraded_seen")),
+        "latest_public_feed_exception_type": str(market_feed.get("latest_public_feed_exception_type") or ""),
         "balance_gate_detected": bool(balance_gate.get("balance_gate_detected")),
         "available_krw": int(balance_gate.get("available_krw") or 0),
         "available_krw_source": str(balance_gate.get("available_krw_source") or ""),
@@ -8421,6 +8518,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "latest_tickers_count": int(e2e.get("latest_tickers_count") or 0),
         "latest_network_status": str(e2e.get("latest_network_status") or ""),
         "market_feed_last_ok_age_sec": int(e2e.get("market_feed_last_ok_age_sec") or -1),
+        "latest_feed_recovery_seen": bool(e2e.get("latest_feed_recovery_seen")),
+        "latest_feed_degraded_seen": bool(e2e.get("latest_feed_degraded_seen")),
+        "latest_public_feed_exception_type": str(e2e.get("latest_public_feed_exception_type") or ""),
         "balance_gate_detected": bool(e2e.get("balance_gate_detected")),
         "available_krw": int(e2e.get("available_krw") or 0),
         "available_krw_source": str(e2e.get("available_krw_source") or ""),
@@ -17723,6 +17823,7 @@ def run_harness(
     if mode in {
         "riskguard-proof",
         "top-markets-feed-proof",
+        "public-market-feed-diagnostic",
         "provider-connection-log-forensic-summary",
         "buy-ready-order-intent-contract-fixture-proof",
         "buy-ready-order-intent-contract-proof",
@@ -17795,9 +17896,12 @@ def run_harness(
     }:
         if mode == "riskguard-proof":
             _run_riskguard_proof(report)
-        elif mode == "top-markets-feed-proof":
+        elif mode in {"top-markets-feed-proof", "public-market-feed-diagnostic"}:
             _install_provider_post_guard(report)
             _run_top_markets_feed_proof(report, max_markets=max_markets)
+            if mode == "public-market-feed-diagnostic":
+                report["diagnostic_status"] = "ok" if int(report.get("top_markets_count") or 0) > 0 else "degraded"
+                report["pass_status"] = "pass"
         elif mode == "provider-connection-log-forensic-summary":
             _run_provider_connection_log_forensic_summary(report, provider=provider or "gpt")
         elif mode == "buy-ready-order-intent-contract-fixture-proof":
@@ -18540,6 +18644,7 @@ def run_harness(
         "live-on-preflight-provider-readiness-regression-proof",
         "live-on-preflight-provider-ready-snapshot-summary",
         "live-on-preflight-provider-ready-regression-proof",
+        "public-market-feed-diagnostic",
         "top-markets-feed-proof",
         "provider-connection-log-forensic-summary",
         "save-probe",
@@ -18599,6 +18704,7 @@ def main() -> int:
             "provider-smoke",
             "provider-startup-readiness-proof",
             "real-app-startup-readiness-proof",
+            "public-market-feed-diagnostic",
             "top-markets-feed-proof",
             "buy-ready-order-intent-contract-fixture-proof",
             "buy-ready-order-intent-contract-proof",

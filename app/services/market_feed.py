@@ -73,6 +73,11 @@ _LOCK = threading.RLock()
 _LAST_DIAGNOSTICS: Dict[str, object] = {}
 
 
+def _safe_error_text(exc: object, limit: int = 220) -> str:
+    text = str(exc or "").replace("\n", " ").replace("\r", " ").strip()
+    return text[: max(20, int(limit or 220))]
+
+
 def _set_last_diagnostics(**fields: object) -> None:
     with _LOCK:
         _LAST_DIAGNOSTICS.clear()
@@ -87,14 +92,31 @@ def get_last_diagnostics() -> Dict[str, object]:
 def _http_get(path: str, params: dict = None, timeout: float = _DEFAULT_TIMEOUT):
     url = f"{_UPBIT_BASE}{path}"
     try:
+        _LOG.info(
+            "[AITS][PublicMarketFeed] event=http_request endpoint=%s param_keys=%s submitted=0 order_allowed=False real_order=False",
+            path,
+            ",".join(sorted((params or {}).keys())),
+        )
         r = _HTTP.get(url, params=params or {}, timeout=timeout)
         if r.status_code == 429:
             # rate limited → 짧은 백오프
             time.sleep(0.25)
             r = _HTTP.get(url, params=params or {}, timeout=timeout)
+        _LOG.info(
+            "[AITS][PublicMarketFeed] event=http_result endpoint=%s http_status=%s ok=%s submitted=0 order_allowed=False real_order=False",
+            path,
+            int(getattr(r, "status_code", 0) or 0),
+            bool(getattr(r, "ok", False)),
+        )
         r.raise_for_status()
         return r.json()
     except Exception as e:
+        _LOG.warning(
+            "[AITS][PublicMarketFeed] event=http_exception endpoint=%s exception_type=%s error_message_sanitized=%s submitted=0 order_allowed=False real_order=False",
+            path,
+            type(e).__name__,
+            _safe_error_text(e),
+        )
         raise RuntimeError(f"HTTP GET 실패: {path} {params} · {e}")
 
 def get_markets(quote: str = "KRW", ttl: float = 60.0) -> List[str]:
@@ -239,6 +261,11 @@ def get_top_markets_by_volume(limit: int = 20,
         "duration_ms": 0,
     }
     try:
+        _LOG.info(
+            "[AITS][PublicMarketFeed] event=top_markets_request request_count=%s quote=%s submitted=0 order_allowed=False real_order=False",
+            int(limit or 0),
+            str(quote or ""),
+        )
         diagnostics["market_list_called"] = True
         raw_mkts = get_markets(quote=quote, ttl=ttl_markets)
         diagnostics["market_list_success"] = True
@@ -279,11 +306,26 @@ def get_top_markets_by_volume(limit: int = 20,
         diagnostics["network_state"] = "ok" if top else "empty"
         if top:
             diagnostics["empty_reason"] = ""
+        _LOG.info(
+            "[AITS][PublicMarketFeed] event=top_markets_result response_count=%s market_count_raw=%s krw_market_count=%s ticker_count=%s empty_reason=%s network_status=%s submitted=0 order_allowed=False real_order=False",
+            int(diagnostics.get("top_markets_count") or 0),
+            int(diagnostics.get("market_count_raw") or 0),
+            int(diagnostics.get("krw_market_count") or 0),
+            int(diagnostics.get("ticker_count") or 0),
+            str(diagnostics.get("empty_reason") or ""),
+            str(diagnostics.get("network_state") or "unknown"),
+        )
     except Exception as exc:
         diagnostics["exception_type"] = type(exc).__name__
+        diagnostics["error_message_sanitized"] = _safe_error_text(exc)
         diagnostics["empty_reason"] = "exception"
         diagnostics["network_state"] = "error"
         diagnostics["duration_ms"] = int(round((time.time() - started) * 1000.0))
+        _LOG.warning(
+            "[AITS][PublicMarketFeed] event=top_markets_result response_count=0 exception_type=%s empty_reason=exception network_status=error error_message_sanitized=%s submitted=0 order_allowed=False real_order=False",
+            type(exc).__name__,
+            diagnostics["error_message_sanitized"],
+        )
         _set_last_diagnostics(**diagnostics)
         raise
     finally:
