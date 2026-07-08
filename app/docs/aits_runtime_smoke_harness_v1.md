@@ -1599,3 +1599,10 @@ adapter/service/execution reach as critical.
 - A degraded public feed still exits as harness PASS when the diagnostic is produced; trading/order safety remains enforced separately.
 - E2E summaries ignore pre-session top-market proof successes when a newer RuntimeProvenance session exists.
 - Public feed diagnostics must keep `actual_order=false`, `submitted_count=0`, provider trading calls disabled, and no fake market rows.
+
+## 2026-07-08 - Public Feed Network Profile Proof
+
+- Added `public-market-feed-network-profile-proof` to compare public feed reachability across harness process, direct service call, recent app runtime logs, and latest external/escalated public diagnostic reports.
+- The mode emits `aits_public_market_feed_network_profile_proof_v1` with per-profile `python_executable`, `cwd`, `frozen`, `git_head`, market/ticker/top counts, exception fields, elapsed time, and safety flags.
+- If the harness process fails but an app/external public profile succeeds, the report sets `runtime_network_profile_split_detected=true`.
+- The proof remains read-only public market data only: no provider trading calls, no private balance mutation, no order path.

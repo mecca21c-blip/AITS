@@ -131,3 +131,8 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - `market_feed_network_error` means public `/v1/market/all` or ticker HTTP/read path failed before usable rows were available.
 - `market_feed_ticker_empty` and `market_feed_top_markets_empty` mean the read path returned no usable public rows without opening any order path.
 - A later recovery render or non-stale score update should move classification past the earlier degraded feed blocker.
+
+## 2026-07-08 - Network Profile Split Fields
+
+- After-preflight summary now mirrors `runtime_network_profile_split_detected`, `market_feed_app_process_ok`, and `external_public_read_network_ok` from E2E diagnostics.
+- These fields explain whether a public feed failure belongs to the harness environment or the app runtime profile.

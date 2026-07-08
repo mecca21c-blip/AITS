@@ -243,3 +243,11 @@ LivePreflight, and unlock gates.
 - A recovery or non-stale score update after an empty feed result can clear the earlier degraded state.
 - New blocker split: `market_feed_network_error`, `market_feed_ticker_empty`, `market_feed_top_markets_empty`, `market_feed_degraded`, and `market_feed_snapshot_missing`.
 - Balance/cap gates remain observational only; no fake feed, fake balance, order enablement, or submit path is introduced.
+
+## 2026-07-08 - Network Profile Split Handling
+
+- E2E diagnostics now read the latest `public-market-feed-network-profile-proof` report.
+- If only the harness/sandbox public feed profile fails while the app runtime public feed profile succeeds, E2E sets `runtime_network_profile_split_detected=true` and does not pin the first blocker to `market_feed_network_error`.
+- A successful external/escalated public read is supporting evidence that the public endpoint is reachable outside the sandbox, but it does not clear an app runtime `market_feed_network_error` by itself.
+- If the app runtime profile also fails, `market_feed_network_error` remains the first blocker.
+- This rule prevents a Codex sandbox network restriction from being misclassified as an app runtime feed blocker.
