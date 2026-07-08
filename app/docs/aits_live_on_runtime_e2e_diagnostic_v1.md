@@ -266,3 +266,10 @@ LivePreflight, and unlock gates.
 - `CandidateFeedState` contributes to `candidate_loop_running` and `candidate_loop_source`, while `[AITS][OrderIntentCandidate]` contributes to observe-only order intent candidate detection.
 - Observe-only candidate logs are diagnostic only and must not call Router, RiskGuard, LivePreflight, ExecutionBridge, OrderService, or OrderAdapter.
 - Boolean false text such as `live_preflight_called=False` is no longer treated as a LivePreflight call. E2E requires an actual LivePreflight prefix or an explicit true marker.
+
+## 2026-07-08 - RouterHandoff Observe-Only Preview
+
+- E2E diagnostics now recognize `[AITS][RouterHandoff] event=handoff_preview` as a preview-only payload boundary after `OrderIntentCandidate`.
+- The preview keeps `router_apply=False`, `final_action_applied=False`, `submitted=0`, `actual_order=False`, and all downstream call flags false.
+- If preview exists and DecisionRouter validation is not called, E2E reports `first_blocker=router_handoff_preview_only` instead of `router_not_reached`.
+- Summary fields include `router_handoff_preview_detected`, `router_handoff_schema`, `router_handoff_request_id`, `router_handoff_symbol`, `router_handoff_side`, `router_handoff_amount_krw`, `router_handoff_observe_only`, `router_apply`, `final_action_applied`, and `router_validation_observe_only`.

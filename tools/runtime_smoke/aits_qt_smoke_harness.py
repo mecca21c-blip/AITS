@@ -8155,6 +8155,11 @@ def _live_on_runtime_e2e_extract_amount(line: str) -> int:
     return 0
 
 
+def _live_on_runtime_e2e_extract_side(line: str) -> str:
+    match = re.search(r"\bside[=:]\s*([A-Za-z_]+)", line)
+    return str(match.group(1)).strip().lower() if match else ""
+
+
 def _live_on_runtime_bool_marker(line: str, key: str) -> bool:
     return bool(re.search(rf"\b{re.escape(key)}[=:]\s*(?:True|true|1)\b", line))
 
@@ -8178,6 +8183,9 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
         "no_buy_ready_candidate": "candidate_missing",
         "ai_opinion_not_fresh": "blocked_before_router",
         "order_intent_candidate_missing": "blocked_before_router",
+        "router_handoff_missing": "blocked_before_router",
+        "router_handoff_preview_only": "blocked_before_router",
+        "router_validation_observe_only": "blocked_at_router",
         "router_not_reached": "blocked_before_router",
         "riskguard_not_reached": "blocked_at_router",
         "live_preflight_not_reached": "blocked_at_riskguard",
@@ -8212,6 +8220,9 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "no_buy_ready_candidate": "inspect Basic buy_ready criteria and Managed Pool scores",
         "ai_opinion_not_fresh": "inspect AI opinion freshness/manual refresh reflection",
         "order_intent_candidate_missing": "inspect buy_ready to order_intent_candidate contract input",
+        "router_handoff_missing": "inspect OrderIntentCandidate to RouterHandoff preview boundary",
+        "router_handoff_preview_only": "prepare separate Router validation observe-only goal",
+        "router_validation_observe_only": "prepare separate high-risk Router/RiskGuard/LivePreflight goal",
         "router_not_reached": "inspect Router validation handoff boundary",
         "riskguard_not_reached": "inspect RiskGuard handoff boundary",
         "live_preflight_not_reached": "inspect LivePreflight handoff boundary",
@@ -8388,6 +8399,22 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     latest_order_intent_candidate = order_intent_lines[-1] if order_intent_lines else ""
     order_intent_candidate_reason = _live_on_stage_extract_value(latest_order_intent_candidate, "reason")
     order_intent_candidate_blocker = _live_on_stage_extract_value(latest_order_intent_candidate, "blocker")
+    router_handoff_lines = [
+        line for line in lines
+        if "[AITS][RouterHandoff]" in line and "event=handoff_preview" in line
+    ]
+    latest_router_handoff = router_handoff_lines[-1] if router_handoff_lines else ""
+    router_handoff_preview_detected = bool(router_handoff_lines)
+    router_handoff_observe_only = _live_on_runtime_bool_marker(latest_router_handoff, "observe_only")
+    router_apply = _live_on_runtime_bool_marker(latest_router_handoff, "router_apply")
+    final_action_applied = _live_on_runtime_bool_marker(latest_router_handoff, "final_action_applied")
+    router_handoff_schema = _live_on_stage_extract_value(latest_router_handoff, "schema")
+    router_handoff_request_id = _live_on_stage_extract_value(latest_router_handoff, "request_id")
+    router_handoff_symbol = _live_on_runtime_e2e_extract_symbol(latest_router_handoff)
+    router_handoff_side = _live_on_runtime_e2e_extract_side(latest_router_handoff)
+    router_handoff_amount = _live_on_runtime_e2e_extract_amount(latest_router_handoff)
+    router_handoff_blocker = _live_on_stage_extract_value(latest_router_handoff, "blocker")
+    router_handoff_next_fix_target = _live_on_stage_extract_value(latest_router_handoff, "next_fix_target")
     router_lines = [
         line for line in lines
         if "[AITS][RouterSummary]" in line
@@ -8484,7 +8511,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         ("buy_ready_present", buy_ready_count > 0, "no_buy_ready_candidate"),
         ("ai_opinion_fresh_present", ai_opinion_fresh_count > 0, "ai_opinion_not_fresh"),
         ("order_intent_candidate_detected", bool(order_intent_lines), "order_intent_candidate_missing"),
-        ("router_validation_reached", bool(router_lines), "router_not_reached"),
+        ("router_handoff_preview_detected", router_handoff_preview_detected, "router_handoff_missing"),
+        (
+            "router_validation_reached",
+            bool(router_lines),
+            "router_handoff_preview_only" if router_handoff_preview_detected else "router_not_reached",
+        ),
         ("riskguard_reached", bool(riskguard_lines), "riskguard_not_reached"),
         ("live_preflight_reached", bool(preflight_lines), "live_preflight_not_reached"),
         ("unlock_reached", bool(unlock_lines), "unlock_not_reached"),
@@ -8530,6 +8562,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         critical_flags.append("order_adapter_reached_without_riskguard")
     if submit_attempt_count and not unlock_lines:
         critical_flags.append("submit_reached_without_unlock")
+    if router_apply:
+        critical_flags.append("router_apply_true_detected")
+    if final_action_applied:
+        critical_flags.append("final_action_applied_true_detected")
 
     order_path_status = "submitted_and_recorded" if submitted_count and trade_log_detected and position_update_detected else ""
     if not order_path_status and submitted_count:
@@ -8608,6 +8644,18 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),
         "order_intent_candidate_blocker": str(order_intent_candidate_blocker or ""),
         "order_intent_candidate_observe_only": bool(order_intent_candidate_observe_only),
+        "router_handoff_preview_detected": bool(router_handoff_preview_detected),
+        "router_handoff_schema": str(router_handoff_schema or ""),
+        "router_handoff_request_id": str(router_handoff_request_id or ""),
+        "router_handoff_symbol": str(router_handoff_symbol or ""),
+        "router_handoff_side": str(router_handoff_side or ""),
+        "router_handoff_amount_krw": int(router_handoff_amount or 0),
+        "router_handoff_observe_only": bool(router_handoff_observe_only),
+        "router_apply": bool(router_apply),
+        "final_action_applied": bool(final_action_applied),
+        "router_validation_observe_only": bool(router_handoff_preview_detected and not router_apply and not final_action_applied),
+        "router_handoff_blocker": str(router_handoff_blocker or ""),
+        "router_handoff_next_fix_target": str(router_handoff_next_fix_target or ""),
         "detected_candidate_symbol": detected_candidate_symbol,
         "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
         "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
@@ -8843,6 +8891,10 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     order_intent_candidate_observe_only = bool(e2e.get("order_intent_candidate_observe_only"))
     order_intent_candidate_reason = str(e2e.get("order_intent_candidate_reason") or "")
     order_intent_candidate_blocker = str(e2e.get("order_intent_candidate_blocker") or "")
+    router_handoff_preview_detected = bool(e2e.get("router_handoff_preview_detected"))
+    router_apply = bool(e2e.get("router_apply"))
+    final_action_applied = bool(e2e.get("final_action_applied"))
+    router_validation_observe_only = bool(e2e.get("router_validation_observe_only"))
 
     preflight_status = "not_logged"
     if preflight_failed:
@@ -8899,6 +8951,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     elif runtime_start_requested and not runtime_loop_started:
         first_blocker = "runtime_start_requested_but_not_started"
         last_reached_stage = "runtime_start_requested"
+    elif router_handoff_preview_detected and not router_apply and not final_action_applied and not e2e.get("router_called"):
+        first_blocker = "router_handoff_preview_only"
+        last_reached_stage = "router_handoff_preview"
     elif runtime_loop_started and not order_allowed:
         first_blocker = "runtime_started_but_order_allowed_false"
         last_reached_stage = "runtime_loop_started"
@@ -8940,6 +8995,8 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "runtime_started_but_order_allowed_false": "inspect live gate/order_allowed ownership after runner start",
         "runtime_started_order_allowed_true_but_real_order_false": "inspect real_order/live unlock confirmation gate",
         "order_intent_candidate_missing": "inspect buy_ready to order intent candidate active bridge",
+        "router_handoff_preview_only": "prepare separate Router validation observe-only goal",
+        "router_validation_observe_only": "prepare separate high-risk Router/RiskGuard/LivePreflight goal",
     }
 
     timeline = (on_lines + preflight_lines + provider_lines + runtime_lines + live_gate_lines)[-120:]
@@ -9061,6 +9118,18 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),
         "order_intent_candidate_blocker": str(order_intent_candidate_blocker or ""),
         "order_intent_candidate_observe_only": bool(order_intent_candidate_observe_only),
+        "router_handoff_preview_detected": bool(router_handoff_preview_detected),
+        "router_handoff_schema": str(e2e.get("router_handoff_schema") or ""),
+        "router_handoff_request_id": str(e2e.get("router_handoff_request_id") or ""),
+        "router_handoff_symbol": str(e2e.get("router_handoff_symbol") or ""),
+        "router_handoff_side": str(e2e.get("router_handoff_side") or ""),
+        "router_handoff_amount_krw": int(e2e.get("router_handoff_amount_krw") or 0),
+        "router_handoff_observe_only": bool(e2e.get("router_handoff_observe_only")),
+        "router_apply": bool(router_apply),
+        "final_action_applied": bool(final_action_applied),
+        "router_validation_observe_only": bool(router_validation_observe_only),
+        "router_handoff_blocker": str(e2e.get("router_handoff_blocker") or ""),
+        "router_handoff_next_fix_target": str(e2e.get("router_handoff_next_fix_target") or ""),
         "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),
         "router_validation_reached": bool(e2e.get("router_validation_reached")),
         "riskguard_reached": bool(e2e.get("riskguard_reached")),

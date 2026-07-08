@@ -39470,6 +39470,27 @@ class MainWindow(QMainWindow):
                             candidate_blocker,
                             bool(runtime_contract_active),
                         )
+                        if runtime_contract_active and candidate_symbol:
+                            try:
+                                preview_request_id = f"router-preview-{int(time.time() * 1000)}"
+                                preview_provider = ""
+                                try:
+                                    preview_provider = str(self._get_aits_engine_ssot() or "").strip().lower()
+                                except Exception:
+                                    preview_provider = ""
+                                preview_runtime_state = "runtime_contract_active" if runtime_contract_active else "runtime_not_confirmed"
+                                logging.getLogger("aits").info(
+                                    "[AITS][RouterHandoff] event=handoff_preview schema=aits_router_handoff_preview.v1 request_id=%s source=%s observe_only=True symbol=%s side=buy amount_krw=%s provider=%s confidence=0 score=%s reason=buy_ready_candidate runtime_state=%s preflight_status=passed provider_ready=True market_feed_ok=True balance_preflight_passed=True cap_preflight_passed=True router_apply=False final_action_applied=False router_called=False riskguard_called=False live_preflight_called=False execution_called=False order_service_called=False order_adapter_called=False submitted=0 actual_order=False order_allowed=False real_order=False blocker=router_handoff_preview_only next_fix_target=router_validation_observe_only_goal",
+                                    preview_request_id,
+                                    candidate_source,
+                                    candidate_symbol,
+                                    intended_amount,
+                                    preview_provider or "unknown",
+                                    candidate_score,
+                                    preview_runtime_state,
+                                )
+                            except Exception:
+                                pass
                 except Exception:
                     pass
             except Exception:

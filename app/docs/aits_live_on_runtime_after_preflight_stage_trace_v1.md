@@ -149,3 +149,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - After `post_preflight_contract`, runtime start must emit exactly one of `start_requested`, `start_result`, or `start_skipped`.
 - Paired `toggled`/`clicked` signals from one ON click are suppressed as `duplicate_suppressed reason=paired_toggled_clicked`.
 - Summary fields include `post_preflight_contract_detected`, `start_requested_detected`, `start_request_count`, `start_result_status`, `start_skipped_reason`, and `duplicate_suppressed_count`.
+
+## 2026-07-08 - RouterHandoff Observe-Only Boundary
+
+- `[AITS][RouterHandoff] event=handoff_preview` is the only allowed bridge from an observe-only `OrderIntentCandidate` in this phase.
+- The preview schema is `aits_router_handoff_preview.v1` and keeps `observe_only=True`, `router_apply=False`, `final_action_applied=False`, `submitted=0`, and `actual_order=False`.
+- It is not a DecisionRouter final action and must not call RiskGuard, LivePreflight, ExecutionBridge, OrderService, or OrderAdapter.
+- After-preflight summaries expose `router_handoff_preview_detected`, `router_handoff_schema`, `router_handoff_request_id`, `router_handoff_symbol`, `router_handoff_side`, `router_handoff_amount_krw`, `router_apply`, `final_action_applied`, and `router_validation_observe_only`.
