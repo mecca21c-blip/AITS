@@ -198,3 +198,9 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - A normal guarded-window order does not require one-shot confirm phrase or one-shot unlock, but it still must pass RiskGuard, LivePreflight, ExecutionBridge, OrderService, and OrderAdapter.
 - After-preflight summary exposes `normal_live_order_pipeline_detected`, `live_pipeline_router_result`, `live_pipeline_riskguard_result`, `live_pipeline_execution_requested`, `live_pipeline_execution_result`, `live_pipeline_order_submit_result`, and `live_pipeline_blocker`.
 - This prevents a normal ON run from being classified as missing approval UI.
+## 2026-07-08 - Buy Ready Criteria Visibility
+
+- ON runtime이 시작됐지만 매수 후보가 없을 때는 `[AITS][BuyReadyCriteria] event=evaluate`로 관리종목별 점수, 상태, threshold, blocker를 남긴다.
+- 후보가 없으면 `[AITS][LiveOrderPipeline] event=no_candidate`를 남기며 `best_symbol`, `best_score`, `best_status`, `best_blocker`, `threshold`를 포함한다.
+- UI 상태 표시는 `ON - 매수 후보 탐색 중`과 후보 없음 사유를 보여준다.
+- 이 단계는 합성된 매수 준비 상태나 합성 주문 의도를 만들지 않으며 `submitted=0`, `actual_order=false`를 유지한다.

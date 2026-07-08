@@ -8312,6 +8312,62 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             buy_ready_count = max(buy_ready_count, int(contract_report.get("buy_ready_count") or 0))
         except Exception:
             pass
+    buy_ready_criteria_lines = [
+        line for line in lines
+        if "[AITS][BuyReadyCriteria]" in line and "event=evaluate" in line
+    ]
+    buy_ready_criteria_detected = bool(buy_ready_criteria_lines)
+    managed_candidate_evaluated_count = len(buy_ready_criteria_lines)
+    latest_criteria_by_symbol: dict[str, str] = {}
+    for line in buy_ready_criteria_lines:
+        symbol = _live_on_stage_extract_value(line, "symbol")
+        if symbol:
+            latest_criteria_by_symbol[symbol] = line
+    latest_criteria_lines = list(latest_criteria_by_symbol.values()) or buy_ready_criteria_lines
+    managed_candidate_evaluated_count = len(latest_criteria_lines)
+    buy_ready_threshold = 0
+    best_candidate_symbol = ""
+    best_candidate_score = 0
+    best_candidate_status = ""
+    best_candidate_blocker = ""
+    for line in latest_criteria_lines:
+        try:
+            score = int(_live_on_stage_extract_value(line, "score") or 0)
+        except Exception:
+            score = 0
+        if score >= best_candidate_score:
+            best_candidate_score = score
+            best_candidate_symbol = _live_on_stage_extract_value(line, "symbol")
+            best_candidate_status = _live_on_stage_extract_value(line, "status")
+            best_candidate_blocker = _live_on_stage_extract_value(line, "blocker")
+        if not buy_ready_threshold:
+            try:
+                buy_ready_threshold = int(_live_on_stage_extract_value(line, "threshold") or 0)
+            except Exception:
+                buy_ready_threshold = 0
+    live_pipeline_no_candidate_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderPipeline]" in line and "event=no_candidate" in line
+    ]
+    latest_live_pipeline_no_candidate = live_pipeline_no_candidate_lines[-1] if live_pipeline_no_candidate_lines else ""
+    live_pipeline_no_candidate_detected = bool(live_pipeline_no_candidate_lines)
+    no_candidate_reason = _live_on_stage_extract_value(latest_live_pipeline_no_candidate, "reason")
+    if latest_live_pipeline_no_candidate:
+        best_candidate_symbol = _live_on_stage_extract_value(latest_live_pipeline_no_candidate, "best_symbol") or best_candidate_symbol
+        try:
+            best_candidate_score = int(_live_on_stage_extract_value(latest_live_pipeline_no_candidate, "best_score") or best_candidate_score or 0)
+        except Exception:
+            pass
+        best_candidate_status = _live_on_stage_extract_value(latest_live_pipeline_no_candidate, "best_status") or best_candidate_status
+        best_candidate_blocker = _live_on_stage_extract_value(latest_live_pipeline_no_candidate, "best_blocker") or best_candidate_blocker
+        try:
+            managed_candidate_evaluated_count = int(_live_on_stage_extract_value(latest_live_pipeline_no_candidate, "evaluated_count") or managed_candidate_evaluated_count or 0)
+        except Exception:
+            pass
+        try:
+            buy_ready_threshold = int(_live_on_stage_extract_value(latest_live_pipeline_no_candidate, "threshold") or buy_ready_threshold or 0)
+        except Exception:
+            pass
 
     market_feed = _analyze_live_on_market_feed_readiness(lines)
     market_feed_ok = bool(market_feed.get("market_feed_ok"))
@@ -8527,6 +8583,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     live_pipeline_execution_requested = any("event=execution_requested" in line for line in live_pipeline_lines)
     live_pipeline_execution_result = any("event=execution_result" in line for line in live_pipeline_lines)
     live_pipeline_order_submit_result = any("event=order_submit_result" in line for line in live_pipeline_lines)
+    live_pipeline_no_candidate_detected = bool(live_pipeline_no_candidate_detected)
     live_pipeline_blocker = _live_on_stage_extract_value(latest_live_pipeline_line, "blocker")
     live_order_ux_ready_lines = [
         line for line in lines
@@ -8781,6 +8838,22 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     if live_order_ux_silent_failure:
         first_blocker = "live_order_ux_silent_failure"
         last_reached_stage = "runtime_loop_started"
+    if first_blocker == "no_buy_ready_candidate":
+        normalized_best_blocker = str(best_candidate_blocker or "").strip().lower()
+        if managed_candidate_evaluated_count <= 0:
+            first_blocker = "candidate_evaluation_missing"
+        elif normalized_best_blocker == "score_below_threshold":
+            first_blocker = "buy_ready_score_below_threshold"
+        elif normalized_best_blocker in {"market_data_stale", "ai_opinion_stale"}:
+            first_blocker = "buy_ready_ai_opinion_stale" if normalized_best_blocker == "ai_opinion_stale" else "market_data_stale"
+        elif normalized_best_blocker in {"policy_hold", "manual_hold"}:
+            first_blocker = "buy_ready_policy_hold"
+        elif normalized_best_blocker:
+            first_blocker = normalized_best_blocker
+    if buy_ready_count > 0 and not live_pipeline_candidate_selected and not router_handoff_preview_detected:
+        first_blocker = "buy_ready_but_candidate_not_selected"
+    if live_pipeline_candidate_selected and not live_pipeline_router_started and not live_pipeline_router_result:
+        first_blocker = "candidate_selected_but_router_not_started"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -8858,6 +8931,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_pipeline_execution_requested": bool(live_pipeline_execution_requested),
         "live_pipeline_execution_result": bool(live_pipeline_execution_result),
         "live_pipeline_order_submit_result": bool(live_pipeline_order_submit_result),
+        "live_pipeline_no_candidate_detected": bool(live_pipeline_no_candidate_detected),
         "live_pipeline_blocker": str(live_pipeline_blocker or ""),
         "live_on_preflight_blocked": bool(live_on_preflight_blocked),
         "configured_order_amount_krw": configured_amount,
@@ -8897,6 +8971,15 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "score_update_count": score_update_count,
         "buy_ready_count": buy_ready_count,
         "latest_buy_ready_count": buy_ready_count,
+        "buy_ready_criteria_detected": bool(buy_ready_criteria_detected),
+        "managed_candidate_evaluated_count": int(managed_candidate_evaluated_count or 0),
+        "best_candidate_symbol": str(best_candidate_symbol or ""),
+        "best_candidate_score": int(best_candidate_score or 0),
+        "best_candidate_status": str(best_candidate_status or ""),
+        "best_candidate_blocker": str(best_candidate_blocker or ""),
+        "buy_ready_threshold": int(buy_ready_threshold or 0),
+        "no_candidate_reason": str(no_candidate_reason or ""),
+        "user_visible_candidate_status": str(latest_live_pipeline_no_candidate or latest_approval_waiting_status or latest_runtime_state or ""),
         "ai_opinion_fresh_count": ai_opinion_fresh_count,
         "order_intent_candidate_detected": bool(order_intent_lines),
         "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),
@@ -8909,6 +8992,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_pipeline_execution_requested": bool(live_pipeline_execution_requested),
         "live_pipeline_execution_result": bool(live_pipeline_execution_result),
         "live_pipeline_order_submit_result": bool(live_pipeline_order_submit_result),
+        "live_pipeline_no_candidate_detected": bool(live_pipeline_no_candidate_detected),
         "live_pipeline_blocker": str(live_pipeline_blocker or ""),
         "router_handoff_preview_detected": bool(router_handoff_preview_detected),
         "router_handoff_schema": str(router_handoff_schema or ""),
@@ -9660,6 +9744,16 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "balance_gate_blocker": str(e2e.get("balance_gate_blocker") or ""),
         "buy_ready_count": int(e2e.get("buy_ready_count") or 0),
         "latest_buy_ready_count": int(e2e.get("latest_buy_ready_count") or e2e.get("buy_ready_count") or 0),
+        "buy_ready_criteria_detected": bool(e2e.get("buy_ready_criteria_detected")),
+        "managed_candidate_evaluated_count": int(e2e.get("managed_candidate_evaluated_count") or 0),
+        "best_candidate_symbol": str(e2e.get("best_candidate_symbol") or ""),
+        "best_candidate_score": int(e2e.get("best_candidate_score") or 0),
+        "best_candidate_status": str(e2e.get("best_candidate_status") or ""),
+        "best_candidate_blocker": str(e2e.get("best_candidate_blocker") or ""),
+        "buy_ready_threshold": int(e2e.get("buy_ready_threshold") or 0),
+        "no_candidate_reason": str(e2e.get("no_candidate_reason") or ""),
+        "live_pipeline_no_candidate_detected": bool(e2e.get("live_pipeline_no_candidate_detected")),
+        "user_visible_candidate_status": str(e2e.get("user_visible_candidate_status") or ""),
         "ai_opinion_fresh_count": int(e2e.get("ai_opinion_fresh_count") or 0),
         "order_intent_candidate_detected": bool(order_intent_candidate_detected),
         "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),

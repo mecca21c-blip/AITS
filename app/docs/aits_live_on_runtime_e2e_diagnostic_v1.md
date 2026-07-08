@@ -321,3 +321,9 @@ LivePreflight, and unlock gates.
 - One-shot unlock is not required for normal guarded-window orders, but RiskGuard, LivePreflight, ExecutionBridge, OrderService, and OrderAdapter remain required.
 - Summary fields include `normal_live_order_pipeline_detected`, `live_pipeline_router_result`, `live_pipeline_riskguard_result`, `live_pipeline_execution_requested`, `live_pipeline_execution_result`, `live_pipeline_order_submit_result`, and `live_pipeline_blocker`.
 - If the legacy UI entrypoint has no attached orchestrator object, the UI reads the existing `settings.live_trade` flag as a compatibility execution-mode fallback; it does not set `order_allowed` or `real_order` directly.
+## 2026-07-08 - Buy Ready Blocker Detail
+
+- E2E summary now reads `[AITS][BuyReadyCriteria]` and normal-flow `[AITS][LiveOrderPipeline] event=no_candidate` records.
+- Added fields: `buy_ready_criteria_detected`, `managed_candidate_evaluated_count`, `best_candidate_symbol`, `best_candidate_score`, `best_candidate_status`, `best_candidate_blocker`, `buy_ready_threshold`, `no_candidate_reason`, `live_pipeline_no_candidate_detected`, and `user_visible_candidate_status`.
+- `no_buy_ready_candidate` can be refined to `candidate_evaluation_missing`, `buy_ready_score_below_threshold`, `buy_ready_ai_opinion_stale`, `buy_ready_policy_hold`, `buy_ready_but_candidate_not_selected`, or `candidate_selected_but_router_not_started`.
+- The diagnostic remains observe-only and must not force a buy-ready candidate or submit an order.

@@ -1679,3 +1679,8 @@ adapter/service/execution reach as critical.
 - A normal guarded-window flow does not require one-shot unlock lines. Submit
   still requires RiskGuard, LivePreflight, ExecutionBridge, OrderService, and
   OrderAdapter evidence, and duplicate/retry detection remains critical.
+## 2026-07-08 - Buy Ready Criteria Summary Fields
+
+- `live-on-runtime-after-preflight-stage-summary` and `live-on-runtime-e2e-diagnostic-log-summary` parse the new buy-ready visibility logs.
+- New parsed fields include `buy_ready_criteria_detected`, `managed_candidate_evaluated_count`, `best_candidate_symbol`, `best_candidate_score`, `best_candidate_status`, `best_candidate_blocker`, `buy_ready_threshold`, `no_candidate_reason`, `live_pipeline_no_candidate_detected`, and `user_visible_candidate_status`.
+- A normal ON run with no candidate should report `event=no_candidate`, keep `submitted_count=0`, keep `actual_order=false`, and preserve Router/RiskGuard/LivePreflight/Execution boundaries.

@@ -39443,6 +39443,109 @@ class MainWindow(QMainWindow):
                     market_data_stale=market_data_stale,
                 )
                 try:
+                    runtime_status = str(getattr(self, "_aits_runtime_status_text", "") or "")
+                    runtime_contract_active = (
+                        "on_preflight_passed" in runtime_status
+                        or "on_observing" in runtime_status
+                        or "running" in runtime_status.lower()
+                    )
+                    stg_obj = getattr(getattr(self, "_settings", None), "strategy", None)
+                    provider_ready = bool(getattr(self, "_aits_provider_ready", False))
+                    preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
+                    balance_preflight_passed = bool(preflight_snapshot.get("balance_fetch_success") or preflight_snapshot.get("preflight_passed"))
+                    cap_preflight_passed = bool(preflight_snapshot.get("preflight_passed"))
+                    criteria_rows = []
+                    for candidate_row in rows:
+                        if not isinstance(candidate_row, dict):
+                            continue
+                        symbol_for_log = str(
+                            candidate_row.get("symbol")
+                            or candidate_row.get("market")
+                            or candidate_row.get("ticker")
+                            or ""
+                        ).strip().upper()
+                        score_for_log = int(candidate_row.get("ai_score") or candidate_row.get("score") or 0)
+                        status_for_log = str(candidate_row.get("ai_status") or candidate_row.get("status") or "Watching").strip()
+                        eligible_for_log = bool(self._is_aits_pool_row_candidate_eligible(candidate_row))
+                        if not symbol_for_log:
+                            blocker_for_log = "symbol_missing"
+                        elif market_data_stale:
+                            blocker_for_log = "market_data_stale"
+                        elif self._is_managed_manual_hold_row(candidate_row):
+                            blocker_for_log = "policy_hold"
+                        elif not eligible_for_log:
+                            blocker_for_log = "candidate_not_eligible"
+                        elif status_for_log == "Buy Ready":
+                            blocker_for_log = ""
+                        elif status_for_log == "Holding":
+                            blocker_for_log = "already_holding"
+                        elif status_for_log == "Sell Ready":
+                            blocker_for_log = "sell_ready_not_buy"
+                        elif status_for_log == "Dropped":
+                            blocker_for_log = "score_below_exit_threshold"
+                        elif score_for_log >= int(entry_th):
+                            blocker_for_log = "position_limit_full" if position_limit_blocked else "max_new_candidate_limit"
+                        else:
+                            blocker_for_log = "score_below_threshold"
+                        reason_for_log = str(candidate_row.get("ai_reason_summary") or blocker_for_log or "buy_ready_candidate").replace(" ", "_")[:180]
+                        criteria_rows.append({
+                            "symbol": symbol_for_log,
+                            "score": score_for_log,
+                            "status": status_for_log,
+                            "eligible": eligible_for_log,
+                            "buy_ready": status_for_log == "Buy Ready" and eligible_for_log,
+                            "blocker": blocker_for_log,
+                            "reason": reason_for_log,
+                        })
+                    best_candidate_log = max(criteria_rows, key=lambda item: int(item.get("score") or 0), default={})
+                    criteria_signature = tuple(
+                        (item.get("symbol"), item.get("score"), item.get("status"), item.get("blocker"))
+                        for item in criteria_rows
+                    )
+                    now_for_criteria = time.time()
+                    should_log_criteria = (
+                        criteria_signature != getattr(self, "_buy_ready_criteria_last_signature", None)
+                        or now_for_criteria - float(getattr(self, "_buy_ready_criteria_last_log_at", 0.0) or 0.0) >= 30.0
+                    )
+                    if should_log_criteria:
+                        self._buy_ready_criteria_last_signature = criteria_signature
+                        self._buy_ready_criteria_last_log_at = now_for_criteria
+                        for item in criteria_rows:
+                            logging.getLogger("aits").info(
+                                "[AITS][BuyReadyCriteria] event=evaluate symbol=%s score=%s status=%s side_candidate=buy buy_ready=%s threshold=%s ai_freshness=%s market_feed_ok=%s provider_ready=%s balance_preflight_passed=%s cap_preflight_passed=%s blocker=%s reason=%s submitted=0 actual_order=false",
+                                item.get("symbol") or "-",
+                                int(item.get("score") or 0),
+                                str(item.get("status") or "").replace(" ", "_"),
+                                bool(item.get("buy_ready")),
+                                int(entry_th),
+                                "fresh_or_not_required",
+                                not bool(market_data_stale),
+                                provider_ready,
+                                balance_preflight_passed,
+                                cap_preflight_passed,
+                                item.get("blocker") or "-",
+                                item.get("reason") or "-",
+                            )
+                    if runtime_contract_active and buy_ready_count <= 0:
+                        best_symbol = str(best_candidate_log.get("symbol") or "-")
+                        best_score = int(best_candidate_log.get("score") or 0)
+                        best_status = str(best_candidate_log.get("status") or "-").replace(" ", "_")
+                        best_blocker = str(best_candidate_log.get("blocker") or "no_buy_ready_candidate")
+                        logging.getLogger("aits").info(
+                            "[AITS][LiveOrderPipeline] event=no_candidate reason=no_buy_ready_candidate managed_pool_count=%s evaluated_count=%s best_symbol=%s best_score=%s best_status=%s best_blocker=%s threshold=%s latest_buy_ready_count=%s submitted=0 actual_order=false",
+                            len(rows),
+                            len(criteria_rows),
+                            best_symbol,
+                            best_score,
+                            best_status,
+                            best_blocker,
+                            int(entry_th),
+                            buy_ready_count,
+                        )
+                        self._set_aits_runtime_status_display(
+                            "ON - 매수 후보 탐색 중",
+                            f"후보 없음: 최고 {best_symbol} / 점수 {best_score} / 사유 {best_blocker}",
+                        )
                     first_buy_ready = None
                     for candidate_row in rows:
                         if (
@@ -39453,17 +39556,10 @@ class MainWindow(QMainWindow):
                             first_buy_ready = candidate_row
                             break
                     if first_buy_ready is not None:
-                        stg_obj = getattr(getattr(self, "_settings", None), "strategy", None)
                         if isinstance(stg_obj, dict):
                             intended_amount = int(stg_obj.get("order_amount_krw", 0) or 0)
                         else:
                             intended_amount = int(getattr(stg_obj, "order_amount_krw", 0) or 0)
-                        runtime_status = str(getattr(self, "_aits_runtime_status_text", "") or "")
-                        runtime_contract_active = (
-                            "on_preflight_passed" in runtime_status
-                            or "on_observing" in runtime_status
-                            or "running" in runtime_status.lower()
-                        )
                         candidate_symbol = str(
                             first_buy_ready.get("symbol")
                             or first_buy_ready.get("market")
