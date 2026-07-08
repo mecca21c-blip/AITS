@@ -18888,7 +18888,10 @@ class MainWindow(QMainWindow):
                 o = ctx.get("orchestrator")
                 if o is not None and hasattr(o, "get_execution_mode"):
                     return o.get_execution_mode()
-            return None
+            settings = getattr(self, "_settings", None)
+            if settings is not None and bool(getattr(settings, "live_trade", False)):
+                return "live"
+            return "disabled"
         except Exception:
             return None
         return None
@@ -39471,9 +39474,18 @@ class MainWindow(QMainWindow):
                         candidate_score = int(first_buy_ready.get("ai_score") or first_buy_ready.get("score") or 0)
                         candidate_event = "candidate_detected" if runtime_contract_active else "candidate_blocked"
                         candidate_blocker = "" if runtime_contract_active else "runtime_start_not_confirmed"
+                        try:
+                            candidate_observe_only = not (
+                                runtime_contract_active
+                                and str(self._get_aits_execution_mode() or "").strip().lower() == "live"
+                                and bool(getattr(getattr(self, "_settings", None), "live_trade", False))
+                            )
+                        except Exception:
+                            candidate_observe_only = True
                         logging.getLogger("aits").info(
-                            "[AITS][OrderIntentCandidate] event=%s observe_only=True symbol=%s source=%s side=buy amount_krw=%s score=%s reason=buy_ready_candidate blocker=%s runtime_contract_active=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
+                            "[AITS][OrderIntentCandidate] event=%s observe_only=%s symbol=%s source=%s side=buy amount_krw=%s score=%s reason=buy_ready_candidate blocker=%s runtime_contract_active=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
                             candidate_event,
+                            bool(candidate_observe_only),
                             candidate_symbol,
                             candidate_source,
                             intended_amount,
@@ -39483,6 +39495,8 @@ class MainWindow(QMainWindow):
                         )
                         if runtime_contract_active and candidate_symbol:
                             try:
+                                if bool(self._run_live_auto_order_pipeline_from_candidate(first_buy_ready, intended_amount, candidate_score, candidate_source)):
+                                    raise RuntimeError("live_auto_pipeline_handled")
                                 preview_request_id = f"router-preview-{int(time.time() * 1000)}"
                                 preview_provider = ""
                                 try:
@@ -39706,7 +39720,7 @@ class MainWindow(QMainWindow):
                                             )
                                             _approval_btn = getattr(self, "btn_live_order_approval", None)
                                             if _approval_btn is not None:
-                                                _approval_btn.setEnabled(self._live_guarded_submit_attempt_count == 0)
+                                                _approval_btn.setEnabled(False)
                                         except Exception:
                                             pass
                                         logging.getLogger("aits").info(
@@ -39753,7 +39767,7 @@ class MainWindow(QMainWindow):
                                             elif str(getattr(self, "_last_guarded_approval_dialog_request_id", "") or "") != guarded_request_id:
                                                 self._last_guarded_approval_dialog_request_id = guarded_request_id
                                                 self._guarded_order_log(
-                                                    "[AITS][LiveOrderUX] event=approval_dialog_auto_opened",
+                                                    "[AITS][LiveOrderUX] event=approval_dialog_auto_open_suppressed_normal_flow",
                                                     request_id=guarded_request_id,
                                                     symbol=str(guarded_preview.get("symbol") or candidate_symbol),
                                                     side=str(guarded_preview.get("side") or "buy"),
@@ -39761,7 +39775,12 @@ class MainWindow(QMainWindow):
                                                     submitted_count=0,
                                                     actual_order=False,
                                                 )
-                                                QTimer.singleShot(0, lambda _contract=dict(guarded_preview): self._open_live_order_approval_dialog(_contract))
+                                                self._guarded_order_log(
+                                                    "[AITS][LiveOrderUX] event=approval_dialog_disabled_normal_flow",
+                                                    request_id=guarded_request_id,
+                                                    submitted_count=0,
+                                                    actual_order=False,
+                                                )
                                             else:
                                                 self._guarded_order_log("[AITS][LiveOrderUX] event=approval_dialog_suppressed_same_request", request_id=guarded_request_id, submitted_count=0, actual_order=False)
                                         except Exception:
@@ -52560,6 +52579,300 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+
+    def _live_order_safe_float(self, value, default: float = 0.0) -> float:
+        try:
+            if value is None:
+                return float(default or 0.0)
+            if isinstance(value, str):
+                import re
+                cleaned = re.sub(r"[^0-9.\-]", "", value.replace(",", ""))
+                if not cleaned:
+                    return float(default or 0.0)
+                return float(cleaned)
+            return float(value)
+        except Exception:
+            return float(default or 0.0)
+
+    def _live_order_candidate_price(self, candidate_row: dict) -> float:
+        try:
+            row = candidate_row if isinstance(candidate_row, dict) else {}
+            for key in (
+                "price",
+                "current_price",
+                "trade_price",
+                "close",
+                "last_price",
+                "market_price",
+                "price_krw",
+            ):
+                value = row.get(key)
+                price = self._live_order_safe_float(value, 0.0)
+                if price > 0:
+                    return price
+        except Exception:
+            pass
+        return 0.0
+
+    def _emit_live_order_pipeline_event(self, event: str, **fields) -> None:
+        try:
+            payload = {
+                "request_id": str(fields.pop("request_id", "") or "-"),
+                "symbol": str(fields.pop("symbol", "") or "-"),
+                "side": str(fields.pop("side", "buy") or "buy"),
+                "amount_krw": int(self._live_order_safe_float(fields.pop("amount_krw", 0), 0.0)),
+                "stage": str(fields.pop("stage", event) or event),
+                "status": str(fields.pop("status", "") or ""),
+                "blocker": str(fields.pop("blocker", "") or ""),
+                "submitted_count": int(self._live_order_safe_float(fields.pop("submitted_count", 0), 0.0)),
+                "actual_order": bool(fields.pop("actual_order", False)),
+                "order_allowed": bool(fields.pop("order_allowed", False)),
+                "real_order": bool(fields.pop("real_order", False)),
+            }
+            payload.update(fields)
+            parts = [f"[AITS][LiveOrderPipeline] event={str(event or '')}"]
+            for key, value in payload.items():
+                parts.append(f"{key}={value}")
+            logging.getLogger("aits").info(" ".join(parts))
+        except Exception:
+            pass
+
+    def _run_live_auto_order_pipeline_from_candidate(
+        self,
+        candidate_row: dict,
+        intended_amount: int,
+        candidate_score: int,
+        candidate_source: str,
+    ) -> bool:
+        try:
+            import logging
+            import time
+            from app.strategy import runner as aits_runner
+
+            row = candidate_row if isinstance(candidate_row, dict) else {}
+            symbol = str(row.get("symbol") or row.get("market") or row.get("ticker") or "").strip().upper()
+            side = "buy"
+            amount_krw = int(self._live_order_safe_float(intended_amount, 0.0))
+            request_id = f"live-auto-{int(time.time() * 1000)}"
+            execution_mode = str(self._get_aits_execution_mode() or "disabled").strip().lower()
+            live_trade = bool(getattr(getattr(self, "_settings", None), "live_trade", False))
+            runner_on = bool(getattr(aits_runner, "_RUNNING", False))
+            provider = ""
+            try:
+                provider = str(self._get_aits_engine_ssot() or "").strip().lower()
+            except Exception:
+                provider = ""
+
+            self._emit_live_order_pipeline_event(
+                "candidate_selected",
+                request_id=request_id,
+                symbol=symbol,
+                side=side,
+                amount_krw=amount_krw,
+                stage="candidate",
+                status="selected",
+                source=candidate_source,
+                score=int(candidate_score or 0),
+                execution_mode=execution_mode,
+                live_trade=live_trade,
+                runner_on=runner_on,
+            )
+            self._set_aits_runtime_status_display(
+                "ON - candidate selected",
+                f"{symbol} {side} {amount_krw} KRW",
+            )
+
+            if not symbol:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, blocker="symbol_missing", stage="candidate", status="blocked")
+                return True
+            if not runner_on:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="runtime_not_running", stage="runtime", status="blocked")
+                return True
+            if execution_mode != "live" or not live_trade:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="execution_mode_not_live", stage="runtime", status="blocked", execution_mode=execution_mode, live_trade=live_trade)
+                self._set_aits_runtime_status_display("ON - blocked", "execution_mode_not_live")
+                return True
+
+            duplicate_key = f"{symbol}:{side}:{amount_krw}"
+            locks = getattr(self, "_live_auto_order_session_locks", None)
+            if not isinstance(locks, dict):
+                locks = {}
+                self._live_auto_order_session_locks = locks
+            if duplicate_key in locks:
+                self._emit_live_order_pipeline_event("order_duplicate_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="duplicate_candidate_locked", stage="duplicate", status="blocked", previous_request_id=str(locks.get(duplicate_key) or ""))
+                self._set_aits_runtime_status_display("ON - blocked", "duplicate_candidate_locked")
+                return True
+            locks[duplicate_key] = request_id
+
+            preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
+            available_krw = self._live_order_safe_float(preflight_snapshot.get("available_krw"), getattr(self, "_last_available_krw", 0.0) or 0.0)
+            hard_cap_krw = self._live_order_safe_float(preflight_snapshot.get("hard_cap_krw"), 12000.0)
+            total_cap_krw = self._live_order_safe_float(preflight_snapshot.get("total_guarded_window_cap_krw"), 20000.0)
+            effective_cap_krw = self._live_order_safe_float(preflight_snapshot.get("effective_hard_cap_krw"), min(available_krw, hard_cap_krw, total_cap_krw))
+            account_ready = bool(preflight_snapshot.get("balance_fetch_success")) and available_krw >= amount_krw
+            api_key_ready = bool(preflight_snapshot.get("upbit_private_connected"))
+            if amount_krw <= 0:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="amount_missing", stage="amount", status="blocked")
+                return True
+            if amount_krw < 5000:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="amount_below_min_order", stage="amount", status="blocked")
+                return True
+            if amount_krw > hard_cap_krw or amount_krw > total_cap_krw or amount_krw > effective_cap_krw:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="amount_exceeds_live_cap", stage="cap", status="blocked", available_krw=int(available_krw), hard_cap_krw=int(hard_cap_krw), effective_cap_krw=int(effective_cap_krw), total_guarded_window_cap_krw=int(total_cap_krw))
+                self._set_aits_runtime_status_display("ON - blocked", "amount_exceeds_live_cap")
+                return True
+            if not account_ready or not api_key_ready:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="account_or_api_not_ready", stage="account", status="blocked", account_ready=account_ready, api_key_ready=api_key_ready, available_krw=int(available_krw))
+                self._set_aits_runtime_status_display("ON - blocked", "account_or_api_not_ready")
+                return True
+
+            price = self._live_order_candidate_price(row)
+            if price <= 0:
+                self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="price_missing", stage="price", status="blocked")
+                self._set_aits_runtime_status_display("ON - blocked", "price_missing")
+                return True
+
+            self._emit_live_order_pipeline_event("router_validation_started", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="router", status="started")
+            from app.core.aits_state import AIDecisionState
+            decision = AIDecisionState(
+                action="buy",
+                action_bias="bullish",
+                confidence=max(0.0, min(1.0, float(candidate_score or 0) / 100.0)),
+                selected_symbol=symbol,
+                why_this_symbol="buy_ready_candidate",
+                ai_summary_for_user="buy_ready_candidate",
+            )
+            try:
+                setattr(decision, "amount_krw", float(amount_krw))
+                setattr(decision, "risk", "medium")
+            except Exception:
+                pass
+            orch = self._get_aits_orchestrator()
+            router = getattr(orch, "decision_router", None) if orch is not None else None
+            if router is None:
+                from app.services.decision_router import DecisionRouter
+                router = DecisionRouter(logger=logging.getLogger("aits"))
+            routed = router.route(
+                decision,
+                provider=provider or "local",
+                context={
+                    "source_path": "live_auto_trading_flow",
+                    "symbol": symbol,
+                    "side": side,
+                    "amount_krw": amount_krw,
+                    "price": price,
+                    "score": int(candidate_score or 0),
+                    "candidate_source": candidate_source,
+                },
+            )
+            routed_action = str(getattr(routed, "action", "") or "").strip().lower()
+            routed_symbol = str(getattr(routed, "selected_symbol", "") or symbol).strip().upper()
+            router_ok = routed_action == "buy" and routed_symbol == symbol
+            self._emit_live_order_pipeline_event("router_validation_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="router", status="passed" if router_ok else "blocked", router_action=routed_action, routed_symbol=routed_symbol)
+            if not router_ok:
+                self._set_aits_runtime_status_display("ON - blocked", "router_validation_blocked")
+                return True
+
+            self._emit_live_order_pipeline_event("riskguard_started", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="riskguard", status="started")
+            from app.services.risk_guard import RiskGuard
+            risk_input = {
+                "request_id": request_id,
+                "symbol": symbol,
+                "side": side,
+                "requested_amount_krw": amount_krw,
+                "price": price,
+                "source_provider": provider or "unknown",
+                "confidence": max(0.0, min(1.0, float(candidate_score or 0) / 100.0)),
+                "action": "buy",
+                "holdings_value_krw": 0.0,
+                "cash_available_krw": available_krw,
+                "portfolio_value_krw": available_krw,
+                "daily_realized_pnl_krw": 0.0,
+                "daily_loss_limit_krw": 50000.0,
+                "max_order_amount_krw": hard_cap_krw,
+                "max_position_value_krw": max(float(amount_krw), effective_cap_krw),
+                "emergency_stop": False,
+                "stale_price": False,
+                "execution_mode": execution_mode,
+                "dry_run": False,
+            }
+            risk_guard = RiskGuard()
+            risk_result = risk_guard.evaluate_order_candidate(risk_input)
+            logging.getLogger("aits").info(risk_guard.log_summary(risk_result, risk_input))
+            self._emit_live_order_pipeline_event("riskguard_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="riskguard", status="passed" if bool(risk_result.allowed) else "blocked", blocker=str(risk_result.blocked_reason or ""))
+            if not bool(risk_result.allowed):
+                self._set_aits_runtime_status_display("ON - blocked", str(risk_result.blocked_reason or "riskguard_blocked"))
+                return True
+
+            risk_meta = dict(risk_result.to_dict())
+            risk_meta.update({
+                "request_id": request_id,
+                "price": price,
+                "source_provider": provider or "unknown",
+                "aits_enabled": True,
+                "risk_guard_checked": True,
+                "risk_allowed": bool(risk_result.risk_allowed),
+                "emergency_stop": False,
+                "max_order_amount_krw": hard_cap_krw,
+                "max_daily_loss_krw": 50000.0,
+                "max_order_count_per_cycle": 1,
+                "duplicate_order_lock": True,
+                "min_real_order_amount_krw": 5000.0,
+                "account_ready": account_ready,
+                "api_key_ready": api_key_ready,
+                "price_fresh": True,
+                "live_guarded_window_order": True,
+                "live_guarded_one_shot_order": False,
+                "live_order_unlock": False,
+                "user_confirm_token": "",
+                "one_shot_unlock_valid": False,
+                "one_shot_unlock_consumed": False,
+                "guarded_window_per_order_krw": float(amount_krw),
+                "guarded_window_per_order_hard_cap_krw": hard_cap_krw,
+                "guarded_window_total_cap_krw": total_cap_krw,
+                "guarded_window_max_order_count": 1,
+            })
+            contract = {
+                "request_id": request_id,
+                "symbol": symbol,
+                "side": side,
+                "amount_krw": float(amount_krw),
+                "source_provider": provider or "unknown",
+                "execution_allowed": True,
+                "risk_guard": risk_meta,
+            }
+            from app.services.execution_bridge import ExecutionBridge
+            bridge = ExecutionBridge(logger=logging.getLogger("aits")).build_live_guarded_window_bridge(contract)
+            self._emit_live_order_pipeline_event("execution_requested", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="execution", status="requested", bridge_ok=bool(getattr(bridge, "ok", False)), dry_run=bool(getattr(bridge, "dry_run", True)))
+
+            from app.services.order_adapter import AITSOrderAdapter
+            from app.services.order_service import svc_order
+            try:
+                svc_order.set_settings(getattr(self, "_settings", None))
+            except Exception:
+                pass
+            adapter = AITSOrderAdapter(execution_mode="live", min_order_krw=5000.0, allow_reduce_live=False, logger=logging.getLogger("aits"))
+            self._emit_live_order_pipeline_event("order_submit_attempt", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="order", status="attempted", submitted_count=0, actual_order=False)
+            result = adapter.execute(bridge, order_service=svc_order)
+            submitted_count = int(getattr(result, "submitted_count", 0) or 0)
+            blocked_count = int(getattr(result, "blocked_count", 0) or 0)
+            failed_count = int(getattr(result, "failed_count", 0) or 0)
+            status = "submitted" if submitted_count > 0 else ("blocked" if blocked_count > 0 or failed_count > 0 else "completed")
+            self._emit_live_order_pipeline_event("execution_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="execution", status=status, submitted_count=submitted_count, actual_order=submitted_count > 0, blocked_count=blocked_count, failed_count=failed_count, summary=str(getattr(result, "summary_ko", "") or ""))
+            self._emit_live_order_pipeline_event("order_submit_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="order", status=status, submitted_count=submitted_count, actual_order=submitted_count > 0, blocked_count=blocked_count, failed_count=failed_count)
+            self._set_aits_runtime_status_display(
+                "ON - order submitted" if submitted_count > 0 else "ON - order blocked",
+                f"{symbol} {side} {amount_krw} KRW status={status}",
+            )
+            return True
+        except Exception as exc:
+            try:
+                self._emit_live_order_pipeline_event("order_blocked", blocker="live_auto_pipeline_exception", stage="exception", status="blocked", error_type=type(exc).__name__)
+                self._set_aits_runtime_status_display("ON - error", f"live_auto_pipeline_exception:{type(exc).__name__}")
+            except Exception:
+                pass
+            return True
+
     def _emit_live_approval_waiting_status(self, waiting_reason: str = "waiting_for_order_candidate") -> None:
         try:
             self._set_aits_runtime_status_display(
@@ -54300,6 +54613,23 @@ class MainWindow(QMainWindow):
                 blocker or "",
                 balance_status,
             )
+
+            try:
+                self._live_on_last_preflight_snapshot = {
+                    "available_krw": float(available_krw or 0.0),
+                    "balance_status": balance_status,
+                    "balance_fetch_success": bool(balance_snapshot.get("balance_fetch_success")),
+                    "upbit_private_connected": bool(balance_snapshot.get("upbit_private_connected")),
+                    "account_service_ready": bool(balance_snapshot.get("account_service_ready")),
+                    "hard_cap_krw": float(configured_hard_cap or 0.0),
+                    "effective_hard_cap_krw": float(effective_hard_cap or 0.0),
+                    "total_guarded_window_cap_krw": float(total_guarded_window_cap_krw or 0.0),
+                    "order_amount_krw": float(order_amount_krw or 0.0),
+                    "preflight_passed": bool(can_order),
+                    "blocker": blocker or "",
+                }
+            except Exception:
+                pass
 
             # 6. UI message
             msg_lines = [

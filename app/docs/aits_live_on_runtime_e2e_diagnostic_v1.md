@@ -312,3 +312,12 @@ LivePreflight, and unlock gates.
 - When a guarded contract appears, the app opens the approval dialog and E2E reports `approval_dialog_auto_opened`, `approval_dialog_input_visible`, `approval_button_enabled`, and the dialog symbol/side/amount.
 - A running ON session with no waiting status, no approval dialog, and no guarded contract is classified as `live_order_ux_silent_failure`.
 - The ON button remains the normal run/stop control; the hidden one-shot compatibility button must not be added back to the header layout.
+
+## 2026-07-08 - Normal Auto Trading Flow
+
+- E2E diagnostics now recognize `[AITS][LiveOrderPipeline]` as the normal ON live path.
+- Normal flow events include `candidate_selected`, `router_validation_started`, `router_validation_result`, `riskguard_started`, `riskguard_result`, `execution_requested`, `execution_result`, and `order_submit_result`.
+- The normal path does not wait for `GuardedExecutionContract` approval and does not auto-open a confirm phrase dialog.
+- One-shot unlock is not required for normal guarded-window orders, but RiskGuard, LivePreflight, ExecutionBridge, OrderService, and OrderAdapter remain required.
+- Summary fields include `normal_live_order_pipeline_detected`, `live_pipeline_router_result`, `live_pipeline_riskguard_result`, `live_pipeline_execution_requested`, `live_pipeline_execution_result`, `live_pipeline_order_submit_result`, and `live_pipeline_blocker`.
+- If the legacy UI entrypoint has no attached orchestrator object, the UI reads the existing `settings.live_trade` flag as a compatibility execution-mode fallback; it does not set `order_allowed` or `real_order` directly.

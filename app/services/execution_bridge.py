@@ -245,6 +245,65 @@ class ExecutionBridge:
             errors=[],
         )
 
+    def build_live_guarded_window_bridge(self, contract: Dict[str, Any]) -> BridgeResult:
+        data = dict(contract or {}) if isinstance(contract, dict) else {}
+        symbol = str(data.get("symbol") or "").strip().upper()
+        side = str(data.get("side") or "").strip().lower()
+        try:
+            amount_krw = float(data.get("amount_krw") or 0.0)
+        except Exception:
+            amount_krw = 0.0
+        execution_allowed = bool(data.get("execution_allowed", False))
+        risk_guard = dict(data.get("risk_guard") or {})
+        risk_guard["live_guarded_window_order"] = True
+        risk_guard["live_guarded_one_shot_order"] = False
+        if not execution_allowed:
+            return BridgeResult(
+                ok=False,
+                dry_run=False,
+                action_count=0,
+                approved_count=0,
+                blocked_count=1,
+                actions=[
+                    BridgeAction(
+                        action_type=side or "buy",
+                        symbol=symbol,
+                        amount_krw=amount_krw,
+                        reason=str(data.get("blocker") or "live_guarded_window_not_allowed"),
+                        source_module="live_auto_trading_flow",
+                        source_provider=str(data.get("source_provider") or ""),
+                        blocked=True,
+                        risk_guard=risk_guard,
+                    )
+                ],
+                summary="live guarded-window contract is not allowed",
+                warnings=[str(data.get("blocker") or "live_guarded_window_not_allowed")],
+                errors=[],
+            )
+        return BridgeResult(
+            ok=True,
+            dry_run=False,
+            action_count=1,
+            approved_count=1,
+            blocked_count=0,
+            actions=[
+                BridgeAction(
+                    action_type=side or "buy",
+                    symbol=symbol,
+                    amount_krw=amount_krw,
+                    priority=1,
+                    reason=str(data.get("request_id") or "live_guarded_window"),
+                    source_module="live_auto_trading_flow",
+                    source_provider=str(data.get("source_provider") or ""),
+                    blocked=False,
+                    risk_guard=risk_guard,
+                )
+            ],
+            summary="live guarded-window order bridge",
+            warnings=[],
+            errors=[],
+        )
+
     def _safe_log_info(self, message: str) -> None:
         try:
             if self.logger is not None and hasattr(self.logger, "info"):

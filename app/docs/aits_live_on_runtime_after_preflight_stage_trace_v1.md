@@ -190,3 +190,11 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 - After one submit attempt, the trace must end in `locked_after_submit` or `locked_after_failed_submit`; repeat and retry are not allowed.
 - Runtime started with no waiting status, no dialog, and no guarded contract is
   classified as `live_order_ux_silent_failure`.
+
+## 2026-07-08 - Normal ON Auto-Trading Trace
+
+- Normal live ON flow is traced with `[AITS][LiveOrderPipeline]`, not the guarded one-shot approval dialog.
+- `candidate_selected`, `router_validation_result`, `riskguard_result`, `execution_requested`, `execution_result`, and `order_submit_result` mark the current stage.
+- A normal guarded-window order does not require one-shot confirm phrase or one-shot unlock, but it still must pass RiskGuard, LivePreflight, ExecutionBridge, OrderService, and OrderAdapter.
+- After-preflight summary exposes `normal_live_order_pipeline_detected`, `live_pipeline_router_result`, `live_pipeline_riskguard_result`, `live_pipeline_execution_requested`, `live_pipeline_execution_result`, `live_pipeline_order_submit_result`, and `live_pipeline_blocker`.
+- This prevents a normal ON run from being classified as missing approval UI.

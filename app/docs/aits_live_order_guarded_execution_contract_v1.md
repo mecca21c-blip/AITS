@@ -113,3 +113,22 @@ approve the dialog or run the submit mode automatically.
 After one submit attempt, successful or failed, the runtime enters a locked
 state. There is no retry, repeat order, automatic averaging down, or loss-based
 re-entry in this contract.
+
+## 2026-07-08 - Normal ON Auto-Trading Flow Restore
+
+The guarded one-shot approval flow is no longer the normal ON path. In live
+runtime, a buy-ready managed-pool candidate should continue through the formal
+pipeline:
+
+`ON -> provider/feed/balance/cap preflight -> OrderIntentCandidate ->
+DecisionRouter -> RiskGuard -> LivePreflight -> ExecutionBridge ->
+OrderService -> OrderAdapter`.
+
+Normal guarded-window orders keep the 10,000 KRW configured amount and the
+12,000 KRW per-order hard cap, but they do not require the one-shot confirm
+phrase or one-shot unlock. RiskGuard, LivePreflight, ExecutionBridge,
+OrderService, and OrderAdapter remain mandatory. Duplicate session locks and
+the OrderService duplicate window still prevent repeated submit attempts.
+
+The hidden `LIVE 1-SHOT` compatibility button stays hidden/disabled, and the
+approval dialog is not auto-opened by the normal ON flow.

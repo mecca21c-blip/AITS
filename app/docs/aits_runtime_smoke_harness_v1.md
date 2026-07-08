@@ -1665,3 +1665,17 @@ adapter/service/execution reach as critical.
   `approval_waiting_status_detected`, `approval_waiting_reason`,
   `approval_dialog_auto_opened`, `approval_dialog_input_visible`,
   `approval_button_enabled`, and `live_order_ux_silent_failure`.
+
+## 2026-07-08 - Normal ON Auto-Trading Parser
+
+- `live-on-runtime-e2e-diagnostic-log-summary` and
+  `live-on-runtime-after-preflight-stage-summary` now parse
+  `[AITS][LiveOrderPipeline]` normal-flow events.
+- Normal-flow fields include `normal_live_order_pipeline_detected`,
+  `live_pipeline_candidate_selected`, `live_pipeline_router_result`,
+  `live_pipeline_riskguard_result`, `live_pipeline_execution_requested`,
+  `live_pipeline_execution_result`, `live_pipeline_order_submit_result`, and
+  `live_pipeline_blocker`.
+- A normal guarded-window flow does not require one-shot unlock lines. Submit
+  still requires RiskGuard, LivePreflight, ExecutionBridge, OrderService, and
+  OrderAdapter evidence, and duplicate/retry detection remains critical.

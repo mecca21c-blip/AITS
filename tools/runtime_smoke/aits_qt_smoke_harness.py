@@ -8241,6 +8241,11 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "live_preflight_preview_observe_only": "prepare separate ExecutionBridge/order submit guarded goal",
         "guarded_execution_contract_missing": "inspect LivePreflightPreview to GuardedExecutionContract writer",
         "live_order_approval_required": "await explicit user approval for guarded 10000 KRW live order goal",
+        "live_order_router_not_reached": "inspect normal live order candidate to DecisionRouter path",
+        "live_order_riskguard_not_reached": "inspect DecisionRouter to RiskGuard normal live path",
+        "live_order_execution_not_requested": "inspect RiskGuard to ExecutionBridge normal live path",
+        "live_order_execution_result_missing": "inspect ExecutionBridge to OrderAdapter normal live result",
+        "live_order_pipeline_result": "inspect normal live order pipeline result and order adapter records",
         "router_not_reached": "inspect Router validation handoff boundary",
         "riskguard_not_reached": "inspect RiskGuard handoff boundary",
         "live_preflight_not_reached": "inspect LivePreflight handoff boundary",
@@ -8508,6 +8513,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     guarded_order_adapter_called = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "order_adapter_called")
     next_required_user_action = _live_on_stage_extract_value(latest_guarded_execution_contract, "next_required_user_action")
     live_order_approval_required = _live_on_runtime_bool_marker(latest_guarded_execution_contract, "live_order_approval_required")
+    live_pipeline_lines = [
+        line for line in lines
+        if "[AITS][LiveOrderPipeline]" in line or "[AITS][LiveOrderState]" in line or "[AITS][LiveFlow]" in line
+    ]
+    latest_live_pipeline_line = live_pipeline_lines[-1] if live_pipeline_lines else ""
+    normal_live_order_pipeline_detected = bool(live_pipeline_lines)
+    live_pipeline_candidate_selected = any("event=candidate_selected" in line for line in live_pipeline_lines)
+    live_pipeline_router_started = any("event=router_validation_started" in line for line in live_pipeline_lines)
+    live_pipeline_router_result = any("event=router_validation_result" in line for line in live_pipeline_lines)
+    live_pipeline_riskguard_started = any("event=riskguard_started" in line for line in live_pipeline_lines)
+    live_pipeline_riskguard_result = any("event=riskguard_result" in line for line in live_pipeline_lines)
+    live_pipeline_execution_requested = any("event=execution_requested" in line for line in live_pipeline_lines)
+    live_pipeline_execution_result = any("event=execution_result" in line for line in live_pipeline_lines)
+    live_pipeline_order_submit_result = any("event=order_submit_result" in line for line in live_pipeline_lines)
+    live_pipeline_blocker = _live_on_stage_extract_value(latest_live_pipeline_line, "blocker")
     live_order_ux_ready_lines = [
         line for line in lines
         if "[AITS][LiveOrderUX]" in line and "event=approval_ui_ready" in line
@@ -8561,12 +8581,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         line for line in lines
         if "[AITS][RouterSummary]" in line
         or "[AITS][DecisionRouter]" in line
+        or ("[AITS][LiveOrderPipeline]" in line and "router_validation" in line)
         or _live_on_runtime_bool_marker(line, "router_called")
         or _live_on_runtime_bool_marker(line, "decision_router_called")
     ]
     riskguard_lines = [
         line for line in lines
         if "[AITS][RiskGuard]" in line
+        or ("[AITS][LiveOrderPipeline]" in line and "riskguard" in line)
         or _live_on_runtime_bool_marker(line, "riskguard_called")
         or _live_on_runtime_bool_marker(line, "risk_guard_called")
     ]
@@ -8579,8 +8601,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     execution_lines = [
         line
         for line in lines
-        if ("ExecutionBridge" in line or "execution_bridge" in line)
-        and re.search(r"handoff|emit|order|execute|submit", line, flags=re.IGNORECASE)
+        if (("ExecutionBridge" in line or "execution_bridge" in line)
+        and re.search(r"handoff|emit|order|execute|submit", line, flags=re.IGNORECASE))
+        or ("[AITS][LiveOrderPipeline]" in line and "execution_" in line)
     ]
     order_service_lines = [
         line
@@ -8669,28 +8692,28 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         ("buy_ready_present", buy_ready_count > 0, "no_buy_ready_candidate"),
         ("ai_opinion_fresh_present", ai_opinion_fresh_count > 0, "ai_opinion_not_fresh"),
         ("order_intent_candidate_detected", bool(order_intent_lines), "order_intent_candidate_missing"),
-        ("router_handoff_preview_detected", router_handoff_preview_detected, "router_handoff_missing"),
+        ("router_handoff_preview_detected", router_handoff_preview_detected or live_pipeline_router_started, "router_handoff_missing"),
         (
             "router_validation_preview_detected",
-            router_validation_preview_detected,
-            "router_validation_preview_missing" if router_handoff_preview_detected else "router_not_reached",
+            router_validation_preview_detected or live_pipeline_router_result,
+            "router_validation_preview_missing" if (router_handoff_preview_detected or live_pipeline_router_started) else "router_not_reached",
         ),
         (
             "riskguard_preview_detected",
-            riskguard_preview_detected,
-            "riskguard_preview_missing" if str(router_validation_status or "").lower() == "passed" else "riskguard_not_reached",
+            riskguard_preview_detected or live_pipeline_riskguard_result,
+            "riskguard_preview_missing" if (str(router_validation_status or "").lower() == "passed" or live_pipeline_router_result) else "riskguard_not_reached",
         ),
         (
             "live_preflight_preview_detected",
-            live_preflight_preview_detected,
-            "live_preflight_preview_missing" if str(riskguard_preview_status or "").lower() == "passed" else "live_preflight_not_reached",
+            live_preflight_preview_detected or bool(preflight_lines),
+            "live_preflight_preview_missing" if (str(riskguard_preview_status or "").lower() == "passed" or live_pipeline_riskguard_result) else "live_preflight_not_reached",
         ),
         (
             "guarded_execution_contract_detected",
-            guarded_execution_contract_detected,
+            guarded_execution_contract_detected or live_pipeline_execution_requested,
             "guarded_execution_contract_missing" if str(live_preflight_preview_status or "").lower() in {"blocked", "passed"} else "guarded_execution_not_reached",
         ),
-        ("unlock_reached", bool(unlock_lines), "unlock_not_reached"),
+        ("unlock_reached", bool(unlock_lines) or normal_live_order_pipeline_detected, "unlock_not_reached"),
         ("execution_bridge_reached", bool(execution_lines), "execution_bridge_not_reached"),
         ("order_service_reached", bool(order_service_lines), "order_service_not_reached"),
         ("order_adapter_reached", bool(order_adapter_lines), "order_adapter_not_reached"),
@@ -8753,6 +8776,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         and not approval_dialog_opened_lines
         and not approval_dialog_auto_opened_lines
         and not guarded_execution_contract_detected
+        and not normal_live_order_pipeline_detected
     )
     if live_order_ux_silent_failure:
         first_blocker = "live_order_ux_silent_failure"
@@ -8770,7 +8794,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         critical_flags.append("submitted_amount_differs_from_configured_setting")
     if order_adapter_lines and not riskguard_lines:
         critical_flags.append("order_adapter_reached_without_riskguard")
-    if submit_attempt_count and not unlock_lines:
+    if submit_attempt_count and not unlock_lines and not normal_live_order_pipeline_detected:
         critical_flags.append("submit_reached_without_unlock")
     if router_apply:
         critical_flags.append("router_apply_true_detected")
@@ -8825,6 +8849,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "runtime_start_result": str(runtime_start_result or ""),
         "candidate_loop_running": bool(candidate_loop_running),
         "candidate_loop_source": str(candidate_loop_source or ""),
+        "normal_live_order_pipeline_detected": bool(normal_live_order_pipeline_detected),
+        "live_pipeline_candidate_selected": bool(live_pipeline_candidate_selected),
+        "live_pipeline_router_started": bool(live_pipeline_router_started),
+        "live_pipeline_router_result": bool(live_pipeline_router_result),
+        "live_pipeline_riskguard_started": bool(live_pipeline_riskguard_started),
+        "live_pipeline_riskguard_result": bool(live_pipeline_riskguard_result),
+        "live_pipeline_execution_requested": bool(live_pipeline_execution_requested),
+        "live_pipeline_execution_result": bool(live_pipeline_execution_result),
+        "live_pipeline_order_submit_result": bool(live_pipeline_order_submit_result),
+        "live_pipeline_blocker": str(live_pipeline_blocker or ""),
         "live_on_preflight_blocked": bool(live_on_preflight_blocked),
         "configured_order_amount_krw": configured_amount,
         "configured_order_amount_source": configured_source,
@@ -8868,6 +8902,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),
         "order_intent_candidate_blocker": str(order_intent_candidate_blocker or ""),
         "order_intent_candidate_observe_only": bool(order_intent_candidate_observe_only),
+        "normal_live_order_pipeline_detected": bool(normal_live_order_pipeline_detected),
+        "live_pipeline_candidate_selected": bool(live_pipeline_candidate_selected),
+        "live_pipeline_router_result": bool(live_pipeline_router_result),
+        "live_pipeline_riskguard_result": bool(live_pipeline_riskguard_result),
+        "live_pipeline_execution_requested": bool(live_pipeline_execution_requested),
+        "live_pipeline_execution_result": bool(live_pipeline_execution_result),
+        "live_pipeline_order_submit_result": bool(live_pipeline_order_submit_result),
+        "live_pipeline_blocker": str(live_pipeline_blocker or ""),
         "router_handoff_preview_detected": bool(router_handoff_preview_detected),
         "router_handoff_schema": str(router_handoff_schema or ""),
         "router_handoff_request_id": str(router_handoff_request_id or ""),
@@ -9328,6 +9370,14 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     guarded_execution_allowed = bool(e2e.get("execution_allowed"))
     guarded_execution_called = bool(e2e.get("guarded_execution_called") or e2e.get("execution_called"))
     live_order_approval_required = bool(e2e.get("live_order_approval_required"))
+    normal_live_order_pipeline_detected = bool(e2e.get("normal_live_order_pipeline_detected"))
+    live_pipeline_candidate_selected = bool(e2e.get("live_pipeline_candidate_selected"))
+    live_pipeline_router_result = bool(e2e.get("live_pipeline_router_result"))
+    live_pipeline_riskguard_result = bool(e2e.get("live_pipeline_riskguard_result"))
+    live_pipeline_execution_requested = bool(e2e.get("live_pipeline_execution_requested"))
+    live_pipeline_execution_result = bool(e2e.get("live_pipeline_execution_result"))
+    live_pipeline_order_submit_result = bool(e2e.get("live_pipeline_order_submit_result"))
+    live_pipeline_blocker = str(e2e.get("live_pipeline_blocker") or "")
 
     preflight_status = "not_logged"
     if preflight_failed:
@@ -9384,6 +9434,21 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     elif runtime_start_requested and not runtime_loop_started:
         first_blocker = "runtime_start_requested_but_not_started"
         last_reached_stage = "runtime_start_requested"
+    elif normal_live_order_pipeline_detected and live_pipeline_order_submit_result:
+        first_blocker = live_pipeline_blocker or "live_order_pipeline_result"
+        last_reached_stage = "live_order_pipeline_order_result"
+    elif normal_live_order_pipeline_detected and live_pipeline_execution_requested and not live_pipeline_execution_result:
+        first_blocker = live_pipeline_blocker or "live_order_execution_result_missing"
+        last_reached_stage = "live_order_pipeline_execution_requested"
+    elif normal_live_order_pipeline_detected and live_pipeline_riskguard_result and not live_pipeline_execution_requested:
+        first_blocker = live_pipeline_blocker or "live_order_execution_not_requested"
+        last_reached_stage = "live_order_pipeline_riskguard_result"
+    elif normal_live_order_pipeline_detected and live_pipeline_router_result and not live_pipeline_riskguard_result:
+        first_blocker = live_pipeline_blocker or "live_order_riskguard_not_reached"
+        last_reached_stage = "live_order_pipeline_router_result"
+    elif normal_live_order_pipeline_detected and live_pipeline_candidate_selected and not live_pipeline_router_result:
+        first_blocker = live_pipeline_blocker or "live_order_router_not_reached"
+        last_reached_stage = "live_order_pipeline_candidate_selected"
     elif router_validation_preview_detected and not router_apply and not final_action_applied:
         if router_validation_status.lower() == "passed":
             first_blocker = "router_validation_observe_only"

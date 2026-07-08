@@ -37,6 +37,8 @@ class LiveOrderPreflightInput:
     price_fresh: bool = False
     selected_provider: str = ""
     source: str = ""
+    live_guarded_window_order: bool = False
+    live_guarded_one_shot_order: bool = False
 
 
 @dataclass
@@ -143,9 +145,12 @@ class LiveOrderPreflight:
             missing.append("execution_mode_not_live")
         if not bool(item.aits_enabled):
             missing.append("aits_off")
-        if not bool(item.live_order_unlock):
+        guarded_window = bool(item.live_guarded_window_order)
+        guarded_one_shot = bool(item.live_guarded_one_shot_order)
+        requires_unlock = bool(guarded_one_shot or not guarded_window)
+        if requires_unlock and not bool(item.live_order_unlock):
             missing.append("live_order_unlock_missing")
-        if not str(item.user_confirm_token or "").strip():
+        if requires_unlock and not str(item.user_confirm_token or "").strip():
             missing.append("user_confirm_token_missing")
         if not bool(item.risk_guard_checked):
             missing.append("risk_guard_not_checked")
@@ -153,9 +158,9 @@ class LiveOrderPreflight:
             missing.append("risk_guard_not_allowed")
         if bool(item.emergency_stop):
             missing.append("emergency_stop_active")
-        if bool(item.one_shot_unlock_consumed):
+        if requires_unlock and bool(item.one_shot_unlock_consumed):
             missing.append("one_shot_unlock_consumed")
-        if not bool(item.one_shot_unlock_valid):
+        if requires_unlock and not bool(item.one_shot_unlock_valid):
             missing.append("one_shot_unlock_invalid")
         if _safe_float(item.max_order_amount_krw) <= 0:
             missing.append("max_order_amount_missing")
@@ -485,6 +490,12 @@ def build_preflight_input_from_order_request(
         price_fresh=bool(risk.get("price_fresh", False)),
         selected_provider=str(risk.get("source_provider") or ""),
         source="order_adapter_pre_place_order",
+        live_guarded_window_order=bool(
+            risk.get("live_guarded_window_order", order_request.get("live_guarded_window_order", False))
+        ),
+        live_guarded_one_shot_order=bool(
+            risk.get("live_guarded_one_shot_order", order_request.get("live_guarded_one_shot_order", False))
+        ),
     )
 
 
