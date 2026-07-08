@@ -8159,6 +8159,7 @@ def _live_on_runtime_e2e_status_from_blocker(blocker: str) -> str:
     mapping = {
         "on_state_not_detected": "no_runtime",
         "on_preflight_blocked": "blocked_before_runtime",
+        "runtime_start_not_requested": "no_runtime",
         "runtime_loop_not_started": "no_runtime",
         "market_feed_missing": "observing_only",
         "market_feed_ticker_empty": "observing_only",
@@ -8192,6 +8193,7 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
     mapping = {
         "on_state_not_detected": "collect AITS ON click logs again",
         "on_preflight_blocked": "inspect ON preflight setting source and balance/cap blocker",
+        "runtime_start_not_requested": "inspect ON preflight pass to runtime start request contract",
         "runtime_loop_not_started": "inspect ON state and runtime loop start logging",
         "market_feed_missing": "recheck public market feed/top markets feed",
         "market_feed_ticker_empty": "inspect ticker feed empty response and recovery state",
@@ -8333,12 +8335,17 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for token in (
             "runtime_loop_started",
             "runtime loop started",
-            "live monitor started",
             "event=runner_start_after",
             "[runner] start_strategy called",
-            "guarded window",
-            "[aits][live",
+            "[start-ack]",
+            "event=start_result",
         )
+    ) and (
+        "runtime_loop_started=true" in joined_lower
+        or "runtime_started=true" in joined_lower
+        or "event=runner_start_after" in joined_lower
+        or "[runner] start_strategy called" in joined_lower
+        or "[start-ack]" in joined_lower
     )
     live_on_preflight_blocked = any(
         ("[preflight]" in line and ("ok=0" in line or "check failed" in line or "blocker=" in line))
@@ -8351,7 +8358,30 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in lowered
         if "fresh_manual_refresh" in line or "freshness=fresh" in line or "freshness: fresh" in line
     )
-    order_intent_lines = [line for line in lines if "order_intent" in line or "order intent" in line]
+    runtime_state_lines = [line for line in lines if "[AITS][RuntimeState]" in line or "[START-REQ]" in line or "[START-ACK]" in line or "[START-TIMEOUT]" in line]
+    latest_runtime_state = runtime_state_lines[-1] if runtime_state_lines else ""
+    runtime_start_requested = any("event=start_requested" in line.lower() or "[start-req]" in line.lower() for line in runtime_state_lines)
+    runtime_start_result_lines = [line for line in runtime_state_lines if "event=start_result" in line.lower()]
+    latest_runtime_start_result = runtime_start_result_lines[-1] if runtime_start_result_lines else ""
+    runtime_start_result = (
+        _live_on_stage_extract_value(latest_runtime_start_result, "runtime_start_result")
+        or ("started" if "runtime_started=True" in latest_runtime_start_result else "")
+        or ("timeout" if "start-timeout" in latest_runtime_start_result.lower() else "")
+    )
+    runtime_start_source = _live_on_stage_extract_value(latest_runtime_state, "runtime_start_source") or _live_on_stage_extract_value(latest_runtime_state, "source")
+    runtime_start_reason = _live_on_stage_extract_value(latest_runtime_state, "runtime_start_reason") or _live_on_stage_extract_value(latest_runtime_state, "reason")
+    candidate_loop_running = bool(score_update_count)
+    candidate_loop_source = "CandidateFeedState" if candidate_loop_running else ""
+    order_intent_lines = [
+        line for line in lines
+        if "order_intent" in line
+        or "order intent" in line
+        or "[AITS][OrderIntentCandidate]" in line
+    ]
+    order_intent_candidate_observe_only = any("observe_only=True" in line for line in order_intent_lines)
+    latest_order_intent_candidate = order_intent_lines[-1] if order_intent_lines else ""
+    order_intent_candidate_reason = _live_on_stage_extract_value(latest_order_intent_candidate, "reason")
+    order_intent_candidate_blocker = _live_on_stage_extract_value(latest_order_intent_candidate, "blocker")
     router_lines = [line for line in lines if "RouterSummary" in line or "router_validation" in line]
     riskguard_lines = [line for line in lines if "RiskGuard" in line or "risk_guard" in line]
     preflight_lines = [line for line in lines if "LivePreflight" in line or "live_preflight" in line]
@@ -8425,6 +8455,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
 
     stage_checks = [
         ("on_state_detected", on_state_detected, "on_state_not_detected"),
+        ("runtime_start_requested", runtime_start_requested, "runtime_start_not_requested"),
         ("runtime_loop_started", runtime_loop_started, "runtime_loop_not_started"),
         ("market_feed_ok", market_feed_ok, str(market_feed.get("market_feed_blocker") or "market_feed_missing")),
         ("managed_pool_present", managed_pool_count > 0, "managed_pool_empty"),
@@ -8506,6 +8537,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "recent_report_count": len(reports),
         "on_state_detected": bool(on_state_detected),
         "runtime_loop_started": bool(runtime_loop_started),
+        "runtime_start_requested": bool(runtime_start_requested),
+        "runtime_start_source": str(runtime_start_source or ""),
+        "runtime_start_reason": str(runtime_start_reason or ""),
+        "runtime_start_result": str(runtime_start_result or ""),
+        "candidate_loop_running": bool(candidate_loop_running),
+        "candidate_loop_source": str(candidate_loop_source or ""),
         "live_on_preflight_blocked": bool(live_on_preflight_blocked),
         "configured_order_amount_krw": configured_amount,
         "configured_order_amount_source": configured_source,
@@ -8543,8 +8580,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "managed_pool_count": managed_pool_count,
         "score_update_count": score_update_count,
         "buy_ready_count": buy_ready_count,
+        "latest_buy_ready_count": buy_ready_count,
         "ai_opinion_fresh_count": ai_opinion_fresh_count,
         "order_intent_candidate_detected": bool(order_intent_lines),
+        "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),
+        "order_intent_candidate_blocker": str(order_intent_candidate_blocker or ""),
+        "order_intent_candidate_observe_only": bool(order_intent_candidate_observe_only),
         "detected_candidate_symbol": detected_candidate_symbol,
         "detected_candidate_source": str(contract_report.get("candidates", [{}])[0].get("source") if contract_report.get("candidates") else ""),
         "detected_candidate_side": "buy" if (detected_candidate_symbol and (order_intent_lines or buy_ready_count)) else "",
@@ -8554,6 +8595,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "router_validation_reached": bool(router_lines),
         "riskguard_reached": bool(riskguard_lines),
         "live_preflight_reached": bool(preflight_lines),
+        "router_called": bool(router_lines),
+        "riskguard_called": bool(riskguard_lines),
+        "live_preflight_called": bool(preflight_lines),
+        "execution_called": bool(execution_lines),
         "unlock_reached": bool(unlock_lines),
         "execution_bridge_reached": bool(execution_lines),
         "order_service_reached": bool(order_service_lines),
@@ -8714,10 +8759,32 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
             "[start-ack]",
             "runtime_loop_started",
         )
+    ) and (
+        "runtime_loop_started=true" in joined_lower
+        or "runtime_started=true" in joined_lower
+        or "event=runner_start_after" in joined_lower
+        or "[runner] start_strategy called" in joined_lower
+        or "[start-ack]" in joined_lower
     )
     runtime_not_started = any("event=runtime_not_started" in line.lower() or "[start-timeout]" in line.lower() for line in runtime_lines)
 
     latest_runtime = runtime_lines[-1] if runtime_lines else ""
+    runtime_start_result_lines = [line for line in runtime_lines if "event=start_result" in line.lower()]
+    latest_runtime_start_result = runtime_start_result_lines[-1] if runtime_start_result_lines else ""
+    runtime_start_source = (
+        _live_on_stage_extract_value(latest_runtime, "runtime_start_source")
+        or _live_on_stage_extract_value(latest_runtime, "source")
+        or str(e2e.get("runtime_start_source") or "")
+    )
+    runtime_start_reason = (
+        _live_on_stage_extract_value(latest_runtime, "runtime_start_reason")
+        or _live_on_stage_extract_value(latest_runtime, "reason")
+        or str(e2e.get("runtime_start_reason") or "")
+    )
+    runtime_start_result = (
+        _live_on_stage_extract_value(latest_runtime_start_result, "runtime_start_result")
+        or str(e2e.get("runtime_start_result") or "")
+    )
     latest_preflight = preflight_lines[-1] if preflight_lines else ""
     latest_provider = provider_lines[-1] if provider_lines else ""
     latest_order_state = order_allowed_lines[-1] if order_allowed_lines else ""
@@ -8743,6 +8810,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
     live_gate_ready = any(re.search(r"live_gate(?:_ready)?[=:]\s*true", line, flags=re.IGNORECASE) for line in live_gate_lines + runtime_lines)
     candidate_loop_running = bool(e2e.get("score_update_count"))
     order_intent_candidate_detected = bool(e2e.get("order_intent_candidate_detected"))
+    order_intent_candidate_observe_only = bool(e2e.get("order_intent_candidate_observe_only"))
+    order_intent_candidate_reason = str(e2e.get("order_intent_candidate_reason") or "")
+    order_intent_candidate_blocker = str(e2e.get("order_intent_candidate_blocker") or "")
 
     preflight_status = "not_logged"
     if preflight_failed:
@@ -8888,6 +8958,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "cap_preflight_passed": not any(token in latest_preflight for token in ("hard_cap_zero", "effective_hard_cap_below_min_order", "order_amount_exceeds")),
         "runtime_start_requested": bool(runtime_start_requested),
         "runtime_start_result_detected": bool(runtime_start_result_detected),
+        "runtime_start_source": str(runtime_start_source or ""),
+        "runtime_start_reason": str(runtime_start_reason or ""),
+        "runtime_start_result": str(runtime_start_result or ""),
         "runtime_stop_requested": bool(runtime_stop_requested),
         "runtime_stop_result_detected": bool(runtime_stop_result_detected),
         "runtime_loop_started": bool(runtime_loop_started),
@@ -8909,6 +8982,7 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "real_order_after": bool(real_order_after),
         "live_gate_ready": bool(live_gate_ready),
         "candidate_loop_running": bool(candidate_loop_running),
+        "candidate_loop_source": str(e2e.get("candidate_loop_source") or ""),
         "market_feed_ok": bool(e2e.get("market_feed_ok")),
         "market_feed_source": str(e2e.get("market_feed_source") or ""),
         "market_feed_reason": str(e2e.get("market_feed_reason") or ""),
@@ -8939,12 +9013,20 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "effective_cap_krw": int(e2e.get("effective_cap_krw") or 0),
         "balance_gate_blocker": str(e2e.get("balance_gate_blocker") or ""),
         "buy_ready_count": int(e2e.get("buy_ready_count") or 0),
+        "latest_buy_ready_count": int(e2e.get("latest_buy_ready_count") or e2e.get("buy_ready_count") or 0),
         "ai_opinion_fresh_count": int(e2e.get("ai_opinion_fresh_count") or 0),
         "order_intent_candidate_detected": bool(order_intent_candidate_detected),
+        "order_intent_candidate_reason": str(order_intent_candidate_reason or ""),
+        "order_intent_candidate_blocker": str(order_intent_candidate_blocker or ""),
+        "order_intent_candidate_observe_only": bool(order_intent_candidate_observe_only),
         "detected_candidate_symbol": str(e2e.get("detected_candidate_symbol") or ""),
         "router_validation_reached": bool(e2e.get("router_validation_reached")),
         "riskguard_reached": bool(e2e.get("riskguard_reached")),
         "live_preflight_reached": bool(e2e.get("live_preflight_reached")),
+        "router_called": bool(e2e.get("router_called")),
+        "riskguard_called": bool(e2e.get("riskguard_called")),
+        "live_preflight_called": bool(e2e.get("live_preflight_called")),
+        "execution_called": bool(e2e.get("execution_called")),
         "unlock_reached": bool(e2e.get("unlock_reached")),
         "execution_bridge_reached": bool(e2e.get("execution_bridge_reached")),
         "order_service_reached": bool(e2e.get("order_service_reached")),

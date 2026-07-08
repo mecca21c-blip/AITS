@@ -136,3 +136,10 @@ After-preflight summary recognizes `[AITS][ProviderReadinessAutoCheck]` lines an
 
 - After-preflight summary now mirrors `runtime_network_profile_split_detected`, `market_feed_app_process_ok`, `market_feed_user_app_ok`, `user_app_process_detected`, `profile_split_result`, and `external_public_read_network_ok` from E2E diagnostics.
 - These fields explain whether a public feed failure belongs to the harness environment, the observed app runtime profile, or a user-launched app profile.
+
+## 2026-07-08 - Runtime Start And Observe-Only Candidate Contract
+
+- Runtime start is now traced through `[AITS][RuntimeState]` with `start_pending_after_preflight`, `start_requested`, `start_result`, and `loop_status`.
+- `CandidateFeedState` means the candidate/feed loop is alive; it is not by itself proof that the ON runtime start contract completed.
+- Buy Ready rows can emit `[AITS][OrderIntentCandidate] event=candidate_detected observe_only=True` only as an observation contract. It must keep `router_called=False`, `riskguard_called=False`, `live_preflight_called=False`, `execution_called=False`, `order_allowed=False`, and `real_order=False`.
+- After-preflight summaries expose `runtime_start_source`, `runtime_start_reason`, `runtime_start_result`, `candidate_loop_source`, `latest_buy_ready_count`, `order_intent_candidate_reason`, `order_intent_candidate_blocker`, and `order_intent_candidate_observe_only`.

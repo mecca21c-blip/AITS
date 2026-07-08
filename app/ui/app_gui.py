@@ -39403,6 +39403,12 @@ class MainWindow(QMainWindow):
             buy_ready_count = sum(1 for r in rows if str(r.get("ai_status") or "") == "Buy Ready")
             watching_count = sum(1 for r in rows if str(r.get("ai_status") or "") == "Watching")
             market_data_stale = bool(getattr(self, "_candidate_feed_stale", False))
+            try:
+                self._aits_latest_buy_ready_count = int(buy_ready_count or 0)
+                self._aits_latest_score_update_count = int(len(rows) or 0)
+                self._aits_candidate_loop_running = bool(rows)
+            except Exception:
+                pass
             print(
                 f"[AITS] ai score update total={len(rows)} buy_ready={buy_ready_count} watching={watching_count} market_data_stale={market_data_stale}"
             )
@@ -39422,6 +39428,50 @@ class MainWindow(QMainWindow):
                     buy_ready_count=buy_ready_count,
                     market_data_stale=market_data_stale,
                 )
+                try:
+                    first_buy_ready = None
+                    for candidate_row in rows:
+                        if (
+                            isinstance(candidate_row, dict)
+                            and str(candidate_row.get("ai_status") or "") == "Buy Ready"
+                            and self._is_aits_pool_row_candidate_eligible(candidate_row)
+                        ):
+                            first_buy_ready = candidate_row
+                            break
+                    if first_buy_ready is not None:
+                        stg_obj = getattr(getattr(self, "_settings", None), "strategy", None)
+                        if isinstance(stg_obj, dict):
+                            intended_amount = int(stg_obj.get("order_amount_krw", 0) or 0)
+                        else:
+                            intended_amount = int(getattr(stg_obj, "order_amount_krw", 0) or 0)
+                        runtime_status = str(getattr(self, "_aits_runtime_status_text", "") or "")
+                        runtime_contract_active = (
+                            "on_preflight_passed" in runtime_status
+                            or "on_observing" in runtime_status
+                            or "running" in runtime_status.lower()
+                        )
+                        candidate_symbol = str(
+                            first_buy_ready.get("symbol")
+                            or first_buy_ready.get("market")
+                            or first_buy_ready.get("ticker")
+                            or ""
+                        ).strip().upper()
+                        candidate_source = str(first_buy_ready.get("source") or "managed_pool").strip()
+                        candidate_score = int(first_buy_ready.get("ai_score") or first_buy_ready.get("score") or 0)
+                        candidate_event = "candidate_detected" if runtime_contract_active else "candidate_blocked"
+                        candidate_blocker = "" if runtime_contract_active else "runtime_start_not_confirmed"
+                        logging.getLogger("aits").info(
+                            "[AITS][OrderIntentCandidate] event=%s observe_only=True symbol=%s source=%s side=buy amount_krw=%s score=%s reason=buy_ready_candidate blocker=%s runtime_contract_active=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
+                            candidate_event,
+                            candidate_symbol,
+                            candidate_source,
+                            intended_amount,
+                            candidate_score,
+                            candidate_blocker,
+                            bool(runtime_contract_active),
+                        )
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -52916,6 +52966,18 @@ class MainWindow(QMainWindow):
                                 "[AITS][ON] event=preflight_result status=pass blocker=- reason=%s source_path=on_button submitted=0 order_allowed=False real_order=False",
                                 str(preflight_msg or "preflight_passed")[:120],
                             )
+                            logging.getLogger("aits").info(
+                                "[AITS][RuntimeState] event=start_pending_after_preflight source_path=on_button on_state=True execution_mode=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s source=on_preflight reason=preflight_passed submitted=0 order_allowed=False real_order=False",
+                                str(self._get_aits_execution_mode() or "unknown"),
+                                bool(getattr(self, "_aits_candidate_loop_running", False)),
+                                int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                            )
+                            logging.getLogger("aits").info(
+                                "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s source=on_preflight reason=start_pending submitted=0 order_allowed=False real_order=False",
+                                str(self._get_aits_execution_mode() or "unknown"),
+                                bool(getattr(self, "_aits_candidate_loop_running", False)),
+                                int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                            )
                         except Exception:
                             pass
                         self._log_live_on_button_state_trace(
@@ -52934,6 +52996,15 @@ class MainWindow(QMainWindow):
                     ui_settings_id = id(self._settings)
                     ui_order_service_id = id(svc_order)
                     ui_live_trade = getattr(self._settings, "live_trade", False)
+                    try:
+                        logging.getLogger("aits").info(
+                            "[AITS][RuntimeState] event=start_stage stage=post_preflight_contract source_path=on_button on_state=True execution_mode=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s source=on_button reason=post_preflight_start_path submitted=0 order_allowed=False real_order=False",
+                            str(self._get_aits_execution_mode() or "unknown"),
+                            bool(getattr(self, "_aits_candidate_loop_running", False)),
+                            int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                        )
+                    except Exception:
+                        pass
                     
                     # ✅ 진단: nested(upbit.access_key/secret_key) + flat(upbit_access_key/secret_key) 둘 다 확인
                     ui_ak1 = (getattr(getattr(self._settings, "upbit", None), "access_key", "") or "")
@@ -53106,8 +53177,16 @@ class MainWindow(QMainWindow):
                     ts_req = int(time.time() * 1000)
                     self._log.info("[START-REQ] ts=%d", ts_req)
                     self._log.info(
-                        "[AITS][RuntimeState] event=start_requested source_path=on_button execution_mode_before=%s order_allowed_before=False real_order_before=False submitted=0",
+                        "[AITS][RuntimeState] event=start_requested source_path=on_button on_state=True runtime_start_source=on_button runtime_start_reason=preflight_passed execution_mode_before=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s order_allowed_before=False real_order_before=False submitted=0",
                         str(self._get_aits_execution_mode() or "unknown"),
+                        bool(getattr(self, "_aits_candidate_loop_running", False)),
+                        int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                    )
+                    self._log.info(
+                        "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s source=start_requested reason=runner_not_acknowledged submitted=0 order_allowed=False real_order=False",
+                        str(self._get_aits_execution_mode() or "unknown"),
+                        bool(getattr(self, "_aits_candidate_loop_running", False)),
+                        int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                     )
 
                     def _do_start_work():
@@ -53161,9 +53240,17 @@ class MainWindow(QMainWindow):
                             if started:
                                 self._log.info("[START-ACK] elapsed_ms=%d", elapsed_ms)
                                 self._log.info(
-                                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_started=True elapsed_ms=%s execution_mode_after=%s order_allowed_after=False real_order_after=False submitted=0",
+                                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=started runtime_started=True runtime_loop_started=True elapsed_ms=%s execution_mode_after=%s candidate_loop_running=%s latest_buy_ready_count=%s order_allowed_after=False real_order_after=False submitted=0",
                                     elapsed_ms,
                                     str(self._get_aits_execution_mode() or "unknown"),
+                                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                                )
+                                self._log.info(
+                                    "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=True runtime_loop_started=True candidate_loop_running=%s latest_buy_ready_count=%s source=start_result reason=start_ack submitted=0 order_allowed=False real_order=False",
+                                    str(self._get_aits_execution_mode() or "unknown"),
+                                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                                 )
                                 try:
                                     self._set_running_ui(True)
@@ -53173,9 +53260,17 @@ class MainWindow(QMainWindow):
                             if elapsed_ms >= 5000:
                                 self._log.info("[START-TIMEOUT] elapsed_ms=%d", elapsed_ms)
                                 self._log.info(
-                                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_started=False elapsed_ms=%s execution_mode_after=%s order_allowed_after=False real_order_after=False blocker=start_timeout submitted=0",
+                                    "[AITS][RuntimeState] event=start_result source_path=on_button runtime_start_result=timeout runtime_started=False runtime_loop_started=False elapsed_ms=%s execution_mode_after=%s candidate_loop_running=%s latest_buy_ready_count=%s order_allowed_after=False real_order_after=False blocker=start_timeout submitted=0",
                                     elapsed_ms,
                                     str(self._get_aits_execution_mode() or "unknown"),
+                                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
+                                )
+                                self._log.info(
+                                    "[AITS][RuntimeState] event=loop_status source_path=on_button on_state=True execution_mode=%s runtime_started=False runtime_loop_started=False candidate_loop_running=%s latest_buy_ready_count=%s source=start_result reason=start_timeout submitted=0 order_allowed=False real_order=False",
+                                    str(self._get_aits_execution_mode() or "unknown"),
+                                    bool(getattr(self, "_aits_candidate_loop_running", False)),
+                                    int(getattr(self, "_aits_latest_buy_ready_count", 0) or 0),
                                 )
                                 try:
                                     self._set_running_ui(True)
