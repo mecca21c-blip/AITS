@@ -1798,3 +1798,10 @@ summary modes.
 - inline history와 공통설정 운용 로그는 `message_ko`만 표시하며 `raw_event`, snake_case blocker, 개발용 이벤트명은 사용자-facing 텍스트로 노출하지 않는다.
 - 공통설정 운용 로그는 최근 50개 전체 히스토리, MAIN ANALYSIS CENTER inline history는 최근 5개 빠른 확인용, 매매기록 탭은 실제 체결/AI 판단/차단 기록용이다.
 - dry-read는 `live_log_inline_expand_supported`, `live_log_popup_disabled`, `live_log_snake_case_leak_count`, `common_settings_live_log_korean_only`, `live_log_blocker_koreanized`를 보고한다.
+
+## Managed Pool Holdings Must Include
+
+- 실제 holdings/account/position snapshot에서 수량이 0보다 큰 종목은 Managed Pool에 반드시 포함되어야 한다.
+- TradeLog actual order row는 보조 evidence이며, 단독으로 holding source row를 만들지 않는다.
+- `managed-pool-holdings-include-summary`는 current holdings symbols와 saved managed pool symbols를 비교해 누락, source/protected, max-count override 여부를 보고한다.
+- 보유 종목은 `source_type=live_holding`, `holding=True`, `protected=True`로 표시되며 max managed count보다 우선한다.

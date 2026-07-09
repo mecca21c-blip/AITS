@@ -273,3 +273,10 @@ These events are not submit permission and must not call order retry paths.
 - 클릭하면 별도 팝업 대신 MAIN ANALYSIS CENTER 내부에서 최근 5개 로그가 최신순으로 펼쳐진다.
 - `add_position_blocked_by_weight_cap`, `candidate_selected`, `order_blocked` 같은 raw event/blocker는 내부 분석용으로만 보존하고, 화면에는 한국어 운용 메시지와 한국어 차단 사유를 표시한다.
 - 공통설정 운용 로그는 동일 formatter를 사용해 최근 50개 히스토리를 최신순으로 제공한다.
+
+## Managed Pool Holding Source Policy
+
+- live holdings / current positions는 Managed Pool SSOT에서 최우선 보호 row다.
+- 보유 종목은 삭제되더라도 다음 holdings refresh 또는 restart restore에서 관리종목으로 복구된다.
+- max managed count는 비보유 AI 후보 슬롯 제한으로 해석하며, 보유 종목 누락 사유가 될 수 없다.
+- 보유 종목 포함/복구와 max count override는 `[AITS][ManagedPoolSSOT]`와 LIVE LOG 한국어 메시지에 남긴다.

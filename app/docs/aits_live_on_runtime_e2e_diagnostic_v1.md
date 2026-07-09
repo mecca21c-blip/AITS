@@ -415,6 +415,20 @@ Blockers:
 These blockers are policy gates before Router/RiskGuard/LivePreflight/Execution.
 They do not create synthetic holdings or synthetic order intents, and they do not relax
 the live submit path.
+
+## Managed Pool Holdings Must Include Taxonomy
+
+- Current holdings/account/position snapshots are the authority for Managed Pool holding rows. TradeLog rows are supporting evidence only and cannot create `source=holding` rows by themselves.
+- A symbol with live quantity greater than zero must remain in Managed Pool after restart, user deletion, or max-count apply. Holding rows are reported as `source_type=live_holding`, `holding=True`, and `protected=True`.
+- `managed-pool-holdings-include-summary` compares current holding symbols with saved Managed Pool symbols and reports `managed_pool_holdings_included`, `managed_pool_holding_symbols`, `managed_pool_missing_holding_symbols`, `managed_pool_holding_source_count`, `managed_pool_max_count`, `managed_pool_final_count`, `managed_pool_holdings_overrode_max_count`, `managed_pool_holding_protected`, `ens_o_in_managed_pool`, and `bera_in_managed_pool`.
+- If holdings exceed the configured max count, E2E keeps the holding rows and reports `managed_pool_holdings_overrode_max_count=true`; max count limits non-holding candidate slots, not live holdings protection.
+
+Blockers:
+- `holding_symbol_missing_from_managed_pool`
+- `managed_pool_max_count_excluded_holding`
+- `managed_pool_holding_not_protected`
+- `holdings_source_unavailable_for_managed_pool`
+- `managed_pool_holdings_included_ok`
 ## LIVE LOG Korean History Diagnostics
 
 - E2E/dry-read 진단은 LIVE LOG가 popup이 아니라 inline expand/collapse를 지원하는지 확인한다.

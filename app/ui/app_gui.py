@@ -18235,6 +18235,18 @@ class MainWindow(QMainWindow):
             "value_krw",
             "hold_source",
             "hold_reason",
+            "holding_source",
+            "is_holding",
+            "has_position",
+            "protected",
+            "managed_protected",
+            "avg",
+            "avg_price",
+            "price",
+            "current_price",
+            "eval_krw",
+            "position_value",
+            "position_value_krw",
             "_ai_status_before_pause",
             "target_weight",
             "weight",
@@ -18268,6 +18280,248 @@ class MainWindow(QMainWindow):
             out["name"] = symbol.split("-")[-1]
         return out
 
+    def _managed_pool_num_value(self, value, default: float = 0.0) -> float:
+        try:
+            text = str(value).replace(",", "").replace("원", "").replace("%", "").strip()
+            if text in {"", "-", "None", "none"}:
+                return float(default)
+            return float(text)
+        except Exception:
+            return float(default)
+
+    def _managed_pool_holding_symbol(self, row: dict) -> str:
+        try:
+            symbol = self._normalize_managed_pool_symbol_for_persistence(
+                row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker")
+            )
+            if symbol:
+                return symbol
+            currency = str(row.get("currency") or row.get("asset") or "").strip().upper()
+            if currency and currency != "KRW":
+                return self._normalize_managed_pool_symbol_for_persistence(currency)
+        except Exception:
+            pass
+        return ""
+
+    def _managed_pool_holding_qty(self, row: dict) -> float:
+        qty = self._managed_pool_num_value(row.get("qty") or row.get("quantity") or row.get("volume"), 0.0)
+        balance = self._managed_pool_num_value(row.get("balance"), 0.0)
+        locked = self._managed_pool_num_value(row.get("locked"), 0.0)
+        return max(qty, balance + locked, balance)
+
+    def _build_managed_pool_row_from_live_holding(self, row: dict) -> dict:
+        from datetime import datetime
+
+        symbol = self._managed_pool_holding_symbol(row)
+        if not symbol:
+            return {}
+        qty = self._managed_pool_holding_qty(row)
+        if qty <= 0.0:
+            return {}
+        avg = self._managed_pool_num_value(row.get("avg") or row.get("avg_price") or row.get("avg_buy_price"), 0.0)
+        price = self._managed_pool_num_value(row.get("price") or row.get("current_price") or row.get("trade_price"), 0.0)
+        eval_krw = self._managed_pool_num_value(row.get("eval_krw") or row.get("eval_amount") or row.get("value_krw") or row.get("position_value") or row.get("position_value_krw"), 0.0)
+        if eval_krw <= 0.0 and price > 0.0:
+            eval_krw = qty * price
+        elif eval_krw <= 0.0 and avg > 0.0:
+            eval_krw = qty * avg
+        now = datetime.now().isoformat(timespec="seconds")
+        managed = {
+            "symbol": symbol,
+            "market": symbol,
+            "name": str(row.get("name") or row.get("display_name") or symbol.split("-")[-1]),
+            "source": "HOLDING",
+            "source_type": "live_holding",
+            "status": "보유관리",
+            "ai_status": "보유관리",
+            "reason": "live_holding_must_include",
+            "holding": True,
+            "is_holding": True,
+            "has_position": True,
+            "protected": True,
+            "managed_protected": True,
+            "holding_source": str(row.get("source") or row.get("holding_source") or "live_holdings"),
+            "qty": qty,
+            "quantity": qty,
+            "balance": self._managed_pool_num_value(row.get("balance"), qty),
+            "locked": self._managed_pool_num_value(row.get("locked"), 0.0),
+            "avg": avg,
+            "avg_price": avg,
+            "price": price,
+            "current_price": price,
+            "eval_krw": eval_krw,
+            "value_krw": eval_krw,
+            "position_value_krw": eval_krw,
+            "created_at": str(row.get("created_at") or now),
+            "updated_at": now,
+        }
+        try:
+            shaped = self._ensure_aits_managed_pool_row_shape(managed)
+            if isinstance(shaped, dict):
+                managed = shaped
+        except Exception:
+            pass
+        managed.update({
+            "source": "HOLDING",
+            "source_type": "live_holding",
+            "status": "보유관리",
+            "ai_status": "보유관리",
+            "holding": True,
+            "is_holding": True,
+            "has_position": True,
+            "protected": True,
+            "managed_protected": True,
+            "holding_source": managed.get("holding_source") or "live_holdings",
+        })
+        return managed
+
+    def _load_managed_pool_live_holding_rows(self, *, reason: str = "managed_pool_holdings_include", holdings: list | None = None) -> list[dict]:
+        source_rows = holdings if isinstance(holdings, list) else None
+        if source_rows is None:
+            source_rows = []
+            try:
+                result = self._refresh_investment_position_source(reason)
+                rows = result.get("rows") if isinstance(result, dict) else []
+                if isinstance(rows, list):
+                    source_rows.extend([dict(row) for row in rows if isinstance(row, dict)])
+            except Exception:
+                pass
+            for attr_name in ("_live_holdings_rows", "_investment_center_positions", "_portfolio_positions", "_holdings_rows"):
+                try:
+                    rows = getattr(self, attr_name, None)
+                    if isinstance(rows, list):
+                        source_rows.extend([dict(row) for row in rows if isinstance(row, dict)])
+                except Exception:
+                    pass
+        out: list[dict] = []
+        seen = set()
+        for item in source_rows or []:
+            if not isinstance(item, dict):
+                continue
+            row = self._build_managed_pool_row_from_live_holding(item)
+            symbol = str(row.get("symbol") or "").strip() if isinstance(row, dict) else ""
+            if not symbol or symbol in seen:
+                continue
+            out.append(row)
+            seen.add(symbol)
+        return out
+
+    def _ensure_managed_pool_holdings_included(self, *, reason: str = "refresh", holdings: list | None = None, persist: bool = True) -> dict:
+        rows = list(getattr(self, "ai_managed_rows", None) or [])
+        holding_rows = self._load_managed_pool_live_holding_rows(reason=reason, holdings=holdings)
+        if not holding_rows:
+            return {
+                "status": "no_holdings",
+                "holdings_count": 0,
+                "added_symbols": [],
+                "updated_symbols": [],
+                "final_count": len(rows),
+                "max_count": self._get_managed_pool_max_size_value(),
+            }
+        by_symbol = {}
+        ordered: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            clean = dict(row)
+            symbol = self._normalize_managed_pool_symbol_for_persistence(clean.get("symbol") or clean.get("market"))
+            if not symbol or symbol in by_symbol:
+                continue
+            clean["symbol"] = symbol
+            clean["market"] = symbol
+            by_symbol[symbol] = clean
+            ordered.append(clean)
+        added: list[str] = []
+        updated: list[str] = []
+        for holding in holding_rows:
+            symbol = str(holding.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            existing = by_symbol.get(symbol)
+            if existing is None:
+                ordered.insert(0, dict(holding))
+                by_symbol[symbol] = ordered[0]
+                added.append(symbol)
+                continue
+            existing.update({
+                "source": "HOLDING",
+                "source_type": "live_holding",
+                "status": "보유관리",
+                "ai_status": "보유관리",
+                "holding": True,
+                "is_holding": True,
+                "has_position": True,
+                "protected": True,
+                "managed_protected": True,
+                "holding_source": holding.get("holding_source") or "live_holdings",
+                "qty": holding.get("qty"),
+                "quantity": holding.get("quantity") or holding.get("qty"),
+                "balance": holding.get("balance"),
+                "locked": holding.get("locked"),
+                "avg": holding.get("avg"),
+                "avg_price": holding.get("avg_price"),
+                "price": holding.get("price"),
+                "current_price": holding.get("current_price"),
+                "eval_krw": holding.get("eval_krw"),
+                "value_krw": holding.get("value_krw"),
+                "position_value_krw": holding.get("position_value_krw"),
+                "updated_at": holding.get("updated_at"),
+            })
+            updated.append(symbol)
+        self.ai_managed_rows = ordered
+        max_count = self._get_managed_pool_max_size_value()
+        overrode = bool(len(ordered) > max_count and holding_rows)
+        if added or updated:
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolSSOT] event=holdings_must_include reason=%s holdings_count=%s added=%s updated=%s max_count=%s final_count=%s submitted=0 order_allowed=False real_order=False",
+                    reason,
+                    len(holding_rows),
+                    ",".join(added) or "-",
+                    ",".join(updated) or "-",
+                    int(max_count),
+                    len(ordered),
+                )
+                if overrode:
+                    self._log.info(
+                        "[AITS][ManagedPoolSSOT] event=max_count_overridden_by_holdings max_count=%s holdings_count=%s final_count=%s reason=holdings_must_be_included submitted=0 order_allowed=False real_order=False",
+                        int(max_count),
+                        len(holding_rows),
+                        len(ordered),
+                    )
+            except Exception:
+                pass
+            try:
+                if added:
+                    self._append_aits_live_log(
+                        f"{', '.join(added)} 보유 종목을 관리종목에 복구했습니다.",
+                        category="managed",
+                        event="managed_pool_holding_included",
+                        symbol=added[0],
+                    )
+                if overrode:
+                    self._append_aits_live_log(
+                        "보유 종목 보호로 관리종목 수 제한을 초과했습니다.",
+                        category="managed",
+                        event="managed_pool_holdings_overrode_max_count",
+                    )
+            except Exception:
+                pass
+            if persist:
+                try:
+                    self._persist_managed_pool_rows_after_trim(self._build_managed_pool_rows_snapshot(), max_count)
+                except Exception:
+                    pass
+        return {
+            "status": "included",
+            "holdings_count": len(holding_rows),
+            "holding_symbols": [row.get("symbol") for row in holding_rows if row.get("symbol")],
+            "added_symbols": added,
+            "updated_symbols": updated,
+            "max_count": max_count,
+            "final_count": len(ordered),
+            "holdings_overrode_max_count": overrode,
+        }
     def _build_managed_pool_rows_snapshot(self) -> list[dict]:
         rows = getattr(self, "ai_managed_rows", None)
         if not isinstance(rows, list):
@@ -18333,6 +18587,11 @@ class MainWindow(QMainWindow):
                     pass
                 return False
             self.ai_managed_rows = restored
+            try:
+                self._ensure_managed_pool_holdings_included(reason="restore", persist=True)
+                restored = list(getattr(self, "ai_managed_rows", None) or restored)
+            except Exception:
+                pass
             try:
                 self._log.info(
                     "[AITS][ManagedPoolPersistence] event=restore source=settings rows=%s fallback_default=False submitted=0",
@@ -37379,6 +37638,11 @@ class MainWindow(QMainWindow):
                 pass
             data = fetch_live_holdings(force=True)
             items = [dict(item) for item in ((data or {}).get("items") or []) if isinstance(item, dict)] if isinstance(data, dict) and data.get("ok") else []
+            try:
+                if items:
+                    self._ensure_managed_pool_holdings_included(reason="holdings_refresh", holdings=items, persist=True)
+            except Exception:
+                pass
             overlay = self._build_managed_pool_holding_display_overlay(items, min_value_krw=5000.0)
         except Exception:
             overlay = {}
@@ -38086,6 +38350,8 @@ class MainWindow(QMainWindow):
                 or row.get("origin")
                 or ""
             ).strip().lower()
+            if source in {"live_holding", "holding"} or bool(row.get("holding") or row.get("is_holding")):
+                return "잔고가 있어 관리 대상으로 유지됩니다."
             if source in {"user_added", "user", "manual"} or bool(row.get("user_added")):
                 return "사용자가 직접 추가한 관리종목입니다."
             if source in {"system_default", "system_seed", "seed"}:

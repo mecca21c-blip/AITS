@@ -1606,6 +1606,105 @@ def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
         report["pass_status"] = "partial"
 
 
+def _managed_pool_max_size_readonly(default: int = 10) -> int:
+    try:
+        from app.utils.prefs import load_settings
+
+        settings = load_settings()
+        ui_state = getattr(settings, "ui_state", None) or {}
+        if hasattr(ui_state, "model_dump"):
+            ui_state = ui_state.model_dump()
+        if isinstance(ui_state, dict):
+            if "managed_pool_max_size" in ui_state:
+                return max(1, min(50, int(float(ui_state.get("managed_pool_max_size") or default))))
+            basic = ui_state.get("basic_ai_settings")
+            if isinstance(basic, dict) and "managed_pool_max_size" in basic:
+                return max(1, min(50, int(float(basic.get("managed_pool_max_size") or default))))
+    except Exception:
+        pass
+    return int(default)
+
+
+def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
+    min_value_krw = 5000.0
+    managed_rows = _load_saved_managed_pool_rows_readonly()
+    snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
+    holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
+    recent_reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
+    recent_position_symbols: list[str] = []
+    recent_position_source = ""
+    for recent in recent_reports:
+        symbols = recent.get("investment_position_symbols")
+        if not isinstance(symbols, list) or not symbols:
+            symbols = recent.get("holdings_symbols")
+        if isinstance(symbols, list) and symbols:
+            recent_position_symbols = sorted({_normalize_symbol_text(item) for item in symbols if _normalize_symbol_text(item)})
+            recent_position_source = str(recent.get("mode") or recent.get("_report_path") or "recent_position_report")
+            break
+    managed_symbols = [_row_symbol(row) for row in managed_rows if _row_symbol(row)]
+    managed_set = set(managed_symbols)
+    holding_symbols = [_holding_symbol(row) for row in holdings_all if _holding_symbol(row) and _safe_float(row.get("qty"), 0.0) > 0.0]
+    holding_source = "direct_live_holdings"
+    if not holding_symbols and recent_position_symbols:
+        holding_symbols = list(recent_position_symbols)
+        holding_source = "recent_investment_position_snapshot"
+    missing = [symbol for symbol in holding_symbols if symbol not in managed_set]
+    holding_source_rows = [
+        row for row in managed_rows
+        if str(row.get("source_type") or row.get("source") or row.get("holding_source") or "").strip().lower() in {"live_holding", "holding", "live_holdings"}
+        or bool(row.get("holding") or row.get("is_holding") or row.get("has_position"))
+    ]
+    protected_rows = [row for row in holding_source_rows if bool(row.get("protected") or row.get("managed_protected") or row.get("holding") or row.get("is_holding"))]
+    max_count = _managed_pool_max_size_readonly()
+    final_count = len(managed_rows)
+    holdings_overrode = bool(final_count > max_count and holding_source_rows)
+    ens_in = "KRW-ENSO" in managed_set
+    bera_in = "KRW-BERA" in managed_set
+    holding_source_available = bool(snapshot.get("holdings_fetch_success") or recent_position_symbols)
+    if not holding_source_available:
+        first_blocker = "holdings_source_unavailable_for_managed_pool"
+        next_fix_target = "verify_user_app_holdings_snapshot_or_network_profile"
+    elif missing:
+        first_blocker = "holding_symbol_missing_from_managed_pool"
+        next_fix_target = "fix_managed_pool_holdings_must_include_merge"
+    elif len(protected_rows) < len(holding_source_rows):
+        first_blocker = "managed_pool_holding_not_protected"
+        next_fix_target = "fix_managed_pool_holding_protected_flag"
+    else:
+        first_blocker = "managed_pool_holdings_included_ok"
+        next_fix_target = "continue_live_observation_with_holdings_protected"
+    report.update({
+        "managed_pool_holdings_included": bool(holding_source_available and not missing),
+        "managed_pool_holding_symbols": holding_symbols,
+        "managed_pool_missing_holding_symbols": missing,
+        "managed_pool_holding_source_count": len(holding_source_rows),
+        "managed_pool_holding_source": holding_source,
+        "managed_pool_recent_position_source": recent_position_source,
+        "managed_pool_max_count": int(max_count),
+        "managed_pool_final_count": int(final_count),
+        "managed_pool_holdings_overrode_max_count": holdings_overrode,
+        "managed_pool_holding_protected": bool(holding_source_rows and len(protected_rows) == len(holding_source_rows)),
+        "ens_o_in_managed_pool": bool(ens_in),
+        "bera_in_managed_pool": bool(bera_in),
+        "holdings_must_include_policy_detected": True,
+        "holdings_fetch_success": bool(snapshot.get("holdings_fetch_success")),
+        "holdings_source_available": bool(holding_source_available),
+        "holdings_symbols": snapshot.get("holdings_symbols") or [],
+        "display_holding_symbols": snapshot.get("display_holding_symbols") or [],
+        "recent_position_symbols": recent_position_symbols,
+        "managed_symbols": managed_symbols,
+        "first_blocker": first_blocker,
+        "next_fix_target": next_fix_target,
+        "managed_pool_mutation": False,
+        "managed_pool_mutation_performed": False,
+        "provider_external_call_count": 0,
+        "order_risk_detected": False,
+        "actual_order": False,
+        "submitted_count": 0,
+        "pass_status": "pass" if first_blocker == "managed_pool_holdings_included_ok" else "partial" if holding_source_available else "fail",
+        "status": "pass",
+    })
+
 def _run_managed_pool_holding_display_sync_proof(report: dict[str, Any]) -> None:
     min_value_krw = 5000.0
     managed_rows = _load_saved_managed_pool_rows_readonly()
@@ -19942,6 +20041,7 @@ def run_harness(
         "rotation-intent-live-candidate-feed-proof",
         "holdings-to-managed-row-proof",
         "managed-pool-holding-display-sync-proof",
+        "managed-pool-holdings-include-summary",
         "rotation-eligibility-from-holdings-proof",
         "live-preflight-locked-proof",
         "live-one-shot-unlock-contract-proof",
@@ -20301,6 +20401,9 @@ def run_harness(
         elif mode == "managed-pool-holding-display-sync-proof":
             _install_provider_post_guard(report)
             _run_managed_pool_holding_display_sync_proof(report)
+        elif mode == "managed-pool-holdings-include-summary":
+            _install_provider_post_guard(report)
+            _run_managed_pool_holdings_include_summary(report)
         elif mode == "rotation-eligibility-from-holdings-proof":
             _install_provider_post_guard(report)
             _run_rotation_eligibility_from_holdings_proof(report, max_candidates=max_candidates)
@@ -20852,6 +20955,7 @@ def main() -> int:
             "rotation-intent-live-candidate-feed-proof",
             "holdings-to-managed-row-proof",
             "managed-pool-holding-display-sync-proof",
+            "managed-pool-holdings-include-summary",
             "rotation-eligibility-from-holdings-proof",
             "save-probe",
             "riskguard-proof",
