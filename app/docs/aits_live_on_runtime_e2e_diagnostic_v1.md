@@ -347,3 +347,11 @@ as `buy_ready_blocked_by_runtime_contract_inactive` or
 `runtime_contract_not_set_after_start`, depending on the latest start result.
 The summary also reports heartbeat fields so a long ON observation can show
 whether the user-facing LIVE LOG kept explaining why trading was waiting.
+## Candidate Selected To Router Normal Flow
+
+- Normal live flow must treat `candidate_selected` as the start of the live order pipeline, not as a submit event.
+- The required stage order is:
+  `candidate_selected -> router_validation_started -> router_validation_result -> riskguard_started -> riskguard_result -> live_preflight_started -> live_preflight_result -> execution_requested -> order_submit_attempt/order_submit_result`.
+- `order_allowed=False` and `real_order=False` do not block Router validation. Final submit authority remains behind RiskGuard, LivePreflight, ExecutionBridge, and OrderAdapter.
+- Duplicate candidate locks must prevent repeated submit for already-submitted candidates. A candidate that was blocked before submit may be re-evaluated after the configured duplicate lock TTL.
+- E2E summaries must report `riskguard_passed_but_live_preflight_not_started` if RiskGuard passed but no LivePreflight stage is present.

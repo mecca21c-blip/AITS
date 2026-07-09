@@ -53119,15 +53119,68 @@ class MainWindow(QMainWindow):
                 return True
 
             duplicate_key = f"{symbol}:{side}:{amount_krw}"
+            duplicate_lock_ttl_sec = 300
+            duplicate_lock_now = time.time()
             locks = getattr(self, "_live_auto_order_session_locks", None)
             if not isinstance(locks, dict):
                 locks = {}
                 self._live_auto_order_session_locks = locks
-            if duplicate_key in locks:
-                self._emit_live_order_pipeline_event("order_duplicate_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="duplicate_candidate_locked", stage="duplicate", status="blocked", previous_request_id=str(locks.get(duplicate_key) or ""))
-                self._set_aits_runtime_status_display("ON - blocked", "duplicate_candidate_locked")
-                return True
-            locks[duplicate_key] = request_id
+            previous_lock = locks.get(duplicate_key)
+            if previous_lock:
+                previous_request_id = ""
+                previous_submitted_count = 0
+                previous_status = ""
+                previous_created_at = 0.0
+                if isinstance(previous_lock, dict):
+                    previous_request_id = str(previous_lock.get("request_id") or "")
+                    previous_status = str(previous_lock.get("status") or "")
+                    previous_submitted_count = int(self._live_order_safe_float(previous_lock.get("submitted_count"), 0.0))
+                    previous_created_at = self._live_order_safe_float(previous_lock.get("created_at"), 0.0)
+                else:
+                    previous_request_id = str(previous_lock or "")
+                    previous_status = "legacy_lock"
+                lock_age_sec = int(max(0.0, duplicate_lock_now - previous_created_at)) if previous_created_at > 0 else 0
+                duplicate_lock_active = bool(
+                    previous_submitted_count > 0
+                    or previous_status == "legacy_lock"
+                    or previous_created_at <= 0
+                    or lock_age_sec < duplicate_lock_ttl_sec
+                )
+                if duplicate_lock_active:
+                    self._emit_live_order_pipeline_event(
+                        "order_duplicate_blocked",
+                        request_id=request_id,
+                        symbol=symbol,
+                        amount_krw=amount_krw,
+                        blocker="duplicate_candidate_locked",
+                        stage="duplicate",
+                        status="blocked",
+                        previous_request_id=previous_request_id,
+                        previous_status=previous_status,
+                        previous_submitted_count=previous_submitted_count,
+                        duplicate_candidate_lock_ttl_sec=duplicate_lock_ttl_sec,
+                        duplicate_candidate_lock_age_sec=lock_age_sec,
+                    )
+                    self._set_aits_runtime_status_display("ON - blocked", "duplicate_candidate_locked")
+                    return True
+                self._emit_live_order_pipeline_event(
+                    "candidate_allowed_after_duplicate_lock",
+                    request_id=request_id,
+                    symbol=symbol,
+                    amount_krw=amount_krw,
+                    stage="duplicate",
+                    status="allowed",
+                    previous_request_id=previous_request_id,
+                    previous_status=previous_status,
+                    duplicate_candidate_lock_ttl_sec=duplicate_lock_ttl_sec,
+                    duplicate_candidate_lock_age_sec=lock_age_sec,
+                )
+            locks[duplicate_key] = {
+                "request_id": request_id,
+                "created_at": duplicate_lock_now,
+                "submitted_count": 0,
+                "status": "selected",
+            }
 
             preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
             available_krw = self._live_order_safe_float(preflight_snapshot.get("available_krw"), getattr(self, "_last_available_krw", 0.0) or 0.0)
@@ -53257,6 +53310,49 @@ class MainWindow(QMainWindow):
                 "guarded_window_total_cap_krw": total_cap_krw,
                 "guarded_window_max_order_count": 1,
             })
+            self._emit_live_order_pipeline_event(
+                "live_preflight_started",
+                request_id=request_id,
+                symbol=symbol,
+                amount_krw=amount_krw,
+                stage="live_preflight",
+                status="started",
+                runtime_contract_active=True,
+                provider_ready=True,
+                market_feed_ok=True,
+                balance_preflight_passed=account_ready,
+                cap_preflight_passed=True,
+            )
+            from app.services.live_order_preflight import LiveOrderPreflight
+            live_preflight = LiveOrderPreflight()
+            live_preflight_input = dict(risk_meta)
+            live_preflight_input.update({
+                "request_id": request_id,
+                "symbol": symbol,
+                "side": side,
+                "amount_krw": amount_krw,
+                "price": price,
+                "execution_mode": execution_mode,
+                "aits_enabled": True,
+                "selected_provider": provider or "unknown",
+                "source": "live_auto_trading_flow",
+            })
+            live_preflight_result = live_preflight.evaluate(live_preflight_input)
+            logging.getLogger("aits").info(live_preflight.log_summary(live_preflight_result, live_preflight_input))
+            self._emit_live_order_pipeline_event(
+                "live_preflight_result",
+                request_id=request_id,
+                symbol=symbol,
+                amount_krw=amount_krw,
+                stage="live_preflight",
+                status="passed" if bool(live_preflight_result.allowed_for_preflight) else "blocked",
+                blocker=str(live_preflight_result.blocked_reason or ""),
+                live_preflight_called=True,
+                execution_allowed=bool(live_preflight_result.allowed_for_preflight),
+            )
+            if not bool(live_preflight_result.allowed_for_preflight):
+                self._set_aits_runtime_status_display("ON - blocked", str(live_preflight_result.blocked_reason or "live_preflight_blocked"))
+                return True
             contract = {
                 "request_id": request_id,
                 "symbol": symbol,
@@ -53283,6 +53379,15 @@ class MainWindow(QMainWindow):
             blocked_count = int(getattr(result, "blocked_count", 0) or 0)
             failed_count = int(getattr(result, "failed_count", 0) or 0)
             status = "submitted" if submitted_count > 0 else ("blocked" if blocked_count > 0 or failed_count > 0 else "completed")
+            try:
+                locks[duplicate_key] = {
+                    "request_id": request_id,
+                    "created_at": duplicate_lock_now,
+                    "submitted_count": submitted_count,
+                    "status": status,
+                }
+            except Exception:
+                pass
             self._emit_live_order_pipeline_event("execution_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="execution", status=status, submitted_count=submitted_count, actual_order=submitted_count > 0, blocked_count=blocked_count, failed_count=failed_count, summary=str(getattr(result, "summary_ko", "") or ""))
             self._emit_live_order_pipeline_event("order_submit_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="order", status=status, submitted_count=submitted_count, actual_order=submitted_count > 0, blocked_count=blocked_count, failed_count=failed_count)
             self._set_aits_runtime_status_display(

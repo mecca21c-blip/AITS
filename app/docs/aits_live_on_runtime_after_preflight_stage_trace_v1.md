@@ -224,3 +224,13 @@ the app logs `[AITS][RuntimeContract] event=candidate_blocked_by_runtime_contrac
 with the explicit blocker reason. The after-preflight summary reports
 `runtime_contract_active`, `runtime_contract_reason`, and
 `runtime_contract_last_writer`.
+## Normal Live Pipeline Stage Trace
+
+After ON preflight passes, the stage trace recognizes normal live pipeline events from `[AITS][LiveOrderPipeline]`.
+The trace must distinguish preview-only fields from actual normal-flow events:
+
+- `router_validation_started/result` means the selected candidate reached DecisionRouter validation.
+- `riskguard_started/result` means Router passed and RiskGuard was evaluated.
+- `live_preflight_started/result` means the final pre-execution safety gate was evaluated.
+- `execution_requested` must not appear before `live_preflight_result status=passed`.
+- `order_duplicate_blocked blocker=duplicate_candidate_locked` is a duplicate candidate guard, not a duplicate submit by itself.

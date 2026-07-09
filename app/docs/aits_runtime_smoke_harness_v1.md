@@ -1711,3 +1711,20 @@ adapter/service/execution reach as critical.
 
 The development `run.py` logger retains larger rotated logs so 6-8 hour ON
 observations can be reviewed after the app is stopped.
+## Normal Live Pipeline Fields
+
+`live-on-runtime-e2e-diagnostic-log-summary` reads the retained AITS logs, including rotated logs, with a larger default log window so early ON pipeline events are not lost during long runs.
+
+Additional fields:
+
+- `router_validation_started`
+- `router_validation_result_detected`
+- `router_validation_status`
+- `router_validation_action`
+- `duplicate_candidate_locked_count`
+- `duplicate_candidate_lock_ttl_sec`
+- `candidate_allowed_after_duplicate_lock`
+- `live_pipeline_live_preflight_started`
+- `live_pipeline_live_preflight_result`
+
+The harness must not classify a normal live flow as `candidate_selected_but_router_not_started` when `[AITS][LiveOrderPipeline] event=router_validation_started` or `event=router_validation_result` exists in the retained log window.
