@@ -1826,3 +1826,13 @@ summary modes.
 - User-facing text must be Korean only and must not expose raw event names, snake_case blockers, `submitted_count`, `actual_order`, or mutation flags.
 - The status bar is observe-only UI. It must not place orders, apply rotation, mutate the managed pool, or bypass any trading guard.
 - Harness fields: `managed_pool_status_bar_detected`, `managed_pool_status_bar_text`, `managed_pool_status_bar_korean_only`, `managed_pool_status_bar_no_raw_event_leak`, `managed_pool_status_bar_state`, managed/max/holding counts, rotation state, and order state.
+## Managed Pool dust holdings and weight target SSOT
+
+- Managed Pool auto-include protects manageable live holdings, not every positive quantity row.
+- `dust_holding` means a balance exists but its KRW valuation is below the managed holding threshold. It is logged and summarized, but it is not automatically restored into Managed Pool.
+- Defaults: `dust_threshold_krw=5000`, `managed_holding_min_value_krw=10000`.
+- Dust holdings are observe/log only. AITS must not trigger sell actions or create synthetic holdings or valuation data to clear dust.
+- Manageable holdings remain protected and monitored for loss/profit/rotation risk.
+- The Managed Pool weight/target column uses current position value divided by total asset when available. If the source is unavailable, display `-` rather than `0%`.
+- Target weight priority is user symbol target, then AI/suggested target, then policy target. If no source exists, display `-` rather than defaulting to `0%`.
+- Harness fields include dust symbols, excluded/readded dust symbols, manageable holding symbols, weight/target zero-zero count, nonzero holding weight count, and source fields for weight/target.

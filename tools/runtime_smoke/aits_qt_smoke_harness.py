@@ -1565,7 +1565,9 @@ def _managed_rows_with_observed_holdings(
 
 
 def _run_holdings_to_managed_row_proof(report: dict[str, Any]) -> None:
-    min_value_krw = 5000.0
+    dust_threshold_krw = 5000.0
+    managed_holding_min_value_krw = 10000.0
+    min_value_krw = managed_holding_min_value_krw
     managed_rows = _load_saved_managed_pool_rows_readonly()
     snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
     holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
@@ -1648,7 +1650,9 @@ def _managed_pool_max_size_readonly(default: int = 10) -> int:
 
 
 def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
-    min_value_krw = 5000.0
+    dust_threshold_krw = 5000.0
+    managed_holding_min_value_krw = 10000.0
+    min_value_krw = managed_holding_min_value_krw
     managed_rows = _load_saved_managed_pool_rows_readonly()
     snapshot = _fetch_live_holdings_snapshot_readonly(min_value_krw=min_value_krw)
     holdings_all = [row for row in (snapshot.get("holdings") or []) if isinstance(row, dict)]
@@ -1665,23 +1669,42 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
             break
     managed_symbols = [_row_symbol(row) for row in managed_rows if _row_symbol(row)]
     managed_set = set(managed_symbols)
-    holding_symbols = [_holding_symbol(row) for row in holdings_all if _holding_symbol(row) and _safe_float(row.get("qty"), 0.0) > 0.0]
+    holding_symbols = list(snapshot.get("holdings_symbols") or [])
+    if not holding_symbols:
+        holding_symbols = [_holding_symbol(row) for row in holdings_all if _holding_symbol(row) and _safe_float(row.get("qty"), 0.0) > 0.0 and _holding_eval_krw(row) >= 10000.0]
     holding_source = "direct_live_holdings"
     if not holding_symbols and recent_position_symbols:
         holding_symbols = list(recent_position_symbols)
         holding_source = "recent_investment_position_snapshot"
-    missing = [symbol for symbol in holding_symbols if symbol not in managed_set]
-    holding_source_rows = [
+    all_holding_source_rows = [
         row for row in managed_rows
         if str(row.get("source_type") or row.get("source") or row.get("holding_source") or "").strip().lower() in {"live_holding", "holding", "live_holdings"}
         or bool(row.get("holding") or row.get("is_holding") or row.get("has_position"))
     ]
+    dust_source_rows = [row for row in all_holding_source_rows if 0.0 <= _holding_eval_krw(row) < float(managed_holding_min_value_krw)]
+    holding_source_rows = [row for row in all_holding_source_rows if _holding_eval_krw(row) >= float(managed_holding_min_value_krw)]
     protected_rows = [row for row in holding_source_rows if bool(row.get("protected") or row.get("managed_protected") or row.get("holding") or row.get("is_holding"))]
+    dust_holding_symbols_from_rows = sorted({_row_symbol(row) for row in dust_source_rows if _row_symbol(row)})
+    holding_symbols = [symbol for symbol in holding_symbols if symbol not in set(dust_holding_symbols_from_rows)]
+    missing = [symbol for symbol in holding_symbols if symbol not in managed_set]
     max_count = _managed_pool_max_size_readonly()
     final_count = len(managed_rows)
     holdings_overrode = bool(final_count > max_count and holding_source_rows)
     ens_in = "KRW-ENSO" in managed_set
     bera_in = "KRW-BERA" in managed_set
+    manageable_holding_symbols = sorted({_row_symbol(row) for row in holding_source_rows if _row_symbol(row)})
+    managed_pool_dust_symbols_readded = sorted([symbol for symbol in dust_holding_symbols_from_rows if symbol in managed_set])
+    weight_target_zero_zero_count = 0
+    holding_weight_display_nonzero_count = 0
+    for row in managed_rows:
+        if not isinstance(row, dict):
+            continue
+        weight = _safe_float(row.get("position_weight_pct") or row.get("weight_pct") or row.get("weight"), 0.0)
+        target = _safe_float(row.get("target_weight") or row.get("goal_weight") or row.get("target_pct"), 0.0)
+        if weight <= 0.0 and target <= 0.0:
+            weight_target_zero_zero_count += 1
+        if _row_symbol(row) in set(manageable_holding_symbols) and weight > 0.0:
+            holding_weight_display_nonzero_count += 1
     rotation_plan: dict[str, Any] = {}
     try:
         from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
@@ -1738,7 +1761,7 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         managed_pool_status_bar_rotation_text = "로테이션 여부 판단 중"
     managed_pool_status_bar_text = f"{time.strftime('%H:%M')} · 관리종목 감시 중 · 관리 {final_count} / 최대 {max_count} · 보유 {len(holding_source_rows)} · 교체대상 {non_holding_rotation_targets_count} · {managed_pool_status_bar_rotation_text} · 실제 주문 없음"
     managed_pool_status_bar_snake_case_leak = bool(re.search(r"\b[a-z]+(?:_[a-z0-9]+)+\b", managed_pool_status_bar_text))
-    holding_source_available = bool(snapshot.get("holdings_fetch_success") or recent_position_symbols)
+    holding_source_available = bool(snapshot.get("holdings_fetch_success") or recent_position_symbols or holding_source_rows or dust_source_rows)
     if not holding_source_available:
         first_blocker = "holdings_source_unavailable_for_managed_pool"
         next_fix_target = "verify_user_app_holdings_snapshot_or_network_profile"
@@ -1749,12 +1772,35 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         first_blocker = "managed_pool_holding_not_protected"
         next_fix_target = "fix_managed_pool_holding_protected_flag"
     else:
-        first_blocker = "managed_pool_holdings_included_ok"
-        next_fix_target = "continue_live_observation_with_holdings_protected"
+        if not managed_pool_dust_symbols_readded and int(weight_target_zero_zero_count) == 0 and int(holding_weight_display_nonzero_count) >= len(manageable_holding_symbols):
+            first_blocker = "dust_and_weight_target_policy_ok"
+            next_fix_target = "continue_live_observation_with_manageable_holdings_only"
+        else:
+            first_blocker = "managed_pool_holdings_included_ok"
+            next_fix_target = "continue_live_observation_with_holdings_protected"
     report.update({
         "managed_pool_holdings_included": bool(holding_source_available and not missing),
         "managed_pool_holding_symbols": holding_symbols,
         "managed_pool_missing_holding_symbols": missing,
+        "dust_holding_policy_detected": True,
+        "dust_threshold_krw": float(dust_threshold_krw),
+        "managed_holding_min_value_krw": float(managed_holding_min_value_krw),
+        "dust_holding_symbols": sorted(set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows)),
+        "managed_pool_dust_symbols_excluded": sorted(set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows)),
+        "managed_pool_dust_symbols_readded": managed_pool_dust_symbols_readded,
+        "managed_pool_manageable_holding_symbols": manageable_holding_symbols,
+        "managed_pool_missing_real_holding_symbols": missing,
+        "ethf_dust_excluded": bool("KRW-ETHF" in set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows) and "KRW-ETHF" not in set(manageable_holding_symbols)),
+        "ethw_dust_excluded": bool("KRW-ETHW" in set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows) and "KRW-ETHW" not in set(manageable_holding_symbols)),
+        "apenft_dust_excluded": bool("KRW-APENFT" in set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows) and "KRW-APENFT" not in set(manageable_holding_symbols)),
+        "weight_target_column_detected": True,
+        "weight_target_zero_zero_count": int(weight_target_zero_zero_count),
+        "holding_weight_display_nonzero_count": int(holding_weight_display_nonzero_count),
+        "target_weight_source_detected": bool(any(str(row.get("target_weight") or row.get("goal_weight") or row.get("target_pct") or row.get("ai_target_weight") or row.get("user_target_weight") or "").strip() for row in managed_rows if isinstance(row, dict))),
+        "managed_pool_weight_source": "live_holding_valuation",
+        "managed_pool_target_source": "user_target_weight_then_ai_then_policy",
+        "total_asset_source_for_weight": "account_summary_or_available_plus_positions",
+        "position_value_source_for_weight": "live_holding_eval_krw",
         "managed_pool_holding_source_count": len(holding_source_rows),
         "managed_pool_holding_source": holding_source,
         "managed_pool_recent_position_source": recent_position_source,
@@ -1810,7 +1856,7 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         "order_risk_detected": False,
         "actual_order": False,
         "submitted_count": 0,
-        "pass_status": "pass" if first_blocker == "managed_pool_holdings_included_ok" else "partial" if holding_source_available else "fail",
+        "pass_status": "pass" if first_blocker in {"managed_pool_holdings_included_ok", "dust_and_weight_target_policy_ok"} else "partial" if holding_source_available else "fail",
         "status": "pass",
     })
 

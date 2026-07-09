@@ -301,6 +301,9 @@ matplotlib.rcParams["font.family"] = "Malgun Gothic"
 matplotlib.rcParams["axes.unicode_minus"] = False
 
 # 좌측 관리종목: 컬럼 헤더 + 행 카드 폭 SSOT (항상 동일 dict 참조)
+AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW = 5000.0
+AITS_MANAGED_HOLDING_MIN_VALUE_KRW = 10000.0
+
 _MANAGED_COL_WIDTHS: dict[str, int] = {
     "rank": 30,
     "symbol": 104,
@@ -18423,7 +18426,29 @@ class MainWindow(QMainWindow):
             "position_value_krw",
             "_ai_status_before_pause",
             "target_weight",
+            "goal_weight",
+            "target_pct",
+            "user_target_weight",
+            "user_target_weight_pct",
+            "ai_target_weight",
+            "ai_target_weight_pct",
+            "suggested_weight",
+            "suggested_weight_pct",
+            "target_weight_source",
+            "managed_pool_target_source",
             "weight",
+            "weight_pct",
+            "position_weight_pct",
+            "allocation_pct",
+            "managed_pool_weight_source",
+            "total_asset_source_for_weight",
+            "position_value_source_for_weight",
+            "dust_holding",
+            "is_dust_holding",
+            "manageable_holding",
+            "dust_reason",
+            "dust_threshold_krw",
+            "managed_holding_min_value_krw",
             "target_price",
             "stop_loss",
             "take_profit",
@@ -18483,6 +18508,89 @@ class MainWindow(QMainWindow):
         locked = self._managed_pool_num_value(row.get("locked"), 0.0)
         return max(qty, balance + locked, balance)
 
+
+    def _managed_pool_holding_dust_policy(self, row: dict, *, eval_krw: float | None = None) -> dict:
+        try:
+            symbol = self._managed_pool_holding_symbol(row) if isinstance(row, dict) else ""
+            qty = self._managed_pool_holding_qty(row) if isinstance(row, dict) else 0.0
+            avg = self._managed_pool_num_value(row.get("avg") or row.get("avg_price") or row.get("avg_buy_price"), 0.0) if isinstance(row, dict) else 0.0
+            price = self._managed_pool_num_value(row.get("price") or row.get("current_price") or row.get("trade_price"), 0.0) if isinstance(row, dict) else 0.0
+            value = float(eval_krw) if eval_krw is not None else self._managed_pool_num_value(row.get("eval_krw") or row.get("eval_amount") or row.get("value_krw") or row.get("position_value") or row.get("position_value_krw"), 0.0)
+            if value <= 0.0 and price > 0.0:
+                value = qty * price
+            elif value <= 0.0 and avg > 0.0:
+                value = qty * avg
+            dust_threshold = float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW)
+            min_value = float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW)
+            is_dust = bool(qty > 0.0 and 0.0 <= value < min_value)
+            reason = "managed_holding_min_value_not_met" if value < min_value else "manageable_holding"
+            if value < dust_threshold:
+                reason = "dust_threshold_not_met"
+            return {
+                "symbol": symbol,
+                "qty": qty,
+                "avg_price": avg,
+                "current_price": price,
+                "valuation_krw": value,
+                "dust_threshold_krw": dust_threshold,
+                "managed_holding_min_value_krw": min_value,
+                "is_dust_holding": is_dust,
+                "dust_reason": reason,
+                "manageable_holding": bool(qty > 0.0 and value >= min_value),
+            }
+        except Exception:
+            return {
+                "symbol": "",
+                "qty": 0.0,
+                "valuation_krw": 0.0,
+                "dust_threshold_krw": float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
+                "managed_holding_min_value_krw": float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
+                "is_dust_holding": True,
+                "dust_reason": "dust_policy_exception",
+                "manageable_holding": False,
+            }
+
+    def _managed_pool_total_asset_for_weight(self) -> tuple[float, str]:
+        try:
+            total = self._managed_pool_num_value(getattr(self, "_last_total_asset", None), 0.0)
+            if total > 0.0:
+                return total, "account_summary"
+            available = self._managed_pool_num_value(getattr(self, "_last_available_krw", None), 0.0)
+            rows = getattr(self, "ai_managed_rows", None) or []
+            positions_total = 0.0
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                positions_total += self._managed_pool_num_value(item.get("eval_krw") or item.get("value_krw") or item.get("position_value_krw"), 0.0)
+            if available > 0.0 or positions_total > 0.0:
+                return available + positions_total, "available_plus_positions"
+        except Exception:
+            pass
+        return 0.0, "unavailable"
+
+    def _managed_pool_apply_weight_fields(self, row: dict) -> dict:
+        if not isinstance(row, dict):
+            return row
+        try:
+            eval_krw = self._managed_pool_num_value(row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw"), 0.0)
+            total_asset = self._managed_pool_num_value(row.get("total_asset_krw"), 0.0)
+            total_source = str(row.get("total_asset_source") or "").strip()
+            if total_asset <= 0.0:
+                total_asset, total_source = self._managed_pool_total_asset_for_weight()
+            if eval_krw > 0.0 and total_asset > 0.0:
+                row["position_weight_pct"] = round(eval_krw / total_asset * 100.0, 4)
+                row["weight_pct"] = row["position_weight_pct"]
+                row["managed_pool_weight_source"] = "live_holding_valuation"
+                row["total_asset_source_for_weight"] = total_source
+                row["position_value_source_for_weight"] = "eval_krw"
+            else:
+                row.setdefault("managed_pool_weight_source", "unavailable")
+                row.setdefault("total_asset_source_for_weight", total_source or "unavailable")
+                row.setdefault("position_value_source_for_weight", "unavailable")
+        except Exception:
+            pass
+        return row
+
     def _build_managed_pool_row_from_live_holding(self, row: dict) -> dict:
         from datetime import datetime
 
@@ -18499,6 +18607,34 @@ class MainWindow(QMainWindow):
             eval_krw = qty * price
         elif eval_krw <= 0.0 and avg > 0.0:
             eval_krw = qty * avg
+        dust_policy = self._managed_pool_holding_dust_policy(row, eval_krw=eval_krw)
+        if not bool(dust_policy.get("manageable_holding")):
+            return {
+                "symbol": symbol,
+                "market": symbol,
+                "source": "HOLDING",
+                "source_type": "dust_holding",
+                "holding": True,
+                "is_holding": True,
+                "has_position": True,
+                "protected": False,
+                "managed_protected": False,
+                "dust_holding": True,
+                "is_dust_holding": True,
+                "manageable_holding": False,
+                "dust_reason": dust_policy.get("dust_reason"),
+                "dust_threshold_krw": dust_policy.get("dust_threshold_krw"),
+                "managed_holding_min_value_krw": dust_policy.get("managed_holding_min_value_krw"),
+                "qty": qty,
+                "quantity": qty,
+                "avg": avg,
+                "avg_price": avg,
+                "price": price,
+                "current_price": price,
+                "eval_krw": eval_krw,
+                "value_krw": eval_krw,
+                "position_value_krw": eval_krw,
+            }
         now = datetime.now().isoformat(timespec="seconds")
         managed = {
             "symbol": symbol,
@@ -18546,7 +18682,13 @@ class MainWindow(QMainWindow):
             "protected": True,
             "managed_protected": True,
             "holding_source": managed.get("holding_source") or "live_holdings",
+            "dust_holding": False,
+            "is_dust_holding": False,
+            "manageable_holding": True,
+            "dust_threshold_krw": dust_policy.get("dust_threshold_krw"),
+            "managed_holding_min_value_krw": dust_policy.get("managed_holding_min_value_krw"),
         })
+        managed = self._managed_pool_apply_weight_fields(managed)
         return managed
 
     def _load_managed_pool_live_holding_rows(self, *, reason: str = "managed_pool_holdings_include", holdings: list | None = None) -> list[dict]:
@@ -18568,6 +18710,7 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
         out: list[dict] = []
+        dust_excluded: list[dict] = []
         seen = set()
         for item in source_rows or []:
             if not isinstance(item, dict):
@@ -18576,19 +18719,40 @@ class MainWindow(QMainWindow):
             symbol = str(row.get("symbol") or "").strip() if isinstance(row, dict) else ""
             if not symbol or symbol in seen:
                 continue
+            if bool(row.get("dust_holding") or row.get("is_dust_holding")) or not bool(row.get("manageable_holding", True)):
+                dust_excluded.append(dict(row))
+                seen.add(symbol)
+                continue
             out.append(row)
             seen.add(symbol)
+        try:
+            self._last_managed_pool_dust_excluded = dust_excluded
+            if dust_excluded:
+                self._log.info(
+                    "[AITS][ManagedPoolDust] event=dust_excluded reason=%s symbols=%s dust_threshold_krw=%s managed_holding_min_value_krw=%s submitted=0 actual_order=False managed_pool_mutation=False",
+                    reason,
+                    ",".join(str(row.get("symbol") or "") for row in dust_excluded if row.get("symbol")) or "-",
+                    float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
+                    float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
+                )
+        except Exception:
+            pass
         return out
 
     def _ensure_managed_pool_holdings_included(self, *, reason: str = "refresh", holdings: list | None = None, persist: bool = True) -> dict:
         rows = list(getattr(self, "ai_managed_rows", None) or [])
         holding_rows = self._load_managed_pool_live_holding_rows(reason=reason, holdings=holdings)
-        if not holding_rows:
+        dust_excluded_current = [row for row in (getattr(self, "_last_managed_pool_dust_excluded", []) or []) if isinstance(row, dict)]
+        if not holding_rows and not dust_excluded_current:
             return {
                 "status": "no_holdings",
                 "holdings_count": 0,
                 "added_symbols": [],
                 "updated_symbols": [],
+                "dust_excluded_symbols": [],
+                "dust_removed_symbols": [],
+                "dust_threshold_krw": float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
+                "managed_holding_min_value_krw": float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
                 "final_count": len(rows),
                 "max_count": self._get_managed_pool_max_size_value(),
             }
@@ -18605,6 +18769,21 @@ class MainWindow(QMainWindow):
             clean["market"] = symbol
             by_symbol[symbol] = clean
             ordered.append(clean)
+        removed_dust: list[str] = []
+        cleaned_ordered: list[dict] = []
+        by_symbol = {}
+        for clean in ordered:
+            symbol = str(clean.get("symbol") or clean.get("market") or "").strip()
+            source_type = str(clean.get("source_type") or clean.get("source") or "").strip().lower()
+            user_added = bool(clean.get("user_added") or source_type == "user_added" or str(clean.get("source") or "").strip().upper() == "USER")
+            dust_info = self._managed_pool_holding_dust_policy(clean)
+            if source_type in {"live_holding", "holding"} and not user_added and bool(dust_info.get("is_dust_holding")):
+                removed_dust.append(symbol)
+                continue
+            cleaned_ordered.append(clean)
+            if symbol:
+                by_symbol[symbol] = clean
+        ordered = cleaned_ordered
         added: list[str] = []
         updated: list[str] = []
         for holding in holding_rows:
@@ -18639,20 +18818,27 @@ class MainWindow(QMainWindow):
                 "eval_krw": holding.get("eval_krw"),
                 "value_krw": holding.get("value_krw"),
                 "position_value_krw": holding.get("position_value_krw"),
+                "dust_holding": False,
+                "is_dust_holding": False,
+                "manageable_holding": True,
+                "dust_threshold_krw": holding.get("dust_threshold_krw"),
+                "managed_holding_min_value_krw": holding.get("managed_holding_min_value_krw"),
                 "updated_at": holding.get("updated_at"),
             })
+            self._managed_pool_apply_weight_fields(existing)
             updated.append(symbol)
         self.ai_managed_rows = ordered
         max_count = self._get_managed_pool_max_size_value()
         overrode = bool(len(ordered) > max_count and holding_rows)
-        if added or updated:
+        if added or updated or removed_dust:
             try:
                 self._log.info(
-                    "[AITS][ManagedPoolSSOT] event=holdings_must_include reason=%s holdings_count=%s added=%s updated=%s max_count=%s final_count=%s submitted=0 order_allowed=False real_order=False",
+                    "[AITS][ManagedPoolSSOT] event=holdings_must_include reason=%s holdings_count=%s added=%s updated=%s dust_removed=%s max_count=%s final_count=%s submitted=0 order_allowed=False real_order=False",
                     reason,
                     len(holding_rows),
                     ",".join(added) or "-",
                     ",".join(updated) or "-",
+                    ",".join(removed_dust) or "-",
                     int(max_count),
                     len(ordered),
                 )
@@ -18692,6 +18878,10 @@ class MainWindow(QMainWindow):
             "holding_symbols": [row.get("symbol") for row in holding_rows if row.get("symbol")],
             "added_symbols": added,
             "updated_symbols": updated,
+            "dust_excluded_symbols": [row.get("symbol") for row in (getattr(self, "_last_managed_pool_dust_excluded", []) or []) if isinstance(row, dict) and row.get("symbol")],
+            "dust_removed_symbols": removed_dust,
+            "dust_threshold_krw": float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
+            "managed_holding_min_value_krw": float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
             "max_count": max_count,
             "final_count": len(ordered),
             "holdings_overrode_max_count": overrode,
@@ -36650,10 +36840,10 @@ class MainWindow(QMainWindow):
         return "—", False
 
     def _format_ai_managed_position_weight_line(self, row: dict) -> str:
-        """비중 열용: 포지션/보유 비중만(목표비중 키 제외), 첫 줄 숫자%."""
+        """?? ??: ?? ????/??? ??. ?? ?? ? '-' ??."""
         try:
             if not isinstance(row, dict):
-                return "0%"
+                return "-"
             for k in (
                 "position_weight_pct",
                 "weight_pct",
@@ -36664,38 +36854,55 @@ class MainWindow(QMainWindow):
                 if v is None or str(v).strip() == "":
                     continue
                 try:
-                    wv = float(v)
+                    wv = float(str(v).replace("%", "").replace(",", ""))
+                    if wv <= 0.0:
+                        continue
                     wv = max(0.0, min(100.0, wv))
-                    return f"{wv:.1f}%"
+                    return f"{wv:.1f}%" if wv >= 1.0 else f"{wv:.2f}%"
                 except Exception:
                     continue
+            enriched = self._managed_pool_apply_weight_fields(dict(row))
+            wv = enriched.get("position_weight_pct")
+            if wv is not None and float(wv) > 0.0:
+                wvf = max(0.0, min(100.0, float(wv)))
+                return f"{wvf:.1f}%" if wvf >= 1.0 else f"{wvf:.2f}%"
         except Exception:
             pass
-        return "0%"
+        return "-"
 
     def _format_managed_percent_text(self, value) -> str:
-        """좌측 비중/목표 표시: 빈값·— 는 0%, 그 외는 % 형태."""
+        """?? ??/?? ??: ?? ??? '-' ? ????."""
         try:
             if value is None:
-                return "0%"
+                return "-"
             s = str(value).strip()
-            if s == "" or s in ("—", "-", "–"):
-                return "0%"
+            if s == "" or s in ("?", "-", "?"):
+                return "-"
+            if s.startswith("AI ") or s.startswith("?? "):
+                return s
             if "%" in s:
+                raw = s.replace("%", "").replace(",", "").strip()
+                try:
+                    if float(raw) <= 0.0:
+                        return "-"
+                except Exception:
+                    pass
                 return s
             wv = float(s.replace(",", ""))
+            if wv <= 0.0:
+                return "-"
             wv = max(0.0, min(100.0, wv))
             if abs(wv - round(wv)) < 1e-6:
                 return f"{int(round(wv))}%"
-            return f"{wv:.1f}%"
+            return f"{wv:.1f}%" if wv >= 1.0 else f"{wv:.2f}%"
         except Exception:
-            return "0%"
+            return "-"
 
     def _format_managed_weight_goal_text(self, weight_value, target_value) -> str:
-        """비중·목표 한 셀 표시: `33%/35%` (각각 _format_managed_percent_text)."""
+        """????? ? ? ??. ??? 0%/0%? ???? ???."""
         w = self._format_managed_percent_text(weight_value)
         t = self._format_managed_percent_text(target_value)
-        return f"{w}/{t}"
+        return f"{w} / {t}"
 
     def _aits_symbol_label(self, symbol: str) -> str:
         try:
@@ -37236,23 +37443,42 @@ class MainWindow(QMainWindow):
             return "A"
 
     def _get_managed_target_weight(self, row: dict) -> str:
-        """목표비중 표시용. 데이터 없으면 0%."""
+        """???? ???. ??? ?? > AI ?? > ???, ??? '-' ??."""
         try:
             if not isinstance(row, dict):
-                return "0%"
-            for k in ("target_weight", "goal_weight", "target_pct"):
-                v = row.get(k)
-                if v is None or str(v).strip() == "":
-                    continue
+                return "-"
+            user_keys = ("user_target_weight", "user_target_weight_pct", "target_weight_user", "manual_target_weight_pct")
+            ai_keys = ("ai_target_weight", "ai_target_weight_pct", "suggested_weight", "suggested_weight_pct")
+            policy_keys = ("target_weight", "goal_weight", "target_pct")
+
+            def _coerce_pct(value):
+                if value is None or str(value).strip() == "":
+                    return None
                 try:
-                    wv = float(v)
-                    wv = max(0.0, min(100.0, wv))
-                    return f"{wv:.0f}%"
+                    num = float(str(value).replace("%", "").replace(",", ""))
                 except Exception:
-                    continue
+                    return None
+                if num <= 0.0:
+                    return None
+                return max(0.0, min(100.0, num))
+
+            for k in user_keys:
+                pct = _coerce_pct(row.get(k))
+                if pct is not None:
+                    return f"?? {pct:.0f}%" if abs(pct - round(pct)) < 1e-6 else f"?? {pct:.1f}%"
+            for k in ai_keys:
+                pct = _coerce_pct(row.get(k))
+                if pct is not None:
+                    return f"AI {pct:.0f}%" if abs(pct - round(pct)) < 1e-6 else f"AI {pct:.1f}%"
+            for k in policy_keys:
+                pct = _coerce_pct(row.get(k))
+                if pct is not None:
+                    source = str(row.get("target_weight_source") or row.get("managed_pool_target_source") or "").strip().lower()
+                    prefix = "AI " if source == "ai" else "?? "
+                    return f"{prefix}{pct:.0f}%" if abs(pct - round(pct)) < 1e-6 else f"{prefix}{pct:.1f}%"
         except Exception:
             pass
-        return "0%"
+        return "-"
 
     def _managed_row_has_position_weight(self, row: dict) -> bool:
         """보유(비중>0) 판별 — target_weight 등 목표키는 제외."""
@@ -39341,6 +39567,13 @@ class MainWindow(QMainWindow):
         try:
             if not isinstance(row, dict):
                 return False
+            if bool(row.get("dust_holding") or row.get("is_dust_holding")):
+                return False
+            try:
+                if self._managed_pool_holding_dust_policy(row).get("is_dust_holding"):
+                    return False
+            except Exception:
+                pass
             source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
             if source_type in {"live_holding", "holding"}:
                 return True
@@ -39473,9 +39706,71 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         return data
+
+    def _prune_managed_pool_dust_rows_for_display(self, *, reason: str = "refresh") -> dict:
+        rows = getattr(self, "ai_managed_rows", None)
+        if not isinstance(rows, list):
+            return {"removed": [], "final_count": 0}
+        kept: list[dict] = []
+        removed: list[str] = []
+        dust_rows: list[dict] = []
+        changed = False
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            clean = dict(row)
+            symbol = str(clean.get("symbol") or clean.get("market") or "").strip()
+            source_type = str(clean.get("source_type") or clean.get("source") or "").strip().lower()
+            user_added = bool(clean.get("user_added") or source_type == "user_added" or str(clean.get("source") or "").strip().upper() == "USER")
+            dust_info = self._managed_pool_holding_dust_policy(clean)
+            auto_holding = source_type in {"live_holding", "holding"} or bool(clean.get("holding") or clean.get("is_holding") or clean.get("has_position"))
+            if auto_holding and not user_added and bool(dust_info.get("is_dust_holding")):
+                removed.append(symbol)
+                clean.update({
+                    "dust_holding": True,
+                    "is_dust_holding": True,
+                    "manageable_holding": False,
+                    "dust_reason": dust_info.get("dust_reason"),
+                    "dust_threshold_krw": dust_info.get("dust_threshold_krw"),
+                    "managed_holding_min_value_krw": dust_info.get("managed_holding_min_value_krw"),
+                })
+                dust_rows.append(clean)
+                changed = True
+                continue
+            before_weight = clean.get("position_weight_pct")
+            self._managed_pool_apply_weight_fields(clean)
+            if clean.get("position_weight_pct") != before_weight:
+                changed = True
+            kept.append(clean)
+        if changed:
+            self.ai_managed_rows = kept
+            try:
+                self._last_managed_pool_dust_excluded = dust_rows
+            except Exception:
+                pass
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolDust] event=dust_pruned reason=%s symbols=%s dust_threshold_krw=%s managed_holding_min_value_krw=%s submitted=0 actual_order=False managed_pool_mutation=False",
+                    reason,
+                    ",".join(removed) or "-",
+                    float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
+                    float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
+                )
+            except Exception:
+                pass
+            try:
+                self._persist_managed_pool_rows_after_trim(self._build_managed_pool_rows_snapshot(), self._get_managed_pool_max_size_value())
+            except Exception:
+                pass
+        return {"removed": removed, "final_count": len(kept)}
+
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
             return
+        try:
+            self._prune_managed_pool_dust_rows_for_display(reason="managed_table_refresh")
+        except Exception:
+            pass
         self._ai_managed_table_refreshing = True
         try:
             t = self.tbl_ai_managed
@@ -39574,9 +39869,7 @@ class MainWindow(QMainWindow):
             if lb is not None:
                 hold_n = 0
                 for row in rows:
-                    if isinstance(row, dict) and self._managed_row_has_position_weight(
-                        row
-                    ):
+                    if isinstance(row, dict) and self._managed_pool_status_bar_row_is_holding(row):
                         hold_n += 1
                 cand_n = max(0, n - hold_n)
                 lb.setText(f"관리 {n}종목 | 보유 {hold_n} | 후보 {cand_n}")
