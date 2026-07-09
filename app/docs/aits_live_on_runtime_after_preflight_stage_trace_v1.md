@@ -234,3 +234,14 @@ The trace must distinguish preview-only fields from actual normal-flow events:
 - `live_preflight_started/result` means the final pre-execution safety gate was evaluated.
 - `execution_requested` must not appear before `live_preflight_result status=passed`.
 - `order_duplicate_blocked blocker=duplicate_candidate_locked` is a duplicate candidate guard, not a duplicate submit by itself.
+
+## Post-Submit Reflection Stage
+
+After `order_submit_result status=submitted`, the GUI must request reflection only:
+
+- `[AITS][TradeLogReflection]` records the submitted order into the TradeLog journal.
+- `[AITS][PostSubmitHoldingsRefresh]` requests a read-only holdings refresh.
+- `[AITS][PositionReflection]` requests InvestmentCenter position refresh.
+- `[AITS][CandidateHoldingsGuard]` logs whether a later candidate has an already-known live position.
+
+These events are not submit permission and must not call order retry paths.

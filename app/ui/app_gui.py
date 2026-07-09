@@ -29933,6 +29933,226 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+
+    def _reflect_live_order_after_submit(
+        self,
+        *,
+        request_id: str,
+        symbol: str,
+        side: str,
+        amount_krw: int,
+        status: str,
+        submitted_count: int,
+        provider: str = "",
+        engine: str = "",
+    ) -> None:
+        if int(submitted_count or 0) <= 0:
+            return
+        self._reflect_live_order_trade_log(
+            request_id=request_id,
+            symbol=symbol,
+            side=side,
+            amount_krw=amount_krw,
+            status=status,
+            submitted_count=submitted_count,
+            provider=provider,
+            engine=engine,
+        )
+        holdings_result = self._refresh_live_order_holdings_after_submit(
+            request_id=request_id,
+            symbol=symbol,
+            side=side,
+            amount_krw=amount_krw,
+        )
+        self._refresh_live_order_position_after_submit(
+            request_id=request_id,
+            symbol=symbol,
+            holdings_result=holdings_result,
+        )
+
+    def _reflect_live_order_trade_log(
+        self,
+        *,
+        request_id: str,
+        symbol: str,
+        side: str,
+        amount_krw: int,
+        status: str,
+        submitted_count: int,
+        provider: str = "",
+        engine: str = "",
+    ) -> None:
+        log = logging.getLogger("aits")
+        try:
+            log.info(
+                "[AITS][TradeLogReflection] event=trade_log_reflection_start request_id=%s symbol=%s side=%s amount_krw=%s order_status=%s actual_order=True submitted_count=%s source=live_order_pipeline exchange_response_sanitized=True order_allowed=False real_order=False",
+                request_id, symbol, side, int(amount_krw or 0), status, int(submitted_count or 0),
+            )
+            try:
+                self._restore_trade_log_shadow_journal_from_settings()
+            except Exception:
+                pass
+            rows = getattr(self, "_trade_log_shadow_journal_rows", None)
+            if not isinstance(rows, list):
+                rows = []
+                self._trade_log_shadow_journal_rows = rows
+            signature = f"live_order_reflection|{request_id}|{symbol}|{side}|{int(amount_krw or 0)}"
+            for row in rows:
+                if isinstance(row, dict) and str(row.get("decision_stage_signature") or "") == signature:
+                    log.info(
+                        "[AITS][TradeLogReflection] event=trade_log_reflection_result request_id=%s symbol=%s status=already_recorded rows=%s actual_order=True submitted_count=%s source=live_order_pipeline",
+                        request_id, symbol, len(rows), int(submitted_count or 0),
+                    )
+                    return
+            rows.append({
+                "ts": time.time(),
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "record_type": "live_order_reflection",
+                "category": "reflection",
+                "type_label": "live order",
+                "symbol": symbol,
+                "action_display": "buy" if str(side).lower() == "buy" else str(side or ""),
+                "raw_action_sanitized": str(side or ""),
+                "status_display": str(status or "submitted"),
+                "selected_engine": provider or "-",
+                "actual_engine": engine or provider or "-",
+                "provider": provider or "-",
+                "reason": "live order submitted",
+                "next_action": "holdings refresh requested",
+                "basis": "live_order_pipeline",
+                "source": "live_order_pipeline",
+                "request_id": request_id,
+                "amount_krw": int(amount_krw or 0),
+                "side": side,
+                "order_status": status,
+                "actual_order": True,
+                "submitted": int(submitted_count or 0),
+                "submitted_count": int(submitted_count or 0),
+                "submitted_display": "live order submitted",
+                "real_order": True,
+                "order_allowed": False,
+                "exchange_response_sanitized": True,
+                "record_stage": "live_order_reflection",
+                "record_stage_label": "live order",
+                "decision_stage_signature": signature,
+                "safety_note": "post-submit reflection only; no retry; no new order",
+            })
+            if len(rows) > 500:
+                del rows[:-500]
+            try:
+                tab = getattr(self, "tab_trades", None)
+                if tab is not None and hasattr(tab, "refresh"):
+                    tab.refresh()
+            except Exception:
+                pass
+            try:
+                self._save_trade_log_center_state(reason="live_order_post_submit_reflection")
+            except Exception:
+                pass
+            log.info(
+                "[AITS][TradeLogReflection] event=trade_log_reflection_result request_id=%s symbol=%s status=recorded rows=%s actual_order=True submitted_count=%s source=live_order_pipeline",
+                request_id, symbol, len(rows), int(submitted_count or 0),
+            )
+        except Exception as exc:
+            log.warning(
+                "[AITS][TradeLogReflection] event=trade_log_reflection_failed request_id=%s symbol=%s reason=%s actual_order=True submitted_count=%s source=live_order_pipeline",
+                request_id, symbol, type(exc).__name__, int(submitted_count or 0),
+            )
+
+    def _refresh_live_order_holdings_after_submit(
+        self,
+        *,
+        request_id: str,
+        symbol: str,
+        side: str,
+        amount_krw: int,
+    ) -> dict:
+        log = logging.getLogger("aits")
+        result = {"status": "not_run", "symbol_detected": False, "holdings_count": 0, "available_krw": 0.0}
+        try:
+            log.info(
+                "[AITS][PostSubmitHoldingsRefresh] event=refresh_requested request_id=%s symbol=%s side=%s amount_krw=%s source=holdings_service",
+                request_id, symbol, side, int(amount_krw or 0),
+            )
+            from app.services.holdings_service import fetch_live_holdings
+            data = fetch_live_holdings(force=True)
+            items = data.get("items") if isinstance(data, dict) else []
+            if not isinstance(items, list):
+                items = []
+            available_krw = 0.0
+            if isinstance(data, dict):
+                try:
+                    available_krw = float(data.get("krw") or data.get("available_krw") or 0.0)
+                except Exception:
+                    available_krw = 0.0
+            detected = any(
+                isinstance(item, dict)
+                and str(item.get("symbol") or item.get("market") or "").strip().upper() == symbol
+                for item in items
+            )
+            try:
+                self._live_holdings_rows = list(items)
+                self._live_holdings_symbols = {
+                    str(item.get("symbol") or item.get("market") or "").strip().upper()
+                    for item in items
+                    if isinstance(item, dict) and str(item.get("symbol") or item.get("market") or "").strip()
+                }
+            except Exception:
+                pass
+            result = {
+                "status": "ok" if isinstance(data, dict) and bool(data.get("ok")) else "failed",
+                "symbol_detected": bool(detected),
+                "holdings_count": len(items),
+                "available_krw": available_krw,
+            }
+            log.info(
+                "[AITS][PostSubmitHoldingsRefresh] event=refresh_result request_id=%s symbol=%s status=%s holdings_count=%s symbol_detected=%s available_krw=%s source=holdings_service",
+                request_id, symbol, result["status"], len(items), bool(detected), available_krw,
+            )
+            log.info(
+                "[AITS][PostSubmitHoldingsRefresh] event=%s request_id=%s symbol=%s holdings_count=%s available_krw=%s source=holdings_service",
+                "symbol_detected" if detected else "symbol_missing", request_id, symbol, len(items), available_krw,
+            )
+        except Exception as exc:
+            result = {"status": "failed", "symbol_detected": False, "holdings_count": 0, "available_krw": 0.0, "reason": type(exc).__name__}
+            log.warning(
+                "[AITS][PostSubmitHoldingsRefresh] event=refresh_result request_id=%s symbol=%s status=failed reason=%s holdings_count=0 symbol_detected=False available_krw=0 source=holdings_service",
+                request_id, symbol, type(exc).__name__,
+            )
+        return result
+
+    def _refresh_live_order_position_after_submit(self, *, request_id: str, symbol: str, holdings_result: dict | None = None) -> None:
+        log = logging.getLogger("aits")
+        try:
+            log.info(
+                "[AITS][PositionReflection] event=refresh_requested request_id=%s symbol=%s source=investment_center writer=post_submit_reflection",
+                request_id, symbol,
+            )
+            result = self._refresh_investment_position_source(reason="post_submit_reflection")
+            rows = result.get("rows") if isinstance(result, dict) else []
+            if not isinstance(rows, list):
+                rows = []
+            detected = any(
+                isinstance(row, dict)
+                and str(row.get("symbol") or row.get("market") or "").strip().upper() == symbol
+                for row in rows
+            )
+            if not detected and isinstance(holdings_result, dict):
+                detected = bool(holdings_result.get("symbol_detected"))
+            log.info(
+                "[AITS][PositionReflection] event=position_reflection_result request_id=%s symbol=%s positions_count=%s symbol_detected=%s source=%s source_status=%s writer=post_submit_reflection reason=%s",
+                request_id, symbol, len(rows), bool(detected), str(result.get("source") if isinstance(result, dict) else "unknown"), str(result.get("status") if isinstance(result, dict) else "unknown"), "ok" if detected else "symbol_missing",
+            )
+            log.info(
+                "[AITS][PositionReflection] event=%s request_id=%s symbol=%s positions_count=%s source=%s source_status=%s writer=post_submit_reflection",
+                "symbol_position_detected" if detected else "symbol_position_missing", request_id, symbol, len(rows), str(result.get("source") if isinstance(result, dict) else "unknown"), str(result.get("status") if isinstance(result, dict) else "unknown"),
+            )
+        except Exception as exc:
+            log.warning(
+                "[AITS][PositionReflection] event=position_reflection_result request_id=%s symbol=%s positions_count=0 symbol_detected=False source=investment_center source_status=failed writer=post_submit_reflection reason=%s",
+                request_id, symbol, type(exc).__name__,
+            )
+
     def _save_trade_log_center_state(self, reason: str = "trade_log_center_state_save") -> bool:
         started_at = time.time()
         journal_rows: list[dict] = []
@@ -53118,6 +53338,32 @@ class MainWindow(QMainWindow):
                 self._set_aits_runtime_status_display("ON - blocked", "execution_mode_not_live")
                 return True
 
+            try:
+                holdings_rows = getattr(self, "_live_holdings_rows", []) or getattr(self, "_investment_center_positions", []) or []
+                has_live_position = False
+                position_qty = 0.0
+                position_value = 0.0
+                if isinstance(holdings_rows, list):
+                    for item in holdings_rows:
+                        if not isinstance(item, dict):
+                            continue
+                        item_symbol = str(item.get("symbol") or item.get("market") or "").strip().upper()
+                        if item_symbol != symbol:
+                            continue
+                        has_live_position = True
+                        position_qty = self._live_order_safe_float(item.get("qty") or item.get("quantity") or item.get("balance"), 0.0)
+                        position_value = self._live_order_safe_float(item.get("eval_krw") or item.get("value_krw") or item.get("position_krw"), 0.0)
+                        break
+                logging.getLogger("aits").info(
+                    "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s has_live_position=%s position_qty=%s position_value=%s candidate_side=%s add_position_allowed=%s blocker=%s reason=%s submitted=0 actual_order=false",
+                    symbol, bool(has_live_position), position_qty, position_value, side, True, "-", "policy_allows_router_riskguard_evaluation",
+                )
+            except Exception as exc:
+                logging.getLogger("aits").warning(
+                    "[AITS][CandidateHoldingsGuard] event=evaluate_failed symbol=%s reason=%s submitted=0 actual_order=false",
+                    symbol, type(exc).__name__,
+                )
+
             duplicate_key = f"{symbol}:{side}:{amount_krw}"
             duplicate_lock_ttl_sec = 300
             duplicate_lock_now = time.time()
@@ -53390,6 +53636,17 @@ class MainWindow(QMainWindow):
                 pass
             self._emit_live_order_pipeline_event("execution_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="execution", status=status, submitted_count=submitted_count, actual_order=submitted_count > 0, blocked_count=blocked_count, failed_count=failed_count, summary=str(getattr(result, "summary_ko", "") or ""))
             self._emit_live_order_pipeline_event("order_submit_result", request_id=request_id, symbol=symbol, amount_krw=amount_krw, stage="order", status=status, submitted_count=submitted_count, actual_order=submitted_count > 0, blocked_count=blocked_count, failed_count=failed_count)
+            if submitted_count > 0:
+                self._reflect_live_order_after_submit(
+                    request_id=request_id,
+                    symbol=symbol,
+                    side=side,
+                    amount_krw=amount_krw,
+                    status=status,
+                    submitted_count=submitted_count,
+                    provider=provider or "unknown",
+                    engine=provider or "unknown",
+                )
             self._set_aits_runtime_status_display(
                 "ON - order submitted" if submitted_count > 0 else "ON - order blocked",
                 f"{symbol} {side} {amount_krw} KRW status={status}",

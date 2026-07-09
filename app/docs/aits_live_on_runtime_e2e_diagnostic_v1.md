@@ -355,3 +355,11 @@ whether the user-facing LIVE LOG kept explaining why trading was waiting.
 - `order_allowed=False` and `real_order=False` do not block Router validation. Final submit authority remains behind RiskGuard, LivePreflight, ExecutionBridge, and OrderAdapter.
 - Duplicate candidate locks must prevent repeated submit for already-submitted candidates. A candidate that was blocked before submit may be re-evaluated after the configured duplicate lock TTL.
 - E2E summaries must report `riskguard_passed_but_live_preflight_not_started` if RiskGuard passed but no LivePreflight stage is present.
+
+## Post-Submit Reflection Contract
+
+- A submitted live order must emit post-submit reflection evidence after `order_submit_result status=submitted`.
+- Required reflection prefixes are `[AITS][TradeLogReflection]`, `[AITS][PostSubmitHoldingsRefresh]`, `[AITS][PositionReflection]`, and `[AITS][CandidateHoldingsGuard]`.
+- TradeLog reflection is allowed only when the live pipeline result already has `submitted_count > 0` and `actual_order=True`; it must not create a fake fill row.
+- Holdings and position reflection are read-only refreshes after submit. They must not retry or submit orders.
+- E2E summaries expose `trade_log_reflection_detected`, `holdings_refresh_requested`, `holdings_symbol_detected`, `position_reflection_detected`, `position_symbol_detected`, and `post_submit_reconciliation_status`.

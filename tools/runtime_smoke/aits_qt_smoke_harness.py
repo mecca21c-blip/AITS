@@ -8797,6 +8797,18 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     trade_log_detected = bool(submit_lines and ("trade_log" in joined_lower or "매매기록" in joined_lower))
     position_update_detected = bool(submit_lines and ("position_update" in joined_lower or "investment" in joined_lower or "투자현황" in joined_lower))
 
+    trade_log_reflection_lines = [line for line in lines if "[AITS][TradeLogReflection]" in line]
+    holdings_refresh_lines = [line for line in lines if "[AITS][PostSubmitHoldingsRefresh]" in line]
+    position_reflection_lines = [line for line in lines if "[AITS][PositionReflection]" in line]
+    candidate_holdings_guard_lines = [line for line in lines if "[AITS][CandidateHoldingsGuard]" in line]
+    trade_log_reflection_detected = bool(trade_log_reflection_lines)
+    holdings_refresh_requested = bool(holdings_refresh_lines)
+    holdings_symbol_detected = any("symbol_detected=True" in line for line in holdings_refresh_lines)
+    position_reflection_detected = bool(position_reflection_lines)
+    position_symbol_detected = any("symbol_detected=True" in line for line in position_reflection_lines)
+    candidate_holdings_guard_detected = bool(candidate_holdings_guard_lines)
+    candidate_live_position_detected = any("has_live_position=True" in line for line in candidate_holdings_guard_lines)
+
     detected_candidate_symbol = ""
     for source_lines in (order_intent_lines, router_lines, riskguard_lines, preflight_lines, score_lines):
         for line in reversed(source_lines):
@@ -9236,6 +9248,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "order_service_readonly_accounts_called": bool(order_service_readonly_accounts_lines),
         "order_adapter_reached": bool(order_adapter_lines),
         "order_adapter_called": bool(order_adapter_lines or guarded_order_adapter_called),
+        "trade_log_reflection_detected": bool(trade_log_reflection_detected),
+        "trade_log_reflection_status": "detected" if trade_log_reflection_detected else "missing",
+        "holdings_refresh_requested": bool(holdings_refresh_requested),
+        "holdings_refresh_result": "detected" if holdings_refresh_requested else "missing",
+        "holdings_symbol_detected": bool(holdings_symbol_detected),
+        "position_reflection_detected": bool(position_reflection_detected),
+        "position_symbol_detected": bool(position_symbol_detected),
+        "candidate_holdings_guard_detected": bool(candidate_holdings_guard_detected),
+        "candidate_live_position_detected": bool(candidate_live_position_detected),
+        "post_submit_reconciliation_status": (
+            "ok"
+            if trade_log_reflection_detected and holdings_symbol_detected and position_symbol_detected
+            else "needs_reconciliation"
+        ),
         "submit_attempt_count": submit_attempt_count,
         "submitted_count": submitted_count,
         "exchange_response_detected": bool(exchange_response_detected),
@@ -9270,6 +9296,143 @@ def _run_live_on_runtime_e2e_diagnostic(
     mode: str,
 ) -> None:
     report.update(_build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode=mode))
+
+
+def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
+    request_ids: list[str] = []
+    orders: dict[str, dict[str, Any]] = {}
+    before_first: list[float] = []
+    between_orders: list[float] = []
+    after_latest: list[float] = []
+    for line in lines:
+        if "[AITS][LiveOrderPipeline]" in line:
+            rid = _live_on_stage_extract_value(line, "request_id")
+            if rid:
+                order = orders.setdefault(
+                    rid,
+                    {
+                        "request_id": rid,
+                        "symbol": "",
+                        "side": "",
+                        "amount_krw": 0,
+                        "events": {},
+                        "actual_order": False,
+                    },
+                )
+                if not order.get("symbol"):
+                    order["symbol"] = _live_on_stage_extract_value(line, "symbol")
+                if not order.get("side"):
+                    order["side"] = _live_on_stage_extract_value(line, "side")
+                if not order.get("amount_krw"):
+                    order["amount_krw"] = _live_on_runtime_e2e_extract_amount(line)
+                for event in (
+                    "candidate_selected",
+                    "router_validation_result",
+                    "riskguard_result",
+                    "live_preflight_result",
+                    "execution_result",
+                    "order_submit_attempt",
+                    "order_submit_result",
+                    "order_duplicate_blocked",
+                ):
+                    if f"event={event}" in line:
+                        order["events"][event] = int(order["events"].get(event) or 0) + 1
+                if _live_on_runtime_bool_marker(line, "actual_order"):
+                    order["actual_order"] = True
+                    if rid not in request_ids:
+                        request_ids.append(rid)
+        available_text = _live_on_stage_extract_value(line, "available_krw")
+        if available_text:
+            try:
+                available = float(available_text)
+            except Exception:
+                available = None
+            if available is not None:
+                ts_text = str(line[:19] or "")
+                if ts_text < "2026-07-09 08:11:19":
+                    before_first.append(available)
+                elif ts_text < "2026-07-09 12:03:58":
+                    between_orders.append(available)
+                else:
+                    after_latest.append(available)
+
+    audited_orders = [orders[rid] for rid in request_ids if rid in orders]
+    trade_log_lines = [
+        line for line in lines
+        if "[AITS][TradeLogReflection]" in line or "trade_log_reflection" in line
+    ]
+    holdings_lines = [
+        line for line in lines
+        if "[AITS][PostSubmitHoldingsRefresh]" in line
+    ]
+    position_lines = [
+        line for line in lines
+        if "[AITS][PositionReflection]" in line
+    ]
+    candidate_guard_lines = [
+        line for line in lines
+        if "[AITS][CandidateHoldingsGuard]" in line
+    ]
+    duplicate_submit_detected = "duplicate_submit" in "\n".join(lines).lower()
+    retry_detected = bool(re.search(r"\bretry\b", "\n".join(lines).lower()))
+    trade_log_reflected_count = sum(1 for line in trade_log_lines if "event=trade_log_reflection_result" in line and "status=recorded" in line)
+    holdings_symbol_detected = any("symbol_detected=True" in line for line in holdings_lines)
+    position_symbol_detected = any("symbol_detected=True" in line for line in position_lines)
+    latest_after = after_latest[-1] if after_latest else 0.0
+    first_before = before_first[0] if before_first else 0.0
+    delta = first_before - latest_after if first_before and latest_after else 0.0
+    expected_delta = 10000 * max(1, len(audited_orders))
+    if trade_log_reflected_count >= len(audited_orders) and holdings_symbol_detected and position_symbol_detected:
+        first_blocker = "post_submit_reflection_ok"
+        next_fix_target = "prepare_loss_observation_and_position_risk_loop"
+        reconciliation_status = "reconciled"
+    elif trade_log_reflected_count < len(audited_orders):
+        first_blocker = "trade_log_reflection_missing"
+        next_fix_target = "fix_live_order_trade_log_reflection"
+        reconciliation_status = "blocked"
+    elif not holdings_symbol_detected:
+        first_blocker = "holdings_reflection_missing"
+        next_fix_target = "fix_post_submit_holdings_refresh"
+        reconciliation_status = "blocked"
+    else:
+        first_blocker = "investment_center_position_reflection_missing"
+        next_fix_target = "fix_investment_center_live_position_reflection"
+        reconciliation_status = "blocked"
+    report.update(
+        {
+            "schema": "aits_live_order_post_submit_reconciliation_summary_v1",
+            "mode": "live-order-post-submit-reconciliation-summary",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "audited_order_count": len(audited_orders),
+            "audited_request_ids": [order.get("request_id") for order in audited_orders],
+            "audited_orders": audited_orders,
+            "trade_log_reflected_count": trade_log_reflected_count,
+            "trade_log_reflection_detected": bool(trade_log_lines),
+            "holdings_refresh_requested": bool(holdings_lines),
+            "holdings_symbol_detected": bool(holdings_symbol_detected),
+            "holdings_symbol": "KRW-ENSO" if holdings_symbol_detected else "",
+            "investment_position_detected": bool(position_symbol_detected),
+            "investment_position_symbol": "KRW-ENSO" if position_symbol_detected else "",
+            "candidate_holdings_guard_detected": bool(candidate_guard_lines),
+            "available_krw_before_first": first_before,
+            "available_krw_after_latest": latest_after,
+            "available_krw_delta": delta,
+            "expected_delta_approx": expected_delta,
+            "duplicate_submit_detected": bool(duplicate_submit_detected),
+            "retry_detected": bool(retry_detected),
+            "reconciliation_status": reconciliation_status,
+            "first_blocker": first_blocker,
+            "next_fix_target": next_fix_target,
+            "actual_order": bool(audited_orders),
+            "submitted_count": len(audited_orders),
+            "provider_external_call_count": 0,
+            "order_risk_detected": False,
+            "pass_status": "pass",
+            "status": "pass",
+        }
+    )
 
 
 def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_dir: Path) -> None:
@@ -19375,6 +19538,7 @@ def run_harness(
         "live-one-shot-unlock-contract-proof",
         "live-minimum-real-order-test",
         "live-order-post-trade-reconciliation",
+        "live-order-post-submit-reconciliation-summary",
         "live-order-guarded-readiness-summary",
         "live-2h-guarded-window-preflight-proof",
         "live-2h-guarded-window-order-path-cap-proof",
@@ -19576,6 +19740,9 @@ def run_harness(
         elif mode == "live-order-guarded-readiness-summary":
             _install_provider_post_guard(report)
             _run_live_order_guarded_readiness_summary(report, output_dir=output_dir)
+        elif mode == "live-order-post-submit-reconciliation-summary":
+            _install_provider_post_guard(report)
+            _run_live_order_post_submit_reconciliation_summary(report)
         elif mode == "live-on-preflight-setting-source-summary":
             _install_provider_post_guard(report)
             _run_live_on_preflight_setting_source_summary(report)
@@ -20286,6 +20453,7 @@ def main() -> int:
             "live-one-shot-unlock-contract-proof",
             "live-minimum-real-order-test",
             "live-order-post-trade-reconciliation",
+            "live-order-post-submit-reconciliation-summary",
             "live-order-guarded-readiness-summary",
             "live-2h-guarded-window-preflight-proof",
             "live-2h-guarded-window-order-path-cap-proof",

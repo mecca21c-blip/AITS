@@ -1728,3 +1728,12 @@ Additional fields:
 - `live_pipeline_live_preflight_result`
 
 The harness must not classify a normal live flow as `candidate_selected_but_router_not_started` when `[AITS][LiveOrderPipeline] event=router_validation_started` or `event=router_validation_result` exists in the retained log window.
+
+## Post-Submit Reconciliation Summary
+
+`live-order-post-submit-reconciliation-summary` is a read-only log summary mode.
+It audits submitted live order request ids, TradeLog reflection evidence, holdings
+refresh evidence, InvestmentCenter position reflection, available KRW delta,
+duplicate submit markers, and retry markers.
+
+The mode does not start the app, click ON, call providers, or submit orders.
