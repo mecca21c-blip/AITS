@@ -415,3 +415,9 @@ Blockers:
 These blockers are policy gates before Router/RiskGuard/LivePreflight/Execution.
 They do not create synthetic holdings or synthetic order intents, and they do not relax
 the live submit path.
+## LIVE LOG Korean History Diagnostics
+
+- E2E/dry-read 진단은 LIVE LOG가 popup이 아니라 inline expand/collapse를 지원하는지 확인한다.
+- 사용자-facing 로그는 `message_ko` 기준이며, raw event와 snake_case blocker가 보이면 UX failure로 분류한다.
+- MAIN ANALYSIS CENTER inline history는 최근 5개 빠른 확인, 공통설정 운용 로그는 최근 50개 전체 히스토리, 매매기록 탭은 체결/판단/차단 기록으로 역할을 분리한다.
+- 주요 필드: `live_log_inline_expand_supported`, `live_log_popup_disabled`, `live_log_recent_inline_latest_first`, `live_log_english_event_leak_count`, `live_log_snake_case_leak_count`, `common_settings_live_log_korean_only`, `live_log_blocker_koreanized`.

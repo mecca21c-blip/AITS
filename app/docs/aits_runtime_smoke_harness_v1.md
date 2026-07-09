@@ -1792,3 +1792,9 @@ Default safety policy:
 The harness must report these as observation fields only. It must not click ON,
 submit orders, create synthetic holdings, or mutate runtime state during observe-only
 summary modes.
+## LIVE LOG Inline History UX
+
+- MAIN ANALYSIS CENTER의 LIVE LOG는 클릭 시 팝업을 열지 않고 같은 영역 아래에서 최근 5개 운용 로그를 inline으로 펼친다.
+- inline history와 공통설정 운용 로그는 `message_ko`만 표시하며 `raw_event`, snake_case blocker, 개발용 이벤트명은 사용자-facing 텍스트로 노출하지 않는다.
+- 공통설정 운용 로그는 최근 50개 전체 히스토리, MAIN ANALYSIS CENTER inline history는 최근 5개 빠른 확인용, 매매기록 탭은 실제 체결/AI 판단/차단 기록용이다.
+- dry-read는 `live_log_inline_expand_supported`, `live_log_popup_disabled`, `live_log_snake_case_leak_count`, `common_settings_live_log_korean_only`, `live_log_blocker_koreanized`를 보고한다.

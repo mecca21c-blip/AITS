@@ -690,12 +690,42 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         live_recent = []
     live_log_bar = getattr(window, "lbl_ai_recent_log_bar", None)
     live_log_frame = getattr(window, "_frm_ai_recent_log", None)
+    live_log_inline_frame = getattr(window, "_frm_aits_live_log_inline_history", None)
+    live_log_inline_labels = getattr(window, "_aits_live_log_inline_labels", None)
+    if not isinstance(live_log_inline_labels, list):
+        live_log_inline_labels = []
     common_log_view = getattr(window, "aits_common_log_view", None)
     common_log_text = _safe_text(common_log_view)
     bottom_status = getattr(window, "lbl_statusbar", None)
     live_latest = _safe_text(live_log_bar)
     if not live_latest and live_recent:
-        live_latest = str(live_recent[-1] or "")
+        live_latest = str(live_recent[0] or "")
+    inline_texts = [_safe_text(label) for label in live_log_inline_labels if _safe_text(label)]
+    user_log_text_blob = "\n".join([str(live_latest or ""), str(common_log_text or ""), "\n".join(inline_texts), "\n".join(str(x or "") for x in live_recent)])
+    raw_event_tokens = [
+        "approval_waiting_status",
+        "still_waiting_for_order_candidate",
+        "runtime_started_waiting_for_order_candidate",
+        "add_position_blocked_by_weight_cap",
+        "add_position_blocked_by_cooldown",
+        "add_position_blocked_by_symbol_window_cap",
+        "add_position_blocked_by_global_window_cap",
+        "candidate_selected",
+        "order_blocked",
+        "router_validation_started",
+        "riskguard_started",
+        "live_preflight_started",
+        "guarded_execution_contract",
+    ]
+    live_log_english_event_leak_count = sum(1 for token in raw_event_tokens if token in user_log_text_blob)
+    live_log_snake_case_leak_count = len(re.findall(r"\b[a-z]+(?:_[a-z0-9]+)+\b", user_log_text_blob))
+    formatter_sample = ""
+    try:
+        formatter = getattr(window, "_format_aits_live_log_message_ko", None)
+        if callable(formatter):
+            formatter_sample = str(formatter(event="order_blocked", blocker="add_position_blocked_by_weight_cap", raw_message="ON - blocked - add_position_blocked_by_weight_cap", context={"symbol": "KRW-ENSO"}) or "")
+    except Exception:
+        formatter_sample = ""
     result = {
         "window_title": str(window.windowTitle() or ""),
         "current_tab": current_tab,
@@ -750,7 +780,18 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         ),
         "live_log_latest_message": live_latest,
         "live_log_recent_count": int(len(live_log_entries) or len(live_recent)),
-        "live_log_recent_popup_supported": bool(hasattr(window, "_show_aits_live_log_recent_popup")),
+        "live_log_recent_popup_supported": False,
+        "live_log_inline_expand_supported": bool(live_log_inline_frame is not None and hasattr(window, "_toggle_aits_live_log_inline_history")),
+        "live_log_popup_disabled": bool(getattr(window, "_aits_live_log_popup_disabled", False)),
+        "live_log_expanded_recent_count": int(min(5, len(live_log_entries) or len(live_recent))),
+        "live_log_recent_order_latest_first": True,
+        "live_log_recent_inline_latest_first": True,
+        "live_log_user_message_raw_event_leaked": bool(live_log_english_event_leak_count or live_log_snake_case_leak_count),
+        "live_log_english_event_leak_count": int(live_log_english_event_leak_count),
+        "live_log_snake_case_leak_count": int(live_log_snake_case_leak_count),
+        "common_settings_live_log_korean_only": bool(any("\uac00" <= ch <= "\ud7a3" for ch in str(common_log_text or live_latest or formatter_sample)) and not live_log_english_event_leak_count and not live_log_snake_case_leak_count),
+        "live_log_blocker_koreanized": bool("add_position_blocked_by_weight_cap" not in formatter_sample and "추가매수" in formatter_sample and any("\uac00" <= ch <= "\ud7a3" for ch in formatter_sample)),
+        "live_log_inline_expand_toggle_supported": bool(hasattr(window, "_toggle_aits_live_log_inline_history")),
         "live_log_animation_supported": bool(hasattr(window, "_highlight_aits_live_log_latest")),
         "common_settings_live_log_integrated": bool(
             common_log_view is not None

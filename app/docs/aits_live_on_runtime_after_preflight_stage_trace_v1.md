@@ -267,3 +267,9 @@ These events are not submit permission and must not call order retry paths.
 - `expected_weight_after_order=(current_position_value_krw+order_amount_krw)/total_asset_krw*100`으로 계산한다.
 - 차단 사유는 `[AITS][AddPositionPolicy]`와 LIVE LOG 한국어 메시지에 남긴다.
 - BERA 감사에서 확인된 30분 반복 추가매수는 새 정책 기준으로 cooldown/window/weight cap 중 하나에 의해 차단 가능해야 한다.
+## LIVE LOG User-Facing History
+
+- LIVE LOG의 한 줄 상태는 최신 `message_ko`만 표시한다.
+- 클릭하면 별도 팝업 대신 MAIN ANALYSIS CENTER 내부에서 최근 5개 로그가 최신순으로 펼쳐진다.
+- `add_position_blocked_by_weight_cap`, `candidate_selected`, `order_blocked` 같은 raw event/blocker는 내부 분석용으로만 보존하고, 화면에는 한국어 운용 메시지와 한국어 차단 사유를 표시한다.
+- 공통설정 운용 로그는 동일 formatter를 사용해 최근 50개 히스토리를 최신순으로 제공한다.

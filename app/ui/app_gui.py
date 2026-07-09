@@ -11726,6 +11726,9 @@ class MainWindow(QMainWindow):
         self._aits_overview_expanded = False
         self._ai_reason_expanded = False
         self._aits_recent_logs: list[str] = []
+        self._aits_live_log_expanded = False
+        self._aits_live_log_popup_disabled = True
+        self._aits_live_log_inline_labels = []
         self._aits_last_detail_log_sym_status = ""
         self._aits_last_ai_explanation = {
             "decision": "",
@@ -27731,7 +27734,7 @@ class MainWindow(QMainWindow):
         self._frm_ai_recent_log = log_card
         try:
             log_card.setCursor(Qt.CursorShape.PointingHandCursor)
-            log_card.mousePressEvent = lambda event: (self._show_aits_live_log_recent_popup(), event.accept())
+            log_card.mousePressEvent = lambda event: (self._toggle_aits_live_log_inline_history(), event.accept())
         except Exception:
             pass
         log_lay = QHBoxLayout(log_card)
@@ -27774,6 +27777,51 @@ class MainWindow(QMainWindow):
         log_lay.addWidget(self.lbl_ai_recent_log_title, 0)
         log_lay.addWidget(self.lbl_ai_recent_log_bar, 1)
         root.insertWidget(1, log_card, 0)
+
+        old_history = getattr(self, "_frm_aits_live_log_inline_history", None)
+        if old_history is not None:
+            try:
+                old_history.setVisible(False)
+                old_history.setParent(None)
+            except Exception:
+                pass
+        history = QFrame()
+        self._frm_aits_live_log_inline_history = history
+        try:
+            history.setObjectName("frmAitsLiveLogInlineHistory")
+            history.setVisible(bool(getattr(self, "_aits_live_log_expanded", False)))
+            history.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            history.setStyleSheet(
+                "QFrame#frmAitsLiveLogInlineHistory{background:#ffffff;border:1px solid #dbe3ee;border-radius:10px;}"
+            )
+        except Exception:
+            pass
+        history_lay = QVBoxLayout(history)
+        try:
+            history_lay.setContentsMargins(12, 8, 12, 8)
+            history_lay.setSpacing(6)
+        except Exception:
+            pass
+        header = QLabel("최근 AI 운용 로그")
+        try:
+            header.setObjectName("lblAitsLiveLogInlineHistoryTitle")
+            header.setStyleSheet("font-size:11px;font-weight:800;color:#334155;background:transparent;border:none;")
+        except Exception:
+            pass
+        history_lay.addWidget(header)
+        self._aits_live_log_inline_labels = []
+        for idx in range(5):
+            row = QLabel("—")
+            try:
+                row.setObjectName(f"lblAitsLiveLogInlineHistoryRow{idx + 1}")
+                row.setWordWrap(True)
+                row.setTextFormat(Qt.TextFormat.PlainText)
+                row.setStyleSheet("font-size:12px;color:#111827;background:transparent;border:none;")
+            except Exception:
+                pass
+            self._aits_live_log_inline_labels.append(row)
+            history_lay.addWidget(row)
+        root.insertWidget(2, history, 0)
 
         try:
             self._sync_center_dashboard_reason_from_plaintext()
@@ -30864,45 +30912,149 @@ class MainWindow(QMainWindow):
             pass
         return meta
 
-    def _live_log_message_ko(self, message: str) -> str:
-        text = str(message or "").strip()
-        low = text.lower()
-        replacements = (
-            ("approval_waiting_status", "승인 대기 상태"),
-            ("live_order_approval_required", "실주문 승인 대기"),
-            ("approval_required", "승인 대기"),
-            ("provider_connection_check_needed", "AI 엔진 연결 확인 필요"),
-            ("provider_not_ready", "AI 엔진 준비 미완료"),
-            ("runtime_started_waiting_for_order_candidate", "ON 실행 중 · 주문 후보 탐색 중"),
-            ("runtime_start_pending", "ON 실행 준비 중"),
-            ("runtime_started", "ON 실행 중"),
-            ("live monitoring", "실거래 감시 중"),
-            ("waiting_for_order_info", "주문 정보 대기"),
-            ("waiting_for_order_candidate", "주문 후보 대기 중"),
-            ("still_waiting_for_order_candidate", "매수 후보 탐색 중"),
-            ("no_buy_ready_candidate", "매수 기준 충족 종목 없음"),
-            ("market_data_stale", "시장 데이터 갱신 대기"),
-            ("provider_ready", "AI 엔진 정상"),
-            ("router_validation_started", "Router 검증 중"),
-            ("router_validation_result", "Router 검증 결과 수신"),
-            ("riskguard_started", "RiskGuard 평가 중"),
-            ("riskguard_result", "RiskGuard 평가 결과 수신"),
-            ("live_preflight_blocked", "주문 전 안전조건 미충족"),
-            ("order_submit_attempt", "주문 제출 시도"),
-            ("order_submit_result", "주문 결과 수신"),
-            ("on_preflight_passed", "ON 실행 전 점검 통과"),
-            ("on_observing", "ON 관측 중"),
-            ("on - blocked", "ON 차단"),
-            ("on - error", "ON 오류"),
-            ("actual_order=false", "실제 주문 없음"),
-            ("submitted_count=0", "제출 0건"),
-            ("submitted=0", "제출 0건"),
-        )
-        for key, value in replacements:
-            if key in low:
-                text = text.replace(key, value).replace(key.upper(), value)
-        return text or "내용 대기"
+    def _format_aits_live_log_message_ko(self, event: str = "", blocker: str = "", raw_message: str = "", context: dict | None = None) -> str:
+        try:
+            import re
 
+            ctx = context if isinstance(context, dict) else {}
+            symbol = str(ctx.get("symbol") or "").strip().upper()
+            raw_parts = [str(event or ""), str(blocker or ""), str(raw_message or "")]
+            raw = " ".join(part for part in raw_parts if part).strip()
+            if not symbol:
+                found = re.search(r"\bKRW-[A-Z0-9]+\b", raw.upper())
+                symbol = found.group(0) if found else ""
+            subject = f"{symbol}는 " if symbol else ""
+            token_map = {
+                "add_position_blocked_by_weight_cap": f"{subject}예상 보유 비중이 최대 허용 비중을 초과해 추가매수를 보류했습니다.",
+                "add_position_blocked_by_cooldown": f"{subject}최근 같은 종목을 매수해 추가매수 대기 시간이 남아 있습니다.",
+                "add_position_blocked_by_symbol_window_cap": f"{subject}최근 6시간 내 해당 종목 추가매수 한도를 초과해 보류했습니다.",
+                "add_position_blocked_by_global_window_cap": "최근 6시간 내 전체 추가매수 한도를 초과해 추가매수를 보류했습니다.",
+                "add_position_allowed_continue_to_router": f"{subject}추가매수 조건을 통과해 Router 검증으로 이동합니다.",
+                "order_blocked": "주문이 안전 조건에 의해 차단되었습니다.",
+                "candidate_selected": f"{symbol} 주문 후보를 선택했습니다." if symbol else "주문 후보를 선택했습니다.",
+                "no_buy_ready_candidate": "매수 기준을 충족한 종목이 없습니다.",
+                "runtime_started_waiting_for_order_candidate": "AITS가 실거래 감시 중이며 주문 후보를 기다리고 있습니다.",
+                "still_waiting_for_order_candidate": "AITS가 실거래 감시 중이며 주문 후보를 탐색 중입니다.",
+                "approval_waiting_status": "실주문 승인을 기다리고 있습니다.",
+                "provider_connection_check_needed": "AI 엔진 연결 확인이 필요합니다.",
+                "provider_ready": "AI 엔진이 정상 연결되어 있습니다.",
+                "market_feed_ok": "시장 데이터가 정상 수신 중입니다.",
+                "balance_ready": "주문 가능 잔고 확인이 완료되었습니다.",
+                "router_validation_started": "Router가 주문 후보를 검증 중입니다.",
+                "router_validation_result": "Router 검증이 완료되었습니다.",
+                "riskguard_started": "RiskGuard가 위험 조건을 점검 중입니다.",
+                "riskguard_result": "RiskGuard 점검이 완료되었습니다.",
+                "live_preflight_started": "주문 전 최종 안전 조건을 확인 중입니다.",
+                "live_preflight_blocked": "주문 전 최종 안전 조건에서 차단되었습니다.",
+                "guarded_execution_contract": "실주문 실행 조건을 확인하고 있습니다.",
+                "order_submit_attempt": f"{symbol} 주문을 제출했습니다." if symbol else "주문을 제출했습니다.",
+                "order_submit_result": "주문 결과를 확인했습니다.",
+                "runtime_started": "AITS 실거래 감시가 시작되었습니다.",
+                "on_observing": "AITS가 ON 상태로 시장을 관측 중입니다.",
+            }
+            raw_lower = raw.lower()
+            for token, korean in token_map.items():
+                if token in raw_lower:
+                    return str(korean or "").strip() or "AITS 운용 상태를 갱신했습니다."
+
+            text = str(raw_message or raw or "").strip()
+            replacements = {
+                "ON - blocked": "ON 차단",
+                "ON - error": "ON 오류",
+                "selected": "선택됨",
+                "blocked": "차단됨",
+                "waiting": "대기 중",
+                "actual_order=false": "실제 주문 없음",
+                "submitted_count=0": "제출 0건",
+                "submitted=0": "제출 0건",
+            }
+            for key, value in replacements.items():
+                text = text.replace(key, value).replace(key.upper(), value)
+            text = re.sub(r"\b[a-z]+(?:_[a-z0-9]+)+\b", "", text)
+            text = " ".join(text.replace(" - ", " · ").split()).strip(" ·-")
+            has_korean = any("가" <= ch <= "힣" for ch in text)
+            if not text or not has_korean:
+                text = "AITS 운용 상태를 갱신했습니다."
+            return text
+        except Exception:
+            return "AITS 운용 상태를 갱신했습니다."
+
+    def _live_log_message_ko(self, message: str) -> str:
+        return self._format_aits_live_log_message_ko(raw_message=message)
+
+    def _aits_live_log_category_label(self, item: dict | None = None) -> str:
+        try:
+            data = item if isinstance(item, dict) else {}
+            raw = " ".join(str(data.get(k) or "") for k in ("raw_event", "category", "stage", "message_ko")).lower()
+            if "add_position" in raw:
+                return "추가매수"
+            if "candidate" in raw or "후보" in raw:
+                return "후보 선택"
+            if "order" in raw or "주문" in raw:
+                return "주문 상태"
+            if "router" in raw:
+                return "Router"
+            if "riskguard" in raw:
+                return "위험 점검"
+            if "preflight" in raw:
+                return "최종 점검"
+            if "provider" in raw or "engine" in raw:
+                return "AI 엔진"
+            if "market" in raw:
+                return "시장 데이터"
+            return "실거래 감시"
+        except Exception:
+            return "실거래 감시"
+
+    def _format_aits_live_log_entry_line(self, item: dict | str | None) -> str:
+        try:
+            if isinstance(item, dict):
+                ts = str(item.get("timestamp") or "").strip()[:5]
+                label = str(item.get("category_label") or self._aits_live_log_category_label(item)).strip()
+                msg = str(item.get("message_ko") or "").strip()
+                return " · ".join(part for part in (ts, label, msg) if part).strip() or "내용 로그 대기 중"
+            text = self._format_aits_live_log_message_ko(raw_message=str(item or ""))
+            return text or "내용 로그 대기 중"
+        except Exception:
+            return "내용 로그 대기 중"
+
+    def _sync_aits_live_log_inline_history(self) -> None:
+        try:
+            frame = getattr(self, "_frm_aits_live_log_inline_history", None)
+            if frame is not None:
+                frame.setVisible(bool(getattr(self, "_aits_live_log_expanded", False)))
+            labels = getattr(self, "_aits_live_log_inline_labels", None)
+            if not isinstance(labels, list):
+                return
+            entries = getattr(self, "_aits_live_log_entries", None)
+            if not isinstance(entries, list):
+                entries = []
+            recent = list(reversed(entries[-5:]))
+            if not recent:
+                recent = [{"timestamp": "", "category_label": "실거래 감시", "message_ko": "내용 로그 대기 중"}]
+            for idx, label in enumerate(labels[:5]):
+                try:
+                    if idx < len(recent):
+                        label.setVisible(True)
+                        label.setText(self._format_aits_live_log_entry_line(recent[idx]))
+                    else:
+                        label.setVisible(False)
+                        label.setText("")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _toggle_aits_live_log_inline_history(self) -> None:
+        try:
+            self._aits_live_log_expanded = not bool(getattr(self, "_aits_live_log_expanded", False))
+            self._sync_aits_live_log_inline_history()
+            logging.getLogger("aits").info(
+                "[AITS][LiveLogUX] event=inline_history_toggled expanded=%s submitted=0 actual_order=false",
+                bool(getattr(self, "_aits_live_log_expanded", False)),
+            )
+        except Exception:
+            pass
     def _highlight_aits_live_log_latest(self) -> None:
         try:
             frame = getattr(self, "_frm_ai_recent_log", None)
@@ -30926,12 +31078,11 @@ class MainWindow(QMainWindow):
             lines = []
             for item in reversed(entries[-50:]):
                 if isinstance(item, dict):
-                    ts = str(item.get("timestamp") or "").strip()
-                    msg = str(item.get("message_ko") or "").strip()
-                    if msg:
-                        lines.append(f"{ts} {msg}".strip())
+                    line = self._format_aits_live_log_entry_line(item)
+                    if line:
+                        lines.append(line)
                 else:
-                    txt = str(item or "").strip()
+                    txt = self._format_aits_live_log_message_ko(raw_message=str(item or ""))
                     if txt:
                         lines.append(txt)
             view.setPlainText("\n".join(lines) if lines else "내용 로그 대기 중")
@@ -30941,7 +31092,8 @@ class MainWindow(QMainWindow):
     def _append_aits_live_log(self, message: str, *, category: str = "runtime", level: str = "info", event: str = "", symbol: str = "", stage: str = "") -> None:
         try:
             from datetime import datetime
-            msg = self._live_log_message_ko(message)
+            ctx = {"symbol": str(symbol or ""), "category": str(category or ""), "stage": str(stage or "")}
+            msg = self._format_aits_live_log_message_ko(event=event, blocker=event, raw_message=message, context=ctx)
             ts = datetime.now().strftime("%H:%M:%S")
             entry = {
                 "timestamp": ts,
@@ -30952,18 +31104,20 @@ class MainWindow(QMainWindow):
                 "symbol": str(symbol or ""),
                 "stage": str(stage or ""),
             }
+            entry["category_label"] = self._aits_live_log_category_label(entry)
             entries = getattr(self, "_aits_live_log_entries", None)
             if not isinstance(entries, list):
                 entries = []
             entries.append(entry)
             self._aits_live_log_entries = entries[-50:]
             self._aits_recent_logs = [
-                f"{item.get('timestamp', '')} {item.get('message_ko', '')}".strip()
+                self._format_aits_live_log_entry_line(item)
                 for item in reversed(self._aits_live_log_entries[-50:])
                 if isinstance(item, dict)
             ]
             self._sync_recent_log_label()
             self._sync_common_settings_system_log_view()
+            self._sync_aits_live_log_inline_history()
             self._highlight_aits_live_log_latest()
             try:
                 logging.getLogger("aits").info(
@@ -30977,36 +31131,11 @@ class MainWindow(QMainWindow):
 
     def _show_aits_live_log_recent_popup(self) -> None:
         try:
-            dlg = getattr(self, "_aits_live_log_recent_dialog", None)
-            if dlg is not None and dlg.isVisible():
-                dlg.raise_()
-                dlg.activateWindow()
-                return
-            dlg = QDialog(self)
-            dlg.setWindowTitle("최근 AI 내용 로그")
-            lay = QVBoxLayout(dlg)
-            lay.setContentsMargins(14, 14, 14, 14)
-            lay.setSpacing(10)
-            entries = getattr(self, "_aits_live_log_entries", None)
-            if not isinstance(entries, list):
-                entries = []
-            recent = list(reversed(entries[-5:])) or [{"timestamp": "", "message_ko": "내용 로그 대기 중"}]
-            for item in recent:
-                msg = str(item.get("message_ko") if isinstance(item, dict) else item or "").strip()
-                ts = str(item.get("timestamp") if isinstance(item, dict) else "" or "").strip()
-                lb = QLabel(f"{ts}  {msg}".strip())
-                lb.setWordWrap(True)
-                lb.setStyleSheet("font-size:12px;color:#111827;")
-                lay.addWidget(lb)
-            btn = QPushButton("닫기")
-            btn.clicked.connect(dlg.close)
-            lay.addWidget(btn, 0, Qt.AlignmentFlag.AlignRight)
-            self._aits_live_log_recent_dialog = dlg
-            logging.getLogger("aits").info("[AITS][LiveLogUX] event=recent_popup_opened submitted=0 actual_order=false")
-            dlg.show()
+            self._aits_live_log_popup_disabled = True
+            self._toggle_aits_live_log_inline_history()
+            logging.getLogger("aits").info("[AITS][LiveLogUX] event=recent_popup_disabled_inline_used submitted=0 actual_order=false")
         except Exception:
             pass
-
     def _append_aits_recent_log(self, sym: str, message: str) -> None:
         try:
             sym = (sym or "").strip()
