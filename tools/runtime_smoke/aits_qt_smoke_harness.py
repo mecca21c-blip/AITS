@@ -8808,6 +8808,17 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     position_symbol_detected = any("symbol_detected=True" in line for line in position_reflection_lines)
     candidate_holdings_guard_detected = bool(candidate_holdings_guard_lines)
     candidate_live_position_detected = any("has_live_position=True" in line for line in candidate_holdings_guard_lines)
+    latest_candidate_holdings_guard = candidate_holdings_guard_lines[-1] if candidate_holdings_guard_lines else ""
+    candidate_live_position_symbol = _live_on_stage_extract_value(latest_candidate_holdings_guard, "symbol")
+    candidate_live_position_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "current_weight_pct"), 0.0)
+    candidate_target_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "target_weight_pct"), 0.0)
+    candidate_max_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "max_weight_pct"), 0.0)
+    candidate_add_position_allowed = _live_on_runtime_bool_marker(latest_candidate_holdings_guard, "add_position_allowed")
+    candidate_add_position_blocker = _live_on_stage_extract_value(latest_candidate_holdings_guard, "add_position_blocker")
+    candidate_add_position_reason = _live_on_stage_extract_value(latest_candidate_holdings_guard, "add_position_reason")
+    add_position_candidate_detected = "classification=has_position_add_position_candidate" in latest_candidate_holdings_guard
+    add_position_blocked_detected = "classification=has_position_add_position_blocked" in latest_candidate_holdings_guard or bool(candidate_add_position_blocker and candidate_add_position_blocker not in {"-", ""})
+    add_position_allowed_continue_to_router = bool(candidate_live_position_detected and candidate_add_position_allowed)
 
     detected_candidate_symbol = ""
     for source_lines in (order_intent_lines, router_lines, riskguard_lines, preflight_lines, score_lines):
@@ -8963,7 +8974,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "provider_ready_ssot_mismatch"
     elif buy_ready_count > 0 and not live_pipeline_candidate_selected and not router_handoff_preview_detected:
         first_blocker = "buy_ready_but_candidate_not_selected"
-    if live_pipeline_candidate_selected and duplicate_candidate_locked_lines and not live_pipeline_router_started and not live_pipeline_router_result:
+    if candidate_holdings_guard_detected and candidate_live_position_detected and add_position_blocked_detected:
+        first_blocker = str(candidate_add_position_blocker or "add_position_blocked_by_position_policy")
+    elif candidate_holdings_guard_detected and candidate_live_position_detected and candidate_add_position_allowed:
+        first_blocker = "add_position_allowed_continue_to_router"
+    elif live_pipeline_candidate_selected and duplicate_candidate_locked_lines and not live_pipeline_router_started and not live_pipeline_router_result:
         first_blocker = "candidate_blocked_by_duplicate_lock"
     elif live_pipeline_candidate_selected and not live_pipeline_router_started and not live_pipeline_router_result:
         first_blocker = "candidate_selected_but_router_not_started"
@@ -9257,6 +9272,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "position_symbol_detected": bool(position_symbol_detected),
         "candidate_holdings_guard_detected": bool(candidate_holdings_guard_detected),
         "candidate_live_position_detected": bool(candidate_live_position_detected),
+        "candidate_live_position_symbol": str(candidate_live_position_symbol or ""),
+        "candidate_live_position_weight_pct": candidate_live_position_weight_pct,
+        "candidate_target_weight_pct": candidate_target_weight_pct,
+        "candidate_max_weight_pct": candidate_max_weight_pct,
+        "candidate_add_position_allowed": bool(candidate_add_position_allowed),
+        "candidate_add_position_blocker": str(candidate_add_position_blocker or ""),
+        "candidate_add_position_reason": str(candidate_add_position_reason or ""),
+        "add_position_candidate_detected": bool(add_position_candidate_detected),
+        "add_position_blocked_detected": bool(add_position_blocked_detected),
+        "add_position_allowed_continue_to_router": bool(add_position_allowed_continue_to_router),
         "post_submit_reconciliation_status": (
             "ok"
             if trade_log_reflection_detected and holdings_symbol_detected and position_symbol_detected
@@ -10095,6 +10120,18 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "duplicate_candidate_locked_count": int(e2e.get("duplicate_candidate_locked_count") or 0),
         "duplicate_candidate_lock_ttl_sec": int(e2e.get("duplicate_candidate_lock_ttl_sec") or 0),
         "candidate_allowed_after_duplicate_lock": bool(e2e.get("candidate_allowed_after_duplicate_lock")),
+        "candidate_holdings_guard_detected": bool(e2e.get("candidate_holdings_guard_detected")),
+        "candidate_live_position_detected": bool(e2e.get("candidate_live_position_detected")),
+        "candidate_live_position_symbol": str(e2e.get("candidate_live_position_symbol") or ""),
+        "candidate_live_position_weight_pct": _safe_float(e2e.get("candidate_live_position_weight_pct"), 0.0),
+        "candidate_target_weight_pct": _safe_float(e2e.get("candidate_target_weight_pct"), 0.0),
+        "candidate_max_weight_pct": _safe_float(e2e.get("candidate_max_weight_pct"), 0.0),
+        "candidate_add_position_allowed": bool(e2e.get("candidate_add_position_allowed")),
+        "candidate_add_position_blocker": str(e2e.get("candidate_add_position_blocker") or ""),
+        "candidate_add_position_reason": str(e2e.get("candidate_add_position_reason") or ""),
+        "add_position_candidate_detected": bool(e2e.get("add_position_candidate_detected")),
+        "add_position_blocked_detected": bool(e2e.get("add_position_blocked_detected")),
+        "add_position_allowed_continue_to_router": bool(e2e.get("add_position_allowed_continue_to_router")),
         "router_handoff_preview_detected": bool(router_handoff_preview_detected),
         "router_handoff_schema": str(e2e.get("router_handoff_schema") or ""),
         "router_handoff_request_id": str(e2e.get("router_handoff_request_id") or ""),

@@ -245,3 +245,11 @@ After `order_submit_result status=submitted`, the GUI must request reflection on
 - `[AITS][CandidateHoldingsGuard]` logs whether a later candidate has an already-known live position.
 
 These events are not submit permission and must not call order retry paths.
+
+## Candidate Holdings Guard Add-Position Policy
+
+- A held symbol is not automatically blocked from a buy candidate.
+- CandidateHoldingsGuard classifies candidates as `no_position_new_entry_candidate`, `has_position_add_position_candidate`, `has_position_add_position_blocked`, or `has_position_hold_management`.
+- `target_weight_pct=0` or missing means AI dynamic allocation; it is not interpreted as a buy ban.
+- Explicit `max_weight_pct > 0` is used as a weight cap. If expected weight after the order exceeds it, the candidate is blocked with `add_position_blocked_by_weight_cap`.
+- Submitted duplicate locks are cooldown-based, not permanent; repeated immediate submit remains blocked.

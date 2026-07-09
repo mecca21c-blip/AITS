@@ -1737,3 +1737,7 @@ refresh evidence, InvestmentCenter position reflection, available KRW delta,
 duplicate submit markers, and retry markers.
 
 The mode does not start the app, click ON, call providers, or submit orders.
+
+## Candidate Holdings Guard Fields
+
+`live-on-runtime-e2e-diagnostic-log-summary` and `live-on-runtime-after-preflight-stage-summary` parse add-position guard logs without placing orders. The parser distinguishes held-symbol add-position candidates from new-entry candidates and exposes allow/block reason fields for long-run observation.

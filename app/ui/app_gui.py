@@ -53282,6 +53282,141 @@ class MainWindow(QMainWindow):
             last_writer="runtime_stop",
         )
 
+    def _evaluate_candidate_holdings_guard(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        amount_krw: int,
+        candidate_score: int = 0,
+        buy_ready: bool = True,
+    ) -> dict:
+        result = {
+            "classification": "no_position_new_entry_candidate",
+            "has_live_position": False,
+            "position_qty": 0.0,
+            "avg_buy_price": 0.0,
+            "current_price": 0.0,
+            "position_value": 0.0,
+            "current_weight_pct": 0.0,
+            "target_weight_pct": 0.0,
+            "max_weight_pct": 0.0,
+            "candidate_side": str(side or "buy"),
+            "score": int(candidate_score or 0),
+            "buy_ready": bool(buy_ready),
+            "add_position_allowed": True,
+            "add_position_blocker": "-",
+            "add_position_reason": "new_entry_candidate",
+        }
+        try:
+            normalized_symbol = str(symbol or "").strip().upper()
+            rows = []
+            for attr_name in ("_live_holdings_rows", "_investment_center_positions", "_portfolio_positions", "_holdings_rows"):
+                value = getattr(self, attr_name, None)
+                if isinstance(value, list):
+                    rows.extend([item for item in value if isinstance(item, dict)])
+
+            position_row = None
+            for item in rows:
+                item_symbol = str(item.get("symbol") or item.get("market") or item.get("code") or item.get("ticker") or "").strip().upper()
+                if item_symbol and "-" not in item_symbol and item_symbol != "KRW":
+                    item_symbol = f"KRW-{item_symbol}"
+                if item_symbol == normalized_symbol:
+                    position_row = item
+                    break
+
+            def _num(value, default=0.0):
+                try:
+                    if value is None:
+                        return default
+                    text = str(value).replace(",", "").replace("%", "").strip()
+                    if text in {"", "-", "None"}:
+                        return default
+                    return float(text)
+                except Exception:
+                    return default
+
+            if position_row:
+                qty = _num(position_row.get("qty") or position_row.get("quantity") or position_row.get("balance") or position_row.get("volume"))
+                locked = _num(position_row.get("locked"), 0.0)
+                balance = _num(position_row.get("balance"), 0.0)
+                if balance > 0:
+                    qty = balance + locked
+                avg = _num(position_row.get("avg_buy_price") or position_row.get("avg_price") or position_row.get("avg"))
+                price = _num(position_row.get("current_price") or position_row.get("trade_price") or position_row.get("price") or position_row.get("market_price"))
+                if price <= 0:
+                    price = self._live_order_candidate_price(position_row)
+                value = _num(position_row.get("eval_krw") or position_row.get("value_krw") or position_row.get("position_krw") or position_row.get("eval_amount"))
+                if value <= 0 and qty > 0 and price > 0:
+                    value = qty * price
+                total_asset = _num(getattr(self, "_last_total_asset", None))
+                if total_asset <= 0:
+                    total_asset = value + _num(getattr(self, "_last_available_krw", None))
+                weight = _num(position_row.get("weight"), -1.0)
+                if weight < 0 and total_asset > 0 and value > 0:
+                    weight = value / total_asset * 100.0
+                if weight < 0:
+                    weight = 0.0
+                result.update(
+                    {
+                        "classification": "has_position_add_position_candidate",
+                        "has_live_position": True,
+                        "position_qty": qty,
+                        "avg_buy_price": avg,
+                        "current_price": price,
+                        "position_value": value,
+                        "current_weight_pct": weight,
+                    }
+                )
+
+                try:
+                    asset_policy = self._build_asset_policy_snapshot(normalized_symbol)
+                except Exception:
+                    asset_policy = {}
+                max_weight = _num((asset_policy or {}).get("max_weight_pct"), 0.0)
+                target_weight = _num((asset_policy or {}).get("target_weight_pct"), 0.0)
+                result["target_weight_pct"] = target_weight
+                result["max_weight_pct"] = max_weight
+
+                expected_weight = weight
+                if total_asset > 0:
+                    expected_weight = (value + float(amount_krw or 0)) / total_asset * 100.0
+                if max_weight > 0 and expected_weight > max_weight:
+                    result.update(
+                        {
+                            "classification": "has_position_add_position_blocked",
+                            "add_position_allowed": False,
+                            "add_position_blocker": "add_position_blocked_by_weight_cap",
+                            "add_position_reason": "expected_weight_exceeds_max_weight",
+                        }
+                    )
+                elif not bool(buy_ready):
+                    result.update(
+                        {
+                            "classification": "has_position_hold_management",
+                            "add_position_allowed": False,
+                            "add_position_blocker": "add_position_blocked_by_signal",
+                            "add_position_reason": "buy_ready_false",
+                        }
+                    )
+                else:
+                    result["add_position_reason"] = (
+                        "ai_dynamic_allocation"
+                        if target_weight <= 0 and max_weight <= 0
+                        else "within_position_policy"
+                    )
+            return result
+        except Exception as exc:
+            result.update(
+                {
+                    "classification": "candidate_holdings_guard_error",
+                    "add_position_allowed": False,
+                    "add_position_blocker": "candidate_holdings_guard_error",
+                    "add_position_reason": type(exc).__name__,
+                }
+            )
+            return result
+
     def _run_live_auto_order_pipeline_from_candidate(
         self,
         candidate_row: dict,
@@ -53338,34 +53473,74 @@ class MainWindow(QMainWindow):
                 self._set_aits_runtime_status_display("ON - blocked", "execution_mode_not_live")
                 return True
 
+            guard = self._evaluate_candidate_holdings_guard(
+                symbol=symbol,
+                side=side,
+                amount_krw=amount_krw,
+                candidate_score=int(candidate_score or 0),
+                buy_ready=True,
+            )
+            logging.getLogger("aits").info(
+                "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s classification=%s has_live_position=%s position_qty=%s avg_buy_price=%s current_price=%s position_value=%s current_weight_pct=%s target_weight_pct=%s max_weight_pct=%s candidate_side=%s score=%s buy_ready=%s add_position_allowed=%s add_position_blocker=%s add_position_reason=%s submitted=0 actual_order=false",
+                symbol,
+                str(guard.get("classification") or ""),
+                bool(guard.get("has_live_position")),
+                guard.get("position_qty", 0.0),
+                guard.get("avg_buy_price", 0.0),
+                guard.get("current_price", 0.0),
+                guard.get("position_value", 0.0),
+                guard.get("current_weight_pct", 0.0),
+                guard.get("target_weight_pct", 0.0),
+                guard.get("max_weight_pct", 0.0),
+                side,
+                int(candidate_score or 0),
+                True,
+                bool(guard.get("add_position_allowed")),
+                str(guard.get("add_position_blocker") or "-"),
+                str(guard.get("add_position_reason") or "-"),
+            )
             try:
-                holdings_rows = getattr(self, "_live_holdings_rows", []) or getattr(self, "_investment_center_positions", []) or []
-                has_live_position = False
-                position_qty = 0.0
-                position_value = 0.0
-                if isinstance(holdings_rows, list):
-                    for item in holdings_rows:
-                        if not isinstance(item, dict):
-                            continue
-                        item_symbol = str(item.get("symbol") or item.get("market") or "").strip().upper()
-                        if item_symbol != symbol:
-                            continue
-                        has_live_position = True
-                        position_qty = self._live_order_safe_float(item.get("qty") or item.get("quantity") or item.get("balance"), 0.0)
-                        position_value = self._live_order_safe_float(item.get("eval_krw") or item.get("value_krw") or item.get("position_krw"), 0.0)
-                        break
-                logging.getLogger("aits").info(
-                    "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s has_live_position=%s position_qty=%s position_value=%s candidate_side=%s add_position_allowed=%s blocker=%s reason=%s submitted=0 actual_order=false",
-                    symbol, bool(has_live_position), position_qty, position_value, side, True, "-", "policy_allows_router_riskguard_evaluation",
+                if bool(guard.get("has_live_position")):
+                    if bool(guard.get("add_position_allowed")):
+                        self._append_aits_live_log(
+                            f"{symbol}? ?? ?? ??? ???? ?? ??? ?????. ?? ?? {float(guard.get('current_weight_pct') or 0.0):.1f}%.",
+                            category="pipeline",
+                            level="info",
+                            event="add_position_candidate",
+                            symbol=symbol,
+                        )
+                    else:
+                        self._append_aits_live_log(
+                            f"{symbol} ???? ??: {guard.get('add_position_reason') or guard.get('add_position_blocker')}",
+                            category="pipeline",
+                            level="warning",
+                            event="add_position_blocked",
+                            symbol=symbol,
+                        )
+            except Exception:
+                pass
+            if bool(guard.get("has_live_position")) and not bool(guard.get("add_position_allowed")):
+                blocker = str(guard.get("add_position_blocker") or "add_position_blocked_by_position_policy")
+                self._emit_live_order_pipeline_event(
+                    "order_blocked",
+                    request_id=request_id,
+                    symbol=symbol,
+                    amount_krw=amount_krw,
+                    blocker=blocker,
+                    stage="candidate_holdings_guard",
+                    status="blocked",
+                    classification=str(guard.get("classification") or "has_position_add_position_blocked"),
+                    current_weight_pct=guard.get("current_weight_pct", 0.0),
+                    target_weight_pct=guard.get("target_weight_pct", 0.0),
+                    max_weight_pct=guard.get("max_weight_pct", 0.0),
+                    add_position_reason=str(guard.get("add_position_reason") or "-"),
                 )
-            except Exception as exc:
-                logging.getLogger("aits").warning(
-                    "[AITS][CandidateHoldingsGuard] event=evaluate_failed symbol=%s reason=%s submitted=0 actual_order=false",
-                    symbol, type(exc).__name__,
-                )
+                self._set_aits_runtime_status_display("ON - blocked", blocker)
+                return True
 
             duplicate_key = f"{symbol}:{side}:{amount_krw}"
             duplicate_lock_ttl_sec = 300
+            submitted_duplicate_lock_ttl_sec = 1800
             duplicate_lock_now = time.time()
             locks = getattr(self, "_live_auto_order_session_locks", None)
             if not isinstance(locks, dict):
@@ -53386,11 +53561,11 @@ class MainWindow(QMainWindow):
                     previous_request_id = str(previous_lock or "")
                     previous_status = "legacy_lock"
                 lock_age_sec = int(max(0.0, duplicate_lock_now - previous_created_at)) if previous_created_at > 0 else 0
+                effective_duplicate_lock_ttl_sec = submitted_duplicate_lock_ttl_sec if previous_submitted_count > 0 else duplicate_lock_ttl_sec
                 duplicate_lock_active = bool(
-                    previous_submitted_count > 0
-                    or previous_status == "legacy_lock"
+                    previous_status == "legacy_lock"
                     or previous_created_at <= 0
-                    or lock_age_sec < duplicate_lock_ttl_sec
+                    or lock_age_sec < effective_duplicate_lock_ttl_sec
                 )
                 if duplicate_lock_active:
                     self._emit_live_order_pipeline_event(
@@ -53404,7 +53579,7 @@ class MainWindow(QMainWindow):
                         previous_request_id=previous_request_id,
                         previous_status=previous_status,
                         previous_submitted_count=previous_submitted_count,
-                        duplicate_candidate_lock_ttl_sec=duplicate_lock_ttl_sec,
+                        duplicate_candidate_lock_ttl_sec=effective_duplicate_lock_ttl_sec,
                         duplicate_candidate_lock_age_sec=lock_age_sec,
                     )
                     self._set_aits_runtime_status_display("ON - blocked", "duplicate_candidate_locked")
@@ -53418,7 +53593,7 @@ class MainWindow(QMainWindow):
                     status="allowed",
                     previous_request_id=previous_request_id,
                     previous_status=previous_status,
-                    duplicate_candidate_lock_ttl_sec=duplicate_lock_ttl_sec,
+                    duplicate_candidate_lock_ttl_sec=effective_duplicate_lock_ttl_sec,
                     duplicate_candidate_lock_age_sec=lock_age_sec,
                 )
             locks[duplicate_key] = {

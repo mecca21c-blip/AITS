@@ -363,3 +363,12 @@ whether the user-facing LIVE LOG kept explaining why trading was waiting.
 - TradeLog reflection is allowed only when the live pipeline result already has `submitted_count > 0` and `actual_order=True`; it must not create a fake fill row.
 - Holdings and position reflection are read-only refreshes after submit. They must not retry or submit orders.
 - E2E summaries expose `trade_log_reflection_detected`, `holdings_refresh_requested`, `holdings_symbol_detected`, `position_reflection_detected`, `position_symbol_detected`, and `post_submit_reconciliation_status`.
+
+## Add-Position Candidate Diagnostics
+
+E2E summaries report CandidateHoldingsGuard fields: `candidate_live_position_detected`, `candidate_live_position_symbol`, `candidate_live_position_weight_pct`, `candidate_target_weight_pct`, `candidate_max_weight_pct`, `candidate_add_position_allowed`, `candidate_add_position_blocker`, and `candidate_add_position_reason`.
+
+Blocker taxonomy:
+- `add_position_allowed_continue_to_router`: held symbol is eligible to continue through Router/RiskGuard/LivePreflight.
+- `add_position_blocked_by_position_policy`: held symbol is blocked by add-position policy.
+- `add_position_blocked_by_weight_cap`: expected post-order weight exceeds explicit max weight.
