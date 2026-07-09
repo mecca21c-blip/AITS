@@ -53501,9 +53501,16 @@ class MainWindow(QMainWindow):
             "current_weight_pct": 0.0,
             "target_weight_pct": 0.0,
             "max_weight_pct": 0.0,
+            "max_position_weight_pct": 30.0,
             "expected_weight_after_order": 0.0,
             "order_amount_krw": float(amount_krw or 0),
             "total_asset_estimate": 0.0,
+            "symbol_add_position_cooldown_sec": 3600,
+            "seconds_since_last_symbol_buy": 0,
+            "symbol_window_amount_krw": 0.0,
+            "symbol_window_cap_krw": 20000.0,
+            "global_window_amount_krw": 0.0,
+            "global_window_cap_krw": 40000.0,
             "candidate_side": str(side or "buy"),
             "score": int(candidate_score or 0),
             "buy_ready": bool(buy_ready),
@@ -53512,6 +53519,9 @@ class MainWindow(QMainWindow):
             "add_position_reason": "new_entry_candidate",
         }
         try:
+            import logging
+            import time
+
             normalized_symbol = str(symbol or "").strip().upper()
             rows = []
             for attr_name in ("_live_holdings_rows", "_investment_center_positions", "_portfolio_positions", "_holdings_rows"):
@@ -53538,6 +53548,90 @@ class MainWindow(QMainWindow):
                     return float(text)
                 except Exception:
                     return default
+
+            def _strategy_value(name: str, default: float) -> float:
+                try:
+                    settings = getattr(self, "_settings", None)
+                    strategy = getattr(settings, "strategy", None)
+                    if isinstance(strategy, dict) and name in strategy:
+                        return _num(strategy.get(name), default)
+                    if strategy is not None and hasattr(strategy, name):
+                        return _num(getattr(strategy, name), default)
+                    prefs_strategy = getattr(self, "_prefs_strategy", None)
+                    if isinstance(prefs_strategy, dict) and name in prefs_strategy:
+                        return _num(prefs_strategy.get(name), default)
+                except Exception:
+                    pass
+                return default
+
+            cooldown_sec = int(max(0.0, _strategy_value("symbol_add_position_cooldown_sec", 3600.0)))
+            window_minutes = int(max(1.0, _strategy_value("symbol_add_position_window_minutes", 360.0)))
+            symbol_window_cap = float(max(0.0, _strategy_value("symbol_add_position_window_amount_krw", 20000.0)))
+            global_window_cap = float(max(0.0, _strategy_value("global_add_position_window_amount_krw", 40000.0)))
+            default_max_weight = float(max(0.0, _strategy_value("symbol_max_position_weight_pct", 30.0)))
+            result.update(
+                {
+                    "symbol_add_position_cooldown_sec": cooldown_sec,
+                    "symbol_window_cap_krw": symbol_window_cap,
+                    "global_window_cap_krw": global_window_cap,
+                }
+            )
+
+            def _recent_actual_buys() -> list[dict]:
+                try:
+                    self._restore_trade_log_shadow_journal_from_settings()
+                except Exception:
+                    pass
+                raw_rows = getattr(self, "_trade_log_shadow_journal_rows", None)
+                if not isinstance(raw_rows, list):
+                    return []
+                now_ts = time.time()
+                window_sec = float(window_minutes * 60)
+                out = []
+                for raw in raw_rows:
+                    if not isinstance(raw, dict):
+                        continue
+                    if not bool(raw.get("actual_order")):
+                        continue
+                    side_text = str(raw.get("side") or raw.get("raw_action_sanitized") or raw.get("action") or "").strip().lower()
+                    action_display = str(raw.get("action_display") or "")
+                    if side_text != "buy" and "매수" not in action_display:
+                        continue
+                    row_ts = _num(raw.get("ts"), 0.0)
+                    if row_ts <= 0:
+                        continue
+                    age_sec = max(0.0, now_ts - row_ts)
+                    amount = _num(raw.get("amount_krw") or raw.get("amount") or raw.get("krw_cost"), 0.0)
+                    raw_symbol = str(raw.get("symbol") or raw.get("market") or "").strip().upper()
+                    if raw_symbol and "-" not in raw_symbol and raw_symbol != "KRW":
+                        raw_symbol = f"KRW-{raw_symbol}"
+                    out.append({"symbol": raw_symbol, "amount": amount, "age_sec": age_sec, "in_window": age_sec <= window_sec})
+                return out
+
+            recent_buys = _recent_actual_buys()
+            symbol_buys = [item for item in recent_buys if item.get("symbol") == normalized_symbol]
+            symbol_window_amount = sum(float(item.get("amount") or 0.0) for item in symbol_buys if bool(item.get("in_window")))
+            global_window_amount = sum(float(item.get("amount") or 0.0) for item in recent_buys if bool(item.get("in_window")))
+            seconds_since_last_symbol_buy = 0
+            if symbol_buys:
+                seconds_since_last_symbol_buy = int(min(float(item.get("age_sec") or 0.0) for item in symbol_buys))
+            result.update(
+                {
+                    "seconds_since_last_symbol_buy": seconds_since_last_symbol_buy,
+                    "symbol_window_amount_krw": symbol_window_amount,
+                    "global_window_amount_krw": global_window_amount,
+                }
+            )
+
+            def _block(blocker: str, reason: str, classification: str = "has_position_add_position_blocked") -> None:
+                result.update(
+                    {
+                        "classification": classification,
+                        "add_position_allowed": False,
+                        "add_position_blocker": blocker,
+                        "add_position_reason": reason,
+                    }
+                )
 
             if position_row:
                 qty = _num(position_row.get("qty") or position_row.get("quantity") or position_row.get("balance") or position_row.get("volume"))
@@ -53578,8 +53672,10 @@ class MainWindow(QMainWindow):
                     asset_policy = {}
                 max_weight = _num((asset_policy or {}).get("max_weight_pct"), 0.0)
                 target_weight = _num((asset_policy or {}).get("target_weight_pct"), 0.0)
+                max_position_weight = max_weight if max_weight > 0 else default_max_weight
                 result["target_weight_pct"] = target_weight
                 result["max_weight_pct"] = max_weight
+                result["max_position_weight_pct"] = max_position_weight
 
                 expected_weight = weight
                 if total_asset > 0:
@@ -53587,30 +53683,76 @@ class MainWindow(QMainWindow):
                 result["expected_weight_after_order"] = expected_weight
                 result["order_amount_krw"] = float(amount_krw or 0)
                 result["total_asset_estimate"] = total_asset
-                if max_weight > 0 and expected_weight > max_weight:
-                    result.update(
-                        {
-                            "classification": "has_position_add_position_blocked",
-                            "add_position_allowed": False,
-                            "add_position_blocker": "add_position_blocked_by_weight_cap",
-                            "add_position_reason": "expected_weight_exceeds_max_weight",
-                        }
-                    )
+                if total_asset <= 0:
+                    _block("add_position_blocked_by_missing_total_asset", "total_asset_unavailable")
+                elif max_position_weight > 0 and weight >= max_position_weight:
+                    _block("add_position_blocked_by_weight_cap", "current_weight_exceeds_max_position_weight")
+                elif max_position_weight > 0 and expected_weight > max_position_weight:
+                    _block("add_position_blocked_by_weight_cap", "expected_weight_exceeds_max_position_weight")
+                elif cooldown_sec > 0 and symbol_buys and seconds_since_last_symbol_buy < cooldown_sec:
+                    _block("add_position_blocked_by_cooldown", "symbol_add_position_cooldown_active")
+                elif symbol_window_cap > 0 and (symbol_window_amount + float(amount_krw or 0)) > symbol_window_cap:
+                    _block("add_position_blocked_by_symbol_window_cap", "symbol_add_position_window_cap_exceeded")
+                elif global_window_cap > 0 and (global_window_amount + float(amount_krw or 0)) > global_window_cap:
+                    _block("add_position_blocked_by_global_window_cap", "global_add_position_window_cap_exceeded")
                 elif not bool(buy_ready):
-                    result.update(
-                        {
-                            "classification": "has_position_hold_management",
-                            "add_position_allowed": False,
-                            "add_position_blocker": "add_position_blocked_by_signal",
-                            "add_position_reason": "buy_ready_false",
-                        }
-                    )
+                    _block("add_position_blocked_by_signal", "buy_ready_false", "has_position_hold_management")
                 else:
                     result["add_position_reason"] = (
                         "ai_dynamic_allocation"
                         if target_weight <= 0 and max_weight <= 0
                         else "within_position_policy"
                     )
+            try:
+                event = "allowed" if bool(result.get("add_position_allowed")) else "blocked"
+                blocker = str(result.get("add_position_blocker") or "-")
+                if blocker == "add_position_blocked_by_cooldown":
+                    event = "cooldown_blocked"
+                elif blocker == "add_position_blocked_by_weight_cap":
+                    event = "weight_cap_blocked"
+                elif blocker in {"add_position_blocked_by_symbol_window_cap", "add_position_blocked_by_global_window_cap"}:
+                    event = "window_cap_blocked"
+                logging.getLogger("aits").info(
+                    "[AITS][AddPositionPolicy] event=evaluate symbol=%s side=%s order_amount_krw=%s has_live_position=%s current_position_value_krw=%s total_asset_krw=%s current_weight_pct=%s expected_weight_after_order=%s target_weight_pct=%s max_position_weight_pct=%s symbol_add_position_cooldown_sec=%s seconds_since_last_symbol_buy=%s symbol_window_amount_krw=%s symbol_window_cap_krw=%s global_window_amount_krw=%s global_window_cap_krw=%s add_position_allowed=%s blocker=%s reason=%s submitted_count=0 actual_order=false",
+                    normalized_symbol,
+                    str(side or "buy"),
+                    float(amount_krw or 0),
+                    bool(result.get("has_live_position")),
+                    result.get("position_value", 0.0),
+                    result.get("total_asset_estimate", 0.0),
+                    result.get("current_weight_pct", 0.0),
+                    result.get("expected_weight_after_order", 0.0),
+                    result.get("target_weight_pct", 0.0),
+                    result.get("max_position_weight_pct", default_max_weight),
+                    result.get("symbol_add_position_cooldown_sec", cooldown_sec),
+                    result.get("seconds_since_last_symbol_buy", 0),
+                    result.get("symbol_window_amount_krw", 0.0),
+                    result.get("symbol_window_cap_krw", symbol_window_cap),
+                    result.get("global_window_amount_krw", 0.0),
+                    result.get("global_window_cap_krw", global_window_cap),
+                    bool(result.get("add_position_allowed")),
+                    blocker,
+                    str(result.get("add_position_reason") or "-"),
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][AddPositionPolicy] event=%s symbol=%s side=%s order_amount_krw=%s add_position_allowed=%s blocker=%s reason=%s expected_weight_after_order=%s max_position_weight_pct=%s seconds_since_last_symbol_buy=%s symbol_window_amount_krw=%s symbol_window_cap_krw=%s global_window_amount_krw=%s global_window_cap_krw=%s submitted_count=0 actual_order=false",
+                    event,
+                    normalized_symbol,
+                    str(side or "buy"),
+                    float(amount_krw or 0),
+                    bool(result.get("add_position_allowed")),
+                    blocker,
+                    str(result.get("add_position_reason") or "-"),
+                    result.get("expected_weight_after_order", 0.0),
+                    result.get("max_position_weight_pct", default_max_weight),
+                    result.get("seconds_since_last_symbol_buy", 0),
+                    result.get("symbol_window_amount_krw", 0.0),
+                    result.get("symbol_window_cap_krw", symbol_window_cap),
+                    result.get("global_window_amount_krw", 0.0),
+                    result.get("global_window_cap_krw", global_window_cap),
+                )
+            except Exception:
+                pass
             return result
         except Exception as exc:
             result.update(
@@ -53687,7 +53829,7 @@ class MainWindow(QMainWindow):
                 buy_ready=True,
             )
             logging.getLogger("aits").info(
-                "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s classification=%s has_live_position=%s position_qty=%s avg_buy_price=%s current_price=%s position_value=%s current_weight_pct=%s target_weight_pct=%s max_weight_pct=%s expected_weight_after_order=%s order_amount_krw=%s total_asset_estimate=%s candidate_side=%s score=%s buy_ready=%s add_position_allowed=%s add_position_blocker=%s add_position_reason=%s submitted=0 actual_order=false",
+                "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s classification=%s has_live_position=%s position_qty=%s avg_buy_price=%s current_price=%s position_value=%s current_weight_pct=%s target_weight_pct=%s max_weight_pct=%s max_position_weight_pct=%s expected_weight_after_order=%s order_amount_krw=%s total_asset_estimate=%s symbol_add_position_cooldown_sec=%s seconds_since_last_symbol_buy=%s symbol_window_amount_krw=%s symbol_window_cap_krw=%s global_window_amount_krw=%s global_window_cap_krw=%s candidate_side=%s score=%s buy_ready=%s add_position_allowed=%s add_position_blocker=%s add_position_reason=%s submitted=0 actual_order=false",
                 symbol,
                 str(guard.get("classification") or ""),
                 bool(guard.get("has_live_position")),
@@ -53698,9 +53840,16 @@ class MainWindow(QMainWindow):
                 guard.get("current_weight_pct", 0.0),
                 guard.get("target_weight_pct", 0.0),
                 guard.get("max_weight_pct", 0.0),
+                guard.get("max_position_weight_pct", 0.0),
                 guard.get("expected_weight_after_order", 0.0),
                 guard.get("order_amount_krw", amount_krw),
                 guard.get("total_asset_estimate", 0.0),
+                guard.get("symbol_add_position_cooldown_sec", 0),
+                guard.get("seconds_since_last_symbol_buy", 0),
+                guard.get("symbol_window_amount_krw", 0.0),
+                guard.get("symbol_window_cap_krw", 0.0),
+                guard.get("global_window_amount_krw", 0.0),
+                guard.get("global_window_cap_krw", 0.0),
                 side,
                 int(candidate_score or 0),
                 True,
@@ -53709,13 +53858,27 @@ class MainWindow(QMainWindow):
                 str(guard.get("add_position_reason") or "-"),
             )
             try:
+                reason_ko_map = {
+                    "symbol_add_position_cooldown_active": "최근 동일 종목 추가매수 이력이 있어 대기 중입니다.",
+                    "expected_weight_exceeds_max_position_weight": "주문 후 예상 비중이 최대 허용 비중을 초과합니다.",
+                    "current_weight_exceeds_max_position_weight": "현재 비중이 이미 최대 허용 비중 이상입니다.",
+                    "symbol_add_position_window_cap_exceeded": "6시간 동일 종목 추가매수 한도를 초과합니다.",
+                    "global_add_position_window_cap_exceeded": "6시간 전체 추가매수 한도를 초과합니다.",
+                    "total_asset_unavailable": "총자산 산정이 어려워 추가매수를 보류합니다.",
+                    "buy_ready_false": "매수 조건이 유지되지 않아 보류합니다.",
+                    "ai_dynamic_allocation": "AI 동적 비중 배분 기준 안에서 점검했습니다.",
+                    "within_position_policy": "설정한 종목 비중 정책 안에서 점검했습니다.",
+                }
+                reason_key = str(guard.get("add_position_reason") or guard.get("add_position_blocker") or "")
+                reason_ko = reason_ko_map.get(reason_key, reason_key or "정책 사유 확인 필요")
                 if bool(guard.get("has_live_position")):
                     if bool(guard.get("add_position_allowed")):
                         self._append_aits_live_log(
                             (
                                 f"{symbol} 추가매수 가능 조건을 확인했습니다. "
                                 f"현재 비중 {float(guard.get('current_weight_pct') or 0.0):.1f}%, "
-                                f"주문 후 예상 비중 {float(guard.get('expected_weight_after_order') or 0.0):.1f}%."
+                                f"주문 후 예상 비중 {float(guard.get('expected_weight_after_order') or 0.0):.1f}%, "
+                                f"최대 허용 비중 {float(guard.get('max_position_weight_pct') or 0.0):.1f}%."
                             ),
                             category="pipeline",
                             level="info",
@@ -53724,7 +53887,7 @@ class MainWindow(QMainWindow):
                         )
                     else:
                         self._append_aits_live_log(
-                            f"{symbol} 추가매수 보류: {guard.get('add_position_reason') or guard.get('add_position_blocker')}",
+                            f"{symbol} 추가매수 보류: {reason_ko}",
                             category="pipeline",
                             level="warning",
                             event="add_position_blocked",
@@ -53746,9 +53909,16 @@ class MainWindow(QMainWindow):
                     current_weight_pct=guard.get("current_weight_pct", 0.0),
                     target_weight_pct=guard.get("target_weight_pct", 0.0),
                     max_weight_pct=guard.get("max_weight_pct", 0.0),
+                    max_position_weight_pct=guard.get("max_position_weight_pct", 0.0),
                     expected_weight_after_order=guard.get("expected_weight_after_order", 0.0),
                     order_amount_krw=guard.get("order_amount_krw", amount_krw),
                     total_asset_estimate=guard.get("total_asset_estimate", 0.0),
+                    symbol_add_position_cooldown_sec=guard.get("symbol_add_position_cooldown_sec", 0),
+                    seconds_since_last_symbol_buy=guard.get("seconds_since_last_symbol_buy", 0),
+                    symbol_window_amount_krw=guard.get("symbol_window_amount_krw", 0.0),
+                    symbol_window_cap_krw=guard.get("symbol_window_cap_krw", 0.0),
+                    global_window_amount_krw=guard.get("global_window_amount_krw", 0.0),
+                    global_window_cap_krw=guard.get("global_window_cap_krw", 0.0),
                     add_position_reason=str(guard.get("add_position_reason") or "-"),
                 )
                 self._set_aits_runtime_status_display("ON - blocked", blocker)

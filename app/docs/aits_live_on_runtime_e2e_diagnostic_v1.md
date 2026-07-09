@@ -385,3 +385,33 @@ older retained orders still contribute `historical_reflection_missing_count`.
 - Actual submitted live orders are represented as TradeLog `fills` rows only after `actual_order=True` and a submitted order result exist. They are separated from AI judgment preview rows.
 - E2E summaries expose `top_pnl_krw`, `top_pnl_pct`, `top_pnl_source`, `top_pnl_status`, `actual_trade_log_count`, `actual_trade_filter_count`, `actual_trade_symbols`, `investment_position_symbols`, `investment_position_format_ok`, `investment_total_pnl_krw`, `investment_total_pnl_pct`, `external_exchange_sync_detected`, and `external_position_change_candidate_count`.
 - `[AITS][ExternalExchangeSync] event=external_position_change_candidate` is read-only evidence that the exchange-side position snapshot changed compared with the previous app snapshot. It is not an order action.
+## Add-position E2E taxonomy
+
+E2E summary reads `[AITS][AddPositionPolicy]` in addition to
+`[AITS][CandidateHoldingsGuard]`.
+
+New fields:
+- `add_position_policy_detected`
+- `add_position_policy_allowed`
+- `add_position_policy_blocker`
+- `add_position_policy_reason`
+- `expected_weight_after_order`
+- `max_position_weight_pct`
+- `symbol_add_position_cooldown_sec`
+- `seconds_since_last_symbol_buy`
+- `symbol_window_amount_krw`
+- `symbol_window_cap_krw`
+- `global_window_amount_krw`
+- `global_window_cap_krw`
+- `bera_repeated_buy_policy_verdict`
+
+Blockers:
+- `add_position_blocked_by_cooldown`
+- `add_position_blocked_by_weight_cap`
+- `add_position_blocked_by_symbol_window_cap`
+- `add_position_blocked_by_global_window_cap`
+- `add_position_blocked_by_missing_total_asset`
+
+These blockers are policy gates before Router/RiskGuard/LivePreflight/Execution.
+They do not create synthetic holdings or synthetic order intents, and they do not relax
+the live submit path.

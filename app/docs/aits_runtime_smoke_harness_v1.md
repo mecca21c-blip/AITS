@@ -1761,5 +1761,34 @@ read-only account reflection evidence:
 - `external_position_change_candidate_count`
 
 Actual trade rows must come from submitted live-order evidence or read-only
-exchange reconciliation. The harness must not create fake trades, fake holdings,
-fake PnL, or submit orders while producing these summaries.
+exchange reconciliation. The harness must not create synthetic trades,
+synthetic holdings, synthetic PnL, or submit orders while producing these
+summaries.
+## Add-position policy summary fields
+
+The runtime smoke harness reports add-position safety evidence from
+`[AITS][AddPositionPolicy]`.
+
+Important fields:
+- `expected_weight_after_order`
+- `max_position_weight_pct`
+- `symbol_add_position_cooldown_sec`
+- `seconds_since_last_symbol_buy`
+- `symbol_window_amount_krw`
+- `symbol_window_cap_krw`
+- `global_window_amount_krw`
+- `global_window_cap_krw`
+- `add_position_cooldown_blocked`
+- `add_position_weight_cap_blocked`
+- `add_position_window_cap_blocked`
+- `bera_repeated_buy_policy_verdict`
+
+Default safety policy:
+- same-symbol add-position cooldown: 3600 seconds
+- dynamic max position weight: 30.0%
+- same-symbol 6h add-position amount cap: 20000 KRW
+- global 6h add-position amount cap: 40000 KRW
+
+The harness must report these as observation fields only. It must not click ON,
+submit orders, create synthetic holdings, or mutate runtime state during observe-only
+summary modes.

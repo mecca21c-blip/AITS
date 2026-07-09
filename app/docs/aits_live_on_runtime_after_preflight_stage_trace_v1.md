@@ -255,3 +255,15 @@ These events are not submit permission and must not call order retry paths.
 - Submitted duplicate locks are cooldown-based, not permanent; repeated immediate submit remains blocked.
 - The stage summary exposes `expected_weight_after_order`, `candidate_order_amount_krw`, and `candidate_total_asset_estimate` so the user can see why an add-position candidate continued or stopped.
 - Post-submit observation distinguishes the latest reflected request from older retained orders that predate reflection hooks.
+## Add-position safety hardening
+
+- 보유 종목 매수 후보는 신규 진입이 아니라 add-position 후보로 분류한다.
+- AI dynamic allocation은 유지하지만 안전 기본값을 항상 적용한다:
+  - `symbol_add_position_cooldown_sec=3600`
+  - `symbol_max_position_weight_pct=30.0`
+  - `symbol_add_position_window_minutes=360`
+  - `symbol_add_position_window_amount_krw=20000`
+  - `global_add_position_window_amount_krw=40000`
+- `expected_weight_after_order=(current_position_value_krw+order_amount_krw)/total_asset_krw*100`으로 계산한다.
+- 차단 사유는 `[AITS][AddPositionPolicy]`와 LIVE LOG 한국어 메시지에 남긴다.
+- BERA 감사에서 확인된 30분 반복 추가매수는 새 정책 기준으로 cooldown/window/weight cap 중 하나에 의해 차단 가능해야 한다.

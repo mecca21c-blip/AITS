@@ -8801,6 +8801,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     holdings_refresh_lines = [line for line in lines if "[AITS][PostSubmitHoldingsRefresh]" in line]
     position_reflection_lines = [line for line in lines if "[AITS][PositionReflection]" in line]
     candidate_holdings_guard_lines = [line for line in lines if "[AITS][CandidateHoldingsGuard]" in line]
+    add_position_policy_lines = [line for line in lines if "[AITS][AddPositionPolicy]" in line]
     account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
     investment_format_lines = [line for line in lines if "[AITS][InvestmentPositionFormat]" in line]
     external_sync_lines = [line for line in lines if "[AITS][ExternalExchangeSync]" in line]
@@ -8852,16 +8853,48 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     candidate_holdings_guard_detected = bool(candidate_holdings_guard_lines)
     candidate_live_position_detected = any("has_live_position=True" in line for line in candidate_holdings_guard_lines)
     latest_candidate_holdings_guard = candidate_holdings_guard_lines[-1] if candidate_holdings_guard_lines else ""
+    latest_add_position_policy = add_position_policy_lines[-1] if add_position_policy_lines else ""
     candidate_live_position_symbol = _live_on_stage_extract_value(latest_candidate_holdings_guard, "symbol")
     candidate_live_position_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "current_weight_pct"), 0.0)
     candidate_target_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "target_weight_pct"), 0.0)
     candidate_max_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "max_weight_pct"), 0.0)
-    expected_weight_after_order = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "expected_weight_after_order"), 0.0)
+    expected_weight_after_order = _safe_float(
+        _live_on_stage_extract_value(latest_add_position_policy, "expected_weight_after_order")
+        or _live_on_stage_extract_value(latest_candidate_holdings_guard, "expected_weight_after_order"),
+        0.0,
+    )
     candidate_order_amount_krw = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "order_amount_krw"), 0.0)
     candidate_total_asset_estimate = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "total_asset_estimate"), 0.0)
     candidate_add_position_allowed = _live_on_runtime_bool_marker(latest_candidate_holdings_guard, "add_position_allowed")
     candidate_add_position_blocker = _live_on_stage_extract_value(latest_candidate_holdings_guard, "add_position_blocker")
     candidate_add_position_reason = _live_on_stage_extract_value(latest_candidate_holdings_guard, "add_position_reason")
+    add_position_policy_detected = bool(add_position_policy_lines)
+    add_position_policy_allowed = _live_on_runtime_bool_marker(latest_add_position_policy, "add_position_allowed")
+    add_position_policy_blocker = _live_on_stage_extract_value(latest_add_position_policy, "blocker")
+    add_position_policy_reason = _live_on_stage_extract_value(latest_add_position_policy, "reason")
+    max_position_weight_pct = _safe_float(_live_on_stage_extract_value(latest_add_position_policy, "max_position_weight_pct"), 0.0)
+    symbol_add_position_cooldown_sec = int(_safe_float(_live_on_stage_extract_value(latest_add_position_policy, "symbol_add_position_cooldown_sec"), 0.0))
+    seconds_since_last_symbol_buy = int(_safe_float(_live_on_stage_extract_value(latest_add_position_policy, "seconds_since_last_symbol_buy"), 0.0))
+    symbol_window_amount_krw = _safe_float(_live_on_stage_extract_value(latest_add_position_policy, "symbol_window_amount_krw"), 0.0)
+    symbol_window_cap_krw = _safe_float(_live_on_stage_extract_value(latest_add_position_policy, "symbol_window_cap_krw"), 0.0)
+    global_window_amount_krw = _safe_float(_live_on_stage_extract_value(latest_add_position_policy, "global_window_amount_krw"), 0.0)
+    global_window_cap_krw = _safe_float(_live_on_stage_extract_value(latest_add_position_policy, "global_window_cap_krw"), 0.0)
+    add_position_cooldown_blocked = any("event=cooldown_blocked" in line for line in add_position_policy_lines)
+    add_position_weight_cap_blocked = any("event=weight_cap_blocked" in line for line in add_position_policy_lines)
+    add_position_window_cap_blocked = any("event=window_cap_blocked" in line for line in add_position_policy_lines)
+    bera_policy_lines = [line for line in add_position_policy_lines if "symbol=KRW-BERA" in line]
+    bera_repeated_buy_policy_verdict = ""
+    if bera_policy_lines:
+        if any("event=cooldown_blocked" in line for line in bera_policy_lines):
+            bera_repeated_buy_policy_verdict = "blocked_by_cooldown"
+        elif any("event=weight_cap_blocked" in line for line in bera_policy_lines):
+            bera_repeated_buy_policy_verdict = "blocked_by_weight_cap"
+        elif any("event=window_cap_blocked" in line for line in bera_policy_lines):
+            bera_repeated_buy_policy_verdict = "blocked_by_window_cap"
+        elif any("add_position_allowed=True" in line for line in bera_policy_lines):
+            bera_repeated_buy_policy_verdict = "allowed_by_policy"
+        else:
+            bera_repeated_buy_policy_verdict = "policy_detected"
     add_position_candidate_detected = "classification=has_position_add_position_candidate" in latest_candidate_holdings_guard
     add_position_blocked_detected = "classification=has_position_add_position_blocked" in latest_candidate_holdings_guard or bool(candidate_add_position_blocker and candidate_add_position_blocker not in {"-", ""})
     add_position_allowed_continue_to_router = bool(candidate_live_position_detected and candidate_add_position_allowed)
@@ -9024,6 +9057,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = str(candidate_add_position_blocker or "add_position_blocked_by_position_policy")
     elif candidate_holdings_guard_detected and candidate_live_position_detected and candidate_add_position_allowed:
         first_blocker = "add_position_allowed_continue_to_router"
+    if add_position_policy_blocker == "add_position_blocked_by_cooldown":
+        first_blocker = "add_position_blocked_by_cooldown"
+    elif add_position_policy_blocker == "add_position_blocked_by_weight_cap":
+        first_blocker = "add_position_blocked_by_weight_cap"
+    elif add_position_policy_blocker == "add_position_blocked_by_symbol_window_cap":
+        first_blocker = "add_position_blocked_by_symbol_window_cap"
+    elif add_position_policy_blocker == "add_position_blocked_by_global_window_cap":
+        first_blocker = "add_position_blocked_by_global_window_cap"
+    elif add_position_policy_blocker == "add_position_blocked_by_missing_total_asset":
+        first_blocker = "add_position_blocked_by_missing_total_asset"
     elif live_pipeline_candidate_selected and duplicate_candidate_locked_lines and not live_pipeline_router_started and not live_pipeline_router_result:
         first_blocker = "candidate_blocked_by_duplicate_lock"
     elif live_pipeline_candidate_selected and not live_pipeline_router_started and not live_pipeline_router_result:
@@ -9341,6 +9384,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "candidate_add_position_allowed": bool(candidate_add_position_allowed),
         "candidate_add_position_blocker": str(candidate_add_position_blocker or ""),
         "candidate_add_position_reason": str(candidate_add_position_reason or ""),
+        "add_position_policy_detected": bool(add_position_policy_detected),
+        "add_position_policy_allowed": bool(add_position_policy_allowed),
+        "add_position_policy_blocker": str(add_position_policy_blocker or ""),
+        "add_position_policy_reason": str(add_position_policy_reason or ""),
+        "max_position_weight_pct": max_position_weight_pct,
+        "symbol_add_position_cooldown_sec": symbol_add_position_cooldown_sec,
+        "seconds_since_last_symbol_buy": seconds_since_last_symbol_buy,
+        "symbol_window_amount_krw": symbol_window_amount_krw,
+        "symbol_window_cap_krw": symbol_window_cap_krw,
+        "global_window_amount_krw": global_window_amount_krw,
+        "global_window_cap_krw": global_window_cap_krw,
+        "add_position_cooldown_blocked": bool(add_position_cooldown_blocked),
+        "add_position_weight_cap_blocked": bool(add_position_weight_cap_blocked),
+        "add_position_window_cap_blocked": bool(add_position_window_cap_blocked),
+        "bera_repeated_buy_policy_verdict": str(bera_repeated_buy_policy_verdict or ""),
         "add_position_candidate_detected": bool(add_position_candidate_detected),
         "add_position_blocked_detected": bool(add_position_blocked_detected),
         "add_position_allowed_continue_to_router": bool(add_position_allowed_continue_to_router),
@@ -9403,10 +9461,13 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
                         "symbol": "",
                         "side": "",
                         "amount_krw": 0,
+                        "first_seen_at": "",
                         "events": {},
                         "actual_order": False,
                     },
                 )
+                if not order.get("first_seen_at"):
+                    order["first_seen_at"] = str(line[:19] or "")
                 if not order.get("symbol"):
                     order["symbol"] = _live_on_stage_extract_value(line, "symbol")
                 if not order.get("side"):
@@ -9445,6 +9506,57 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
                     after_latest.append(available)
 
     audited_orders = [orders[rid] for rid in request_ids if rid in orders]
+    def _parse_order_time(order: dict[str, Any]):
+        try:
+            text = str(order.get("first_seen_at") or "")
+            if not text:
+                return None
+            from datetime import datetime
+            return datetime.fromisoformat(text)
+        except Exception:
+            return None
+
+    bera_orders = [
+        order for order in audited_orders
+        if str(order.get("symbol") or "").upper() == "KRW-BERA"
+        and str(order.get("side") or "").lower() == "buy"
+        and bool(order.get("actual_order"))
+    ]
+    bera_orders.sort(key=lambda item: str(item.get("first_seen_at") or ""))
+    bera_intervals_sec: list[float] = []
+    for prev, curr in zip(bera_orders, bera_orders[1:]):
+        prev_time = _parse_order_time(prev)
+        curr_time = _parse_order_time(curr)
+        if prev_time is not None and curr_time is not None:
+            bera_intervals_sec.append(round((curr_time - prev_time).total_seconds(), 3))
+    policy_cooldown_sec = 3600
+    policy_symbol_window_cap_krw = 20000.0
+    policy_global_window_cap_krw = 40000.0
+    policy_max_weight_pct = 30.0
+    bera_amounts = [float(_safe_float(order.get("amount_krw"), 0.0)) for order in bera_orders]
+    bera_repeated_buy_cooldown_violation_count = sum(1 for seconds in bera_intervals_sec if seconds < policy_cooldown_sec)
+    bera_symbol_window_amount_krw = sum(bera_amounts)
+    all_actual_buy_amount_krw = sum(
+        float(_safe_float(order.get("amount_krw"), 0.0))
+        for order in audited_orders
+        if bool(order.get("actual_order")) and str(order.get("side") or "").lower() == "buy"
+    )
+    bera_symbol_window_cap_exceeded = bool(bera_symbol_window_amount_krw > policy_symbol_window_cap_krw)
+    bera_global_window_cap_exceeded = bool(all_actual_buy_amount_krw > policy_global_window_cap_krw)
+    bera_expected_weight_after_fourth = 0.0
+    bera_weight_cap_exceeded = bool(bera_expected_weight_after_fourth > policy_max_weight_pct)
+    if not bera_orders:
+        bera_repeated_buy_policy_verdict = ""
+    elif bera_repeated_buy_cooldown_violation_count > 0:
+        bera_repeated_buy_policy_verdict = "would_block_by_cooldown"
+    elif bera_weight_cap_exceeded:
+        bera_repeated_buy_policy_verdict = "would_block_by_weight_cap"
+    elif bera_symbol_window_cap_exceeded:
+        bera_repeated_buy_policy_verdict = "would_block_by_symbol_window_cap"
+    elif bera_global_window_cap_exceeded:
+        bera_repeated_buy_policy_verdict = "would_block_by_global_window_cap"
+    else:
+        bera_repeated_buy_policy_verdict = "would_allow"
     trade_log_lines = [
         line for line in lines
         if "[AITS][TradeLogReflection]" in line or "trade_log_reflection" in line
@@ -9632,6 +9744,16 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
             "latest_order_is_patch_after_reflection_hook": bool(latest_order_is_patch_after_reflection_hook),
             "historical_reflection_missing_count": int(historical_reflection_missing_count),
             "latest_reflection_ok": bool(latest_reflection_ok),
+            "bera_order_count": len(bera_orders),
+            "bera_order_intervals_sec": bera_intervals_sec,
+            "symbol_add_position_cooldown_sec": policy_cooldown_sec,
+            "bera_repeated_buy_cooldown_violation_count": int(bera_repeated_buy_cooldown_violation_count),
+            "symbol_window_amount_krw": bera_symbol_window_amount_krw,
+            "symbol_window_cap_krw": policy_symbol_window_cap_krw,
+            "global_window_amount_krw": all_actual_buy_amount_krw,
+            "global_window_cap_krw": policy_global_window_cap_krw,
+            "max_position_weight_pct": policy_max_weight_pct,
+            "bera_repeated_buy_policy_verdict": bera_repeated_buy_policy_verdict,
             "available_krw_before_first": first_before,
             "available_krw_after_latest": latest_after,
             "available_krw_delta": delta,
@@ -10323,6 +10445,21 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "candidate_add_position_allowed": bool(e2e.get("candidate_add_position_allowed")),
         "candidate_add_position_blocker": str(e2e.get("candidate_add_position_blocker") or ""),
         "candidate_add_position_reason": str(e2e.get("candidate_add_position_reason") or ""),
+        "add_position_policy_detected": bool(e2e.get("add_position_policy_detected")),
+        "add_position_policy_allowed": bool(e2e.get("add_position_policy_allowed")),
+        "add_position_policy_blocker": str(e2e.get("add_position_policy_blocker") or ""),
+        "add_position_policy_reason": str(e2e.get("add_position_policy_reason") or ""),
+        "max_position_weight_pct": _safe_float(e2e.get("max_position_weight_pct"), 0.0),
+        "symbol_add_position_cooldown_sec": int(e2e.get("symbol_add_position_cooldown_sec") or 0),
+        "seconds_since_last_symbol_buy": int(e2e.get("seconds_since_last_symbol_buy") or 0),
+        "symbol_window_amount_krw": _safe_float(e2e.get("symbol_window_amount_krw"), 0.0),
+        "symbol_window_cap_krw": _safe_float(e2e.get("symbol_window_cap_krw"), 0.0),
+        "global_window_amount_krw": _safe_float(e2e.get("global_window_amount_krw"), 0.0),
+        "global_window_cap_krw": _safe_float(e2e.get("global_window_cap_krw"), 0.0),
+        "add_position_cooldown_blocked": bool(e2e.get("add_position_cooldown_blocked")),
+        "add_position_weight_cap_blocked": bool(e2e.get("add_position_weight_cap_blocked")),
+        "add_position_window_cap_blocked": bool(e2e.get("add_position_window_cap_blocked")),
+        "bera_repeated_buy_policy_verdict": str(e2e.get("bera_repeated_buy_policy_verdict") or ""),
         "add_position_candidate_detected": bool(e2e.get("add_position_candidate_detected")),
         "add_position_blocked_detected": bool(e2e.get("add_position_blocked_detected")),
         "add_position_allowed_continue_to_router": bool(e2e.get("add_position_allowed_continue_to_router")),
