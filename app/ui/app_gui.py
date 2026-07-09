@@ -17479,6 +17479,110 @@ class MainWindow(QMainWindow):
             return [], "candidate_rows_without_symbols"
         return candidates, ""
 
+    def _preview_managed_pool_rotation_plan(
+        self,
+        before_rows: list[dict],
+        candidates: list[dict],
+        *,
+        max_size: int,
+        source: str = "managed_pool_sync_preview",
+    ) -> dict:
+        try:
+            from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
+
+            count_mode = "ai_dynamic" if int(max_size or 0) <= 0 else "user_cap"
+            config = {
+                "max_managed_pool_size": int(max_size or 10),
+                "promotion_min_score": 65.0,
+                "promotion_min_trade_value_krw": None,
+                "quality_gate_enabled": True,
+                "fill_to_max": False,
+                "auto_add_enabled": True,
+                "auto_remove_enabled": True,
+                "protect_user_added": True,
+                "protect_holdings_until_liquidated": True,
+                "protect_system_seed_initially": True,
+                "rotation_enabled": True,
+                "rotation_min_score_gap": 8.0,
+                "rotation_cooldown_sec": 3600,
+                "max_rotation_per_cycle": 1,
+                "order_execution_enabled": False,
+            }
+            plan = build_managed_pool_promotion_plan(before_rows, candidates, [], config)
+            planned = [item for item in (plan.get("planned_rotation") or []) if isinstance(item, dict)]
+            first = planned[0] if planned else {}
+            old_symbol = str(first.get("old_symbol") or first.get("rotate_out") or "").strip()
+            new_symbol = str(first.get("new_symbol") or first.get("rotate_in") or "").strip()
+            blocker = "" if planned else str(plan.get("rotation_blocker") or "rotation_candidate_below_margin")
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolRotation] event=rotation_scan source=%s managed_pool_count_mode=%s old_symbol=%s new_symbol=%s old_rotation_score=%s new_rotation_score=%s score_gap=%s min_promotion_score=%s rotation_margin=%s rotation_allowed=%s blocker=%s reason=%s observe_only=True managed_pool_mutation=False submitted=0 actual_order=False",
+                    source,
+                    count_mode,
+                    old_symbol,
+                    new_symbol,
+                    first.get("old_rotation_score", ""),
+                    first.get("new_rotation_score", ""),
+                    first.get("score_gap", ""),
+                    first.get("min_promotion_score", 65.0),
+                    first.get("rotation_margin", 8.0),
+                    bool(planned),
+                    blocker,
+                    first.get("reason") or blocker,
+                )
+                event = "rotation_plan_preview" if planned else "rotation_plan_skipped"
+                self._log.info(
+                    "[AITS][ManagedPoolRotation] event=%s old_symbol=%s old_holding=False old_protected=False old_operating_score=%s old_rotation_score=%s new_symbol=%s new_scanner_score=%s new_rotation_score=%s score_gap=%s cooldown_sec=3600 rotation_allowed=%s blocker=%s observe_only=True managed_pool_mutation=False submitted=0 actual_order=False",
+                    event,
+                    old_symbol,
+                    first.get("old_operating_score", ""),
+                    first.get("old_rotation_score", ""),
+                    new_symbol,
+                    first.get("new_scanner_score", ""),
+                    first.get("new_rotation_score", ""),
+                    first.get("score_gap", ""),
+                    bool(planned),
+                    blocker,
+                )
+            except Exception:
+                pass
+            try:
+                appender = getattr(self, "_append_aits_live_log", None)
+                if callable(appender):
+                    if planned and old_symbol and new_symbol:
+                        appender(
+                            f"탐색 후보 {new_symbol}가 비보유 관리종목 {old_symbol}보다 우위입니다. 관리종목 교체 후보로 미리보기만 수행합니다.",
+                            category="managed",
+                            event="rotation_plan_preview",
+                            symbol=new_symbol,
+                        )
+                    else:
+                        appender(
+                            "신규 탐색 후보가 관리종목 교체 기준을 충족하지 않아 현재 관리종목을 유지합니다.",
+                            category="managed",
+                            event="rotation_plan_skipped",
+                        )
+            except Exception:
+                pass
+            plan["managed_pool_count_mode"] = count_mode
+            plan["rotation_plan_observe_only"] = True
+            plan["managed_pool_mutation"] = False
+            return plan
+        except Exception as exc:
+            try:
+                self._log.info(
+                    "[AITS][ManagedPoolRotation] event=rotation_plan_skipped blocker=rotation_preview_exception reason=%s observe_only=True managed_pool_mutation=False submitted=0 actual_order=False",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            return {
+                "rotation_logic_detected": False,
+                "rotation_blocker": f"rotation_preview_exception:{type(exc).__name__}",
+                "rotation_plan_observe_only": True,
+                "managed_pool_mutation": False,
+            }
+
     def _build_basic_added_managed_pool_row(self, item: dict) -> dict:
         from datetime import datetime
 
@@ -17781,6 +17885,12 @@ class MainWindow(QMainWindow):
         no_candidate_reason = ""
         if candidate_override is None:
             candidates, no_candidate_reason = self._collect_basic_candidates_for_managed_pool_sync(max_candidates=max_size + 20)
+        rotation_preview = self._preview_managed_pool_rotation_plan(
+            before_rows,
+            candidates,
+            max_size=max_size,
+            source="managed_pool_quality_rebuild",
+        )
         config = {
             "max_managed_pool_size": max_size,
             "promotion_min_score": 60.0,
@@ -17830,6 +17940,13 @@ class MainWindow(QMainWindow):
                 "rejection_reasons": list(plan.get("rejection_reasons") or []),
                 "score_distribution": dict(plan.get("score_distribution") or {}),
                 "not_filled_reason": str(plan.get("not_filled_reason") or ""),
+                "rotation_logic_detected": bool(rotation_preview.get("rotation_logic_detected")),
+                "rotation_score_source": str(rotation_preview.get("rotation_score_source") or "normalized_rotation_score"),
+                "normalized_rotation_score_supported": bool(rotation_preview.get("normalized_rotation_score_supported")),
+                "rotation_plan_detected": bool(rotation_preview.get("planned_rotation")),
+                "rotation_plan_observe_only": True,
+                "rotation_blocker": str(rotation_preview.get("rotation_blocker") or ""),
+                "managed_pool_count_mode": str(rotation_preview.get("managed_pool_count_mode") or ("ai_dynamic" if int(max_size or 0) <= 0 else "user_cap")),
                 "after_count_expected": plan.get("after_count_expected"),
                 "protected_overflow": bool(plan.get("protected_overflow")),
                 "protected_overflow_reason": str(plan.get("protected_overflow_reason") or ""),
@@ -18010,8 +18127,21 @@ class MainWindow(QMainWindow):
             no_candidate_reason = ""
             if candidate_override is None:
                 candidates, no_candidate_reason = self._collect_basic_candidates_for_managed_pool_sync(max_candidates=max_size + 20)
+            rotation_preview = self._preview_managed_pool_rotation_plan(
+                before_rows,
+                candidates,
+                max_size=max_size,
+                source="managed_pool_add_branch",
+            )
             result["candidate_count"] = len(candidates)
             result["no_candidate_reason"] = no_candidate_reason
+            result["rotation_logic_detected"] = bool(rotation_preview.get("rotation_logic_detected"))
+            result["rotation_score_source"] = str(rotation_preview.get("rotation_score_source") or "normalized_rotation_score")
+            result["normalized_rotation_score_supported"] = bool(rotation_preview.get("normalized_rotation_score_supported"))
+            result["rotation_plan_detected"] = bool(rotation_preview.get("planned_rotation"))
+            result["rotation_plan_observe_only"] = True
+            result["rotation_blocker"] = str(rotation_preview.get("rotation_blocker") or "")
+            result["managed_pool_count_mode"] = str(rotation_preview.get("managed_pool_count_mode") or ("ai_dynamic" if int(max_size or 0) <= 0 else "user_cap"))
             if not candidates:
                 result.update(
                     {

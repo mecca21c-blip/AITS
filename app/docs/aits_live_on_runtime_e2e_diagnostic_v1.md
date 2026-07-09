@@ -435,3 +435,16 @@ Blockers:
 - 사용자-facing 로그는 `message_ko` 기준이며, raw event와 snake_case blocker가 보이면 UX failure로 분류한다.
 - MAIN ANALYSIS CENTER inline history는 최근 5개 빠른 확인, 공통설정 운용 로그는 최근 50개 전체 히스토리, 매매기록 탭은 체결/판단/차단 기록으로 역할을 분리한다.
 - 주요 필드: `live_log_inline_expand_supported`, `live_log_popup_disabled`, `live_log_recent_inline_latest_first`, `live_log_english_event_leak_count`, `live_log_snake_case_leak_count`, `common_settings_live_log_korean_only`, `live_log_blocker_koreanized`.
+## Rotation Score And Replacement Taxonomy
+
+- `operating_score`, `scanner_score`, and `normalized_rotation_score` are separate fields.
+- E2E must not treat scanner score and Managed Pool display score as directly comparable.
+- Rotation preview fields: `rotation_logic_detected`, `rotation_plan_detected`, `rotation_plan_observe_only`, `rotation_old_symbol`, `rotation_new_symbol`, `rotation_score_gap`, `rotation_blocker`.
+- Holding/protected symbols must appear in `holding_symbols_excluded_from_rotation` or `protected_symbols_excluded_from_rotation` when present.
+- Blockers:
+  - `rotation_score_ssot_missing`
+  - `managed_pool_rotation_policy_missing`
+  - `holding_symbol_rotation_risk`
+  - `rotation_plan_preview_only`
+  - `rotation_candidate_below_margin`
+  - `rotation_policy_observe_ready`

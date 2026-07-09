@@ -280,3 +280,11 @@ These events are not submit permission and must not call order retry paths.
 - 보유 종목은 삭제되더라도 다음 holdings refresh 또는 restart restore에서 관리종목으로 복구된다.
 - max managed count는 비보유 AI 후보 슬롯 제한으로 해석하며, 보유 종목 누락 사유가 될 수 없다.
 - 보유 종목 포함/복구와 max count override는 `[AITS][ManagedPoolSSOT]`와 LIVE LOG 한국어 메시지에 남긴다.
+## Managed Pool Rotation Preview
+
+- Rotation planning uses `normalized_rotation_score` and never uses raw Managed Pool fallback score directly against scanner score.
+- Holding/protected rows are kept in Managed Pool and excluded from rotation-out.
+- Non-holding rows can be preview rotation targets when a scanner candidate clears the configured promotion score and margin.
+- `[AITS][ManagedPoolRotation]` logs `rotation_scan`, `rotation_plan_preview`, or `rotation_plan_skipped`.
+- This stage is observe-only: `observe_only=True`, `managed_pool_mutation=False`, `actual_order=False`.
+- LIVE LOG should explain rotation preview or skip reasons in Korean.

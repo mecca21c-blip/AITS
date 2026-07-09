@@ -29,6 +29,8 @@ class ManagedPoolPromotionConfig:
     protect_system_seed_initially: bool = True
     rotation_enabled: bool = True
     rotation_min_score_gap: float | None = 0.0
+    rotation_cooldown_sec: int = 3600
+    max_rotation_per_cycle: int = 1
     order_execution_enabled: bool = False
 
 
@@ -58,6 +60,58 @@ def _float(value: Any, default: float = 0.0) -> float:
 
 def _score(row: dict[str, Any], default: float = -1.0) -> float:
     return _float(row.get("score", row.get("ai_score")), default)
+
+
+def _clamp_score(value: float) -> float:
+    return max(0.0, min(100.0, float(value)))
+
+
+def _normalized_rotation_score(
+    row: dict[str, Any],
+    *,
+    role: str,
+    cfg: ManagedPoolPromotionConfig,
+    is_protected: bool = False,
+) -> dict[str, Any]:
+    """Normalize operating/scanner scores for observe-only rotation comparison."""
+
+    raw_score = _score(row, 0.0)
+    change_rate = _float(row.get("change_rate", row.get("change_pct", row.get("signed_change_rate"))), 0.0)
+    trade_value = _float(row.get("trade_value", row.get("volume_krw", row.get("acc_trade_price_24h"))), 0.0)
+    status = _text(row.get("status") or row.get("state") or row.get("ai_status")).lower()
+    stale = bool(row.get("stale") or row.get("market_data_stale") or row.get("ai_stale")) or "stale" in status
+    eligible = not bool(row.get("ineligible") or row.get("blocked"))
+
+    score = raw_score
+    if change_rate > 0:
+        score += min(change_rate * 0.25, 5.0)
+    elif change_rate < 0:
+        score += max(change_rate * 0.2, -5.0)
+    if trade_value > 0:
+        score += min(trade_value / 1_000_000_000_000.0, 3.0)
+    if status == "dropped":
+        score -= 8.0
+    elif status == "watching":
+        score -= 2.0
+    if stale:
+        score -= 12.0
+    if not eligible:
+        score -= 20.0
+    if is_protected:
+        score = 0.0
+
+    normalized = _clamp_score(score)
+    return {
+        "role": role,
+        "score_source": "scanner_score" if role == "candidate" else "operating_score",
+        "raw_score": round(raw_score, 4),
+        "normalized_rotation_score": round(normalized, 4),
+        "change_rate": round(change_rate, 6),
+        "trade_value": round(trade_value, 4),
+        "stale": bool(stale),
+        "eligible": bool(eligible),
+        "protected_excluded": bool(is_protected),
+    }
 
 
 def _source_type(row: dict[str, Any]) -> str:
@@ -450,7 +504,8 @@ def build_managed_pool_promotion_plan(
     config: ManagedPoolPromotionConfig | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cfg = config if isinstance(config, ManagedPoolPromotionConfig) else ManagedPoolPromotionConfig(**(config or {}))
-    max_size = max(1, int(cfg.max_managed_pool_size or MAX_MANAGED_POOL_SIZE))
+    configured_max = int(cfg.max_managed_pool_size if cfg.max_managed_pool_size is not None else MAX_MANAGED_POOL_SIZE)
+    max_size = max(1, configured_max)
     holding_set = _holding_symbols(holdings)
 
     rows: list[dict[str, Any]] = []
@@ -576,32 +631,60 @@ def build_managed_pool_promotion_plan(
                     )
 
     planned_rotation: list[dict[str, Any]] = []
-    if cfg.rotation_enabled and new_candidates:
-        holding_rows = [row for row in rows if _is_holding(row, holding_set)]
-        for holding in sorted(holding_rows, key=lambda row: _score(row, 0.0)):
-            candidate = new_candidates[0]
-            gap = _score(candidate) - _score(holding, 0.0)
-            min_gap = 0.0 if cfg.rotation_min_score_gap is None else float(cfg.rotation_min_score_gap)
-            if gap > min_gap:
+    rotation_blocker = ""
+    rotation_candidates_evaluated = 0
+    if cfg.rotation_enabled:
+        min_gap = 8.0 if cfg.rotation_min_score_gap is None else float(cfg.rotation_min_score_gap)
+        min_promotion_score = _effective_promotion_min_score(cfg)
+        rotation_targets = list(removable_rows)
+        if not rotation_targets:
+            rotation_blocker = "no_non_holding_rotation_target"
+        elif not new_candidates:
+            rotation_blocker = "no_new_candidate_for_rotation"
+        for target in sorted(rotation_targets, key=lambda row: _score(row, 0.0)):
+            if len(planned_rotation) >= max(1, int(cfg.max_rotation_per_cycle or 1)):
+                break
+            old_info = _normalized_rotation_score(target, role="managed", cfg=cfg)
+            for candidate in new_candidates:
+                rotation_candidates_evaluated += 1
+                new_info = _normalized_rotation_score(candidate, role="candidate", cfg=cfg)
+                gap = float(new_info["normalized_rotation_score"]) - float(old_info["normalized_rotation_score"])
+                if min_promotion_score is not None and float(new_info["normalized_rotation_score"]) < float(min_promotion_score):
+                    rotation_blocker = "candidate_below_min_promotion_score"
+                    continue
+                if gap < min_gap:
+                    rotation_blocker = "rotation_candidate_below_margin"
+                    continue
                 planned_rotation.append(
                     {
-                        "rotate_out": _row_symbol(holding),
+                        "rotate_out": _row_symbol(target),
                         "rotate_in": candidate["symbol"],
-                        "holding_score": _score(holding, 0.0),
-                        "candidate_score": candidate["score"],
+                        "old_symbol": _row_symbol(target),
+                        "new_symbol": candidate["symbol"],
+                        "old_operating_score": old_info["raw_score"],
+                        "old_rotation_score": old_info["normalized_rotation_score"],
+                        "new_scanner_score": new_info["raw_score"],
+                        "new_rotation_score": new_info["normalized_rotation_score"],
                         "score_gap": round(gap, 4),
-                        "rotate_out_status": _text(holding.get("status") or holding.get("state")),
-                        "rotate_out_source": _source_type(holding),
+                        "rotate_out_status": _text(target.get("status") or target.get("state")),
+                        "rotate_out_source": _source_type(target),
                         "rotate_in_rank": candidate.get("rank"),
-                        "protection_note": "holding_kept_until_liquidated",
-                        "sell_candidate": True,
-                        "buy_candidate": True,
+                        "min_promotion_score": min_promotion_score,
+                        "rotation_margin": min_gap,
+                        "cooldown_sec": int(cfg.rotation_cooldown_sec or 0),
+                        "old_score_source": old_info["score_source"],
+                        "new_score_source": new_info["score_source"],
+                        "rotation_allowed": True,
+                        "observe_only": True,
+                        "managed_pool_mutation": False,
                         "actual_order": False,
                         "order_execution": False,
                         "rotation_execution": False,
-                        "reason": "candidate_score_above_holding",
+                        "reason": "candidate_rotation_score_above_non_holding_managed",
                     }
                 )
+                break
+            if planned_rotation:
                 break
 
     protected_symbols = {item["symbol"] for item in protected_rows}
@@ -643,10 +726,19 @@ def build_managed_pool_promotion_plan(
         "planned_remove": planned_remove,
         "protected_rows": protected_rows,
         "planned_rotation": planned_rotation,
+        "rotation_logic_detected": bool(cfg.rotation_enabled),
+        "rotation_score_source": "normalized_rotation_score",
+        "normalized_rotation_score_supported": True,
+        "rotation_plan_observe_only": True,
+        "rotation_policy_missing": False,
+        "rotation_blocker": "" if planned_rotation else rotation_blocker,
+        "rotation_candidates_evaluated": rotation_candidates_evaluated,
+        "managed_pool_count_mode": "ai_dynamic" if configured_max <= 0 else "user_cap",
         "pool_size_after": pool_size_after,
         "pool_size_after_capped": min(pool_size_after, max_size),
         "protected_violation": protected_violation,
         "order_execution_enabled": bool(cfg.order_execution_enabled),
+        "managed_pool_mutation": False,
         "actual_mutation_performed": False,
         "mutation_allowed": False,
     }
@@ -749,8 +841,8 @@ def build_rotation_intent_payload(
         in_symbol = _symbol(item.get("rotate_in") or item.get("rotate_in_symbol"))
         if not out_symbol or not in_symbol:
             continue
-        out_score = _float(item.get("holding_score", item.get("rotate_out_score")), 0.0)
-        in_score = _float(item.get("candidate_score", item.get("rotate_in_score")), 0.0)
+        out_score = _float(item.get("old_rotation_score", item.get("holding_score", item.get("rotate_out_score"))), 0.0)
+        in_score = _float(item.get("new_rotation_score", item.get("candidate_score", item.get("rotate_in_score"))), 0.0)
         gap = _float(item.get("score_gap"), in_score - out_score)
         reason_text = "신규 후보 점수가 현재 관리종목보다 높음"
         pairs.append(

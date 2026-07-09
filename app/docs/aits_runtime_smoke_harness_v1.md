@@ -1805,3 +1805,15 @@ summary modes.
 - TradeLog actual order row는 보조 evidence이며, 단독으로 holding source row를 만들지 않는다.
 - `managed-pool-holdings-include-summary`는 current holdings symbols와 saved managed pool symbols를 비교해 누락, source/protected, max-count override 여부를 보고한다.
 - 보유 종목은 `source_type=live_holding`, `holding=True`, `protected=True`로 표시되며 max managed count보다 우선한다.
+## Managed Pool Rotation Score SSOT
+
+- Managed Pool rotation is observe-only in this stage.
+- Score roles are separated:
+  - `operating_score`: current Managed Pool operation score.
+  - `scanner_score`: right-side scanner candidate score.
+  - `normalized_rotation_score`: 0-100 comparison score used only for rotation planning.
+- Holding/protected rows are excluded from rotation-out candidates.
+- Non-holding rows can become rotation-out candidates only when a new scanner candidate passes `min_promotion_score=65` and `rotation_margin=8`.
+- The default rotation preview is capped to `max_rotation_per_cycle=1` and `rotation_cooldown_sec=3600`.
+- Harness fields include `rotation_logic_detected`, `rotation_score_source`, `normalized_rotation_score_supported`, `rotation_plan_detected`, `rotation_plan_observe_only`, `holding_symbols_excluded_from_rotation`, `protected_symbols_excluded_from_rotation`, `managed_pool_count_mode`, and `rotation_blocker`.
+- `managed_pool_mutation` must remain false in observe-only summaries.

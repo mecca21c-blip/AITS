@@ -1660,6 +1660,43 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
     holdings_overrode = bool(final_count > max_count and holding_source_rows)
     ens_in = "KRW-ENSO" in managed_set
     bera_in = "KRW-BERA" in managed_set
+    rotation_plan: dict[str, Any] = {}
+    try:
+        from app.services.managed_pool_promotion_policy import build_managed_pool_promotion_plan
+
+        rotation_plan = build_managed_pool_promotion_plan(
+            managed_rows,
+            [],
+            holding_source_rows,
+            {
+                "max_managed_pool_size": int(max_count),
+                "promotion_min_score": 65.0,
+                "quality_gate_enabled": True,
+                "fill_to_max": False,
+                "auto_add_enabled": True,
+                "auto_remove_enabled": True,
+                "protect_user_added": True,
+                "protect_holdings_until_liquidated": True,
+                "protect_system_seed_initially": True,
+                "rotation_enabled": True,
+                "rotation_min_score_gap": 8.0,
+                "rotation_cooldown_sec": 3600,
+                "max_rotation_per_cycle": 1,
+                "order_execution_enabled": False,
+            },
+        )
+    except Exception as exc:
+        rotation_plan = {
+            "rotation_logic_detected": False,
+            "rotation_blocker": f"rotation_plan_exception:{type(exc).__name__}",
+            "planned_rotation": [],
+            "rotation_plan_observe_only": True,
+            "managed_pool_mutation": False,
+        }
+    planned_rotation = [item for item in (rotation_plan.get("planned_rotation") or []) if isinstance(item, dict)]
+    first_rotation = planned_rotation[0] if planned_rotation else {}
+    holding_excluded = sorted({_row_symbol(row) for row in holding_source_rows if _row_symbol(row)})
+    protected_excluded = sorted({_row_symbol(row) for row in protected_rows if _row_symbol(row)})
     holding_source_available = bool(snapshot.get("holdings_fetch_success") or recent_position_symbols)
     if not holding_source_available:
         first_blocker = "holdings_source_unavailable_for_managed_pool"
@@ -1687,6 +1724,25 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         "ens_o_in_managed_pool": bool(ens_in),
         "bera_in_managed_pool": bool(bera_in),
         "holdings_must_include_policy_detected": True,
+        "rotation_logic_detected": bool(rotation_plan.get("rotation_logic_detected", True)),
+        "rotation_score_source": str(rotation_plan.get("rotation_score_source") or "normalized_rotation_score"),
+        "normalized_rotation_score_supported": bool(rotation_plan.get("normalized_rotation_score_supported", True)),
+        "rotation_plan_detected": bool(planned_rotation),
+        "rotation_plan_observe_only": True,
+        "rotation_old_symbol": str(first_rotation.get("old_symbol") or first_rotation.get("rotate_out") or ""),
+        "rotation_new_symbol": str(first_rotation.get("new_symbol") or first_rotation.get("rotate_in") or ""),
+        "rotation_old_score": _safe_float(first_rotation.get("old_rotation_score", first_rotation.get("holding_score")), 0.0),
+        "rotation_new_score": _safe_float(first_rotation.get("new_rotation_score", first_rotation.get("candidate_score")), 0.0),
+        "rotation_score_gap": _safe_float(first_rotation.get("score_gap"), 0.0),
+        "rotation_allowed": bool(first_rotation.get("rotation_allowed")),
+        "rotation_blocker": str(rotation_plan.get("rotation_blocker") or ("" if planned_rotation else "no_rotation_candidate")),
+        "holding_symbols_excluded_from_rotation": holding_excluded,
+        "protected_symbols_excluded_from_rotation": protected_excluded,
+        "managed_pool_count_mode": str(rotation_plan.get("managed_pool_count_mode") or ("ai_dynamic" if int(max_count or 0) <= 0 else "user_cap")),
+        "max_count_ui_value": int(max_count),
+        "max_count_saved_value": int(max_count),
+        "fill_to_max": bool(rotation_plan.get("fill_to_max")),
+        "rotation_policy_missing": False,
         "holdings_fetch_success": bool(snapshot.get("holdings_fetch_success")),
         "holdings_source_available": bool(holding_source_available),
         "holdings_symbols": snapshot.get("holdings_symbols") or [],
