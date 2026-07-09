@@ -8813,6 +8813,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     candidate_live_position_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "current_weight_pct"), 0.0)
     candidate_target_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "target_weight_pct"), 0.0)
     candidate_max_weight_pct = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "max_weight_pct"), 0.0)
+    expected_weight_after_order = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "expected_weight_after_order"), 0.0)
+    candidate_order_amount_krw = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "order_amount_krw"), 0.0)
+    candidate_total_asset_estimate = _safe_float(_live_on_stage_extract_value(latest_candidate_holdings_guard, "total_asset_estimate"), 0.0)
     candidate_add_position_allowed = _live_on_runtime_bool_marker(latest_candidate_holdings_guard, "add_position_allowed")
     candidate_add_position_blocker = _live_on_stage_extract_value(latest_candidate_holdings_guard, "add_position_blocker")
     candidate_add_position_reason = _live_on_stage_extract_value(latest_candidate_holdings_guard, "add_position_reason")
@@ -9276,6 +9279,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "candidate_live_position_weight_pct": candidate_live_position_weight_pct,
         "candidate_target_weight_pct": candidate_target_weight_pct,
         "candidate_max_weight_pct": candidate_max_weight_pct,
+        "expected_weight_after_order": expected_weight_after_order,
+        "candidate_order_amount_krw": candidate_order_amount_krw,
+        "candidate_total_asset_estimate": candidate_total_asset_estimate,
         "candidate_add_position_allowed": bool(candidate_add_position_allowed),
         "candidate_add_position_blocker": str(candidate_add_position_blocker or ""),
         "candidate_add_position_reason": str(candidate_add_position_reason or ""),
@@ -9404,11 +9410,76 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
     trade_log_reflected_count = sum(1 for line in trade_log_lines if "event=trade_log_reflection_result" in line and "status=recorded" in line)
     holdings_symbol_detected = any("symbol_detected=True" in line for line in holdings_lines)
     position_symbol_detected = any("symbol_detected=True" in line for line in position_lines)
+    latest_order = audited_orders[-1] if audited_orders else {}
+    latest_live_order_request_id = str(latest_order.get("request_id") or "")
+    latest_live_order_symbol = str(latest_order.get("symbol") or "")
+    latest_live_order_side = str(latest_order.get("side") or "")
+    latest_live_order_amount_krw = int(_safe_float(latest_order.get("amount_krw"), 0.0))
+
+    def _lines_for_request(source_lines: list[str], request_id: str) -> list[str]:
+        if not request_id:
+            return []
+        return [line for line in source_lines if request_id in line]
+
+    latest_trade_log_lines = _lines_for_request(trade_log_lines, latest_live_order_request_id)
+    latest_holdings_lines = _lines_for_request(holdings_lines, latest_live_order_request_id)
+    latest_position_lines = _lines_for_request(position_lines, latest_live_order_request_id)
+    latest_trade_log_reflected = any(
+        "event=trade_log_reflection_result" in line and "status=recorded" in line
+        for line in latest_trade_log_lines
+    )
+    latest_holdings_refreshed = any("event=refresh_result" in line and "status=ok" in line for line in latest_holdings_lines)
+    latest_holdings_symbol_detected = any("symbol_detected=True" in line for line in latest_holdings_lines)
+    latest_position_reflected = any("event=position_reflection_result" in line for line in latest_position_lines)
+    latest_position_symbol_detected = any("symbol_detected=True" in line for line in latest_position_lines)
+    latest_reflection_ok = bool(
+        latest_trade_log_reflected
+        and latest_holdings_refreshed
+        and latest_holdings_symbol_detected
+        and latest_position_reflected
+        and latest_position_symbol_detected
+    )
+    latest_order_is_patch_after_reflection_hook = bool(latest_trade_log_lines or latest_holdings_lines or latest_position_lines)
+    historical_reflection_missing_count = sum(
+        1
+        for order in audited_orders
+        if not any(
+            str(order.get("request_id") or "") in line
+            and "event=trade_log_reflection_result" in line
+            and "status=recorded" in line
+            for line in trade_log_lines
+        )
+    )
+    latest_live_order_reflection_status = (
+        "ok"
+        if latest_reflection_ok
+        else "trade_log_missing"
+        if latest_live_order_request_id and not latest_trade_log_reflected
+        else "holdings_missing"
+        if latest_live_order_request_id and not latest_holdings_symbol_detected
+        else "position_missing"
+        if latest_live_order_request_id and not latest_position_symbol_detected
+        else "missing"
+    )
+    latest_detected_holding_symbol = ""
+    for line in reversed(holdings_lines):
+        if "symbol_detected=True" in line:
+            latest_detected_holding_symbol = _live_on_stage_extract_value(line, "symbol")
+            break
+    latest_detected_position_symbol = ""
+    for line in reversed(position_lines):
+        if "symbol_detected=True" in line:
+            latest_detected_position_symbol = _live_on_stage_extract_value(line, "symbol")
+            break
     latest_after = after_latest[-1] if after_latest else 0.0
     first_before = before_first[0] if before_first else 0.0
     delta = first_before - latest_after if first_before and latest_after else 0.0
     expected_delta = 10000 * max(1, len(audited_orders))
-    if trade_log_reflected_count >= len(audited_orders) and holdings_symbol_detected and position_symbol_detected:
+    if latest_reflection_ok and historical_reflection_missing_count > 0:
+        first_blocker = "latest_post_submit_reflection_ok"
+        next_fix_target = "continue_on_observation_with_position_risk_and_loss_monitoring"
+        reconciliation_status = "latest_reconciled_with_historical_gaps"
+    elif latest_reflection_ok:
         first_blocker = "post_submit_reflection_ok"
         next_fix_target = "prepare_loss_observation_and_position_risk_loop"
         reconciliation_status = "reconciled"
@@ -9437,10 +9508,23 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
             "trade_log_reflection_detected": bool(trade_log_lines),
             "holdings_refresh_requested": bool(holdings_lines),
             "holdings_symbol_detected": bool(holdings_symbol_detected),
-            "holdings_symbol": "KRW-ENSO" if holdings_symbol_detected else "",
+            "holdings_symbol": latest_detected_holding_symbol if holdings_symbol_detected else "",
             "investment_position_detected": bool(position_symbol_detected),
-            "investment_position_symbol": "KRW-ENSO" if position_symbol_detected else "",
+            "investment_position_symbol": latest_detected_position_symbol if position_symbol_detected else "",
             "candidate_holdings_guard_detected": bool(candidate_guard_lines),
+            "latest_live_order_request_id": latest_live_order_request_id,
+            "latest_live_order_symbol": latest_live_order_symbol,
+            "latest_live_order_side": latest_live_order_side,
+            "latest_live_order_amount_krw": latest_live_order_amount_krw,
+            "latest_live_order_reflection_status": latest_live_order_reflection_status,
+            "latest_trade_log_reflected": bool(latest_trade_log_reflected),
+            "latest_holdings_refreshed": bool(latest_holdings_refreshed),
+            "latest_holdings_symbol_detected": bool(latest_holdings_symbol_detected),
+            "latest_position_reflected": bool(latest_position_reflected),
+            "latest_position_symbol_detected": bool(latest_position_symbol_detected),
+            "latest_order_is_patch_after_reflection_hook": bool(latest_order_is_patch_after_reflection_hook),
+            "historical_reflection_missing_count": int(historical_reflection_missing_count),
+            "latest_reflection_ok": bool(latest_reflection_ok),
             "available_krw_before_first": first_before,
             "available_krw_after_latest": latest_after,
             "available_krw_delta": delta,
@@ -10126,6 +10210,9 @@ def _build_live_on_runtime_after_preflight_stage_report(*, mode: str, output_dir
         "candidate_live_position_weight_pct": _safe_float(e2e.get("candidate_live_position_weight_pct"), 0.0),
         "candidate_target_weight_pct": _safe_float(e2e.get("candidate_target_weight_pct"), 0.0),
         "candidate_max_weight_pct": _safe_float(e2e.get("candidate_max_weight_pct"), 0.0),
+        "expected_weight_after_order": _safe_float(e2e.get("expected_weight_after_order"), 0.0),
+        "candidate_order_amount_krw": _safe_float(e2e.get("candidate_order_amount_krw"), 0.0),
+        "candidate_total_asset_estimate": _safe_float(e2e.get("candidate_total_asset_estimate"), 0.0),
         "candidate_add_position_allowed": bool(e2e.get("candidate_add_position_allowed")),
         "candidate_add_position_blocker": str(e2e.get("candidate_add_position_blocker") or ""),
         "candidate_add_position_reason": str(e2e.get("candidate_add_position_reason") or ""),

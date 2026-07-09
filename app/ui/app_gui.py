@@ -53301,6 +53301,9 @@ class MainWindow(QMainWindow):
             "current_weight_pct": 0.0,
             "target_weight_pct": 0.0,
             "max_weight_pct": 0.0,
+            "expected_weight_after_order": 0.0,
+            "order_amount_krw": float(amount_krw or 0),
+            "total_asset_estimate": 0.0,
             "candidate_side": str(side or "buy"),
             "score": int(candidate_score or 0),
             "buy_ready": bool(buy_ready),
@@ -53381,6 +53384,9 @@ class MainWindow(QMainWindow):
                 expected_weight = weight
                 if total_asset > 0:
                     expected_weight = (value + float(amount_krw or 0)) / total_asset * 100.0
+                result["expected_weight_after_order"] = expected_weight
+                result["order_amount_krw"] = float(amount_krw or 0)
+                result["total_asset_estimate"] = total_asset
                 if max_weight > 0 and expected_weight > max_weight:
                     result.update(
                         {
@@ -53481,7 +53487,7 @@ class MainWindow(QMainWindow):
                 buy_ready=True,
             )
             logging.getLogger("aits").info(
-                "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s classification=%s has_live_position=%s position_qty=%s avg_buy_price=%s current_price=%s position_value=%s current_weight_pct=%s target_weight_pct=%s max_weight_pct=%s candidate_side=%s score=%s buy_ready=%s add_position_allowed=%s add_position_blocker=%s add_position_reason=%s submitted=0 actual_order=false",
+                "[AITS][CandidateHoldingsGuard] event=evaluate symbol=%s classification=%s has_live_position=%s position_qty=%s avg_buy_price=%s current_price=%s position_value=%s current_weight_pct=%s target_weight_pct=%s max_weight_pct=%s expected_weight_after_order=%s order_amount_krw=%s total_asset_estimate=%s candidate_side=%s score=%s buy_ready=%s add_position_allowed=%s add_position_blocker=%s add_position_reason=%s submitted=0 actual_order=false",
                 symbol,
                 str(guard.get("classification") or ""),
                 bool(guard.get("has_live_position")),
@@ -53492,6 +53498,9 @@ class MainWindow(QMainWindow):
                 guard.get("current_weight_pct", 0.0),
                 guard.get("target_weight_pct", 0.0),
                 guard.get("max_weight_pct", 0.0),
+                guard.get("expected_weight_after_order", 0.0),
+                guard.get("order_amount_krw", amount_krw),
+                guard.get("total_asset_estimate", 0.0),
                 side,
                 int(candidate_score or 0),
                 True,
@@ -53503,7 +53512,11 @@ class MainWindow(QMainWindow):
                 if bool(guard.get("has_live_position")):
                     if bool(guard.get("add_position_allowed")):
                         self._append_aits_live_log(
-                            f"{symbol}? ?? ?? ??? ???? ?? ??? ?????. ?? ?? {float(guard.get('current_weight_pct') or 0.0):.1f}%.",
+                            (
+                                f"{symbol} 추가매수 가능 조건을 확인했습니다. "
+                                f"현재 비중 {float(guard.get('current_weight_pct') or 0.0):.1f}%, "
+                                f"주문 후 예상 비중 {float(guard.get('expected_weight_after_order') or 0.0):.1f}%."
+                            ),
                             category="pipeline",
                             level="info",
                             event="add_position_candidate",
@@ -53511,7 +53524,7 @@ class MainWindow(QMainWindow):
                         )
                     else:
                         self._append_aits_live_log(
-                            f"{symbol} ???? ??: {guard.get('add_position_reason') or guard.get('add_position_blocker')}",
+                            f"{symbol} 추가매수 보류: {guard.get('add_position_reason') or guard.get('add_position_blocker')}",
                             category="pipeline",
                             level="warning",
                             event="add_position_blocked",
@@ -53533,6 +53546,9 @@ class MainWindow(QMainWindow):
                     current_weight_pct=guard.get("current_weight_pct", 0.0),
                     target_weight_pct=guard.get("target_weight_pct", 0.0),
                     max_weight_pct=guard.get("max_weight_pct", 0.0),
+                    expected_weight_after_order=guard.get("expected_weight_after_order", 0.0),
+                    order_amount_krw=guard.get("order_amount_krw", amount_krw),
+                    total_asset_estimate=guard.get("total_asset_estimate", 0.0),
                     add_position_reason=str(guard.get("add_position_reason") or "-"),
                 )
                 self._set_aits_runtime_status_display("ON - blocked", blocker)

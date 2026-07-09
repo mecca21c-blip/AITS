@@ -253,3 +253,5 @@ These events are not submit permission and must not call order retry paths.
 - `target_weight_pct=0` or missing means AI dynamic allocation; it is not interpreted as a buy ban.
 - Explicit `max_weight_pct > 0` is used as a weight cap. If expected weight after the order exceeds it, the candidate is blocked with `add_position_blocked_by_weight_cap`.
 - Submitted duplicate locks are cooldown-based, not permanent; repeated immediate submit remains blocked.
+- The stage summary exposes `expected_weight_after_order`, `candidate_order_amount_krw`, and `candidate_total_asset_estimate` so the user can see why an add-position candidate continued or stopped.
+- Post-submit observation distinguishes the latest reflected request from older retained orders that predate reflection hooks.

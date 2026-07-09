@@ -366,9 +366,14 @@ whether the user-facing LIVE LOG kept explaining why trading was waiting.
 
 ## Add-Position Candidate Diagnostics
 
-E2E summaries report CandidateHoldingsGuard fields: `candidate_live_position_detected`, `candidate_live_position_symbol`, `candidate_live_position_weight_pct`, `candidate_target_weight_pct`, `candidate_max_weight_pct`, `candidate_add_position_allowed`, `candidate_add_position_blocker`, and `candidate_add_position_reason`.
+E2E summaries report CandidateHoldingsGuard fields: `candidate_live_position_detected`, `candidate_live_position_symbol`, `candidate_live_position_weight_pct`, `candidate_target_weight_pct`, `candidate_max_weight_pct`, `expected_weight_after_order`, `candidate_order_amount_krw`, `candidate_total_asset_estimate`, `candidate_add_position_allowed`, `candidate_add_position_blocker`, and `candidate_add_position_reason`.
 
 Blocker taxonomy:
 - `add_position_allowed_continue_to_router`: held symbol is eligible to continue through Router/RiskGuard/LivePreflight.
 - `add_position_blocked_by_position_policy`: held symbol is blocked by add-position policy.
 - `add_position_blocked_by_weight_cap`: expected post-order weight exceeds explicit max weight.
+
+Latest submitted orders are classified separately from historical pre-hook orders.
+If the latest request has TradeLog, holdings refresh, and position reflection
+evidence, the latest blocker is `latest_post_submit_reflection_ok` even when
+older retained orders still contribute `historical_reflection_missing_count`.
