@@ -377,3 +377,11 @@ Latest submitted orders are classified separately from historical pre-hook order
 If the latest request has TradeLog, holdings refresh, and position reflection
 evidence, the latest blocker is `latest_post_submit_reflection_ok` even when
 older retained orders still contribute `historical_reflection_missing_count`.
+
+## Account / TradeLog / Position SSOT Reconciliation
+
+- The account display SSOT is the read-only live holdings / InvestmentCenter position snapshot, plus the latest available KRW from Upbit account reads.
+- Top-bar PnL must use live position cost basis and current valuation when available. If the calculation cannot be made, the UI shows a Korean pending state instead of `_ %`.
+- Actual submitted live orders are represented as TradeLog `fills` rows only after `actual_order=True` and a submitted order result exist. They are separated from AI judgment preview rows.
+- E2E summaries expose `top_pnl_krw`, `top_pnl_pct`, `top_pnl_source`, `top_pnl_status`, `actual_trade_log_count`, `actual_trade_filter_count`, `actual_trade_symbols`, `investment_position_symbols`, `investment_position_format_ok`, `investment_total_pnl_krw`, `investment_total_pnl_pct`, `external_exchange_sync_detected`, and `external_position_change_candidate_count`.
+- `[AITS][ExternalExchangeSync] event=external_position_change_candidate` is read-only evidence that the exchange-side position snapshot changed compared with the previous app snapshot. It is not an order action.

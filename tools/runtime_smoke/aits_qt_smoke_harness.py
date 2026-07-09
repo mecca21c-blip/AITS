@@ -8801,11 +8801,54 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     holdings_refresh_lines = [line for line in lines if "[AITS][PostSubmitHoldingsRefresh]" in line]
     position_reflection_lines = [line for line in lines if "[AITS][PositionReflection]" in line]
     candidate_holdings_guard_lines = [line for line in lines if "[AITS][CandidateHoldingsGuard]" in line]
+    account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
+    investment_format_lines = [line for line in lines if "[AITS][InvestmentPositionFormat]" in line]
+    external_sync_lines = [line for line in lines if "[AITS][ExternalExchangeSync]" in line]
     trade_log_reflection_detected = bool(trade_log_reflection_lines)
     holdings_refresh_requested = bool(holdings_refresh_lines)
     holdings_symbol_detected = any("symbol_detected=True" in line for line in holdings_refresh_lines)
     position_reflection_detected = bool(position_reflection_lines)
     position_symbol_detected = any("symbol_detected=True" in line for line in position_reflection_lines)
+    actual_trade_log_count = sum(1 for line in trade_log_reflection_lines if "event=actual_trade_row_detected" in line)
+    if not actual_trade_log_count:
+        actual_trade_log_count = sum(
+            1
+            for line in trade_log_reflection_lines
+            if "event=trade_log_reflection_result" in line and "status=recorded" in line
+        )
+    actual_trade_filter_count = 0
+    for line in reversed(trade_log_reflection_lines):
+        if "event=actual_trade_filter_result" in line:
+            actual_trade_filter_count = int(_safe_float(_live_on_stage_extract_value(line, "actual_trade_filter_count"), 0.0))
+            break
+    actual_trade_symbols = sorted(
+        {
+            _live_on_stage_extract_value(line, "symbol")
+            for line in trade_log_reflection_lines
+            if (
+                ("event=actual_trade_row_detected" in line or "event=trade_log_reflection_result" in line)
+                and _live_on_stage_extract_value(line, "symbol")
+            )
+        }
+    )
+    latest_account_pnl_line = account_pnl_lines[-1] if account_pnl_lines else ""
+    top_pnl_krw = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_krw"), 0.0)
+    if not top_pnl_krw:
+        top_pnl_krw = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "unrealized_pnl_krw"), 0.0)
+    top_pnl_pct = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_pct"), 0.0)
+    if not top_pnl_pct:
+        top_pnl_pct = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "unrealized_pnl_pct"), 0.0)
+    top_pnl_source = _live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_source") or _live_on_stage_extract_value(latest_account_pnl_line, "source")
+    top_pnl_status = _live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_status") or ("ok" if "event=pnl_calculated" in latest_account_pnl_line else "unavailable" if account_pnl_lines else "")
+    investment_position_symbols = sorted(
+        {
+            _live_on_stage_extract_value(line, "symbol")
+            for line in investment_format_lines + position_reflection_lines
+            if _live_on_stage_extract_value(line, "symbol")
+        }
+    )
+    investment_position_format_ok = bool(investment_format_lines)
+    external_position_change_candidate_count = sum(1 for line in external_sync_lines if "event=external_position_change_candidate" in line)
     candidate_holdings_guard_detected = bool(candidate_holdings_guard_lines)
     candidate_live_position_detected = any("has_live_position=True" in line for line in candidate_holdings_guard_lines)
     latest_candidate_holdings_guard = candidate_holdings_guard_lines[-1] if candidate_holdings_guard_lines else ""
@@ -9268,6 +9311,19 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "order_adapter_called": bool(order_adapter_lines or guarded_order_adapter_called),
         "trade_log_reflection_detected": bool(trade_log_reflection_detected),
         "trade_log_reflection_status": "detected" if trade_log_reflection_detected else "missing",
+        "top_pnl_krw": top_pnl_krw,
+        "top_pnl_pct": top_pnl_pct,
+        "top_pnl_source": str(top_pnl_source or ""),
+        "top_pnl_status": str(top_pnl_status or ""),
+        "actual_trade_log_count": int(actual_trade_log_count),
+        "actual_trade_filter_count": int(actual_trade_filter_count),
+        "actual_trade_symbols": actual_trade_symbols,
+        "investment_position_symbols": investment_position_symbols,
+        "investment_position_format_ok": bool(investment_position_format_ok),
+        "investment_total_pnl_krw": top_pnl_krw,
+        "investment_total_pnl_pct": top_pnl_pct,
+        "external_exchange_sync_detected": bool(external_sync_lines),
+        "external_position_change_candidate_count": int(external_position_change_candidate_count),
         "holdings_refresh_requested": bool(holdings_refresh_requested),
         "holdings_refresh_result": "detected" if holdings_refresh_requested else "missing",
         "holdings_symbol_detected": bool(holdings_symbol_detected),
@@ -9405,11 +9461,49 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
         line for line in lines
         if "[AITS][CandidateHoldingsGuard]" in line
     ]
+    account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
+    investment_format_lines = [line for line in lines if "[AITS][InvestmentPositionFormat]" in line]
+    external_sync_lines = [line for line in lines if "[AITS][ExternalExchangeSync]" in line]
     duplicate_submit_detected = "duplicate_submit" in "\n".join(lines).lower()
     retry_detected = bool(re.search(r"\bretry\b", "\n".join(lines).lower()))
     trade_log_reflected_count = sum(1 for line in trade_log_lines if "event=trade_log_reflection_result" in line and "status=recorded" in line)
+    actual_trade_log_count = sum(1 for line in trade_log_lines if "event=actual_trade_row_detected" in line)
+    if not actual_trade_log_count:
+        actual_trade_log_count = trade_log_reflected_count
+    actual_trade_filter_count = 0
+    for line in reversed(trade_log_lines):
+        if "event=actual_trade_filter_result" in line:
+            actual_trade_filter_count = int(_safe_float(_live_on_stage_extract_value(line, "actual_trade_filter_count"), 0.0))
+            break
+    actual_trade_symbols = sorted(
+        {
+            _live_on_stage_extract_value(line, "symbol")
+            for line in trade_log_lines
+            if (
+                ("event=actual_trade_row_detected" in line or "event=trade_log_reflection_result" in line)
+                and _live_on_stage_extract_value(line, "symbol")
+            )
+        }
+    )
     holdings_symbol_detected = any("symbol_detected=True" in line for line in holdings_lines)
     position_symbol_detected = any("symbol_detected=True" in line for line in position_lines)
+    latest_account_pnl_line = account_pnl_lines[-1] if account_pnl_lines else ""
+    top_pnl_krw = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_krw"), 0.0)
+    if not top_pnl_krw:
+        top_pnl_krw = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "unrealized_pnl_krw"), 0.0)
+    top_pnl_pct = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_pct"), 0.0)
+    if not top_pnl_pct:
+        top_pnl_pct = _safe_float(_live_on_stage_extract_value(latest_account_pnl_line, "unrealized_pnl_pct"), 0.0)
+    top_pnl_source = _live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_source") or _live_on_stage_extract_value(latest_account_pnl_line, "source")
+    top_pnl_status = _live_on_stage_extract_value(latest_account_pnl_line, "top_pnl_status") or ("ok" if "event=pnl_calculated" in latest_account_pnl_line else "unavailable" if account_pnl_lines else "")
+    investment_position_symbols = sorted(
+        {
+            _live_on_stage_extract_value(line, "symbol")
+            for line in investment_format_lines + position_lines
+            if _live_on_stage_extract_value(line, "symbol")
+        }
+    )
+    external_position_change_candidate_count = sum(1 for line in external_sync_lines if "event=external_position_change_candidate" in line)
     latest_order = audited_orders[-1] if audited_orders else {}
     latest_live_order_request_id = str(latest_order.get("request_id") or "")
     latest_live_order_symbol = str(latest_order.get("symbol") or "")
@@ -9506,6 +9600,19 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
             "audited_orders": audited_orders,
             "trade_log_reflected_count": trade_log_reflected_count,
             "trade_log_reflection_detected": bool(trade_log_lines),
+            "top_pnl_krw": top_pnl_krw,
+            "top_pnl_pct": top_pnl_pct,
+            "top_pnl_source": str(top_pnl_source or ""),
+            "top_pnl_status": str(top_pnl_status or ""),
+            "actual_trade_log_count": int(actual_trade_log_count),
+            "actual_trade_filter_count": int(actual_trade_filter_count),
+            "actual_trade_symbols": actual_trade_symbols,
+            "investment_position_symbols": investment_position_symbols,
+            "investment_position_format_ok": bool(investment_format_lines),
+            "investment_total_pnl_krw": top_pnl_krw,
+            "investment_total_pnl_pct": top_pnl_pct,
+            "external_exchange_sync_detected": bool(external_sync_lines),
+            "external_position_change_candidate_count": int(external_position_change_candidate_count),
             "holdings_refresh_requested": bool(holdings_lines),
             "holdings_symbol_detected": bool(holdings_symbol_detected),
             "holdings_symbol": latest_detected_holding_symbol if holdings_symbol_detected else "",

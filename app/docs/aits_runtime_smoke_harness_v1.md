@@ -1747,3 +1747,19 @@ fields separately from historical gaps: `latest_live_order_request_id`,
 `latest_live_order_symbol`, `latest_trade_log_reflected`,
 `latest_holdings_refreshed`, `latest_position_reflected`, `latest_reflection_ok`,
 and `historical_reflection_missing_count`.
+
+## Account / Position Reconciliation Fields
+
+The long-run summaries and `live-order-post-submit-reconciliation-summary` parse
+read-only account reflection evidence:
+
+- `top_pnl_krw`, `top_pnl_pct`, `top_pnl_source`, `top_pnl_status`
+- `actual_trade_log_count`, `actual_trade_filter_count`, `actual_trade_symbols`
+- `investment_position_symbols`, `investment_position_format_ok`
+- `investment_total_pnl_krw`, `investment_total_pnl_pct`
+- `external_exchange_sync_detected`
+- `external_position_change_candidate_count`
+
+Actual trade rows must come from submitted live-order evidence or read-only
+exchange reconciliation. The harness must not create fake trades, fake holdings,
+fake PnL, or submit orders while producing these summaries.

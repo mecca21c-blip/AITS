@@ -10733,11 +10733,13 @@ class MainWindow(QMainWindow):
             for card in [self.card_asset, self.card_krw, self.card_pnl, self.card_ret]:
                 card.setStyleSheet(card_style)
             
-            # 값 업데이트 (보유종목 손익/수익률 = PortfolioTab 평가손익·수익률, 없으면 —)
+            pnl_status = "ok" if pnl_krw is not None and roi_pct is not None else "unavailable"
+
+            # 값 업데이트 (보유종목 손익/수익률 = PortfolioTab 평가손익·수익률, 없으면 계산 대기)
             self.lbl_asset_value.setText(fmt_krw(total_asset))
             self.lbl_krw_value.setText(fmt_krw(available_krw))
-            self.lbl_pnl_value.setText(fmt_krw(pnl_krw) if pnl_krw is not None else "— 원")
-            self.lbl_ret_value.setText(fmt_pct(roi_pct) if roi_pct is not None else "— %")
+            self.lbl_pnl_value.setText(fmt_krw(pnl_krw) if pnl_krw is not None else "계산 대기")
+            self.lbl_ret_value.setText(fmt_pct(roi_pct) if roi_pct is not None else "평단 정보 없음")
             
             # 손익/수익률 색상 적용
             self.lbl_pnl_value.setStyleSheet(
@@ -10748,10 +10750,118 @@ class MainWindow(QMainWindow):
                 "font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; "
                 f"font-size: 29px; font-weight: 900; color: {ret_color};"
             )
+            try:
+                self._log.info(
+                    "[AITS][AccountPnL] event=account_summary_updated total_asset_krw=%s available_krw=%s top_pnl_krw=%s top_pnl_pct=%s top_pnl_status=%s top_pnl_source=%s submitted=0",
+                    float(total_asset or 0.0),
+                    float(available_krw or 0.0),
+                    "" if pnl_krw is None else float(pnl_krw),
+                    "" if roi_pct is None else float(roi_pct),
+                    pnl_status,
+                    str(getattr(self, "_account_pnl_source", "") or "unknown"),
+                )
+            except Exception:
+                pass
             
         except Exception as e:
             import logging
             logging.getLogger(__name__).error(f"[ACCT] UI apply error: {e}")
+
+    def _compute_account_pnl_from_live_positions(self, total_asset=None, available_krw=None, reason: str = "") -> tuple[float | None, float | None, str]:
+        """Compute top-bar PnL from read-only live position rows."""
+        log = logging.getLogger(__name__)
+
+        def _num(value):
+            try:
+                if value is None:
+                    return None
+                text = str(value).replace(",", "").replace("원", "").replace("%", "").strip()
+                if text in {"", "-", "None", "계산 대기", "평단 정보 없음"}:
+                    return None
+                return float(text)
+            except Exception:
+                return None
+
+        rows = []
+        source = "unavailable"
+        try:
+            for attr_name in ("_investment_center_positions", "_live_holdings_rows", "_portfolio_positions", "_holdings_rows"):
+                candidate = getattr(self, attr_name, None)
+                if isinstance(candidate, list) and candidate:
+                    rows = [row for row in candidate if isinstance(row, dict)]
+                    source = attr_name
+                    break
+            if not rows:
+                source_result = self._refresh_investment_position_source(reason=f"account_pnl:{reason or 'refresh'}")
+                if isinstance(source_result, dict):
+                    candidate = source_result.get("rows")
+                    if isinstance(candidate, list):
+                        rows = [row for row in candidate if isinstance(row, dict)]
+                        source = str(source_result.get("source") or "investment_position_source")
+        except Exception:
+            rows = []
+
+        total_cost = 0.0
+        total_eval = 0.0
+        usable = 0
+        for row in rows:
+            normalized = row
+            try:
+                if not {"eval_krw", "cost_basis", "pnl", "return_rate"}.intersection(row.keys()):
+                    normalized = self._normalize_investment_position_row(row)
+            except Exception:
+                normalized = row
+            eval_value = _num(normalized.get("eval_krw") or normalized.get("eval_amount") or normalized.get("value_krw"))
+            cost_value = _num(normalized.get("cost_basis"))
+            if cost_value is None:
+                qty = _num(normalized.get("qty") or normalized.get("balance") or normalized.get("volume"))
+                avg = _num(normalized.get("avg") or normalized.get("avg_price") or normalized.get("avg_buy_price"))
+                if qty is not None and avg is not None:
+                    cost_value = qty * avg
+            if eval_value is None:
+                qty = _num(normalized.get("qty") or normalized.get("balance") or normalized.get("volume"))
+                price = _num(normalized.get("price") or normalized.get("current_price") or normalized.get("market_price"))
+                if qty is not None and price is not None:
+                    eval_value = qty * price
+            pnl_value = _num(normalized.get("pnl") or normalized.get("pnl_krw"))
+            if eval_value is None and pnl_value is not None and cost_value is not None:
+                eval_value = cost_value + pnl_value
+            if eval_value is None or cost_value is None or cost_value <= 0:
+                continue
+            total_eval += eval_value
+            total_cost += cost_value
+            usable += 1
+
+        if usable <= 0 or total_cost <= 0:
+            try:
+                log.info(
+                    "[AITS][AccountPnL] event=pnl_unavailable reason=no_live_position_cost_basis rows=%s source=%s total_asset_krw=%s available_krw=%s submitted=0",
+                    len(rows),
+                    source,
+                    total_asset,
+                    available_krw,
+                )
+            except Exception:
+                pass
+            return None, None, "unavailable"
+
+        pnl = total_eval - total_cost
+        roi = (pnl / total_cost) * 100.0
+        try:
+            log.info(
+                "[AITS][AccountPnL] event=pnl_calculated rows=%s source=%s invested_krw=%s eval_krw=%s unrealized_pnl_krw=%s unrealized_pnl_pct=%s total_asset_krw=%s available_krw=%s submitted=0",
+                usable,
+                source,
+                round(total_cost, 4),
+                round(total_eval, 4),
+                round(pnl, 4),
+                round(roi, 6),
+                total_asset,
+                available_krw,
+            )
+        except Exception:
+            pass
+        return pnl, roi, source
 
     def refresh_account_summary(self, reason: str = "manual") -> None:
         """
@@ -10856,6 +10966,15 @@ class MainWindow(QMainWindow):
                     pnl_krw, roi_pct = self.portfolio_tab.get_summary_metrics()
                 except Exception:
                     pass
+            if pnl_krw is None or roi_pct is None:
+                pnl_krw, roi_pct, pnl_source = self._compute_account_pnl_from_live_positions(
+                    total_asset=total_asset,
+                    available_krw=available_krw,
+                    reason=reason,
+                )
+                self._account_pnl_source = pnl_source
+            else:
+                self._account_pnl_source = "investment_center_summary_metrics"
 
             # 3) 포맷팅
             fmt_krw = lambda x: f"{x:,.0f}원"
@@ -12302,6 +12421,29 @@ class MainWindow(QMainWindow):
                 "message": result.get("message", "") if isinstance(result, dict) else "",
                 "rows": len(rows),
             }
+            current_symbols = sorted(
+                {
+                    str(row.get("symbol") or row.get("market") or "").strip().upper()
+                    for row in rows
+                    if isinstance(row, dict) and str(row.get("symbol") or row.get("market") or "").strip()
+                }
+            )
+            previous_symbols = list(getattr(self, "_last_live_position_symbols_for_external_sync", []) or [])
+            if previous_symbols and current_symbols != previous_symbols:
+                self._log.info(
+                    "[AITS][ExternalExchangeSync] event=external_position_change_candidate previous_symbols=%s current_symbols=%s source=%s source_status=%s submitted=0 order_allowed=False real_order=False",
+                    ",".join(previous_symbols),
+                    ",".join(current_symbols),
+                    self._investment_center_position_source.get("source"),
+                    self._investment_center_position_source.get("status"),
+                )
+            self._last_live_position_symbols_for_external_sync = current_symbols
+            self._log.info(
+                "[AITS][InvestmentPositionFormat] event=position_format_applied symbols=%s rows=%s qty_decimals=1 price_decimals=0 pnl_decimals=0 return_pct_decimals=2 weight_decimals=1 source=%s submitted=0",
+                ",".join(current_symbols),
+                len(rows),
+                self._investment_center_position_source.get("source"),
+            )
         except Exception:
             pass
         try:
@@ -12658,15 +12800,35 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
+        qty_display = round(qty, 1) if qty is not None else qty
+        avg_display = round(avg) if avg is not None else avg
+        price_display = round(price) if price is not None else price
+        eval_display = round(eval_krw) if eval_krw is not None else eval_krw
+        cost_display = round(cost) if cost is not None else cost
+        pnl_display = round(pnl) if pnl is not None else pnl
+        try:
+            self._log.info(
+                "[AITS][InvestmentPositionFormat] event=position_format_applied symbol=%s qty=%s avg_buy_price=%s current_price=%s eval_krw=%s pnl_krw=%s return_pct=%s weight=%s submitted=0",
+                symbol,
+                qty_display,
+                avg_display,
+                price_display,
+                eval_display,
+                pnl_display,
+                ret,
+                weight or "-",
+            )
+        except Exception:
+            pass
         return {
             "symbol": symbol,
-            "qty": qty,
-            "avg": avg,
-            "price": price,
-            "eval_krw": eval_krw,
-            "eval_amount": eval_krw,
-            "cost_basis": cost,
-            "pnl": pnl,
+            "qty": qty_display,
+            "avg": avg_display,
+            "price": price_display,
+            "eval_krw": eval_display,
+            "eval_amount": eval_display,
+            "cost_basis": cost_display,
+            "pnl": pnl_display,
             "return_rate": ret,
             "weight": weight or "-",
             "valuation_source": valuation_source,
@@ -29325,7 +29487,24 @@ class MainWindow(QMainWindow):
             rows = list(getattr(self, "_trade_log_shadow_journal_rows", []) or [])
             if limit and limit > 0:
                 rows = rows[-int(limit):]
-            return [dict(row) for row in reversed(rows) if isinstance(row, dict)]
+            display_rows: list[dict] = []
+            for row in reversed(rows):
+                if not isinstance(row, dict):
+                    continue
+                out = dict(row)
+                if str(out.get("category") or "").strip().lower() == "fills":
+                    out["record_type"] = ""
+                display_rows.append(out)
+            try:
+                fills_count = sum(1 for row in display_rows if str(row.get("category") or "").strip().lower() == "fills")
+                self._log.info(
+                    "[AITS][TradeLogReflection] event=actual_trade_filter_result actual_trade_filter_count=%s actual_trade_log_count=%s submitted=0",
+                    fills_count,
+                    fills_count,
+                )
+            except Exception:
+                pass
+            return display_rows
         except Exception:
             return []
 
@@ -29342,11 +29521,15 @@ class MainWindow(QMainWindow):
             return {}
         record_type = str(row.get("record_type") or "").strip() or "preview_decision"
         category = str(row.get("category") or "").strip().lower()
-        if category == "fills" or record_type in {"actual_trade", "fill", "fills"}:
-            return {}
+        actual_live_order = bool(row.get("actual_order")) and str(row.get("source") or "").strip() == "live_order_pipeline"
+        if category == "fills" or record_type in {"actual_trade", "fill", "fills", "live_order_reflection"}:
+            if not actual_live_order:
+                return {}
+            category = "fills"
+            record_type = "actual_trade"
         if not category:
             category = "blocked" if record_type in {"blocked", "skipped", "risk_blocked"} else "preview"
-        if category not in {"preview", "blocked", "reflection"}:
+        if category not in {"preview", "blocked", "reflection", "fills"}:
             category = "preview"
         symbol = str(row.get("symbol") or row.get("market") or "").strip()
         if not symbol:
@@ -29432,13 +29615,23 @@ class MainWindow(QMainWindow):
         out["category"] = category
         out["symbol"] = symbol
         out["order_allowed"] = False
-        out["submitted"] = 0
-        out["submitted_display"] = "실제 주문 없음"
-        out["real_order"] = False
+        if category == "fills":
+            out["submitted"] = int(row.get("submitted") or row.get("submitted_count") or 1)
+            out["submitted_display"] = "실제 주문 제출"
+            out["real_order"] = True
+            out["actual_order"] = True
+        else:
+            out["submitted"] = 0
+            out["submitted_display"] = "실제 주문 없음"
+            out["real_order"] = False
         if not str(out.get("status_display") or "").strip():
-            out["status_display"] = "실제 주문 없음"
+            out["status_display"] = "실제 주문 제출" if category == "fills" else "실제 주문 없음"
         if not str(out.get("safety_note") or "").strip():
-            out["safety_note"] = "observe-only journal · order_allowed=False · submitted=0 · real_order=False"
+            out["safety_note"] = (
+                "post-submit reflection only; no retry; no new order"
+                if category == "fills"
+                else "observe-only journal · order_allowed=False · submitted=0 · real_order=False"
+            )
         if not out.get("ts"):
             try:
                 out["ts"] = float(row.get("created_at") or time.time())
@@ -30007,11 +30200,11 @@ class MainWindow(QMainWindow):
             rows.append({
                 "ts": time.time(),
                 "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "record_type": "live_order_reflection",
-                "category": "reflection",
-                "type_label": "live order",
+                "record_type": "actual_trade",
+                "category": "fills",
+                "type_label": "실제 체결",
                 "symbol": symbol,
-                "action_display": "buy" if str(side).lower() == "buy" else str(side or ""),
+                "action_display": "매수" if str(side).lower() == "buy" else str(side or ""),
                 "raw_action_sanitized": str(side or ""),
                 "status_display": str(status or "submitted"),
                 "selected_engine": provider or "-",
@@ -30022,18 +30215,21 @@ class MainWindow(QMainWindow):
                 "basis": "live_order_pipeline",
                 "source": "live_order_pipeline",
                 "request_id": request_id,
+                "amount": int(amount_krw or 0),
                 "amount_krw": int(amount_krw or 0),
+                "krw_cost": int(amount_krw or 0),
+                "price": "",
                 "side": side,
                 "order_status": status,
                 "actual_order": True,
                 "submitted": int(submitted_count or 0),
                 "submitted_count": int(submitted_count or 0),
-                "submitted_display": "live order submitted",
+                "submitted_display": "실제 주문 제출",
                 "real_order": True,
                 "order_allowed": False,
                 "exchange_response_sanitized": True,
-                "record_stage": "live_order_reflection",
-                "record_stage_label": "live order",
+                "record_stage": "actual_trade",
+                "record_stage_label": "실제 체결",
                 "decision_stage_signature": signature,
                 "safety_note": "post-submit reflection only; no retry; no new order",
             })
@@ -30052,6 +30248,10 @@ class MainWindow(QMainWindow):
             log.info(
                 "[AITS][TradeLogReflection] event=trade_log_reflection_result request_id=%s symbol=%s status=recorded rows=%s actual_order=True submitted_count=%s source=live_order_pipeline",
                 request_id, symbol, len(rows), int(submitted_count or 0),
+            )
+            log.info(
+                "[AITS][TradeLogReflection] event=actual_trade_row_detected request_id=%s symbol=%s side=%s amount_krw=%s actual_order=True source=live_order_pipeline",
+                request_id, symbol, side, int(amount_krw or 0),
             )
         except Exception as exc:
             log.warning(
