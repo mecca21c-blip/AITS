@@ -1,4 +1,4 @@
-# AITS Runtime Smoke Harness v1
+﻿# AITS Runtime Smoke Harness v1
 
 ## Purpose
 
@@ -1817,3 +1817,12 @@ summary modes.
 - The default rotation preview is capped to `max_rotation_per_cycle=1` and `rotation_cooldown_sec=3600`.
 - Harness fields include `rotation_logic_detected`, `rotation_score_source`, `normalized_rotation_score_supported`, `rotation_plan_detected`, `rotation_plan_observe_only`, `holding_symbols_excluded_from_rotation`, `protected_symbols_excluded_from_rotation`, `managed_pool_count_mode`, and `rotation_blocker`.
 - `managed_pool_mutation` must remain false in observe-only summaries.
+
+## Managed Pool active monitor status bar
+
+- The managed pool panel shows a compact Korean status bar near the managed symbols table.
+- The status bar is for current state only: managed count, max count, holding count, rotation preview/no-target state, and order state.
+- LIVE LOG remains the event history surface; the managed pool status bar must not open popups or replace LIVE LOG inline history.
+- User-facing text must be Korean only and must not expose raw event names, snake_case blockers, `submitted_count`, `actual_order`, or mutation flags.
+- The status bar is observe-only UI. It must not place orders, apply rotation, mutate the managed pool, or bypass any trading guard.
+- Harness fields: `managed_pool_status_bar_detected`, `managed_pool_status_bar_text`, `managed_pool_status_bar_korean_only`, `managed_pool_status_bar_no_raw_event_leak`, `managed_pool_status_bar_state`, managed/max/holding counts, rotation state, and order state.

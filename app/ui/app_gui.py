@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
 
@@ -11729,6 +11729,9 @@ class MainWindow(QMainWindow):
         self._aits_live_log_expanded = False
         self._aits_live_log_popup_disabled = True
         self._aits_live_log_inline_labels = []
+        self._managed_pool_status_bar_last_text = ""
+        self._managed_pool_status_bar_highlight_supported = True
+        self._last_managed_pool_rotation_plan = {}
         self._aits_last_detail_log_sym_status = ""
         self._aits_last_ai_explanation = {
             "decision": "",
@@ -15037,6 +15040,42 @@ class MainWindow(QMainWindow):
         _mh.addLayout(_hdr_title_row)
         _mh.addLayout(_hdr_scope_row)
         _managed_inner.addWidget(self._managed_header_card, 0)
+        self._frm_managed_pool_status_bar = QFrame(_gb_managed)
+        try:
+            self._frm_managed_pool_status_bar.setObjectName("frmManagedPoolStatusBar")
+            self._frm_managed_pool_status_bar.setProperty("managedPoolStatusBar", True)
+            self._frm_managed_pool_status_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            self._frm_managed_pool_status_bar.setMinimumHeight(32)
+            self._frm_managed_pool_status_bar.setStyleSheet(
+                "QFrame#frmManagedPoolStatusBar{background:#F8FAFC;border:1px solid #D7E3F0;border-radius:7px;}"
+            )
+        except Exception:
+            pass
+        _mp_status_lay = QHBoxLayout(self._frm_managed_pool_status_bar)
+        try:
+            _mp_status_lay.setContentsMargins(10, 5, 10, 5)
+            _mp_status_lay.setSpacing(6)
+        except Exception:
+            pass
+        self.lbl_managed_pool_status_bar = QLabel("관리종목 감시 준비 중 · 실제 주문 없음")
+        try:
+            self.lbl_managed_pool_status_bar.setObjectName("lblManagedPoolStatusBar")
+            self.lbl_managed_pool_status_bar.setProperty("smokeObjectName", "lbl_managed_pool_status_bar")
+            self.lbl_managed_pool_status_bar.setProperty("managedPoolStatusBarText", True)
+            self.lbl_managed_pool_status_bar.setWordWrap(False)
+            self.lbl_managed_pool_status_bar.setStyleSheet(
+                "QLabel#lblManagedPoolStatusBar{background:transparent;border:none;color:#334155;font-size:12px;font-weight:700;}"
+            )
+        except Exception:
+            pass
+        _mp_status_lay.addWidget(self.lbl_managed_pool_status_bar, 1)
+        try:
+            self._frm_managed_pool_status_bar.setToolTip(
+                "관리종목 감시, 후보 탐색, 로테이션 미리보기, 주문 안전 상태를 한 줄로 표시합니다."
+            )
+        except Exception:
+            pass
+        _managed_inner.addWidget(self._frm_managed_pool_status_bar, 0)
         try:
             self.btn_managed_pause.clicked.connect(self._on_managed_header_pause_clicked)
             self.btn_managed_remove.clicked.connect(self._on_managed_header_remove_clicked)
@@ -17567,6 +17606,11 @@ class MainWindow(QMainWindow):
             plan["managed_pool_count_mode"] = count_mode
             plan["rotation_plan_observe_only"] = True
             plan["managed_pool_mutation"] = False
+            try:
+                self._last_managed_pool_rotation_plan = dict(plan)
+                self._update_managed_pool_status_bar(reason="rotation_preview")
+            except Exception:
+                pass
             return plan
         except Exception as exc:
             try:
@@ -28199,6 +28243,9 @@ class MainWindow(QMainWindow):
             pass
         history_lay.addWidget(header)
         self._aits_live_log_inline_labels = []
+        self._managed_pool_status_bar_last_text = ""
+        self._managed_pool_status_bar_highlight_supported = True
+        self._last_managed_pool_rotation_plan = {}
         for idx in range(5):
             row = QLabel("—")
             try:
@@ -39290,6 +39337,142 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _managed_pool_status_bar_row_is_holding(self, row: dict) -> bool:
+        try:
+            if not isinstance(row, dict):
+                return False
+            source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
+            if source_type in {"live_holding", "holding"}:
+                return True
+            for key in ("holding", "is_holding", "has_position", "protected_by_holding"):
+                if bool(row.get(key)):
+                    return True
+            return bool(self._managed_row_has_position_weight(row))
+        except Exception:
+            return False
+
+    def _managed_pool_status_bar_row_is_protected(self, row: dict) -> bool:
+        try:
+            if not isinstance(row, dict):
+                return False
+            if self._managed_pool_status_bar_row_is_holding(row):
+                return True
+            return bool(row.get("protected") or row.get("managed_protected") or row.get("is_protected"))
+        except Exception:
+            return False
+
+    def _managed_pool_status_bar_snapshot(self) -> dict:
+        rows = [row for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+        managed_count = len(rows)
+        holding_count = sum(1 for row in rows if self._managed_pool_status_bar_row_is_holding(row))
+        protected_count = sum(1 for row in rows if self._managed_pool_status_bar_row_is_protected(row))
+        max_count = 0
+        try:
+            max_count = int(self._get_managed_pool_max_size_value())
+        except Exception:
+            max_count = 0
+        rotation_targets = []
+        for row in rows:
+            if self._managed_pool_status_bar_row_is_holding(row) or self._managed_pool_status_bar_row_is_protected(row):
+                continue
+            source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
+            if source_type in {"basic_added", "basic", "ai_candidate", "theme_candidate"}:
+                rotation_targets.append(str(row.get("symbol") or row.get("market") or "").strip())
+        rotation_plan = getattr(self, "_last_managed_pool_rotation_plan", None)
+        if not isinstance(rotation_plan, dict):
+            rotation_plan = {}
+        planned_rotation = rotation_plan.get("planned_rotation") if isinstance(rotation_plan.get("planned_rotation"), list) else []
+        rotation_plan_detected = bool(planned_rotation or rotation_plan.get("rotation_plan_detected"))
+        rotation_blocker = str(rotation_plan.get("rotation_blocker") or "").strip()
+        if not rotation_blocker and not rotation_targets:
+            rotation_blocker = "no_non_holding_rotation_target"
+        return {
+            "managed_count": managed_count,
+            "max_count": max_count,
+            "holding_count": holding_count,
+            "protected_count": protected_count,
+            "non_holding_rotation_targets_count": len([x for x in rotation_targets if x]),
+            "rotation_plan_detected": rotation_plan_detected,
+            "rotation_blocker": rotation_blocker,
+            "submitted_count": 0,
+            "actual_order": False,
+        }
+
+    def _managed_pool_status_bar_korean_rotation_text(self, snapshot: dict) -> tuple[str, str]:
+        try:
+            if bool(snapshot.get("rotation_plan_detected")):
+                return "rotation_preview", "교체 후보 미리보기 있음"
+            blocker = str(snapshot.get("rotation_blocker") or "").strip()
+            targets = int(snapshot.get("non_holding_rotation_targets_count") or 0)
+            if blocker == "no_non_holding_rotation_target" or targets <= 0:
+                return "rotation_none", "교체 대상 없음"
+            return "rotation_check", "로테이션 여부 판단 중"
+        except Exception:
+            return "monitoring", "관리종목 감시 중"
+
+    def _format_managed_pool_status_bar_text(self, snapshot: dict | None = None) -> tuple[str, str]:
+        data = snapshot if isinstance(snapshot, dict) else self._managed_pool_status_bar_snapshot()
+        state, rotation_text = self._managed_pool_status_bar_korean_rotation_text(data)
+        managed_count = int(data.get("managed_count") or 0)
+        max_count = int(data.get("max_count") or 0)
+        holding_count = int(data.get("holding_count") or 0)
+        target_count = int(data.get("non_holding_rotation_targets_count") or 0)
+        now_text = time.strftime("%H:%M")
+        if state == "rotation_preview":
+            main = "로테이션 미리보기"
+        elif state == "rotation_none":
+            main = "관리종목 감시 중"
+        else:
+            main = "후보 탐색 중"
+        text = (
+            f"{now_text} · {main} · 관리 {managed_count} / 최대 {max_count} · "
+            f"보유 {holding_count} · 교체대상 {target_count} · {rotation_text} · 실제 주문 없음"
+        )
+        return state, text
+
+    def _highlight_managed_pool_status_bar(self) -> None:
+        frame = getattr(self, "_frm_managed_pool_status_bar", None)
+        if frame is None:
+            return
+        normal = "QFrame#frmManagedPoolStatusBar{background:#F8FAFC;border:1px solid #D7E3F0;border-radius:7px;}"
+        active = "QFrame#frmManagedPoolStatusBar{background:#ECFDF5;border:1px solid #34D399;border-radius:7px;}"
+        try:
+            frame.setStyleSheet(active)
+            QTimer.singleShot(900, lambda: frame.setStyleSheet(normal))
+        except Exception:
+            pass
+
+    def _update_managed_pool_status_bar(self, *, reason: str = "refresh", snapshot: dict | None = None) -> dict:
+        data = snapshot if isinstance(snapshot, dict) else self._managed_pool_status_bar_snapshot()
+        state, text = self._format_managed_pool_status_bar_text(data)
+        data["state"] = state
+        data["text"] = text
+        label = getattr(self, "lbl_managed_pool_status_bar", None)
+        if label is not None:
+            try:
+                previous = str(getattr(self, "_managed_pool_status_bar_last_text", "") or "")
+                label.setText(text)
+                label.setToolTip("관리종목 감시 상태입니다. LIVE LOG와 별도로 현재 상태만 보여줍니다.")
+                label.setProperty("managedPoolStatusState", state)
+                label.setProperty("managedPoolStatusReason", str(reason or "refresh"))
+                if previous and previous != text:
+                    self._highlight_managed_pool_status_bar()
+                self._managed_pool_status_bar_last_text = text
+            except Exception:
+                pass
+        try:
+            self._log.info(
+                "[AITS][ManagedPoolStatusBar] event=updated state=%s managed_count=%s max_count=%s holding_count=%s rotation_targets=%s rotation_state=%s submitted=0 actual_order=False managed_pool_mutation=False",
+                state,
+                int(data.get("managed_count") or 0),
+                int(data.get("max_count") or 0),
+                int(data.get("holding_count") or 0),
+                int(data.get("non_holding_rotation_targets_count") or 0),
+                state,
+            )
+        except Exception:
+            pass
+        return data
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
             return
@@ -39397,6 +39580,7 @@ class MainWindow(QMainWindow):
                         hold_n += 1
                 cand_n = max(0, n - hold_n)
                 lb.setText(f"관리 {n}종목 | 보유 {hold_n} | 후보 {cand_n}")
+                self._update_managed_pool_status_bar(reason="summary_update")
         except Exception:
             pass
         try:

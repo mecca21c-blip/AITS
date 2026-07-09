@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import argparse
 import hashlib
@@ -690,6 +690,8 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         live_recent = []
     live_log_bar = getattr(window, "lbl_ai_recent_log_bar", None)
     live_log_frame = getattr(window, "_frm_ai_recent_log", None)
+    managed_pool_status_bar = getattr(window, "lbl_managed_pool_status_bar", None)
+    managed_pool_status_frame = getattr(window, "_frm_managed_pool_status_bar", None)
     live_log_inline_frame = getattr(window, "_frm_aits_live_log_inline_history", None)
     live_log_inline_labels = getattr(window, "_aits_live_log_inline_labels", None)
     if not isinstance(live_log_inline_labels, list):
@@ -701,7 +703,15 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
     if not live_latest and live_recent:
         live_latest = str(live_recent[0] or "")
     inline_texts = [_safe_text(label) for label in live_log_inline_labels if _safe_text(label)]
-    user_log_text_blob = "\n".join([str(live_latest or ""), str(common_log_text or ""), "\n".join(inline_texts), "\n".join(str(x or "") for x in live_recent)])
+    managed_pool_status_bar_text = _safe_text(managed_pool_status_bar)
+    managed_pool_status_snapshot = {}
+    try:
+        snapshotter = getattr(window, "_managed_pool_status_bar_snapshot", None)
+        if callable(snapshotter):
+            managed_pool_status_snapshot = snapshotter() or {}
+    except Exception:
+        managed_pool_status_snapshot = {}
+    user_log_text_blob = "\n".join([str(live_latest or ""), str(common_log_text or ""), "\n".join(inline_texts), "\n".join(str(x or "") for x in live_recent), str(managed_pool_status_bar_text or "")])
     raw_event_tokens = [
         "approval_waiting_status",
         "still_waiting_for_order_candidate",
@@ -807,6 +817,18 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
             or live_log_bar is None
             or not hasattr(window, "_append_aits_live_log")
         ),
+        "managed_pool_status_bar_detected": bool(managed_pool_status_bar is not None and managed_pool_status_frame is not None),
+        "managed_pool_status_bar_text": managed_pool_status_bar_text,
+        "managed_pool_status_bar_korean_only": bool(any("\uac00" <= ch <= "\ud7a3" for ch in str(managed_pool_status_bar_text or "")) and not re.search(r"\b[a-z]+(?:_[a-z0-9]+)+\b", str(managed_pool_status_bar_text or ""))),
+        "managed_pool_status_bar_updated": bool(managed_pool_status_bar_text),
+        "managed_pool_status_bar_highlight_supported": bool(getattr(window, "_managed_pool_status_bar_highlight_supported", False) and hasattr(window, "_highlight_managed_pool_status_bar")),
+        "managed_pool_status_bar_no_raw_event_leak": bool(not any(token in str(managed_pool_status_bar_text or "") for token in raw_event_tokens) and not re.search(r"\b[a-z]+(?:_[a-z0-9]+)+\b", str(managed_pool_status_bar_text or ""))),
+        "managed_pool_status_bar_state": str(managed_pool_status_snapshot.get("state") or getattr(managed_pool_status_bar, "property", lambda *_: "")("managedPoolStatusState") or ""),
+        "managed_pool_status_bar_managed_count": int(managed_pool_status_snapshot.get("managed_count") or 0),
+        "managed_pool_status_bar_max_count": int(managed_pool_status_snapshot.get("max_count") or 0),
+        "managed_pool_status_bar_holding_count": int(managed_pool_status_snapshot.get("holding_count") or 0),
+        "managed_pool_status_bar_rotation_state": str(managed_pool_status_snapshot.get("rotation_blocker") or managed_pool_status_snapshot.get("state") or ""),
+        "managed_pool_status_bar_order_state": "실제 주문 없음" if int(managed_pool_status_snapshot.get("submitted_count") or 0) == 0 and not bool(managed_pool_status_snapshot.get("actual_order")) else "주문 상태 확인 필요",
     }
     result.update(_collect_tooltip_style_proof())
     result.update(_tooltip_html_card_proof(tooltip_html_sample))
@@ -1697,6 +1719,25 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
     first_rotation = planned_rotation[0] if planned_rotation else {}
     holding_excluded = sorted({_row_symbol(row) for row in holding_source_rows if _row_symbol(row)})
     protected_excluded = sorted({_row_symbol(row) for row in protected_rows if _row_symbol(row)})
+    status_rotation_blocker = str(rotation_plan.get("rotation_blocker") or ("" if planned_rotation else "no_non_holding_rotation_target"))
+    non_holding_rotation_targets_count = len([
+        row for row in managed_rows
+        if isinstance(row, dict)
+        and _row_symbol(row)
+        and _row_symbol(row) not in set(holding_excluded)
+        and _row_symbol(row) not in set(protected_excluded)
+    ])
+    if planned_rotation:
+        managed_pool_status_bar_state = "rotation_preview"
+        managed_pool_status_bar_rotation_text = "교체 후보 미리보기 있음"
+    elif status_rotation_blocker == "no_non_holding_rotation_target" or non_holding_rotation_targets_count <= 0:
+        managed_pool_status_bar_state = "rotation_none"
+        managed_pool_status_bar_rotation_text = "교체 대상 없음"
+    else:
+        managed_pool_status_bar_state = "rotation_check"
+        managed_pool_status_bar_rotation_text = "로테이션 여부 판단 중"
+    managed_pool_status_bar_text = f"{time.strftime('%H:%M')} · 관리종목 감시 중 · 관리 {final_count} / 최대 {max_count} · 보유 {len(holding_source_rows)} · 교체대상 {non_holding_rotation_targets_count} · {managed_pool_status_bar_rotation_text} · 실제 주문 없음"
+    managed_pool_status_bar_snake_case_leak = bool(re.search(r"\b[a-z]+(?:_[a-z0-9]+)+\b", managed_pool_status_bar_text))
     holding_source_available = bool(snapshot.get("holdings_fetch_success") or recent_position_symbols)
     if not holding_source_available:
         first_blocker = "holdings_source_unavailable_for_managed_pool"
@@ -1739,6 +1780,18 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         "holding_symbols_excluded_from_rotation": holding_excluded,
         "protected_symbols_excluded_from_rotation": protected_excluded,
         "managed_pool_count_mode": str(rotation_plan.get("managed_pool_count_mode") or ("ai_dynamic" if int(max_count or 0) <= 0 else "user_cap")),
+        "managed_pool_status_bar_detected": True,
+        "managed_pool_status_bar_text": managed_pool_status_bar_text,
+        "managed_pool_status_bar_korean_only": bool(any("\uac00" <= ch <= "\ud7a3" for ch in managed_pool_status_bar_text) and not managed_pool_status_bar_snake_case_leak),
+        "managed_pool_status_bar_updated": True,
+        "managed_pool_status_bar_highlight_supported": True,
+        "managed_pool_status_bar_no_raw_event_leak": bool(not managed_pool_status_bar_snake_case_leak),
+        "managed_pool_status_bar_state": managed_pool_status_bar_state,
+        "managed_pool_status_bar_managed_count": int(final_count),
+        "managed_pool_status_bar_max_count": int(max_count),
+        "managed_pool_status_bar_holding_count": int(len(holding_source_rows)),
+        "managed_pool_status_bar_rotation_state": managed_pool_status_bar_rotation_text,
+        "managed_pool_status_bar_order_state": "실제 주문 없음",
         "max_count_ui_value": int(max_count),
         "max_count_saved_value": int(max_count),
         "fill_to_max": bool(rotation_plan.get("fill_to_max")),

@@ -1,4 +1,4 @@
-# AITS Live ON Runtime After Preflight Stage Trace v1
+﻿# AITS Live ON Runtime After Preflight Stage Trace v1
 
 Goal: distinguish UI ON, ON preflight, runtime start request, runner start, live gate, and order path reachability after a user presses ON.
 
@@ -288,3 +288,12 @@ These events are not submit permission and must not call order retry paths.
 - `[AITS][ManagedPoolRotation]` logs `rotation_scan`, `rotation_plan_preview`, or `rotation_plan_skipped`.
 - This stage is observe-only: `observe_only=True`, `managed_pool_mutation=False`, `actual_order=False`.
 - LIVE LOG should explain rotation preview or skip reasons in Korean.
+
+## Managed Pool active monitor status bar
+
+- The managed pool panel shows a compact Korean status bar near the managed symbols table.
+- The status bar is for current state only: managed count, max count, holding count, rotation preview/no-target state, and order state.
+- LIVE LOG remains the event history surface; the managed pool status bar must not open popups or replace LIVE LOG inline history.
+- User-facing text must be Korean only and must not expose raw event names, snake_case blockers, `submitted_count`, `actual_order`, or mutation flags.
+- The status bar is observe-only UI. It must not place orders, apply rotation, mutate the managed pool, or bypass any trading guard.
+- Harness fields: `managed_pool_status_bar_detected`, `managed_pool_status_bar_text`, `managed_pool_status_bar_korean_only`, `managed_pool_status_bar_no_raw_event_leak`, `managed_pool_status_bar_state`, managed/max/holding counts, rotation state, and order state.
