@@ -41841,6 +41841,47 @@ class MainWindow(QMainWindow):
                     market_data_stale=market_data_stale,
                 )
                 try:
+                    sell_rows = self._sell_evaluation_observe_rows()
+                    sell_holding_rows = [row for row in sell_rows if self._managed_pool_status_bar_row_is_holding(row)]
+                    sell_should_run = bool(sell_holding_rows or getattr(self, "_aits_runtime_contract_active", False) or getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_buy_blocked", False) or getattr(self, "_aits_sell_observe_enabled", False) or getattr(self, "_aits_candidate_loop_running", False))
+                    logging.getLogger("aits").info(
+                        "[AITS][SellEvaluation] event=sell_eval_actual_writer_probe writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update runtime_contract_active=%s monitor_only=%s buy_blocked=%s buy_enabled=%s sell_observe_enabled=%s managed_rows_count=%s holding_rows_count=%s manageable_holding_count=%s should_run_sell_eval=%s reason=score_update preview_only=True actual_order=False submitted=0",
+                        bool(getattr(self, "_aits_runtime_contract_active", False)),
+                        bool(getattr(self, "_aits_monitor_only_mode", False)),
+                        bool(getattr(self, "_aits_buy_blocked", False)),
+                        bool(getattr(self, "_aits_buy_enabled", False)),
+                        bool(getattr(self, "_aits_sell_observe_enabled", False)),
+                        len(sell_rows),
+                        len(sell_holding_rows),
+                        len(sell_holding_rows),
+                        sell_should_run,
+                    )
+                    if sell_should_run:
+                        sell_eval = self._evaluate_sell_takeprofit_observe_path(
+                            reason="actual_writer:CandidateFeedState.score_update",
+                            force=bool(sell_holding_rows and not (dict(getattr(self, "_last_sell_evaluation_observe_result", {}) or {}).get("sell_evaluated_symbols"))),
+                        )
+                        logging.getLogger("aits").info(
+                            "[AITS][SellEvaluation] event=sell_eval_actual_writer_result writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update cycle_id=%s sell_eval_cycle_count_incremented=True sell_eval_position_count=%s sell_evaluated_symbols=%s pnl_source_missing_symbols=%s take_profit_candidate_symbols=%s stop_loss_candidate_symbols=%s emergency_stop_loss_candidate_symbols=%s preview_only=True actual_order=False submitted=0",
+                            int(time.time()),
+                            len(sell_eval.get("sell_evaluated_symbols") or []),
+                            ",".join(sell_eval.get("sell_evaluated_symbols") or []) or "-",
+                            ",".join(sell_eval.get("pnl_source_missing_symbols") or []) or "-",
+                            ",".join(sell_eval.get("take_profit_candidate_symbols") or []) or "-",
+                            ",".join(sell_eval.get("stop_loss_candidate_symbols") or []) or "-",
+                            ",".join(sell_eval.get("emergency_stop_loss_candidate_symbols") or []) or "-",
+                        )
+                    else:
+                        logging.getLogger("aits").info(
+                            "[AITS][SellEvaluation] event=sell_eval_actual_writer_skipped writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update blocker=no_active_runtime_or_holdings manageable_holding_count=%s reason=score_update preview_only=True actual_order=False submitted=0",
+                            len(sell_holding_rows),
+                        )
+                except Exception as exc:
+                    logging.getLogger("aits").info(
+                        "[AITS][SellEvaluation] event=sell_eval_actual_writer_skipped writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update blocker=actual_writer_exception error_type=%s reason=score_update preview_only=True actual_order=False submitted=0",
+                        type(exc).__name__,
+                    )
+                try:
                     contract_state = self._build_live_runtime_contract_state(
                         source_path="candidate_feed",
                         reason="score_update",

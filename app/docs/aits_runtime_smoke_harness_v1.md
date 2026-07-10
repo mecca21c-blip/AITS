@@ -1881,3 +1881,10 @@ summary modes.
 - Buy-blocked monitor-only mode is a valid state for sell observation. `buy_blocked=True` must not suppress SellEvaluation.
 - If manageable holdings exist but no position is evaluated, E2E reports `managed_holdings_not_passed_to_sell_evaluation`.
 - Any actual sell submit remains a critical failure in this observe-only stage.
+
+## Actual Log Writer SellEvaluation Anchor
+
+- Candidate feed score updates are an active runtime writer for monitor-only observation.
+- The writer emits sell_eval_actual_writer_probe, then sell_eval_actual_writer_result or sell_eval_actual_writer_skipped.
+- Harness fields include sell_eval_actual_writer_probe_detected, sell_eval_actual_writer_result_detected, sell_eval_actual_writer_skipped_detected, sell_eval_actual_writer_name, and sell_eval_actual_source_event.
+- The anchor remains observe-only and must report `actual_order=False` and `submitted=0`.

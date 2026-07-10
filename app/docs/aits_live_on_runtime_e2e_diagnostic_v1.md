@@ -525,3 +525,10 @@ Blockers:
 - If ON/runtime heartbeat is detected but no probe is present, E2E reports `sell_eval_not_connected_to_active_heartbeat_path`.
 - If the probe is present but skipped, E2E reports `sell_eval_heartbeat_skipped` and includes `sell_eval_skip_blocker`.
 - The evaluator may use Managed Pool rows and read-only holdings/position snapshots, but it must remain preview-only with no sell submit.
+
+## Actual Log Writer SellEvaluation Anchor
+
+- E2E reads sell_eval_actual_writer_probe, sell_eval_actual_writer_result, and sell_eval_actual_writer_skipped from [AITS][SellEvaluation].
+- If the active score-update writer is present but no actual writer probe appears, the blocker is sell_eval_actual_writer_probe_missing.
+- If the probe appears but skips, the blocker is sell_eval_actual_writer_skipped.
+- Result logs include evaluated symbols, PnL-source-missing symbols, and take-profit/stop-loss preview symbols without submitting sell orders.

@@ -7900,6 +7900,19 @@ def _aits_extract_kv_bool(line: str, key: str, default: bool = False) -> bool:
     return default
 
 
+def _extract_log_time(line: str) -> str:
+    text = str(line or "")
+    match = re.search(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:,\d{3})?)", text)
+    return match.group(1) if match else ""
+
+
+def _aits_split_symbol_field(raw: str) -> list[str]:
+    text = str(raw or "").strip()
+    if not text or text == "-":
+        return []
+    return [part.strip() for part in text.split(",") if part.strip() and part.strip() != "-"]
+
+
 def _aits_latest_line_with(lines: list[str], *needles: str) -> str:
     lowered_needles = [str(n).lower() for n in needles if str(n or "")]
     for line in reversed(lines):
@@ -9212,24 +9225,61 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     sell_eval_heartbeat_linked_detected = bool(sell_eval_heartbeat_linked_lines)
     sell_eval_heartbeat_result_detected = bool(sell_eval_heartbeat_result_lines)
     sell_eval_heartbeat_skipped_detected = bool(sell_eval_heartbeat_skipped_lines)
-    latest_sell_eval_probe = sell_eval_heartbeat_probe_lines[-1] if sell_eval_heartbeat_probe_lines else ""
-    latest_sell_eval_skipped = sell_eval_heartbeat_skipped_lines[-1] if sell_eval_heartbeat_skipped_lines else ""
+    sell_eval_actual_writer_probe_lines = [line for line in sell_evaluation_lines if "event=sell_eval_actual_writer_probe" in line]
+    sell_eval_actual_writer_result_lines = [line for line in sell_evaluation_lines if "event=sell_eval_actual_writer_result" in line]
+    sell_eval_actual_writer_skipped_lines = [line for line in sell_evaluation_lines if "event=sell_eval_actual_writer_skipped" in line]
+    sell_eval_actual_writer_probe_detected = bool(sell_eval_actual_writer_probe_lines)
+    sell_eval_actual_writer_result_detected = bool(sell_eval_actual_writer_result_lines)
+    sell_eval_actual_writer_skipped_detected = bool(sell_eval_actual_writer_skipped_lines)
+    latest_sell_eval_actual_writer = (
+        sell_eval_actual_writer_result_lines
+        or sell_eval_actual_writer_skipped_lines
+        or sell_eval_actual_writer_probe_lines
+        or [""]
+    )[-1]
+    sell_eval_actual_writer_name = _live_on_stage_extract_value(latest_sell_eval_actual_writer, "writer_name")
+    sell_eval_actual_source_event = _live_on_stage_extract_value(latest_sell_eval_actual_writer, "source_event")
+    latest_sell_eval_probe = (sell_eval_heartbeat_probe_lines or sell_eval_actual_writer_probe_lines or [""])[-1]
+    latest_sell_eval_skipped = (sell_eval_heartbeat_skipped_lines or sell_eval_actual_writer_skipped_lines or [""])[-1]
+    latest_sell_eval_result = (
+        sell_eval_actual_writer_result_lines
+        or sell_eval_heartbeat_result_lines
+        or sell_eval_completed_lines
+        or [""]
+    )[-1] if "sell_eval_completed_lines" in locals() else (sell_eval_actual_writer_result_lines or sell_eval_heartbeat_result_lines or [""])[-1]
     manageable_holding_count_for_sell_eval = int(
         _safe_float(_live_on_stage_extract_value(latest_sell_eval_probe, "manageable_holding_count"), 0.0)
     )
+    actual_writer_probe_buy_blocked = _live_on_runtime_bool_marker(latest_sell_eval_probe, "buy_blocked")
+    actual_writer_probe_monitor_only = _live_on_runtime_bool_marker(latest_sell_eval_probe, "monitor_only")
+    actual_writer_probe_sell_observe_enabled = _live_on_runtime_bool_marker(latest_sell_eval_probe, "sell_observe_enabled")
     sell_eval_skip_blocker = _live_on_stage_extract_value(latest_sell_eval_skipped, "blocker")
     if sell_eval_skip_blocker == "-":
         sell_eval_skip_blocker = ""
     sell_eval_cycle_lines = [line for line in sell_evaluation_lines if "event=sell_eval_cycle_started" in line]
     sell_eval_completed_lines = [line for line in sell_evaluation_lines if "event=sell_eval_cycle_completed" in line]
-    sell_eval_cycle_count = len(sell_eval_cycle_lines) or sum(1 for line in sell_evaluation_lines if "event=sell_eval_started" in line)
-    sell_eval_last_time = _extract_log_time((sell_eval_completed_lines or sell_eval_cycle_lines or sell_evaluation_lines)[-1]) if sell_evaluation_lines else ""
+    latest_sell_eval_result = (
+        sell_eval_completed_lines
+        or sell_eval_actual_writer_result_lines
+        or sell_eval_heartbeat_result_lines
+        or [""]
+    )[-1]
+    sell_evaluation_called = bool(sell_evaluation_called or sell_eval_actual_writer_result_detected or sell_eval_heartbeat_result_detected)
+    sell_eval_cycle_count = (
+        len(sell_eval_cycle_lines)
+        or len(sell_eval_actual_writer_result_lines)
+        or len(sell_eval_heartbeat_result_lines)
+        or sum(1 for line in sell_evaluation_lines if "event=sell_eval_started" in line)
+    )
+    sell_eval_last_time = _extract_log_time((sell_eval_completed_lines or sell_eval_cycle_lines or sell_eval_actual_writer_result_lines or sell_evaluation_lines)[-1]) if sell_evaluation_lines else ""
     sell_position_lines = [line for line in sell_evaluation_lines if "event=sell_eval_position" in line]
     sell_evaluated_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_position_lines
         if _live_on_stage_extract_value(line, "symbol")
     })
+    if not sell_evaluated_symbols:
+        sell_evaluated_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_sell_eval_result, "sell_evaluated_symbols")))
     take_profit_watch_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_evaluation_lines
@@ -9240,6 +9290,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in sell_evaluation_lines
         if "event=take_profit_candidate" in line and _live_on_stage_extract_value(line, "symbol")
     })
+    if not take_profit_candidate_symbols:
+        take_profit_candidate_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_sell_eval_result, "take_profit_candidate_symbols")))
     strong_take_profit_candidate_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_evaluation_lines
@@ -9255,13 +9307,18 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in sell_evaluation_lines
         if "event=stop_loss_candidate" in line and _live_on_stage_extract_value(line, "symbol")
     })
+    if not stop_loss_candidate_symbols:
+        stop_loss_candidate_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_sell_eval_result, "stop_loss_candidate_symbols")))
     emergency_stop_loss_candidate_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_evaluation_lines
         if "event=emergency_stop_loss_candidate" in line and _live_on_stage_extract_value(line, "symbol")
     })
+    if not emergency_stop_loss_candidate_symbols:
+        emergency_stop_loss_candidate_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_sell_eval_result, "emergency_stop_loss_candidate_symbols")))
     external_holding_sell_lines = [line for line in sell_evaluation_lines if "source_type=external_holding" in line or "event=external_holding_sell_eval_preview_only" in line]
     sell_preview_only = any("event=sell_eval_preview_only" in line for line in sell_evaluation_lines)
+    sell_preview_only = bool(sell_preview_only or _live_on_runtime_bool_marker(latest_sell_eval_result, "preview_only"))
     emergency_stop_loss_preview_only = any("event=emergency_stop_loss_candidate" in line and "preview_only=True" in line for line in sell_evaluation_lines)
     sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower())
     side_sell_submit_count = sell_submit_count
@@ -9272,7 +9329,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in sell_evaluation_lines
         if "blocker=pnl_source_missing_for_sell" in line and _live_on_stage_extract_value(line, "symbol")
     })
-    pnl_source_for_sell_detected = bool(sell_position_lines and len(pnl_source_missing_symbols) < len(sell_evaluated_symbols))
+    if not pnl_source_missing_symbols:
+        pnl_source_missing_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_sell_eval_result, "pnl_source_missing_symbols")))
+    pnl_source_for_sell_detected = bool(sell_evaluated_symbols and len(pnl_source_missing_symbols) < len(sell_evaluated_symbols))
     sell_top_symbol = ""
     sell_top_pnl_pct = -9999.0
     for line in sell_position_lines:
@@ -9327,7 +9386,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     if buy_blocker == "-":
         buy_blocker = ""
     on_allowed_with_insufficient_available_krw = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "on_allowed_with_insufficient_available_krw")
-    sell_observe_enabled_while_buy_blocked = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "sell_observe_enabled_while_buy_blocked")
+    sell_observe_enabled_while_buy_blocked = bool(
+        _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "sell_observe_enabled_while_buy_blocked")
+        or (actual_writer_probe_buy_blocked and actual_writer_probe_sell_observe_enabled)
+    )
     joined_text = "\n".join(lines)
     status_bar_buy_blocked_monitoring_message = bool("신규매수 차단" in joined_text or "buy_blocked_monitor_only" in joined_lower or "buy_blocked=True" in joined_text)
     live_log_buy_blocked_monitoring_message = bool("보유종목 감시" in joined_text or "buy_blocked_monitor_only" in joined_lower)
@@ -9541,7 +9603,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     elif buy_blocked and runtime_monitor_only_mode and sell_evaluation_called:
         first_blocker = "monitor_only_buy_blocked_runtime_ready"
     elif buy_blocked and runtime_monitor_only_mode and not sell_evaluation_called:
-        if not sell_eval_heartbeat_probe_detected:
+        if not sell_eval_actual_writer_probe_detected:
+            first_blocker = "sell_eval_actual_writer_probe_missing"
+        elif sell_eval_actual_writer_skipped_detected:
+            first_blocker = "sell_eval_actual_writer_skipped"
+        elif not sell_eval_heartbeat_probe_detected:
             first_blocker = "sell_eval_not_connected_to_active_heartbeat_path"
         elif sell_eval_heartbeat_skipped_detected:
             first_blocker = "sell_eval_heartbeat_skipped"
@@ -9923,7 +9989,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),
         "sell_evaluated_symbols": sell_evaluated_symbols,
-        "sell_eval_position_count": int(len(sell_position_lines)),
+        "sell_eval_position_count": int(
+            len(sell_position_lines)
+            or _safe_float(_live_on_stage_extract_value(latest_sell_eval_result, "sell_eval_position_count"), 0.0)
+        ),
         "take_profit_watch_symbols": take_profit_watch_symbols,
         "take_profit_candidate_symbols": take_profit_candidate_symbols,
         "strong_take_profit_candidate_symbols": strong_take_profit_candidate_symbols,
@@ -9950,12 +10019,17 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "sell_eval_heartbeat_linked_detected": bool(sell_eval_heartbeat_linked_detected),
         "sell_eval_heartbeat_result_detected": bool(sell_eval_heartbeat_result_detected),
         "sell_eval_heartbeat_skipped_detected": bool(sell_eval_heartbeat_skipped_detected),
+        "sell_eval_actual_writer_probe_detected": bool(sell_eval_actual_writer_probe_detected),
+        "sell_eval_actual_writer_result_detected": bool(sell_eval_actual_writer_result_detected),
+        "sell_eval_actual_writer_skipped_detected": bool(sell_eval_actual_writer_skipped_detected),
+        "sell_eval_actual_writer_name": str(sell_eval_actual_writer_name or ""),
+        "sell_eval_actual_source_event": str(sell_eval_actual_source_event or ""),
         "sell_preview_only": bool(sell_preview_only),
         "sell_submit_count": int(sell_submit_count),
         "side_sell_submit_count": int(side_sell_submit_count),
         "manageable_holding_count_for_sell_eval": int(manageable_holding_count_for_sell_eval),
-        "sell_eval_runs_while_buy_blocked": bool(buy_blocked and sell_evaluation_called),
-        "sell_eval_runs_in_monitor_only": bool(runtime_monitor_only_mode and sell_evaluation_called),
+        "sell_eval_runs_while_buy_blocked": bool((buy_blocked or actual_writer_probe_buy_blocked) and sell_evaluation_called),
+        "sell_eval_runs_in_monitor_only": bool((runtime_monitor_only_mode or actual_writer_probe_monitor_only) and sell_evaluation_called),
         "sell_eval_skip_blocker": str(sell_eval_skip_blocker or ""),
         "status_bar_sell_eval_message_detected": bool(status_bar_sell_eval_message_detected),
         "live_log_sell_eval_message_detected": bool(live_log_sell_eval_message_detected),

@@ -356,3 +356,10 @@ These events are not submit permission and must not call order retry paths.
 - The trace separates missing wiring, connected-but-skipped, PnL-source blockers, and preview-ready results.
 - Buy-blocked and monitor-only states still qualify for SellEvaluation when the runtime contract is active.
 - Probe/result logs must remain preview-only with `actual_order=False` and `submitted=0`.
+
+## Actual Log Writer SellEvaluation Anchor
+
+- The exact CandidateFeedState event=score_update writer is an active anchor for SellEvaluation observation.
+- The trace must distinguish actual writer probe missing, skipped, and result states.
+- Buy-blocked or monitor-only states can still run the observe evaluator from this writer.
+- This anchor never calls submit layers and keeps `actual_order=False` and `submitted=0`.
