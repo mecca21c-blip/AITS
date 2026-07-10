@@ -1924,3 +1924,12 @@ summary modes.
 - LOCAL training store guard fields include `local_training_contract_scan_enabled`, `local_training_record_path_detected`, `local_training_payload_storage_detected`, `local_training_response_storage_detected`, `local_training_execution_result_storage_detected`, `local_training_outcome_placeholder_detected`, and `local_training_missing_fields`.
 - RiskGuard, LivePreflight, and Execution bypass guard fields include `riskguard_bypass_scan_enabled`, `livepreflight_bypass_scan_enabled`, `execution_bypass_scan_enabled`, `riskguard_bypass_detected`, `livepreflight_bypass_detected`, `execution_bypass_detected`, `direct_upbit_order_detected`, `actual_order_hardcode_detected`, `submitted_count_hardcode_detected`, and `bypass_samples`.
 - Blocker priority is `execution_bypass_detected`, `direct_upbit_order_detected`, `riskguard_bypass_detected`, `livepreflight_bypass_detected`, `actual_order_hardcode_detected`, `basic_engine_direct_trade_decision_active`, `order_intent_without_ai_decision_detected`, `trigger_used_as_action_detected`, `fixed_threshold_direct_sell_active`, `ai_decision_payload_builder_missing`, `ai_response_validator_missing`, and LOCAL training missing states. The summary fields are `role_contract_violation_count`, `role_contract_violation_types`, `role_contract_violation_samples`, and `role_contract_first_blocker`.
+
+## AI Response Validator And Buy Ready AI Gate
+
+- `validate_ai_decision_response` is the shared AI decision validator contract.
+- Required AI output fields are `action`, `confidence`, `reason_ko`, `eta_seconds`, `execution_plan`, `risk_notes`, and `invalidation_conditions`.
+- Buy Ready is a trigger, not an action. It must create `task=buy_decision` payload and wait for a validated AI action.
+- Buy/add OrderIntent requires AI metadata: `ai_decision_id`, `ai_provider`, `ai_action`, `ai_confidence`, `ai_reason_ko`, `ai_eta_seconds`, `ai_payload_hash`, and `ai_validation_passed=True`.
+- If provider response is missing, schema is invalid, or action is hold/wait, no buy OrderIntent is executable and the blocker is recorded.
+- Harness fields include `ai_decision_validator_contract_ready`, `ai_decision_validator_required_fields`, `buy_ready_ai_gate_enabled`, `buy_decision_payload_created`, `buy_decision_provider_requested`, `buy_decision_validated`, `buy_order_intent_requires_ai_decision`, `order_intent_ai_metadata_required`, `local_training_buy_decision_record_detected`, and `buy_ai_gate_blocker`.

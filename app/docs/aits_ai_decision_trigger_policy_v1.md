@@ -195,3 +195,11 @@ Trigger는 action이 아니다. Trigger는 AI에게 물어볼 이유다.
 ## 14. 기준 문장
 
 BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. BASIC의 지표와 임계값은 판단 근거이며, 최종 행동 결정은 AI가 한다.
+
+## Buy Ready AI Gate
+
+- Buy Ready is a trigger, not an action.
+- BASIC creates `task=buy_decision` payload when Buy Ready is detected.
+- AI must return a validated `buy` or `add` action before an executable buy OrderIntent can exist.
+- If AI returns `hold` or `wait`, or the provider is blocked, BASIC records the blocker and waits.
+- If AI schema validation fails, BASIC does not create an executable buy OrderIntent.

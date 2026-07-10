@@ -121,3 +121,11 @@ BASIC Signal Collector
 - RiskGuard validates the safety of the AI action.
 - LivePreflight validates the final order-readiness of the AI action.
 - Execution executes. Execution does not decide.
+
+## AI Response Validator And OrderIntent Metadata Boundary
+
+- AI output must pass a shared response validator before BASIC can coordinate execution.
+- Buy Ready is an AI decision trigger only.
+- Buy/add OrderIntent requires validated AI metadata including provider, action, confidence, reason, ETA, payload hash, and validation result.
+- RiskGuard and LivePreflight run after validated AI action; they are safety gates, not substitutes for AI judgment.
+- If AI response is missing, provider is blocked, or schema validation fails, BASIC records the blocker and does not create an executable OrderIntent.

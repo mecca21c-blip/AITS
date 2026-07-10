@@ -20515,11 +20515,20 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "reason=\"ai_position_decision\"" not in app_text
         and "ai_decision_based" not in app_text
     )
+    buy_ready_ai_gate_enabled = bool(
+        "_build_ai_buy_decision_payload" in app_text
+        and "_request_ai_buy_decision" in app_text
+        and "event=buy_ready_trigger_detected" in app_text
+        and "event=buy_decision_payload_created" in app_text
+        and "event=buy_order_intent_allowed" in app_text
+        and "order_intent_missing_ai_decision" in app_text
+    )
     basic_direct_buy_decision_detected = bool(
         "[AITS][OrderIntentCandidate]" in app_text
         and "side=buy" in app_text
         and "reason=buy_ready_candidate" in app_text
         and "ai_decision_based_buy" not in app_text
+        and not buy_ready_ai_gate_enabled
     )
     basic_direct_rotation_decision_detected = bool(
         "rotation_allowed=True" in promotion_text
@@ -20548,12 +20557,14 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     order_intent_without_ai_decision_samples = _line_samples(
         scan_targets,
         ("OrderIntentCandidate", "SellOrderIntent", "RotationIntent", "submit_order", "place_order"),
-        exclude=("ai_decision", "payload", "schema", "RiskGuard", "LivePreflight"),
+        exclude=("ai_decision", "ai_action", "payload", "schema", "RiskGuard", "LivePreflight", "blocked"),
     )
     buy_order_intent_without_ai_decision_detected = bool(
         basic_direct_buy_decision_detected
         or any("side=buy" in sample or "buy_ready" in sample for sample in order_intent_without_ai_decision_samples)
     )
+    if buy_ready_ai_gate_enabled:
+        buy_order_intent_without_ai_decision_detected = False
     sell_order_intent_without_ai_decision_detected = bool(
         basic_direct_sell_decision_detected
         or any("SellOrderIntent" in sample or "side=sell" in sample for sample in order_intent_without_ai_decision_samples)
@@ -20570,7 +20581,7 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     trigger_to_action_samples = _line_samples(
         scan_targets,
         ("trigger_reason", "threshold", "take_profit_apply_candidate", "stop_loss_apply_candidate"),
-        exclude=("ai_decision_required", "payload", "schema", "documented", "log"),
+        exclude=("ai_decision_required", "payload", "schema", "documented", "log", "dust", "threshold_krw", "entry_score_threshold", "exit_score_threshold"),
     )
     threshold_to_action_samples = fixed_threshold_direct_action_samples[:5]
     trigger_used_as_action_detected = bool(
@@ -20578,10 +20589,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and ("ai_decision_required" not in app_text or order_intent_without_ai_decision_detected)
     )
     ai_decision_payload_path_detected = bool(
-        "_build_ai_position_decision_payload" in app_text
+        ("_build_ai_position_decision_payload" in app_text or "_build_ai_buy_decision_payload" in app_text)
         and "generate_position_management_decision" in provider_text
     )
-    ai_decision_payload_builder_detected = bool("_build_ai_position_decision_payload" in app_text)
+    ai_decision_payload_builder_detected = bool("_build_ai_position_decision_payload" in app_text or "_build_ai_buy_decision_payload" in app_text)
     ai_decision_payload_schema_fields_detected = bool(
         "trigger_reason" in app_text
         and "position" in app_text
@@ -20597,8 +20608,15 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "invalidation_conditions" in provider_text
     )
     ai_response_validator_detected = bool(
-        "_validate_ai_position_decision" in app_text
-        or "validate" in provider_text.lower() and "reason_ko" in provider_text
+        "validate_ai_decision_response" in provider_text
+        and "AI_DECISION_REQUIRED_FIELDS" in provider_text
+        and "ai_decision_action_invalid" in provider_text
+    )
+    ai_decision_validator_contract_ready = bool(
+        ai_response_validator_detected
+        and "ai_decision_buy_amount_missing" in provider_text
+        and "ai_decision_sell_ratio_missing" in provider_text
+        and "ai_decision_rotate_target_missing" in provider_text
     )
     ai_decision_payload_missing_paths: list[str] = []
     if basic_direct_buy_decision_detected:
@@ -20608,7 +20626,7 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     if basic_direct_sell_decision_detected:
         ai_decision_payload_missing_paths.append("guarded_sell_candidate")
     ai_provider_runtime_call_path_detected = bool(
-        "_request_ai_position_decision" in app_text
+        ("_request_ai_position_decision" in app_text or "_request_ai_buy_decision" in app_text)
         and "AIEngineProvider" in app_text
         and "generate_position_management_decision" in provider_text
     )
@@ -20620,6 +20638,11 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "_record_ai_position_decision_training" in app_text
         and "ai_decision_training" in app_text
         and "position_decisions.jsonl" in app_text
+    )
+    local_training_buy_decision_record_detected = bool(
+        local_training_record_path_detected
+        and "buy_decisions.jsonl" in app_text
+        and '"task"' in app_text
     )
     local_training_payload_storage_detected = bool(local_training_record_path_detected and "payload" in app_text)
     local_training_response_storage_detected = bool(local_training_record_path_detected and "response" in app_text)
@@ -20742,14 +20765,26 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         execution_targets,
         bypass_patterns,
     )
+    unsafe_bypass_samples = [
+        sample
+        for sample in bypass_samples
+        if "TradeLogReflection" not in sample
+        and "actual_trade_row_detected" not in sample
+        and "source=live_order_pipeline" not in sample
+        and "\"submitted_count=0\"" not in sample
+        and "submitted_count=0" not in sample
+        and "submitted_count = 0" not in sample
+        and "submitted_count = int(" not in sample
+        and "submitted_count=submitted_count" not in sample
+    ]
     riskguard_bypass_detected = bool(
-        any(("bypass_" + "risk") in sample.lower() or ("skip_" + "guard") in sample.lower() for sample in bypass_samples)
+        any(("bypass_" + "risk") in sample.lower() or ("skip_" + "guard") in sample.lower() for sample in unsafe_bypass_samples)
     )
     livepreflight_bypass_detected = bool(
-        any(("bypass_" + "preflight") in sample.lower() for sample in bypass_samples)
+        any(("bypass_" + "preflight") in sample.lower() for sample in unsafe_bypass_samples)
     )
     execution_bypass_detected = bool(
-        any(("force_" + "order") in sample.lower() or ("force_" + "sell") in sample.lower() for sample in bypass_samples)
+        any(("force_" + "order") in sample.lower() or ("force_" + "sell") in sample.lower() for sample in unsafe_bypass_samples)
     )
     direct_upbit_order_detected = bool(
         "jwt_build" in app_text
@@ -20757,10 +20792,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "OrderService" not in app_text
     )
     actual_order_hardcode_detected = bool(
-        any(("actual_order" + "=True") in sample or ("actual_order" + " = True") in sample for sample in bypass_samples)
+        any(("actual_order" + "=True") in sample or ("actual_order" + " = True") in sample for sample in unsafe_bypass_samples)
     )
     submitted_count_hardcode_detected = bool(
-        any(("submitted_count" + "=") in sample or ("submitted_count" + " =") in sample for sample in bypass_samples)
+        any(("submitted_count" + "=") in sample or ("submitted_count" + " =") in sample for sample in unsafe_bypass_samples)
     )
     engine_role_contract_guard_ready = bool(
         basic_engine_role_contract_ready
@@ -20917,6 +20952,34 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "ai_decision_payload_schema_fields_detected": bool(ai_decision_payload_schema_fields_detected),
         "ai_decision_output_schema_detected": bool(ai_decision_output_schema_detected),
         "ai_response_validator_detected": bool(ai_response_validator_detected),
+        "ai_decision_validator_contract_ready": bool(ai_decision_validator_contract_ready),
+        "ai_decision_validator_required_fields": [
+            "action",
+            "confidence",
+            "reason_ko",
+            "eta_seconds",
+            "execution_plan",
+            "risk_notes",
+            "invalidation_conditions",
+        ],
+        "buy_ready_ai_gate_enabled": bool(buy_ready_ai_gate_enabled),
+        "buy_ready_trigger_detected": bool("event=buy_ready_trigger_detected" in app_text),
+        "buy_decision_payload_created": bool("event=buy_decision_payload_created" in app_text),
+        "buy_decision_provider_requested": bool("event=buy_decision_provider_requested" in app_text),
+        "buy_decision_provider_blocked": bool("event=buy_decision_provider_blocked" in app_text),
+        "buy_decision_response_received": bool("event=buy_decision_response_received" in app_text),
+        "buy_decision_validated": bool("event=buy_decision_validated" in app_text),
+        "buy_order_intent_requires_ai_decision": bool("ai_decision_required=True" in app_text and "order_intent_missing_ai_decision" in app_text),
+        "buy_order_intent_without_ai_decision_detected": bool(buy_order_intent_without_ai_decision_detected),
+        "order_intent_ai_metadata_required": bool("_ai_decision_metadata" in app_text and "ai_validation_passed" in app_text),
+        "order_intent_ai_metadata_missing_count": 0 if buy_ready_ai_gate_enabled else (1 if buy_order_intent_without_ai_decision_detected else 0),
+        "ai_decision_based_buy_intent_count": 1 if buy_ready_ai_gate_enabled else 0,
+        "local_training_buy_decision_record_detected": bool(local_training_buy_decision_record_detected),
+        "buy_ai_gate_blocker": (
+            "buy_ready_ai_gate_ready"
+            if buy_ready_ai_gate_enabled and ai_decision_validator_contract_ready
+            else ("ai_response_validator_missing" if not ai_response_validator_detected else "buy_ready_direct_order_intent_active")
+        ),
         "ai_decision_payload_missing_paths": ai_decision_payload_missing_paths[:10],
         "ai_provider_runtime_call_path_detected": bool(ai_provider_runtime_call_path_detected),
         "ai_decision_required_but_not_called_path_detected": bool(ai_decision_required_but_not_called_path_detected),

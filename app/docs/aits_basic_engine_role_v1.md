@@ -174,3 +174,10 @@ BASIC은 계산한다. BASIC은 정리한다. BASIC은 AI에게 묻는다. AI가
 - BASIC은 trigger를 직접 주문으로 변환하지 않는다.
 - BASIC은 수익률, 손실률, RSI, MACD, 거래량, 변동성, 호가, 체결강도, ETA, 비중, 후보대안을 AI 판단 payload의 근거로 정리한다.
 - BASIC은 trigger를 action으로 오해하지 않는다.
+
+## BASIC Buy Ready Gate Duty
+
+- BASIC may detect Buy Ready, but Buy Ready is not a buy action.
+- BASIC must build a buy decision payload and ask AI before any buy/add OrderIntent becomes executable.
+- BASIC must attach validated AI metadata to executable OrderIntent candidates.
+- Without validated AI decision metadata, BASIC must block the intent and record the blocker.

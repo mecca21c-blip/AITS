@@ -40214,6 +40214,105 @@ class MainWindow(QMainWindow):
             "reason": str(reason or "sell_evaluation"),
         }
 
+    def _build_ai_buy_decision_payload(self, *, row: dict, amount_krw: int, score: int, source: str, reason: str = "buy_ready") -> dict:
+        symbol = str((row or {}).get("symbol") or (row or {}).get("market") or (row or {}).get("ticker") or "").strip().upper()
+        total_asset = self._managed_pool_num_value(
+            getattr(self, "_investment_total_asset_krw", 0.0)
+            or getattr(self, "_aits_total_asset_krw", 0.0)
+            or getattr(self, "_last_total_asset_krw", 0.0),
+            0.0,
+        )
+        available_krw = self._managed_pool_num_value(getattr(self, "_last_available_krw", 0.0), 0.0)
+        managed_symbols = []
+        try:
+            for item in list(getattr(self, "_ai_managed_rows", []) or getattr(self, "_aits_managed_pool_rows", []) or []):
+                if isinstance(item, dict):
+                    value = str(item.get("symbol") or item.get("market") or item.get("ticker") or "").strip().upper()
+                    if value:
+                        managed_symbols.append(value)
+        except Exception:
+            managed_symbols = []
+        holdings_symbols = []
+        try:
+            for item in list(getattr(self, "_aits_manageable_holding_symbols", []) or []):
+                value = str(item or "").strip().upper()
+                if value:
+                    holdings_symbols.append(value)
+        except Exception:
+            holdings_symbols = []
+        return {
+            "schema": "aits_ai_decision_payload_v1",
+            "task": "buy_decision",
+            "trigger_reason": str(reason or "buy_ready"),
+            "symbol": symbol,
+            "candidate": {
+                "scanner_score": (row or {}).get("scanner_score") or (row or {}).get("theme_score"),
+                "basic_score": score,
+                "buy_ready_reason": (row or {}).get("ai_status_reason") or (row or {}).get("reason") or "buy_ready",
+                "score_source": (row or {}).get("score_source") or source or "managed_pool",
+                "market_rank": (row or {}).get("market_rank") or (row or {}).get("rank"),
+            },
+            "market": {
+                "current_price": (row or {}).get("current_price") or (row or {}).get("price"),
+                "price_change_1m": (row or {}).get("price_change_1m"),
+                "price_change_5m": (row or {}).get("price_change_5m"),
+                "price_change_15m": (row or {}).get("price_change_15m"),
+                "price_change_1h": (row or {}).get("price_change_1h"),
+                "volume_change": (row or {}).get("volume_change") or (row or {}).get("volume_change_pct"),
+                "trade_value": (row or {}).get("trade_value") or (row or {}).get("acc_trade_price_24h"),
+                "volatility": (row or {}).get("volatility"),
+            },
+            "indicators": {
+                "RSI": (row or {}).get("RSI") or (row or {}).get("rsi"),
+                "MACD": (row or {}).get("MACD") or (row or {}).get("macd"),
+                "moving_averages": (row or {}).get("moving_averages") or {},
+                "momentum": (row or {}).get("momentum"),
+            },
+            "portfolio": {
+                "total_asset_krw": total_asset if total_asset > 0.0 else None,
+                "available_krw": available_krw if available_krw > 0.0 else getattr(self, "_last_available_krw", None),
+                "total_budget_krw": getattr(self, "_aits_total_operating_cap_krw", None),
+                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
+                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+                "current_positions": holdings_symbols,
+            },
+            "constraints": {
+                "min_order_krw": 5000.0,
+                "per_order_cap_krw": amount_krw,
+                "total_cap": getattr(self, "_aits_total_operating_cap_krw", None),
+                "buy_blocked": bool(getattr(self, "_aits_buy_blocked", False)),
+                "buy_blocker": str(getattr(self, "_aits_buy_blocker", "") or ""),
+                "duplicate_lock": False,
+                "cooldown": None,
+            },
+            "candidates": {
+                "top_scanner_candidates": getattr(self, "_aits_latest_scanner_top_candidates", [])[:10] if isinstance(getattr(self, "_aits_latest_scanner_top_candidates", []), list) else [],
+                "managed_pool_symbols": managed_symbols[:50],
+                "holdings_symbols": holdings_symbols[:50],
+            },
+            "current_policy": {
+                "engine_provider": str(getattr(self, "_applied_ai_provider", "") or getattr(self, "_selected_ai_provider", "") or ""),
+                "execution_mode": str(self._get_aits_execution_mode() or ""),
+                "risk_level": getattr(self, "_aits_risk_level", ""),
+                "aggressiveness": getattr(self, "_aits_aggressiveness", ""),
+            },
+            "requested_decision": {
+                "trigger": "buy_ready",
+                "allowed_actions": ["hold", "wait", "buy", "add"],
+                "suggested_buy_amount_krw": amount_krw,
+            },
+            "output_schema": {
+                "action": "hold|wait|buy|add",
+                "confidence": "0.0-1.0",
+                "reason_ko": "string",
+                "eta_seconds": "integer",
+                "execution_plan": {"buy_amount_krw": "number if action is buy/add"},
+                "buy_amount_krw": "number if action is buy/add",
+                "risk_notes": "string",
+                "invalidation_conditions": "list",
+            },
+        }
+
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
         try:
             root = Path("data") / "ai_decision_training"
@@ -40222,13 +40321,16 @@ class MainWindow(QMainWindow):
             payload_hash = hashlib.sha256(encoded).hexdigest()[:24]
             row = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "task": str((payload or {}).get("task") or "manage_position_decision"),
                 "provider": str((decision or {}).get("provider") or ""),
                 "payload_hash": payload_hash,
                 "symbol": str((payload or {}).get("symbol") or ""),
+                "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
                 "input_features": payload,
                 "ai_action": str((decision or {}).get("action") or ""),
                 "ai_confidence": (decision or {}).get("confidence"),
                 "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
+                "validator_result": str((decision or {}).get("validator_result") or ("passed" if (decision or {}).get("validation_passed") else "failed")),
                 "execution_result": execution_result or {},
                 "realized_outcome_later": None,
                 "pnl_after_5m": None,
@@ -40236,10 +40338,12 @@ class MainWindow(QMainWindow):
                 "pnl_after_1h": None,
                 "user_override": False,
             }
-            with (root / "position_decisions.jsonl").open("a", encoding="utf-8") as fh:
+            target_name = "buy_decisions.jsonl" if row["task"] == "buy_decision" else "position_decisions.jsonl"
+            with (root / target_name).open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
             self._log.info(
-                "[AITS][AIDecisionAuthority] event=local_training_record_created symbol=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
+                "[AITS][AIDecisionAuthority] event=local_training_record_created task=%s symbol=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
+                row["task"] or "-",
                 row["symbol"] or "-",
                 row["provider"] or "-",
                 row["ai_action"] or "-",
@@ -40250,6 +40354,103 @@ class MainWindow(QMainWindow):
                 self._log.info("[AITS][AIDecisionAuthority] event=local_training_record_failed error_type=%s actual_order=False submitted=0", type(exc).__name__)
             except Exception:
                 pass
+
+    def _request_ai_buy_decision(self, *, payload: dict, candidate: dict) -> dict:
+        symbol = str((payload or {}).get("symbol") or (candidate or {}).get("symbol") or "").strip().upper()
+        provider = self._selected_ai_decision_provider()
+        try:
+            payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+        except Exception:
+            payload_hash = ""
+        try:
+            self._log.info(
+                "[AITS][AIDecisionGate] event=buy_decision_payload_created symbol=%s trigger_reason=buy_ready provider=%s payload_hash=%s basic_score=%s scanner_score=%s actual_order=False submitted=0",
+                symbol or "-",
+                provider or "-",
+                payload_hash or "-",
+                (payload or {}).get("candidate", {}).get("basic_score") if isinstance((payload or {}).get("candidate"), dict) else "-",
+                (payload or {}).get("candidate", {}).get("scanner_score") if isinstance((payload or {}).get("candidate"), dict) else "-",
+            )
+            self._log.info(
+                "[AITS][AIDecisionGate] event=buy_decision_provider_requested symbol=%s provider=%s payload_hash=%s actual_order=False submitted=0",
+                symbol or "-",
+                provider or "-",
+                payload_hash or "-",
+            )
+            from app.services.ai_engine_provider import AIEngineProvider
+
+            engine = AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None))
+            decision = engine.generate_position_management_decision(provider=provider, context=payload)
+        except Exception as exc:
+            decision = {
+                "schema": "aits_ai_decision_response_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "provider_call_attempted": True,
+                "action": "wait",
+                "confidence": 0.0,
+                "reason_ko": "AI 매수 판단 요청 중 오류가 발생해 주문을 보류합니다.",
+                "eta_seconds": 300,
+                "execution_plan": {},
+                "risk_notes": "",
+                "invalidation_conditions": [],
+                "buy_amount_krw": 0.0,
+                "validation_passed": False,
+                "validator_result": "failed",
+                "blocker": f"ai_decision_response_missing:{type(exc).__name__}",
+                "actual_order": False,
+                "submitted": 0,
+            }
+        decision = dict(decision or {})
+        decision["ai_payload_hash"] = payload_hash
+        try:
+            action = str(decision.get("action") or "").strip().lower()
+            blocker = str(decision.get("blocker") or decision.get("validation_blocker") or "")
+            if not bool(decision.get("provider_call_attempted")) and provider in {"openai", "gemini"}:
+                self._log.info(
+                    "[AITS][AIDecisionGate] event=buy_decision_provider_blocked symbol=%s provider=%s blocker=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    blocker or "buy_decision_provider_blocked",
+                )
+            elif not bool(decision.get("response_confirmed")):
+                self._log.info(
+                    "[AITS][AIDecisionGate] event=buy_decision_provider_blocked symbol=%s provider=%s blocker=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    blocker or "buy_decision_provider_blocked",
+                )
+            else:
+                self._log.info(
+                    "[AITS][AIDecisionGate] event=buy_decision_response_received symbol=%s provider=%s action=%s confidence=%s payload_hash=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    decision.get("confidence"),
+                    payload_hash or "-",
+                )
+            if bool(decision.get("validation_passed")):
+                self._log.info(
+                    "[AITS][AIDecisionGate] event=buy_decision_validated symbol=%s provider=%s action=%s confidence=%s ai_decision_id=%s payload_hash=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    decision.get("confidence"),
+                    str(decision.get("response_id") or payload_hash or "-"),
+                    payload_hash or "-",
+                )
+            else:
+                self._log.info(
+                    "[AITS][AIDecisionGate] event=buy_decision_blocked symbol=%s provider=%s action=%s blocker=%s reason_ko=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    blocker or "buy_decision_invalid_schema",
+                    bool(str(decision.get("reason_ko") or "").strip()),
+                )
+        except Exception:
+            pass
+        return decision
 
     def _request_ai_position_decision(self, *, payload: dict, candidate: dict) -> dict:
         symbol = str((payload or {}).get("symbol") or (candidate or {}).get("symbol") or "").strip().upper()
@@ -42732,6 +42933,116 @@ class MainWindow(QMainWindow):
                         ).strip().upper()
                         candidate_source = str(first_buy_ready.get("source") or "managed_pool").strip()
                         candidate_score = int(first_buy_ready.get("ai_score") or first_buy_ready.get("score") or 0)
+                        ai_buy_decision = {}
+                        ai_payload_hash = ""
+                        if runtime_contract_active and candidate_symbol:
+                            try:
+                                logging.getLogger("aits").info(
+                                    "[AITS][AIDecisionGate] event=buy_ready_trigger_detected symbol=%s trigger_reason=buy_ready basic_score=%s scanner_score=%s source=%s actual_order=False submitted=0",
+                                    candidate_symbol,
+                                    candidate_score,
+                                    first_buy_ready.get("scanner_score") or first_buy_ready.get("theme_score") or "-",
+                                    candidate_source,
+                                )
+                            except Exception:
+                                pass
+                            buy_decision_payload = self._build_ai_buy_decision_payload(
+                                row=first_buy_ready,
+                                amount_krw=intended_amount,
+                                score=candidate_score,
+                                source=candidate_source,
+                                reason="buy_ready",
+                            )
+                            ai_buy_decision = self._request_ai_buy_decision(payload=buy_decision_payload, candidate=first_buy_ready)
+                            ai_payload_hash = str(ai_buy_decision.get("ai_payload_hash") or "")
+                            ai_action = str(ai_buy_decision.get("action") or "").strip().lower()
+                            ai_valid = bool(ai_buy_decision.get("validation_passed")) and ai_action in {"buy", "add"}
+                            if not ai_valid:
+                                blocker = str(
+                                    ai_buy_decision.get("blocker")
+                                    or ai_buy_decision.get("validation_blocker")
+                                    or ("ai_decision_action_hold_or_wait" if ai_action in {"hold", "wait", ""} else "buy_decision_invalid_schema")
+                                )
+                                self._emit_live_order_pipeline_event(
+                                    "order_blocked",
+                                    request_id=f"ai-buy-gate-{int(time.time() * 1000)}",
+                                    symbol=candidate_symbol,
+                                    amount_krw=intended_amount,
+                                    blocker=blocker,
+                                    stage="ai_decision_gate",
+                                    status="blocked",
+                                    ai_decision_required=True,
+                                    ai_validation_passed=False,
+                                    ai_action=ai_action or "wait",
+                                    ai_provider=str(ai_buy_decision.get("provider") or self._selected_ai_decision_provider()),
+                                    ai_payload_hash=ai_payload_hash,
+                                )
+                                try:
+                                    self._append_aits_live_log(
+                                        f"Buy Ready candidate {candidate_symbol}: AI decision did not allow a buy order intent.",
+                                        category="pipeline",
+                                        level="warning",
+                                        event="buy_decision_blocked",
+                                        symbol=candidate_symbol,
+                                    )
+                                except Exception:
+                                    pass
+                                try:
+                                    self._set_aits_runtime_status_display("ON - AI buy gate blocked", blocker)
+                                except Exception:
+                                    pass
+                                try:
+                                    self._record_ai_position_decision_training(
+                                        payload=buy_decision_payload,
+                                        decision=ai_buy_decision,
+                                        execution_result={
+                                            "execution_result": "blocked",
+                                            "blocker": blocker,
+                                            "actual_order": False,
+                                            "submitted_count": 0,
+                                        },
+                                    )
+                                except Exception:
+                                    pass
+                                raise RuntimeError("live_auto_pipeline_handled")
+                            try:
+                                ai_amount = int(self._live_order_safe_float(ai_buy_decision.get("buy_amount_krw"), 0.0))
+                            except Exception:
+                                ai_amount = 0
+                            if ai_amount > 0:
+                                intended_amount = min(intended_amount, ai_amount) if intended_amount > 0 else ai_amount
+                            first_buy_ready = dict(first_buy_ready)
+                            first_buy_ready["_ai_decision_metadata"] = {
+                                "ai_decision_required": True,
+                                "ai_decision_id": str(ai_buy_decision.get("response_id") or ai_payload_hash or f"buy-ai-{int(time.time() * 1000)}"),
+                                "ai_provider": str(ai_buy_decision.get("provider") or self._selected_ai_decision_provider()),
+                                "ai_action": ai_action,
+                                "ai_confidence": ai_buy_decision.get("confidence"),
+                                "ai_reason_ko": str(ai_buy_decision.get("reason_ko") or ""),
+                                "ai_eta_seconds": ai_buy_decision.get("eta_seconds"),
+                                "ai_payload_hash": ai_payload_hash,
+                                "ai_validation_passed": True,
+                                "ai_decision_timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                                "buy_amount_krw": intended_amount,
+                            }
+                            try:
+                                self._record_ai_position_decision_training(
+                                    payload=buy_decision_payload,
+                                    decision=ai_buy_decision,
+                                    execution_result={"execution_result": "allowed_for_guarded_pipeline", "actual_order": False, "submitted_count": 0},
+                                )
+                                logging.getLogger("aits").info(
+                                    "[AITS][AIDecisionGate] event=buy_order_intent_allowed symbol=%s trigger_reason=buy_ready provider=%s action=%s confidence=%s ai_decision_id=%s payload_hash=%s reason_ko=%s actual_order=False submitted=0",
+                                    candidate_symbol,
+                                    first_buy_ready["_ai_decision_metadata"].get("ai_provider") or "-",
+                                    ai_action,
+                                    first_buy_ready["_ai_decision_metadata"].get("ai_confidence"),
+                                    first_buy_ready["_ai_decision_metadata"].get("ai_decision_id") or "-",
+                                    ai_payload_hash or "-",
+                                    bool(first_buy_ready["_ai_decision_metadata"].get("ai_reason_ko")),
+                                )
+                            except Exception:
+                                pass
                         candidate_event = "candidate_detected" if runtime_contract_active else "candidate_blocked"
                         candidate_blocker = "" if runtime_contract_active else runtime_contract_reason
                         try:
@@ -42743,13 +43054,20 @@ class MainWindow(QMainWindow):
                         except Exception:
                             candidate_observe_only = True
                         logging.getLogger("aits").info(
-                            "[AITS][OrderIntentCandidate] event=%s observe_only=%s symbol=%s source=%s side=buy amount_krw=%s score=%s reason=buy_ready_candidate blocker=%s runtime_contract_active=%s runtime_contract_reason=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
+                            "[AITS][OrderIntentCandidate] event=%s observe_only=%s symbol=%s source=%s side=buy amount_krw=%s score=%s reason=ai_decision_based_buy trigger_reason=buy_ready ai_decision_required=True ai_decision_id=%s ai_provider=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s ai_payload_hash=%s ai_validation_passed=%s blocker=%s runtime_contract_active=%s runtime_contract_reason=%s router_called=False riskguard_called=False live_preflight_called=False execution_called=False submitted=0 order_allowed=False real_order=False actual_order=False",
                             candidate_event,
                             bool(candidate_observe_only),
                             candidate_symbol,
                             candidate_source,
                             intended_amount,
                             candidate_score,
+                            str((first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_decision_id") or "-") if isinstance(first_buy_ready, dict) else "-",
+                            str((first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_provider") or "-") if isinstance(first_buy_ready, dict) else "-",
+                            str((first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_action") or "-") if isinstance(first_buy_ready, dict) else "-",
+                            (first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_confidence") if isinstance(first_buy_ready, dict) else "-",
+                            (first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_eta_seconds") if isinstance(first_buy_ready, dict) else "-",
+                            str((first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_payload_hash") or "-") if isinstance(first_buy_ready, dict) else "-",
+                            bool((first_buy_ready.get("_ai_decision_metadata") or {}).get("ai_validation_passed")) if isinstance(first_buy_ready, dict) else False,
                             candidate_blocker,
                             bool(runtime_contract_active),
                             runtime_contract_reason,
@@ -56432,6 +56750,57 @@ class MainWindow(QMainWindow):
             except Exception:
                 provider = ""
 
+            ai_meta = row.get("_ai_decision_metadata") if isinstance(row, dict) else {}
+            if not isinstance(ai_meta, dict):
+                ai_meta = {}
+            ai_action = str(ai_meta.get("ai_action") or "").strip().lower()
+            ai_validation_passed = bool(ai_meta.get("ai_validation_passed"))
+            if not ai_validation_passed or ai_action not in {"buy", "add"}:
+                blocker = "order_intent_ai_validation_failed" if ai_meta else "order_intent_missing_ai_decision"
+                self._emit_live_order_pipeline_event(
+                    "order_blocked",
+                    request_id=request_id,
+                    symbol=symbol,
+                    side=side,
+                    amount_krw=amount_krw,
+                    blocker=blocker,
+                    stage="ai_decision_gate",
+                    status="blocked",
+                    ai_decision_required=True,
+                    ai_validation_passed=ai_validation_passed,
+                    ai_action=ai_action or "missing",
+                    ai_provider=str(ai_meta.get("ai_provider") or provider or "unknown"),
+                    ai_payload_hash=str(ai_meta.get("ai_payload_hash") or ""),
+                )
+                try:
+                    logging.getLogger("aits").info(
+                        "[AITS][AIDecisionGate] event=buy_order_intent_blocked symbol=%s blocker=%s ai_decision_required=True ai_validation_passed=%s ai_action=%s actual_order=False submitted=0",
+                        symbol or "-",
+                        blocker,
+                        ai_validation_passed,
+                        ai_action or "missing",
+                    )
+                    self._append_aits_live_log(
+                        f"{symbol} buy order intent blocked because AI decision metadata is missing or invalid.",
+                        category="pipeline",
+                        level="warning",
+                        event="order_intent_missing_ai_decision",
+                        symbol=symbol,
+                    )
+                except Exception:
+                    pass
+                self._set_aits_runtime_status_display("ON - AI buy gate blocked", blocker)
+                return True
+            provider = str(ai_meta.get("ai_provider") or provider or "local").strip().lower()
+            ai_confidence = self._live_order_safe_float(ai_meta.get("ai_confidence"), max(0.0, min(1.0, float(candidate_score or 0) / 100.0)))
+            ai_reason_ko = str(ai_meta.get("ai_reason_ko") or "AI buy decision validated")
+            try:
+                ai_amount = int(self._live_order_safe_float(ai_meta.get("buy_amount_krw"), 0.0))
+                if ai_amount > 0:
+                    amount_krw = min(amount_krw, ai_amount) if amount_krw > 0 else ai_amount
+            except Exception:
+                pass
+
             self._emit_live_order_pipeline_event(
                 "candidate_selected",
                 request_id=request_id,
@@ -56709,10 +57078,10 @@ class MainWindow(QMainWindow):
             decision = AIDecisionState(
                 action="buy",
                 action_bias="bullish",
-                confidence=max(0.0, min(1.0, float(candidate_score or 0) / 100.0)),
+                confidence=max(0.0, min(1.0, float(ai_confidence or 0.0))),
                 selected_symbol=symbol,
-                why_this_symbol="buy_ready_candidate",
-                ai_summary_for_user="buy_ready_candidate",
+                why_this_symbol=ai_reason_ko,
+                ai_summary_for_user=ai_reason_ko,
             )
             try:
                 setattr(decision, "amount_krw", float(amount_krw))
@@ -56735,6 +57104,15 @@ class MainWindow(QMainWindow):
                     "price": price,
                     "score": int(candidate_score or 0),
                     "candidate_source": candidate_source,
+                    "ai_decision_required": True,
+                    "ai_decision_id": str(ai_meta.get("ai_decision_id") or ""),
+                    "ai_provider": provider or "local",
+                    "ai_action": ai_action,
+                    "ai_confidence": ai_confidence,
+                    "ai_reason_ko": ai_reason_ko,
+                    "ai_eta_seconds": ai_meta.get("ai_eta_seconds"),
+                    "ai_payload_hash": str(ai_meta.get("ai_payload_hash") or ""),
+                    "ai_validation_passed": True,
                 },
             )
             routed_action = str(getattr(routed, "action", "") or "").strip().lower()
@@ -56754,7 +57132,11 @@ class MainWindow(QMainWindow):
                 "requested_amount_krw": amount_krw,
                 "price": price,
                 "source_provider": provider or "unknown",
-                "confidence": max(0.0, min(1.0, float(candidate_score or 0) / 100.0)),
+                "confidence": max(0.0, min(1.0, float(ai_confidence or 0.0))),
+                "ai_decision_id": str(ai_meta.get("ai_decision_id") or ""),
+                "ai_provider": provider or "local",
+                "ai_action": ai_action,
+                "ai_validation_passed": True,
                 "action": "buy",
                 "holdings_value_krw": 0.0,
                 "cash_available_krw": available_krw,

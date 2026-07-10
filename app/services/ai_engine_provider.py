@@ -26,6 +26,234 @@ def _safe_log_info(message: str) -> None:
         pass
 
 
+AI_DECISION_ALLOWED_ACTIONS = {
+    "hold",
+    "wait",
+    "buy",
+    "add",
+    "sell",
+    "reduce",
+    "rotate",
+    "take_profit",
+    "stop_loss",
+}
+
+
+AI_DECISION_REQUIRED_FIELDS = (
+    "action",
+    "confidence",
+    "reason_ko",
+    "eta_seconds",
+    "execution_plan",
+    "risk_notes",
+    "invalidation_conditions",
+)
+
+
+def build_ai_decision_blocker(blockers: Any) -> str:
+    if isinstance(blockers, (list, tuple)):
+        for item in blockers:
+            text = str(item or "").strip()
+            if text:
+                return text
+        return ""
+    return str(blockers or "").strip()
+
+
+def _decision_float(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _decision_allowed_rotation_symbols(candidates: Any) -> set[str]:
+    allowed: set[str] = set()
+
+    def _add(value: Any) -> None:
+        symbol = str(value or "").strip().upper()
+        if symbol:
+            allowed.add(symbol)
+
+    if isinstance(candidates, dict):
+        for key in ("rotation_candidates", "scanner_top_candidates", "managed_pool_symbols", "holdings_symbols"):
+            values = candidates.get(key)
+            if isinstance(values, list):
+                for item in values:
+                    if isinstance(item, dict):
+                        _add(item.get("symbol") or item.get("market") or item.get("ticker"))
+                    else:
+                        _add(item)
+        for key in ("rotate_to_symbol", "symbol"):
+            _add(candidates.get(key))
+    elif isinstance(candidates, list):
+        for item in candidates:
+            if isinstance(item, dict):
+                _add(item.get("symbol") or item.get("market") or item.get("ticker"))
+            else:
+                _add(item)
+    return allowed
+
+
+def validate_ai_decision_response(
+    response: Optional[Dict[str, Any]],
+    *,
+    provider: Any = "",
+    task: str = "",
+    symbol: str = "",
+    candidates: Any = None,
+) -> Dict[str, Any]:
+    """Normalize and validate the final AI decision contract.
+
+    The validator never executes orders. Invalid decisions are converted into a
+    non-executable wait decision with an explicit blocker.
+    """
+    provider_text = str(provider or "").strip().lower() or "unknown"
+    task_text = str(task or "").strip() or "ai_decision"
+    symbol_text = str(symbol or "").strip().upper()
+    _safe_log_info(
+        "[AITS][AIDecisionValidator] event=validation_started "
+        f"provider={provider_text} task={task_text} symbol={symbol_text or '-'} "
+        "actual_order=False submitted=0"
+    )
+
+    if not isinstance(response, dict) or not response:
+        blocker = "ai_decision_response_missing"
+        decision = {
+            "schema": "aits_ai_decision_response_v1",
+            "action": "wait",
+            "confidence": 0.0,
+            "reason_ko": "AI 판단 응답이 없어 주문을 보류합니다.",
+            "eta_seconds": 300,
+            "execution_plan": {},
+            "risk_notes": "",
+            "invalidation_conditions": [],
+            "sell_ratio": 0.0,
+            "buy_amount_krw": 0.0,
+            "rotate_to_symbol": "",
+            "validation_passed": False,
+            "validator_result": "failed",
+            "validation_blocker": blocker,
+            "blocker": blocker,
+            "actual_order": False,
+            "submitted": 0,
+        }
+        _safe_log_info(
+            "[AITS][AIDecisionValidator] event=validation_failed "
+            f"provider={provider_text} task={task_text} symbol={symbol_text or '-'} "
+            f"action=wait confidence=0 blocker={blocker} reason=response_missing actual_order=False submitted=0"
+        )
+        return {"valid": False, "validation_passed": False, "blocker": blocker, "blockers": [blocker], "decision": decision}
+
+    source = dict(response or {})
+    blockers: list[str] = []
+    execution_plan = source.get("execution_plan")
+    if not isinstance(execution_plan, dict):
+        execution_plan = {}
+        blockers.append("ai_decision_execution_plan_missing")
+
+    action = str(source.get("action") or source.get("decision") or "").strip().lower()
+    if action not in AI_DECISION_ALLOWED_ACTIONS:
+        blockers.append("ai_decision_action_invalid")
+        action = "wait"
+
+    confidence_raw = source.get("confidence")
+    confidence = _decision_float(confidence_raw, -1.0)
+    if confidence < 0.0 or confidence > 1.0:
+        blockers.append("ai_decision_confidence_invalid")
+        confidence = max(0.0, min(1.0, _decision_float(confidence_raw, 0.0)))
+
+    reason_ko = str(source.get("reason_ko") or source.get("reason") or "").strip()
+    if not reason_ko:
+        blockers.append("ai_decision_reason_missing")
+        reason_ko = "AI 판단 근거가 비어 있어 주문을 보류합니다."
+
+    eta_raw = source.get("eta_seconds", 300)
+    eta_seconds = int(_decision_float(eta_raw, -1.0))
+    if eta_seconds < 0:
+        blockers.append("ai_decision_eta_invalid")
+        eta_seconds = 300
+
+    invalidation_conditions = source.get("invalidation_conditions")
+    if invalidation_conditions is None:
+        invalidation_conditions = []
+    elif isinstance(invalidation_conditions, dict):
+        invalidation_conditions = [invalidation_conditions]
+    elif not isinstance(invalidation_conditions, list):
+        invalidation_conditions = [str(invalidation_conditions)]
+
+    risk_notes = str(source.get("risk_notes") or "")[:1000]
+    sell_ratio = _decision_float(source.get("sell_ratio", execution_plan.get("sell_ratio", 0.0)), 0.0)
+    buy_amount_krw = _decision_float(source.get("buy_amount_krw", execution_plan.get("buy_amount_krw", 0.0)), 0.0)
+    rotate_to_symbol = str(source.get("rotate_to_symbol") or execution_plan.get("rotate_to_symbol") or "").strip().upper()
+
+    if action in {"buy", "add"} and buy_amount_krw <= 0.0:
+        blockers.append("ai_decision_buy_amount_missing")
+    if action in {"sell", "reduce", "take_profit", "stop_loss"}:
+        if sell_ratio <= 0.0:
+            blockers.append("ai_decision_sell_ratio_missing")
+        elif sell_ratio > 1.0:
+            blockers.append("ai_decision_sell_ratio_invalid")
+    if action == "rotate":
+        if not rotate_to_symbol:
+            blockers.append("ai_decision_rotate_target_missing")
+        else:
+            allowed_rotation_symbols = _decision_allowed_rotation_symbols(candidates)
+            if allowed_rotation_symbols and rotate_to_symbol not in allowed_rotation_symbols:
+                blockers.append("ai_decision_rotate_target_invalid")
+
+    sell_ratio = max(0.0, min(1.0, sell_ratio))
+    buy_amount_krw = max(0.0, buy_amount_krw)
+    blocker = build_ai_decision_blocker(blockers)
+    valid = not blockers
+    if not valid:
+        action = "wait"
+
+    decision = dict(source)
+    decision.update(
+        {
+            "schema": "aits_ai_decision_response_v1",
+            "action": action,
+            "confidence": confidence,
+            "reason_ko": reason_ko[:1000],
+            "eta_seconds": eta_seconds,
+            "execution_plan": execution_plan,
+            "risk_notes": risk_notes,
+            "invalidation_conditions": invalidation_conditions,
+            "sell_ratio": sell_ratio,
+            "buy_amount_krw": buy_amount_krw,
+            "rotate_to_symbol": rotate_to_symbol,
+            "validation_passed": bool(valid),
+            "validator_result": "passed" if valid else "failed",
+            "validation_blocker": blocker,
+            "blocker": blocker or str(source.get("blocker") or ""),
+            "actual_order": False,
+            "submitted": 0,
+        }
+    )
+    _safe_log_info(
+        "[AITS][AIDecisionValidator] event=validation_%s provider=%s task=%s symbol=%s "
+        "action=%s confidence=%s blocker=%s reason=%s actual_order=False submitted=0"
+        % (
+            "passed" if valid else "failed",
+            provider_text,
+            task_text,
+            symbol_text or "-",
+            action or "-",
+            confidence,
+            blocker or "-",
+            "ok" if valid else blocker or "invalid_schema",
+        )
+    )
+    return {"valid": bool(valid), "validation_passed": bool(valid), "blocker": blocker, "blockers": blockers, "decision": decision}
+
+
+def normalize_ai_decision_response(response: Optional[Dict[str, Any]], **kwargs: Any) -> Dict[str, Any]:
+    return validate_ai_decision_response(response, **kwargs)
+
+
 @dataclass
 class AIEngineDecision:
     action: str = "hold"
@@ -393,8 +621,16 @@ class AIEngineProvider:
         try:
             if provider in ("basic", "local", "local_ai", ""):
                 parsed = self._build_local_position_management_decision(context)
+                validation = validate_ai_decision_response(
+                    parsed,
+                    provider="local",
+                    task=str(context.get("task") or "manage_position_decision"),
+                    symbol=str(context.get("symbol") or ""),
+                    candidates=context.get("candidates"),
+                )
+                parsed = dict(validation.get("decision") or {})
                 parsed["provider"] = "local"
-                parsed["response_confirmed"] = True
+                parsed["response_confirmed"] = bool(validation.get("validation_passed"))
                 parsed["provider_call_attempted"] = False
                 parsed["reason"] = parsed.get("reason_ko") or parsed.get("reason") or "LOCAL AI decision"
                 return parsed
@@ -424,7 +660,7 @@ class AIEngineProvider:
                 {
                     "schema": "aits_position_management_decision_v1",
                     "provider": provider,
-                    "response_confirmed": True,
+                    "response_confirmed": bool(parsed.get("validation_passed")),
                     "provider_call_attempted": True,
                     "response_id": str(raw.get("response_id") or ""),
                     "usage_input_tokens": raw.get("usage_input_tokens"),
@@ -555,6 +791,7 @@ class AIEngineProvider:
         }
 
     def _parse_position_management_decision_response(self, raw_response: Any, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        context = dict(context or {})
         text = str(raw_response or "").strip()
         parsed: Dict[str, Any] = {}
         if text:
@@ -568,7 +805,7 @@ class AIEngineProvider:
                         parsed = json.loads(text[start:end + 1])
                     except Exception:
                         parsed = {}
-        allowed = {"hold", "wait", "sell", "reduce", "add", "buy", "rotate", "stop_loss", "take_profit"}
+        allowed = AI_DECISION_ALLOWED_ACTIONS
         action = str(parsed.get("action") or parsed.get("decision") or "").strip().lower()
         if action not in allowed:
             action = "wait"
@@ -594,7 +831,7 @@ class AIEngineProvider:
         if not reason_ko:
             reason_ko = "AI 판단 근거가 비어 있어 실행하지 않고 대기합니다."
             action = "wait"
-        return {
+        raw_decision = {
             "action": action,
             "confidence": confidence,
             "reason_ko": reason_ko[:800],
@@ -607,6 +844,14 @@ class AIEngineProvider:
             "invalidation_conditions": parsed.get("invalidation_conditions") or [],
             "blocker": "",
         }
+        validation = validate_ai_decision_response(
+            raw_decision,
+            provider=str(context.get("provider") or ""),
+            task=str(context.get("task") or "manage_position_decision"),
+            symbol=str(context.get("symbol") or ""),
+            candidates=context.get("candidates"),
+        )
+        return dict(validation.get("decision") or raw_decision)
 
     def _build_local_position_management_decision(self, context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         context = dict(context or {})

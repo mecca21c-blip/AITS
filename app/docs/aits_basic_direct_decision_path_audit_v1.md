@@ -280,3 +280,11 @@ Bypass fields:
 3. `AITS-ORDERINTENT-AI-METADATA-REQUIRED-CONTRACT-01`
 4. `AITS-ACTUAL-ORDER-POST-SUBMIT-REFLECTION-GUARD-REFINE-01`
 5. `AITS-ROTATION-AI-DECISION-AUTHORITY-INTEGRATION-01`
+
+## 12. Validator And Buy Ready Gate Resolution
+
+- `validate_ai_decision_response` is the shared validator contract for AI decision output.
+- Buy Ready must now create a `buy_decision` AI payload before any buy OrderIntent can become executable.
+- BASIC may log Buy Ready as `trigger_reason=buy_ready`, but it may not convert that trigger into `action=buy`.
+- A buy/add OrderIntent requires validated AI metadata and is blocked with `order_intent_missing_ai_decision` or `order_intent_ai_validation_failed` when metadata is absent or invalid.
+- LOCAL training records for buy decision requests are written to `data/ai_decision_training/buy_decisions.jsonl`.
