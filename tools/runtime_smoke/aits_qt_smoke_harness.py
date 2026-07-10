@@ -9203,17 +9203,36 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     live_buy_blocked_by_total_cap = any("event=buy_blocked_by_total_cap" in line or "blocker=total_operating_cap_exceeded" in line for line in total_operating_cap_lines)
     total_asset_zero_buy_block_detected = any("blocker=total_asset_source_zero_for_live_buy" in line for line in total_operating_cap_lines)
     exposure_cap_source_mismatch_resolved = bool(total_operating_cap_detected and total_operating_cap_source)
-    sell_evaluation_called = any("event=sell_eval_started" in line for line in sell_evaluation_lines)
+    sell_evaluation_called = any("event=sell_eval_started" in line or "event=sell_eval_cycle_started" in line for line in sell_evaluation_lines)
+    sell_eval_cycle_lines = [line for line in sell_evaluation_lines if "event=sell_eval_cycle_started" in line]
+    sell_eval_completed_lines = [line for line in sell_evaluation_lines if "event=sell_eval_cycle_completed" in line]
+    sell_eval_cycle_count = len(sell_eval_cycle_lines) or sum(1 for line in sell_evaluation_lines if "event=sell_eval_started" in line)
+    sell_eval_last_time = _extract_log_time((sell_eval_completed_lines or sell_eval_cycle_lines or sell_evaluation_lines)[-1]) if sell_evaluation_lines else ""
     sell_position_lines = [line for line in sell_evaluation_lines if "event=sell_eval_position" in line]
     sell_evaluated_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_position_lines
         if _live_on_stage_extract_value(line, "symbol")
     })
+    take_profit_watch_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "event=take_profit_watch" in line and _live_on_stage_extract_value(line, "symbol")
+    })
     take_profit_candidate_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_evaluation_lines
         if "event=take_profit_candidate" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    strong_take_profit_candidate_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "event=strong_take_profit_candidate" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    stop_loss_watch_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "event=stop_loss_watch" in line and _live_on_stage_extract_value(line, "symbol")
     })
     stop_loss_candidate_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
@@ -9296,6 +9315,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     joined_text = "\n".join(lines)
     status_bar_buy_blocked_monitoring_message = bool("신규매수 차단" in joined_text or "buy_blocked_monitor_only" in joined_lower or "buy_blocked=True" in joined_text)
     live_log_buy_blocked_monitoring_message = bool("보유종목 감시" in joined_text or "buy_blocked_monitor_only" in joined_lower)
+    status_bar_sell_eval_message_detected = bool("SellEvaluation" in joined_text or "event=sell_eval_preview_only" in joined_text or "event=take_profit_candidate" in joined_text or "event=stop_loss_candidate" in joined_text)
+    live_log_sell_eval_message_detected = bool("sell_eval_preview_only" in joined_lower or "take_profit_candidate" in joined_lower or "stop_loss_candidate" in joined_lower)
     actual_buy_submit_count_after_buy_blocked = sum(
         1
         for line in submit_lines
@@ -9876,8 +9897,13 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "actual_buy_submit_count_after_buy_blocked": int(actual_buy_submit_count_after_buy_blocked),
         "actual_sell_submit_count_after_buy_blocked": int(actual_sell_submit_count_after_buy_blocked),
         "sell_evaluation_called": bool(sell_evaluation_called),
+        "sell_eval_cycle_count": int(sell_eval_cycle_count),
+        "sell_eval_last_time": str(sell_eval_last_time or ""),
         "sell_evaluated_symbols": sell_evaluated_symbols,
+        "sell_eval_position_count": int(len(sell_position_lines)),
+        "take_profit_watch_symbols": take_profit_watch_symbols,
         "take_profit_candidate_symbols": take_profit_candidate_symbols,
+        "strong_take_profit_candidate_symbols": strong_take_profit_candidate_symbols,
         "take_profit_candidate_count": int(len(take_profit_candidate_symbols)),
         "external_holding_detection_supported": True,
         "external_holding_symbols_detected": external_holding_symbols_detected,
@@ -9889,6 +9915,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "external_holding_pnl_source_missing_symbols": external_holding_pnl_source_missing_symbols,
         "external_holding_sell_evaluated": bool(external_holding_sell_lines),
         "stop_loss_evaluation_called": bool(sell_evaluation_called),
+        "stop_loss_watch_symbols": stop_loss_watch_symbols,
         "stop_loss_candidate_symbols": stop_loss_candidate_symbols,
         "emergency_stop_loss_candidate_symbols": emergency_stop_loss_candidate_symbols,
         "emergency_stop_loss_preview_only": bool(emergency_stop_loss_preview_only),
@@ -9899,6 +9926,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "sell_preview_only": bool(sell_preview_only),
         "sell_submit_count": int(sell_submit_count),
         "side_sell_submit_count": int(side_sell_submit_count),
+        "sell_eval_runs_while_buy_blocked": bool(buy_blocked and sell_evaluation_called),
+        "status_bar_sell_eval_message_detected": bool(status_bar_sell_eval_message_detected),
+        "live_log_sell_eval_message_detected": bool(live_log_sell_eval_message_detected),
         "pnl_source_for_sell_detected": bool(pnl_source_for_sell_detected),
         "pnl_source_missing_symbols": pnl_source_missing_symbols,
         "top_pnl_symbol": str(sell_top_symbol or ""),

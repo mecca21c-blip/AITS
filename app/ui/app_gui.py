@@ -39967,7 +39967,10 @@ class MainWindow(QMainWindow):
         self._last_sell_evaluation_observe_at = now
         rows = [row for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
         evaluated: list[str] = []
+        take_profit_watch_symbols: list[str] = []
         take_profit_symbols: list[str] = []
+        strong_take_profit_symbols: list[str] = []
+        stop_loss_watch_symbols: list[str] = []
         stop_loss_symbols: list[str] = []
         emergency_stop_symbols: list[str] = []
         missing_symbols: list[str] = []
@@ -39975,10 +39978,17 @@ class MainWindow(QMainWindow):
         top_symbol = ""
         top_pnl_pct = -9999.0
         try:
+            holding_count = sum(1 for row in rows if self._managed_pool_status_bar_row_is_holding(row))
             self._log.info(
                 "[AITS][SellEvaluation] event=sell_eval_started reason=%s holding_count=%s preview_only=True actual_order=False submitted=0",
                 str(reason or "refresh"),
-                sum(1 for row in rows if self._managed_pool_status_bar_row_is_holding(row)),
+                holding_count,
+            )
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_cycle_started cycle_id=%s reason=%s holding_count=%s preview_only=True actual_order=False submitted=0",
+                int(now),
+                str(reason or "refresh"),
+                holding_count,
             )
         except Exception:
             pass
@@ -40024,7 +40034,10 @@ class MainWindow(QMainWindow):
                     take_profit_symbols.append(symbol)
                     suggested_action = "sell_preview"
                     reason_text = "take_profit_candidate_preview_only"
+                    if pnl_pct >= 5.0:
+                        strong_take_profit_symbols.append(symbol)
                 elif pnl_pct >= 3.0:
+                    take_profit_watch_symbols.append(symbol)
                     suggested_action = "sell_watch"
                     reason_text = "take_profit_watch_preview_only"
                 if pnl_pct <= -20.0:
@@ -40040,6 +40053,7 @@ class MainWindow(QMainWindow):
                     suggested_action = "sell_preview"
                     reason_text = "stop_loss_candidate_preview_only"
                 elif pnl_pct <= -5.0:
+                    stop_loss_watch_symbols.append(symbol)
                     suggested_action = "stop_loss_watch"
                     reason_text = "stop_loss_watch_preview_only"
             try:
@@ -40076,6 +40090,20 @@ class MainWindow(QMainWindow):
                         pnl_pct,
                         pnl_krw,
                     )
+                    if symbol in strong_take_profit_symbols:
+                        self._log.info(
+                            "[AITS][SellEvaluation] event=strong_take_profit_candidate symbol=%s pnl_pct=%s pnl_krw=%s suggested_action=sell_preview preview_only=True actual_order=False submitted=0 blocker=- reason=strong_take_profit_candidate_preview_only",
+                            symbol,
+                            pnl_pct,
+                            pnl_krw,
+                        )
+                elif symbol in take_profit_watch_symbols:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=take_profit_watch symbol=%s pnl_pct=%s pnl_krw=%s suggested_action=sell_watch preview_only=True actual_order=False submitted=0 blocker=- reason=take_profit_watch_preview_only",
+                        symbol,
+                        pnl_pct,
+                        pnl_krw,
+                    )
                 elif emergency_stop:
                     self._log.info(
                         "[AITS][SellEvaluation] event=emergency_stop_loss_candidate symbol=%s source_type=%s pnl_pct=%s pnl_krw=%s position_value_krw=%s stop_loss_watch_pct=-5.0 stop_loss_candidate_pct=-10.0 emergency_stop_loss_pct=-20.0 stop_loss_candidate=True emergency_stop_loss_candidate=True suggested_action=emergency_sell_preview preview_only=True actual_order=False submitted=0 blocker=- reason=emergency_stop_loss_candidate_preview_only",
@@ -40094,6 +40122,15 @@ class MainWindow(QMainWindow):
                         pnl_krw,
                         value,
                     )
+                elif symbol in stop_loss_watch_symbols:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=stop_loss_watch symbol=%s source_type=%s pnl_pct=%s pnl_krw=%s position_value_krw=%s stop_loss_watch_pct=-5.0 stop_loss_candidate_pct=-10.0 emergency_stop_loss_pct=-20.0 stop_loss_candidate=False emergency_stop_loss_candidate=False suggested_action=stop_loss_watch preview_only=True actual_order=False submitted=0 blocker=- reason=stop_loss_watch_preview_only",
+                        symbol,
+                        source_type or "-",
+                        pnl_pct,
+                        pnl_krw,
+                        value,
+                    )
             except Exception:
                 pass
         try:
@@ -40105,6 +40142,27 @@ class MainWindow(QMainWindow):
                 ",".join(stop_loss_symbols) or "-",
                 ",".join(emergency_stop_symbols) or "-",
                 ",".join(missing_symbols) or "-",
+            )
+        except Exception:
+            pass
+        try:
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_preview_only evaluated_symbols=%s take_profit_watch_symbols=%s take_profit_candidate_symbols=%s strong_take_profit_candidate_symbols=%s stop_loss_watch_symbols=%s stop_loss_candidate_symbols=%s emergency_stop_loss_candidate_symbols=%s preview_only=True actual_order=False submitted=0",
+                ",".join(evaluated) or "-",
+                ",".join(take_profit_watch_symbols) or "-",
+                ",".join(take_profit_symbols) or "-",
+                ",".join(strong_take_profit_symbols) or "-",
+                ",".join(stop_loss_watch_symbols) or "-",
+                ",".join(stop_loss_symbols) or "-",
+                ",".join(emergency_stop_symbols) or "-",
+            )
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_cycle_completed cycle_id=%s evaluated_count=%s take_profit_candidate_count=%s stop_loss_candidate_count=%s emergency_stop_loss_candidate_count=%s preview_only=True actual_order=False submitted=0",
+                int(now),
+                len(evaluated),
+                len(take_profit_symbols),
+                len(stop_loss_symbols),
+                len(emergency_stop_symbols),
             )
         except Exception:
             pass
@@ -40154,7 +40212,10 @@ class MainWindow(QMainWindow):
         result = {
             "sell_evaluation_called": True,
             "sell_evaluated_symbols": evaluated,
+            "take_profit_watch_symbols": take_profit_watch_symbols,
             "take_profit_candidate_symbols": take_profit_symbols,
+            "strong_take_profit_candidate_symbols": strong_take_profit_symbols,
+            "stop_loss_watch_symbols": stop_loss_watch_symbols,
             "stop_loss_candidate_symbols": stop_loss_symbols,
             "emergency_stop_loss_candidate_symbols": emergency_stop_symbols,
             "external_holding_symbols": external_symbols,
@@ -55945,6 +56006,30 @@ class MainWindow(QMainWindow):
                 level="info",
                 event="periodic_waiting_reason",
             )
+            try:
+                if bool(getattr(self, "_aits_sell_observe_enabled", False)) or bool(getattr(self, "_aits_monitor_only_mode", False)) or bool(getattr(self, "_aits_buy_blocked", False)):
+                    sell_eval = self._evaluate_sell_takeprofit_observe_path(reason=f"runtime_heartbeat:{reason}")
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=sell_eval_heartbeat_linked reason=%s sell_evaluation_called=%s evaluated_count=%s buy_blocked=%s monitor_only=%s sell_observe_enabled=%s preview_only=True actual_order=False submitted=0",
+                        reason,
+                        bool(sell_eval.get("sell_evaluation_called")),
+                        len(sell_eval.get("sell_evaluated_symbols") or []),
+                        bool(getattr(self, "_aits_buy_blocked", False)),
+                        bool(getattr(self, "_aits_monitor_only_mode", False)),
+                        bool(getattr(self, "_aits_sell_observe_enabled", False)),
+                    )
+                    try:
+                        self._update_managed_pool_status_bar(reason="runtime_heartbeat_sell_observe")
+                    except Exception:
+                        pass
+            except Exception as exc:
+                try:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=sell_eval_blocked blocker=sell_eval_heartbeat_exception error_type=%s preview_only=True actual_order=False submitted=0",
+                        type(exc).__name__,
+                    )
+                except Exception:
+                    pass
             self._log_live_trading_ux_status(
                 "periodic_waiting_reason",
                 waiting_reason=reason,

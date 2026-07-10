@@ -510,3 +510,10 @@ Blockers:
   - `buy_submit_while_buy_blocked`
   - `monitor_only_buy_blocked_runtime_ready`
 - In buy-blocked mode, E2E must report zero actual buy submit and zero actual sell submit unless a later explicit execution Goal authorizes otherwise.
+
+## Holding Sell Observe Loop Taxonomy
+
+- E2E treats `[AITS][SellEvaluation] event=sell_eval_cycle_started` as proof that the holding observe loop is connected to runtime.
+- Expected observe-only fields include `sell_eval_cycle_count`, `sell_eval_position_count`, `sell_evaluated_symbols`, `take_profit_watch_symbols`, `take_profit_candidate_symbols`, `strong_take_profit_candidate_symbols`, `stop_loss_watch_symbols`, `stop_loss_candidate_symbols`, and `emergency_stop_loss_candidate_symbols`.
+- Blockers include `sell_evaluation_not_called`, `managed_holdings_not_passed_to_sell_evaluation`, `pnl_source_missing_for_sell`, `take_profit_candidate_missing`, `emergency_stoploss_candidate_missing`, and `unexpected_sell_submit`.
+- A healthy monitor-only run reports `sell_eval_runs_while_buy_blocked=True` with `side_sell_submit_count=0`.

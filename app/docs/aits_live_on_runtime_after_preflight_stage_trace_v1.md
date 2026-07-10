@@ -342,3 +342,10 @@ These events are not submit permission and must not call order retry paths.
 - Buy Ready candidates must stop at `order_blocked` with the buy blocker and must not continue to Router/RiskGuard/LivePreflight for buy execution.
 - Sell/take-profit/stop-loss observation and external holding adoption continue while buy is blocked.
 - LIVE LOG/status bar should say 신규매수 차단 and 보유종목 감시 중 in Korean.
+
+## Holding Sell Observe Loop Contract
+
+- The runtime heartbeat/status cycle must invoke SellEvaluation for manageable holdings while ON is active, including monitor-only buy-blocked mode.
+- The loop evaluates take-profit watch/candidate/strong-candidate and stop-loss watch/candidate/emergency-candidate thresholds as preview only.
+- Missing PnL inputs produce `pnl_source_missing_for_sell` or external-holding-specific blockers; they do not suppress the cycle log.
+- The loop must never submit sell orders in this stage and must keep `actual_order=False` and `submitted=0`.

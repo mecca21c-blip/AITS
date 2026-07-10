@@ -1865,3 +1865,11 @@ summary modes.
 - When only a buy blocker is present, AITS starts as monitor-only: `runtime_monitor_only_mode=True`, `buy_enabled=False`, `buy_blocked=True`, and sell observe remains enabled.
 - Buy-blocked monitor-only mode must not submit buy or sell orders. It may continue holdings monitoring, PnL updates, take-profit previews, stop-loss previews, and external holding adoption.
 - Harness fields include `on_preflight_buy_blocker_nonfatal`, `on_preflight_runtime_fatal_blocker`, `on_allowed_with_insufficient_available_krw`, `runtime_monitor_only_mode`, `buy_enabled`, `buy_blocked`, `buy_blocker`, `sell_observe_enabled_while_buy_blocked`, `status_bar_buy_blocked_monitoring_message`, `live_log_buy_blocked_monitoring_message`, and submit counters after buy-block.
+
+## Holding Sell Observe Loop
+
+- Monitor-only ON runtime must call the holding sell observe loop from the existing runtime heartbeat/status cycle.
+- `[AITS][SellEvaluation]` records `sell_eval_cycle_started`, per-position `sell_eval_position`, preview events, and `sell_eval_cycle_completed`.
+- PnL source missing is logged as an evaluated result, not silently skipped.
+- Harness fields include `sell_eval_cycle_count`, `sell_eval_position_count`, `take_profit_watch_symbols`, `strong_take_profit_candidate_symbols`, `stop_loss_watch_symbols`, and `sell_eval_runs_while_buy_blocked`.
+- The loop is observe-only: `preview_only=True`, `actual_order=False`, `submitted=0`; sell submit requires a separate approved execution Goal.
