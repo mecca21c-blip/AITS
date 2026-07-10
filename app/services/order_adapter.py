@@ -131,7 +131,7 @@ class AITSOrderAdapter:
                     symbol=symbol,
                     order_side=side,
                     amount_krw=self._safe_float(getattr(ba, "amount_krw", 0.0), 0.0),
-                    quantity=0.0,
+                    quantity=self._safe_float(getattr(ba, "quantity", 0.0), 0.0),
                     reduce_ratio=0.0,
                     dry_run=self.execution_mode != "live",
                     reason=reason,
@@ -216,6 +216,30 @@ class AITSOrderAdapter:
                     )
                     print(f"[AITS][OrderAdapter] blocked_live_order | blocked={result.blocked_orders[-1] if result.blocked_orders else {}}")
                     continue
+
+                if at == "sell":
+                    if self._safe_float(c.amount_krw, 0.0) < self.min_order_krw:
+                        result.blocked_orders.append(
+                            self._make_record(
+                                action_type=at,
+                                symbol=sym,
+                                status="blocked",
+                                reason="sell_below_min_order_krw",
+                                detail_ko="최소 주문 금액 미만이라 매도 후보를 차단했습니다.",
+                            )
+                        )
+                        continue
+                    if self._safe_float(c.quantity, 0.0) <= 0:
+                        result.blocked_orders.append(
+                            self._make_record(
+                                action_type=at,
+                                symbol=sym,
+                                status="blocked",
+                                reason="sell_quantity_unavailable",
+                                detail_ko="매도 가능 수량이 없어 매도 후보를 차단했습니다.",
+                            )
+                        )
+                        continue
 
                 if (
                     self.execution_mode == "live"
@@ -670,6 +694,7 @@ class AITSOrderAdapter:
                 action_type=str(getattr(action, "action_type", "") if action is not None else ""),
                 symbol=str(getattr(action, "symbol", "") if action is not None else ""),
                 amount_krw=self._safe_float(getattr(action, "amount_krw", 0.0), 0.0),
+                quantity=self._safe_float(getattr(action, "quantity", 0.0), 0.0),
                 reason=str(getattr(action, "reason", "") if action is not None else ""),
                 source_module=str(getattr(action, "source_module", "") if action is not None else ""),
                 source_provider=str(

@@ -16,6 +16,7 @@ class BridgeAction:
     action_type: str = "wait"
     symbol: str = ""
     amount_krw: float = 0.0
+    quantity: float = 0.0
     priority: int = 0
     reason: str = ""
     source_module: str = ""
@@ -197,6 +198,10 @@ class ExecutionBridge:
             amount_krw = float(data.get("amount_krw") or 0.0)
         except Exception:
             amount_krw = 0.0
+        try:
+            quantity = float(data.get("quantity") or data.get("volume") or 0.0)
+        except Exception:
+            quantity = 0.0
         execution_allowed = bool(data.get("execution_allowed", False))
         risk_guard = dict(data.get("risk_guard") or {})
         if not execution_allowed:
@@ -211,6 +216,7 @@ class ExecutionBridge:
                         action_type=side or "buy",
                         symbol=symbol,
                         amount_krw=amount_krw,
+                        quantity=quantity,
                         reason=str(data.get("blocker") or "guarded_execution_not_allowed"),
                         source_module="guarded_execution_contract",
                         source_provider=str(data.get("source_provider") or ""),
@@ -226,6 +232,7 @@ class ExecutionBridge:
             action_type=side,
             symbol=symbol,
             amount_krw=amount_krw,
+            quantity=quantity,
             priority=1,
             reason=str(data.get("request_id") or data.get("source_request_id") or "guarded_one_shot"),
             source_module="guarded_execution_contract",
@@ -253,6 +260,10 @@ class ExecutionBridge:
             amount_krw = float(data.get("amount_krw") or 0.0)
         except Exception:
             amount_krw = 0.0
+        try:
+            quantity = float(data.get("quantity") or data.get("volume") or 0.0)
+        except Exception:
+            quantity = 0.0
         execution_allowed = bool(data.get("execution_allowed", False))
         risk_guard = dict(data.get("risk_guard") or {})
         risk_guard["live_guarded_window_order"] = True
@@ -269,6 +280,7 @@ class ExecutionBridge:
                         action_type=side or "buy",
                         symbol=symbol,
                         amount_krw=amount_krw,
+                        quantity=quantity,
                         reason=str(data.get("blocker") or "live_guarded_window_not_allowed"),
                         source_module="live_auto_trading_flow",
                         source_provider=str(data.get("source_provider") or ""),
@@ -291,6 +303,7 @@ class ExecutionBridge:
                     action_type=side or "buy",
                     symbol=symbol,
                     amount_krw=amount_krw,
+                    quantity=quantity,
                     priority=1,
                     reason=str(data.get("request_id") or "live_guarded_window"),
                     source_module="live_auto_trading_flow",
@@ -338,6 +351,14 @@ class ExecutionBridge:
             except (TypeError, ValueError):
                 amt_f = 0.0
 
+            qty = getattr(action, "quantity", None)
+            if qty is None and isinstance(action, dict):
+                qty = action.get("quantity", action.get("volume", 0.0))
+            try:
+                qty_f = float(qty if qty is not None else 0.0)
+            except (TypeError, ValueError):
+                qty_f = 0.0
+
             pr = getattr(action, "priority", None)
             if pr is None and isinstance(action, dict):
                 pr = action.get("priority", 0)
@@ -370,6 +391,7 @@ class ExecutionBridge:
                 action_type=at_s,
                 symbol=sym_s,
                 amount_krw=amt_f,
+                quantity=qty_f,
                 priority=pr_i,
                 reason=rs_s,
                 source_module=sm_s,

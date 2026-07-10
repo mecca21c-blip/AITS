@@ -9123,6 +9123,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     add_position_policy_lines = [line for line in lines if "[AITS][AddPositionPolicy]" in line]
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
+    sell_order_intent_lines = [line for line in lines if "[AITS][SellOrderIntent]" in line]
+    sell_apply_guard_lines = [line for line in lines if "[AITS][SellApplyGuard]" in line]
     external_holding_lines = [line for line in lines if "[AITS][ExternalHoldingAdoption]" in line]
     on_preflight_taxonomy_lines = [line for line in lines if "[AITS][OnPreflightTaxonomy]" in line]
     account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
@@ -9320,7 +9322,49 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     sell_preview_only = any("event=sell_eval_preview_only" in line for line in sell_evaluation_lines)
     sell_preview_only = bool(sell_preview_only or _live_on_runtime_bool_marker(latest_sell_eval_result, "preview_only"))
     emergency_stop_loss_preview_only = any("event=emergency_stop_loss_candidate" in line and "preview_only=True" in line for line in sell_evaluation_lines)
+    sell_apply_supported = bool(sell_order_intent_lines or sell_apply_guard_lines)
+    sell_apply_candidate_lines = [
+        line for line in sell_order_intent_lines + sell_apply_guard_lines if "event=sell_apply_candidate" in line
+    ]
+    sell_intent_created_lines = [line for line in sell_apply_guard_lines if "event=sell_intent_created" in line]
+    sell_intent_blocked_lines = [line for line in sell_order_intent_lines + sell_apply_guard_lines if "event=sell_intent_blocked" in line]
+    sell_guard_started_lines = [line for line in sell_apply_guard_lines if "event=sell_guard_check_started" in line]
+    sell_guard_passed_lines = [line for line in sell_apply_guard_lines if "event=sell_guard_passed" in line]
+    sell_guard_blocked_lines = [line for line in sell_apply_guard_lines if "event=sell_guard_blocked" in line]
+    sell_preflight_started_lines = [line for line in sell_apply_guard_lines if "event=sell_preflight_started" in line]
+    sell_preflight_passed_lines = [line for line in sell_apply_guard_lines if "event=sell_preflight_passed" in line]
+    sell_preflight_blocked_lines = [line for line in sell_apply_guard_lines if "event=sell_preflight_blocked" in line]
+    sell_submit_requested_lines = [line for line in sell_apply_guard_lines if "event=sell_submit_requested" in line]
+    sell_submit_result_lines = [line for line in sell_apply_guard_lines if "event=sell_submit_result" in line]
+    sell_duplicate_blocked_lines = [line for line in sell_apply_guard_lines if "event=sell_duplicate_blocked" in line]
+    latest_sell_apply_line = (
+        sell_submit_result_lines
+        or sell_preflight_blocked_lines
+        or sell_guard_blocked_lines
+        or sell_intent_blocked_lines
+        or sell_intent_created_lines
+        or sell_apply_candidate_lines
+        or [""]
+    )[-1]
+    sell_apply_candidate_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_apply_candidate_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    })
+    sell_intent_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_intent_created_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    })
+    sell_blocker = _live_on_stage_extract_value(latest_sell_apply_line, "blocker")
+    if sell_blocker == "-":
+        sell_blocker = ""
+    sell_trigger = _live_on_stage_extract_value(latest_sell_apply_line, "trigger")
+    sell_ratio = _safe_float(_live_on_stage_extract_value(latest_sell_apply_line, "sell_ratio"), 0.0)
+    sell_volume = _safe_float(_live_on_stage_extract_value(latest_sell_apply_line, "sell_volume"), 0.0)
+    estimated_sell_value_krw = _safe_float(_live_on_stage_extract_value(latest_sell_apply_line, "estimated_sell_value_krw"), 0.0)
     sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower())
+    sell_submit_count = max(sell_submit_count, sum(1 for line in sell_submit_result_lines if _live_on_runtime_bool_marker(line, "actual_order")))
     side_sell_submit_count = sell_submit_count
     actual_sell_order_count = sum(1 for line in submit_lines if "side=sell" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order"))
     external_holding_sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower() and "external_holding" in line.lower())
@@ -9615,8 +9659,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = "sell_observe_disabled_by_buy_blocker"
     elif on_preflight_buy_blocker_nonfatal:
         first_blocker = "buy_blocked_monitor_only_ready"
-    if actual_sell_order_count > 0 or external_holding_sell_submit_count > 0:
-        first_blocker = "unexpected_external_holding_sell_submit"
+    if side_sell_submit_count > 0 and (not sell_guard_passed_lines or not sell_preflight_passed_lines):
+        first_blocker = "unexpected_sell_submit_without_guard"
+    elif side_sell_submit_count > 0:
+        first_blocker = "guarded_sell_submit_observed"
+    elif sell_guard_blocked_lines:
+        first_blocker = "sell_blocked_by_riskguard"
+    elif sell_preflight_blocked_lines:
+        first_blocker = "sell_blocked_by_live_preflight"
+    elif sell_duplicate_blocked_lines:
+        first_blocker = "sell_duplicate_lock_active"
+    elif sell_blocker == "sell_blocked_by_min_order_value":
+        first_blocker = "sell_blocked_by_min_order_value"
+    elif sell_apply_candidate_symbols and not sell_intent_created_lines and sell_blocker not in {"runtime_not_active_for_sell_apply", "sell_apply_threshold_not_reached"}:
+        first_blocker = "sell_apply_candidate_not_created"
     elif sell_evaluation_called and take_profit_candidate_symbols:
         first_blocker = "take_profit_candidate_preview_only"
     elif emergency_stop_loss_candidate_symbols:
@@ -9656,9 +9712,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         critical_flags.append("multiple_submitted_symbols_detected")
     if detected_candidate_amount and configured_amount and detected_candidate_amount != configured_amount and submit_attempt_count:
         critical_flags.append("submitted_amount_differs_from_configured_setting")
-    if order_adapter_lines and not riskguard_lines:
+    guarded_sell_path_detected = bool(sell_guard_passed_lines and sell_preflight_passed_lines)
+    if order_adapter_lines and not riskguard_lines and not guarded_sell_path_detected:
         critical_flags.append("order_adapter_reached_without_riskguard")
-    if submit_attempt_count and not unlock_lines and not normal_live_order_pipeline_detected:
+    if submit_attempt_count and not unlock_lines and not normal_live_order_pipeline_detected and not guarded_sell_path_detected:
         critical_flags.append("submit_reached_without_unlock")
     if router_apply:
         critical_flags.append("router_apply_true_detected")
@@ -10031,6 +10088,28 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "sell_eval_runs_while_buy_blocked": bool((buy_blocked or actual_writer_probe_buy_blocked) and sell_evaluation_called),
         "sell_eval_runs_in_monitor_only": bool((runtime_monitor_only_mode or actual_writer_probe_monitor_only) and sell_evaluation_called),
         "sell_eval_skip_blocker": str(sell_eval_skip_blocker or ""),
+        "sell_apply_supported": bool(sell_apply_supported),
+        "sell_apply_candidate_symbols": sell_apply_candidate_symbols,
+        "sell_intent_created_count": int(len(sell_intent_created_lines)),
+        "sell_intent_symbols": sell_intent_symbols,
+        "sell_guard_check_started_count": int(len(sell_guard_started_lines)),
+        "sell_guard_passed_count": int(len(sell_guard_passed_lines)),
+        "sell_guard_blocked_count": int(len(sell_guard_blocked_lines)),
+        "sell_preflight_started_count": int(len(sell_preflight_started_lines)),
+        "sell_preflight_passed_count": int(len(sell_preflight_passed_lines)),
+        "sell_preflight_blocked_count": int(len(sell_preflight_blocked_lines)),
+        "sell_submit_requested_count": int(len(sell_submit_requested_lines)),
+        "sell_duplicate_blocked_count": int(len(sell_duplicate_blocked_lines)),
+        "sell_blocker": str(sell_blocker or ""),
+        "sell_trigger": str(sell_trigger or ""),
+        "sell_ratio": float(sell_ratio),
+        "sell_volume": float(sell_volume),
+        "estimated_sell_value_krw": float(estimated_sell_value_krw),
+        "take_profit_sell_apply_count": int(sum(1 for line in sell_apply_candidate_lines if "trigger=take_profit" in line or "trigger=strong_take_profit" in line)),
+        "stop_loss_sell_apply_count": int(sum(1 for line in sell_apply_candidate_lines if "trigger=stop_loss" in line)),
+        "emergency_stop_loss_sell_apply_count": int(sum(1 for line in sell_apply_candidate_lines if "trigger=emergency_stop_loss" in line)),
+        "sell_trade_log_recorded": bool(trade_log_detected and side_sell_submit_count > 0),
+        "sell_live_log_message_detected": bool(sell_apply_guard_lines or "매도" in joined),
         "status_bar_sell_eval_message_detected": bool(status_bar_sell_eval_message_detected),
         "live_log_sell_eval_message_detected": bool(live_log_sell_eval_message_detected),
         "pnl_source_for_sell_detected": bool(pnl_source_for_sell_detected),

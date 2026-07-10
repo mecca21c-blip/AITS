@@ -40002,6 +40002,337 @@ class MainWindow(QMainWindow):
                     _add_row(item, attr_name)
         return rows
 
+    def _sell_apply_runtime_active(self) -> bool:
+        try:
+            if bool(getattr(self, "_aits_runtime_contract_active", False)):
+                return True
+            if str(getattr(self, "_aits_runtime_start_result", "") or "").strip().lower() in {"started", "already_running"}:
+                return True
+            if hasattr(self, "btn_run_toggle") and bool(self.btn_run_toggle.isChecked()):
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _sell_apply_duplicate_locked(self, symbol: str, now: float, cooldown_sec: int = 1800) -> tuple[bool, str]:
+        symbol = str(symbol or "").strip().upper()
+        locks = getattr(self, "_aits_sell_intent_locks", None)
+        if not isinstance(locks, dict):
+            locks = {}
+            self._aits_sell_intent_locks = locks
+        item = locks.get(symbol)
+        if not isinstance(item, dict):
+            return False, ""
+        try:
+            age = float(now) - float(item.get("ts") or 0.0)
+        except Exception:
+            age = 0.0
+        if age < float(cooldown_sec):
+            return True, str(item.get("request_id") or "")
+        return False, ""
+
+    def _mark_sell_apply_duplicate_lock(self, symbol: str, request_id: str, now: float, status: str = "locked") -> None:
+        try:
+            locks = getattr(self, "_aits_sell_intent_locks", None)
+            if not isinstance(locks, dict):
+                locks = {}
+                self._aits_sell_intent_locks = locks
+            locks[str(symbol or "").strip().upper()] = {
+                "request_id": str(request_id or ""),
+                "ts": float(now),
+                "status": str(status or "locked"),
+            }
+        except Exception:
+            pass
+
+    def _build_sell_apply_candidate(
+        self,
+        *,
+        row: dict,
+        symbol: str,
+        qty: float,
+        avg_buy_price: float,
+        current_price: float,
+        position_value_krw: float,
+        pnl_krw: float,
+        pnl_pct: float,
+        trigger: str,
+    ) -> dict:
+        available_qty = self._managed_pool_num_value(
+            row.get("available_qty")
+            or row.get("available")
+            or row.get("balance")
+            or row.get("qty")
+            or row.get("quantity")
+            or row.get("volume"),
+            qty,
+        )
+        locked_qty = self._managed_pool_num_value(row.get("locked") or row.get("locked_qty"), 0.0)
+        if locked_qty > 0.0 and available_qty <= 0.0:
+            available_qty = max(qty - locked_qty, 0.0)
+        ratio = 1.0 if trigger == "emergency_stop_loss" else 0.5
+        sell_volume = max(0.0, min(available_qty, available_qty * ratio))
+        estimated = sell_volume * current_price if current_price > 0.0 else 0.0
+        return {
+            "symbol": symbol,
+            "trigger": trigger,
+            "qty": qty,
+            "available_qty": available_qty,
+            "locked_qty": locked_qty,
+            "sell_ratio": ratio,
+            "sell_volume": sell_volume,
+            "estimated_sell_value_krw": estimated,
+            "avg_buy_price": avg_buy_price,
+            "current_price": current_price,
+            "position_value_krw": position_value_krw,
+            "pnl_krw": pnl_krw,
+            "pnl_pct": pnl_pct,
+            "source_type": str(row.get("source_type") or row.get("source") or ""),
+        }
+
+    def _apply_guarded_sell_candidate(self, candidate: dict, *, reason: str = "sell_evaluation") -> dict:
+        now = time.time()
+        symbol = str((candidate or {}).get("symbol") or "").strip().upper()
+        trigger = str((candidate or {}).get("trigger") or "").strip()
+        request_id = f"live-sell-{int(now * 1000)}"
+        qty = self._managed_pool_num_value((candidate or {}).get("qty"), 0.0)
+        available_qty = self._managed_pool_num_value((candidate or {}).get("available_qty"), 0.0)
+        sell_ratio = self._managed_pool_num_value((candidate or {}).get("sell_ratio"), 0.0)
+        sell_volume = self._managed_pool_num_value((candidate or {}).get("sell_volume"), 0.0)
+        estimated = self._managed_pool_num_value((candidate or {}).get("estimated_sell_value_krw"), 0.0)
+        current_price = self._managed_pool_num_value((candidate or {}).get("current_price"), 0.0)
+        avg_buy_price = self._managed_pool_num_value((candidate or {}).get("avg_buy_price"), 0.0)
+        pnl_pct = self._managed_pool_num_value((candidate or {}).get("pnl_pct"), 0.0)
+        pnl_krw = self._managed_pool_num_value((candidate or {}).get("pnl_krw"), 0.0)
+
+        def _log(event: str, **fields) -> None:
+            try:
+                base = {
+                    "event": event,
+                    "request_id": request_id,
+                    "symbol": symbol or "-",
+                    "trigger": trigger or "-",
+                    "pnl_pct": pnl_pct,
+                    "pnl_krw": pnl_krw,
+                    "qty": qty,
+                    "available_qty": available_qty,
+                    "sell_ratio": sell_ratio,
+                    "sell_volume": sell_volume,
+                    "estimated_sell_value_krw": estimated,
+                    "avg_buy_price": avg_buy_price,
+                    "current_price": current_price,
+                }
+                base.update(fields)
+                msg = "[AITS][SellApplyGuard] " + " ".join(f"{k}={v}" for k, v in base.items())
+                logging.getLogger("aits").info(msg)
+            except Exception:
+                pass
+
+        _log("sell_apply_candidate", actual_order=False, submitted=0, reason=reason)
+        if not self._sell_apply_runtime_active():
+            _log("sell_intent_blocked", blocker="runtime_not_active_for_sell_apply", actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "runtime_not_active_for_sell_apply"}
+        locked, lock_request_id = self._sell_apply_duplicate_locked(symbol, now)
+        if locked:
+            _log("sell_duplicate_blocked", blocker="sell_blocked_by_duplicate_lock", lock_request_id=lock_request_id, actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_duplicate_lock"}
+        if not symbol or qty <= 0.0 or available_qty <= 0.0 or sell_volume <= 0.0:
+            _log("sell_intent_blocked", blocker="sell_blocked_by_qty_unavailable", actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_qty_unavailable"}
+        if estimated < 5000.0:
+            _log("sell_intent_blocked", blocker="sell_blocked_by_min_order_value", actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_min_order_value"}
+        if current_price <= 0.0 or avg_buy_price <= 0.0:
+            _log("sell_intent_blocked", blocker="sell_blocked_by_pnl_source_missing", actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_pnl_source_missing"}
+
+        self._mark_sell_apply_duplicate_lock(symbol, request_id, now, status="intent_created")
+        _log("sell_intent_created", actual_order=False, submitted=0)
+        try:
+            self._append_aits_live_log(
+                f"{symbol} 수익률 {pnl_pct:.2f}%로 매도 조건을 충족했습니다. 보유수량의 {sell_ratio * 100:.0f}% 매도를 준비합니다.",
+                category="pipeline",
+                level="warning" if "loss" in trigger else "info",
+                event="sell_apply_candidate",
+                symbol=symbol,
+            )
+        except Exception:
+            pass
+
+        try:
+            from app.services.risk_guard import RiskGuard
+
+            risk_input = {
+                "request_id": request_id,
+                "symbol": symbol,
+                "side": "sell",
+                "requested_amount_krw": estimated,
+                "price": current_price,
+                "quantity": sell_volume,
+                "source_provider": str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                "confidence": 1.0,
+                "action": "sell",
+                "holdings_value_krw": max(position_value_krw := self._managed_pool_num_value((candidate or {}).get("position_value_krw"), 0.0), estimated),
+                "cash_available_krw": 0.0,
+                "portfolio_value_krw": max(position_value_krw, estimated),
+                "daily_realized_pnl_krw": 0.0,
+                "daily_loss_limit_krw": 50000.0,
+                "max_order_amount_krw": max(estimated, 5000.0),
+                "max_position_value_krw": 0.0,
+                "emergency_stop": False,
+                "stale_price": False,
+                "execution_mode": "live",
+                "dry_run": False,
+            }
+            _log("sell_guard_check_started", actual_order=False, submitted=0)
+            risk_guard = RiskGuard()
+            risk_result = risk_guard.evaluate_order_candidate(risk_input)
+            logging.getLogger("aits").info(risk_guard.log_summary(risk_result, risk_input))
+            if not bool(risk_result.allowed):
+                blocker = str(risk_result.blocked_reason or "sell_blocked_by_riskguard")
+                _log("sell_guard_blocked", riskguard_result="blocked", blocker=blocker, actual_order=False, submitted=0)
+                return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_riskguard", "reason": blocker}
+            _log("sell_guard_passed", riskguard_result="passed", actual_order=False, submitted=0)
+        except Exception as exc:
+            _log("sell_guard_blocked", blocker="sell_blocked_by_guard_contract_missing", error_type=type(exc).__name__, actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_guard_contract_missing"}
+
+        try:
+            from app.services.live_order_preflight import LiveOrderPreflight
+            from app.services.order_service import svc_order
+
+            try:
+                svc_order.set_settings(getattr(self, "_settings", None))
+            except Exception:
+                pass
+            try:
+                access_key, secret_key = svc_order._extract_upbit_keys()
+            except Exception:
+                access_key, secret_key = "", ""
+            risk_meta = dict(risk_result.to_dict())
+            risk_meta.update(
+                {
+                    "request_id": request_id,
+                    "price": current_price,
+                    "source_provider": str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                    "aits_enabled": True,
+                    "risk_guard_checked": True,
+                    "risk_allowed": bool(risk_result.risk_allowed),
+                    "emergency_stop": False,
+                    "max_order_amount_krw": max(estimated, 5000.0),
+                    "max_daily_loss_krw": 50000.0,
+                    "max_order_count_per_cycle": 1,
+                    "duplicate_order_lock": True,
+                    "min_real_order_amount_krw": 5000.0,
+                    "account_ready": bool(available_qty >= sell_volume > 0.0),
+                    "api_key_ready": bool(access_key and secret_key),
+                    "price_fresh": True,
+                    "live_guarded_window_order": True,
+                    "live_guarded_one_shot_order": False,
+                    "live_order_unlock": False,
+                    "user_confirm_token": "",
+                    "one_shot_unlock_valid": False,
+                    "one_shot_unlock_consumed": False,
+                    "guarded_window_per_order_krw": float(estimated),
+                    "guarded_window_per_order_hard_cap_krw": max(estimated, 5000.0),
+                    "guarded_window_total_cap_krw": 20000.0,
+                    "guarded_window_max_order_count": 1,
+                }
+            )
+            live_preflight_input = dict(risk_meta)
+            live_preflight_input.update(
+                {
+                    "request_id": request_id,
+                    "symbol": symbol,
+                    "side": "sell",
+                    "amount_krw": estimated,
+                    "quantity": sell_volume,
+                    "price": current_price,
+                    "execution_mode": "live",
+                    "aits_enabled": True,
+                    "selected_provider": str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                    "source": "sell_apply_guard",
+                }
+            )
+            _log("sell_preflight_started", actual_order=False, submitted=0)
+            live_preflight = LiveOrderPreflight()
+            preflight_result = live_preflight.evaluate(live_preflight_input)
+            logging.getLogger("aits").info(live_preflight.log_summary(preflight_result, live_preflight_input))
+            if not bool(preflight_result.allowed_for_preflight):
+                blocker = str(preflight_result.blocked_reason or "sell_blocked_by_live_preflight")
+                _log("sell_preflight_blocked", live_preflight_result="blocked", blocker=blocker, actual_order=False, submitted=0)
+                return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_live_preflight", "reason": blocker}
+            _log("sell_preflight_passed", live_preflight_result="passed", actual_order=False, submitted=0)
+        except Exception as exc:
+            _log("sell_preflight_blocked", blocker="sell_blocked_by_preflight_contract_missing", error_type=type(exc).__name__, actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_blocked_by_preflight_contract_missing"}
+
+        try:
+            from app.services.execution_bridge import ExecutionBridge
+            from app.services.order_adapter import AITSOrderAdapter
+            from app.services.order_service import svc_order
+
+            contract = {
+                "request_id": request_id,
+                "symbol": symbol,
+                "side": "sell",
+                "amount_krw": float(estimated),
+                "quantity": float(sell_volume),
+                "volume": float(sell_volume),
+                "source_provider": str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                "execution_allowed": True,
+                "risk_guard": risk_meta,
+            }
+            bridge = ExecutionBridge(logger=logging.getLogger("aits")).build_live_guarded_window_bridge(contract)
+            adapter = AITSOrderAdapter(execution_mode="live", min_order_krw=5000.0, allow_reduce_live=False, logger=logging.getLogger("aits"))
+            _log("sell_submit_requested", riskguard_result="passed", live_preflight_result="passed", actual_order=False, submitted=0)
+            result = adapter.execute(bridge, order_service=svc_order)
+            submitted_count = int(getattr(result, "submitted_count", 0) or 0)
+            failed_count = int(getattr(result, "failed_count", 0) or 0)
+            blocked_count = int(getattr(result, "blocked_count", 0) or 0)
+            success = submitted_count > 0
+            _log(
+                "sell_submit_result",
+                riskguard_result="passed",
+                live_preflight_result="passed",
+                submitted=submitted_count,
+                submitted_count=submitted_count,
+                actual_order=success,
+                failed_count=failed_count,
+                blocked_count=blocked_count,
+                uuid="-",
+                blocker="-" if success else "sell_submit_failed_or_blocked",
+            )
+            if success:
+                self._mark_sell_apply_duplicate_lock(symbol, request_id, now, status="submitted")
+                try:
+                    self._reflect_live_order_after_submit(
+                        request_id=request_id,
+                        symbol=symbol,
+                        side="sell",
+                        amount_krw=estimated,
+                        status="submitted",
+                        submitted_count=submitted_count,
+                        provider=str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                        engine=str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                    )
+                except Exception:
+                    pass
+                try:
+                    self._append_aits_live_log(
+                        f"{symbol} 매도 주문이 제출되었습니다.",
+                        category="pipeline",
+                        level="success",
+                        event="sell_submit_result",
+                        symbol=symbol,
+                    )
+                except Exception:
+                    pass
+            return {"submitted_count": submitted_count, "actual_order": success, "blocker": "" if success else "sell_submit_failed_or_blocked"}
+        except Exception as exc:
+            _log("sell_submit_result", blocker="sell_submit_exception", error_type=type(exc).__name__, actual_order=False, submitted=0)
+            return {"submitted_count": 0, "actual_order": False, "blocker": "sell_submit_exception"}
+
     def _evaluate_sell_takeprofit_observe_path(self, *, reason: str = "refresh", force: bool = False) -> dict:
         now = time.time()
         if not force and now - float(getattr(self, "_last_sell_evaluation_observe_at", 0.0) or 0.0) < 60.0:
@@ -40017,6 +40348,8 @@ class MainWindow(QMainWindow):
         emergency_stop_symbols: list[str] = []
         missing_symbols: list[str] = []
         external_symbols: list[str] = []
+        sell_apply_candidates: list[dict] = []
+        sell_apply_result: dict = {}
         top_symbol = ""
         top_pnl_pct = -9999.0
         try:
@@ -40076,8 +40409,23 @@ class MainWindow(QMainWindow):
                     take_profit_symbols.append(symbol)
                     suggested_action = "sell_preview"
                     reason_text = "take_profit_candidate_preview_only"
+                    trigger = "take_profit"
                     if pnl_pct >= 5.0:
                         strong_take_profit_symbols.append(symbol)
+                        trigger = "strong_take_profit"
+                    sell_apply_candidates.append(
+                        self._build_sell_apply_candidate(
+                            row=row,
+                            symbol=symbol,
+                            qty=qty,
+                            avg_buy_price=avg,
+                            current_price=current,
+                            position_value_krw=value,
+                            pnl_krw=pnl_krw,
+                            pnl_pct=pnl_pct,
+                            trigger=trigger,
+                        )
+                    )
                 elif pnl_pct >= 3.0:
                     take_profit_watch_symbols.append(symbol)
                     suggested_action = "sell_watch"
@@ -40089,11 +40437,37 @@ class MainWindow(QMainWindow):
                     stop_loss_symbols.append(symbol)
                     suggested_action = "emergency_sell_preview"
                     reason_text = "emergency_stop_loss_candidate_preview_only"
+                    sell_apply_candidates.append(
+                        self._build_sell_apply_candidate(
+                            row=row,
+                            symbol=symbol,
+                            qty=qty,
+                            avg_buy_price=avg,
+                            current_price=current,
+                            position_value_krw=value,
+                            pnl_krw=pnl_krw,
+                            pnl_pct=pnl_pct,
+                            trigger="emergency_stop_loss",
+                        )
+                    )
                 elif pnl_pct <= -10.0:
                     stop_loss = True
                     stop_loss_symbols.append(symbol)
                     suggested_action = "sell_preview"
                     reason_text = "stop_loss_candidate_preview_only"
+                    sell_apply_candidates.append(
+                        self._build_sell_apply_candidate(
+                            row=row,
+                            symbol=symbol,
+                            qty=qty,
+                            avg_buy_price=avg,
+                            current_price=current,
+                            position_value_krw=value,
+                            pnl_krw=pnl_krw,
+                            pnl_pct=pnl_pct,
+                            trigger="stop_loss",
+                        )
+                    )
                 elif pnl_pct <= -5.0:
                     stop_loss_watch_symbols.append(symbol)
                     suggested_action = "stop_loss_watch"
@@ -40188,6 +40562,37 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
+            if sell_apply_candidates:
+                first = sell_apply_candidates[0]
+                self._log.info(
+                    "[AITS][SellOrderIntent] event=sell_apply_candidate symbol=%s trigger=%s pnl_pct=%s pnl_krw=%s qty=%s available_qty=%s sell_ratio=%s sell_volume=%s estimated_sell_value_krw=%s actual_order=False submitted=0 reason=%s",
+                    first.get("symbol") or "-",
+                    first.get("trigger") or "-",
+                    first.get("pnl_pct") or 0.0,
+                    first.get("pnl_krw") or 0.0,
+                    first.get("qty") or 0.0,
+                    first.get("available_qty") or 0.0,
+                    first.get("sell_ratio") or 0.0,
+                    first.get("sell_volume") or 0.0,
+                    first.get("estimated_sell_value_krw") or 0.0,
+                    str(reason or "refresh"),
+                )
+                sell_apply_result = self._apply_guarded_sell_candidate(first, reason=str(reason or "refresh"))
+            else:
+                self._log.info(
+                    "[AITS][SellOrderIntent] event=sell_intent_blocked blocker=sell_apply_threshold_not_reached candidate_count=0 actual_order=False submitted=0 reason=%s",
+                    str(reason or "refresh"),
+                )
+        except Exception as exc:
+            try:
+                self._log.info(
+                    "[AITS][SellOrderIntent] event=sell_intent_blocked blocker=sell_apply_exception error_type=%s actual_order=False submitted=0",
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            sell_apply_result = {"submitted_count": 0, "actual_order": False, "blocker": "sell_apply_exception"}
+        try:
             self._log.info(
                 "[AITS][SellEvaluation] event=sell_eval_preview_only evaluated_symbols=%s take_profit_watch_symbols=%s take_profit_candidate_symbols=%s strong_take_profit_candidate_symbols=%s stop_loss_watch_symbols=%s stop_loss_candidate_symbols=%s emergency_stop_loss_candidate_symbols=%s preview_only=True actual_order=False submitted=0",
                 ",".join(evaluated) or "-",
@@ -40265,7 +40670,10 @@ class MainWindow(QMainWindow):
             "top_pnl_symbol": top_symbol,
             "top_pnl_pct": 0.0 if top_pnl_pct == -9999.0 else top_pnl_pct,
             "sell_preview_only": True,
-            "sell_submit_count": 0,
+            "sell_apply_candidate_symbols": [str(item.get("symbol") or "") for item in sell_apply_candidates if item.get("symbol")],
+            "sell_apply_result": dict(sell_apply_result or {}),
+            "sell_submit_count": int((sell_apply_result or {}).get("submitted_count") or 0),
+            "actual_sell_order_count": 1 if bool((sell_apply_result or {}).get("actual_order")) else 0,
         }
         self._last_sell_evaluation_observe_result = result
         return result

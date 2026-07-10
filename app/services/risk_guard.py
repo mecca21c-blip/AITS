@@ -113,7 +113,7 @@ class RiskGuard:
                 submitted=0,
                 order_allowed=False,
                 real_order=False,
-                dry_run=True,
+                dry_run=bool(data.dry_run),
                 checks=checks,
                 request_id=str(data.request_id or ""),
             )
@@ -129,7 +129,7 @@ class RiskGuard:
             submitted=0,
             order_allowed=False,
             real_order=False,
-            dry_run=True,
+            dry_run=bool(data.dry_run),
             checks=checks,
             request_id=str(data.request_id or ""),
         )
@@ -142,7 +142,7 @@ class RiskGuard:
             f"symbol={data.symbol or '-'} side={data.side or data.action or '-'} "
             f"allowed={bool(result.allowed)} risk_allowed={bool(result.risk_allowed)} "
             f"blocked_reason={result.blocked_reason or '-'} submitted=0 "
-            "order_allowed=False real_order=False dry_run=True"
+            f"order_allowed=False real_order=False dry_run={bool(result.dry_run)}"
         )
 
     def _first_failure(
@@ -196,7 +196,7 @@ class RiskGuard:
             return "max_order_amount_exceeded", "warning"
         add_check("max_order_amount", True)
 
-        if max_position > 0 and holdings + amount > max_position:
+        if side == "buy" and max_position > 0 and holdings + amount > max_position:
             add_check("position_limit", False, "max_position_value_exceeded")
             return "max_position_value_exceeded", "warning"
         add_check("position_limit", True)
@@ -210,6 +210,11 @@ class RiskGuard:
             add_check("cash_available", False, "insufficient_cash")
             return "insufficient_cash", "warning"
         add_check("cash_available", True)
+
+        if side == "sell" and data.quantity <= 0:
+            add_check("sell_quantity", False, "sell_quantity_unavailable")
+            return "sell_quantity_unavailable", "warning"
+        add_check("sell_quantity", True)
 
         return None
 

@@ -532,3 +532,10 @@ Blockers:
 - If the active score-update writer is present but no actual writer probe appears, the blocker is sell_eval_actual_writer_probe_missing.
 - If the probe appears but skips, the blocker is sell_eval_actual_writer_skipped.
 - Result logs include evaluated symbols, PnL-source-missing symbols, and take-profit/stop-loss preview symbols without submitting sell orders.
+
+## Guarded Sell Apply V1
+
+- E2E reads `[AITS][SellOrderIntent]` and `[AITS][SellApplyGuard]` to classify guarded sell apply.
+- A guarded sell submit requires sell intent creation, RiskGuard pass, LivePreflight pass, and then normal ExecutionBridge/OrderAdapter/OrderService submission.
+- Blockers include `sell_apply_candidate_not_created`, `sell_blocked_by_riskguard`, `sell_blocked_by_live_preflight`, `sell_blocked_by_min_order_value`, `sell_duplicate_lock_active`, `unexpected_sell_submit_without_guard`, and `guarded_sell_submit_observed`.
+- Non-active runtime candidate detection is not a failure; it should remain blocked before submit.

@@ -3,8 +3,8 @@
 Live order support is deliberately narrow:
 - the completed minimum real-order test: KRW-BTC market buy for 5,000 KRW
   with a 6,000 KRW hard cap;
-- the guarded one-shot path: current KRW market candidate buy for 10,000 KRW
-  with explicit confirm phrase, one-shot unlock, and a 12,000 KRW hard cap.
+- the guarded one-shot/window path for KRW market buys;
+- guarded market sells that already passed RiskGuard and LivePreflight.
 """
 
 from __future__ import annotations
@@ -402,6 +402,7 @@ class OrderService:
             symbol = str(order_request.get("symbol") or "").strip().upper()
             side = str(order_request.get("side") or "").strip().lower()
             amount_krw = _safe_float(order_request.get("amount_krw"))
+            volume = _safe_float(order_request.get("volume") or order_request.get("quantity"))
             order_type = str(order_request.get("order_type") or "market").strip().lower()
             request_id = str(order_request.get("request_id") or uuid.uuid4().hex)
             is_minimum_test = bool(order_request.get("live_minimum_real_order_test", False))
@@ -416,10 +417,19 @@ class OrderService:
                 symbol.startswith("KRW-") and 5 <= len(symbol) <= 31
             ):
                 return _fail("unsupported_live_symbol")
-            if side != "buy":
+            if side not in {"buy", "sell"}:
                 return _fail("unsupported_live_side")
             if order_type != "market":
                 return _fail("unsupported_live_order_type")
+            if side == "sell":
+                if is_minimum_test:
+                    return _fail("unsupported_live_side")
+                if not (is_guarded_window or is_guarded_one_shot):
+                    return _fail("live_sell_guard_missing")
+                if volume <= 0:
+                    return _fail("invalid_sell_volume")
+                if amount_krw < MINIMUM_REAL_ORDER_AMOUNT_KRW:
+                    return _fail("sell_value_below_min_order")
             if is_minimum_test:
                 if abs(amount_krw - MINIMUM_REAL_ORDER_AMOUNT_KRW) > 0.0001:
                     return _fail("unsupported_live_amount")
@@ -450,12 +460,15 @@ class OrderService:
                         GUARDED_WINDOW_MIN_INTERVAL_SEC,
                     )
                 )
-                if abs(expected_amount - GUARDED_WINDOW_ORDER_AMOUNT_KRW) > 0.0001:
-                    return _fail("guarded_window_per_order_policy_invalid")
-                if abs(amount_krw - expected_amount) > 0.0001:
-                    return _fail("unsupported_guarded_window_amount")
-                if hard_cap > GUARDED_WINDOW_ORDER_HARD_CAP_KRW or amount_krw > hard_cap:
-                    return _fail("guarded_window_hard_cap_exceeded")
+                if side == "buy":
+                    if abs(expected_amount - GUARDED_WINDOW_ORDER_AMOUNT_KRW) > 0.0001:
+                        return _fail("guarded_window_per_order_policy_invalid")
+                    if abs(amount_krw - expected_amount) > 0.0001:
+                        return _fail("unsupported_guarded_window_amount")
+                    if hard_cap > GUARDED_WINDOW_ORDER_HARD_CAP_KRW or amount_krw > hard_cap:
+                        return _fail("guarded_window_hard_cap_exceeded")
+                elif hard_cap > 0 and amount_krw > hard_cap:
+                    return _fail("guarded_sell_hard_cap_exceeded")
                 if total_cap > GUARDED_WINDOW_TOTAL_CAP_KRW:
                     return _fail("guarded_window_total_cap_policy_invalid")
                 if is_guarded_one_shot and max_count != GUARDED_ONE_SHOT_MAX_ORDER_COUNT:
@@ -497,13 +510,22 @@ class OrderService:
                 return _fail("duplicate_blocked")
 
             identifier = f"aits-{uuid.uuid4().hex[:24]}"
-            params = {
-                "market": symbol,
-                "side": "bid",
-                "price": str(int(amount_krw)),
-                "ord_type": "price",
-                "identifier": identifier,
-            }
+            if side == "sell":
+                params = {
+                    "market": symbol,
+                    "side": "ask",
+                    "volume": f"{volume:.12f}".rstrip("0").rstrip("."),
+                    "ord_type": "market",
+                    "identifier": identifier,
+                }
+            else:
+                params = {
+                    "market": symbol,
+                    "side": "bid",
+                    "price": str(int(amount_krw)),
+                    "ord_type": "price",
+                    "identifier": identifier,
+                }
             headers = self._make_auth_headers(params)
 
             self._aits_last_exec = {
@@ -558,8 +580,9 @@ class OrderService:
                     "http_status": http_status,
                     "state": str(sanitized.get("state") or ""),
                     "market": str(sanitized.get("market") or symbol),
-                    "side": "buy",
+                    "side": side,
                     "amount_krw": amount_krw,
+                    "volume": volume,
                     "response_sanitized": sanitized,
                     "elapsed_ms": elapsed_ms,
                     "request_id": request_id,

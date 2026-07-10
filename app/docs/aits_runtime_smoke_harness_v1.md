@@ -1888,3 +1888,12 @@ summary modes.
 - The writer emits sell_eval_actual_writer_probe, then sell_eval_actual_writer_result or sell_eval_actual_writer_skipped.
 - Harness fields include sell_eval_actual_writer_probe_detected, sell_eval_actual_writer_result_detected, sell_eval_actual_writer_skipped_detected, sell_eval_actual_writer_name, and sell_eval_actual_source_event.
 - The anchor remains observe-only and must report `actual_order=False` and `submitted=0`.
+
+## Guarded Sell Apply V1
+
+- SellEvaluation can promote take-profit or stop-loss candidates to guarded sell apply candidates during an active ON runtime.
+- Thresholds: take-profit at 4%, strong take-profit at 5%, stop-loss at -10%, emergency stop-loss at -20%.
+- V1 sell ratios: 50% for take-profit/strong take-profit/stop-loss, 100% for emergency stop-loss.
+- Every sell apply must pass RiskGuard and LivePreflight before reaching ExecutionBridge, OrderAdapter, and OrderService.
+- Harness fields include `sell_apply_supported`, `sell_apply_candidate_symbols`, `sell_intent_created_count`, `sell_guard_passed_count`, `sell_preflight_passed_count`, `sell_submit_requested_count`, `side_sell_submit_count`, `actual_sell_order_count`, `sell_trigger`, `sell_ratio`, `sell_volume`, and `estimated_sell_value_krw`.
+- Dry-read and non-active runtime summaries may detect candidates but must block apply with `runtime_not_active_for_sell_apply`.

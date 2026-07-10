@@ -363,3 +363,11 @@ These events are not submit permission and must not call order retry paths.
 - The trace must distinguish actual writer probe missing, skipped, and result states.
 - Buy-blocked or monitor-only states can still run the observe evaluator from this writer.
 - This anchor never calls submit layers and keeps `actual_order=False` and `submitted=0`.
+
+## Guarded Sell Apply V1
+
+- After SellEvaluation identifies a take-profit or stop-loss apply candidate, active ON runtime may create a guarded sell intent.
+- The trace must show `[AITS][SellOrderIntent] event=sell_apply_candidate`, then `[AITS][SellApplyGuard]` guard, preflight, and submit events.
+- Sell submit is valid only when RiskGuard and LivePreflight passed first.
+- The symbol sell lock is scoped per symbol with a 30 minute default cooldown.
+- Non-active runtime traces should show the candidate but block with `runtime_not_active_for_sell_apply`.
