@@ -378,6 +378,281 @@ class AIEngineProvider:
                 "applied": False,
             })
 
+    def generate_position_management_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Ask the selected AI provider for a position-management decision.
+
+        This returns a decision contract only. It never routes or submits orders.
+        """
+        provider = str(provider or "local").strip().lower()
+        context = dict(context or {})
+        if provider in ("gpt", "chatgpt"):
+            provider = "openai"
+        elif provider in ("google", "google_gemini"):
+            provider = "gemini"
+        try:
+            if provider in ("basic", "local", "local_ai", ""):
+                parsed = self._build_local_position_management_decision(context)
+                parsed["provider"] = "local"
+                parsed["response_confirmed"] = True
+                parsed["provider_call_attempted"] = False
+                parsed["reason"] = parsed.get("reason_ko") or parsed.get("reason") or "LOCAL AI decision"
+                return parsed
+            if provider not in ("openai", "gemini"):
+                return {
+                    "schema": "aits_position_management_decision_v1",
+                    "provider": provider,
+                    "response_confirmed": False,
+                    "provider_call_attempted": False,
+                    "action": "wait",
+                    "confidence": 0.0,
+                    "reason_ko": f"지원하지 않는 AI 제공자입니다: {provider}",
+                    "eta_seconds": 300,
+                    "sell_ratio": 0.0,
+                    "buy_amount_krw": 0.0,
+                    "blocker": f"unsupported_provider:{provider}",
+                    "actual_order": False,
+                    "submitted": 0,
+                }
+            prompt = self._build_position_management_decision_prompt(context)
+            if provider == "openai":
+                raw = self._call_openai_position_management_decision(prompt, context)
+            else:
+                raw = self._call_gemini_position_management_decision(prompt, context)
+            parsed = self._parse_position_management_decision_response(raw.get("content"), context)
+            parsed.update(
+                {
+                    "schema": "aits_position_management_decision_v1",
+                    "provider": provider,
+                    "response_confirmed": True,
+                    "provider_call_attempted": True,
+                    "response_id": str(raw.get("response_id") or ""),
+                    "usage_input_tokens": raw.get("usage_input_tokens"),
+                    "usage_output_tokens": raw.get("usage_output_tokens"),
+                    "usage_total_tokens": raw.get("usage_total_tokens"),
+                    "actual_order": False,
+                    "submitted": 0,
+                }
+            )
+            return parsed
+        except NotImplementedError as exc:
+            return {
+                "schema": "aits_position_management_decision_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "provider_call_attempted": True,
+                "action": "wait",
+                "confidence": 0.0,
+                "reason_ko": "AI 판단이 필요하지만 제공자 호출이 차단되어 대기합니다.",
+                "eta_seconds": 300,
+                "sell_ratio": 0.0,
+                "buy_amount_krw": 0.0,
+                "blocker": str(exc) or f"{provider}_position_decision_not_available",
+                "actual_order": False,
+                "submitted": 0,
+            }
+        except Exception as exc:
+            return {
+                "schema": "aits_position_management_decision_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "provider_call_attempted": True,
+                "action": "wait",
+                "confidence": 0.0,
+                "reason_ko": "AI 판단 응답을 확인하지 못해 주문을 보류합니다.",
+                "eta_seconds": 300,
+                "sell_ratio": 0.0,
+                "buy_amount_krw": 0.0,
+                "blocker": str(exc)[:300] or f"{provider}_position_decision_error:{type(exc).__name__}",
+                "actual_order": False,
+                "submitted": 0,
+            }
+
+    def _build_position_management_decision_prompt(self, context: Optional[Dict[str, Any]]) -> str:
+        safe_context = dict(context or {})
+        return (
+            "You are the AITS final AI decision authority for live position management.\n"
+            "BASIC has collected data only. Decide action; do not claim execution.\n"
+            "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
+            "sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
+            "Allowed action values: hold, wait, sell, reduce, add, buy, rotate, stop_loss, take_profit.\n"
+            "Use pnl, RSI, MACD, volume, volatility, portfolio cap, alternatives, and risk context together; "
+            "do not decide from pnl threshold alone.\n"
+            "If data is insufficient, choose wait or hold with eta_seconds and reason_ko.\n"
+            "Context JSON:\n"
+            + json.dumps(safe_context, ensure_ascii=False, default=str)
+        )
+
+    def _call_openai_position_management_decision(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
+        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
+        if not (real_call_enabled and one_shot_enabled):
+            raise NotImplementedError("openai_live_call_disabled")
+        api_key = self._get_config_api_key("openai")
+        if not api_key:
+            raise NotImplementedError("openai_api_key_missing")
+        model = os.getenv("AITS_OPENAI_POSITION_DECISION_MODEL", os.getenv("AITS_OPENAI_VERIFY_MODEL", "gpt-4o-mini"))
+        payload = {
+            "model": model,
+            "temperature": 0.1,
+            "max_tokens": 420,
+            "messages": [
+                {"role": "system", "content": "Return only JSON. You are an AI portfolio decision engine. Do not execute trades."},
+                {"role": "user", "content": prompt},
+            ],
+        }
+        req = urllib.request.Request(
+            "https://api.openai.com/v1/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        usage = data.get("usage") or {}
+        return {
+            "content": data.get("choices", [{}])[0].get("message", {}).get("content", ""),
+            "response_id": data.get("id") or "",
+            "usage_input_tokens": usage.get("prompt_tokens"),
+            "usage_output_tokens": usage.get("completion_tokens"),
+            "usage_total_tokens": usage.get("total_tokens"),
+        }
+
+    def _call_gemini_position_management_decision(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
+        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
+        if not (real_call_enabled and one_shot_enabled):
+            raise NotImplementedError("gemini_live_call_disabled")
+        api_key = self._get_config_api_key("gemini")
+        if not api_key:
+            raise NotImplementedError("gemini_api_key_missing")
+        model = os.getenv("AITS_GEMINI_POSITION_DECISION_MODEL", os.getenv("AITS_GEMINI_VERIFY_MODEL", "gemini-2.0-flash"))
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        payload = {
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "generationConfig": {"temperature": 0.1, "maxOutputTokens": 420},
+        }
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = ""
+        candidates = data.get("candidates") or []
+        if candidates:
+            parts = ((candidates[0].get("content") or {}).get("parts") or [])
+            content = "\n".join(str(part.get("text") or "") for part in parts if isinstance(part, dict))
+        usage = data.get("usageMetadata") or {}
+        return {
+            "content": content,
+            "response_id": str(data.get("responseId") or ""),
+            "usage_input_tokens": usage.get("promptTokenCount"),
+            "usage_output_tokens": usage.get("candidatesTokenCount"),
+            "usage_total_tokens": usage.get("totalTokenCount"),
+        }
+
+    def _parse_position_management_decision_response(self, raw_response: Any, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        text = str(raw_response or "").strip()
+        parsed: Dict[str, Any] = {}
+        if text:
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                start = text.find("{")
+                end = text.rfind("}")
+                if start >= 0 and end > start:
+                    try:
+                        parsed = json.loads(text[start:end + 1])
+                    except Exception:
+                        parsed = {}
+        allowed = {"hold", "wait", "sell", "reduce", "add", "buy", "rotate", "stop_loss", "take_profit"}
+        action = str(parsed.get("action") or parsed.get("decision") or "").strip().lower()
+        if action not in allowed:
+            action = "wait"
+        try:
+            confidence = float(parsed.get("confidence"))
+        except Exception:
+            confidence = 0.0
+        confidence = max(0.0, min(1.0, confidence))
+        try:
+            eta_seconds = int(float(parsed.get("eta_seconds") or 300))
+        except Exception:
+            eta_seconds = 300
+        try:
+            sell_ratio = float(parsed.get("sell_ratio") or 0.0)
+        except Exception:
+            sell_ratio = 0.0
+        sell_ratio = max(0.0, min(1.0, sell_ratio))
+        try:
+            buy_amount_krw = float(parsed.get("buy_amount_krw") or 0.0)
+        except Exception:
+            buy_amount_krw = 0.0
+        reason_ko = str(parsed.get("reason_ko") or parsed.get("reason") or "").strip()
+        if not reason_ko:
+            reason_ko = "AI 판단 근거가 비어 있어 실행하지 않고 대기합니다."
+            action = "wait"
+        return {
+            "action": action,
+            "confidence": confidence,
+            "reason_ko": reason_ko[:800],
+            "eta_seconds": eta_seconds,
+            "sell_ratio": sell_ratio,
+            "buy_amount_krw": max(0.0, buy_amount_krw),
+            "rotate_to_symbol": str(parsed.get("rotate_to_symbol") or "").strip().upper(),
+            "execution_plan": parsed.get("execution_plan") if isinstance(parsed.get("execution_plan"), dict) else {},
+            "risk_notes": str(parsed.get("risk_notes") or "")[:800],
+            "invalidation_conditions": parsed.get("invalidation_conditions") or [],
+            "blocker": "",
+        }
+
+    def _build_local_position_management_decision(self, context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        context = dict(context or {})
+        symbol = str(context.get("symbol") or "").strip().upper()
+        trigger = str((context.get("requested_decision") or {}).get("trigger") or context.get("trigger") or "").strip()
+        position = context.get("position") if isinstance(context.get("position"), dict) else {}
+        market = context.get("market") if isinstance(context.get("market"), dict) else {}
+        indicators = context.get("indicators") if isinstance(context.get("indicators"), dict) else {}
+        pnl_pct = _clamp_float(position.get("pnl_pct"), lo=-1000.0, hi=1000.0, default=0.0)
+        rsi = _clamp_float(indicators.get("RSI") or indicators.get("rsi"), lo=0.0, hi=100.0, default=0.0)
+        trend_strength = _clamp_float(indicators.get("trend_strength"), lo=-100.0, hi=100.0, default=0.0)
+        volume_change = _clamp_float(market.get("volume_change"), lo=-1000.0, hi=1000.0, default=0.0)
+        action = "wait"
+        confidence = 0.45
+        eta_seconds = 600
+        reason = (
+            f"{symbol or '보유종목'}은 {trigger or '관리'} 조건으로 AI 판단이 요청됐지만, "
+            "LOCAL AI는 추가 시장 확증을 기다리도록 판단했습니다."
+        )
+        if trigger in {"take_profit", "strong_take_profit"} and rsi >= 70.0 and volume_change < 0.0 and trend_strength < 0.0:
+            action = "reduce"
+            confidence = 0.62
+            eta_seconds = 0
+            reason = f"{symbol} 수익 구간에서 RSI 과열, 거래량 둔화, 추세 약화가 함께 보여 일부 익절이 적절합니다."
+        elif trigger in {"stop_loss", "emergency_stop_loss"} and trend_strength < -30.0:
+            action = "stop_loss"
+            confidence = 0.64 if pnl_pct <= -20.0 else 0.58
+            eta_seconds = 0
+            reason = f"{symbol} 손실 구간에서 하락 추세가 강해 손절 검토가 필요합니다."
+        return {
+            "schema": "aits_position_management_decision_v1",
+            "action": action,
+            "confidence": confidence,
+            "reason_ko": reason,
+            "eta_seconds": eta_seconds,
+            "sell_ratio": 1.0 if trigger == "emergency_stop_loss" and action == "stop_loss" else (0.5 if action in {"reduce", "sell", "stop_loss", "take_profit"} else 0.0),
+            "buy_amount_krw": 0.0,
+            "rotate_to_symbol": "",
+            "execution_plan": {},
+            "risk_notes": "LOCAL AI decision; no direct threshold execution.",
+            "invalidation_conditions": [],
+            "blocker": "",
+            "actual_order": False,
+            "submitted": 0,
+        }
+
     def _build_managed_pool_opinion_prompt(self, context: Optional[Dict[str, Any]]) -> str:
         context = dict(context or {})
         safe_context = {

@@ -40090,6 +40090,293 @@ class MainWindow(QMainWindow):
             "source_type": str(row.get("source_type") or row.get("source") or ""),
         }
 
+    def _selected_ai_decision_provider(self) -> str:
+        provider = ""
+        try:
+            strategy = getattr(self, "strategy", None) or getattr(self, "_strategy", None)
+            if isinstance(strategy, dict):
+                provider = str(strategy.get("ai_provider") or "")
+            elif strategy is not None:
+                provider = str(getattr(strategy, "ai_provider", "") or "")
+        except Exception:
+            provider = ""
+        provider = (
+            provider
+            or str(getattr(self, "_applied_ai_provider", "") or "")
+            or str(getattr(self, "_selected_ai_provider", "") or "")
+            or "local"
+        )
+        provider = provider.strip().lower()
+        if provider in {"gpt", "chatgpt"}:
+            return "openai"
+        if provider in {"google", "google_gemini"}:
+            return "gemini"
+        if provider in {"basic", "local_ai", ""}:
+            return "local"
+        return provider
+
+    def _build_ai_position_decision_payload(self, *, row: dict, candidate: dict, reason: str = "sell_evaluation") -> dict:
+        symbol = str((candidate or {}).get("symbol") or (row or {}).get("symbol") or "").strip().upper()
+        position_value = self._managed_pool_num_value((candidate or {}).get("position_value_krw"), 0.0)
+        total_asset = self._managed_pool_num_value(
+            getattr(self, "_investment_total_asset_krw", 0.0)
+            or getattr(self, "_aits_total_asset_krw", 0.0)
+            or getattr(self, "_last_total_asset_krw", 0.0),
+            0.0,
+        )
+        weight_pct = self._managed_pool_num_value((row or {}).get("position_weight_pct") or (row or {}).get("weight_pct"), 0.0)
+        if weight_pct <= 0.0 and total_asset > 0.0 and position_value > 0.0:
+            weight_pct = position_value / max(total_asset, 1.0) * 100.0
+        target_weight = self._managed_pool_num_value(
+            (row or {}).get("target_weight_pct")
+            or (row or {}).get("target_weight")
+            or (row or {}).get("ai_target_weight")
+            or (row or {}).get("user_target_weight"),
+            0.0,
+        )
+        return {
+            "schema": "aits_ai_decision_payload_v1",
+            "task": "manage_position_decision",
+            "symbol": symbol,
+            "position": {
+                "qty": self._managed_pool_num_value((candidate or {}).get("qty"), 0.0),
+                "avg_buy_price": self._managed_pool_num_value((candidate or {}).get("avg_buy_price"), 0.0),
+                "current_price": self._managed_pool_num_value((candidate or {}).get("current_price"), 0.0),
+                "position_value_krw": position_value,
+                "pnl_krw": self._managed_pool_num_value((candidate or {}).get("pnl_krw"), 0.0),
+                "pnl_pct": self._managed_pool_num_value((candidate or {}).get("pnl_pct"), 0.0),
+                "weight_pct": weight_pct,
+                "target_weight_pct": target_weight,
+                "holding_age": (row or {}).get("holding_age") or (row or {}).get("holding_age_sec") or None,
+                "tp_stage": (candidate or {}).get("trigger") if "take_profit" in str((candidate or {}).get("trigger") or "") else "",
+                "sl_stage": (candidate or {}).get("trigger") if "stop_loss" in str((candidate or {}).get("trigger") or "") else "",
+            },
+            "market": {
+                "price_change_1m": (row or {}).get("price_change_1m"),
+                "price_change_5m": (row or {}).get("price_change_5m"),
+                "price_change_15m": (row or {}).get("price_change_15m"),
+                "price_change_1h": (row or {}).get("price_change_1h"),
+                "volume_change": (row or {}).get("volume_change") or (row or {}).get("volume_change_pct"),
+                "trade_value": (row or {}).get("trade_value") or (row or {}).get("acc_trade_price_24h"),
+                "volatility": (row or {}).get("volatility"),
+                "orderbook_imbalance": (row or {}).get("orderbook_imbalance"),
+                "recent_trades_strength": (row or {}).get("recent_trades_strength"),
+            },
+            "indicators": {
+                "RSI": (row or {}).get("RSI") or (row or {}).get("rsi"),
+                "MACD": (row or {}).get("MACD") or (row or {}).get("macd"),
+                "moving_averages": (row or {}).get("moving_averages") or {},
+                "momentum": (row or {}).get("momentum"),
+                "trend_strength": (row or {}).get("trend_strength"),
+            },
+            "portfolio": {
+                "total_asset_krw": total_asset if total_asset > 0.0 else None,
+                "available_krw": getattr(self, "_last_available_krw", None),
+                "total_budget_krw": getattr(self, "_aits_total_operating_cap_krw", None),
+                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
+                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+            },
+            "candidates": {
+                "scanner_top_candidates": getattr(self, "_aits_latest_scanner_top_candidates", [])[:10] if isinstance(getattr(self, "_aits_latest_scanner_top_candidates", []), list) else [],
+                "rotation_candidates": getattr(self, "_aits_rotation_candidate_symbols", []),
+                "opportunity_score_gap": getattr(self, "_aits_rotation_score_gap", None),
+            },
+            "constraints": {
+                "min_order_krw": 5000.0,
+                "available_qty": self._managed_pool_num_value((candidate or {}).get("available_qty"), 0.0),
+                "dust": False,
+                "duplicate_locks": bool(getattr(self, "_aits_sell_intent_locks", {})),
+                "buy_blocked": getattr(self, "_aits_buy_blocked", None),
+                "buy_blocker": getattr(self, "_aits_buy_blocker", ""),
+                "sell_allowed_guard_precheck": True,
+            },
+            "current_policy": {
+                "engine_provider": str(getattr(self, "_applied_ai_provider", "") or getattr(self, "_selected_ai_provider", "") or ""),
+                "execution_mode": "live" if self._sell_apply_runtime_active() else "observe",
+                "risk_level": getattr(self, "_aits_risk_level", ""),
+                "aggressiveness": getattr(self, "_aits_aggressiveness", ""),
+            },
+            "requested_decision": {
+                "trigger": str((candidate or {}).get("trigger") or ""),
+                "allowed_actions": ["hold", "wait", "sell", "reduce", "add", "buy", "rotate", "stop_loss", "take_profit"],
+            },
+            "required_output_schema": {
+                "action": "hold|wait|sell|reduce|add|buy|rotate|stop_loss|take_profit",
+                "confidence": "0.0-1.0",
+                "reason_ko": "string",
+                "eta_seconds": "integer",
+                "sell_ratio": "0.0-1.0",
+                "buy_amount_krw": "number",
+                "rotate_to_symbol": "KRW-* or empty",
+                "risk_notes": "string",
+                "invalidation_conditions": "list",
+            },
+            "reason": str(reason or "sell_evaluation"),
+        }
+
+    def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
+        try:
+            root = Path("data") / "ai_decision_training"
+            root.mkdir(parents=True, exist_ok=True)
+            encoded = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            payload_hash = hashlib.sha256(encoded).hexdigest()[:24]
+            row = {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "provider": str((decision or {}).get("provider") or ""),
+                "payload_hash": payload_hash,
+                "symbol": str((payload or {}).get("symbol") or ""),
+                "input_features": payload,
+                "ai_action": str((decision or {}).get("action") or ""),
+                "ai_confidence": (decision or {}).get("confidence"),
+                "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
+                "execution_result": execution_result or {},
+                "realized_outcome_later": None,
+                "pnl_after_5m": None,
+                "pnl_after_15m": None,
+                "pnl_after_1h": None,
+                "user_override": False,
+            }
+            with (root / "position_decisions.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+            self._log.info(
+                "[AITS][AIDecisionAuthority] event=local_training_record_created symbol=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
+                row["symbol"] or "-",
+                row["provider"] or "-",
+                row["ai_action"] or "-",
+                payload_hash,
+            )
+        except Exception as exc:
+            try:
+                self._log.info("[AITS][AIDecisionAuthority] event=local_training_record_failed error_type=%s actual_order=False submitted=0", type(exc).__name__)
+            except Exception:
+                pass
+
+    def _request_ai_position_decision(self, *, payload: dict, candidate: dict) -> dict:
+        symbol = str((payload or {}).get("symbol") or (candidate or {}).get("symbol") or "").strip().upper()
+        provider = self._selected_ai_decision_provider()
+        try:
+            payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+        except Exception:
+            payload_hash = ""
+        try:
+            self._log.info(
+                "[AITS][AIDecisionAuthority] event=ai_decision_payload_created task=manage_position_decision symbol=%s provider=%s payload_hash=%s trigger=%s fixed_threshold_direct_sell_disabled=True actual_order=False submitted=0",
+                symbol or "-",
+                provider or "-",
+                payload_hash or "-",
+                str((candidate or {}).get("trigger") or "-"),
+            )
+            self._log.info(
+                "[AITS][AIDecisionAuthority] event=ai_provider_call_requested symbol=%s provider=%s payload_hash=%s actual_order=False submitted=0",
+                symbol or "-",
+                provider or "-",
+                payload_hash or "-",
+            )
+            from app.services.ai_engine_provider import AIEngineProvider
+
+            engine = AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None))
+            decision = engine.generate_position_management_decision(provider=provider, context=payload)
+        except Exception as exc:
+            decision = {
+                "schema": "aits_position_management_decision_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "provider_call_attempted": True,
+                "action": "wait",
+                "confidence": 0.0,
+                "reason_ko": "AI 판단 요청 중 오류가 발생해 주문을 보류합니다.",
+                "eta_seconds": 300,
+                "sell_ratio": 0.0,
+                "blocker": f"ai_decision_response_missing:{type(exc).__name__}",
+                "actual_order": False,
+                "submitted": 0,
+            }
+        try:
+            action = str((decision or {}).get("action") or "").strip().lower()
+            blocker = str((decision or {}).get("blocker") or "")
+            if not bool((decision or {}).get("response_confirmed")):
+                self._log.info(
+                    "[AITS][AIDecisionAuthority] event=ai_provider_call_blocked symbol=%s provider=%s blocker=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    blocker or "ai_decision_required_but_provider_blocked",
+                )
+            else:
+                self._log.info(
+                    "[AITS][AIDecisionAuthority] event=ai_provider_response_received symbol=%s provider=%s action=%s confidence=%s eta_seconds=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    (decision or {}).get("confidence"),
+                    (decision or {}).get("eta_seconds"),
+                )
+            self._log.info(
+                "[AITS][AIDecisionAuthority] event=ai_decision_result symbol=%s provider=%s action=%s confidence=%s reason_detected=%s eta_seconds=%s blocker=%s actual_order=False submitted=0",
+                symbol or "-",
+                provider or "-",
+                action or "-",
+                (decision or {}).get("confidence"),
+                bool(str((decision or {}).get("reason_ko") or "").strip()),
+                (decision or {}).get("eta_seconds"),
+                blocker or "-",
+            )
+        except Exception:
+            pass
+        return dict(decision or {})
+
+    def _execute_ai_position_decision(self, *, candidate: dict, payload: dict, decision: dict) -> dict:
+        action = str((decision or {}).get("action") or "").strip().lower()
+        symbol = str((candidate or {}).get("symbol") or "").strip().upper()
+        if not bool((decision or {}).get("response_confirmed")):
+            blocker = str((decision or {}).get("blocker") or "ai_decision_required_but_provider_blocked")
+            try:
+                self._log.info("[AITS][SellOrderIntent] event=sell_intent_blocked symbol=%s blocker=%s ai_action=%s actual_order=False submitted=0", symbol or "-", blocker, action or "wait")
+                self._append_aits_live_log(f"{symbol} AI 판단이 필요하지만 제공자 호출이 차단되어 대기합니다.", category="pipeline", level="warning", event="ai_decision_required_but_provider_blocked", symbol=symbol)
+            except Exception:
+                pass
+            self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result={"blocker": blocker, "actual_order": False, "submitted_count": 0})
+            return {"submitted_count": 0, "actual_order": False, "blocker": blocker, "ai_action": action or "wait"}
+        if action not in {"sell", "reduce", "stop_loss", "take_profit"}:
+            try:
+                self._log.info("[AITS][SellOrderIntent] event=sell_intent_blocked symbol=%s blocker=ai_decision_action_hold_or_wait ai_action=%s confidence=%s eta_seconds=%s actual_order=False submitted=0", symbol or "-", action or "wait", (decision or {}).get("confidence"), (decision or {}).get("eta_seconds"))
+                self._append_aits_live_log(f"{symbol} AI 판단: {str((decision or {}).get('reason_ko') or '대기')}", category="pipeline", level="info", event="ai_decision_hold_wait", symbol=symbol)
+            except Exception:
+                pass
+            self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result={"blocker": "ai_decision_action_hold_or_wait", "actual_order": False, "submitted_count": 0})
+            return {"submitted_count": 0, "actual_order": False, "blocker": "ai_decision_action_hold_or_wait", "ai_action": action or "wait"}
+        try:
+            ratio = float((decision or {}).get("sell_ratio") or 0.0)
+        except Exception:
+            ratio = 0.0
+        if ratio <= 0.0:
+            ratio = 1.0 if action == "stop_loss" and str((candidate or {}).get("trigger") or "") == "emergency_stop_loss" else 0.5
+        ratio = max(0.0, min(1.0, ratio))
+        available_qty = self._managed_pool_num_value((candidate or {}).get("available_qty"), 0.0)
+        current_price = self._managed_pool_num_value((candidate or {}).get("current_price"), 0.0)
+        planned = dict(candidate or {})
+        planned["trigger"] = action
+        planned["sell_ratio"] = ratio
+        planned["sell_volume"] = max(0.0, min(available_qty, available_qty * ratio))
+        planned["estimated_sell_value_krw"] = planned["sell_volume"] * current_price if current_price > 0.0 else 0.0
+        try:
+            self._log.info(
+                "[AITS][SellOrderIntent] event=sell_apply_candidate symbol=%s trigger=%s ai_action=%s ai_confidence=%s pnl_pct=%s sell_ratio=%s sell_volume=%s estimated_sell_value_krw=%s actual_order=False submitted=0 reason=ai_decision_based",
+                symbol or "-",
+                str(planned.get("trigger") or "-"),
+                action or "-",
+                (decision or {}).get("confidence"),
+                planned.get("pnl_pct") or 0.0,
+                planned.get("sell_ratio") or 0.0,
+                planned.get("sell_volume") or 0.0,
+                planned.get("estimated_sell_value_krw") or 0.0,
+            )
+            self._append_aits_live_log(f"{symbol} AI 판단: {str((decision or {}).get('reason_ko') or '매도 판단')} · 안전검사로 이동합니다.", category="pipeline", level="warning", event="ai_decision_sell_apply", symbol=symbol)
+        except Exception:
+            pass
+        result = self._apply_guarded_sell_candidate(planned, reason="ai_position_decision")
+        self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result=result)
+        return dict(result or {})
+
     def _apply_guarded_sell_candidate(self, candidate: dict, *, reason: str = "sell_evaluation") -> dict:
         now = time.time()
         symbol = str((candidate or {}).get("symbol") or "").strip().upper()
@@ -40348,8 +40635,9 @@ class MainWindow(QMainWindow):
         emergency_stop_symbols: list[str] = []
         missing_symbols: list[str] = []
         external_symbols: list[str] = []
-        sell_apply_candidates: list[dict] = []
+        ai_decision_candidates: list[dict] = []
         sell_apply_result: dict = {}
+        ai_decision_result: dict = {}
         top_symbol = ""
         top_pnl_pct = -9999.0
         try:
@@ -40413,7 +40701,7 @@ class MainWindow(QMainWindow):
                     if pnl_pct >= 5.0:
                         strong_take_profit_symbols.append(symbol)
                         trigger = "strong_take_profit"
-                    sell_apply_candidates.append(
+                    ai_decision_candidates.append(
                         self._build_sell_apply_candidate(
                             row=row,
                             symbol=symbol,
@@ -40437,7 +40725,7 @@ class MainWindow(QMainWindow):
                     stop_loss_symbols.append(symbol)
                     suggested_action = "emergency_sell_preview"
                     reason_text = "emergency_stop_loss_candidate_preview_only"
-                    sell_apply_candidates.append(
+                    ai_decision_candidates.append(
                         self._build_sell_apply_candidate(
                             row=row,
                             symbol=symbol,
@@ -40455,7 +40743,7 @@ class MainWindow(QMainWindow):
                     stop_loss_symbols.append(symbol)
                     suggested_action = "sell_preview"
                     reason_text = "stop_loss_candidate_preview_only"
-                    sell_apply_candidates.append(
+                    ai_decision_candidates.append(
                         self._build_sell_apply_candidate(
                             row=row,
                             symbol=symbol,
@@ -40562,31 +40850,35 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         try:
-            if sell_apply_candidates:
-                first = sell_apply_candidates[0]
+            if ai_decision_candidates:
+                first = ai_decision_candidates[0]
                 self._log.info(
-                    "[AITS][SellOrderIntent] event=sell_apply_candidate symbol=%s trigger=%s pnl_pct=%s pnl_krw=%s qty=%s available_qty=%s sell_ratio=%s sell_volume=%s estimated_sell_value_krw=%s actual_order=False submitted=0 reason=%s",
+                    "[AITS][AIDecisionAuthority] event=ai_decision_required symbol=%s trigger=%s pnl_pct=%s pnl_krw=%s qty=%s available_qty=%s fixed_threshold_direct_sell_disabled=True actual_order=False submitted=0 reason=%s",
                     first.get("symbol") or "-",
                     first.get("trigger") or "-",
                     first.get("pnl_pct") or 0.0,
                     first.get("pnl_krw") or 0.0,
                     first.get("qty") or 0.0,
                     first.get("available_qty") or 0.0,
-                    first.get("sell_ratio") or 0.0,
-                    first.get("sell_volume") or 0.0,
-                    first.get("estimated_sell_value_krw") or 0.0,
                     str(reason or "refresh"),
                 )
-                sell_apply_result = self._apply_guarded_sell_candidate(first, reason=str(reason or "refresh"))
+                source_row = {}
+                for row in rows:
+                    if str(row.get("symbol") or row.get("market") or "").strip().upper() == str(first.get("symbol") or "").strip().upper():
+                        source_row = row
+                        break
+                payload = self._build_ai_position_decision_payload(row=source_row, candidate=first, reason=str(reason or "refresh"))
+                ai_decision_result = self._request_ai_position_decision(payload=payload, candidate=first)
+                sell_apply_result = self._execute_ai_position_decision(candidate=first, payload=payload, decision=ai_decision_result)
             else:
                 self._log.info(
-                    "[AITS][SellOrderIntent] event=sell_intent_blocked blocker=sell_apply_threshold_not_reached candidate_count=0 actual_order=False submitted=0 reason=%s",
+                    "[AITS][AIDecisionAuthority] event=ai_decision_not_required blocker=sell_apply_threshold_not_reached candidate_count=0 actual_order=False submitted=0 reason=%s",
                     str(reason or "refresh"),
                 )
         except Exception as exc:
             try:
                 self._log.info(
-                    "[AITS][SellOrderIntent] event=sell_intent_blocked blocker=sell_apply_exception error_type=%s actual_order=False submitted=0",
+                    "[AITS][AIDecisionAuthority] event=ai_decision_blocked blocker=ai_decision_exception error_type=%s actual_order=False submitted=0",
                     type(exc).__name__,
                 )
             except Exception:
@@ -40670,7 +40962,16 @@ class MainWindow(QMainWindow):
             "top_pnl_symbol": top_symbol,
             "top_pnl_pct": 0.0 if top_pnl_pct == -9999.0 else top_pnl_pct,
             "sell_preview_only": True,
-            "sell_apply_candidate_symbols": [str(item.get("symbol") or "") for item in sell_apply_candidates if item.get("symbol")],
+            "ai_decision_payload_created": bool(ai_decision_candidates),
+            "ai_decision_payload_symbols": [str(item.get("symbol") or "") for item in ai_decision_candidates if item.get("symbol")],
+            "ai_decision_action": str((ai_decision_result or {}).get("action") or ""),
+            "ai_decision_confidence": (ai_decision_result or {}).get("confidence"),
+            "ai_decision_blocker": str((ai_decision_result or {}).get("blocker") or (sell_apply_result or {}).get("blocker") or ""),
+            "sell_apply_candidate_symbols": [
+                str(item.get("symbol") or "")
+                for item in ai_decision_candidates
+                if item.get("symbol") and str((ai_decision_result or {}).get("action") or "").strip().lower() in {"sell", "reduce", "stop_loss", "take_profit"}
+            ],
             "sell_apply_result": dict(sell_apply_result or {}),
             "sell_submit_count": int((sell_apply_result or {}).get("submitted_count") or 0),
             "actual_sell_order_count": 1 if bool((sell_apply_result or {}).get("actual_order")) else 0,

@@ -371,3 +371,11 @@ These events are not submit permission and must not call order retry paths.
 - Sell submit is valid only when RiskGuard and LivePreflight passed first.
 - The symbol sell lock is scoped per symbol with a 30 minute default cooldown.
 - Non-active runtime traces should show the candidate but block with `runtime_not_active_for_sell_apply`.
+
+## AI Decision Authority
+
+- SellEvaluation thresholds only trigger `[AITS][AIDecisionAuthority] event=ai_decision_required`.
+- BASIC must create `aits_ai_decision_payload_v1` and ask the configured AI provider for `aits_position_management_decision_v1`.
+- Direct fixed-threshold sell apply is disabled; the trace should include `fixed_threshold_direct_sell_disabled=True`.
+- Guarded sell apply may start only after AI action is `sell`, `reduce`, `stop_loss`, or `take_profit`.
+- Provider-blocked or invalid AI responses must produce a blocker and no order.

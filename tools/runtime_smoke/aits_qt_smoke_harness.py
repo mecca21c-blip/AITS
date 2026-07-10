@@ -8639,6 +8639,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= session_started_at_dt)
         ]
     lowered = [line.lower() for line in lines]
+    joined = "\n".join(lines)
     joined_lower = "\n".join(lowered)
     reports = _live_on_runtime_e2e_latest_reports(output_dir)
     dry_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "dry-read")
@@ -9123,6 +9124,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     add_position_policy_lines = [line for line in lines if "[AITS][AddPositionPolicy]" in line]
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
+    ai_decision_authority_lines = [line for line in lines if "[AITS][AIDecisionAuthority]" in line]
     sell_order_intent_lines = [line for line in lines if "[AITS][SellOrderIntent]" in line]
     sell_apply_guard_lines = [line for line in lines if "[AITS][SellApplyGuard]" in line]
     external_holding_lines = [line for line in lines if "[AITS][ExternalHoldingAdoption]" in line]
@@ -9322,6 +9324,27 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     sell_preview_only = any("event=sell_eval_preview_only" in line for line in sell_evaluation_lines)
     sell_preview_only = bool(sell_preview_only or _live_on_runtime_bool_marker(latest_sell_eval_result, "preview_only"))
     emergency_stop_loss_preview_only = any("event=emergency_stop_loss_candidate" in line and "preview_only=True" in line for line in sell_evaluation_lines)
+    ai_decision_payload_lines = [line for line in ai_decision_authority_lines if "event=ai_decision_payload_created" in line]
+    ai_decision_required_lines = [line for line in ai_decision_authority_lines if "event=ai_decision_required" in line]
+    ai_provider_call_requested_lines = [line for line in ai_decision_authority_lines if "event=ai_provider_call_requested" in line]
+    ai_provider_call_blocked_lines = [line for line in ai_decision_authority_lines if "event=ai_provider_call_blocked" in line]
+    ai_provider_response_lines = [line for line in ai_decision_authority_lines if "event=ai_provider_response_received" in line]
+    ai_decision_result_lines = [line for line in ai_decision_authority_lines if "event=ai_decision_result" in line]
+    local_training_record_lines = [line for line in ai_decision_authority_lines if "event=local_training_record_created" in line]
+    latest_ai_decision_line = (ai_decision_result_lines or ai_provider_call_blocked_lines or ai_decision_required_lines or [""])[-1]
+    ai_decision_payload_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in ai_decision_payload_lines + ai_decision_required_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    })
+    ai_decision_action = _live_on_stage_extract_value(latest_ai_decision_line, "action") or _live_on_stage_extract_value(latest_ai_decision_line, "ai_action")
+    ai_decision_confidence = _safe_float(_live_on_stage_extract_value(latest_ai_decision_line, "confidence"), 0.0)
+    ai_decision_blocker = _live_on_stage_extract_value(latest_ai_decision_line, "blocker")
+    if ai_decision_blocker == "-":
+        ai_decision_blocker = ""
+    ai_decision_reason_detected = any("reason_detected=True" in line for line in ai_decision_result_lines)
+    ai_decision_eta_detected = any(_live_on_stage_extract_value(line, "eta_seconds") for line in ai_decision_result_lines + ai_provider_response_lines)
+    fixed_threshold_direct_sell_disabled = any("fixed_threshold_direct_sell_disabled=True" in line for line in ai_decision_authority_lines)
     sell_apply_supported = bool(sell_order_intent_lines or sell_apply_guard_lines)
     sell_apply_candidate_lines = [
         line for line in sell_order_intent_lines + sell_apply_guard_lines if "event=sell_apply_candidate" in line
@@ -9663,6 +9686,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "unexpected_sell_submit_without_guard"
     elif side_sell_submit_count > 0:
         first_blocker = "guarded_sell_submit_observed"
+    elif ai_decision_required_lines and not ai_decision_payload_lines:
+        first_blocker = "ai_decision_payload_missing"
+    elif ai_decision_required_lines and not ai_provider_call_requested_lines:
+        first_blocker = "ai_decision_provider_not_called"
+    elif ai_provider_call_blocked_lines:
+        first_blocker = "ai_decision_required_but_provider_blocked"
+    elif ai_provider_response_lines and not ai_decision_result_lines:
+        first_blocker = "ai_decision_response_missing"
+    elif ai_decision_result_lines and ai_decision_action not in {"hold", "wait", "sell", "reduce", "add", "buy", "rotate", "stop_loss", "take_profit"}:
+        first_blocker = "ai_decision_invalid_schema"
+    elif ai_decision_result_lines and ai_decision_action in {"sell", "reduce", "stop_loss", "take_profit"} and not sell_intent_created_lines:
+        first_blocker = "ai_decision_action_not_executed"
+    elif ai_decision_result_lines and ai_decision_action in {"hold", "wait"}:
+        first_blocker = "ai_decision_cycle_ready"
     elif sell_guard_blocked_lines:
         first_blocker = "sell_blocked_by_riskguard"
     elif sell_preflight_blocked_lines:
@@ -10088,6 +10125,22 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "sell_eval_runs_while_buy_blocked": bool((buy_blocked or actual_writer_probe_buy_blocked) and sell_evaluation_called),
         "sell_eval_runs_in_monitor_only": bool((runtime_monitor_only_mode or actual_writer_probe_monitor_only) and sell_evaluation_called),
         "sell_eval_skip_blocker": str(sell_eval_skip_blocker or ""),
+        "ai_decision_payload_created": bool(ai_decision_payload_lines),
+        "ai_decision_payload_symbols": ai_decision_payload_symbols,
+        "ai_decision_required_count": int(len(ai_decision_required_lines)),
+        "ai_provider_call_requested_count": int(len(ai_provider_call_requested_lines)),
+        "ai_provider_call_blocked_count": int(len(ai_provider_call_blocked_lines)),
+        "ai_provider_response_received_count": int(len(ai_provider_response_lines)),
+        "ai_decision_action": str(ai_decision_action or ""),
+        "ai_decision_confidence": float(ai_decision_confidence),
+        "ai_decision_reason_detected": bool(ai_decision_reason_detected),
+        "ai_decision_eta_detected": bool(ai_decision_eta_detected),
+        "fixed_threshold_direct_sell_disabled": bool(fixed_threshold_direct_sell_disabled),
+        "ai_decision_based_sell_intent_count": int(sum(1 for line in sell_intent_created_lines if "ai_decision" in line or "trigger=sell" in line or "trigger=reduce" in line or "trigger=stop_loss" in line or "trigger=take_profit" in line)),
+        "ai_decision_based_buy_intent_count": 0,
+        "ai_decision_based_rotate_count": int(sum(1 for line in ai_decision_result_lines if "action=rotate" in line)),
+        "local_training_record_created": bool(local_training_record_lines),
+        "ai_decision_blocker": str(ai_decision_blocker or ""),
         "sell_apply_supported": bool(sell_apply_supported),
         "sell_apply_candidate_symbols": sell_apply_candidate_symbols,
         "sell_intent_created_count": int(len(sell_intent_created_lines)),

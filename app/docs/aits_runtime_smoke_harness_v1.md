@@ -1897,3 +1897,11 @@ summary modes.
 - Every sell apply must pass RiskGuard and LivePreflight before reaching ExecutionBridge, OrderAdapter, and OrderService.
 - Harness fields include `sell_apply_supported`, `sell_apply_candidate_symbols`, `sell_intent_created_count`, `sell_guard_passed_count`, `sell_preflight_passed_count`, `sell_submit_requested_count`, `side_sell_submit_count`, `actual_sell_order_count`, `sell_trigger`, `sell_ratio`, `sell_volume`, and `estimated_sell_value_krw`.
 - Dry-read and non-active runtime summaries may detect candidates but must block apply with `runtime_not_active_for_sell_apply`.
+
+## AI Decision Authority For Position Management
+
+- BASIC collects position, market, indicator, portfolio, candidate, and constraint data into `aits_ai_decision_payload_v1`.
+- Profit/loss thresholds are AI-decision triggers, not direct sell decisions.
+- User-facing action authority belongs to GPT, Gemini, or LOCAL AI through `aits_position_management_decision_v1`.
+- Harness fields include `ai_decision_payload_created`, `ai_decision_payload_symbols`, `ai_decision_required_count`, `ai_provider_call_requested_count`, `ai_provider_call_blocked_count`, `ai_provider_response_received_count`, `ai_decision_action`, `ai_decision_confidence`, `ai_decision_reason_detected`, `ai_decision_eta_detected`, `fixed_threshold_direct_sell_disabled`, `ai_decision_based_sell_intent_count`, `ai_decision_based_buy_intent_count`, `ai_decision_based_rotate_count`, `local_training_record_created`, and `ai_decision_blocker`.
+- If AI decision is required but unavailable, BASIC must not invent a buy/sell action; it reports `ai_decision_required_but_provider_blocked`.

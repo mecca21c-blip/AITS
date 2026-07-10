@@ -539,3 +539,11 @@ Blockers:
 - A guarded sell submit requires sell intent creation, RiskGuard pass, LivePreflight pass, and then normal ExecutionBridge/OrderAdapter/OrderService submission.
 - Blockers include `sell_apply_candidate_not_created`, `sell_blocked_by_riskguard`, `sell_blocked_by_live_preflight`, `sell_blocked_by_min_order_value`, `sell_duplicate_lock_active`, `unexpected_sell_submit_without_guard`, and `guarded_sell_submit_observed`.
 - Non-active runtime candidate detection is not a failure; it should remain blocked before submit.
+
+## AI Decision Authority
+
+- E2E reads `[AITS][AIDecisionAuthority]` to distinguish data triggers from AI decisions.
+- Profit/loss thresholds must not create sell intents by themselves.
+- A sell intent is AI-decision-based only when an AI result action is `sell`, `reduce`, `stop_loss`, or `take_profit`.
+- Blockers include `fixed_threshold_direct_sell_still_active`, `ai_decision_payload_missing`, `ai_decision_provider_not_called`, `ai_decision_response_missing`, `ai_decision_invalid_schema`, `ai_decision_required_but_provider_blocked`, `ai_decision_action_not_executed`, and `ai_decision_cycle_ready`.
+- LOCAL training records are expected for decision cycles so later model tuning can compare decision, execution result, and later PnL.
