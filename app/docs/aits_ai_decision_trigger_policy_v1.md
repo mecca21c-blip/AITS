@@ -1,135 +1,197 @@
 # AITS AI Decision Trigger Policy v1
 
-This policy defines when BASIC should ask AI to decide. Thresholds and indicators are triggers and payload evidence. They are not direct trade authority.
+This policy defines when BASIC asks AI to decide. BASIC watches continuously, but AI calls are event-based. Indicators and thresholds are evidence for judgment, not direct order authority.
 
-Role-injection summary:
+## 1. 핵심 원칙
 
-- BASIC은 1~3초 단위로 시장/호가/체결/손익을 감시한다.
-- BASIC은 10~30초 단위로 지표/후보/관리종목 상태를 갱신한다.
-- BASIC은 이벤트가 발생하면 AI 판단 필요 여부를 만든다.
-- LOCAL은 비용 없는 1차 판단자로 활용한다.
-- GPT/GEMINI는 중요하거나 불확실하거나 실제 주문/로테이션 판단이 필요한 경우 호출한다.
+- BASIC은 상시 감시한다.
+- AI는 판단이 필요한 순간에 호출한다.
 - 외부 AI를 1초마다 호출하지 않는다.
 - 외부 AI를 5분마다 무조건 호출하지 않는다.
-- AI 호출은 판단 이벤트 기반이다.
+- AI 호출은 이벤트 기반이다.
+- LOCAL은 비용 없는 1차 판단자다.
+- GPT/GEMINI는 중요하거나 불확실하거나 실제 주문/로테이션 판단이 필요한 경우 호출한다.
 
-## 1. BASIC Monitoring Cadence
+기준 문장:
 
-- 1 to 3 seconds: price, orderbook, trade flow, and profit/loss movement monitoring.
-- 10 to 30 seconds: RSI, MACD, moving averages, volume, volatility, managed pool, and candidate score refresh.
-- 1 to 5 minutes: AI decision need review, ETA expiry, rotation candidate review, and portfolio rebalance review.
+> BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. BASIC의 지표와 임계값은 판단 근거이며, 최종 행동 결정은 AI가 한다.
 
-These cadences are observation and trigger cadences. External AI providers must not be called blindly on every cadence.
+## 2. BASIC 감시 주기
 
-## 2. AI Call Method
+### 1~3초
 
-- Do not call external AI on a fixed unconditional schedule.
-- Use event-driven calls.
-- Prefer LOCAL for frequent low-cost first judgment.
-- Use GPT/Gemini for important, uncertain, or live-order decisions.
-- If AI decision is required but the provider is blocked, BASIC must not place a fallback order.
+- 현재가
+- 호가
+- 체결 흐름
+- 손익 변화
+- 급등/급락 감지
+- 상태바/LIVE LOG heartbeat
 
-## 3. Holding Decision Triggers
+### 10~30초
 
-BASIC should request AI judgment when one or more of these events occurs:
+- RSI
+- MACD
+- 이동평균
+- 거래량 변화
+- 변동성
+- 관리종목 상태
+- 후보종목 scanner
 
-- rapid profit percentage movement
-- rapid loss percentage movement
-- RSI overheat or depressed-zone entry
-- MACD direction change
-- rapid volume increase or decrease
-- drop from recent high
-- bounce from recent low
-- ETA expiry
-- invalidation of prior AI decision conditions
-- take-profit, stop-loss, reduce, add, rotate, hold, or wait judgment needed
+### 1~5분
 
-## 4. New Candidate Triggers
+- AI 판단 필요 여부 평가
+- ETA 만료 확인
+- 로테이션 후보 비교
+- 포트폴리오 비중 재계산
+- AI provider 호출 필요 여부 판단
 
-AI judgment can be requested when:
+## 3. 보유종목 AI 판단 trigger
 
-- trade value surges
-- price change or volatility surges
-- a scanner candidate is superior to existing managed names
-- a new top scanner candidate appears
-- a buy/add decision is needed and cash, cap, or risk constraints are active
+- 수익률 급변
+- 손실률 급변
+- RSI 과열/침체 진입
+- MACD 방향 전환
+- 거래량 급증/급감
+- 고점 대비 하락 시작
+- 저점 대비 반등
+- 목표 비중 초과/과소
+- ETA 만료
+- 기존 AI 판단 조건 무효화
+- 보유종목의 시장/지표 상태가 기존 판단과 달라짐
 
-## 5. Rotation Triggers
+## 4. 손절/위험 판단 trigger
 
-AI judgment can be requested when:
+- 손실률 확대
+- 지지선 이탈
+- 거래량 동반 하락
+- 시장 전체 급락
+- 호가 매수벽 약화
+- 기존 AI 판단의 무효화 조건 발생
+- 포트폴리오 전체 손실 확대
 
-- an existing non-holding managed symbol loses momentum
-- a new candidate gains momentum
-- a rotation ETA expires
-- portfolio weight needs adjustment
-- cash or operating cap constraints require opportunity selection
+## 5. 신규 후보 판단 trigger
 
-Holding and protected symbols must not be rotated out without a separate AI decision and safety validation.
+- 거래대금 급증
+- 상승률 급등
+- 거래량 동반 돌파
+- 기존 관리종목보다 기회 점수 우위
+- scanner 상위 신규 후보 발생
+- 관리종목 max/cap 여유 발생
+- 매도 후 현금 회수 발생
 
-## 6. Portfolio Triggers
+## 6. 로테이션 판단 trigger
 
-AI judgment can be requested when:
+- 기존 관리종목 모멘텀 약화
+- 신규 후보 모멘텀 강화
+- 기존 종목 ETA 만료
+- 기존 종목 거래량 감소
+- 신규 후보 거래량 증가
+- 포트폴리오 비중 조정 필요
+- 보유종목 일부/전량 매도 후 재배치 필요
 
-- cash is insufficient
-- total operating cap is reached
-- a symbol is overweight
-- portfolio loss expands
-- profitable holdings exist while stronger candidates appear
-- portfolio exposure, available KRW, and target weights are inconsistent
+## 7. ETA 판단 trigger
 
-## 7. AI Payload Required Fields
+- ETA 만료
+- ETA 기간 내 조건 위반
+- 급등/급락
+- 거래량 급감
+- MACD/RSI 상태 변화
+- 새 후보 등장
+- 포트폴리오 조건 변화
 
-Every trade-affecting AI decision payload should include:
+## 8. 포트폴리오 상태 trigger
 
+- 현금 부족
+- 운용한도 도달
+- 특정 종목 비중 과다
+- 전체 포트폴리오 손실 확대
+- 수익 종목은 있으나 신규 후보가 우위
+- 신규 후보는 많으나 매수 여력 부족
+- 매도 후 현금 회수 발생
+
+## 9. AI 호출 우선순위
+
+1순위:
+
+- 실제 보유종목
+- 손익 급변
+- 익절/손절/전량청산 가능성
+
+2순위:
+
+- 로테이션 후보
+- 보유종목보다 명확히 우위인 신규 후보
+
+3순위:
+
+- 관리종목 중 오래 판단 안 된 종목
+- ETA 만료 종목
+
+4순위:
+
+- 단순 scanner 후보
+- watch 후보
+
+## 10. LOCAL / GPT / GEMINI 호출 정책
+
+LOCAL:
+
+- 30~60초 단위 또는 이벤트 발생 시 1차 판단 가능
+- confidence가 높고 risk가 낮으면 LOCAL 판단 사용 가능
+
+GPT/GEMINI:
+
+- LOCAL confidence 낮음
+- 실제 주문 판단 필요
+- 로테이션 판단 필요
+- 포지션 비중 큼
+- 시장 급변
+- BASIC 신호와 LOCAL 판단 충돌
+- 최근 손실이 이어짐
+- 사용자가 GPT/GEMINI 우선 모드 선택
+
+Provider 호출 실패 시 BASIC이 임의 주문하지 않는다.
+
+## 11. AI 판단 요청 payload 기본 구성
+
+- task
+- trigger_reason
+- symbol
 - position
 - market
 - indicators
 - portfolio
 - candidates
 - constraints
-- current policy
-- requested decision
-- output schema
+- current_policy
+- prior_ai_decision
+- eta_state
+- requested_decision
+- output_schema
 
-The payload should carry profit/loss, RSI, MACD, volume, volatility, orderbook/trade strength when available, weight, target, ETA, cap, duplicate locks, dust status, and candidate alternatives.
-
-## 8. AI Output Schema
-
-AI output must include:
+## 12. AI 판단 output 기본 구성
 
 - action
 - confidence
 - reason_ko
 - eta_seconds
 - execution_plan
-- sell_ratio, buy_amount_krw, or rotate_to_symbol when applicable
+- sell_ratio
+- buy_amount_krw
+- rotate_to_symbol
 - risk_notes
 - invalidation_conditions
 
-Allowed actions are `hold`, `wait`, `sell`, `reduce`, `add`, `buy`, `rotate`, `take_profit`, and `stop_loss`.
+## 13. 금지 정책
 
-## 9. AI Call Failure Policy
+- BASIC이 trigger를 action으로 오해하면 안 된다.
+- 수익률/손실률/RSI/MACD/거래량은 판단 요청 근거이지 직접 주문 기준이 아니다.
+- AI 판단 없이 buy/sell/rotate/add/reduce OrderIntent 생성 금지.
+- AI 호출 실패 시 BASIC 임의 주문 금지.
+- RiskGuard/LivePreflight 우회 금지.
 
-When AI decision is required but unavailable:
+Trigger는 action이 아니다. Trigger는 AI에게 물어볼 이유다.
 
-- BASIC must not place an arbitrary buy or sell.
-- A blocker must be logged and shown.
-- LOCAL fallback availability must be reported.
-- Typical blockers include `ai_decision_required_but_provider_blocked`, `ai_decision_required_but_prompt_missing`, `ai_decision_response_missing`, and `ai_decision_invalid_schema`.
+## 14. 기준 문장
 
-## 10. LOCAL Training Data Policy
-
-Every AI decision cycle should store training data for future LOCAL improvement:
-
-- input features
-- AI decision
-- confidence
-- Korean reason
-- execution result
-- 5m, 15m, and 1h outcome placeholders
-- realized PnL placeholder
-- user override state
-- provider
-- payload hash
-
-This record allows GPT/Gemini to act as teacher engines while LOCAL matures into a stronger offline decision engine.
+BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. BASIC의 지표와 임계값은 판단 근거이며, 최종 행동 결정은 AI가 한다.

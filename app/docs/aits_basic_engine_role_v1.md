@@ -166,3 +166,11 @@ BASIC은 “매도하라” 또는 “매수하라”를 만들지 않는다. BA
 ## 13. BASIC Engine 기준 문장
 
 BASIC은 계산한다. BASIC은 정리한다. BASIC은 AI에게 묻는다. AI가 판단한다. BASIC은 AI 판단을 안전하게 실행한다. BASIC은 결과를 기록해 LOCAL 학습 데이터로 쌓는다.
+
+## BASIC Engine as Trigger Detector
+
+- BASIC은 AI 판단 요청 이벤트를 만든다.
+- BASIC은 trigger_reason을 생성한다.
+- BASIC은 trigger를 직접 주문으로 변환하지 않는다.
+- BASIC은 수익률, 손실률, RSI, MACD, 거래량, 변동성, 호가, 체결강도, ETA, 비중, 후보대안을 AI 판단 payload의 근거로 정리한다.
+- BASIC은 trigger를 action으로 오해하지 않는다.

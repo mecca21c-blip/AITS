@@ -20510,6 +20510,61 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and execution_boundary_documented
         and local_training_role_documented
     )
+    ai_decision_trigger_policy_injected = bool(
+        trigger_doc.exists()
+        and "BASIC은 계속 감시한다" in trigger_doc_text
+        and "AI는 판단이 필요한 순간에 호출한다" in trigger_doc_text
+        and "Trigger는 action이 아니다" in combined_doc_text
+    )
+    basic_monitoring_cadence_documented = bool(
+        "1~3초" in trigger_doc_text
+        and "10~30초" in trigger_doc_text
+        and "1~5분" in trigger_doc_text
+    )
+    ai_event_based_call_policy_documented = bool(
+        "AI 호출은 이벤트 기반" in trigger_doc_text
+        and "외부 AI를 1초마다 호출하지 않는다" in trigger_doc_text
+        and "외부 AI를 5분마다 무조건 호출하지 않는다" in trigger_doc_text
+    )
+    local_first_policy_documented = bool(
+        "LOCAL" in trigger_doc_text
+        and ("1차 판단" in trigger_doc_text or "1차 판단자" in trigger_doc_text)
+    )
+    gpt_gemini_escalation_policy_documented = bool(
+        "GPT/GEMINI" in trigger_doc_text
+        and "실제 주문 판단 필요" in trigger_doc_text
+        and "로테이션 판단 필요" in trigger_doc_text
+    )
+    trigger_not_action_policy_documented = bool(
+        "Trigger는 action이 아니다" in combined_doc_text
+        and "trigger를 action" in trigger_doc_text
+    )
+    ai_decision_payload_requirements_documented = bool(
+        "trigger_reason" in trigger_doc_text
+        and "prior_ai_decision" in trigger_doc_text
+        and "eta_state" in trigger_doc_text
+        and "output_schema" in trigger_doc_text
+    )
+    ai_decision_output_schema_documented = bool(
+        "action" in trigger_doc_text
+        and "confidence" in trigger_doc_text
+        and "reason_ko" in trigger_doc_text
+        and "eta_seconds" in trigger_doc_text
+        and "execution_plan" in trigger_doc_text
+        and "invalidation_conditions" in trigger_doc_text
+    )
+    ai_decision_trigger_policy_ready = bool(
+        ai_decision_trigger_policy_injected
+        and basic_monitoring_cadence_documented
+        and ai_event_based_call_policy_documented
+        and local_first_policy_documented
+        and gpt_gemini_escalation_policy_documented
+        and trigger_not_action_policy_documented
+        and ai_decision_payload_requirements_documented
+        and ai_decision_output_schema_documented
+        and "RiskGuard" in combined_doc_text
+        and "LivePreflight" in combined_doc_text
+    )
 
     samples: list[str] = []
     if sell_threshold_trigger_path:
@@ -20566,6 +20621,15 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "basic_engine_role_doc_exists": basic_doc.exists(),
         "engine_role_contract_doc_exists": role_doc.exists(),
         "ai_decision_trigger_policy_doc_exists": trigger_doc.exists(),
+        "ai_decision_trigger_policy_injected": bool(ai_decision_trigger_policy_injected),
+        "basic_monitoring_cadence_documented": bool(basic_monitoring_cadence_documented),
+        "ai_event_based_call_policy_documented": bool(ai_event_based_call_policy_documented),
+        "local_first_policy_documented": bool(local_first_policy_documented),
+        "gpt_gemini_escalation_policy_documented": bool(gpt_gemini_escalation_policy_documented),
+        "trigger_not_action_policy_documented": bool(trigger_not_action_policy_documented),
+        "ai_decision_payload_requirements_documented": bool(ai_decision_payload_requirements_documented),
+        "ai_decision_output_schema_documented": bool(ai_decision_output_schema_documented),
+        "ai_decision_trigger_policy_ready": bool(ai_decision_trigger_policy_ready),
         "basic_engine_role_injected": bool(basic_engine_role_injected),
         "basic_engine_forbidden_actions_documented": bool(basic_engine_forbidden_actions_documented),
         "basic_ai_boundary_documented": bool(basic_ai_boundary_documented),

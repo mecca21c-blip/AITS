@@ -111,3 +111,13 @@ BASIC Signal Collector
 → Result Reflection
 → LOCAL Training Record
 → LIVE LOG / Status Update
+
+## AI Decision Trigger Boundary
+
+- BASIC is the trigger detector.
+- AI is the final decision authority.
+- Trigger is not action.
+- Trigger는 action이 아니다.
+- RiskGuard validates the safety of the AI action.
+- LivePreflight validates the final order-readiness of the AI action.
+- Execution executes. Execution does not decide.
