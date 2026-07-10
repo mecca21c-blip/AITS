@@ -1873,3 +1873,11 @@ summary modes.
 - PnL source missing is logged as an evaluated result, not silently skipped.
 - Harness fields include `sell_eval_cycle_count`, `sell_eval_position_count`, `take_profit_watch_symbols`, `strong_take_profit_candidate_symbols`, `stop_loss_watch_symbols`, and `sell_eval_runs_while_buy_blocked`.
 - The loop is observe-only: `preview_only=True`, `actual_order=False`, `submitted=0`; sell submit requires a separate approved execution Goal.
+
+## Active Heartbeat SellEvaluation Probe
+
+- The active runtime heartbeat path must emit `[AITS][SellEvaluation] event=sell_eval_heartbeat_probe`.
+- A skipped probe is different from a missing connection. Harness fields distinguish `sell_eval_heartbeat_probe_detected`, `sell_eval_heartbeat_result_detected`, and `sell_eval_heartbeat_skipped_detected`.
+- Buy-blocked monitor-only mode is a valid state for sell observation. `buy_blocked=True` must not suppress SellEvaluation.
+- If manageable holdings exist but no position is evaluated, E2E reports `managed_holdings_not_passed_to_sell_evaluation`.
+- Any actual sell submit remains a critical failure in this observe-only stage.

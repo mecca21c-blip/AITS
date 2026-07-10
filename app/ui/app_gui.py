@@ -39960,12 +39960,54 @@ class MainWindow(QMainWindow):
             pass
         return out
 
+    def _sell_evaluation_observe_rows(self) -> list[dict]:
+        rows: list[dict] = []
+        by_symbol: dict[str, dict] = {}
+
+        def _symbol_for(row: dict) -> str:
+            symbol = str(row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker") or "").strip().upper()
+            if symbol and "-" not in symbol and symbol != "KRW":
+                symbol = f"KRW-{symbol}"
+            return symbol
+
+        def _add_row(row: dict, source_attr: str) -> None:
+            if not isinstance(row, dict):
+                return
+            symbol = _symbol_for(row)
+            if not symbol or symbol == "KRW":
+                return
+            clean = dict(row)
+            clean["symbol"] = symbol
+            if source_attr != "ai_managed_rows":
+                clean.setdefault("source_type", "live_holding")
+                clean.setdefault("source", "live_holding")
+                clean.setdefault("holding", True)
+                clean.setdefault("protected", True)
+                clean.setdefault("managed_protected", True)
+            if symbol in by_symbol:
+                existing = by_symbol[symbol]
+                for key, value in clean.items():
+                    if existing.get(key) in (None, "", "-", 0, 0.0) and value not in (None, "", "-"):
+                        existing[key] = value
+                return
+            by_symbol[symbol] = clean
+            rows.append(clean)
+
+        for item in getattr(self, "ai_managed_rows", None) or []:
+            _add_row(item, "ai_managed_rows")
+        for attr_name in ("_live_holdings_rows", "_investment_center_positions", "_portfolio_positions", "_holdings_rows"):
+            value = getattr(self, attr_name, None)
+            if isinstance(value, list):
+                for item in value:
+                    _add_row(item, attr_name)
+        return rows
+
     def _evaluate_sell_takeprofit_observe_path(self, *, reason: str = "refresh", force: bool = False) -> dict:
         now = time.time()
         if not force and now - float(getattr(self, "_last_sell_evaluation_observe_at", 0.0) or 0.0) < 60.0:
             return dict(getattr(self, "_last_sell_evaluation_observe_result", {}) or {})
         self._last_sell_evaluation_observe_at = now
-        rows = [row for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+        rows = self._sell_evaluation_observe_rows()
         evaluated: list[str] = []
         take_profit_watch_symbols: list[str] = []
         take_profit_symbols: list[str] = []
@@ -40226,6 +40268,162 @@ class MainWindow(QMainWindow):
             "sell_submit_count": 0,
         }
         self._last_sell_evaluation_observe_result = result
+        return result
+
+    def _run_sell_evaluation_heartbeat_probe(
+        self,
+        *,
+        reason: str = "heartbeat",
+        source_path: str = "heartbeat",
+        contract_state: dict | None = None,
+        force: bool = False,
+    ) -> dict:
+        now = time.time()
+        source_path = str(source_path or "heartbeat")
+        if not force and source_path != "heartbeat":
+            last_at = float(getattr(self, "_last_sell_eval_heartbeat_probe_at", 0.0) or 0.0)
+            if now - last_at < 60.0:
+                return dict(getattr(self, "_last_sell_eval_heartbeat_probe_result", {}) or {})
+            self._last_sell_eval_heartbeat_probe_at = now
+        rows = self._sell_evaluation_observe_rows()
+        holding_rows = [row for row in rows if self._managed_pool_status_bar_row_is_holding(row)]
+        try:
+            state = dict(contract_state or {})
+            if not state:
+                state = dict(
+                    self._build_live_runtime_contract_state(
+                        source_path=source_path,
+                        reason=str(reason or "heartbeat"),
+                        emit_log=False,
+                        last_writer=source_path,
+                    )
+                    or {}
+                )
+        except Exception:
+            state = {}
+        runtime_contract_active = bool(
+            state.get("runtime_contract_active")
+            or getattr(self, "_aits_runtime_contract_active", False)
+        )
+        monitor_only = bool(getattr(self, "_aits_monitor_only_mode", False))
+        buy_blocked = bool(getattr(self, "_aits_buy_blocked", False))
+        buy_enabled = bool(getattr(self, "_aits_buy_enabled", False))
+        sell_observe_enabled = bool(getattr(self, "_aits_sell_observe_enabled", False))
+        on_state_active = bool(
+            runtime_contract_active
+            or monitor_only
+            or buy_blocked
+            or sell_observe_enabled
+            or getattr(self, "_aits_runtime_start_requested", False)
+            or getattr(self, "_aits_candidate_loop_running", False)
+        )
+        runtime_start_result = str(
+            state.get("runtime_start_result")
+            or getattr(self, "_aits_runtime_start_result", "")
+            or ""
+        ).strip().lower()
+        fatal_runtime = bool(runtime_start_result in {"failed", "error", "fatal"} and not on_state_active)
+        should_run = bool(on_state_active and not fatal_runtime)
+        skip_blocker = "" if should_run else ("runtime_fatal_blocker" if fatal_runtime else "runtime_not_active")
+        try:
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_heartbeat_probe source_path=%s reason=%s runtime_contract_active=%s monitor_only=%s buy_blocked=%s buy_enabled=%s sell_observe_enabled=%s on_state_active=%s managed_rows_count=%s holding_rows_count=%s manageable_holding_count=%s should_run_sell_eval=%s blocker=%s preview_only=True actual_order=False submitted=0",
+                source_path,
+                str(reason or "heartbeat"),
+                runtime_contract_active,
+                monitor_only,
+                buy_blocked,
+                buy_enabled,
+                sell_observe_enabled,
+                on_state_active,
+                len(rows),
+                len(holding_rows),
+                len(holding_rows),
+                should_run,
+                skip_blocker or "-",
+            )
+        except Exception:
+            pass
+        if not should_run:
+            try:
+                self._log.info(
+                    "[AITS][SellEvaluation] event=sell_eval_heartbeat_skipped source_path=%s reason=%s blocker=%s manageable_holding_count=%s preview_only=True actual_order=False submitted=0",
+                    source_path,
+                    str(reason or "heartbeat"),
+                    skip_blocker or "runtime_not_active",
+                    len(holding_rows),
+                )
+            except Exception:
+                pass
+            result = {
+                "sell_evaluation_called": False,
+                "sell_eval_heartbeat_probe": True,
+                "sell_eval_heartbeat_skipped": True,
+                "sell_eval_skip_blocker": skip_blocker or "runtime_not_active",
+                "manageable_holding_count": len(holding_rows),
+            }
+            self._last_sell_eval_heartbeat_probe_result = result
+            return result
+        try:
+            sell_eval = self._evaluate_sell_takeprofit_observe_path(reason=f"{source_path}:{reason}", force=force)
+        except Exception as exc:
+            try:
+                self._log.info(
+                    "[AITS][SellEvaluation] event=sell_eval_heartbeat_skipped source_path=%s reason=%s blocker=sell_eval_exception error_type=%s preview_only=True actual_order=False submitted=0",
+                    source_path,
+                    str(reason or "heartbeat"),
+                    type(exc).__name__,
+                )
+            except Exception:
+                pass
+            result = {
+                "sell_evaluation_called": False,
+                "sell_eval_heartbeat_probe": True,
+                "sell_eval_heartbeat_skipped": True,
+                "sell_eval_skip_blocker": "sell_eval_exception",
+                "manageable_holding_count": len(holding_rows),
+            }
+            self._last_sell_eval_heartbeat_probe_result = result
+            return result
+        evaluated = list(sell_eval.get("sell_evaluated_symbols") or [])
+        missing = list(sell_eval.get("pnl_source_missing_symbols") or [])
+        take_profit = list(sell_eval.get("take_profit_candidate_symbols") or [])
+        stop_loss = list(sell_eval.get("stop_loss_candidate_symbols") or [])
+        emergency = list(sell_eval.get("emergency_stop_loss_candidate_symbols") or [])
+        try:
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_heartbeat_result source_path=%s reason=%s cycle_id=%s sell_eval_cycle_started=True sell_eval_cycle_completed=True sell_eval_position_count=%s sell_evaluated_symbols=%s pnl_source_missing_symbols=%s take_profit_candidate_symbols=%s stop_loss_candidate_symbols=%s emergency_stop_loss_candidate_symbols=%s preview_only=True actual_order=False submitted=0",
+                source_path,
+                str(reason or "heartbeat"),
+                int(now),
+                len(evaluated),
+                ",".join(evaluated) or "-",
+                ",".join(missing) or "-",
+                ",".join(take_profit) or "-",
+                ",".join(stop_loss) or "-",
+                ",".join(emergency) or "-",
+            )
+        except Exception:
+            pass
+        try:
+            if len(holding_rows) > 0:
+                self._append_aits_live_log(
+                    f"\ubcf4\uc720\uc885\ubaa9 {len(holding_rows)}\uac1c \uc218\uc775\uc2e4\ud604/\uc190\uc808 \uc870\uac74\uc744 \uc810\uac80\ud588\uc2b5\ub2c8\ub2e4.",
+                    category="pipeline",
+                    level="info",
+                    event="sell_eval_preview_only",
+                )
+        except Exception:
+            pass
+        result = dict(sell_eval)
+        result.update(
+            {
+                "sell_eval_heartbeat_probe": True,
+                "sell_eval_heartbeat_result": True,
+                "manageable_holding_count": len(holding_rows),
+            }
+        )
+        self._last_sell_eval_heartbeat_probe_result = result
         return result
 
     def _managed_pool_status_bar_korean_rotation_text(self, snapshot: dict) -> tuple[str, str]:
@@ -41651,6 +41849,20 @@ class MainWindow(QMainWindow):
                     )
                     runtime_contract_active = bool(contract_state.get("runtime_contract_active"))
                     runtime_contract_reason = str(contract_state.get("reason") or "runtime_contract_inactive")
+                    try:
+                        self._run_sell_evaluation_heartbeat_probe(
+                            reason="score_update",
+                            source_path="candidate_feed_score_update",
+                            contract_state=contract_state,
+                        )
+                    except Exception as exc:
+                        try:
+                            self._log.info(
+                                "[AITS][SellEvaluation] event=sell_eval_heartbeat_skipped source_path=candidate_feed_score_update reason=score_update blocker=sell_eval_probe_exception error_type=%s preview_only=True actual_order=False submitted=0",
+                                type(exc).__name__,
+                            )
+                        except Exception:
+                            pass
                     stg_obj = getattr(getattr(self, "_settings", None), "strategy", None)
                     provider_ready = bool(getattr(self, "_aits_provider_ready", False))
                     preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
@@ -56007,21 +56219,24 @@ class MainWindow(QMainWindow):
                 event="periodic_waiting_reason",
             )
             try:
-                if bool(getattr(self, "_aits_sell_observe_enabled", False)) or bool(getattr(self, "_aits_monitor_only_mode", False)) or bool(getattr(self, "_aits_buy_blocked", False)):
-                    sell_eval = self._evaluate_sell_takeprofit_observe_path(reason=f"runtime_heartbeat:{reason}")
-                    self._log.info(
-                        "[AITS][SellEvaluation] event=sell_eval_heartbeat_linked reason=%s sell_evaluation_called=%s evaluated_count=%s buy_blocked=%s monitor_only=%s sell_observe_enabled=%s preview_only=True actual_order=False submitted=0",
-                        reason,
-                        bool(sell_eval.get("sell_evaluation_called")),
-                        len(sell_eval.get("sell_evaluated_symbols") or []),
-                        bool(getattr(self, "_aits_buy_blocked", False)),
-                        bool(getattr(self, "_aits_monitor_only_mode", False)),
-                        bool(getattr(self, "_aits_sell_observe_enabled", False)),
-                    )
-                    try:
-                        self._update_managed_pool_status_bar(reason="runtime_heartbeat_sell_observe")
-                    except Exception:
-                        pass
+                sell_eval = self._run_sell_evaluation_heartbeat_probe(
+                    reason=reason,
+                    source_path="heartbeat",
+                    contract_state=locals().get("contract_state", None),
+                )
+                self._log.info(
+                    "[AITS][SellEvaluation] event=sell_eval_heartbeat_linked reason=%s sell_evaluation_called=%s evaluated_count=%s buy_blocked=%s monitor_only=%s sell_observe_enabled=%s preview_only=True actual_order=False submitted=0",
+                    reason,
+                    bool(sell_eval.get("sell_evaluation_called")),
+                    len(sell_eval.get("sell_evaluated_symbols") or []),
+                    bool(getattr(self, "_aits_buy_blocked", False)),
+                    bool(getattr(self, "_aits_monitor_only_mode", False)),
+                    bool(getattr(self, "_aits_sell_observe_enabled", False)),
+                )
+                try:
+                    self._update_managed_pool_status_bar(reason="runtime_heartbeat_sell_observe")
+                except Exception:
+                    pass
             except Exception as exc:
                 try:
                     self._log.info(

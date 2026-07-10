@@ -517,3 +517,11 @@ Blockers:
 - Expected observe-only fields include `sell_eval_cycle_count`, `sell_eval_position_count`, `sell_evaluated_symbols`, `take_profit_watch_symbols`, `take_profit_candidate_symbols`, `strong_take_profit_candidate_symbols`, `stop_loss_watch_symbols`, `stop_loss_candidate_symbols`, and `emergency_stop_loss_candidate_symbols`.
 - Blockers include `sell_evaluation_not_called`, `managed_holdings_not_passed_to_sell_evaluation`, `pnl_source_missing_for_sell`, `take_profit_candidate_missing`, `emergency_stoploss_candidate_missing`, and `unexpected_sell_submit`.
 - A healthy monitor-only run reports `sell_eval_runs_while_buy_blocked=True` with `side_sell_submit_count=0`.
+
+## Active Heartbeat SellEvaluation Path
+
+- The active heartbeat/candidate-feed path must emit `sell_eval_heartbeat_probe` before evaluating holdings.
+- `sell_eval_heartbeat_result` means the observe loop reached the evaluator. `sell_eval_heartbeat_skipped` means the path was connected but the runtime state blocked the call.
+- If ON/runtime heartbeat is detected but no probe is present, E2E reports `sell_eval_not_connected_to_active_heartbeat_path`.
+- If the probe is present but skipped, E2E reports `sell_eval_heartbeat_skipped` and includes `sell_eval_skip_blocker`.
+- The evaluator may use Managed Pool rows and read-only holdings/position snapshots, but it must remain preview-only with no sell submit.

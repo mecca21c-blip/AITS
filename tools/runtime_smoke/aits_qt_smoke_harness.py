@@ -9204,6 +9204,22 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     total_asset_zero_buy_block_detected = any("blocker=total_asset_source_zero_for_live_buy" in line for line in total_operating_cap_lines)
     exposure_cap_source_mismatch_resolved = bool(total_operating_cap_detected and total_operating_cap_source)
     sell_evaluation_called = any("event=sell_eval_started" in line or "event=sell_eval_cycle_started" in line for line in sell_evaluation_lines)
+    sell_eval_heartbeat_probe_lines = [line for line in sell_evaluation_lines if "event=sell_eval_heartbeat_probe" in line]
+    sell_eval_heartbeat_linked_lines = [line for line in sell_evaluation_lines if "event=sell_eval_heartbeat_linked" in line]
+    sell_eval_heartbeat_result_lines = [line for line in sell_evaluation_lines if "event=sell_eval_heartbeat_result" in line]
+    sell_eval_heartbeat_skipped_lines = [line for line in sell_evaluation_lines if "event=sell_eval_heartbeat_skipped" in line]
+    sell_eval_heartbeat_probe_detected = bool(sell_eval_heartbeat_probe_lines)
+    sell_eval_heartbeat_linked_detected = bool(sell_eval_heartbeat_linked_lines)
+    sell_eval_heartbeat_result_detected = bool(sell_eval_heartbeat_result_lines)
+    sell_eval_heartbeat_skipped_detected = bool(sell_eval_heartbeat_skipped_lines)
+    latest_sell_eval_probe = sell_eval_heartbeat_probe_lines[-1] if sell_eval_heartbeat_probe_lines else ""
+    latest_sell_eval_skipped = sell_eval_heartbeat_skipped_lines[-1] if sell_eval_heartbeat_skipped_lines else ""
+    manageable_holding_count_for_sell_eval = int(
+        _safe_float(_live_on_stage_extract_value(latest_sell_eval_probe, "manageable_holding_count"), 0.0)
+    )
+    sell_eval_skip_blocker = _live_on_stage_extract_value(latest_sell_eval_skipped, "blocker")
+    if sell_eval_skip_blocker == "-":
+        sell_eval_skip_blocker = ""
     sell_eval_cycle_lines = [line for line in sell_evaluation_lines if "event=sell_eval_cycle_started" in line]
     sell_eval_completed_lines = [line for line in sell_evaluation_lines if "event=sell_eval_cycle_completed" in line]
     sell_eval_cycle_count = len(sell_eval_cycle_lines) or sum(1 for line in sell_evaluation_lines if "event=sell_eval_started" in line)
@@ -9525,7 +9541,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     elif buy_blocked and runtime_monitor_only_mode and sell_evaluation_called:
         first_blocker = "monitor_only_buy_blocked_runtime_ready"
     elif buy_blocked and runtime_monitor_only_mode and not sell_evaluation_called:
-        first_blocker = "sell_observe_disabled_by_buy_blocker"
+        if not sell_eval_heartbeat_probe_detected:
+            first_blocker = "sell_eval_not_connected_to_active_heartbeat_path"
+        elif sell_eval_heartbeat_skipped_detected:
+            first_blocker = "sell_eval_heartbeat_skipped"
+        else:
+            first_blocker = "sell_observe_disabled_by_buy_blocker"
     elif on_preflight_buy_blocker_nonfatal:
         first_blocker = "buy_blocked_monitor_only_ready"
     if actual_sell_order_count > 0 or external_holding_sell_submit_count > 0:
@@ -9538,6 +9559,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "pnl_source_missing_for_external_holding"
     elif external_holding_symbols_detected and not external_holding_symbols_adopted:
         first_blocker = "external_holding_not_adopted_to_managed_pool"
+    elif sell_evaluation_called and manageable_holding_count_for_sell_eval > 0 and not sell_evaluated_symbols:
+        first_blocker = "managed_holdings_not_passed_to_sell_evaluation"
     elif sell_evaluation_called and pnl_source_missing_symbols and not take_profit_candidate_symbols:
         first_blocker = "pnl_source_missing_for_sell"
     elif live_pipeline_candidate_selected and duplicate_candidate_locked_lines and not live_pipeline_router_started and not live_pipeline_router_result:
@@ -9923,10 +9946,17 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "actual_sell_order_count": int(actual_sell_order_count),
         "status_bar_external_holding_message_detected": bool(external_holding_symbols_detected or external_holding_symbols_adopted or external_holding_sell_lines),
         "live_log_external_holding_message_detected": bool(external_holding_symbols_detected or external_holding_symbols_adopted or emergency_stop_loss_candidate_symbols),
+        "sell_eval_heartbeat_probe_detected": bool(sell_eval_heartbeat_probe_detected),
+        "sell_eval_heartbeat_linked_detected": bool(sell_eval_heartbeat_linked_detected),
+        "sell_eval_heartbeat_result_detected": bool(sell_eval_heartbeat_result_detected),
+        "sell_eval_heartbeat_skipped_detected": bool(sell_eval_heartbeat_skipped_detected),
         "sell_preview_only": bool(sell_preview_only),
         "sell_submit_count": int(sell_submit_count),
         "side_sell_submit_count": int(side_sell_submit_count),
+        "manageable_holding_count_for_sell_eval": int(manageable_holding_count_for_sell_eval),
         "sell_eval_runs_while_buy_blocked": bool(buy_blocked and sell_evaluation_called),
+        "sell_eval_runs_in_monitor_only": bool(runtime_monitor_only_mode and sell_evaluation_called),
+        "sell_eval_skip_blocker": str(sell_eval_skip_blocker or ""),
         "status_bar_sell_eval_message_detected": bool(status_bar_sell_eval_message_detected),
         "live_log_sell_eval_message_detected": bool(live_log_sell_eval_message_detected),
         "pnl_source_for_sell_detected": bool(pnl_source_for_sell_detected),

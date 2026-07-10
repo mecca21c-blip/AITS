@@ -349,3 +349,10 @@ These events are not submit permission and must not call order retry paths.
 - The loop evaluates take-profit watch/candidate/strong-candidate and stop-loss watch/candidate/emergency-candidate thresholds as preview only.
 - Missing PnL inputs produce `pnl_source_missing_for_sell` or external-holding-specific blockers; they do not suppress the cycle log.
 - The loop must never submit sell orders in this stage and must keep `actual_order=False` and `submitted=0`.
+
+## Active Heartbeat SellEvaluation Probe
+
+- The active runtime heartbeat path must emit `sell_eval_heartbeat_probe` before the observe loop decision.
+- The trace separates missing wiring, connected-but-skipped, PnL-source blockers, and preview-ready results.
+- Buy-blocked and monitor-only states still qualify for SellEvaluation when the runtime contract is active.
+- Probe/result logs must remain preview-only with `actual_order=False` and `submitted=0`.
