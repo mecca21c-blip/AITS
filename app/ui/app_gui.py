@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 # app/ui/app_gui.py
 
 
@@ -18508,6 +18508,38 @@ class MainWindow(QMainWindow):
         locked = self._managed_pool_num_value(row.get("locked"), 0.0)
         return max(qty, balance + locked, balance)
 
+    def _trade_log_known_actual_order_symbols(self) -> set[str]:
+        known: set[str] = set()
+        try:
+            rows = self._get_trade_log_shadow_journal_rows(limit=1200)
+        except Exception:
+            rows = []
+        for row in rows:
+            if not isinstance(row, dict) or not bool(row.get("actual_order")):
+                continue
+            symbol = self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            if not symbol:
+                signature = str(row.get("decision_stage_signature") or "")
+                match = re.search(r"\bKRW-[A-Z0-9]+\b", signature)
+                symbol = match.group(0) if match else ""
+            if symbol:
+                known.add(symbol)
+        try:
+            for path in sorted((Path("data") / "logs").glob("aits.log*")):
+                try:
+                    text = path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                for line in text.splitlines():
+                    if "event=order_submit_result" not in line or ("actual_order=" + "True") not in line:
+                        continue
+                    match = re.search(r"\bsymbol=(KRW-[A-Z0-9]+)\b", line)
+                    if match:
+                        known.add(match.group(1))
+        except Exception:
+            pass
+        return known
+
 
     def _managed_pool_holding_dust_policy(self, row: dict, *, eval_krw: float | None = None) -> dict:
         try:
@@ -18608,7 +18640,28 @@ class MainWindow(QMainWindow):
         elif eval_krw <= 0.0 and avg > 0.0:
             eval_krw = qty * avg
         dust_policy = self._managed_pool_holding_dust_policy(row, eval_krw=eval_krw)
+        try:
+            known_symbols = self._trade_log_known_actual_order_symbols()
+        except Exception:
+            known_symbols = set()
+        known_by_trade_log = bool(symbol in known_symbols)
+        is_external_holding = bool(not known_by_trade_log)
         if not bool(dust_policy.get("manageable_holding")):
+            try:
+                self._log.info(
+                    "[AITS][ExternalHoldingAdoption] event=external_holding_dust_excluded symbol=%s qty=%s avg_buy_price=%s current_price=%s valuation_krw=%s pnl_krw=0 pnl_pct=0 managed_holding_min_value_krw=%s dust_threshold_krw=%s known_by_trade_log=%s already_in_managed_pool=False source_type=dust_holding adopted=False reason=%s submitted=0 actual_order=false",
+                    symbol,
+                    qty,
+                    avg,
+                    price,
+                    eval_krw,
+                    dust_policy.get("managed_holding_min_value_krw"),
+                    dust_policy.get("dust_threshold_krw"),
+                    known_by_trade_log,
+                    dust_policy.get("dust_reason"),
+                )
+            except Exception:
+                pass
             return {
                 "symbol": symbol,
                 "market": symbol,
@@ -18636,21 +18689,28 @@ class MainWindow(QMainWindow):
                 "position_value_krw": eval_krw,
             }
         now = datetime.now().isoformat(timespec="seconds")
+        source_type = "external_holding" if is_external_holding else "live_holding"
+        status_text = "외부보유관리" if is_external_holding else "보유관리"
+        reason_text = "external_holding_adopted" if is_external_holding else "live_holding_must_include"
         managed = {
             "symbol": symbol,
             "market": symbol,
             "name": str(row.get("name") or row.get("display_name") or symbol.split("-")[-1]),
             "source": "HOLDING",
-            "source_type": "live_holding",
-            "status": "보유관리",
-            "ai_status": "보유관리",
-            "reason": "live_holding_must_include",
+            "source_type": source_type,
+            "status": status_text,
+            "ai_status": status_text,
+            "reason": reason_text,
             "holding": True,
             "is_holding": True,
             "has_position": True,
             "protected": True,
             "managed_protected": True,
             "holding_source": str(row.get("source") or row.get("holding_source") or "live_holdings"),
+            "origin": "upbit_account_snapshot",
+            "known_by_aits_trade_log": known_by_trade_log,
+            "known_by_trade_log": known_by_trade_log,
+            "external_detected_at": now if is_external_holding else "",
             "qty": qty,
             "quantity": qty,
             "balance": self._managed_pool_num_value(row.get("balance"), qty),
@@ -18673,15 +18733,19 @@ class MainWindow(QMainWindow):
             pass
         managed.update({
             "source": "HOLDING",
-            "source_type": "live_holding",
-            "status": "보유관리",
-            "ai_status": "보유관리",
+            "source_type": source_type,
+            "status": status_text,
+            "ai_status": status_text,
             "holding": True,
             "is_holding": True,
             "has_position": True,
             "protected": True,
             "managed_protected": True,
             "holding_source": managed.get("holding_source") or "live_holdings",
+            "origin": managed.get("origin") or "upbit_account_snapshot",
+            "known_by_aits_trade_log": known_by_trade_log,
+            "known_by_trade_log": known_by_trade_log,
+            "external_detected_at": managed.get("external_detected_at") or (now if is_external_holding else ""),
             "dust_holding": False,
             "is_dust_holding": False,
             "manageable_holding": True,
@@ -18689,6 +18753,24 @@ class MainWindow(QMainWindow):
             "managed_holding_min_value_krw": dust_policy.get("managed_holding_min_value_krw"),
         })
         managed = self._managed_pool_apply_weight_fields(managed)
+        if is_external_holding:
+            try:
+                pnl_krw = (price - avg) * qty if avg > 0 and price > 0 and qty > 0 else 0.0
+                pnl_pct = ((price - avg) / avg * 100.0) if avg > 0 and price > 0 else 0.0
+                self._log.info(
+                    "[AITS][ExternalHoldingAdoption] event=external_holding_detected symbol=%s qty=%s avg_buy_price=%s current_price=%s valuation_krw=%s pnl_krw=%s pnl_pct=%s managed_holding_min_value_krw=%s dust_threshold_krw=%s known_by_trade_log=False already_in_managed_pool=False source_type=external_holding adopted=False reason=live_account_not_in_aits_trade_log submitted=0 actual_order=false",
+                    symbol,
+                    qty,
+                    avg,
+                    price,
+                    eval_krw,
+                    pnl_krw,
+                    pnl_pct,
+                    dust_policy.get("managed_holding_min_value_krw"),
+                    dust_policy.get("dust_threshold_krw"),
+                )
+            except Exception:
+                pass
         return managed
 
     def _load_managed_pool_live_holding_rows(self, *, reason: str = "managed_pool_holdings_include", holdings: list | None = None) -> list[dict]:
@@ -18777,7 +18859,7 @@ class MainWindow(QMainWindow):
             source_type = str(clean.get("source_type") or clean.get("source") or "").strip().lower()
             user_added = bool(clean.get("user_added") or source_type == "user_added" or str(clean.get("source") or "").strip().upper() == "USER")
             dust_info = self._managed_pool_holding_dust_policy(clean)
-            if source_type in {"live_holding", "holding"} and not user_added and bool(dust_info.get("is_dust_holding")):
+            if source_type in {"live_holding", "holding", "external_holding"} and not user_added and bool(dust_info.get("is_dust_holding")):
                 removed_dust.append(symbol)
                 continue
             cleaned_ordered.append(clean)
@@ -18798,15 +18880,19 @@ class MainWindow(QMainWindow):
                 continue
             existing.update({
                 "source": "HOLDING",
-                "source_type": "live_holding",
-                "status": "보유관리",
-                "ai_status": "보유관리",
+                "source_type": holding.get("source_type") or "live_holding",
+                "status": holding.get("status") or "보유관리",
+                "ai_status": holding.get("ai_status") or holding.get("status") or "보유관리",
                 "holding": True,
                 "is_holding": True,
                 "has_position": True,
                 "protected": True,
                 "managed_protected": True,
                 "holding_source": holding.get("holding_source") or "live_holdings",
+                "origin": holding.get("origin") or existing.get("origin") or "upbit_account_snapshot",
+                "known_by_aits_trade_log": bool(holding.get("known_by_aits_trade_log")),
+                "known_by_trade_log": bool(holding.get("known_by_trade_log")),
+                "external_detected_at": holding.get("external_detected_at") or existing.get("external_detected_at") or "",
                 "qty": holding.get("qty"),
                 "quantity": holding.get("quantity") or holding.get("qty"),
                 "balance": holding.get("balance"),
@@ -18849,6 +18935,21 @@ class MainWindow(QMainWindow):
                         len(holding_rows),
                         len(ordered),
                     )
+                for sym in added + updated:
+                    row = by_symbol.get(sym) or {}
+                    if str(row.get("source_type") or "").strip().lower() == "external_holding":
+                        self._log.info(
+                            "[AITS][ExternalHoldingAdoption] event=external_holding_adopted_to_managed_pool symbol=%s qty=%s avg_buy_price=%s current_price=%s valuation_krw=%s pnl_krw=0 pnl_pct=0 managed_holding_min_value_krw=%s dust_threshold_krw=%s known_by_trade_log=%s already_in_managed_pool=%s source_type=external_holding adopted=True reason=external_holding_managed_pool_include submitted=0 actual_order=false",
+                            sym,
+                            row.get("qty") or row.get("quantity") or 0,
+                            row.get("avg_buy_price") or row.get("avg_price") or row.get("avg") or 0,
+                            row.get("current_price") or row.get("price") or 0,
+                            row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw") or 0,
+                            row.get("managed_holding_min_value_krw") or AITS_MANAGED_HOLDING_MIN_VALUE_KRW,
+                            row.get("dust_threshold_krw") or AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW,
+                            bool(row.get("known_by_trade_log") or row.get("known_by_aits_trade_log")),
+                            sym in updated,
+                        )
             except Exception:
                 pass
             try:
@@ -18858,6 +18959,17 @@ class MainWindow(QMainWindow):
                         category="managed",
                         event="managed_pool_holding_included",
                         symbol=added[0],
+                    )
+                external_added = [
+                    sym for sym in added
+                    if str((by_symbol.get(sym) or {}).get("source_type") or "").strip().lower() == "external_holding"
+                ]
+                if external_added:
+                    self._append_aits_live_log(
+                        f"{', '.join(external_added)} 외부 보유종목을 관리종목에 편입했습니다.",
+                        category="managed",
+                        event="external_holding_adopted_to_managed_pool",
+                        symbol=external_added[0],
                     )
                 if overrode:
                     self._append_aits_live_log(
@@ -31571,6 +31683,11 @@ class MainWindow(QMainWindow):
                 "total_asset_source_zero_for_live_buy": "총자산 기준을 확인할 수 없어 신규매수를 안전 차단했습니다.",
                 "sell_eval_preview_only": "수익실현 후보를 미리보기로 감시 중입니다.",
                 "sell_eval_blocked": "수익률 계산 기준이 부족해 수익실현 평가는 보류했습니다.",
+                "external_holding_adopted_to_managed_pool": f"{symbol} 외부 보유종목을 관리종목에 편입했습니다." if symbol else "외부 보유종목을 관리종목에 편입했습니다.",
+                "external_holding_detected": f"{symbol} 외부 보유종목을 발견했습니다." if symbol else "외부 보유종목을 발견했습니다.",
+                "pnl_source_missing_for_external_holding": "외부 보유종목의 손익 기준 확인이 필요합니다.",
+                "stop_loss_candidate": f"{symbol} 손절 후보를 미리보기로 감시 중입니다." if symbol else "손절 후보를 미리보기로 감시 중입니다.",
+                "emergency_stop_loss_candidate": f"{symbol} 긴급 손절 후보입니다. 실제 매도는 미리보기만 표시합니다." if symbol else "긴급 손절 후보입니다. 실제 매도는 미리보기만 표시합니다.",
                 "router_validation_started": "Router가 주문 후보를 검증 중입니다.",
                 "router_validation_result": "Router 검증이 완료되었습니다.",
                 "riskguard_started": "RiskGuard가 위험 조건을 점검 중입니다.",
@@ -39580,7 +39697,7 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
             source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
-            if source_type in {"live_holding", "holding"}:
+            if source_type in {"live_holding", "holding", "external_holding"}:
                 return True
             for key in ("holding", "is_holding", "has_position", "protected_by_holding"):
                 if bool(row.get(key)):
@@ -39851,7 +39968,10 @@ class MainWindow(QMainWindow):
         rows = [row for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
         evaluated: list[str] = []
         take_profit_symbols: list[str] = []
+        stop_loss_symbols: list[str] = []
+        emergency_stop_symbols: list[str] = []
         missing_symbols: list[str] = []
+        external_symbols: list[str] = []
         top_symbol = ""
         top_pnl_pct = -9999.0
         try:
@@ -39868,6 +39988,10 @@ class MainWindow(QMainWindow):
             symbol = str(row.get("symbol") or row.get("market") or "").strip().upper()
             if not symbol:
                 continue
+            source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
+            is_external = bool(source_type == "external_holding" or row.get("known_by_trade_log") is False or row.get("known_by_aits_trade_log") is False)
+            if is_external:
+                external_symbols.append(symbol)
             evaluated.append(symbol)
             qty = self._managed_pool_num_value(row.get("qty") or row.get("quantity") or row.get("balance") or row.get("volume"), 0.0)
             avg = self._managed_pool_num_value(row.get("avg_buy_price") or row.get("avg_price") or row.get("avg"), 0.0)
@@ -39881,10 +40005,12 @@ class MainWindow(QMainWindow):
             pnl_krw = 0.0
             pnl_pct = 0.0
             take_profit = False
+            stop_loss = False
+            emergency_stop = False
             suggested_action = "hold_preview"
             reason_text = "take_profit_threshold_not_reached"
             if qty <= 0.0 or avg <= 0.0 or current <= 0.0:
-                blocker = "pnl_source_missing_for_sell"
+                blocker = "pnl_source_missing_for_external_holding" if is_external else "pnl_source_missing_for_sell"
                 missing_symbols.append(symbol)
                 reason_text = "avg_or_current_price_missing"
             else:
@@ -39901,10 +40027,26 @@ class MainWindow(QMainWindow):
                 elif pnl_pct >= 3.0:
                     suggested_action = "sell_watch"
                     reason_text = "take_profit_watch_preview_only"
+                if pnl_pct <= -20.0:
+                    emergency_stop = True
+                    stop_loss = True
+                    emergency_stop_symbols.append(symbol)
+                    stop_loss_symbols.append(symbol)
+                    suggested_action = "emergency_sell_preview"
+                    reason_text = "emergency_stop_loss_candidate_preview_only"
+                elif pnl_pct <= -10.0:
+                    stop_loss = True
+                    stop_loss_symbols.append(symbol)
+                    suggested_action = "sell_preview"
+                    reason_text = "stop_loss_candidate_preview_only"
+                elif pnl_pct <= -5.0:
+                    suggested_action = "stop_loss_watch"
+                    reason_text = "stop_loss_watch_preview_only"
             try:
                 self._log.info(
-                    "[AITS][SellEvaluation] event=sell_eval_position symbol=%s qty=%s avg_buy_price=%s current_price=%s position_value_krw=%s pnl_krw=%s pnl_pct=%s weight_pct=%s target_weight_pct=%s sell_evaluated=True take_profit_candidate=%s stop_loss_candidate=False suggested_action=%s preview_only=True actual_order=False submitted=0 blocker=%s reason=%s",
+                    "[AITS][SellEvaluation] event=sell_eval_position symbol=%s source_type=%s qty=%s avg_buy_price=%s current_price=%s position_value_krw=%s pnl_krw=%s pnl_pct=%s weight_pct=%s target_weight_pct=%s sell_evaluated=True stoploss_evaluated=True take_profit_candidate=%s stop_loss_watch_pct=-5.0 stop_loss_candidate_pct=-10.0 emergency_stop_loss_pct=-20.0 stop_loss_candidate=%s emergency_stop_loss_candidate=%s suggested_action=%s preview_only=True actual_order=False submitted=0 blocker=%s reason=%s",
                     symbol,
+                    source_type or "-",
                     qty,
                     avg,
                     current,
@@ -39914,6 +40056,8 @@ class MainWindow(QMainWindow):
                     weight,
                     target,
                     take_profit,
+                    stop_loss,
+                    emergency_stop,
                     suggested_action,
                     blocker or "-",
                     reason_text,
@@ -39932,25 +40076,70 @@ class MainWindow(QMainWindow):
                         pnl_pct,
                         pnl_krw,
                     )
+                elif emergency_stop:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=emergency_stop_loss_candidate symbol=%s source_type=%s pnl_pct=%s pnl_krw=%s position_value_krw=%s stop_loss_watch_pct=-5.0 stop_loss_candidate_pct=-10.0 emergency_stop_loss_pct=-20.0 stop_loss_candidate=True emergency_stop_loss_candidate=True suggested_action=emergency_sell_preview preview_only=True actual_order=False submitted=0 blocker=- reason=emergency_stop_loss_candidate_preview_only",
+                        symbol,
+                        source_type or "-",
+                        pnl_pct,
+                        pnl_krw,
+                        value,
+                    )
+                elif stop_loss:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=stop_loss_candidate symbol=%s source_type=%s pnl_pct=%s pnl_krw=%s position_value_krw=%s stop_loss_watch_pct=-5.0 stop_loss_candidate_pct=-10.0 emergency_stop_loss_pct=-20.0 stop_loss_candidate=True emergency_stop_loss_candidate=False suggested_action=sell_preview preview_only=True actual_order=False submitted=0 blocker=- reason=stop_loss_candidate_preview_only",
+                        symbol,
+                        source_type or "-",
+                        pnl_pct,
+                        pnl_krw,
+                        value,
+                    )
             except Exception:
                 pass
         try:
             self._log.info(
-                "[AITS][SellEvaluation] event=sell_eval_preview_only evaluated_symbols=%s take_profit_candidate_symbols=%s pnl_source_missing_symbols=%s preview_only=True actual_order=False submitted=0",
+                "[AITS][SellEvaluation] event=external_holding_sell_eval_preview_only evaluated_symbols=%s external_holding_symbols=%s take_profit_candidate_symbols=%s stop_loss_candidate_symbols=%s emergency_stop_loss_candidate_symbols=%s pnl_source_missing_symbols=%s preview_only=True actual_order=False submitted=0",
                 ",".join(evaluated) or "-",
+                ",".join(external_symbols) or "-",
                 ",".join(take_profit_symbols) or "-",
+                ",".join(stop_loss_symbols) or "-",
+                ",".join(emergency_stop_symbols) or "-",
                 ",".join(missing_symbols) or "-",
             )
         except Exception:
             pass
         try:
-            if take_profit_symbols:
+            if emergency_stop_symbols:
+                self._append_aits_live_log(
+                    f"{emergency_stop_symbols[0]} 긴급 손절 후보입니다. 실제 매도는 미리보기만 표시합니다.",
+                    category="pipeline",
+                    level="warning",
+                    event="emergency_stop_loss_candidate",
+                    symbol=emergency_stop_symbols[0],
+                )
+            elif stop_loss_symbols:
+                self._append_aits_live_log(
+                    f"{stop_loss_symbols[0]} 손절 후보를 미리보기로 감시 중입니다. 실제 매도는 실행하지 않습니다.",
+                    category="pipeline",
+                    level="warning",
+                    event="stop_loss_candidate",
+                    symbol=stop_loss_symbols[0],
+                )
+            elif take_profit_symbols:
                 self._append_aits_live_log(
                     f"수익실현 후보 {len(take_profit_symbols)}개를 미리보기로 감시 중입니다. 실제 매도는 실행하지 않습니다.",
                     category="pipeline",
                     level="info",
                     event="sell_eval_preview_only",
                     symbol=take_profit_symbols[0],
+                )
+            elif any(symbol in set(external_symbols) for symbol in missing_symbols):
+                self._append_aits_live_log(
+                    "외부 보유종목의 손익 기준을 확인할 수 없어 매도 평가를 보류했습니다.",
+                    category="pipeline",
+                    level="warning",
+                    event="pnl_source_missing_for_external_holding",
+                    symbol=missing_symbols[0],
                 )
             elif missing_symbols:
                 self._append_aits_live_log(
@@ -39966,6 +40155,9 @@ class MainWindow(QMainWindow):
             "sell_evaluation_called": True,
             "sell_evaluated_symbols": evaluated,
             "take_profit_candidate_symbols": take_profit_symbols,
+            "stop_loss_candidate_symbols": stop_loss_symbols,
+            "emergency_stop_loss_candidate_symbols": emergency_stop_symbols,
+            "external_holding_symbols": external_symbols,
             "pnl_source_missing_symbols": missing_symbols,
             "top_pnl_symbol": top_symbol,
             "top_pnl_pct": 0.0 if top_pnl_pct == -9999.0 else top_pnl_pct,
@@ -40016,10 +40208,25 @@ class MainWindow(QMainWindow):
             order_counts = {}
         buy_count = int(order_counts.get("cumulative_buy_submit_count_today") or 0)
         sell_count = int(order_counts.get("cumulative_sell_submit_count_today") or 0)
+        risk_text = ""
+        try:
+            sell_eval = dict(getattr(self, "_last_sell_evaluation_observe_result", {}) or {})
+            external_symbols = list(sell_eval.get("external_holding_symbols") or [])
+            emergency_symbols = list(sell_eval.get("emergency_stop_loss_candidate_symbols") or [])
+            missing_symbols = set(sell_eval.get("pnl_source_missing_symbols") or [])
+            external_missing = [symbol for symbol in external_symbols if symbol in missing_symbols]
+            if emergency_symbols:
+                risk_text = f" · 긴급 손절 후보 {len(emergency_symbols)}개 · 실제 매도 미리보기"
+            elif external_symbols:
+                risk_text = f" · 외부 보유 {len(external_symbols)}개 관리 중"
+            elif external_missing:
+                risk_text = " · 외부 보유종목 손익 확인 대기"
+        except Exception:
+            risk_text = ""
         text = (
             f"{now_text} · {main} · 관리 {managed_count} / 최대 {max_count} · "
             f"보유 {holding_count} · 교체대상 {target_count} · {rotation_text} · "
-            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}"
+            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}{risk_text}"
         )
         return state, text
 
@@ -40091,7 +40298,7 @@ class MainWindow(QMainWindow):
             source_type = str(clean.get("source_type") or clean.get("source") or "").strip().lower()
             user_added = bool(clean.get("user_added") or source_type == "user_added" or str(clean.get("source") or "").strip().upper() == "USER")
             dust_info = self._managed_pool_holding_dust_policy(clean)
-            auto_holding = source_type in {"live_holding", "holding"} or bool(clean.get("holding") or clean.get("is_holding") or clean.get("has_position"))
+            auto_holding = source_type in {"live_holding", "holding", "external_holding"} or bool(clean.get("holding") or clean.get("is_holding") or clean.get("has_position"))
             if auto_holding and not user_added and bool(dust_info.get("is_dust_holding")):
                 removed.append(symbol)
                 clean.update({

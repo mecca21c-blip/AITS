@@ -483,3 +483,18 @@ Blockers:
   - `sell_policy_ok_threshold_not_reached`
 - E2E must report `side_sell_submit_count=0` for this observe-only stage. Any sell submit belongs to a separate approved execution Goal.
 - Status reporting distinguishes `status_bar_cycle_order_state_label` from `status_bar_cumulative_order_state_label`.
+
+## External Holdings And Emergency Stoploss Taxonomy
+
+- E2E treats account holdings that are not known by AITS actual-order evidence as `external_holding` when they are above the managed holding minimum value.
+- External dust holdings are reported separately and must not be re-added to Managed Pool.
+- Manageable external holdings must be adopted into Managed Pool as protected rows and included in sell/take-profit/stop-loss observation.
+- Stop-loss blockers and ready states:
+  - `external_holding_detection_missing`
+  - `external_holding_not_adopted_to_managed_pool`
+  - `pnl_source_missing_for_external_holding`
+  - `emergency_stoploss_candidate_missing`
+  - `unexpected_external_holding_sell_submit`
+  - `external_holding_adoption_stoploss_observe_ready`
+- E2E reports external adoption and emergency preview fields including `external_holding_symbols_detected`, `external_holding_symbols_adopted`, `external_holding_symbols_dust_excluded`, `external_holding_sell_evaluated`, `stop_loss_candidate_symbols`, `emergency_stop_loss_candidate_symbols`, and `emergency_stop_loss_preview_only`.
+- Actual sell submit remains outside this diagnostic stage and is a critical failure here.

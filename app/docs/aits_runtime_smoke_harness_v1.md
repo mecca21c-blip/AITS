@@ -1846,3 +1846,13 @@ summary modes.
 - Sell/take-profit evaluation is observe-only in this stage. It may report `sell_preview_only` and take-profit candidates, but it must not submit sell orders.
 - The status bar separates cycle state from cumulative state: current cycle order status and today's cumulative buy/sell counts are distinct fields.
 - Harness fields include `total_operating_cap_detected`, `total_operating_cap_krw`, `projected_exposure_after_buy`, `live_buy_blocked_by_total_cap`, `sell_evaluation_called`, `take_profit_candidate_symbols`, `sell_preview_only`, `side_sell_submit_count`, and cumulative order counters.
+
+## External Holdings Adoption And Emergency Stoploss Observe
+
+- A live account holding that is not known by AITS actual-order evidence is classified as `source_type=external_holding` when its KRW valuation is at or above `managed_holding_min_value_krw`.
+- External holdings remain dust-filtered by the same policy as other holdings. Dust external rows are logged as `external_holding_dust_excluded` and are not restored to Managed Pool.
+- Manageable external holdings are adopted into Managed Pool with `holding=True`, `protected=True`, `managed_protected=True`, `origin=upbit_account_snapshot`, and status `외부보유관리`.
+- External holdings use the sell observe path. PnL source priority is account average price plus current price, position snapshot, then sufficient managed holding valuation.
+- Stop-loss thresholds are watch at `-5%`, candidate at `-10%`, and emergency candidate at `-20%`.
+- This stage is preview-only. Emergency stop-loss can produce logs, LIVE LOG, and status-bar warnings, but it must not submit a sell order.
+- Harness fields include `external_holding_detection_supported`, `external_holding_symbols_detected`, `external_holding_symbols_adopted`, `external_holding_symbols_dust_excluded`, `external_holding_pnl_source_missing_symbols`, `stop_loss_candidate_symbols`, `emergency_stop_loss_candidate_symbols`, `emergency_stop_loss_preview_only`, `external_holding_sell_submit_count`, and `actual_sell_order_count`.

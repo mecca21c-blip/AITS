@@ -323,3 +323,13 @@ These events are not submit permission and must not call order retry paths.
 - Thresholds are watch at 3%, candidate at 4%, and strong candidate at 5%.
 - This stage is preview-only: sell evaluation can create logs and LIVE LOG messages, but it must not submit a sell order.
 - Missing PnL inputs are reported with `pnl_source_missing_for_sell`.
+
+## External Holdings Adoption And Emergency Stoploss Observe
+
+- Holdings discovered from the live account but not known by AITS actual-order evidence are classified as `external_holding`.
+- Dust external holdings follow the existing dust policy and are excluded from Managed Pool auto-restore.
+- Manageable external holdings are adopted into Managed Pool as protected rows with status `외부보유관리` and origin `upbit_account_snapshot`.
+- External holdings are included in sell/take-profit/stop-loss observation.
+- Stop-loss thresholds are watch at `-5%`, candidate at `-10%`, and emergency candidate at `-20%`.
+- Emergency stop-loss is preview-only in this stage: logs and Korean LIVE LOG/status messages are allowed, but actual sell submit is not allowed.
+- Missing external PnL source is reported as `pnl_source_missing_for_external_holding`.

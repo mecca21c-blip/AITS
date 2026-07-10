@@ -1678,9 +1678,14 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         holding_source = "recent_investment_position_snapshot"
     all_holding_source_rows = [
         row for row in managed_rows
-        if str(row.get("source_type") or row.get("source") or row.get("holding_source") or "").strip().lower() in {"live_holding", "holding", "live_holdings"}
+        if str(row.get("source_type") or row.get("source") or row.get("holding_source") or "").strip().lower() in {"live_holding", "holding", "live_holdings", "external_holding"}
         or bool(row.get("holding") or row.get("is_holding") or row.get("has_position"))
     ]
+    external_holding_rows = [
+        row for row in all_holding_source_rows
+        if str(row.get("source_type") or row.get("source") or "").strip().lower() == "external_holding"
+    ]
+    external_holding_symbols = sorted({_row_symbol(row) for row in external_holding_rows if _row_symbol(row)})
     dust_source_rows = [row for row in all_holding_source_rows if 0.0 <= _holding_eval_krw(row) < float(managed_holding_min_value_krw)]
     holding_source_rows = [row for row in all_holding_source_rows if _holding_eval_krw(row) >= float(managed_holding_min_value_krw)]
     protected_rows = [row for row in holding_source_rows if bool(row.get("protected") or row.get("managed_protected") or row.get("holding") or row.get("is_holding"))]
@@ -1848,6 +1853,12 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         "display_holding_symbols": snapshot.get("display_holding_symbols") or [],
         "recent_position_symbols": recent_position_symbols,
         "managed_symbols": managed_symbols,
+        "external_holding_detection_supported": True,
+        "external_holding_symbols_detected": external_holding_symbols,
+        "external_holding_symbols_adopted": external_holding_symbols,
+        "external_holding_symbols_dust_excluded": [],
+        "external_holding_known_by_trade_log_false_count": int(sum(1 for row in external_holding_rows if not bool(row.get("known_by_trade_log") or row.get("known_by_aits_trade_log")))),
+        "external_holding_managed_pool_included": bool(not external_holding_symbols or set(external_holding_symbols).issubset(set(managed_symbols))),
         "first_blocker": first_blocker,
         "next_fix_target": next_fix_target,
         "managed_pool_mutation": False,
@@ -9099,6 +9110,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     add_position_policy_lines = [line for line in lines if "[AITS][AddPositionPolicy]" in line]
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
+    external_holding_lines = [line for line in lines if "[AITS][ExternalHoldingAdoption]" in line]
     account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
     investment_format_lines = [line for line in lines if "[AITS][InvestmentPositionFormat]" in line]
     external_sync_lines = [line for line in lines if "[AITS][ExternalExchangeSync]" in line]
@@ -9202,9 +9214,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in sell_evaluation_lines
         if "event=take_profit_candidate" in line and _live_on_stage_extract_value(line, "symbol")
     })
+    stop_loss_candidate_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "event=stop_loss_candidate" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    emergency_stop_loss_candidate_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "event=emergency_stop_loss_candidate" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    external_holding_sell_lines = [line for line in sell_evaluation_lines if "source_type=external_holding" in line or "event=external_holding_sell_eval_preview_only" in line]
     sell_preview_only = any("event=sell_eval_preview_only" in line for line in sell_evaluation_lines)
+    emergency_stop_loss_preview_only = any("event=emergency_stop_loss_candidate" in line and "preview_only=True" in line for line in sell_evaluation_lines)
     sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower())
     side_sell_submit_count = sell_submit_count
+    actual_sell_order_count = sum(1 for line in submit_lines if "side=sell" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order"))
+    external_holding_sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower() and "external_holding" in line.lower())
     pnl_source_missing_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
         for line in sell_evaluation_lines
@@ -9233,6 +9259,26 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     )
     if cumulative_buy_submit_count_today or cumulative_sell_submit_count_today:
         status_bar_cumulative_order_state_label = f"오늘 누적 매수 {cumulative_buy_submit_count_today}건 · 매도 {cumulative_sell_submit_count_today}건"
+    external_holding_symbols_detected = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in external_holding_lines
+        if "event=external_holding_detected" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    external_holding_symbols_adopted = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in external_holding_lines
+        if "event=external_holding_adopted_to_managed_pool" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    external_holding_symbols_dust_excluded = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in external_holding_lines
+        if "event=external_holding_dust_excluded" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    external_holding_pnl_source_missing_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "blocker=pnl_source_missing_for_external_holding" in line and _live_on_stage_extract_value(line, "symbol")
+    })
     bera_policy_lines = [line for line in add_position_policy_lines if "symbol=KRW-BERA" in line]
     bera_repeated_buy_policy_verdict = ""
     if bera_policy_lines:
@@ -9424,8 +9470,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "total_asset_source_zero_for_live_buy"
     elif total_operating_cap_detected and "total_operating_cap_source_missing" in latest_total_operating_cap:
         first_blocker = "total_operating_cap_source_missing"
-    if sell_evaluation_called and take_profit_candidate_symbols:
+    if actual_sell_order_count > 0 or external_holding_sell_submit_count > 0:
+        first_blocker = "unexpected_external_holding_sell_submit"
+    elif sell_evaluation_called and take_profit_candidate_symbols:
         first_blocker = "take_profit_candidate_preview_only"
+    elif emergency_stop_loss_candidate_symbols:
+        first_blocker = "external_holding_adoption_stoploss_observe_ready"
+    elif external_holding_pnl_source_missing_symbols:
+        first_blocker = "pnl_source_missing_for_external_holding"
+    elif external_holding_symbols_detected and not external_holding_symbols_adopted:
+        first_blocker = "external_holding_not_adopted_to_managed_pool"
     elif sell_evaluation_called and pnl_source_missing_symbols and not take_profit_candidate_symbols:
         first_blocker = "pnl_source_missing_for_sell"
     elif live_pipeline_candidate_selected and duplicate_candidate_locked_lines and not live_pipeline_router_started and not live_pipeline_router_result:
@@ -9773,6 +9827,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "sell_evaluated_symbols": sell_evaluated_symbols,
         "take_profit_candidate_symbols": take_profit_candidate_symbols,
         "take_profit_candidate_count": int(len(take_profit_candidate_symbols)),
+        "external_holding_detection_supported": True,
+        "external_holding_symbols_detected": external_holding_symbols_detected,
+        "external_holding_symbols_adopted": external_holding_symbols_adopted,
+        "external_holding_symbols_dust_excluded": external_holding_symbols_dust_excluded,
+        "external_holding_known_by_trade_log_false_count": int(len(external_holding_symbols_detected)),
+        "external_holding_managed_pool_included": bool(not external_holding_symbols_detected or set(external_holding_symbols_detected).issubset(set(external_holding_symbols_adopted) | set(managed_pool_count and investment_position_symbols or []))),
+        "external_holding_pnl_source_detected": bool(external_holding_sell_lines and not external_holding_pnl_source_missing_symbols),
+        "external_holding_pnl_source_missing_symbols": external_holding_pnl_source_missing_symbols,
+        "external_holding_sell_evaluated": bool(external_holding_sell_lines),
+        "stop_loss_evaluation_called": bool(sell_evaluation_called),
+        "stop_loss_candidate_symbols": stop_loss_candidate_symbols,
+        "emergency_stop_loss_candidate_symbols": emergency_stop_loss_candidate_symbols,
+        "emergency_stop_loss_preview_only": bool(emergency_stop_loss_preview_only),
+        "external_holding_sell_submit_count": int(external_holding_sell_submit_count),
+        "actual_sell_order_count": int(actual_sell_order_count),
+        "status_bar_external_holding_message_detected": bool(external_holding_symbols_detected or external_holding_symbols_adopted or external_holding_sell_lines),
+        "live_log_external_holding_message_detected": bool(external_holding_symbols_detected or external_holding_symbols_adopted or emergency_stop_loss_candidate_symbols),
         "sell_preview_only": bool(sell_preview_only),
         "sell_submit_count": int(sell_submit_count),
         "side_sell_submit_count": int(side_sell_submit_count),
