@@ -20417,6 +20417,7 @@ def _run_live_2h_guarded_window_runtime(
 
 def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     docs_dir = ROOT / "app" / "docs"
+    basic_doc = docs_dir / "aits_basic_engine_role_v1.md"
     role_doc = docs_dir / "aits_engine_role_contract_v1.md"
     trigger_doc = docs_dir / "aits_ai_decision_trigger_policy_v1.md"
     app_gui = ROOT / "app" / "ui" / "app_gui.py"
@@ -20430,6 +20431,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         except Exception:
             return ""
 
+    basic_doc_text = _read(basic_doc)
+    role_doc_text = _read(role_doc)
+    trigger_doc_text = _read(trigger_doc)
+    combined_doc_text = "\n".join([basic_doc_text, role_doc_text, trigger_doc_text])
     app_text = _read(app_gui)
     provider_text = _read(provider)
     router_text = _read(router)
@@ -20477,6 +20482,33 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         local_training_record_path_detected
         or "shadow_history" in router_text
         or "ai_shadow_history" in router_text
+    )
+    basic_engine_role_injected = bool(
+        basic_doc.exists()
+        and "BASIC은 계산한다" in combined_doc_text
+        and "BASIC은 AI에게 묻는다" in combined_doc_text
+        and "AI가 판단한다" in combined_doc_text
+    )
+    basic_engine_forbidden_actions_documented = bool(
+        "직접 매수/매도 판단 금지" in combined_doc_text
+        and "AI 판단 없이 OrderIntent 생성" in combined_doc_text
+        and "RiskGuard/LivePreflight 우회" in combined_doc_text
+    )
+    basic_ai_boundary_documented = bool(
+        "BASIC은 AI에게 묻는다" in combined_doc_text
+        and "AI가 판단한다" in combined_doc_text
+        and "GPT/GEMINI/LOCAL" in combined_doc_text
+    )
+    riskguard_boundary_documented = bool("RiskGuard" in combined_doc_text and "safety referee" in combined_doc_text)
+    execution_boundary_documented = bool("Execution Layer" in combined_doc_text and "does not decide" in combined_doc_text)
+    local_training_role_documented = bool("LOCAL 학습" in combined_doc_text and "LOCAL Training" in combined_doc_text)
+    basic_engine_role_contract_ready = bool(
+        basic_engine_role_injected
+        and basic_engine_forbidden_actions_documented
+        and basic_ai_boundary_documented
+        and riskguard_boundary_documented
+        and execution_boundary_documented
+        and local_training_role_documented
     )
 
     samples: list[str] = []
@@ -20531,8 +20563,16 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         first_blocker = "role_contract_documented_ready" if not violations else violations[0]
 
     return {
+        "basic_engine_role_doc_exists": basic_doc.exists(),
         "engine_role_contract_doc_exists": role_doc.exists(),
         "ai_decision_trigger_policy_doc_exists": trigger_doc.exists(),
+        "basic_engine_role_injected": bool(basic_engine_role_injected),
+        "basic_engine_forbidden_actions_documented": bool(basic_engine_forbidden_actions_documented),
+        "basic_ai_boundary_documented": bool(basic_ai_boundary_documented),
+        "riskguard_boundary_documented": bool(riskguard_boundary_documented),
+        "execution_boundary_documented": bool(execution_boundary_documented),
+        "local_training_role_documented": bool(local_training_role_documented),
+        "basic_engine_role_contract_ready": bool(basic_engine_role_contract_ready),
         "fixed_threshold_direct_action_detected": bool(fixed_threshold_direct_action_detected),
         "fixed_threshold_sell_trigger_path_detected": bool(sell_threshold_trigger_path),
         "basic_direct_sell_decision_detected": bool(basic_direct_sell_decision_detected),

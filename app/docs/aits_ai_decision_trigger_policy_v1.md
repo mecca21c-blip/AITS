@@ -2,6 +2,17 @@
 
 This policy defines when BASIC should ask AI to decide. Thresholds and indicators are triggers and payload evidence. They are not direct trade authority.
 
+Role-injection summary:
+
+- BASIC은 1~3초 단위로 시장/호가/체결/손익을 감시한다.
+- BASIC은 10~30초 단위로 지표/후보/관리종목 상태를 갱신한다.
+- BASIC은 이벤트가 발생하면 AI 판단 필요 여부를 만든다.
+- LOCAL은 비용 없는 1차 판단자로 활용한다.
+- GPT/GEMINI는 중요하거나 불확실하거나 실제 주문/로테이션 판단이 필요한 경우 호출한다.
+- 외부 AI를 1초마다 호출하지 않는다.
+- 외부 AI를 5분마다 무조건 호출하지 않는다.
+- AI 호출은 판단 이벤트 기반이다.
+
 ## 1. BASIC Monitoring Cadence
 
 - 1 to 3 seconds: price, orderbook, trade flow, and profit/loss movement monitoring.
