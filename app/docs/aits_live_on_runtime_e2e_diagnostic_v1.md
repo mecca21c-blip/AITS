@@ -467,3 +467,19 @@ Blockers:
 - The Managed Pool weight/target column uses current position value divided by total asset when available. If the source is unavailable, display `-` rather than `0%`.
 - Target weight priority is user symbol target, then AI/suggested target, then policy target. If no source exists, display `-` rather than defaulting to `0%`.
 - Harness fields include dust symbols, excluded/readded dust symbols, manageable holding symbols, weight/target zero-zero count, nonzero holding weight count, and source fields for weight/target.
+
+## Total Operating Cap And Sell Observe Blockers
+
+- E2E reports the AI policy total budget as `total_operating_cap_krw` when `[AITS][TotalOperatingCap]` is present.
+- Cap blockers:
+  - `total_operating_cap_live_buy_block_ready`
+  - `total_operating_cap_source_missing`
+  - `total_asset_source_zero_for_live_buy`
+  - `cap_policy_ok_no_new_buy_after_cap`
+- Sell/take-profit blockers:
+  - `pnl_source_missing_for_sell`
+  - `take_profit_candidate_preview_only`
+  - `sell_path_observe_only`
+  - `sell_policy_ok_threshold_not_reached`
+- E2E must report `side_sell_submit_count=0` for this observe-only stage. Any sell submit belongs to a separate approved execution Goal.
+- Status reporting distinguishes `status_bar_cycle_order_state_label` from `status_bar_cumulative_order_state_label`.

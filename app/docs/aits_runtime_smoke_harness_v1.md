@@ -1836,3 +1836,13 @@ summary modes.
 - The Managed Pool weight/target column uses current position value divided by total asset when available. If the source is unavailable, display `-` rather than `0%`.
 - Target weight priority is user symbol target, then AI/suggested target, then policy target. If no source exists, display `-` rather than defaulting to `0%`.
 - Harness fields include dust symbols, excluded/readded dust symbols, manageable holding symbols, weight/target zero-zero count, nonzero holding weight count, and source fields for weight/target.
+
+## Live Buy Total Cap And Sell Observe Diagnostics
+
+- `risk_budget.total_budget_krw` is the live buy total exposure cap when it is greater than zero.
+- Buy exposure is evaluated from actual buy cost and manageable live position value. If both exposure and total asset sources are unavailable, live buy is blocked.
+- A live buy with `total_asset_krw=0` must not be treated as allowed.
+- `[AITS][TotalOperatingCap]` logs cap source, projected exposure, remaining cap, and the blocker before Router/RiskGuard/LivePreflight.
+- Sell/take-profit evaluation is observe-only in this stage. It may report `sell_preview_only` and take-profit candidates, but it must not submit sell orders.
+- The status bar separates cycle state from cumulative state: current cycle order status and today's cumulative buy/sell counts are distinct fields.
+- Harness fields include `total_operating_cap_detected`, `total_operating_cap_krw`, `projected_exposure_after_buy`, `live_buy_blocked_by_total_cap`, `sell_evaluation_called`, `take_profit_candidate_symbols`, `sell_preview_only`, `side_sell_submit_count`, and cumulative order counters.

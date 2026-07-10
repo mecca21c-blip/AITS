@@ -307,3 +307,19 @@ These events are not submit permission and must not call order retry paths.
 - The Managed Pool weight/target column uses current position value divided by total asset when available. If the source is unavailable, display `-` rather than `0%`.
 - Target weight priority is user symbol target, then AI/suggested target, then policy target. If no source exists, display `-` rather than defaulting to `0%`.
 - Harness fields include dust symbols, excluded/readded dust symbols, manageable holding symbols, weight/target zero-zero count, nonzero holding weight count, and source fields for weight/target.
+
+## Live Buy Total Exposure Cap
+
+- The live order path resolves `risk_budget.total_budget_krw` from the AI policy snapshot as the total buy exposure cap.
+- `projected_exposure_after_buy = max(total_buy_cost_krw, current_position_value_krw) + order_amount_krw`.
+- If projected exposure exceeds the configured budget, the candidate is blocked before Router validation.
+- If exposure or total asset sources are missing or zero during a live buy evaluation, the candidate is blocked rather than allowed.
+- Cap blockers are logged through `[AITS][TotalOperatingCap]`.
+
+## Sell And Take-Profit Observe Path
+
+- Managed live holdings are evaluated for sell/take-profit state during the managed status cycle.
+- PnL source priority is position snapshot, account average price plus current price, then managed holding valuation when sufficient.
+- Thresholds are watch at 3%, candidate at 4%, and strong candidate at 5%.
+- This stage is preview-only: sell evaluation can create logs and LIVE LOG messages, but it must not submit a sell order.
+- Missing PnL inputs are reported with `pnl_source_missing_for_sell`.

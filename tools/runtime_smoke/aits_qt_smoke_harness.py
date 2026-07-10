@@ -828,7 +828,7 @@ def _collect(window: Any, widgets: dict[str, Any]) -> dict[str, Any]:
         "managed_pool_status_bar_max_count": int(managed_pool_status_snapshot.get("max_count") or 0),
         "managed_pool_status_bar_holding_count": int(managed_pool_status_snapshot.get("holding_count") or 0),
         "managed_pool_status_bar_rotation_state": str(managed_pool_status_snapshot.get("rotation_blocker") or managed_pool_status_snapshot.get("state") or ""),
-        "managed_pool_status_bar_order_state": "실제 주문 없음" if int(managed_pool_status_snapshot.get("submitted_count") or 0) == 0 and not bool(managed_pool_status_snapshot.get("actual_order")) else "주문 상태 확인 필요",
+        "managed_pool_status_bar_order_state": "이번 판단 주기 주문 없음" if int(managed_pool_status_snapshot.get("submitted_count") or 0) == 0 and not bool(managed_pool_status_snapshot.get("actual_order")) else "주문 상태 확인 필요",
     }
     result.update(_collect_tooltip_style_proof())
     result.update(_tooltip_html_card_proof(tooltip_html_sample))
@@ -1759,7 +1759,7 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
     else:
         managed_pool_status_bar_state = "rotation_check"
         managed_pool_status_bar_rotation_text = "로테이션 여부 판단 중"
-    managed_pool_status_bar_text = f"{time.strftime('%H:%M')} · 관리종목 감시 중 · 관리 {final_count} / 최대 {max_count} · 보유 {len(holding_source_rows)} · 교체대상 {non_holding_rotation_targets_count} · {managed_pool_status_bar_rotation_text} · 실제 주문 없음"
+    managed_pool_status_bar_text = f"{time.strftime('%H:%M')} · 관리종목 감시 중 · 관리 {final_count} / 최대 {max_count} · 보유 {len(holding_source_rows)} · 교체대상 {non_holding_rotation_targets_count} · {managed_pool_status_bar_rotation_text} · 이번 판단 주기 주문 없음"
     managed_pool_status_bar_snake_case_leak = bool(re.search(r"\b[a-z]+(?:_[a-z0-9]+)+\b", managed_pool_status_bar_text))
     holding_source_available = bool(snapshot.get("holdings_fetch_success") or recent_position_symbols or holding_source_rows or dust_source_rows)
     if not holding_source_available:
@@ -1837,7 +1837,7 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         "managed_pool_status_bar_max_count": int(max_count),
         "managed_pool_status_bar_holding_count": int(len(holding_source_rows)),
         "managed_pool_status_bar_rotation_state": managed_pool_status_bar_rotation_text,
-        "managed_pool_status_bar_order_state": "실제 주문 없음",
+        "managed_pool_status_bar_order_state": "이번 판단 주기 주문 없음",
         "max_count_ui_value": int(max_count),
         "max_count_saved_value": int(max_count),
         "fill_to_max": bool(rotation_plan.get("fill_to_max")),
@@ -9097,6 +9097,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     position_reflection_lines = [line for line in lines if "[AITS][PositionReflection]" in line]
     candidate_holdings_guard_lines = [line for line in lines if "[AITS][CandidateHoldingsGuard]" in line]
     add_position_policy_lines = [line for line in lines if "[AITS][AddPositionPolicy]" in line]
+    total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
+    sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
     account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
     investment_format_lines = [line for line in lines if "[AITS][InvestmentPositionFormat]" in line]
     external_sync_lines = [line for line in lines if "[AITS][ExternalExchangeSync]" in line]
@@ -9177,6 +9179,60 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     add_position_cooldown_blocked = any("event=cooldown_blocked" in line for line in add_position_policy_lines)
     add_position_weight_cap_blocked = any("event=weight_cap_blocked" in line for line in add_position_policy_lines)
     add_position_window_cap_blocked = any("event=window_cap_blocked" in line for line in add_position_policy_lines)
+    latest_total_operating_cap = total_operating_cap_lines[-1] if total_operating_cap_lines else ""
+    total_operating_cap_detected = bool(total_operating_cap_lines)
+    total_operating_cap_krw = _safe_float(_live_on_stage_extract_value(latest_total_operating_cap, "total_budget_krw"), 0.0)
+    total_operating_cap_source = _live_on_stage_extract_value(latest_total_operating_cap, "cap_source")
+    total_buy_cost_krw = _safe_float(_live_on_stage_extract_value(latest_total_operating_cap, "total_buy_cost_krw"), 0.0)
+    current_position_value_krw = _safe_float(_live_on_stage_extract_value(latest_total_operating_cap, "current_position_value_krw"), 0.0)
+    projected_exposure_after_buy = _safe_float(_live_on_stage_extract_value(latest_total_operating_cap, "projected_exposure_after_buy"), 0.0)
+    cap_remaining_krw = _safe_float(_live_on_stage_extract_value(latest_total_operating_cap, "cap_remaining_krw"), 0.0)
+    live_buy_blocked_by_total_cap = any("event=buy_blocked_by_total_cap" in line or "blocker=total_operating_cap_exceeded" in line for line in total_operating_cap_lines)
+    total_asset_zero_buy_block_detected = any("blocker=total_asset_source_zero_for_live_buy" in line for line in total_operating_cap_lines)
+    exposure_cap_source_mismatch_resolved = bool(total_operating_cap_detected and total_operating_cap_source)
+    sell_evaluation_called = any("event=sell_eval_started" in line for line in sell_evaluation_lines)
+    sell_position_lines = [line for line in sell_evaluation_lines if "event=sell_eval_position" in line]
+    sell_evaluated_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_position_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    })
+    take_profit_candidate_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "event=take_profit_candidate" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    sell_preview_only = any("event=sell_eval_preview_only" in line for line in sell_evaluation_lines)
+    sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower())
+    side_sell_submit_count = sell_submit_count
+    pnl_source_missing_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_evaluation_lines
+        if "blocker=pnl_source_missing_for_sell" in line and _live_on_stage_extract_value(line, "symbol")
+    })
+    pnl_source_for_sell_detected = bool(sell_position_lines and len(pnl_source_missing_symbols) < len(sell_evaluated_symbols))
+    sell_top_symbol = ""
+    sell_top_pnl_pct = -9999.0
+    for line in sell_position_lines:
+        symbol = _live_on_stage_extract_value(line, "symbol")
+        pnl_pct = _safe_float(_live_on_stage_extract_value(line, "pnl_pct"), 0.0)
+        if symbol and pnl_pct > sell_top_pnl_pct:
+            sell_top_symbol = symbol
+            sell_top_pnl_pct = pnl_pct
+    top_pnl_sell_evaluated = bool(sell_top_symbol and sell_top_symbol in sell_evaluated_symbols)
+    if sell_top_symbol and (not top_pnl_source or not top_pnl_pct):
+        top_pnl_source = "sell_evaluation"
+        top_pnl_pct = sell_top_pnl_pct
+    status_bar_cycle_order_state_label = "이번 판단 주기 주문 없음"
+    status_bar_cumulative_order_state_label = ""
+    cumulative_buy_submit_count_today = sum(
+        1 for line in lines if "event=order_submit_result" in line and "side=buy" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order")
+    )
+    cumulative_sell_submit_count_today = sum(
+        1 for line in lines if "event=order_submit_result" in line and "side=sell" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order")
+    )
+    if cumulative_buy_submit_count_today or cumulative_sell_submit_count_today:
+        status_bar_cumulative_order_state_label = f"오늘 누적 매수 {cumulative_buy_submit_count_today}건 · 매도 {cumulative_sell_submit_count_today}건"
     bera_policy_lines = [line for line in add_position_policy_lines if "symbol=KRW-BERA" in line]
     bera_repeated_buy_policy_verdict = ""
     if bera_policy_lines:
@@ -9362,6 +9418,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "add_position_blocked_by_global_window_cap"
     elif add_position_policy_blocker == "add_position_blocked_by_missing_total_asset":
         first_blocker = "add_position_blocked_by_missing_total_asset"
+    if live_buy_blocked_by_total_cap:
+        first_blocker = "total_operating_cap_live_buy_block_ready"
+    elif total_asset_zero_buy_block_detected:
+        first_blocker = "total_asset_source_zero_for_live_buy"
+    elif total_operating_cap_detected and "total_operating_cap_source_missing" in latest_total_operating_cap:
+        first_blocker = "total_operating_cap_source_missing"
+    if sell_evaluation_called and take_profit_candidate_symbols:
+        first_blocker = "take_profit_candidate_preview_only"
+    elif sell_evaluation_called and pnl_source_missing_symbols and not take_profit_candidate_symbols:
+        first_blocker = "pnl_source_missing_for_sell"
     elif live_pipeline_candidate_selected and duplicate_candidate_locked_lines and not live_pipeline_router_started and not live_pipeline_router_result:
         first_blocker = "candidate_blocked_by_duplicate_lock"
     elif live_pipeline_candidate_selected and not live_pipeline_router_started and not live_pipeline_router_result:
@@ -9693,6 +9759,31 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "add_position_cooldown_blocked": bool(add_position_cooldown_blocked),
         "add_position_weight_cap_blocked": bool(add_position_weight_cap_blocked),
         "add_position_window_cap_blocked": bool(add_position_window_cap_blocked),
+        "total_operating_cap_detected": bool(total_operating_cap_detected),
+        "total_operating_cap_krw": total_operating_cap_krw,
+        "total_operating_cap_source": str(total_operating_cap_source or ""),
+        "total_buy_cost_krw": total_buy_cost_krw,
+        "current_position_value_krw": current_position_value_krw,
+        "projected_exposure_after_buy": projected_exposure_after_buy,
+        "cap_remaining_krw": cap_remaining_krw,
+        "live_buy_blocked_by_total_cap": bool(live_buy_blocked_by_total_cap),
+        "total_asset_zero_buy_block_detected": bool(total_asset_zero_buy_block_detected),
+        "exposure_cap_source_mismatch_resolved": bool(exposure_cap_source_mismatch_resolved),
+        "sell_evaluation_called": bool(sell_evaluation_called),
+        "sell_evaluated_symbols": sell_evaluated_symbols,
+        "take_profit_candidate_symbols": take_profit_candidate_symbols,
+        "take_profit_candidate_count": int(len(take_profit_candidate_symbols)),
+        "sell_preview_only": bool(sell_preview_only),
+        "sell_submit_count": int(sell_submit_count),
+        "side_sell_submit_count": int(side_sell_submit_count),
+        "pnl_source_for_sell_detected": bool(pnl_source_for_sell_detected),
+        "pnl_source_missing_symbols": pnl_source_missing_symbols,
+        "top_pnl_symbol": str(sell_top_symbol or ""),
+        "top_pnl_sell_evaluated": bool(top_pnl_sell_evaluated),
+        "status_bar_cycle_order_state_label": status_bar_cycle_order_state_label,
+        "status_bar_cumulative_order_state_label": status_bar_cumulative_order_state_label,
+        "cumulative_buy_submit_count_today": int(cumulative_buy_submit_count_today),
+        "cumulative_sell_submit_count_today": int(cumulative_sell_submit_count_today),
         "bera_repeated_buy_policy_verdict": str(bera_repeated_buy_policy_verdict or ""),
         "add_position_candidate_detected": bool(add_position_candidate_detected),
         "add_position_blocked_detected": bool(add_position_blocked_detected),

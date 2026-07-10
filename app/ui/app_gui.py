@@ -31566,6 +31566,11 @@ class MainWindow(QMainWindow):
                 "provider_ready": "AI 엔진이 정상 연결되어 있습니다.",
                 "market_feed_ok": "시장 데이터가 정상 수신 중입니다.",
                 "balance_ready": "주문 가능 잔고 확인이 완료되었습니다.",
+                "total_operating_cap_exceeded": f"{subject}총 운용한도에 도달해 신규매수를 차단했습니다.",
+                "total_operating_cap_source_missing": "총 운용한도 판단 기준이 부족해 신규매수를 안전 차단했습니다.",
+                "total_asset_source_zero_for_live_buy": "총자산 기준을 확인할 수 없어 신규매수를 안전 차단했습니다.",
+                "sell_eval_preview_only": "수익실현 후보를 미리보기로 감시 중입니다.",
+                "sell_eval_blocked": "수익률 계산 기준이 부족해 수익실현 평가는 보류했습니다.",
                 "router_validation_started": "Router가 주문 후보를 검증 중입니다.",
                 "router_validation_result": "Router 검증이 완료되었습니다.",
                 "riskguard_started": "RiskGuard가 위험 조건을 점검 중입니다.",
@@ -39631,6 +39636,345 @@ class MainWindow(QMainWindow):
             "actual_order": False,
         }
 
+    def _actual_order_counts_today(self) -> dict:
+        try:
+            rows = self._get_trade_log_shadow_journal_rows(limit=800)
+        except Exception:
+            rows = []
+        today = time.strftime("%Y-%m-%d")
+        buy_count = 0
+        sell_count = 0
+        total_buy_cost = 0.0
+        for row in rows:
+            if not isinstance(row, dict) or not bool(row.get("actual_order")):
+                continue
+            row_date = str(row.get("timestamp") or row.get("time") or row.get("ts_text") or "").strip()[:10]
+            if row_date and row_date != today:
+                continue
+            side_text = str(row.get("side") or row.get("raw_action_sanitized") or row.get("action") or "").strip().lower()
+            action_display = str(row.get("action_display") or "")
+            signature = str(row.get("decision_stage_signature") or "")
+            if side_text not in {"buy", "sell"}:
+                if "|buy|" in signature or "매수" in action_display:
+                    side_text = "buy"
+                elif "|sell|" in signature or "매도" in action_display:
+                    side_text = "sell"
+            amount = self._managed_pool_num_value(
+                row.get("amount_krw") or row.get("amount") or row.get("krw_cost") or row.get("order_amount_krw"),
+                0.0,
+            )
+            if side_text == "buy":
+                buy_count += 1
+                total_buy_cost += amount
+            elif side_text == "sell":
+                sell_count += 1
+        if buy_count <= 0 and sell_count <= 0:
+            try:
+                cached = getattr(self, "_last_actual_order_counts_today", None)
+                cached_at = float(getattr(self, "_last_actual_order_counts_today_at", 0.0) or 0.0)
+                if isinstance(cached, dict) and time.time() - cached_at < 60.0:
+                    return dict(cached)
+                log_dir = Path("data") / "logs"
+                for path in sorted(log_dir.glob("aits.log*")):
+                    try:
+                        text = path.read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        continue
+                    for line in text.splitlines():
+                        if today not in line or "event=order_submit_result" not in line or ("actual_order=" + "True") not in line:
+                            continue
+                        amount = 0.0
+                        match = re.search(r"amount_krw=([0-9.]+)", line)
+                        if match:
+                            amount = self._managed_pool_num_value(match.group(1), 0.0)
+                        lower = line.lower()
+                        if "side=buy" in lower:
+                            buy_count += 1
+                            total_buy_cost += amount
+                        elif "side=sell" in lower:
+                            sell_count += 1
+                self._last_actual_order_counts_today_at = time.time()
+                self._last_actual_order_counts_today = {
+                    "cumulative_buy_submit_count_today": buy_count,
+                    "cumulative_sell_submit_count_today": sell_count,
+                    "total_buy_cost_krw_today": total_buy_cost,
+                }
+            except Exception:
+                pass
+        return {
+            "cumulative_buy_submit_count_today": buy_count,
+            "cumulative_sell_submit_count_today": sell_count,
+            "total_buy_cost_krw_today": total_buy_cost,
+        }
+
+    def _total_operating_cap_budget_krw(self) -> tuple[float, str]:
+        try:
+            snapshot = self._build_ai_policy_snapshot()
+            risk_budget = ((snapshot or {}).get("ai_policy") or {}).get("risk_budget") or {}
+            budget = self._managed_pool_num_value(risk_budget.get("total_budget_krw"), 0.0)
+            if budget > 0:
+                return budget, "ui_state.ai_policy_snapshot.ai_policy.risk_budget.total_budget_krw"
+        except Exception:
+            pass
+        try:
+            ui_state = self._get_ui_state_dict()
+            risk_budget = (((ui_state.get("ai_policy_snapshot") or {}).get("ai_policy") or {}).get("risk_budget") or {})
+            budget = self._managed_pool_num_value(risk_budget.get("total_budget_krw"), 0.0)
+            if budget > 0:
+                return budget, "prefs.ui_state.ai_policy_snapshot.ai_policy.risk_budget.total_budget_krw"
+        except Exception:
+            pass
+        return 0.0, "unconfigured"
+
+    def _current_manageable_position_value_krw(self) -> tuple[float, str]:
+        total = 0.0
+        try:
+            rows = self._build_managed_pool_rows_snapshot()
+        except Exception:
+            rows = list(getattr(self, "ai_managed_rows", None) or [])
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if not self._managed_pool_status_bar_row_is_holding(row):
+                continue
+            try:
+                if bool(self._managed_pool_holding_dust_policy(row).get("is_dust_holding")):
+                    continue
+            except Exception:
+                pass
+            total += self._managed_pool_num_value(
+                row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw") or row.get("position_value"),
+                0.0,
+            )
+        return total, "managed_pool_live_holding_eval_krw" if total > 0.0 else "unavailable"
+
+    def _total_actual_buy_cost_krw(self) -> tuple[float, str]:
+        counts = self._actual_order_counts_today()
+        buy_cost = self._managed_pool_num_value(counts.get("total_buy_cost_krw_today"), 0.0)
+        if buy_cost > 0.0:
+            return buy_cost, "trade_log_shadow_journal_today_actual_buys"
+        return 0.0, "unavailable"
+
+    def _evaluate_total_operating_cap_for_buy(self, *, symbol: str, amount_krw: float, preflight_snapshot: dict | None = None) -> dict:
+        snapshot = preflight_snapshot if isinstance(preflight_snapshot, dict) else {}
+        budget, budget_source = self._total_operating_cap_budget_krw()
+        total_buy_cost, buy_cost_source = self._total_actual_buy_cost_krw()
+        position_value, position_source = self._current_manageable_position_value_krw()
+        available = self._managed_pool_num_value(snapshot.get("available_krw"), self._managed_pool_num_value(getattr(self, "_last_available_krw", None), 0.0))
+        total_asset = self._managed_pool_num_value(getattr(self, "_last_total_asset", None), 0.0)
+        total_asset_source = "account_summary"
+        if total_asset <= 0.0 and (available > 0.0 or position_value > 0.0):
+            total_asset = available + position_value
+            total_asset_source = "available_plus_manageable_positions"
+        exposure_for_cap = max(total_buy_cost, position_value)
+        projected = exposure_for_cap + float(amount_krw or 0.0)
+        cap_remaining = budget - exposure_for_cap if budget > 0.0 else 0.0
+        allowed = True
+        blocker = "total_operating_cap_ok"
+        result = "allowed"
+        if budget <= 0.0:
+            result = "not_configured"
+        elif total_asset <= 0.0:
+            allowed = False
+            blocker = "total_asset_source_zero_for_live_buy"
+            result = "blocked"
+        elif exposure_for_cap <= 0.0:
+            allowed = False
+            blocker = "total_operating_cap_source_missing"
+            result = "blocked"
+        elif projected > budget:
+            allowed = False
+            blocker = "total_operating_cap_exceeded"
+            result = "blocked"
+        cap_source = f"{budget_source}|exposure=max({buy_cost_source},{position_source})|total_asset={total_asset_source}"
+        out = {
+            "total_budget_krw": budget,
+            "total_buy_cost_krw": total_buy_cost,
+            "current_position_value_krw": position_value,
+            "available_krw": available,
+            "total_asset_krw": total_asset,
+            "order_amount_krw": float(amount_krw or 0.0),
+            "projected_exposure_after_buy": projected,
+            "cap_remaining_krw": cap_remaining,
+            "cap_source": cap_source,
+            "cap_check_result": result,
+            "blocker": blocker,
+            "allowed": allowed,
+            "symbol": str(symbol or ""),
+        }
+        try:
+            self._log.info(
+                "[AITS][TotalOperatingCap] event=cap_source_resolved symbol=%s total_budget_krw=%s total_buy_cost_krw=%s current_position_value_krw=%s available_krw=%s total_asset_krw=%s order_amount_krw=%s projected_exposure_after_buy=%s cap_remaining_krw=%s cap_source=%s cap_check_result=%s blocker=%s submitted=0 actual_order=false",
+                str(symbol or ""),
+                budget,
+                total_buy_cost,
+                position_value,
+                available,
+                total_asset,
+                float(amount_krw or 0.0),
+                projected,
+                cap_remaining,
+                cap_source,
+                result,
+                blocker,
+            )
+            event_name = "buy_cap_check"
+            if not allowed and blocker == "total_operating_cap_exceeded":
+                event_name = "buy_blocked_by_total_cap"
+            elif not allowed:
+                event_name = "buy_cap_source_missing"
+            self._log.info(
+                "[AITS][TotalOperatingCap] event=%s symbol=%s total_budget_krw=%s total_buy_cost_krw=%s current_position_value_krw=%s available_krw=%s total_asset_krw=%s order_amount_krw=%s projected_exposure_after_buy=%s cap_remaining_krw=%s cap_source=%s cap_check_result=%s blocker=%s submitted=0 actual_order=false",
+                event_name,
+                str(symbol or ""),
+                budget,
+                total_buy_cost,
+                position_value,
+                available,
+                total_asset,
+                float(amount_krw or 0.0),
+                projected,
+                cap_remaining,
+                cap_source,
+                result,
+                blocker,
+            )
+        except Exception:
+            pass
+        return out
+
+    def _evaluate_sell_takeprofit_observe_path(self, *, reason: str = "refresh", force: bool = False) -> dict:
+        now = time.time()
+        if not force and now - float(getattr(self, "_last_sell_evaluation_observe_at", 0.0) or 0.0) < 60.0:
+            return dict(getattr(self, "_last_sell_evaluation_observe_result", {}) or {})
+        self._last_sell_evaluation_observe_at = now
+        rows = [row for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
+        evaluated: list[str] = []
+        take_profit_symbols: list[str] = []
+        missing_symbols: list[str] = []
+        top_symbol = ""
+        top_pnl_pct = -9999.0
+        try:
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_started reason=%s holding_count=%s preview_only=True actual_order=False submitted=0",
+                str(reason or "refresh"),
+                sum(1 for row in rows if self._managed_pool_status_bar_row_is_holding(row)),
+            )
+        except Exception:
+            pass
+        for row in rows:
+            if not self._managed_pool_status_bar_row_is_holding(row):
+                continue
+            symbol = str(row.get("symbol") or row.get("market") or "").strip().upper()
+            if not symbol:
+                continue
+            evaluated.append(symbol)
+            qty = self._managed_pool_num_value(row.get("qty") or row.get("quantity") or row.get("balance") or row.get("volume"), 0.0)
+            avg = self._managed_pool_num_value(row.get("avg_buy_price") or row.get("avg_price") or row.get("avg"), 0.0)
+            current = self._managed_pool_num_value(row.get("current_price") or row.get("trade_price") or row.get("price") or row.get("market_price"), 0.0)
+            value = self._managed_pool_num_value(row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw"), 0.0)
+            if current <= 0.0 and qty > 0.0 and value > 0.0:
+                current = value / qty
+            weight = self._managed_pool_num_value(row.get("position_weight_pct") or row.get("weight_pct") or row.get("weight"), 0.0)
+            target = self._managed_pool_num_value(row.get("target_weight_pct") or row.get("target_weight") or row.get("ai_target_weight") or row.get("user_target_weight"), 0.0)
+            blocker = ""
+            pnl_krw = 0.0
+            pnl_pct = 0.0
+            take_profit = False
+            suggested_action = "hold_preview"
+            reason_text = "take_profit_threshold_not_reached"
+            if qty <= 0.0 or avg <= 0.0 or current <= 0.0:
+                blocker = "pnl_source_missing_for_sell"
+                missing_symbols.append(symbol)
+                reason_text = "avg_or_current_price_missing"
+            else:
+                pnl_krw = (current - avg) * qty
+                pnl_pct = (current - avg) / avg * 100.0
+                if pnl_pct > top_pnl_pct:
+                    top_pnl_pct = pnl_pct
+                    top_symbol = symbol
+                if pnl_pct >= 4.0:
+                    take_profit = True
+                    take_profit_symbols.append(symbol)
+                    suggested_action = "sell_preview"
+                    reason_text = "take_profit_candidate_preview_only"
+                elif pnl_pct >= 3.0:
+                    suggested_action = "sell_watch"
+                    reason_text = "take_profit_watch_preview_only"
+            try:
+                self._log.info(
+                    "[AITS][SellEvaluation] event=sell_eval_position symbol=%s qty=%s avg_buy_price=%s current_price=%s position_value_krw=%s pnl_krw=%s pnl_pct=%s weight_pct=%s target_weight_pct=%s sell_evaluated=True take_profit_candidate=%s stop_loss_candidate=False suggested_action=%s preview_only=True actual_order=False submitted=0 blocker=%s reason=%s",
+                    symbol,
+                    qty,
+                    avg,
+                    current,
+                    value,
+                    pnl_krw,
+                    pnl_pct,
+                    weight,
+                    target,
+                    take_profit,
+                    suggested_action,
+                    blocker or "-",
+                    reason_text,
+                )
+                if blocker:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=sell_eval_blocked symbol=%s preview_only=True actual_order=False submitted=0 blocker=%s reason=%s",
+                        symbol,
+                        blocker,
+                        reason_text,
+                    )
+                elif take_profit:
+                    self._log.info(
+                        "[AITS][SellEvaluation] event=take_profit_candidate symbol=%s pnl_pct=%s pnl_krw=%s suggested_action=sell_preview preview_only=True actual_order=False submitted=0 blocker=- reason=take_profit_candidate_preview_only",
+                        symbol,
+                        pnl_pct,
+                        pnl_krw,
+                    )
+            except Exception:
+                pass
+        try:
+            self._log.info(
+                "[AITS][SellEvaluation] event=sell_eval_preview_only evaluated_symbols=%s take_profit_candidate_symbols=%s pnl_source_missing_symbols=%s preview_only=True actual_order=False submitted=0",
+                ",".join(evaluated) or "-",
+                ",".join(take_profit_symbols) or "-",
+                ",".join(missing_symbols) or "-",
+            )
+        except Exception:
+            pass
+        try:
+            if take_profit_symbols:
+                self._append_aits_live_log(
+                    f"수익실현 후보 {len(take_profit_symbols)}개를 미리보기로 감시 중입니다. 실제 매도는 실행하지 않습니다.",
+                    category="pipeline",
+                    level="info",
+                    event="sell_eval_preview_only",
+                    symbol=take_profit_symbols[0],
+                )
+            elif missing_symbols:
+                self._append_aits_live_log(
+                    "보유종목 수익률 계산 기준이 부족해 수익실현 평가는 보류했습니다.",
+                    category="pipeline",
+                    level="warning",
+                    event="sell_eval_blocked",
+                    symbol=missing_symbols[0],
+                )
+        except Exception:
+            pass
+        result = {
+            "sell_evaluation_called": True,
+            "sell_evaluated_symbols": evaluated,
+            "take_profit_candidate_symbols": take_profit_symbols,
+            "pnl_source_missing_symbols": missing_symbols,
+            "top_pnl_symbol": top_symbol,
+            "top_pnl_pct": 0.0 if top_pnl_pct == -9999.0 else top_pnl_pct,
+            "sell_preview_only": True,
+            "sell_submit_count": 0,
+        }
+        self._last_sell_evaluation_observe_result = result
+        return result
+
     def _managed_pool_status_bar_korean_rotation_text(self, snapshot: dict) -> tuple[str, str]:
         try:
             if bool(snapshot.get("rotation_plan_detected")):
@@ -39657,9 +40001,25 @@ class MainWindow(QMainWindow):
             main = "관리종목 감시 중"
         else:
             main = "후보 탐색 중"
+        order_counts = {}
+        cap_text = ""
+        try:
+            order_counts = self._actual_order_counts_today()
+            cap_budget, _ = self._total_operating_cap_budget_krw()
+            exposure, _ = self._current_manageable_position_value_krw()
+            if cap_budget > 0.0 and exposure > 0.0:
+                if exposure >= cap_budget:
+                    cap_text = f" · 운용한도 {cap_budget:,.0f}원 · 현재 노출 약 {exposure:,.0f}원 · 신규매수 차단"
+                else:
+                    cap_text = f" · 운용한도 {cap_budget:,.0f}원 · 현재 노출 약 {exposure:,.0f}원"
+        except Exception:
+            order_counts = {}
+        buy_count = int(order_counts.get("cumulative_buy_submit_count_today") or 0)
+        sell_count = int(order_counts.get("cumulative_sell_submit_count_today") or 0)
         text = (
             f"{now_text} · {main} · 관리 {managed_count} / 최대 {max_count} · "
-            f"보유 {holding_count} · 교체대상 {target_count} · {rotation_text} · 실제 주문 없음"
+            f"보유 {holding_count} · 교체대상 {target_count} · {rotation_text} · "
+            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}"
         )
         return state, text
 
@@ -39677,6 +40037,14 @@ class MainWindow(QMainWindow):
 
     def _update_managed_pool_status_bar(self, *, reason: str = "refresh", snapshot: dict | None = None) -> dict:
         data = snapshot if isinstance(snapshot, dict) else self._managed_pool_status_bar_snapshot()
+        try:
+            sell_eval = self._evaluate_sell_takeprofit_observe_path(reason=f"status_bar:{reason}")
+            data["sell_evaluation_called"] = bool(sell_eval.get("sell_evaluation_called"))
+            data["sell_evaluated_symbols"] = sell_eval.get("sell_evaluated_symbols") or []
+            data["take_profit_candidate_symbols"] = sell_eval.get("take_profit_candidate_symbols") or []
+            data["pnl_source_missing_symbols"] = sell_eval.get("pnl_source_missing_symbols") or []
+        except Exception:
+            pass
         state, text = self._format_managed_pool_status_bar_text(data)
         data["state"] = state
         data["text"] = text
@@ -55007,6 +55375,52 @@ class MainWindow(QMainWindow):
             if amount_krw > hard_cap_krw or amount_krw > total_cap_krw or amount_krw > effective_cap_krw:
                 self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="amount_exceeds_live_cap", stage="cap", status="blocked", available_krw=int(available_krw), hard_cap_krw=int(hard_cap_krw), effective_cap_krw=int(effective_cap_krw), total_guarded_window_cap_krw=int(total_cap_krw))
                 self._set_aits_runtime_status_display("ON - blocked", "amount_exceeds_live_cap")
+                return True
+            total_cap_check = self._evaluate_total_operating_cap_for_buy(
+                symbol=symbol,
+                amount_krw=amount_krw,
+                preflight_snapshot=preflight_snapshot,
+            )
+            if not bool(total_cap_check.get("allowed", True)):
+                blocker = str(total_cap_check.get("blocker") or "total_operating_cap_source_missing")
+                self._emit_live_order_pipeline_event(
+                    "order_blocked",
+                    request_id=request_id,
+                    symbol=symbol,
+                    amount_krw=amount_krw,
+                    blocker=blocker,
+                    stage="total_operating_cap",
+                    status="blocked",
+                    total_budget_krw=total_cap_check.get("total_budget_krw", 0.0),
+                    total_buy_cost_krw=total_cap_check.get("total_buy_cost_krw", 0.0),
+                    current_position_value_krw=total_cap_check.get("current_position_value_krw", 0.0),
+                    available_krw=total_cap_check.get("available_krw", 0.0),
+                    total_asset_krw=total_cap_check.get("total_asset_krw", 0.0),
+                    projected_exposure_after_buy=total_cap_check.get("projected_exposure_after_buy", 0.0),
+                    cap_remaining_krw=total_cap_check.get("cap_remaining_krw", 0.0),
+                    cap_source=str(total_cap_check.get("cap_source") or ""),
+                    cap_check_result=str(total_cap_check.get("cap_check_result") or "blocked"),
+                )
+                try:
+                    if blocker == "total_operating_cap_exceeded":
+                        self._append_aits_live_log(
+                            f"운용한도 {float(total_cap_check.get('total_budget_krw') or 0.0):,.0f}원 기준 현재 노출이 높아 신규매수를 차단했습니다.",
+                            category="pipeline",
+                            level="warning",
+                            event="total_operating_cap_exceeded",
+                            symbol=symbol,
+                        )
+                    else:
+                        self._append_aits_live_log(
+                            "총자산 또는 노출 기준을 확인할 수 없어 신규매수를 안전 차단했습니다.",
+                            category="pipeline",
+                            level="warning",
+                            event=blocker,
+                            symbol=symbol,
+                        )
+                except Exception:
+                    pass
+                self._set_aits_runtime_status_display("ON - blocked", blocker)
                 return True
             if not account_ready or not api_key_ready:
                 self._emit_live_order_pipeline_event("order_blocked", request_id=request_id, symbol=symbol, amount_krw=amount_krw, blocker="account_or_api_not_ready", stage="account", status="blocked", account_ready=account_ready, api_key_ready=api_key_ready, available_krw=int(available_krw))
