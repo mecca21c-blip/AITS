@@ -20421,9 +20421,15 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     role_doc = docs_dir / "aits_engine_role_contract_v1.md"
     trigger_doc = docs_dir / "aits_ai_decision_trigger_policy_v1.md"
     app_gui = ROOT / "app" / "ui" / "app_gui.py"
+    orchestrator = ROOT / "app" / "services" / "aits_orchestrator.py"
     provider = ROOT / "app" / "services" / "ai_engine_provider.py"
     router = ROOT / "app" / "services" / "decision_router.py"
     promotion = ROOT / "app" / "services" / "managed_pool_promotion_policy.py"
+    risk_guard = ROOT / "app" / "services" / "risk_guard.py"
+    live_preflight = ROOT / "app" / "services" / "live_order_preflight.py"
+    order_service = ROOT / "app" / "services" / "order_service.py"
+    execution_bridge = ROOT / "app" / "services" / "execution_bridge.py"
+    order_adapter = ROOT / "app" / "services" / "order_adapter.py"
 
     def _read(path: Path) -> str:
         try:
@@ -20436,9 +20442,64 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     trigger_doc_text = _read(trigger_doc)
     combined_doc_text = "\n".join([basic_doc_text, role_doc_text, trigger_doc_text])
     app_text = _read(app_gui)
+    orchestrator_text = _read(orchestrator)
     provider_text = _read(provider)
     router_text = _read(router)
     promotion_text = _read(promotion)
+    risk_guard_text = _read(risk_guard)
+    live_preflight_text = _read(live_preflight)
+    order_service_text = _read(order_service)
+    execution_bridge_text = _read(execution_bridge)
+    order_adapter_text = _read(order_adapter)
+
+    scan_targets: dict[str, str] = {
+        "app/ui/app_gui.py": app_text,
+        "app/services/aits_orchestrator.py": orchestrator_text,
+        "app/services/managed_pool_promotion_policy.py": promotion_text,
+        "app/services/decision_router.py": router_text,
+        "app/services/risk_guard.py": risk_guard_text,
+        "app/services/live_order_preflight.py": live_preflight_text,
+    }
+    execution_targets: dict[str, str] = {
+        **scan_targets,
+        "app/services/order_service.py": order_service_text,
+        "app/services/execution_bridge.py": execution_bridge_text,
+        "app/services/order_adapter.py": order_adapter_text,
+    }
+
+    def _line_samples(
+        targets: dict[str, str],
+        patterns: tuple[str, ...],
+        *,
+        exclude: tuple[str, ...] = (),
+        limit: int = 10,
+    ) -> list[str]:
+        samples_out: list[str] = []
+        lower_patterns = tuple(p.lower() for p in patterns)
+        lower_exclude = tuple(p.lower() for p in exclude)
+        for rel_path, text in targets.items():
+            for line_no, line in enumerate(text.splitlines(), start=1):
+                lower_line = line.lower()
+                if not any(pattern in lower_line for pattern in lower_patterns):
+                    continue
+                if lower_exclude and any(pattern in lower_line for pattern in lower_exclude):
+                    continue
+                compact = " ".join(line.strip().split())
+                if compact:
+                    samples_out.append(f"{rel_path}:{line_no}: {compact[:220]}")
+                if len(samples_out) >= limit:
+                    return samples_out
+        return samples_out
+
+    basic_direct_trade_decision_static_scan_enabled = True
+    order_intent_without_ai_decision_scan_enabled = True
+    fixed_threshold_direct_action_scan_enabled = True
+    ai_payload_contract_scan_enabled = True
+    ai_output_contract_scan_enabled = True
+    local_training_contract_scan_enabled = True
+    riskguard_bypass_scan_enabled = True
+    livepreflight_bypass_scan_enabled = True
+    execution_bypass_scan_enabled = True
 
     sell_threshold_trigger_path = bool(
         "pnl_pct >= 4.0" in app_text
@@ -20460,10 +20521,92 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "reason=buy_ready_candidate" in app_text
         and "ai_decision_based_buy" not in app_text
     )
+    basic_direct_rotation_decision_detected = bool(
+        "rotation_allowed=True" in promotion_text
+        or ("managed_pool_mutation=True" in promotion_text and "ai_decision" not in promotion_text.lower())
+    )
+    fixed_threshold_direct_action_samples = _line_samples(
+        scan_targets,
+        ("pnl_pct >=", "pnl_pct <=", "take_profit_apply_candidate", "stop_loss_apply_candidate"),
+        exclude=("ai_decision_required", "preview", "documented", "threshold_not_reached"),
+    )
+    basic_direct_trade_decision_samples = _line_samples(
+        scan_targets,
+        (
+            "buy_ready",
+            "OrderIntentCandidate",
+            "action=\"buy\"",
+            "action='buy'",
+            "action=\"sell\"",
+            "action='sell'",
+            "sell_ratio",
+            "normalized_rotation_score",
+            "rotation_allowed",
+        ),
+        exclude=("ai_decision", "payload", "schema", "allowed_actions", "docs"),
+    )
+    order_intent_without_ai_decision_samples = _line_samples(
+        scan_targets,
+        ("OrderIntentCandidate", "SellOrderIntent", "RotationIntent", "submit_order", "place_order"),
+        exclude=("ai_decision", "payload", "schema", "RiskGuard", "LivePreflight"),
+    )
+    buy_order_intent_without_ai_decision_detected = bool(
+        basic_direct_buy_decision_detected
+        or any("side=buy" in sample or "buy_ready" in sample for sample in order_intent_without_ai_decision_samples)
+    )
+    sell_order_intent_without_ai_decision_detected = bool(
+        basic_direct_sell_decision_detected
+        or any("SellOrderIntent" in sample or "side=sell" in sample for sample in order_intent_without_ai_decision_samples)
+    )
+    rotation_intent_without_ai_decision_detected = bool(
+        basic_direct_rotation_decision_detected
+        or any("RotationIntent" in sample or "rotation_allowed" in sample for sample in order_intent_without_ai_decision_samples)
+    )
+    order_intent_without_ai_decision_detected = bool(
+        buy_order_intent_without_ai_decision_detected
+        or sell_order_intent_without_ai_decision_detected
+        or rotation_intent_without_ai_decision_detected
+    )
+    trigger_to_action_samples = _line_samples(
+        scan_targets,
+        ("trigger_reason", "threshold", "take_profit_apply_candidate", "stop_loss_apply_candidate"),
+        exclude=("ai_decision_required", "payload", "schema", "documented", "log"),
+    )
+    threshold_to_action_samples = fixed_threshold_direct_action_samples[:5]
+    trigger_used_as_action_detected = bool(
+        trigger_to_action_samples
+        and ("ai_decision_required" not in app_text or order_intent_without_ai_decision_detected)
+    )
     ai_decision_payload_path_detected = bool(
         "_build_ai_position_decision_payload" in app_text
         and "generate_position_management_decision" in provider_text
     )
+    ai_decision_payload_builder_detected = bool("_build_ai_position_decision_payload" in app_text)
+    ai_decision_payload_schema_fields_detected = bool(
+        "trigger_reason" in app_text
+        and "position" in app_text
+        and "portfolio" in app_text
+        and "constraints" in app_text
+        and "output_schema" in app_text
+    )
+    ai_decision_output_schema_detected = bool(
+        "action" in provider_text
+        and "confidence" in provider_text
+        and "reason_ko" in provider_text
+        and "eta_seconds" in provider_text
+        and "invalidation_conditions" in provider_text
+    )
+    ai_response_validator_detected = bool(
+        "_validate_ai_position_decision" in app_text
+        or "validate" in provider_text.lower() and "reason_ko" in provider_text
+    )
+    ai_decision_payload_missing_paths: list[str] = []
+    if basic_direct_buy_decision_detected:
+        ai_decision_payload_missing_paths.append("buy_ready_order_intent_candidate")
+    if basic_direct_rotation_decision_detected:
+        ai_decision_payload_missing_paths.append("managed_pool_rotation_candidate")
+    if basic_direct_sell_decision_detected:
+        ai_decision_payload_missing_paths.append("guarded_sell_candidate")
     ai_provider_runtime_call_path_detected = bool(
         "_request_ai_position_decision" in app_text
         and "AIEngineProvider" in app_text
@@ -20478,6 +20621,24 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "ai_decision_training" in app_text
         and "position_decisions.jsonl" in app_text
     )
+    local_training_payload_storage_detected = bool(local_training_record_path_detected and "payload" in app_text)
+    local_training_response_storage_detected = bool(local_training_record_path_detected and "response" in app_text)
+    local_training_execution_result_storage_detected = bool(
+        local_training_record_path_detected and ("execution_result" in app_text or "execution" in app_text)
+    )
+    local_training_outcome_placeholder_detected = bool(
+        local_training_record_path_detected
+        and ("pnl_after_5m" in app_text or "outcome" in app_text or "realized_outcome_later" in app_text)
+    )
+    local_training_missing_fields: list[str] = []
+    if not local_training_payload_storage_detected:
+        local_training_missing_fields.append("payload")
+    if not local_training_response_storage_detected:
+        local_training_missing_fields.append("response")
+    if not local_training_execution_result_storage_detected:
+        local_training_missing_fields.append("execution_result")
+    if not local_training_outcome_placeholder_detected:
+        local_training_missing_fields.append("outcome_placeholder")
     decision_record_store_detected = bool(
         local_training_record_path_detected
         or "shadow_history" in router_text
@@ -20565,6 +20726,55 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "RiskGuard" in combined_doc_text
         and "LivePreflight" in combined_doc_text
     )
+    bypass_patterns = (
+        "force_" + "buy",
+        "force_" + "sell",
+        "force_" + "order",
+        "bypass_" + "risk",
+        "bypass_" + "preflight",
+        "skip_" + "guard",
+        "actual_order" + "=True",
+        "actual_order" + " = True",
+        "submitted_count" + " =",
+        "submitted_count" + "=",
+    )
+    bypass_samples = _line_samples(
+        execution_targets,
+        bypass_patterns,
+    )
+    riskguard_bypass_detected = bool(
+        any(("bypass_" + "risk") in sample.lower() or ("skip_" + "guard") in sample.lower() for sample in bypass_samples)
+    )
+    livepreflight_bypass_detected = bool(
+        any(("bypass_" + "preflight") in sample.lower() for sample in bypass_samples)
+    )
+    execution_bypass_detected = bool(
+        any(("force_" + "order") in sample.lower() or ("force_" + "sell") in sample.lower() for sample in bypass_samples)
+    )
+    direct_upbit_order_detected = bool(
+        "jwt_build" in app_text
+        and ("/v1/orders" in app_text or "submit_order" in app_text)
+        and "OrderService" not in app_text
+    )
+    actual_order_hardcode_detected = bool(
+        any(("actual_order" + "=True") in sample or ("actual_order" + " = True") in sample for sample in bypass_samples)
+    )
+    submitted_count_hardcode_detected = bool(
+        any(("submitted_count" + "=") in sample or ("submitted_count" + " =") in sample for sample in bypass_samples)
+    )
+    engine_role_contract_guard_ready = bool(
+        basic_engine_role_contract_ready
+        and ai_decision_trigger_policy_ready
+        and basic_direct_trade_decision_static_scan_enabled
+        and order_intent_without_ai_decision_scan_enabled
+        and fixed_threshold_direct_action_scan_enabled
+        and ai_payload_contract_scan_enabled
+        and ai_output_contract_scan_enabled
+        and local_training_contract_scan_enabled
+        and riskguard_bypass_scan_enabled
+        and livepreflight_bypass_scan_enabled
+        and execution_bypass_scan_enabled
+    )
 
     samples: list[str] = []
     if sell_threshold_trigger_path:
@@ -20575,6 +20785,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         samples.append(
             "app/ui/app_gui.py: Buy Ready can create OrderIntentCandidate with reason=buy_ready_candidate before an AI decision payload."
         )
+    samples.extend(basic_direct_trade_decision_samples[:3])
+    samples.extend(order_intent_without_ai_decision_samples[:3])
+    samples.extend(trigger_to_action_samples[:2])
+    samples.extend(bypass_samples[:2])
     if "planned_rotation" in promotion_text and "observe_only" in promotion_text:
         samples.append(
             "app/services/managed_pool_promotion_policy.py: rotation is normalized-score observe-only; AI is not yet the rotation final judge."
@@ -20595,19 +20809,55 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         violations.append("basic_engine_direct_sell_decision_active")
     if basic_direct_buy_decision_detected:
         violations.append("basic_engine_direct_buy_decision_active")
+    if basic_direct_rotation_decision_detected:
+        violations.append("basic_engine_direct_rotation_decision_active")
+    if order_intent_without_ai_decision_detected:
+        violations.append("order_intent_without_ai_decision_detected")
+    if trigger_used_as_action_detected:
+        violations.append("trigger_used_as_action_detected")
     if ai_decision_required_but_not_called_path_detected:
         violations.append("ai_decision_required_but_not_called_path_detected")
+    if not ai_decision_payload_builder_detected:
+        violations.append("ai_decision_payload_builder_missing")
+    if not ai_response_validator_detected:
+        violations.append("ai_response_validator_missing")
     if not decision_record_store_detected:
         violations.append("ai_decision_record_store_missing")
     if not local_training_record_path_detected:
         violations.append("local_training_data_pipeline_missing")
+    if execution_bypass_detected:
+        violations.append("execution_bypass_detected")
+    if direct_upbit_order_detected:
+        violations.append("direct_upbit_order_detected")
+    if riskguard_bypass_detected:
+        violations.append("riskguard_bypass_detected")
+    if livepreflight_bypass_detected:
+        violations.append("livepreflight_bypass_detected")
+    if actual_order_hardcode_detected:
+        violations.append("actual_order_hardcode_detected")
 
-    if fixed_threshold_direct_action_detected:
-        first_blocker = "fixed_threshold_direct_sell_active"
-    elif basic_direct_sell_decision_detected or basic_direct_buy_decision_detected:
+    if execution_bypass_detected:
+        first_blocker = "execution_bypass_detected"
+    elif direct_upbit_order_detected:
+        first_blocker = "direct_upbit_order_detected"
+    elif riskguard_bypass_detected:
+        first_blocker = "riskguard_bypass_detected"
+    elif livepreflight_bypass_detected:
+        first_blocker = "livepreflight_bypass_detected"
+    elif actual_order_hardcode_detected:
+        first_blocker = "actual_order_hardcode_detected"
+    elif basic_direct_sell_decision_detected or basic_direct_buy_decision_detected or basic_direct_rotation_decision_detected:
         first_blocker = "basic_engine_direct_trade_decision_active"
-    elif not ai_decision_payload_path_detected:
-        first_blocker = "ai_decision_payload_missing_for_trade_action"
+    elif order_intent_without_ai_decision_detected:
+        first_blocker = "order_intent_without_ai_decision_detected"
+    elif trigger_used_as_action_detected:
+        first_blocker = "trigger_used_as_action_detected"
+    elif fixed_threshold_direct_action_detected:
+        first_blocker = "fixed_threshold_direct_sell_active"
+    elif not ai_decision_payload_builder_detected:
+        first_blocker = "ai_decision_payload_builder_missing"
+    elif not ai_response_validator_detected:
+        first_blocker = "ai_response_validator_missing"
     elif not ai_provider_runtime_call_path_detected:
         first_blocker = "ai_provider_not_connected_to_runtime_cycle"
     elif not decision_record_store_detected:
@@ -20618,6 +20868,7 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         first_blocker = "role_contract_documented_ready" if not violations else violations[0]
 
     return {
+        "engine_role_contract_guard_ready": bool(engine_role_contract_guard_ready),
         "basic_engine_role_doc_exists": basic_doc.exists(),
         "engine_role_contract_doc_exists": role_doc.exists(),
         "ai_decision_trigger_policy_doc_exists": trigger_doc.exists(),
@@ -20637,18 +20888,57 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "execution_boundary_documented": bool(execution_boundary_documented),
         "local_training_role_documented": bool(local_training_role_documented),
         "basic_engine_role_contract_ready": bool(basic_engine_role_contract_ready),
+        "basic_direct_trade_decision_static_scan_enabled": bool(basic_direct_trade_decision_static_scan_enabled),
+        "order_intent_without_ai_decision_scan_enabled": bool(order_intent_without_ai_decision_scan_enabled),
+        "fixed_threshold_direct_action_scan_enabled": bool(fixed_threshold_direct_action_scan_enabled),
+        "ai_payload_contract_scan_enabled": bool(ai_payload_contract_scan_enabled),
+        "ai_output_contract_scan_enabled": bool(ai_output_contract_scan_enabled),
+        "local_training_contract_scan_enabled": bool(local_training_contract_scan_enabled),
+        "riskguard_bypass_scan_enabled": bool(riskguard_bypass_scan_enabled),
+        "livepreflight_bypass_scan_enabled": bool(livepreflight_bypass_scan_enabled),
+        "execution_bypass_scan_enabled": bool(execution_bypass_scan_enabled),
         "fixed_threshold_direct_action_detected": bool(fixed_threshold_direct_action_detected),
         "fixed_threshold_sell_trigger_path_detected": bool(sell_threshold_trigger_path),
+        "fixed_threshold_direct_action_samples": fixed_threshold_direct_action_samples[:10],
+        "threshold_to_action_samples": threshold_to_action_samples[:10],
         "basic_direct_sell_decision_detected": bool(basic_direct_sell_decision_detected),
         "basic_direct_buy_decision_detected": bool(basic_direct_buy_decision_detected),
+        "basic_direct_rotation_decision_detected": bool(basic_direct_rotation_decision_detected),
+        "basic_direct_trade_decision_samples": basic_direct_trade_decision_samples[:10],
+        "order_intent_without_ai_decision_detected": bool(order_intent_without_ai_decision_detected),
+        "buy_order_intent_without_ai_decision_detected": bool(buy_order_intent_without_ai_decision_detected),
+        "sell_order_intent_without_ai_decision_detected": bool(sell_order_intent_without_ai_decision_detected),
+        "rotation_intent_without_ai_decision_detected": bool(rotation_intent_without_ai_decision_detected),
+        "order_intent_without_ai_decision_samples": order_intent_without_ai_decision_samples[:10],
+        "trigger_used_as_action_detected": bool(trigger_used_as_action_detected),
+        "trigger_to_action_samples": trigger_to_action_samples[:10],
         "ai_decision_payload_path_detected": bool(ai_decision_payload_path_detected),
+        "ai_decision_payload_builder_detected": bool(ai_decision_payload_builder_detected),
+        "ai_decision_payload_schema_fields_detected": bool(ai_decision_payload_schema_fields_detected),
+        "ai_decision_output_schema_detected": bool(ai_decision_output_schema_detected),
+        "ai_response_validator_detected": bool(ai_response_validator_detected),
+        "ai_decision_payload_missing_paths": ai_decision_payload_missing_paths[:10],
         "ai_provider_runtime_call_path_detected": bool(ai_provider_runtime_call_path_detected),
         "ai_decision_required_but_not_called_path_detected": bool(ai_decision_required_but_not_called_path_detected),
         "local_training_record_path_detected": bool(local_training_record_path_detected),
+        "local_training_payload_storage_detected": bool(local_training_payload_storage_detected),
+        "local_training_response_storage_detected": bool(local_training_response_storage_detected),
+        "local_training_execution_result_storage_detected": bool(local_training_execution_result_storage_detected),
+        "local_training_outcome_placeholder_detected": bool(local_training_outcome_placeholder_detected),
+        "local_training_missing_fields": local_training_missing_fields[:10],
         "decision_record_store_detected": bool(decision_record_store_detected),
+        "riskguard_bypass_detected": bool(riskguard_bypass_detected),
+        "livepreflight_bypass_detected": bool(livepreflight_bypass_detected),
+        "execution_bypass_detected": bool(execution_bypass_detected),
+        "direct_upbit_order_detected": bool(direct_upbit_order_detected),
+        "actual_order_hardcode_detected": bool(actual_order_hardcode_detected),
+        "submitted_count_hardcode_detected": bool(submitted_count_hardcode_detected),
+        "bypass_samples": bypass_samples[:10],
         "role_contract_violation_count": len(violations),
         "role_contract_violations": violations,
+        "role_contract_violation_types": violations,
         "role_contract_violation_samples": samples[:8],
+        "role_contract_first_blocker": first_blocker,
         "ai_decision_trigger_audit_first_blocker": first_blocker,
     }
 
