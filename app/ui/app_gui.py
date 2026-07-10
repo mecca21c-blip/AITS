@@ -40208,6 +40208,15 @@ class MainWindow(QMainWindow):
             order_counts = {}
         buy_count = int(order_counts.get("cumulative_buy_submit_count_today") or 0)
         sell_count = int(order_counts.get("cumulative_sell_submit_count_today") or 0)
+        buy_block_text = ""
+        try:
+            if bool(getattr(self, "_aits_buy_blocked", False)):
+                if cap_text:
+                    buy_block_text = " · \ubcf4\uc720\uc885\ubaa9 \uac10\uc2dc \uc911"
+                else:
+                    buy_block_text = " · \uc2e0\uaddc\ub9e4\uc218 \ucc28\ub2e8 · \ubcf4\uc720\uc885\ubaa9 \uac10\uc2dc \uc911"
+        except Exception:
+            buy_block_text = ""
         risk_text = ""
         try:
             sell_eval = dict(getattr(self, "_last_sell_evaluation_observe_result", {}) or {})
@@ -40226,7 +40235,7 @@ class MainWindow(QMainWindow):
         text = (
             f"{now_text} · {main} · 관리 {managed_count} / 최대 {max_count} · "
             f"보유 {holding_count} · 교체대상 {target_count} · {rotation_text} · "
-            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}{risk_text}"
+            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}{buy_block_text}{risk_text}"
         )
         return state, text
 
@@ -41739,6 +41748,38 @@ class MainWindow(QMainWindow):
                                 self._schedule_aits_live_waiting_reason_log(runtime_contract_reason)
                             except Exception:
                                 pass
+                        try:
+                            preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
+                            buy_blocked = bool(preflight_snapshot.get("buy_blocked") or getattr(self, "_aits_buy_blocked", False))
+                            buy_blocker = str(preflight_snapshot.get("buy_blocker") or getattr(self, "_aits_buy_blocker", "") or "buy_blocked")
+                        except Exception:
+                            buy_blocked = False
+                            buy_blocker = "buy_blocked"
+                        if runtime_contract_active and candidate_symbol and buy_blocked:
+                            self._emit_live_order_pipeline_event(
+                                "order_blocked",
+                                request_id=f"buy-blocked-{int(time.time() * 1000)}",
+                                symbol=candidate_symbol,
+                                amount_krw=intended_amount,
+                                blocker=buy_blocker,
+                                stage="buy_preflight",
+                                status="blocked",
+                                buy_enabled=False,
+                                buy_blocked=True,
+                                monitor_only=True,
+                                sell_observe_enabled=True,
+                            )
+                            try:
+                                self._append_aits_live_log(
+                                    f"{candidate_symbol} 신규매수는 차단되어 보류했습니다. 보유종목 감시는 계속됩니다.",
+                                    category="runtime",
+                                    level="warning",
+                                    event="buy_blocked_monitor_only",
+                                    symbol=candidate_symbol,
+                                )
+                            except Exception:
+                                pass
+                            raise RuntimeError("live_auto_pipeline_handled")
                         if runtime_contract_active and candidate_symbol:
                             try:
                                 if bool(self._run_live_auto_order_pipeline_from_candidate(first_buy_ready, intended_amount, candidate_score, candidate_source)):
@@ -57014,7 +57055,26 @@ class MainWindow(QMainWindow):
                     else:
                         self._log.info(f"[PREFLIGHT] check passed: {preflight_msg}")
                         try:
-                            self._set_aits_runtime_status_display('on_preflight_passed', 'runtime_start_pending')
+                            preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
+                            if bool(preflight_snapshot.get("buy_blocked")):
+                                buy_blocker = str(preflight_snapshot.get("buy_blocker") or "buy_blocked")
+                                self._set_aits_runtime_status_display("ON - 신규매수 차단", "보유종목 감시 중")
+                                self._append_aits_live_log(
+                                    "가용 KRW 부족 또는 운용한도 때문에 신규매수는 차단됩니다. 보유종목 감시는 계속됩니다.",
+                                    category="runtime",
+                                    level="warning",
+                                    event="buy_blocked_monitor_only",
+                                )
+                                logging.getLogger("aits").info(
+                                    "[AITS][MonitorOnlyMode] event=monitor_only_started source_path=on_button runtime_monitor_only_mode=True buy_enabled=False buy_blocked=True buy_blocker=%s sell_observe_enabled_while_buy_blocked=True status_bar_buy_blocked_monitoring_message=True live_log_buy_blocked_monitoring_message=True submitted=0 order_allowed=False real_order=False",
+                                    buy_blocker,
+                                )
+                        except Exception:
+                            pass
+                        try:
+                            preflight_snapshot = dict(getattr(self, "_live_on_last_preflight_snapshot", {}) or {})
+                            if not bool(preflight_snapshot.get("buy_blocked")):
+                                self._set_aits_runtime_status_display('on_preflight_passed', 'runtime_start_pending')
                         except Exception:
                             pass
                         try:
@@ -57620,6 +57680,33 @@ class MainWindow(QMainWindow):
                 blocker = "order_amount_exceeds_total_guarded_window_cap"
             elif effective_hard_cap < MIN_ORDER_KRW:
                 blocker = "effective_hard_cap_below_min_order"
+            buy_blocker_names = {
+                "insufficient_available_krw",
+                "actual_krw_balance_zero",
+                "order_amount_below_min_order",
+                "order_amount_exceeds_per_order_hard_cap",
+                "order_amount_exceeds_total_guarded_window_cap",
+                "effective_hard_cap_below_min_order",
+                "total_operating_cap_exceeded",
+                "total_asset_source_zero_for_live_buy",
+                "total_operating_cap_source_missing",
+            }
+            buy_blocker = blocker if blocker in buy_blocker_names else ""
+            runtime_fatal_blocker = blocker if blocker and not buy_blocker else ""
+            runtime_can_start = bool(not runtime_fatal_blocker)
+            monitor_only = bool(runtime_can_start and buy_blocker)
+            buy_enabled = bool(can_order and not buy_blocker)
+            try:
+                self._aits_buy_enabled = buy_enabled
+                self._aits_buy_blocked = bool(buy_blocker)
+                self._aits_buy_blocker = buy_blocker
+                self._aits_monitor_only_mode = monitor_only
+                self._aits_sell_observe_enabled = runtime_can_start
+                orch = getattr(self, "orchestrator", None)
+                if orch is not None and hasattr(orch, "update_user_controls"):
+                    orch.update_user_controls(new_buy_enabled=buy_enabled)
+            except Exception:
+                pass
             ok_int = 1 if can_order else 0
             # 4. 스냅샷·리스트 상태
             snapshot_on = _SESSION_SNAPSHOT_SYMBOLS is not None and len(_SESSION_SNAPSHOT_SYMBOLS) > 0
@@ -57684,6 +57771,24 @@ class MainWindow(QMainWindow):
                 blocker or "",
                 balance_status,
             )
+            self._log.info(
+                "[AITS][OnPreflightTaxonomy] event=preflight_taxonomy source_path=on_button "
+                "runtime_fatal_blocker=%s buy_blocker=%s on_preflight_buy_blocker_nonfatal=%s "
+                "runtime_monitor_only_mode=%s buy_enabled=%s buy_blocked=%s "
+                "sell_observe_enabled_while_buy_blocked=%s on_allowed_with_insufficient_available_krw=%s "
+                "available_krw=%s order_amount_krw=%s effective_hard_cap_krw=%s submitted=0 order_allowed=False real_order=False",
+                runtime_fatal_blocker or "-",
+                buy_blocker or "-",
+                bool(buy_blocker and not runtime_fatal_blocker),
+                bool(monitor_only),
+                bool(buy_enabled),
+                bool(buy_blocker),
+                bool(runtime_can_start and buy_blocker),
+                bool(buy_blocker == "insufficient_available_krw" and runtime_can_start),
+                int(available_krw),
+                int(order_amount_krw),
+                int(effective_hard_cap),
+            )
 
             try:
                 self._live_on_last_preflight_snapshot = {
@@ -57696,7 +57801,13 @@ class MainWindow(QMainWindow):
                     "effective_hard_cap_krw": float(effective_hard_cap or 0.0),
                     "total_guarded_window_cap_krw": float(total_guarded_window_cap_krw or 0.0),
                     "order_amount_krw": float(order_amount_krw or 0.0),
-                    "preflight_passed": bool(can_order),
+                    "preflight_passed": bool(runtime_can_start),
+                    "buy_enabled": bool(buy_enabled),
+                    "buy_blocked": bool(buy_blocker),
+                    "buy_blocker": buy_blocker,
+                    "runtime_monitor_only_mode": bool(monitor_only),
+                    "sell_observe_enabled": bool(runtime_can_start),
+                    "runtime_fatal_blocker": runtime_fatal_blocker,
                     "blocker": blocker or "",
                 }
             except Exception:
@@ -57712,9 +57823,11 @@ class MainWindow(QMainWindow):
             if allow_downscale:
                 msg_lines.append("→ 옵션 ON · 자동 축소 허용")
             msg_lines.append("→ 실행 가능" if can_order else f"→ 매수 불가(이유: {blocker or '잔고/한도 부족'})")
+            if monitor_only:
+                msg_lines.append("\uac00\uc6a9 KRW \ub610\ub294 \uc6b4\uc6a9\ud55c\ub3c4 \ub54c\ubb38\uc5d0 \uc2e0\uaddc\ub9e4\uc218\ub294 \ucc28\ub2e8\ub429\ub2c8\ub2e4. \ubcf4\uc720\uc885\ubaa9 \uac10\uc2dc\uc640 \uc218\uc775\uc2e4\ud604/\uc190\uc808 \uad00\uce21\uc740 \uacc4\uc18d \uc2e4\ud589\ub429\ub2c8\ub2e4.")
             msg = "\n".join(msg_lines)
 
-            return (can_order, msg)            
+            return (runtime_can_start, msg)
         except Exception as e:
             self._log.error(f"[PREFLIGHT] check error: {e}")
             return (True, f"[사전 점검] 오류 발생: {e} (계속 진행)")

@@ -333,3 +333,12 @@ These events are not submit permission and must not call order retry paths.
 - Stop-loss thresholds are watch at `-5%`, candidate at `-10%`, and emergency candidate at `-20%`.
 - Emergency stop-loss is preview-only in this stage: logs and Korean LIVE LOG/status messages are allowed, but actual sell submit is not allowed.
 - Missing external PnL source is reported as `pnl_source_missing_for_external_holding`.
+
+## ON Preflight Buy-Blocked Monitor-Only
+
+- `insufficient_available_krw` and total-cap/effective-cap buy blockers are not runtime fatal blockers.
+- If provider/account readiness is usable and only buy blockers exist, ON may start in monitor-only mode.
+- Monitor-only mode keeps `runtime_contract_active` available for monitoring while setting `buy_enabled=False`, `buy_blocked=True`, and `sell_observe_enabled=True`.
+- Buy Ready candidates must stop at `order_blocked` with the buy blocker and must not continue to Router/RiskGuard/LivePreflight for buy execution.
+- Sell/take-profit/stop-loss observation and external holding adoption continue while buy is blocked.
+- LIVE LOG/status bar should say 신규매수 차단 and 보유종목 감시 중 in Korean.

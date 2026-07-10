@@ -498,3 +498,15 @@ Blockers:
   - `external_holding_adoption_stoploss_observe_ready`
 - E2E reports external adoption and emergency preview fields including `external_holding_symbols_detected`, `external_holding_symbols_adopted`, `external_holding_symbols_dust_excluded`, `external_holding_sell_evaluated`, `stop_loss_candidate_symbols`, `emergency_stop_loss_candidate_symbols`, and `emergency_stop_loss_preview_only`.
 - Actual sell submit remains outside this diagnostic stage and is a critical failure here.
+
+## Buy-Blocked Monitor-Only Taxonomy
+
+- `insufficient_available_krw` is a buy blocker, not an ON fatal blocker, when account readiness itself is available.
+- E2E reports monitor-only fields from `[AITS][OnPreflightTaxonomy]`: `on_preflight_buy_blocker_nonfatal`, `runtime_monitor_only_mode`, `buy_enabled`, `buy_blocked`, `buy_blocker`, and `sell_observe_enabled_while_buy_blocked`.
+- Blockers:
+  - `insufficient_available_krw_blocks_runtime_on`
+  - `buy_blocked_monitor_only_ready`
+  - `sell_observe_disabled_by_buy_blocker`
+  - `buy_submit_while_buy_blocked`
+  - `monitor_only_buy_blocked_runtime_ready`
+- In buy-blocked mode, E2E must report zero actual buy submit and zero actual sell submit unless a later explicit execution Goal authorizes otherwise.

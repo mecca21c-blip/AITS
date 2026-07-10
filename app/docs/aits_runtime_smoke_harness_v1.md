@@ -1856,3 +1856,12 @@ summary modes.
 - Stop-loss thresholds are watch at `-5%`, candidate at `-10%`, and emergency candidate at `-20%`.
 - This stage is preview-only. Emergency stop-loss can produce logs, LIVE LOG, and status-bar warnings, but it must not submit a sell order.
 - Harness fields include `external_holding_detection_supported`, `external_holding_symbols_detected`, `external_holding_symbols_adopted`, `external_holding_symbols_dust_excluded`, `external_holding_pnl_source_missing_symbols`, `stop_loss_candidate_symbols`, `emergency_stop_loss_candidate_symbols`, `emergency_stop_loss_preview_only`, `external_holding_sell_submit_count`, and `actual_sell_order_count`.
+
+## ON Preflight Buy-Blocked Monitor-Only
+
+- ON preflight separates runtime fatal blockers from buy blockers.
+- Runtime fatal blockers still prevent ON. Examples include provider/account connection failure, invalid keys, and system preflight exceptions.
+- Buy blockers do not prevent ON. Examples include `insufficient_available_krw`, total operating cap exceeded, effective cap below minimum order, add-position cooldown, and weight/window caps.
+- When only a buy blocker is present, AITS starts as monitor-only: `runtime_monitor_only_mode=True`, `buy_enabled=False`, `buy_blocked=True`, and sell observe remains enabled.
+- Buy-blocked monitor-only mode must not submit buy or sell orders. It may continue holdings monitoring, PnL updates, take-profit previews, stop-loss previews, and external holding adoption.
+- Harness fields include `on_preflight_buy_blocker_nonfatal`, `on_preflight_runtime_fatal_blocker`, `on_allowed_with_insufficient_available_krw`, `runtime_monitor_only_mode`, `buy_enabled`, `buy_blocked`, `buy_blocker`, `sell_observe_enabled_while_buy_blocked`, `status_bar_buy_blocked_monitoring_message`, `live_log_buy_blocked_monitoring_message`, and submit counters after buy-block.

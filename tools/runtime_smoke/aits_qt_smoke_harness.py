@@ -9111,6 +9111,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
     external_holding_lines = [line for line in lines if "[AITS][ExternalHoldingAdoption]" in line]
+    on_preflight_taxonomy_lines = [line for line in lines if "[AITS][OnPreflightTaxonomy]" in line]
     account_pnl_lines = [line for line in lines if "[AITS][AccountPnL]" in line]
     investment_format_lines = [line for line in lines if "[AITS][InvestmentPositionFormat]" in line]
     external_sync_lines = [line for line in lines if "[AITS][ExternalExchangeSync]" in line]
@@ -9279,6 +9280,32 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in sell_evaluation_lines
         if "blocker=pnl_source_missing_for_external_holding" in line and _live_on_stage_extract_value(line, "symbol")
     })
+    latest_on_preflight_taxonomy = on_preflight_taxonomy_lines[-1] if on_preflight_taxonomy_lines else ""
+    on_preflight_buy_blocker_nonfatal = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "on_preflight_buy_blocker_nonfatal")
+    on_preflight_runtime_fatal_blocker = _live_on_stage_extract_value(latest_on_preflight_taxonomy, "runtime_fatal_blocker")
+    if on_preflight_runtime_fatal_blocker == "-":
+        on_preflight_runtime_fatal_blocker = ""
+    runtime_monitor_only_mode = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "runtime_monitor_only_mode")
+    buy_enabled = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "buy_enabled")
+    buy_blocked = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "buy_blocked")
+    buy_blocker = _live_on_stage_extract_value(latest_on_preflight_taxonomy, "buy_blocker")
+    if buy_blocker == "-":
+        buy_blocker = ""
+    on_allowed_with_insufficient_available_krw = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "on_allowed_with_insufficient_available_krw")
+    sell_observe_enabled_while_buy_blocked = _live_on_runtime_bool_marker(latest_on_preflight_taxonomy, "sell_observe_enabled_while_buy_blocked")
+    joined_text = "\n".join(lines)
+    status_bar_buy_blocked_monitoring_message = bool("신규매수 차단" in joined_text or "buy_blocked_monitor_only" in joined_lower or "buy_blocked=True" in joined_text)
+    live_log_buy_blocked_monitoring_message = bool("보유종목 감시" in joined_text or "buy_blocked_monitor_only" in joined_lower)
+    actual_buy_submit_count_after_buy_blocked = sum(
+        1
+        for line in submit_lines
+        if buy_blocked and "side=buy" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order")
+    )
+    actual_sell_submit_count_after_buy_blocked = sum(
+        1
+        for line in submit_lines
+        if buy_blocked and "side=sell" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order")
+    )
     bera_policy_lines = [line for line in add_position_policy_lines if "symbol=KRW-BERA" in line]
     bera_repeated_buy_policy_verdict = ""
     if bera_policy_lines:
@@ -9470,6 +9497,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "total_asset_source_zero_for_live_buy"
     elif total_operating_cap_detected and "total_operating_cap_source_missing" in latest_total_operating_cap:
         first_blocker = "total_operating_cap_source_missing"
+    if buy_blocked and actual_buy_submit_count_after_buy_blocked > 0:
+        first_blocker = "buy_submit_while_buy_blocked"
+    elif on_preflight_runtime_fatal_blocker:
+        first_blocker = str(on_preflight_runtime_fatal_blocker)
+    elif buy_blocked and runtime_monitor_only_mode and sell_evaluation_called:
+        first_blocker = "monitor_only_buy_blocked_runtime_ready"
+    elif buy_blocked and runtime_monitor_only_mode and not sell_evaluation_called:
+        first_blocker = "sell_observe_disabled_by_buy_blocker"
+    elif on_preflight_buy_blocker_nonfatal:
+        first_blocker = "buy_blocked_monitor_only_ready"
     if actual_sell_order_count > 0 or external_holding_sell_submit_count > 0:
         first_blocker = "unexpected_external_holding_sell_submit"
     elif sell_evaluation_called and take_profit_candidate_symbols:
@@ -9823,6 +9860,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_buy_blocked_by_total_cap": bool(live_buy_blocked_by_total_cap),
         "total_asset_zero_buy_block_detected": bool(total_asset_zero_buy_block_detected),
         "exposure_cap_source_mismatch_resolved": bool(exposure_cap_source_mismatch_resolved),
+        "on_preflight_buy_blocker_nonfatal": bool(on_preflight_buy_blocker_nonfatal),
+        "on_preflight_runtime_fatal_blocker": str(on_preflight_runtime_fatal_blocker or ""),
+        "on_allowed_with_insufficient_available_krw": bool(on_allowed_with_insufficient_available_krw),
+        "runtime_monitor_only_mode": bool(runtime_monitor_only_mode),
+        "buy_enabled": bool(buy_enabled),
+        "buy_blocked": bool(buy_blocked),
+        "buy_blocker": str(buy_blocker or ""),
+        "sell_observe_enabled_while_buy_blocked": bool(sell_observe_enabled_while_buy_blocked),
+        "take_profit_eval_runs_while_buy_blocked": bool(buy_blocked and sell_evaluation_called),
+        "stoploss_eval_runs_while_buy_blocked": bool(buy_blocked and sell_evaluation_called),
+        "external_holding_eval_runs_while_buy_blocked": bool(buy_blocked and external_holding_sell_lines),
+        "status_bar_buy_blocked_monitoring_message": bool(status_bar_buy_blocked_monitoring_message),
+        "live_log_buy_blocked_monitoring_message": bool(live_log_buy_blocked_monitoring_message),
+        "actual_buy_submit_count_after_buy_blocked": int(actual_buy_submit_count_after_buy_blocked),
+        "actual_sell_submit_count_after_buy_blocked": int(actual_sell_submit_count_after_buy_blocked),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_evaluated_symbols": sell_evaluated_symbols,
         "take_profit_candidate_symbols": take_profit_candidate_symbols,
