@@ -1892,8 +1892,8 @@ summary modes.
 ## Guarded Sell Apply V1
 
 - SellEvaluation can promote take-profit or stop-loss candidates to guarded sell apply candidates during an active ON runtime.
-- Thresholds: take-profit at 4%, strong take-profit at 5%, stop-loss at -10%, emergency stop-loss at -20%.
-- V1 sell ratios: 50% for take-profit/strong take-profit/stop-loss, 100% for emergency stop-loss.
+- Thresholds such as take-profit at 4%, strong take-profit at 5%, stop-loss at -10%, and emergency stop-loss at -20% are AI decision triggers, not direct BASIC sell authority.
+- Sell ratios are applied only when the AI decision output explicitly chooses sell, reduce, take_profit, or stop_loss.
 - Every sell apply must pass RiskGuard and LivePreflight before reaching ExecutionBridge, OrderAdapter, and OrderService.
 - Harness fields include `sell_apply_supported`, `sell_apply_candidate_symbols`, `sell_intent_created_count`, `sell_guard_passed_count`, `sell_preflight_passed_count`, `sell_submit_requested_count`, `side_sell_submit_count`, `actual_sell_order_count`, `sell_trigger`, `sell_ratio`, `sell_volume`, and `estimated_sell_value_krw`.
 - Dry-read and non-active runtime summaries may detect candidates but must block apply with `runtime_not_active_for_sell_apply`.
@@ -1905,3 +1905,9 @@ summary modes.
 - User-facing action authority belongs to GPT, Gemini, or LOCAL AI through `aits_position_management_decision_v1`.
 - Harness fields include `ai_decision_payload_created`, `ai_decision_payload_symbols`, `ai_decision_required_count`, `ai_provider_call_requested_count`, `ai_provider_call_blocked_count`, `ai_provider_response_received_count`, `ai_decision_action`, `ai_decision_confidence`, `ai_decision_reason_detected`, `ai_decision_eta_detected`, `fixed_threshold_direct_sell_disabled`, `ai_decision_based_sell_intent_count`, `ai_decision_based_buy_intent_count`, `ai_decision_based_rotate_count`, `local_training_record_created`, and `ai_decision_blocker`.
 - If AI decision is required but unavailable, BASIC must not invent a buy/sell action; it reports `ai_decision_required_but_provider_blocked`.
+
+## AI Decision Trigger Role Audit
+
+- `dry-read` reports document and static role-contract audit fields for the AI decision authority contract.
+- Harness fields include `engine_role_contract_doc_exists`, `ai_decision_trigger_policy_doc_exists`, `fixed_threshold_direct_action_detected`, `basic_direct_sell_decision_detected`, `basic_direct_buy_decision_detected`, `ai_decision_payload_path_detected`, `ai_provider_runtime_call_path_detected`, `ai_decision_required_but_not_called_path_detected`, `local_training_record_path_detected`, `decision_record_store_detected`, `role_contract_violation_count`, and `role_contract_violation_samples`.
+- The audit is diagnostic only. It does not change order execution, trading decisions, RiskGuard, LivePreflight, or submit paths.

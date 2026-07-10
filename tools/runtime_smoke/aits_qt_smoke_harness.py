@@ -20415,6 +20415,140 @@ def _run_live_2h_guarded_window_runtime(
     _write_json_report(report, live_report_path)
 
 
+def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
+    docs_dir = ROOT / "app" / "docs"
+    role_doc = docs_dir / "aits_engine_role_contract_v1.md"
+    trigger_doc = docs_dir / "aits_ai_decision_trigger_policy_v1.md"
+    app_gui = ROOT / "app" / "ui" / "app_gui.py"
+    provider = ROOT / "app" / "services" / "ai_engine_provider.py"
+    router = ROOT / "app" / "services" / "decision_router.py"
+    promotion = ROOT / "app" / "services" / "managed_pool_promotion_policy.py"
+
+    def _read(path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return ""
+
+    app_text = _read(app_gui)
+    provider_text = _read(provider)
+    router_text = _read(router)
+    promotion_text = _read(promotion)
+
+    sell_threshold_trigger_path = bool(
+        "pnl_pct >= 4.0" in app_text
+        and "event=ai_decision_required" in app_text
+        and "fixed_threshold_direct_sell_disabled=True" in app_text
+    )
+    fixed_threshold_direct_action_detected = bool(
+        ("pnl_pct >= 4.0" in app_text or "pnl_pct <= -10.0" in app_text)
+        and "event=ai_decision_required" not in app_text
+    )
+    basic_direct_sell_decision_detected = bool(
+        "_apply_guarded_sell_candidate(" in app_text
+        and "reason=\"ai_position_decision\"" not in app_text
+        and "ai_decision_based" not in app_text
+    )
+    basic_direct_buy_decision_detected = bool(
+        "[AITS][OrderIntentCandidate]" in app_text
+        and "side=buy" in app_text
+        and "reason=buy_ready_candidate" in app_text
+        and "ai_decision_based_buy" not in app_text
+    )
+    ai_decision_payload_path_detected = bool(
+        "_build_ai_position_decision_payload" in app_text
+        and "generate_position_management_decision" in provider_text
+    )
+    ai_provider_runtime_call_path_detected = bool(
+        "_request_ai_position_decision" in app_text
+        and "AIEngineProvider" in app_text
+        and "generate_position_management_decision" in provider_text
+    )
+    ai_decision_required_but_not_called_path_detected = bool(
+        basic_direct_buy_decision_detected
+        or ("planned_rotation" in promotion_text and "ai_decision" not in promotion_text.lower())
+    )
+    local_training_record_path_detected = bool(
+        "_record_ai_position_decision_training" in app_text
+        and "ai_decision_training" in app_text
+        and "position_decisions.jsonl" in app_text
+    )
+    decision_record_store_detected = bool(
+        local_training_record_path_detected
+        or "shadow_history" in router_text
+        or "ai_shadow_history" in router_text
+    )
+
+    samples: list[str] = []
+    if sell_threshold_trigger_path:
+        samples.append(
+            "app/ui/app_gui.py: sell take-profit/stop-loss thresholds are present but route through AIDecisionAuthority trigger logs."
+        )
+    if basic_direct_buy_decision_detected:
+        samples.append(
+            "app/ui/app_gui.py: Buy Ready can create OrderIntentCandidate with reason=buy_ready_candidate before an AI decision payload."
+        )
+    if "planned_rotation" in promotion_text and "observe_only" in promotion_text:
+        samples.append(
+            "app/services/managed_pool_promotion_policy.py: rotation is normalized-score observe-only; AI is not yet the rotation final judge."
+        )
+    if ai_provider_runtime_call_path_detected:
+        samples.append(
+            "app/ui/app_gui.py + app/services/ai_engine_provider.py: position-management AI payload/provider path exists for sell/reduce decisions."
+        )
+    if local_training_record_path_detected:
+        samples.append(
+            "app/ui/app_gui.py: position AI decision records are written to data/ai_decision_training/position_decisions.jsonl."
+        )
+
+    violations: list[str] = []
+    if fixed_threshold_direct_action_detected:
+        violations.append("fixed_threshold_direct_sell_active")
+    if basic_direct_sell_decision_detected:
+        violations.append("basic_engine_direct_sell_decision_active")
+    if basic_direct_buy_decision_detected:
+        violations.append("basic_engine_direct_buy_decision_active")
+    if ai_decision_required_but_not_called_path_detected:
+        violations.append("ai_decision_required_but_not_called_path_detected")
+    if not decision_record_store_detected:
+        violations.append("ai_decision_record_store_missing")
+    if not local_training_record_path_detected:
+        violations.append("local_training_data_pipeline_missing")
+
+    if fixed_threshold_direct_action_detected:
+        first_blocker = "fixed_threshold_direct_sell_active"
+    elif basic_direct_sell_decision_detected or basic_direct_buy_decision_detected:
+        first_blocker = "basic_engine_direct_trade_decision_active"
+    elif not ai_decision_payload_path_detected:
+        first_blocker = "ai_decision_payload_missing_for_trade_action"
+    elif not ai_provider_runtime_call_path_detected:
+        first_blocker = "ai_provider_not_connected_to_runtime_cycle"
+    elif not decision_record_store_detected:
+        first_blocker = "ai_decision_record_store_missing"
+    elif not local_training_record_path_detected:
+        first_blocker = "local_training_data_pipeline_missing"
+    else:
+        first_blocker = "role_contract_documented_ready" if not violations else violations[0]
+
+    return {
+        "engine_role_contract_doc_exists": role_doc.exists(),
+        "ai_decision_trigger_policy_doc_exists": trigger_doc.exists(),
+        "fixed_threshold_direct_action_detected": bool(fixed_threshold_direct_action_detected),
+        "fixed_threshold_sell_trigger_path_detected": bool(sell_threshold_trigger_path),
+        "basic_direct_sell_decision_detected": bool(basic_direct_sell_decision_detected),
+        "basic_direct_buy_decision_detected": bool(basic_direct_buy_decision_detected),
+        "ai_decision_payload_path_detected": bool(ai_decision_payload_path_detected),
+        "ai_provider_runtime_call_path_detected": bool(ai_provider_runtime_call_path_detected),
+        "ai_decision_required_but_not_called_path_detected": bool(ai_decision_required_but_not_called_path_detected),
+        "local_training_record_path_detected": bool(local_training_record_path_detected),
+        "decision_record_store_detected": bool(decision_record_store_detected),
+        "role_contract_violation_count": len(violations),
+        "role_contract_violations": violations,
+        "role_contract_violation_samples": samples[:8],
+        "ai_decision_trigger_audit_first_blocker": first_blocker,
+    }
+
+
 
 def _run_provider_connection_log_forensic_summary(report: dict[str, Any], *, provider: str = "gpt") -> None:
     patterns = (
@@ -21160,7 +21294,7 @@ def run_harness(
         _navigate(window, widgets, report)
         _pump_events(app, 0.5)
     elif mode == "dry-read":
-        pass
+        report.update(_build_ai_decision_role_contract_audit_report())
     elif mode == "engine-connection-status-path-diagnostic":
         _install_provider_post_guard(report)
         _run_engine_connection_status_path_diagnostic(
@@ -21427,6 +21561,8 @@ def run_harness(
             if key in report:
                 preserve_mode_fields[key] = report.get(key)
     report.update(_collect(window, widgets))
+    if mode == "dry-read":
+        report.update(_build_ai_decision_role_contract_audit_report())
     if preserve_mode_fields:
         report.update(preserve_mode_fields)
     report["missing_widgets"] = missing
