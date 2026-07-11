@@ -203,3 +203,14 @@ BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. 
 - AI must return a validated `buy` or `add` action before an executable buy OrderIntent can exist.
 - If AI returns `hold` or `wait`, or the provider is blocked, BASIC records the blocker and waits.
 - If AI schema validation fails, BASIC does not create an executable buy OrderIntent.
+
+## Managed Pool Promotion AI Gate
+
+- Managed Pool promotion is a decision event, not a simple scanner side effect.
+- BASIC scanner candidates, scanner score, Basic score, normalized rotation score, trade value, and market rank are trigger evidence.
+- Trigger evidence must be converted into `task=managed_pool_promotion_decision` before an automatic managed row can be added.
+- AI may decide `promote`, `reject`, `wait`, `replace`, `rotate_review`, or `hold`.
+- `promote` requires max-count room or a valid replace target. `replace` requires a removable, non-holding, non-protected row.
+- `user_added`, `live_holding`, and `external_holding` are exception policies. They do not represent BASIC scanner promotion.
+- If the provider is blocked, the response is invalid, or AI chooses wait/reject/hold, BASIC must not add the scanner candidate to the Managed Pool.
+- Promotion decisions must be recorded for LOCAL training with payload hash, provider, AI action, confidence, reason, validator result, promotion result, blocker, and outcome placeholders.

@@ -129,3 +129,12 @@ BASIC Signal Collector
 - Buy/add OrderIntent requires validated AI metadata including provider, action, confidence, reason, ETA, payload hash, and validation result.
 - RiskGuard and LivePreflight run after validated AI action; they are safety gates, not substitutes for AI judgment.
 - If AI response is missing, provider is blocked, or schema validation fails, BASIC records the blocker and does not create an executable OrderIntent.
+
+## Managed Pool Promotion Boundary
+
+- Managed Pool promotion changes the AITS operating universe, so automatic promotion is an AI decision action.
+- BASIC scanner candidates, scores, and quality gates may create a promotion trigger and payload, but they must not directly create an automatic managed row.
+- `basic_added` scanner rows require validated AI promotion approval and promotion metadata. Approved automatic rows should be represented as `basic_added_ai_approved` or another explicit AI-promoted source.
+- AI promotion actions include `promote`, `reject`, `wait`, `replace`, `rotate_review`, and `hold`.
+- `user_added`, `live_holding`, and `external_holding` are exceptions because they are user-directed or account-truth holdings. Dust exclusion remains a safety filter.
+- Promotion decisions and blockers are recorded for LOCAL training, including payload hash, provider, AI action, confidence, reason, validator result, promotion result, and outcome placeholders.

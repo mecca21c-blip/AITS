@@ -181,3 +181,12 @@ BASIC은 계산한다. BASIC은 정리한다. BASIC은 AI에게 묻는다. AI가
 - BASIC must build a buy decision payload and ask AI before any buy/add OrderIntent becomes executable.
 - BASIC must attach validated AI metadata to executable OrderIntent candidates.
 - Without validated AI decision metadata, BASIC must block the intent and record the blocker.
+
+## BASIC Managed Pool Promotion Gate Duty
+
+- BASIC may detect a scanner candidate that deserves promotion review, but scanner score is not promotion authority.
+- BASIC must build `task=managed_pool_promotion_decision` payload before an automatic candidate can become a managed row.
+- BASIC must not convert `basic_added` scanner candidates into Managed Pool rows without validated AI promotion approval.
+- AI-approved automatic promotion rows must carry promotion metadata such as provider, action, confidence, reason, ETA, payload hash, and validation result.
+- `user_added`, `live_holding`, and `external_holding` remain exception policies because they represent user intent or actual account holdings.
+- BASIC must record promotion decisions and blockers for LOCAL training.

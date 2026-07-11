@@ -34,6 +34,10 @@ AI_DECISION_ALLOWED_ACTIONS = {
     "sell",
     "reduce",
     "rotate",
+    "promote",
+    "reject",
+    "replace",
+    "rotate_review",
     "take_profit",
     "stop_loss",
 }
@@ -188,6 +192,13 @@ def validate_ai_decision_response(
     sell_ratio = _decision_float(source.get("sell_ratio", execution_plan.get("sell_ratio", 0.0)), 0.0)
     buy_amount_krw = _decision_float(source.get("buy_amount_krw", execution_plan.get("buy_amount_krw", 0.0)), 0.0)
     rotate_to_symbol = str(source.get("rotate_to_symbol") or execution_plan.get("rotate_to_symbol") or "").strip().upper()
+    replace_symbol = str(
+        source.get("replace_symbol")
+        or execution_plan.get("replace_symbol")
+        or source.get("replace_target_symbol")
+        or execution_plan.get("replace_target_symbol")
+        or ""
+    ).strip().upper()
 
     if action in {"buy", "add"} and buy_amount_krw <= 0.0:
         blockers.append("ai_decision_buy_amount_missing")
@@ -203,6 +214,8 @@ def validate_ai_decision_response(
             allowed_rotation_symbols = _decision_allowed_rotation_symbols(candidates)
             if allowed_rotation_symbols and rotate_to_symbol not in allowed_rotation_symbols:
                 blockers.append("ai_decision_rotate_target_invalid")
+    if action == "replace" and not replace_symbol:
+        blockers.append("promotion_replace_target_missing")
 
     sell_ratio = max(0.0, min(1.0, sell_ratio))
     buy_amount_krw = max(0.0, buy_amount_krw)
@@ -225,6 +238,7 @@ def validate_ai_decision_response(
             "sell_ratio": sell_ratio,
             "buy_amount_krw": buy_amount_krw,
             "rotate_to_symbol": rotate_to_symbol,
+            "replace_symbol": replace_symbol,
             "validation_passed": bool(valid),
             "validator_result": "passed" if valid else "failed",
             "validation_blocker": blocker,
@@ -706,6 +720,18 @@ class AIEngineProvider:
 
     def _build_position_management_decision_prompt(self, context: Optional[Dict[str, Any]]) -> str:
         safe_context = dict(context or {})
+        if str(safe_context.get("task") or "").strip() == "managed_pool_promotion_decision":
+            return (
+                "You are the AITS final AI decision authority for managed-pool promotion.\n"
+                "BASIC has collected candidate and portfolio data only. Decide whether the candidate should enter the Managed Pool.\n"
+                "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
+                "execution_plan, replace_symbol, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
+                "Allowed action values: promote, reject, wait, replace, rotate_review, hold.\n"
+                "Do not decide from scanner score alone. Use market context, current pool, holdings protection, cap, and alternatives together.\n"
+                "If data is insufficient, choose wait or hold with eta_seconds and reason_ko.\n"
+                "Context JSON:\n"
+                + json.dumps(safe_context, ensure_ascii=False, default=str)
+            )
         return (
             "You are the AITS final AI decision authority for live position management.\n"
             "BASIC has collected data only. Decide action; do not claim execution.\n"
@@ -856,6 +882,60 @@ class AIEngineProvider:
     def _build_local_position_management_decision(self, context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         context = dict(context or {})
         symbol = str(context.get("symbol") or "").strip().upper()
+        task = str(context.get("task") or "").strip()
+        if task == "managed_pool_promotion_decision":
+            candidate = context.get("candidate") if isinstance(context.get("candidate"), dict) else {}
+            constraints = context.get("constraints") if isinstance(context.get("constraints"), dict) else {}
+            comparison = context.get("comparison") if isinstance(context.get("comparison"), dict) else {}
+            symbol = str(candidate.get("symbol") or symbol or "").strip().upper()
+            score = _clamp_float(
+                candidate.get("scanner_score") or candidate.get("basic_score"),
+                lo=0.0,
+                hi=100.0,
+                default=0.0,
+            )
+            trade_value = _clamp_float(candidate.get("trade_value"), lo=0.0, hi=10**15, default=0.0)
+            current_count = int(_clamp_float((context.get("current_managed_pool") or {}).get("count"), 0.0))
+            max_count = int(_clamp_float((context.get("current_managed_pool") or {}).get("max_count"), 0.0))
+            has_free_slot = max_count <= 0 or current_count < max_count
+            replace_symbol = str(comparison.get("weakest_non_holding_symbol") or "").strip().upper()
+            action = "wait"
+            confidence = 0.48
+            execution_plan: Dict[str, Any] = {}
+            reason = f"{symbol or '候補'} 관리종목 편입은 추가 시장 확인을 기다립니다."
+            if score >= 70.0 and (trade_value > 0.0 or candidate.get("market_reason")):
+                if has_free_slot:
+                    action = "promote"
+                    confidence = 0.66
+                    reason = f"{symbol} 후보는 점수와 시장 근거가 충분해 관리종목 편입을 승인합니다."
+                elif replace_symbol:
+                    action = "replace"
+                    confidence = 0.61
+                    execution_plan["replace_symbol"] = replace_symbol
+                    reason = f"{symbol} 후보는 기존 비보유 관리종목보다 우위라 교체 검토를 승인합니다."
+                else:
+                    reason = f"{symbol} 후보는 매력적이지만 최대 관리종목수 여유가 없어 대기합니다."
+            elif score < 60.0:
+                action = "reject"
+                confidence = 0.58
+                reason = f"{symbol} 후보는 현재 점수와 시장 근거가 부족해 편입하지 않습니다."
+            return {
+                "schema": "aits_position_management_decision_v1",
+                "action": action,
+                "confidence": confidence,
+                "reason_ko": reason,
+                "eta_seconds": 300,
+                "sell_ratio": 0.0,
+                "buy_amount_krw": 0.0,
+                "rotate_to_symbol": "",
+                "replace_symbol": execution_plan.get("replace_symbol", ""),
+                "execution_plan": execution_plan,
+                "risk_notes": "LOCAL AI promotion decision; Basic candidate score is trigger data only.",
+                "invalidation_conditions": [],
+                "blocker": "",
+                "actual_order": False,
+                "submitted": 0,
+            }
         trigger = str((context.get("requested_decision") or {}).get("trigger") or context.get("trigger") or "").strip()
         position = context.get("position") if isinstance(context.get("position"), dict) else {}
         market = context.get("market") if isinstance(context.get("market"), dict) else {}

@@ -20523,6 +20523,42 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "event=buy_order_intent_allowed" in app_text
         and "order_intent_missing_ai_decision" in app_text
     )
+    managed_pool_promotion_ai_gate_enabled = bool(
+        "_build_ai_promotion_decision_payload" in app_text
+        and "_request_ai_promotion_decision" in app_text
+        and "event=promotion_trigger_detected" in app_text
+        and "event=promotion_payload_created" in app_text
+        and "event=promotion_allowed" in app_text
+        and "basic_added_ai_approved" in app_text
+    )
+    promotion_trigger_detected = bool("event=promotion_trigger_detected" in app_text)
+    promotion_payload_created = bool("event=promotion_payload_created" in app_text)
+    promotion_provider_requested = bool("event=promotion_provider_requested" in app_text)
+    promotion_provider_blocked = bool("event=promotion_provider_blocked" in app_text)
+    promotion_response_received = bool("event=promotion_response_received" in app_text)
+    promotion_validated = bool("event=promotion_validated" in app_text)
+    promotion_ai_metadata_required = bool("_ai_promotion_metadata" in app_text and "ai_validation_passed" in app_text)
+    basic_added_requires_ai_approval = bool(managed_pool_promotion_ai_gate_enabled and "basic_added_ai_approved" in app_text)
+    basic_added_without_ai_approval_detected = bool(
+        "_build_basic_added_managed_pool_row(item)" in app_text
+        and not managed_pool_promotion_ai_gate_enabled
+    )
+    managed_pool_promotion_without_ai_decision_detected = bool(
+        basic_added_without_ai_approval_detected
+        or ("planned_add" in app_text and "_build_basic_added_managed_pool_row(item)" in app_text and not managed_pool_promotion_ai_gate_enabled)
+    )
+    promotion_training_record_detected = bool(
+        "promotion_decisions.jsonl" in app_text
+        and "managed_pool_promotion_decision" in app_text
+        and "promotion_result" in app_text
+    )
+    promotion_blocker = "managed_pool_promotion_ai_gate_ready"
+    if managed_pool_promotion_without_ai_decision_detected:
+        promotion_blocker = "managed_pool_promotion_without_ai_decision"
+    elif not promotion_payload_created:
+        promotion_blocker = "promotion_decision_payload_missing"
+    elif not promotion_training_record_detected:
+        promotion_blocker = "promotion_training_record_missing"
     basic_direct_buy_decision_detected = bool(
         "[AITS][OrderIntentCandidate]" in app_text
         and "side=buy" in app_text
@@ -20850,6 +20886,8 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         violations.append("order_intent_without_ai_decision_detected")
     if trigger_used_as_action_detected:
         violations.append("trigger_used_as_action_detected")
+    if managed_pool_promotion_without_ai_decision_detected:
+        violations.append("managed_pool_promotion_without_ai_decision")
     if ai_decision_required_but_not_called_path_detected:
         violations.append("ai_decision_required_but_not_called_path_detected")
     if not ai_decision_payload_builder_detected:
@@ -20889,6 +20927,8 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         first_blocker = "trigger_used_as_action_detected"
     elif fixed_threshold_direct_action_detected:
         first_blocker = "fixed_threshold_direct_sell_active"
+    elif managed_pool_promotion_without_ai_decision_detected:
+        first_blocker = "managed_pool_promotion_without_ai_decision"
     elif not ai_decision_payload_builder_detected:
         first_blocker = "ai_decision_payload_builder_missing"
     elif not ai_response_validator_detected:
@@ -20962,6 +21002,22 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
             "risk_notes",
             "invalidation_conditions",
         ],
+        "managed_pool_promotion_ai_gate_enabled": bool(managed_pool_promotion_ai_gate_enabled),
+        "promotion_trigger_detected": bool(promotion_trigger_detected),
+        "promotion_payload_created": bool(promotion_payload_created),
+        "promotion_provider_requested": bool(promotion_provider_requested),
+        "promotion_provider_blocked": bool(promotion_provider_blocked),
+        "promotion_response_received": bool(promotion_response_received),
+        "promotion_validated": bool(promotion_validated),
+        "promotion_allowed_count": 0,
+        "promotion_blocked_count": 0,
+        "promotion_ai_metadata_required": bool(promotion_ai_metadata_required),
+        "basic_added_requires_ai_approval": bool(basic_added_requires_ai_approval),
+        "basic_added_without_ai_approval_detected": bool(basic_added_without_ai_approval_detected),
+        "managed_pool_promotion_without_ai_decision_detected": bool(managed_pool_promotion_without_ai_decision_detected),
+        "ai_promoted_symbols": [],
+        "promotion_blocker": promotion_blocker,
+        "promotion_training_record_detected": bool(promotion_training_record_detected),
         "buy_ready_ai_gate_enabled": bool(buy_ready_ai_gate_enabled),
         "buy_ready_trigger_detected": bool("event=buy_ready_trigger_detected" in app_text),
         "buy_decision_payload_created": bool("event=buy_decision_payload_created" in app_text),

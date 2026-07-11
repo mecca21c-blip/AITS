@@ -293,3 +293,22 @@ Recommended follow-up:
 Reason: rotation is currently safely preview-only, but any future apply stage
 must be guarded by an AI `rotate` decision before mutation or order routing is
 enabled.
+
+## 11. Managed Pool Promotion AI Gate Follow-Up
+
+The `AITS-MANAGED-POOL-PROMOTION-AI-GATE-FIX` patch converts automatic Basic
+scanner promotion from direct universe mutation into an AI-gated promotion
+decision.
+
+- Basic scanner candidates now become promotion triggers.
+- Promotion payloads use `task=managed_pool_promotion_decision`.
+- Valid promotion actions are `promote`, `reject`, `wait`, `replace`,
+  `rotate_review`, and `hold`.
+- AI-approved automatic rows carry promotion metadata and use
+  `source_type=basic_added_ai_approved`.
+- `user_added`, `live_holding`, and `external_holding` remain exception
+  policies.
+- Provider blocked, invalid schema, wait, hold, and reject outcomes block
+  Managed Pool insertion and record a blocker.
+- Promotion decision records are written for LOCAL training under
+  `promotion_decisions.jsonl`.

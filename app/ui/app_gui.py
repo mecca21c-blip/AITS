@@ -17635,12 +17635,14 @@ class MainWindow(QMainWindow):
 
         symbol = self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
         now = datetime.now().isoformat(timespec="seconds")
+        ai_meta = item.get("_ai_promotion_metadata") if isinstance(item.get("_ai_promotion_metadata"), dict) else {}
+        source_type = "basic_added_ai_approved" if ai_meta else "basic_added"
         row = {
             "symbol": symbol,
             "market": symbol,
             "name": symbol.split("-")[-1] if symbol else "",
             "source": "AI",
-            "source_type": "basic_added",
+            "source_type": source_type,
             "status": "candidate",
             "score": item.get("score"),
             "ai_score": item.get("score"),
@@ -17650,6 +17652,22 @@ class MainWindow(QMainWindow):
             "added_at": now,
             "updated_at": now,
         }
+        if ai_meta:
+            row.update(
+                {
+                    "ai_decision_id": ai_meta.get("ai_decision_id"),
+                    "ai_provider": ai_meta.get("ai_provider"),
+                    "ai_action": ai_meta.get("ai_action"),
+                    "ai_confidence": ai_meta.get("ai_confidence"),
+                    "ai_reason_ko": ai_meta.get("ai_reason_ko"),
+                    "ai_eta_seconds": ai_meta.get("ai_eta_seconds"),
+                    "ai_payload_hash": ai_meta.get("ai_payload_hash"),
+                    "ai_validation_passed": bool(ai_meta.get("ai_validation_passed")),
+                    "promoted_at": now,
+                    "promotion_trigger_reason": ai_meta.get("promotion_trigger_reason"),
+                    "invalidation_conditions": ai_meta.get("invalidation_conditions") or [],
+                }
+            )
         try:
             shaper = getattr(self, "_ensure_aits_managed_pool_row_shape", None)
             if callable(shaper):
@@ -17915,6 +17933,85 @@ class MainWindow(QMainWindow):
         def _finish_result() -> dict:
             return self._finalize_managed_pool_sync_result(result)
 
+        def _apply_promotion_ai_gate(planned_items: list[dict], plan_payload: dict, gate_reason: str) -> list[dict]:
+            allowed_items: list[dict] = []
+            result["promotion_ai_gate_enabled"] = True
+            result.setdefault("promotion_allowed_count", 0)
+            result.setdefault("promotion_blocked_count", 0)
+            result.setdefault("promotion_blockers", [])
+            for item in list(planned_items or []):
+                if not isinstance(item, dict):
+                    continue
+                symbol = self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+                if not symbol:
+                    continue
+                try:
+                    self._log.info(
+                        "[AITS][ManagedPoolPromotionGate] event=promotion_trigger_detected symbol=%s scanner_score=%s basic_score=%s normalized_rotation_score=%s trigger_reason=%s current_managed_count=%s max_count=%s candidate_rank=%s actual_order=False submitted=0",
+                        symbol,
+                        item.get("scanner_score") or item.get("score"),
+                        item.get("basic_score") or item.get("score"),
+                        item.get("normalized_rotation_score"),
+                        gate_reason,
+                        len(before_rows),
+                        int(max_size),
+                        item.get("rank"),
+                    )
+                    self._append_aits_live_log(f"?? {symbol}? ???? ?? ??? ???????. AI ??? ?????.", category="managed", level="info", event="promotion_trigger_detected", symbol=symbol)
+                except Exception:
+                    pass
+                payload = self._build_ai_promotion_decision_payload(candidate=item, before_rows=before_rows, max_size=max_size, plan=plan_payload, trigger_reason=gate_reason)
+                decision = self._request_ai_promotion_decision(payload=payload, candidate=item)
+                action = str((decision or {}).get("action") or "").strip().lower()
+                blocker = str((decision or {}).get("blocker") or (decision or {}).get("validation_blocker") or "")
+                validation_passed = bool((decision or {}).get("validation_passed"))
+                replace_symbol = self._normalize_managed_pool_symbol_for_persistence((decision or {}).get("replace_symbol") or ((decision or {}).get("execution_plan") or {}).get("replace_symbol"))
+                planned_remove_symbols_for_gate = {self._normalize_managed_pool_symbol_for_persistence(x.get("symbol") or x.get("market")) for x in (plan_payload or {}).get("planned_remove", []) if isinstance(x, dict)}
+                planned_remove_symbols_for_gate.discard("")
+                if not validation_passed:
+                    blocker = blocker or "promotion_ai_decision_invalid_schema"
+                elif action in {"wait", "hold"}:
+                    blocker = "promotion_blocked_by_ai_wait"
+                elif action == "reject":
+                    blocker = "promotion_rejected_by_ai"
+                elif action == "replace" and (not replace_symbol or replace_symbol not in planned_remove_symbols_for_gate):
+                    blocker = "promotion_replace_target_missing"
+                elif action not in {"promote", "replace", "rotate_review"}:
+                    blocker = "promotion_ai_action_not_allowed"
+                if blocker:
+                    result["promotion_blocked_count"] = int(result.get("promotion_blocked_count") or 0) + 1
+                    result.setdefault("promotion_blockers", []).append({"symbol": symbol, "blocker": blocker})
+                    try:
+                        self._log.info("[AITS][ManagedPoolPromotionGate] event=promotion_blocked symbol=%s ai_provider=%s ai_action=%s ai_confidence=%s blocker=%s reason=%s actual_order=False submitted=0", symbol, (decision or {}).get("provider") or "-", action or "-", (decision or {}).get("confidence"), blocker, bool(str((decision or {}).get("reason_ko") or "").strip()))
+                        self._append_aits_live_log(f"AI ???? {symbol} ???? ??? ??????.", category="managed", level="warning", event="promotion_blocked", symbol=symbol)
+                    except Exception:
+                        pass
+                    self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result={"promotion_result": "blocked", "blocker": blocker, "actual_order": False, "submitted_count": 0})
+                    continue
+                approved = dict(item)
+                approved["_ai_promotion_metadata"] = {
+                    "ai_decision_id": str((decision or {}).get("response_id") or (decision or {}).get("ai_payload_hash") or ""),
+                    "ai_provider": str((decision or {}).get("provider") or self._selected_ai_decision_provider()),
+                    "ai_action": action,
+                    "ai_confidence": (decision or {}).get("confidence"),
+                    "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
+                    "ai_eta_seconds": (decision or {}).get("eta_seconds"),
+                    "ai_payload_hash": str((decision or {}).get("ai_payload_hash") or ""),
+                    "ai_validation_passed": True,
+                    "invalidation_conditions": (decision or {}).get("invalidation_conditions") or [],
+                    "promotion_trigger_reason": gate_reason,
+                }
+                approved["source_type"] = "basic_added_ai_approved"
+                result["promotion_allowed_count"] = int(result.get("promotion_allowed_count") or 0) + 1
+                allowed_items.append(approved)
+                try:
+                    self._log.info("[AITS][ManagedPoolPromotionGate] event=promotion_allowed symbol=%s ai_provider=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s ai_payload_hash=%s blocker=- reason=%s actual_order=False submitted=0", symbol, approved["_ai_promotion_metadata"].get("ai_provider") or "-", action, approved["_ai_promotion_metadata"].get("ai_confidence"), approved["_ai_promotion_metadata"].get("ai_eta_seconds"), approved["_ai_promotion_metadata"].get("ai_payload_hash") or "-", bool(approved["_ai_promotion_metadata"].get("ai_reason_ko")))
+                    self._append_aits_live_log(f"AI ??: {symbol} ???? ??? ??????.", category="managed", level="info", event="promotion_allowed", symbol=symbol)
+                except Exception:
+                    pass
+                self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result={"promotion_result": "promoted", "blocker": "", "actual_order": False, "submitted_count": 0})
+            return allowed_items
+
         if not backup_path:
             result["error"] = "backup_failed"
             return _finish_result()
@@ -18034,6 +18131,11 @@ class MainWindow(QMainWindow):
             for row in before_rows
             if str(row.get("symbol") or "").strip() not in planned_remove_symbols
         ]
+        ai_approved_planned_add = _apply_promotion_ai_gate(planned_add, plan, "managed_pool_quality_rebuild")
+        result["ai_approved_planned_add"] = [self._managed_pool_sync_compact_item(item) for item in ai_approved_planned_add]
+        if planned_add and not ai_approved_planned_add:
+            result["message_key"] = "promotion_ai_gate_blocked"
+        planned_add = ai_approved_planned_add
         existing = {str(row.get("symbol") or "").strip() for row in after_rows}
         actual_added = []
         for item in planned_add:
@@ -18254,6 +18356,11 @@ class MainWindow(QMainWindow):
                 if answer != QMessageBox.Yes:
                     result["cancelled"] = True
                     return _finish_result()
+            ai_approved_planned_add = _apply_promotion_ai_gate(planned_add, plan, "managed_pool_add_branch")
+            result["ai_approved_planned_add"] = [self._managed_pool_sync_compact_item(item) for item in ai_approved_planned_add]
+            if planned_add and not ai_approved_planned_add:
+                result["message_key"] = "promotion_ai_gate_blocked"
+            planned_add = ai_approved_planned_add
             existing = {str(row.get("symbol") or "").strip() for row in after_rows}
             actual_added = []
             for item in planned_add:
@@ -40313,6 +40420,215 @@ class MainWindow(QMainWindow):
             },
         }
 
+    def _build_ai_promotion_decision_payload(
+        self,
+        *,
+        candidate: dict,
+        before_rows: list[dict],
+        max_size: int,
+        plan: dict,
+        trigger_reason: str = "managed_pool_promotion_candidate",
+    ) -> dict:
+        symbol = self._normalize_managed_pool_symbol_for_persistence((candidate or {}).get("symbol") or (candidate or {}).get("market"))
+        managed_symbols: list[str] = []
+        user_added: list[str] = []
+        live_holding: list[str] = []
+        external_holding: list[str] = []
+        basic_added: list[str] = []
+        holdings_symbols: list[str] = []
+        for row in list(before_rows or []):
+            if not isinstance(row, dict):
+                continue
+            row_symbol = self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            if not row_symbol:
+                continue
+            managed_symbols.append(row_symbol)
+            source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
+            if bool(row.get("holding")) or source_type in {"live_holding", "external_holding", "holding"}:
+                holdings_symbols.append(row_symbol)
+            if source_type == "user_added" or bool(row.get("user_added")):
+                user_added.append(row_symbol)
+            elif source_type == "live_holding":
+                live_holding.append(row_symbol)
+            elif source_type == "external_holding":
+                external_holding.append(row_symbol)
+            elif source_type in {"basic_added", "basic", "auto", "auto_added", "basic_added_ai_approved"}:
+                basic_added.append(row_symbol)
+        planned_remove = [item for item in (plan or {}).get("planned_remove", []) if isinstance(item, dict)]
+        weakest = planned_remove[0] if planned_remove else {}
+        total_asset = self._managed_pool_num_value(
+            getattr(self, "_investment_total_asset_krw", 0.0)
+            or getattr(self, "_aits_total_asset_krw", 0.0)
+            or getattr(self, "_last_total_asset_krw", 0.0),
+            0.0,
+        )
+        replace_candidates = [
+            self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+            for item in planned_remove
+            if self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+        ]
+        return {
+            "schema": "aits_ai_decision_payload_v1",
+            "task": "managed_pool_promotion_decision",
+            "trigger_reason": str(trigger_reason or "managed_pool_promotion_candidate"),
+            "symbol": symbol,
+            "candidate": {
+                "symbol": symbol,
+                "scanner_score": (candidate or {}).get("scanner_score") or (candidate or {}).get("score"),
+                "basic_score": (candidate or {}).get("basic_score") or (candidate or {}).get("score"),
+                "normalized_rotation_score": (candidate or {}).get("normalized_rotation_score"),
+                "rank": (candidate or {}).get("rank"),
+                "market_reason": (candidate or {}).get("reason") or (candidate or {}).get("promotion_reason"),
+                "trade_value": (candidate or {}).get("trade_value") or (candidate or {}).get("volume_krw"),
+                "change": (candidate or {}).get("change_rate") or (candidate or {}).get("change_pct"),
+            },
+            "current_managed_pool": {
+                "symbols": managed_symbols,
+                "count": len(managed_symbols),
+                "max_count": int(max_size or 0),
+                "user_added": user_added,
+                "live_holding": live_holding,
+                "external_holding": external_holding,
+                "basic_added": basic_added,
+            },
+            "portfolio": {
+                "total_asset_krw": total_asset if total_asset > 0.0 else None,
+                "available_krw": getattr(self, "_last_available_krw", None),
+                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
+                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+            },
+            "comparison": {
+                "weakest_non_holding_symbol": self._normalize_managed_pool_symbol_for_persistence(weakest.get("symbol") or weakest.get("market")),
+                "weakest_score": weakest.get("score"),
+                "opportunity_gap": None,
+                "rotation_candidate": bool((plan or {}).get("planned_rotation")),
+            },
+            "constraints": {
+                "holding_protected_symbols": sorted(set(holdings_symbols + user_added + live_holding + external_holding)),
+                "dust_excluded": True,
+                "max_count_policy": "user_cap" if int(max_size or 0) > 0 else "ai_dynamic",
+                "user_added_protected": True,
+                "available_slot_count": max(0, int(max_size or 0) - len(managed_symbols)) if int(max_size or 0) > 0 else None,
+                "replace_candidates": replace_candidates,
+            },
+            "current_policy": {
+                "provider": self._selected_ai_decision_provider(),
+                "risk_mode": getattr(self, "_aits_risk_level", ""),
+                "aggressiveness": getattr(self, "_aits_aggressiveness", ""),
+            },
+            "requested_decision": {
+                "trigger": "managed_pool_promotion",
+                "allowed_actions": ["promote", "reject", "wait", "replace", "rotate_review", "hold"],
+            },
+            "output_schema": {
+                "action": "promote|reject|wait|replace|rotate_review|hold",
+                "confidence": "0.0-1.0",
+                "reason_ko": "string",
+                "eta_seconds": "integer",
+                "execution_plan": {"replace_symbol": "required if action is replace"},
+                "replace_symbol": "KRW-* if replacing",
+                "rotate_to_symbol": "KRW-* if rotation review points to another candidate",
+                "risk_notes": "string",
+                "invalidation_conditions": "list",
+            },
+        }
+
+    def _request_ai_promotion_decision(self, *, payload: dict, candidate: dict) -> dict:
+        symbol = str((payload or {}).get("symbol") or (candidate or {}).get("symbol") or "").strip().upper()
+        provider = self._selected_ai_decision_provider()
+        try:
+            payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+        except Exception:
+            payload_hash = ""
+        try:
+            candidate_data = (payload or {}).get("candidate") if isinstance((payload or {}).get("candidate"), dict) else {}
+            self._log.info(
+                "[AITS][ManagedPoolPromotionGate] event=promotion_payload_created symbol=%s scanner_score=%s basic_score=%s normalized_rotation_score=%s trigger_reason=%s current_managed_count=%s max_count=%s candidate_rank=%s ai_provider=%s ai_payload_hash=%s actual_order=False submitted=0",
+                symbol or "-",
+                candidate_data.get("scanner_score"),
+                candidate_data.get("basic_score"),
+                candidate_data.get("normalized_rotation_score"),
+                (payload or {}).get("trigger_reason") or "-",
+                ((payload or {}).get("current_managed_pool") or {}).get("count") if isinstance((payload or {}).get("current_managed_pool"), dict) else "-",
+                ((payload or {}).get("current_managed_pool") or {}).get("max_count") if isinstance((payload or {}).get("current_managed_pool"), dict) else "-",
+                candidate_data.get("rank"),
+                provider or "-",
+                payload_hash or "-",
+            )
+            self._log.info(
+                "[AITS][ManagedPoolPromotionGate] event=promotion_provider_requested symbol=%s ai_provider=%s ai_payload_hash=%s actual_order=False submitted=0",
+                symbol or "-",
+                provider or "-",
+                payload_hash or "-",
+            )
+            from app.services.ai_engine_provider import AIEngineProvider
+
+            engine = AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None))
+            decision = engine.generate_position_management_decision(provider=provider, context=payload)
+        except Exception as exc:
+            decision = {
+                "schema": "aits_ai_decision_response_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "provider_call_attempted": True,
+                "action": "wait",
+                "confidence": 0.0,
+                "reason_ko": "???? ?? AI ?? ?? ? ??? ??? ??? ?????.",
+                "eta_seconds": 300,
+                "execution_plan": {},
+                "risk_notes": "",
+                "invalidation_conditions": [],
+                "validation_passed": False,
+                "validator_result": "failed",
+                "blocker": f"promotion_ai_decision_missing:{type(exc).__name__}",
+                "actual_order": False,
+                "submitted": 0,
+            }
+        decision = dict(decision or {})
+        decision["ai_payload_hash"] = payload_hash
+        try:
+            action = str(decision.get("action") or "").strip().lower()
+            blocker = str(decision.get("blocker") or decision.get("validation_blocker") or "")
+            if bool(decision.get("response_confirmed")):
+                self._log.info(
+                    "[AITS][ManagedPoolPromotionGate] event=promotion_response_received symbol=%s ai_provider=%s ai_action=%s ai_confidence=%s ai_payload_hash=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    decision.get("confidence"),
+                    payload_hash or "-",
+                )
+            else:
+                self._log.info(
+                    "[AITS][ManagedPoolPromotionGate] event=promotion_provider_blocked symbol=%s ai_provider=%s blocker=%s ai_payload_hash=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    blocker or "promotion_provider_blocked",
+                    payload_hash or "-",
+                )
+            if bool(decision.get("validation_passed")):
+                self._log.info(
+                    "[AITS][ManagedPoolPromotionGate] event=promotion_validated symbol=%s ai_provider=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s ai_payload_hash=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    decision.get("confidence"),
+                    decision.get("eta_seconds"),
+                    payload_hash or "-",
+                )
+            else:
+                self._log.info(
+                    "[AITS][ManagedPoolPromotionGate] event=promotion_blocked symbol=%s ai_provider=%s ai_action=%s blocker=%s reason=%s actual_order=False submitted=0",
+                    symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    blocker or "promotion_ai_decision_invalid_schema",
+                    bool(str(decision.get("reason_ko") or "").strip()),
+                )
+        except Exception:
+            pass
+        return decision
+
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
         try:
             root = Path("data") / "ai_decision_training"
@@ -40338,7 +40654,12 @@ class MainWindow(QMainWindow):
                 "pnl_after_1h": None,
                 "user_override": False,
             }
-            target_name = "buy_decisions.jsonl" if row["task"] == "buy_decision" else "position_decisions.jsonl"
+            if row["task"] == "buy_decision":
+                target_name = "buy_decisions.jsonl"
+            elif row["task"] == "managed_pool_promotion_decision":
+                target_name = "promotion_decisions.jsonl"
+            else:
+                target_name = "position_decisions.jsonl"
             with (root / target_name).open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
             self._log.info(

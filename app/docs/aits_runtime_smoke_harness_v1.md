@@ -1933,3 +1933,12 @@ summary modes.
 - Buy/add OrderIntent requires AI metadata: `ai_decision_id`, `ai_provider`, `ai_action`, `ai_confidence`, `ai_reason_ko`, `ai_eta_seconds`, `ai_payload_hash`, and `ai_validation_passed=True`.
 - If provider response is missing, schema is invalid, or action is hold/wait, no buy OrderIntent is executable and the blocker is recorded.
 - Harness fields include `ai_decision_validator_contract_ready`, `ai_decision_validator_required_fields`, `buy_ready_ai_gate_enabled`, `buy_decision_payload_created`, `buy_decision_provider_requested`, `buy_decision_validated`, `buy_order_intent_requires_ai_decision`, `order_intent_ai_metadata_required`, `local_training_buy_decision_record_detected`, and `buy_ai_gate_blocker`.
+
+## Managed Pool Promotion AI Gate
+
+- Managed Pool promotion is an AI decision action because it changes the operating universe before any order is considered.
+- BASIC scanner candidates, scanner score, Basic score, and normalized rotation score are promotion triggers, not final promotion authority.
+- Automatic `basic_added` rows require AI approval. Approved rows carry promotion metadata and use `source_type=basic_added_ai_approved` or another explicit AI-promoted source.
+- `user_added`, `live_holding`, and `external_holding` remain policy exceptions because they represent user intent or real account holdings. Dust exclusion remains a safety filter and does not require AI approval.
+- Harness fields include `managed_pool_promotion_ai_gate_enabled`, `promotion_trigger_detected`, `promotion_payload_created`, `promotion_provider_requested`, `promotion_provider_blocked`, `promotion_response_received`, `promotion_validated`, `promotion_allowed_count`, `promotion_blocked_count`, `promotion_ai_metadata_required`, `basic_added_requires_ai_approval`, `basic_added_without_ai_approval_detected`, `managed_pool_promotion_without_ai_decision_detected`, `ai_promoted_symbols`, `promotion_blocker`, and `promotion_training_record_detected`.
+- Blockers include `managed_pool_promotion_without_ai_decision`, `promotion_decision_payload_missing`, `promotion_provider_blocked`, `promotion_ai_decision_invalid_schema`, `promotion_rejected_or_wait_by_ai`, and `managed_pool_promotion_ai_gate_ready`.
