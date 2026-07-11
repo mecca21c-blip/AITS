@@ -234,3 +234,6 @@ BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. 
 ## ETA Runtime Registration Coverage
 
 ETA and invalidation monitoring begins only after a validated AI decision is registered. Buy, sell/position management, promotion, rotation, and redecision use the same registration contract. Provider-blocked or invalid responses are never active decisions. `hold`, `wait`, and `reject` responses with an ETA or invalidation condition are active watch states: BASIC monitors them and asks AI again when the scenario expires or becomes invalid, without converting the trigger directly into an action.
+## ON Initial Management Trigger
+
+The first active cycle of a new ON session is an event-based AI trigger. BASIC collects current holdings, Managed Pool, cash, operating cap, scanner candidates, constraints, and available indicators. It asks AI for position and portfolio management decisions and does not convert ON itself into buy, sell, reduce, add, or rotation action. Valid hold/wait responses also establish an ETA watch state. A blocked provider produces no action and may be retried after cooldown.

@@ -8628,6 +8628,15 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "eta_scheduler_running_but_no_registered_ai_decisions": "continue runtime observation until a validated AI decision is registered",
         "eta_tick_not_running": "inspect registered AI decision ETA tick loop",
         "eta_scheduler_active_callsite_ready": "AITS-HOLDINGS-MANAGED-POOL-SELL-EVAL-TARGET-SSOT-FIX",
+        "initial_ai_management_seed_not_triggered": "inspect ON first active cycle to AIManagementSeed trigger",
+        "initial_ai_management_payload_missing": "inspect initial position and portfolio payload builders",
+        "initial_ai_management_provider_not_requested": "inspect initial seed payload to provider handoff",
+        "initial_ai_management_provider_blocked": "inspect selected provider readiness and retry cooldown",
+        "initial_ai_management_response_missing": "inspect initial management provider response",
+        "initial_ai_management_invalid_schema": "inspect initial management response validator fields",
+        "initial_ai_management_decision_not_registered": "inspect validated initial decision runtime registration",
+        "eta_scheduler_idle_after_registered_decision": "inspect registered initial decision visibility in ETA scheduler",
+        "initial_ai_management_seed_ready": "continue ETA/invalidation observation with registered initial decisions",
     }
     return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
@@ -9171,6 +9180,19 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
     eta_redecision_lines = [line for line in lines if "[AITS][ETAReDecision]" in line]
+    initial_seed_lines = [line for line in lines if "[AITS][AIManagementSeed]" in line]
+    initial_seed_trigger_lines = [line for line in initial_seed_lines if "event=initial_seed_trigger_detected" in line]
+    initial_seed_skipped_lines = [line for line in initial_seed_lines if "event=initial_seed_skipped" in line]
+    initial_seed_payload_lines = [line for line in initial_seed_lines if "event=initial_seed_payload_created" in line]
+    initial_position_payload_lines = [line for line in initial_seed_payload_lines if "reason=position_management_decision" in line]
+    initial_portfolio_payload_lines = [line for line in initial_seed_payload_lines if "reason=portfolio_management_decision" in line]
+    initial_seed_provider_requested_lines = [line for line in initial_seed_lines if "event=initial_seed_provider_requested" in line]
+    initial_seed_provider_blocked_lines = [line for line in initial_seed_lines if "event=initial_seed_provider_blocked" in line]
+    initial_seed_response_lines = [line for line in initial_seed_lines if "event=initial_seed_response_received" in line]
+    initial_seed_validated_lines = [line for line in initial_seed_lines if "event=initial_seed_validated" in line]
+    initial_seed_registered_lines = [line for line in initial_seed_lines if "event=initial_seed_registered" in line]
+    initial_seed_completed_lines = [line for line in initial_seed_lines if "event=initial_seed_completed" in line]
+    initial_seed_training_lines = [line for line in initial_seed_lines if "event=initial_seed_training_record_created" in line]
     eta_scheduler_callsite_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_probe" in line]
     eta_scheduler_callsite_condition_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_condition" in line]
     eta_scheduler_callsite_before_call_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_before_call" in line]
@@ -9208,6 +9230,36 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     eta_runtime_state_source = "registered_ai_decision_state" if ai_decision_state_registered_lines else (
         "scheduler_idle" if eta_scheduler_idle_lines else "runtime_probe_missing"
     )
+    latest_initial_seed_line = (initial_seed_completed_lines or initial_seed_provider_blocked_lines or initial_seed_skipped_lines or initial_seed_trigger_lines or [""])[-1]
+    initial_seed_registered_decision_count = sum(
+        int(_safe_float(_live_on_stage_extract_value(line, "registered_decision_count"), 0.0))
+        for line in initial_seed_completed_lines
+    ) or len(initial_seed_registered_lines)
+    initial_seed_eta_registered_count = sum(
+        1 for line in eta_registered_lines if "task=position_management_decision" in line or "task=portfolio_management_decision" in line
+    )
+    initial_seed_last_registered_index = max(
+        (index for index, line in enumerate(lines) if "[AITS][AIManagementSeed]" in line and "event=initial_seed_registered" in line),
+        default=-1,
+    )
+    initial_seed_invalidation_registered_count = sum(
+        1 for index, line in enumerate(lines)
+        if initial_seed_last_registered_index >= 0
+        and index > initial_seed_last_registered_index
+        and "[AITS][ETAReDecision]" in line
+        and "event=invalidation_condition_registered" in line
+    )
+    eta_scheduler_idle_after_initial_seed = bool(
+        initial_seed_last_registered_index >= 0
+        and any(index > initial_seed_last_registered_index and "[AITS][ETAReDecision]" in line and "event=eta_scheduler_idle" in line for index, line in enumerate(lines))
+    )
+    eta_scheduler_tick_after_initial_seed = bool(
+        initial_seed_last_registered_index >= 0
+        and any(index > initial_seed_last_registered_index and "[AITS][ETAReDecision]" in line and ("event=eta_tick" in line or "event=eta_waiting" in line) for index, line in enumerate(lines))
+    )
+    initial_seed_blocker = _live_on_stage_extract_value(latest_initial_seed_line, "blocker")
+    if initial_seed_blocker == "-":
+        initial_seed_blocker = ""
     latest_eta_callsite = (eta_scheduler_callsite_after_call_lines or eta_scheduler_callsite_condition_lines or eta_scheduler_callsite_probe_lines or [""])[-1]
     eta_scheduler_condition_false_lines = [
         line for line in eta_scheduler_callsite_condition_lines
@@ -9847,7 +9899,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     if heartbeat_expected and not heartbeat_detected and first_blocker in {"", "no_buy_ready_candidate", "buy_ready_but_candidate_not_selected"}:
         first_blocker = "live_log_heartbeat_missing"
     eta_runtime_first_blocker = ""
-    if not eta_scheduler_callsite_probe_lines:
+    if runtime_contract_active and not initial_seed_trigger_lines:
+        eta_runtime_first_blocker = "initial_ai_management_seed_not_triggered"
+    elif initial_seed_trigger_lines and not initial_seed_payload_lines:
+        eta_runtime_first_blocker = "initial_ai_management_payload_missing"
+    elif initial_seed_payload_lines and not initial_seed_provider_requested_lines:
+        eta_runtime_first_blocker = "initial_ai_management_provider_not_requested"
+    elif initial_seed_provider_blocked_lines and not initial_seed_registered_lines:
+        eta_runtime_first_blocker = "initial_ai_management_provider_blocked"
+    elif initial_seed_provider_requested_lines and not initial_seed_response_lines and not initial_seed_provider_blocked_lines:
+        eta_runtime_first_blocker = "initial_ai_management_response_missing"
+    elif initial_seed_response_lines and not initial_seed_validated_lines:
+        eta_runtime_first_blocker = "initial_ai_management_invalid_schema"
+    elif initial_seed_validated_lines and not initial_seed_registered_lines:
+        eta_runtime_first_blocker = "initial_ai_management_decision_not_registered"
+    elif eta_scheduler_idle_after_initial_seed:
+        eta_runtime_first_blocker = "eta_scheduler_idle_after_registered_decision"
+    elif initial_seed_registered_lines and eta_scheduler_tick_after_initial_seed:
+        eta_runtime_first_blocker = "initial_ai_management_seed_ready"
+    elif not eta_scheduler_callsite_probe_lines:
         eta_runtime_first_blocker = "eta_scheduler_callsite_probe_missing"
     elif eta_scheduler_condition_false_lines:
         eta_runtime_first_blocker = "eta_scheduler_callsite_condition_false"
@@ -10214,6 +10284,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_log_buy_blocked_monitoring_message": bool(live_log_buy_blocked_monitoring_message),
         "actual_buy_submit_count_after_buy_blocked": int(actual_buy_submit_count_after_buy_blocked),
         "actual_sell_submit_count_after_buy_blocked": int(actual_sell_submit_count_after_buy_blocked),
+        "initial_ai_management_seed_enabled": True,
+        "initial_ai_management_seed_trigger_detected": bool(initial_seed_trigger_lines),
+        "initial_ai_management_payload_created": bool(initial_seed_payload_lines),
+        "initial_position_management_payload_created": bool(initial_position_payload_lines),
+        "initial_portfolio_management_payload_created": bool(initial_portfolio_payload_lines),
+        "initial_seed_provider_requested": bool(initial_seed_provider_requested_lines),
+        "initial_seed_provider_blocked": bool(initial_seed_provider_blocked_lines),
+        "initial_seed_response_received": bool(initial_seed_response_lines),
+        "initial_seed_validated": bool(initial_seed_validated_lines),
+        "initial_seed_registered": bool(initial_seed_registered_lines),
+        "initial_seed_training_record_detected": bool(initial_seed_training_lines),
+        "initial_seed_already_ran_for_session": any("blocker=initial_seed_already_ran_for_session" in line for line in initial_seed_skipped_lines),
+        "initial_seed_blocker": str(initial_seed_blocker or ""),
+        "initial_seed_registered_decision_count": int(initial_seed_registered_decision_count),
+        "initial_seed_eta_registered_count": int(initial_seed_eta_registered_count),
+        "initial_seed_invalidation_registered_count": int(initial_seed_invalidation_registered_count),
+        "eta_scheduler_idle_after_initial_seed": bool(eta_scheduler_idle_after_initial_seed),
+        "eta_scheduler_tick_after_initial_seed": bool(eta_scheduler_tick_after_initial_seed),
         "eta_scheduler_callsite_probe_detected": bool(eta_scheduler_callsite_probe_lines),
         "eta_scheduler_callsite_condition_detected": bool(eta_scheduler_callsite_condition_lines),
         "eta_scheduler_callsite_before_call_detected": bool(eta_scheduler_callsite_before_call_lines),
@@ -20773,6 +20861,24 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         rotation_blocker = "rotation_decision_payload_missing"
     elif not rotation_training_record_detected:
         rotation_blocker = "rotation_training_record_missing"
+    initial_ai_management_seed_enabled = bool(
+        "_run_initial_ai_management_seed" in app_text
+        and "event=initial_seed_trigger_detected" in app_text
+        and "position_management_decision" in app_text
+        and "portfolio_management_decision" in app_text
+        and "initial_management_decisions.jsonl" in app_text
+        and "_register_ai_decision_runtime_state" in app_text
+    )
+    initial_ai_management_seed_trigger_detected = bool("event=initial_seed_trigger_detected" in app_text)
+    initial_ai_management_payload_created = bool("event=initial_seed_payload_created" in app_text)
+    initial_position_management_payload_created = bool('"task": "position_management_decision"' in app_text)
+    initial_portfolio_management_payload_created = bool('"task": "portfolio_management_decision"' in app_text)
+    initial_seed_provider_requested = bool("event=initial_seed_provider_requested" in app_text)
+    initial_seed_provider_blocked = bool("event=initial_seed_provider_blocked" in app_text)
+    initial_seed_response_received = bool("event=initial_seed_response_received" in app_text)
+    initial_seed_validated = bool("event=initial_seed_validated" in app_text)
+    initial_seed_registered = bool("event=initial_seed_registered" in app_text)
+    initial_seed_training_record_detected = bool("initial_management_decisions.jsonl" in app_text and "initial_seed_training_record_created" in app_text)
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text
         and "_run_ai_redecision_scheduler" in app_text
@@ -21317,6 +21423,17 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "rotation_ai_decision_symbols": [],
         "rotation_blocker": rotation_blocker,
         "rotation_training_record_detected": bool(rotation_training_record_detected),
+        "initial_ai_management_seed_enabled": bool(initial_ai_management_seed_enabled),
+        "initial_ai_management_seed_trigger_detected": bool(initial_ai_management_seed_trigger_detected),
+        "initial_ai_management_payload_created": bool(initial_ai_management_payload_created),
+        "initial_position_management_payload_created": bool(initial_position_management_payload_created),
+        "initial_portfolio_management_payload_created": bool(initial_portfolio_management_payload_created),
+        "initial_seed_provider_requested": bool(initial_seed_provider_requested),
+        "initial_seed_provider_blocked": bool(initial_seed_provider_blocked),
+        "initial_seed_response_received": bool(initial_seed_response_received),
+        "initial_seed_validated": bool(initial_seed_validated),
+        "initial_seed_registered": bool(initial_seed_registered),
+        "initial_seed_training_record_detected": bool(initial_seed_training_record_detected),
         "eta_invalidation_scheduler_enabled": bool(eta_invalidation_scheduler_enabled),
         "ai_decision_eta_registered": bool(ai_decision_eta_registered),
         "eta_scheduler_probe_detected": bool(eta_scheduler_probe_detected),

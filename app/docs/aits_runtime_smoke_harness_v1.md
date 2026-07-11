@@ -1973,3 +1973,11 @@ summary modes.
 - Runtime diagnostics distinguish a missing callsite, a false call condition, a function that was not entered, idle operation, and an exception.
 - The heartbeat contract value and the scheduler's prior self flag are reported separately so last-writer/SSOT mismatches remain visible.
 - Holdings/Managed Pool/SellEvaluation target disagreement is not repaired by this instrumentation Goal. Its follow-up is `AITS-HOLDINGS-MANAGED-POOL-SELL-EVAL-TARGET-SSOT-FIX`.
+## ON Initial AI Management Seed
+
+- The first active runtime cycle in each ON session creates an AI management seed once.
+- Manageable non-dust holdings create `position_management_decision` payloads; the full managed/cash/cap/candidate context creates a `portfolio_management_decision` payload.
+- The seed is an AI judgment starting point, never a BASIC action or order intent.
+- Provider failures, missing responses, and invalid schemas remain blocked and may retry after the configured cooldown without creating an action.
+- Valid hold/wait decisions are registered like other valid decisions so ETA and invalidation monitoring can begin.
+- Runtime summaries distinguish trigger, payload, provider request, response, validation, registration, training record, and ETA tick after registration.

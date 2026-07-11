@@ -41090,7 +41090,8 @@ class MainWindow(QMainWindow):
             )
             return False
         task = str((payload or {}).get("task") or "manage_position_decision").strip()
-        symbol = self._normalize_managed_pool_symbol_for_persistence((payload or {}).get("symbol"))
+        raw_symbol = str((payload or {}).get("symbol") or "").strip().upper()
+        symbol = "PORTFOLIO" if task == "portfolio_management_decision" and raw_symbol == "PORTFOLIO" else self._normalize_managed_pool_symbol_for_persistence(raw_symbol)
         if not symbol and task == "rotation_decision":
             symbol = self._normalize_managed_pool_symbol_for_persistence(((payload or {}).get("rotation_candidate") or {}).get("old_symbol"))
         if not symbol:
@@ -41111,6 +41112,8 @@ class MainWindow(QMainWindow):
             "managed_pool_promotion_decision": "promotion",
             "rotation_decision": "rotation",
             "manage_position_decision": "position_management",
+            "position_management_decision": "position_management",
+            "portfolio_management_decision": "portfolio_management",
             "ai_redecision": "position_management",
         }
         states = getattr(self, "_ai_redecision_states", None)
@@ -41233,6 +41236,9 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         row = next((item for item in context_rows if self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market")) == symbol), {})
+        portfolio_scope = symbol == "PORTFOLIO"
+        if portfolio_scope:
+            row = {"symbol": "PORTFOLIO", "holding": True}
         managed_symbols = [self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market")) for item in rows if isinstance(item, dict)]
         managed_symbols = [item for item in managed_symbols if item]
         position = {
@@ -41273,6 +41279,262 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             triggered = False
         return bool(triggered), {"type": kind or "unsupported", "expected": data.get("expected"), "actual": actual, "threshold": threshold, "triggered": bool(triggered)}
+
+    def _log_initial_ai_management_seed_skipped(self, *, session_id: str, blocker: str, reason: str) -> None:
+        now = time.time()
+        if now - float(getattr(self, "_aits_initial_seed_last_skip_log_at", 0.0) or 0.0) < 60.0:
+            return
+        self._aits_initial_seed_last_skip_log_at = now
+        logging.getLogger("aits").info(
+            "[AITS][AIManagementSeed] event=initial_seed_skipped session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=%s execution_mode=%s managed_symbols=- holding_symbols=- candidate_count=0 provider=%s payload_hash=- ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 blocker=%s reason=%s actual_order=False submitted=0",
+            session_id or "-", bool(getattr(self, "_aits_runtime_contract_active", False)), str(self._get_aits_execution_mode() or ""), self._selected_ai_decision_provider() or "-", blocker or "-", reason or "-",
+        )
+
+    def _build_initial_portfolio_management_payload(self, *, rows: list[dict], holdings: list[dict], session_id: str) -> dict:
+        managed_symbols = sorted({
+            self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            for row in rows if isinstance(row, dict) and (row.get("symbol") or row.get("market"))
+        })
+        holding_summaries = []
+        for row in holdings:
+            symbol = self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            holding_summaries.append({
+                "symbol": symbol,
+                "qty": self._managed_pool_num_value(row.get("qty") or row.get("quantity") or row.get("balance"), 0.0),
+                "position_value_krw": self._managed_pool_num_value(row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw"), 0.0),
+                "pnl_pct": row.get("pnl_pct") or row.get("pnl"),
+                "weight_pct": row.get("position_weight_pct") or row.get("weight_pct"),
+                "target_weight_pct": row.get("target_weight_pct") or row.get("target_weight"),
+                "source_type": row.get("source_type") or row.get("source"),
+            })
+        scanner = getattr(self, "_aits_latest_scanner_top_candidates", [])
+        scanner = list(scanner[:10]) if isinstance(scanner, list) else []
+        return {
+            "schema": "aits_ai_decision_payload_v1",
+            "task": "portfolio_management_decision",
+            "trigger_reason": "on_initial_management_seed",
+            "session_id": session_id,
+            "symbol": "PORTFOLIO",
+            "holdings": holding_summaries,
+            "managed_pool": {"symbols": managed_symbols, "count": len(managed_symbols)},
+            "portfolio": {
+                "total_asset_krw": getattr(self, "_aits_total_asset_krw", None) or getattr(self, "_investment_total_asset_krw", None),
+                "available_krw": getattr(self, "_last_available_krw", None),
+                "total_budget_krw": getattr(self, "_aits_total_operating_cap_krw", None),
+                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
+                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+                "buy_blocked": bool(getattr(self, "_aits_buy_blocked", False)),
+                "buy_blocker": str(getattr(self, "_aits_buy_blocker", "") or ""),
+            },
+            "candidates": {
+                "scanner_top_candidates": scanner,
+                "rotation_candidates": list(getattr(self, "_aits_rotation_candidate_symbols", []) or []),
+                "managed_pool_symbols": managed_symbols,
+            },
+            "constraints": {
+                "dust_holdings_excluded": True,
+                "external_holdings": [item["symbol"] for item in holding_summaries if str(item.get("source_type") or "").lower() == "external_holding"],
+                "current_blockers": [str(getattr(self, "_aits_buy_blocker", "") or "")],
+                "order_execution_allowed_by_seed": False,
+            },
+            "requested_decision": {
+                "allowed_actions": ["wait", "hold", "add", "reduce", "rotate"],
+                "portfolio_actions": ["wait", "rebalance", "rotate", "hold", "add", "reduce", "no_action"],
+            },
+            "output_schema": {
+                "action": "hold|wait|add|reduce|rotate",
+                "confidence": "0.0-1.0",
+                "reason_ko": "string",
+                "eta_seconds": "integer",
+                "execution_plan": "object",
+                "risk_notes": "string",
+                "invalidation_conditions": "list",
+            },
+        }
+
+    def _record_initial_ai_management_training(self, *, payload: dict, decision: dict, session_id: str, registered: bool, blocker: str) -> None:
+        try:
+            root = Path("data") / "ai_decision_training"
+            root.mkdir(parents=True, exist_ok=True)
+            payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+            record = {
+                "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "task": str((payload or {}).get("task") or ""),
+                "session_id": session_id,
+                "symbol": str((payload or {}).get("symbol") or "PORTFOLIO"),
+                "provider": str((decision or {}).get("provider") or ""),
+                "payload_hash": payload_hash,
+                "trigger_reason": "on_initial_management_seed",
+                "ai_action": str((decision or {}).get("action") or ""),
+                "ai_confidence": (decision or {}).get("confidence"),
+                "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
+                "eta_seconds": (decision or {}).get("eta_seconds"),
+                "invalidation_conditions": list((decision or {}).get("invalidation_conditions") or []),
+                "validator_result": "passed" if bool((decision or {}).get("validation_passed")) else "failed",
+                "registration_result": "registered" if registered else "not_registered",
+                "execution_result": "not_executed_or_pending",
+                "blocker": str(blocker or ""),
+                "outcome_placeholder": {"pnl_after_5m": None, "pnl_after_15m": None, "pnl_after_1h": None, "decision_helped": None},
+            }
+            with (root / "initial_management_decisions.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+            logging.getLogger("aits").info(
+                "[AITS][AIManagementSeed] event=initial_seed_training_record_created session_id=%s task=%s symbol=%s provider=%s payload_hash=%s blocker=%s actual_order=False submitted=0",
+                session_id, record["task"] or "-", record["symbol"] or "-", record["provider"] or "-", payload_hash, blocker or "-",
+            )
+        except Exception as exc:
+            logging.getLogger("aits").info(
+                "[AITS][AIManagementSeed] event=initial_seed_training_record_failed session_id=%s blocker=training_record_failed exception_type=%s actual_order=False submitted=0",
+                session_id, type(exc).__name__,
+            )
+
+    def _request_initial_ai_management_decision(self, *, payload: dict, session_id: str) -> dict:
+        seed_logger = logging.getLogger("aits")
+        provider = self._selected_ai_decision_provider()
+        payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+        task = str((payload or {}).get("task") or "")
+        symbol = str((payload or {}).get("symbol") or "PORTFOLIO")
+        seed_logger.info(
+            "[AITS][AIManagementSeed] event=initial_seed_provider_requested session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 blocker=- reason=%s actual_order=False submitted=0",
+            session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, task or "-",
+        )
+        try:
+            from app.services.ai_engine_provider import AIEngineProvider
+            engine = AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None))
+            decision = dict(engine.generate_position_management_decision(provider=provider, context=payload) or {})
+        except Exception as exc:
+            decision = {"provider": provider, "response_confirmed": False, "validation_passed": False, "blocker": f"initial_seed_response_missing:{type(exc).__name__}"}
+        response_received = bool(decision.get("response_confirmed"))
+        validation_passed = bool(decision.get("validation_passed"))
+        blocker = str(decision.get("blocker") or "")
+        if response_received:
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_response_received session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=response_confirmed actual_order=False submitted=0",
+                session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
+            )
+        else:
+            blocker = blocker or "initial_seed_response_missing"
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_provider_blocked session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=%s reason=provider_response_unavailable actual_order=False submitted=0",
+                session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []), blocker,
+            )
+        registered = False
+        if validation_passed:
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_validated session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=validator_passed actual_order=False submitted=0",
+                session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
+            )
+            registered = self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        elif response_received:
+            blocker = blocker or "initial_seed_invalid_schema"
+        if registered:
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_registered session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=runtime_state_registered actual_order=False submitted=0",
+                session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
+            )
+        self._record_initial_ai_management_training(payload=payload, decision=decision, session_id=session_id, registered=registered, blocker=blocker)
+        return {"decision": decision, "registered": registered, "blocker": blocker, "payload_hash": payload_hash}
+
+    def _run_initial_ai_management_seed(self, *, rows: list[dict], contract_snapshot: dict) -> dict:
+        seed_logger = logging.getLogger("aits")
+        runtime_active = bool((contract_snapshot or {}).get("runtime_contract_active"))
+        if not runtime_active:
+            if bool(getattr(self, "_aits_initial_seed_runtime_was_active", False)):
+                self._aits_initial_seed_session_id = ""
+                self._aits_initial_seed_completed_session_id = ""
+                self._aits_initial_seed_last_attempt_at = 0.0
+            self._aits_initial_seed_runtime_was_active = False
+            return {"triggered": False, "registered": 0, "blocker": "runtime_inactive"}
+        self._aits_initial_seed_runtime_was_active = True
+        session_id = str(getattr(self, "_aits_initial_seed_session_id", "") or "")
+        if not session_id:
+            session_id = f"on-{os.getpid()}-{int(time.time())}"
+            self._aits_initial_seed_session_id = session_id
+        if str(getattr(self, "_aits_initial_seed_completed_session_id", "") or "") == session_id:
+            self._log_initial_ai_management_seed_skipped(session_id=session_id, blocker="initial_seed_already_ran_for_session", reason="seed_completed")
+            return {"triggered": False, "registered": 0, "blocker": "initial_seed_already_ran_for_session", "session_id": session_id}
+        now = time.time()
+        last_attempt = float(getattr(self, "_aits_initial_seed_last_attempt_at", 0.0) or 0.0)
+        if last_attempt and now - last_attempt < 600.0:
+            self._log_initial_ai_management_seed_skipped(session_id=session_id, blocker="initial_seed_retry_cooldown", reason="provider_retry_cooldown")
+            return {"triggered": False, "registered": 0, "blocker": "initial_seed_retry_cooldown", "session_id": session_id}
+        provider = self._selected_ai_decision_provider()
+        if not provider:
+            self._log_initial_ai_management_seed_skipped(session_id=session_id, blocker="initial_seed_provider_not_configured", reason="provider_missing")
+            return {"triggered": False, "registered": 0, "blocker": "initial_seed_provider_not_configured", "session_id": session_id}
+        managed_rows = [dict(row) for row in rows if isinstance(row, dict)]
+        holding_rows = []
+        for row in self._sell_evaluation_observe_rows():
+            if not isinstance(row, dict) or not self._managed_pool_status_bar_row_is_holding(row):
+                continue
+            qty = self._managed_pool_num_value(row.get("qty") or row.get("quantity") or row.get("balance"), 0.0)
+            value = self._managed_pool_num_value(row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw"), 0.0)
+            dust = bool(row.get("dust") or row.get("dust_holding") or (0.0 < value < 5000.0))
+            if qty > 0.0 and value >= 10000.0 and not dust:
+                holding_rows.append(dict(row))
+        if not holding_rows and not managed_rows:
+            self._log_initial_ai_management_seed_skipped(session_id=session_id, blocker="initial_seed_no_manageable_context", reason="no_holdings_or_managed_rows")
+            return {"triggered": False, "registered": 0, "blocker": "initial_seed_no_manageable_context", "session_id": session_id}
+        self._aits_initial_seed_last_attempt_at = now
+        managed_symbols = sorted({self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market")) for row in managed_rows if row.get("symbol") or row.get("market")})
+        holding_symbols = sorted({self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market")) for row in holding_rows if row.get("symbol") or row.get("market")})
+        seed_logger.info(
+            "[AITS][AIManagementSeed] event=initial_seed_trigger_detected session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=- ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 blocker=- reason=first_active_runtime_cycle actual_order=False submitted=0",
+            session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", ",".join(holding_symbols) or "-", len(managed_rows), provider,
+        )
+        self._aits_initial_management_seed_status_text = "AI 초기 운용 판단 요청 중"
+        self._append_aits_live_log("AITS ON 초기 운용 판단을 AI에게 요청합니다.", category="pipeline", level="info", event="initial_ai_management_seed_requested")
+        registered_count = 0
+        blockers = []
+        for row in holding_rows:
+            symbol = self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            qty = self._managed_pool_num_value(row.get("qty") or row.get("quantity") or row.get("balance"), 0.0)
+            avg = self._managed_pool_num_value(row.get("avg_buy_price") or row.get("avg_price"), 0.0)
+            current = self._managed_pool_num_value(row.get("current_price") or row.get("trade_price") or row.get("price"), 0.0)
+            value = self._managed_pool_num_value(row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw"), 0.0)
+            if current <= 0.0 and qty > 0.0 and value > 0.0:
+                current = value / qty
+            pnl_krw = (current - avg) * qty if avg > 0.0 and current > 0.0 else 0.0
+            pnl_pct = (current - avg) / avg * 100.0 if avg > 0.0 and current > 0.0 else 0.0
+            candidate = {"symbol": symbol, "qty": qty, "available_qty": qty, "avg_buy_price": avg, "current_price": current, "position_value_krw": value, "pnl_krw": pnl_krw, "pnl_pct": pnl_pct, "trigger": "on_initial_management_seed"}
+            payload = self._build_ai_position_decision_payload(row=row, candidate=candidate, reason="on_initial_management_seed")
+            payload.update({"task": "position_management_decision", "trigger_reason": "on_initial_management_seed", "session_id": session_id, "prior_ai_decision": None, "eta_state": "none"})
+            payload["position"].update({"source_type": row.get("source_type") or row.get("source"), "dust": False})
+            payload["portfolio"]["current_positions"] = holding_symbols
+            payload["candidates"]["managed_pool_symbols"] = managed_symbols
+            payload["market"]["market_data_stale"] = bool(getattr(self, "_candidate_feed_stale", False))
+            payload_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_payload_created session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=%s ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 blocker=- reason=position_management_decision actual_order=False submitted=0",
+                session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", symbol, len(managed_rows), provider, payload_hash,
+            )
+            result = self._request_initial_ai_management_decision(payload=payload, session_id=session_id)
+            registered_count += int(bool(result.get("registered")))
+            if result.get("blocker"):
+                blockers.append(str(result.get("blocker")))
+        portfolio_payload = self._build_initial_portfolio_management_payload(rows=managed_rows, holdings=holding_rows, session_id=session_id)
+        portfolio_hash = hashlib.sha256(json.dumps(portfolio_payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+        seed_logger.info(
+            "[AITS][AIManagementSeed] event=initial_seed_payload_created session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=%s ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 blocker=- reason=portfolio_management_decision actual_order=False submitted=0",
+            session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", ",".join(holding_symbols) or "-", len(managed_rows), provider, portfolio_hash,
+        )
+        portfolio_result = self._request_initial_ai_management_decision(payload=portfolio_payload, session_id=session_id)
+        registered_count += int(bool(portfolio_result.get("registered")))
+        if portfolio_result.get("blocker"):
+            blockers.append(str(portfolio_result.get("blocker")))
+        blocker = blockers[0] if blockers and registered_count <= 0 else ""
+        if registered_count > 0:
+            self._aits_initial_seed_completed_session_id = session_id
+            self._aits_initial_management_seed_status_text = f"AI 초기 판단 {registered_count}건 등록 · ETA 감시 중"
+            self._append_aits_live_log("AI 초기 판단이 등록되어 ETA 감시를 시작했습니다.", category="pipeline", level="success", event="initial_ai_management_seed_registered")
+        else:
+            self._aits_initial_management_seed_status_text = "AI 초기 판단 대기 · provider 확인 필요"
+            self._append_aits_live_log("AI 초기 판단이 provider 제한으로 대기 중입니다.", category="pipeline", level="warning", event="initial_ai_management_seed_blocked")
+        seed_logger.info(
+            "[AITS][AIManagementSeed] event=initial_seed_completed session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=%s ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 registered_decision_count=%s blocker=%s reason=%s actual_order=False submitted=0",
+            session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", ",".join(holding_symbols) or "-", len(managed_rows), provider, portfolio_hash, registered_count, blocker or "-", "seed_registered" if registered_count > 0 else "seed_blocked",
+        )
+        return {"triggered": True, "registered": registered_count, "blocker": blocker, "session_id": session_id}
 
     def _run_ai_redecision_scheduler(self, *, reason: str, rows: list[dict]) -> dict:
         eta_logger = logging.getLogger("aits")
@@ -42467,6 +42729,9 @@ class MainWindow(QMainWindow):
                 risk_text = " · 외부 보유종목 손익 확인 대기"
         except Exception:
             risk_text = ""
+        seed_status_text = str(getattr(self, "_aits_initial_management_seed_status_text", "") or "")
+        if seed_status_text:
+            risk_text = f"{risk_text} | {seed_status_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text
@@ -43904,6 +44169,10 @@ class MainWindow(QMainWindow):
                         bool(getattr(self, "_aits_buy_blocked", False)), str(contract_snapshot.get("execution_mode") or self._get_aits_execution_mode() or ""),
                         active_decision_count_before, scheduler_should_run, scheduler_condition_reason,
                         "allowed" if scheduler_should_run else "blocked",
+                    )
+                    seed_result = self._run_initial_ai_management_seed(
+                        rows=[row for row in rows if isinstance(row, dict)],
+                        contract_snapshot=contract_snapshot,
                     )
                     redecision_result = {"checked": 0, "triggered": 0, "scheduler_result": "condition_false"}
                     if scheduler_should_run:

@@ -153,3 +153,6 @@ BASIC Signal Collector
 - BASIC watches ETA and invalidation conditions for validated AI scenarios. Expiry and condition breaches are AI redecision triggers, never direct trade or managed-pool actions.
 - An `ai_redecision` payload contains the prior decision, current state, and delta since the prior decision.
 - Provider failure remains blocked/waiting; the scheduler does not invoke RiskGuard, LivePreflight, or Execution.
+## Initial AI Management Seed Boundary
+
+ON activation requires BASIC to assemble the initial management context and ask the selected AI provider. AI remains the decision authority. The initial seed may register validated hold, wait, position-management, or portfolio-management scenarios for ETA/invalidation monitoring, but it never submits an order or mutates the Managed Pool by itself. Provider failure or schema failure leaves the seed blocked and records the reason for retry and training audit.
