@@ -726,6 +726,18 @@ class AIEngineProvider:
 
     def _build_position_management_decision_prompt(self, context: Optional[Dict[str, Any]]) -> str:
         safe_context = dict(context or {})
+        if str(safe_context.get("task") or "").strip() == "ai_redecision":
+            return (
+                "You are the AITS final AI authority re-evaluating a prior scenario.\n"
+                "ETA expiry or invalidation is a request for judgment, never a direct trade action.\n"
+                "Compare prior_decision, current_state, and delta_since_prior_decision.\n"
+                "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
+                "execution_plan, sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
+                "Allowed action values: hold, wait, sell, reduce, add, buy, rotate, stop_loss, take_profit.\n"
+                "If evidence is incomplete, choose wait or hold with a new ETA and explicit invalidation conditions.\n"
+                "Context JSON:\n"
+                + json.dumps(safe_context, ensure_ascii=False, default=str)
+            )
         if str(safe_context.get("task") or "").strip() == "rotation_decision":
             return (
                 "You are the AITS final AI decision authority for managed-pool rotation.\n"
@@ -1019,6 +1031,17 @@ class AIEngineProvider:
                 "blocker": "",
                 "actual_order": False,
                 "submitted": 0,
+            }
+        if task == "ai_redecision":
+            current_state = context.get("current_state") if isinstance(context.get("current_state"), dict) else {}
+            context = dict(context)
+            context["position"] = current_state.get("position") if isinstance(current_state.get("position"), dict) else {}
+            context["market"] = current_state.get("market") if isinstance(current_state.get("market"), dict) else {}
+            context["indicators"] = current_state.get("indicators") if isinstance(current_state.get("indicators"), dict) else {}
+            context["portfolio"] = current_state.get("portfolio") if isinstance(current_state.get("portfolio"), dict) else {}
+            context["requested_decision"] = {
+                "trigger": str(context.get("trigger_reason") or "ai_redecision"),
+                "allowed_actions": list((context.get("requested_decision") or {}).get("allowed_actions") or []),
             }
         trigger = str((context.get("requested_decision") or {}).get("trigger") or context.get("trigger") or "").strip()
         position = context.get("position") if isinstance(context.get("position"), dict) else {}

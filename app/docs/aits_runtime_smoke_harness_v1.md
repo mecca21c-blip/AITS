@@ -1951,3 +1951,9 @@ summary modes.
 - `replace` may prepare a managed-pool universe replacement only when the replace target is removable and AI metadata is present. `rotate` and `reduce_and_rotate` remain `execution_pending` in this stage and do not submit orders.
 - Rotation decision records are written for LOCAL training under `rotation_decisions.jsonl`.
 - Harness fields include `rotation_ai_gate_enabled`, `rotation_trigger_detected`, `rotation_payload_created`, `rotation_provider_requested`, `rotation_provider_blocked`, `rotation_response_received`, `rotation_validated`, `rotation_allowed_count`, `rotation_blocked_count`, `rotation_ai_metadata_required`, `rotation_without_ai_decision_detected`, `normalized_rotation_score_direct_action_detected`, `rotation_replace_without_ai_approval_detected`, `rotation_execution_pending_count`, `rotation_ai_decision_symbols`, `rotation_blocker`, and `rotation_training_record_detected`.
+
+## ETA And Invalidation ReDecision Scheduler
+
+- `dry-read` reports scheduler, ETA registration/tick/expiry, invalidation, redecision payload/provider/training, and direct-action guard fields.
+- ETA expiry and invalidation must create `ai_redecision`; they must not create a direct order, rotation, or managed-pool mutation.
+- Provider-blocked outcomes remain non-executable with `actual_order=False` and `submitted=0`.

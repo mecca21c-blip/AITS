@@ -224,3 +224,10 @@ BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. 
 - `rotate` and `reduce_and_rotate` are execution-pending decisions in this stage. They do not create immediate buy or sell submit.
 - If provider response is blocked or invalid, BASIC records a blocker and does not rotate.
 - Rotation decisions must be recorded for LOCAL training with old symbol, new symbol, payload hash, provider, AI action, confidence, reason, validator result, rotation result, blocker, and outcome placeholders.
+
+## ETA And Invalidation ReDecision Policy
+
+- ETA is a scenario watch period, not a pause or a direct action timer.
+- BASIC records validated AI ETA, timestamps, payload hash, and invalidation conditions in runtime state.
+- ETA expiry or a supported invalidation breach creates `task=ai_redecision` with the prior decision and observed state delta. BASIC never submits or mutates the pool directly.
+- Provider-blocked or invalid redecisions remain waiting with an explicit blocker and are recorded in `redecision_events.jsonl` for LOCAL training.

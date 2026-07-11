@@ -20595,6 +20595,40 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         rotation_blocker = "rotation_decision_payload_missing"
     elif not rotation_training_record_detected:
         rotation_blocker = "rotation_training_record_missing"
+    eta_invalidation_scheduler_enabled = bool(
+        "_register_ai_decision_redecision_state" in app_text
+        and "_run_ai_redecision_scheduler" in app_text
+        and "event=eta_registered" in app_text
+        and "event=eta_redecision_triggered" in app_text
+        and "event=invalidation_condition_triggered" in app_text
+    )
+    ai_decision_eta_registered = bool("event=eta_registered" in app_text)
+    eta_tick_detected = bool("event=eta_tick" in app_text)
+    eta_expired_detected = bool("event=eta_expired" in app_text)
+    eta_redecision_triggered = bool("event=eta_redecision_triggered" in app_text)
+    invalidation_conditions_registered = bool("event=invalidation_condition_registered" in app_text)
+    invalidation_condition_checked = bool("event=invalidation_condition_checked" in app_text)
+    invalidation_condition_triggered = bool("event=invalidation_condition_triggered" in app_text)
+    invalidation_redecision_triggered = bool("event=invalidation_redecision_payload_created" in app_text)
+    redecision_payload_created = bool("_build_ai_redecision_payload" in app_text and "eta_redecision_payload_created" in app_text)
+    redecision_provider_requested = bool("event=eta_redecision_provider_requested" in app_text)
+    redecision_provider_blocked = bool("event=eta_redecision_blocked" in app_text)
+    redecision_response_received = bool("event=eta_redecision_response_received" in app_text)
+    redecision_validated = bool("event=eta_redecision_validated" in app_text and "validate_ai_decision_response" in provider_text)
+    redecision_training_record_detected = bool("redecision_events.jsonl" in app_text and "task\"] == \"ai_redecision\"" in app_text)
+    eta_trigger_direct_action_detected = bool("eta_expired_direct_action" in app_text)
+    invalidation_trigger_direct_action_detected = bool("invalidation_condition_direct_action" in app_text)
+    eta_redecision_blocker = "eta_invalidation_redecision_scheduler_ready"
+    if not eta_invalidation_scheduler_enabled:
+        eta_redecision_blocker = "eta_invalidation_scheduler_missing"
+    elif eta_trigger_direct_action_detected:
+        eta_redecision_blocker = "eta_trigger_direct_action_active"
+    elif invalidation_trigger_direct_action_detected:
+        eta_redecision_blocker = "invalidation_trigger_direct_action_active"
+    elif not redecision_payload_created:
+        eta_redecision_blocker = "redecision_payload_missing"
+    elif not redecision_training_record_detected:
+        eta_redecision_blocker = "redecision_training_record_missing"
     basic_direct_buy_decision_detected = bool(
         "[AITS][OrderIntentCandidate]" in app_text
         and "side=buy" in app_text
@@ -20928,6 +20962,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         violations.append("managed_pool_promotion_without_ai_decision")
     if rotation_without_ai_decision_detected:
         violations.append("rotation_without_ai_decision")
+    if eta_trigger_direct_action_detected:
+        violations.append("eta_trigger_direct_action_active")
+    if invalidation_trigger_direct_action_detected:
+        violations.append("invalidation_trigger_direct_action_active")
     if ai_decision_required_but_not_called_path_detected:
         violations.append("ai_decision_required_but_not_called_path_detected")
     if not ai_decision_payload_builder_detected:
@@ -20971,6 +21009,12 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         first_blocker = "managed_pool_promotion_without_ai_decision"
     elif rotation_without_ai_decision_detected:
         first_blocker = "normalized_rotation_score_direct_action_active" if normalized_rotation_score_direct_action_detected else "rotation_without_ai_decision"
+    elif not eta_invalidation_scheduler_enabled:
+        first_blocker = "eta_invalidation_scheduler_missing"
+    elif eta_trigger_direct_action_detected:
+        first_blocker = "eta_trigger_direct_action_active"
+    elif invalidation_trigger_direct_action_detected:
+        first_blocker = "invalidation_trigger_direct_action_active"
     elif not ai_decision_payload_builder_detected:
         first_blocker = "ai_decision_payload_builder_missing"
     elif not ai_response_validator_detected:
@@ -21077,6 +21121,24 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "rotation_ai_decision_symbols": [],
         "rotation_blocker": rotation_blocker,
         "rotation_training_record_detected": bool(rotation_training_record_detected),
+        "eta_invalidation_scheduler_enabled": bool(eta_invalidation_scheduler_enabled),
+        "ai_decision_eta_registered": bool(ai_decision_eta_registered),
+        "eta_tick_detected": bool(eta_tick_detected),
+        "eta_expired_detected": bool(eta_expired_detected),
+        "eta_redecision_triggered": bool(eta_redecision_triggered),
+        "invalidation_conditions_registered": bool(invalidation_conditions_registered),
+        "invalidation_condition_checked": bool(invalidation_condition_checked),
+        "invalidation_condition_triggered": bool(invalidation_condition_triggered),
+        "invalidation_redecision_triggered": bool(invalidation_redecision_triggered),
+        "redecision_payload_created": bool(redecision_payload_created),
+        "redecision_provider_requested": bool(redecision_provider_requested),
+        "redecision_provider_blocked": bool(redecision_provider_blocked),
+        "redecision_response_received": bool(redecision_response_received),
+        "redecision_validated": bool(redecision_validated),
+        "redecision_training_record_detected": bool(redecision_training_record_detected),
+        "eta_trigger_direct_action_detected": bool(eta_trigger_direct_action_detected),
+        "invalidation_trigger_direct_action_detected": bool(invalidation_trigger_direct_action_detected),
+        "eta_redecision_blocker": eta_redecision_blocker,
         "buy_ready_ai_gate_enabled": bool(buy_ready_ai_gate_enabled),
         "buy_ready_trigger_detected": bool("event=buy_ready_trigger_detected" in app_text),
         "buy_decision_payload_created": bool("event=buy_decision_payload_created" in app_text),

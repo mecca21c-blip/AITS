@@ -41056,6 +41056,8 @@ class MainWindow(QMainWindow):
                 target_name = "promotion_decisions.jsonl"
             elif row["task"] == "rotation_decision":
                 target_name = "rotation_decisions.jsonl"
+            elif row["task"] == "ai_redecision":
+                target_name = "redecision_events.jsonl"
             else:
                 target_name = "position_decisions.jsonl"
             with (root / target_name).open("a", encoding="utf-8") as fh:
@@ -41068,11 +41070,267 @@ class MainWindow(QMainWindow):
                 row["ai_action"] or "-",
                 payload_hash,
             )
+            self._register_ai_decision_redecision_state(payload=payload, decision=decision, payload_hash=payload_hash)
         except Exception as exc:
             try:
                 self._log.info("[AITS][AIDecisionAuthority] event=local_training_record_failed error_type=%s actual_order=False submitted=0", type(exc).__name__)
             except Exception:
                 pass
+
+    def _register_ai_decision_redecision_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> None:
+        """Keep validated AI scenario watches; this helper never creates an order action."""
+        if not bool((decision or {}).get("validation_passed")):
+            return
+        task = str((payload or {}).get("task") or "manage_position_decision").strip()
+        symbol = self._normalize_managed_pool_symbol_for_persistence((payload or {}).get("symbol"))
+        if not symbol and task == "rotation_decision":
+            symbol = self._normalize_managed_pool_symbol_for_persistence(((payload or {}).get("rotation_candidate") or {}).get("old_symbol"))
+        if not symbol:
+            return
+        try:
+            eta_seconds = max(0, int(float((decision or {}).get("eta_seconds") or 0)))
+        except Exception:
+            eta_seconds = 0
+        now = time.time()
+        decision_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash or f"decision-{int(now)}-{symbol}")
+        scope_map = {
+            "buy_decision": "buy",
+            "managed_pool_promotion_decision": "promotion",
+            "rotation_decision": "rotation",
+            "manage_position_decision": "position_management",
+            "ai_redecision": "position_management",
+        }
+        states = getattr(self, "_ai_redecision_states", None)
+        if not isinstance(states, dict):
+            states = {}
+            self._ai_redecision_states = states
+        for prior in states.values():
+            if isinstance(prior, dict) and prior.get("symbol") == symbol and prior.get("current_status") == "active":
+                prior["current_status"] = "superseded"
+        position = (payload or {}).get("position") if isinstance((payload or {}).get("position"), dict) else {}
+        if not position and isinstance((payload or {}).get("old_position"), dict):
+            position = (payload or {}).get("old_position")
+        if not position and isinstance((payload or {}).get("candidate"), dict):
+            position = (payload or {}).get("candidate")
+        if not position and isinstance((payload or {}).get("current_state"), dict):
+            position = ((payload or {}).get("current_state") or {}).get("position") or {}
+        portfolio = (payload or {}).get("portfolio") if isinstance((payload or {}).get("portfolio"), dict) else {}
+        if not portfolio and isinstance((payload or {}).get("current_state"), dict):
+            portfolio = ((payload or {}).get("current_state") or {}).get("portfolio") or {}
+        candidates = (payload or {}).get("candidates") if isinstance((payload or {}).get("candidates"), dict) else {}
+        managed_pool = (payload or {}).get("current_managed_pool") if isinstance((payload or {}).get("current_managed_pool"), dict) else {}
+        state = {
+            "ai_decision_id": decision_id,
+            "symbol": symbol,
+            "provider": str((decision or {}).get("provider") or self._selected_ai_decision_provider() or ""),
+            "action": str((decision or {}).get("action") or "wait"),
+            "confidence": (decision or {}).get("confidence"),
+            "reason_ko": str((decision or {}).get("reason_ko") or ""),
+            "eta_seconds": eta_seconds,
+            "eta_started_at": now,
+            "eta_expires_at": now + eta_seconds,
+            "invalidation_conditions": list((decision or {}).get("invalidation_conditions") or []),
+            "payload_hash": payload_hash,
+            "decision_task": task,
+            "decision_symbol": symbol,
+            "decision_scope": scope_map.get(task, "position_management"),
+            "current_status": "active",
+            "prior_snapshot": {
+                "position": dict(position),
+                "portfolio": dict(portfolio),
+                "managed_pool_symbols": list(candidates.get("managed_pool_symbols") or managed_pool.get("symbols") or []),
+            },
+            "last_tick_at": 0.0,
+        }
+        states[decision_id] = state
+        self._log.info(
+            "[AITS][ETAReDecision] event=eta_registered symbol=%s decision_id=%s task=%s action=%s eta_seconds=%s eta_started_at=%s eta_expires_at=%s provider=%s actual_order=False submitted=0",
+            symbol, decision_id, task, state["action"], eta_seconds, int(now), int(state["eta_expires_at"]), state["provider"] or "-",
+        )
+        for condition in state["invalidation_conditions"]:
+            self._log.info(
+                "[AITS][ETAReDecision] event=invalidation_condition_registered symbol=%s decision_id=%s condition_type=%s expected=%s actual=- threshold=%s triggered=False actual_order=False submitted=0",
+                symbol, decision_id,
+                str(condition.get("type") if isinstance(condition, dict) else condition or "unknown"),
+                str(condition.get("expected") if isinstance(condition, dict) else "-"),
+                str(condition.get("threshold") if isinstance(condition, dict) else "-"),
+            )
+
+    def _build_ai_redecision_payload(self, *, state: dict, current: dict, trigger_reason: str, condition: dict | None = None) -> dict:
+        prior = dict(state or {})
+        prior_snapshot = prior.get("prior_snapshot") if isinstance(prior.get("prior_snapshot"), dict) else {}
+        prior_position = prior_snapshot.get("position") if isinstance(prior_snapshot.get("position"), dict) else {}
+        current_position = current.get("position") if isinstance(current.get("position"), dict) else {}
+        def _delta(name: str) -> float | None:
+            try:
+                before, after = float(prior_position.get(name)), float(current_position.get(name))
+                return after - before
+            except Exception:
+                return None
+        def _value_delta(before: object, after: object) -> float | None:
+            try:
+                return float(after) - float(before)
+            except Exception:
+                return None
+        return {
+            "schema": "aits_ai_decision_payload_v1",
+            "task": "ai_redecision",
+            "trigger_reason": trigger_reason,
+            "symbol": prior.get("symbol"),
+            "prior_decision": {
+                "decision_id": prior.get("ai_decision_id"), "task": prior.get("decision_task"), "action": prior.get("action"),
+                "confidence": prior.get("confidence"), "reason_ko": prior.get("reason_ko"), "eta_seconds": prior.get("eta_seconds"),
+                "invalidation_conditions": prior.get("invalidation_conditions") or [], "decision_time": prior.get("eta_started_at"),
+            },
+            "current_state": current,
+            "delta_since_prior_decision": {
+                "price_change": _delta("current_price"), "pnl_change": _delta("pnl_pct"), "volume_change": _delta("volume_change"),
+                "indicator_change": {"rsi": _delta("rsi"), "macd": _delta("macd")}, "holding_qty_change": _delta("qty"),
+                "cash_change": _value_delta(
+                    (prior_snapshot.get("portfolio") or {}).get("available_krw"),
+                    (current.get("portfolio") or {}).get("available_krw"),
+                ),
+                "condition": condition or {},
+            },
+            "requested_decision": {"allowed_actions": ["hold", "wait", "buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"]},
+            "output_schema": {"action": "allowed action", "confidence": "0.0-1.0", "reason_ko": "string", "eta_seconds": "integer", "execution_plan": "object", "invalidation_conditions": "list"},
+        }
+
+    def _redecision_current_state(self, *, symbol: str, rows: list[dict]) -> dict:
+        context_rows = [dict(item) for item in rows if isinstance(item, dict)]
+        scanner_rows = getattr(self, "_aits_latest_scanner_top_candidates", [])
+        if isinstance(scanner_rows, list):
+            context_rows.extend(dict(item) for item in scanner_rows if isinstance(item, dict))
+        try:
+            context_rows.extend(dict(item) for item in self._sell_evaluation_observe_rows() if isinstance(item, dict))
+        except Exception:
+            pass
+        row = next((item for item in context_rows if self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market")) == symbol), {})
+        managed_symbols = [self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market")) for item in rows if isinstance(item, dict)]
+        managed_symbols = [item for item in managed_symbols if item]
+        position = {
+            "symbol": symbol, "qty": row.get("qty") or row.get("balance"), "avg_buy_price": row.get("avg_buy_price"),
+            "current_price": row.get("current_price") or row.get("price"), "position_value_krw": row.get("position_value_krw") or row.get("valuation_krw"),
+            "pnl_krw": row.get("pnl_krw"), "pnl_pct": row.get("pnl_pct") or row.get("pnl"), "rsi": row.get("rsi") or row.get("RSI"),
+            "macd": row.get("macd") or row.get("MACD"), "volume_change": row.get("volume_change"), "holding": bool(row.get("holding")),
+        }
+        return {"context_available": bool(row), "position": position, "market": {"market_data_stale": bool(getattr(self, "_candidate_feed_stale", False)), "price_change": row.get("change_rate") or row.get("change_pct"), "volume_change": row.get("volume_change")}, "indicators": {"rsi": position["rsi"], "macd": position["macd"]}, "portfolio": {"available_krw": getattr(self, "_last_available_krw", None), "total_asset_krw": getattr(self, "_aits_total_asset_krw", None)}, "candidates": {"managed_pool_symbols": managed_symbols}}
+
+    def _check_ai_invalidation_condition(self, *, condition: object, state: dict, current: dict) -> tuple[bool, dict]:
+        data = dict(condition) if isinstance(condition, dict) else {"type": str(condition or "")}
+        kind = str(data.get("type") or data.get("condition") or "").strip().lower()
+        position = current.get("position") if isinstance(current.get("position"), dict) else {}
+        prior_position = ((state.get("prior_snapshot") or {}).get("position") or {}) if isinstance(state.get("prior_snapshot"), dict) else {}
+        threshold = data.get("threshold", data.get("value"))
+        actual = None
+        triggered = False
+        try:
+            if kind in {"pnl_pct", "pnl_pct_crosses_threshold", "pnl_threshold"}:
+                actual = float(position.get("pnl_pct")); limit = float(threshold); direction = str(data.get("direction") or data.get("operator") or "below").lower(); triggered = actual >= limit if direction in {"above", ">", ">="} else actual <= limit
+            elif kind in {"price_change", "price_change_exceeds_threshold"}:
+                actual = float(current.get("market", {}).get("price_change")); triggered = abs(actual) >= abs(float(threshold))
+            elif kind in {"volume_change", "volume_change_exceeds_threshold", "volume_drop"}:
+                actual = float(position.get("volume_change") or current.get("market", {}).get("volume_change")); limit = abs(float(threshold)); triggered = actual <= -limit if kind == "volume_drop" else abs(actual) >= limit
+            elif kind in {"rsi", "rsi_overheat"}:
+                actual = float(position.get("rsi")); limit = float(threshold if threshold is not None else 70); direction = str(data.get("direction") or "above").lower(); triggered = actual >= limit if direction in {"above", ">", ">="} else actual <= limit
+            elif kind in {"macd_direction_changed", "macd_turn_down"}:
+                actual = position.get("macd"); triggered = actual is not None and prior_position.get("macd") is not None and float(actual) < float(prior_position.get("macd"))
+            elif kind in {"holding_qty_changed", "holding_qty_change"}:
+                actual = position.get("qty"); triggered = actual is not None and prior_position.get("qty") is not None and float(actual) != float(prior_position.get("qty"))
+            elif kind in {"available_krw_changed", "cash_changed"}:
+                actual = current.get("portfolio", {}).get("available_krw"); before = ((state.get("prior_snapshot") or {}).get("portfolio") or {}).get("available_krw"); material = abs(float(threshold)) if threshold is not None else max(5000.0, abs(float(before or 0.0)) * 0.1); triggered = actual is not None and before is not None and abs(float(actual) - float(before)) >= material
+            elif kind in {"managed_pool_symbol_changed", "managed_pool_changed"}:
+                actual = current.get("candidates", {}).get("managed_pool_symbols") or []; before = ((state.get("prior_snapshot") or {}).get("managed_pool_symbols") or []); triggered = set(actual) != set(before)
+            elif kind == "market_data_stale":
+                actual = bool(current.get("market", {}).get("market_data_stale")); triggered = bool(actual)
+        except (TypeError, ValueError):
+            triggered = False
+        return bool(triggered), {"type": kind or "unsupported", "expected": data.get("expected"), "actual": actual, "threshold": threshold, "triggered": bool(triggered)}
+
+    def _run_ai_redecision_scheduler(self, *, reason: str, rows: list[dict]) -> dict:
+        states = getattr(self, "_ai_redecision_states", {})
+        if not isinstance(states, dict):
+            return {"checked": 0, "triggered": 0}
+        runtime_active = bool(
+            getattr(self, "_aits_runtime_contract_active", False)
+            or getattr(self, "_aits_monitor_only_mode", False)
+            or getattr(self, "_aits_runtime_monitor_only_mode", False)
+        )
+        if not runtime_active:
+            return {"checked": 0, "triggered": 0, "blocker": "runtime_inactive_for_redecision"}
+        now = time.time(); checked = 0; triggered = 0
+        for state in list(states.values()):
+            if not isinstance(state, dict) or state.get("current_status") != "active":
+                continue
+            if now - float(state.get("last_tick_at") or 0.0) < 10.0:
+                continue
+            state["last_tick_at"] = now; checked += 1
+            symbol = str(state.get("symbol") or "")
+            current = self._redecision_current_state(symbol=symbol, rows=rows)
+            if not bool(current.get("context_available")):
+                state["current_status"] = "completed"
+                self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_symbol_not_relevant reason=context_missing actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("provider") or "-")
+                continue
+            elapsed = max(0, int(now - float(state.get("eta_started_at") or now)))
+            self._log.info("[AITS][ETAReDecision] event=eta_tick symbol=%s decision_id=%s task=%s action=%s eta_expires_at=%s now=%s elapsed_sec=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", state.get("action") or "-", int(state.get("eta_expires_at") or 0), int(now), elapsed)
+            trigger_reason = ""; triggered_condition = {}
+            if now >= float(state.get("eta_expires_at") or now + 1):
+                state["current_status"] = "expired"; trigger_reason = "eta_expired"
+                self._log.info("[AITS][ETAReDecision] event=eta_expired symbol=%s decision_id=%s task=%s elapsed_sec=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", elapsed)
+            else:
+                for condition in list(state.get("invalidation_conditions") or []):
+                    hit, observed = self._check_ai_invalidation_condition(condition=condition, state=state, current=current)
+                    self._log.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
+                    if hit:
+                        state["current_status"] = "invalidated"; trigger_reason = "invalidation_condition_triggered"; triggered_condition = observed
+                        self._log.info("[AITS][ETAReDecision] event=invalidation_condition_triggered symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=True actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"))
+                        break
+            if not trigger_reason:
+                continue
+            triggered += 1
+            if trigger_reason == "eta_expired":
+                self._aits_redecision_status_text = "AI 판단 ETA 만료 · 재판단 요청 중"
+                self._append_aits_live_log(
+                    f"{symbol} 기존 AI 판단 ETA가 만료되어 재판단을 요청합니다.",
+                    category="pipeline", level="info", event="ai_redecision_eta_expired", symbol=symbol,
+                )
+            else:
+                self._aits_redecision_status_text = "AI 판단 조건 변경 · 재판단 요청 중"
+                self._append_aits_live_log(
+                    f"{symbol} 기존 AI 판단 조건이 변경되어 재판단을 요청합니다.",
+                    category="pipeline", level="warning", event="ai_redecision_invalidation", symbol=symbol,
+                )
+            payload = self._build_ai_redecision_payload(state=state, current=current, trigger_reason=trigger_reason, condition=triggered_condition)
+            payload_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+            self._log.info("[AITS][ETAReDecision] event=eta_redecision_triggered symbol=%s decision_id=%s trigger_reason=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", trigger_reason)
+            if trigger_reason == "eta_expired":
+                self._log.info("[AITS][ETAReDecision] event=eta_redecision_payload_created symbol=%s decision_id=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", payload_hash)
+            else:
+                self._log.info("[AITS][ETAReDecision] event=invalidation_redecision_payload_created symbol=%s decision_id=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", payload_hash)
+            provider = self._selected_ai_decision_provider()
+            try:
+                self._log.info("[AITS][ETAReDecision] event=eta_redecision_provider_requested symbol=%s decision_id=%s provider=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", payload_hash)
+                from app.services.ai_engine_provider import AIEngineProvider
+                decision = dict(AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None)).generate_position_management_decision(provider=provider, context=payload) or {})
+                decision["ai_payload_hash"] = payload_hash
+                if bool(decision.get("response_confirmed")):
+                    self._log.info("[AITS][ETAReDecision] event=eta_redecision_response_received symbol=%s decision_id=%s provider=%s action=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-")
+                if bool(decision.get("validation_passed")):
+                    self._log.info("[AITS][ETAReDecision] event=eta_redecision_validated symbol=%s decision_id=%s provider=%s action=%s confidence=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-", decision.get("confidence"))
+                    self._aits_redecision_status_text = f"AI 재판단 완료 · {int(decision.get('eta_seconds') or 0)}초 감시"
+                    self._append_aits_live_log(
+                        f"{symbol} AI 재판단: {str(decision.get('reason_ko') or '현재 상태를 계속 감시합니다.')}",
+                        category="pipeline", level="info", event="ai_redecision_completed", symbol=symbol,
+                    )
+                if not bool(decision.get("response_confirmed")) or not bool(decision.get("validation_passed")):
+                    blocker = str(decision.get("blocker") or "redecision_provider_blocked")
+                    self._aits_redecision_status_text = "AI 재판단 요청 대기 · provider 확인 필요"
+                    self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", blocker)
+                self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result={"redecision_result": "requested", "trigger_reason": trigger_reason, "blocker": str(decision.get("blocker") or ""), "actual_order": False, "submitted_count": 0})
+            except Exception as exc:
+                self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_provider_blocked error_type=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", type(exc).__name__)
+                self._record_ai_position_decision_training(payload=payload, decision={"provider": provider, "action": "wait", "confidence": 0.0, "reason_ko": "AI 재판단 요청을 대기합니다.", "validation_passed": False, "blocker": "redecision_provider_blocked"}, execution_result={"redecision_result": "blocked", "trigger_reason": trigger_reason, "actual_order": False, "submitted_count": 0})
+        return {"checked": checked, "triggered": triggered}
 
     def _request_ai_buy_decision(self, *, payload: dict, candidate: dict) -> dict:
         symbol = str((payload or {}).get("symbol") or (candidate or {}).get("symbol") or "").strip().upper()
@@ -42120,10 +42378,13 @@ class MainWindow(QMainWindow):
                 risk_text = " · 외부 보유종목 손익 확인 대기"
         except Exception:
             risk_text = ""
+        redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
+        if redecision_text:
+            redecision_text = " · " + redecision_text
         text = (
             f"{now_text} · {main} · 관리 {managed_count} / 최대 {max_count} · "
             f"보유 {holding_count} · 교체대상 {target_count} · {rotation_text} · "
-            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}{buy_block_text}{risk_text}"
+            f"이번 판단 주기 주문 없음 · 오늘 누적 매수 {buy_count}건 · 매도 {sell_count}건{cap_text}{buy_block_text}{risk_text}{redecision_text}"
         )
         return state, text
 
@@ -43508,6 +43769,20 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     logging.getLogger("aits").info(
                         "[AITS][SellEvaluation] event=sell_eval_actual_writer_skipped writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update blocker=actual_writer_exception error_type=%s reason=score_update preview_only=True actual_order=False submitted=0",
+                        type(exc).__name__,
+                    )
+                try:
+                    redecision_result = self._run_ai_redecision_scheduler(reason="CandidateFeedState.score_update", rows=[row for row in rows if isinstance(row, dict)])
+                    if int(redecision_result.get("triggered") or 0) > 0:
+                        self._append_aits_live_log(
+                            f"AI 판단 유효 시간이 만료되었거나 조건이 변경되어 재판단을 요청했습니다. ({int(redecision_result.get('triggered') or 0)}건)",
+                            category="pipeline",
+                            level="info",
+                            event="ai_redecision_requested",
+                        )
+                except Exception as exc:
+                    logging.getLogger("aits").info(
+                        "[AITS][ETAReDecision] event=eta_redecision_blocked symbol=- decision_id=- provider=- blocker=redecision_context_missing error_type=%s actual_order=False submitted=0",
                         type(exc).__name__,
                     )
                 try:

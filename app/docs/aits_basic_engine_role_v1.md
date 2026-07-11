@@ -198,3 +198,9 @@ BASIC은 계산한다. BASIC은 정리한다. BASIC은 AI에게 묻는다. AI가
 - BASIC must not remove protected, user-added, live-holding, or external-holding rows through simple rotation replacement.
 - BASIC must treat `rotate` and `reduce_and_rotate` as execution-pending in this stage and avoid immediate buy/sell submit.
 - BASIC must record rotation decisions and blockers for LOCAL training.
+
+## BASIC ETA and Invalidation Watcher Duty
+
+- BASIC records validated AI ETA and invalidation conditions as scenario-watch state.
+- ETA expiry and condition change create an AI redecision request, never a direct buy, sell, rotate, or replacement instruction.
+- BASIC records the prior decision, elapsed time, observed delta, provider result, and blocker for LOCAL learning.

@@ -329,3 +329,10 @@ rotation from an observe-only score plan into an AI-gated rotation decision.
   and do not submit orders in this stage.
 - Rotation decision records are written for LOCAL training under
   `rotation_decisions.jsonl`.
+
+## 13. ETA And Invalidation ReDecision Scheduler Follow-Up
+
+- Validated decisions register scenario-watch state in the active runtime.
+- Candidate feed score updates check ETA and supported invalidation conditions.
+- ETA expiry or a breach produces `task=ai_redecision`, not an OrderIntent, RiskGuard, LivePreflight, Execution, or Managed Pool mutation.
+- ReDecision provider outcomes are retained under `redecision_events.jsonl`.

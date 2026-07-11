@@ -147,3 +147,9 @@ BASIC Signal Collector
 - `replace` can only target a non-holding, non-protected, removable row. Protected, user-added, live-holding, and external-holding rows are not simple replacement targets.
 - `rotate` and `reduce_and_rotate` are execution-pending decisions in the gate stage. They must not submit sell or buy orders until a later guarded execution goal connects RiskGuard, LivePreflight, and Execution.
 - Rotation decisions and blockers are recorded for LOCAL training with payload hash, provider, AI action, confidence, reason, validator result, rotation result, and outcome placeholders.
+
+## ETA And Invalidation Boundary
+
+- BASIC watches ETA and invalidation conditions for validated AI scenarios. Expiry and condition breaches are AI redecision triggers, never direct trade or managed-pool actions.
+- An `ai_redecision` payload contains the prior decision, current state, and delta since the prior decision.
+- Provider failure remains blocked/waiting; the scheduler does not invoke RiskGuard, LivePreflight, or Execution.
