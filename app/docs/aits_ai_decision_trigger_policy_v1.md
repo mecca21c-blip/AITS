@@ -231,3 +231,6 @@ BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. 
 - BASIC records validated AI ETA, timestamps, payload hash, and invalidation conditions in runtime state.
 - ETA expiry or a supported invalidation breach creates `task=ai_redecision` with the prior decision and observed state delta. BASIC never submits or mutates the pool directly.
 - Provider-blocked or invalid redecisions remain waiting with an explicit blocker and are recorded in `redecision_events.jsonl` for LOCAL training.
+## ETA Runtime Registration Coverage
+
+ETA and invalidation monitoring begins only after a validated AI decision is registered. Buy, sell/position management, promotion, rotation, and redecision use the same registration contract. Provider-blocked or invalid responses are never active decisions. `hold`, `wait`, and `reject` responses with an ETA or invalidation condition are active watch states: BASIC monitors them and asks AI again when the scenario expires or becomes invalid, without converting the trigger directly into an action.

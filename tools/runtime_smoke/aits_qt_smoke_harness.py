@@ -8632,12 +8632,42 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log()
     provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
     latest_provenance = provenance_lines[-1] if provenance_lines else ""
-    session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
-    if session_started_at_dt is not None:
-        lines = [
-            line for line in lines
-            if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= session_started_at_dt)
+    on_anchor_indexes = [
+        index for index, line in enumerate(lines)
+        if "[AITS][ON]" in line and "event=run_branch" in line and "branch=on" in line
+    ]
+    runtime_anchor_indexes = [
+        index for index, line in enumerate(lines)
+        if "runtime_contract_active=True" in line
+        and ("event=start_result" in line or "event=runtime_loop_started" in line)
+    ]
+    anchor_index = (on_anchor_indexes or runtime_anchor_indexes or [-1])[-1]
+    current_runtime_window_start = ""
+    current_runtime_pid_detected = 0
+    log_window_filtered_by_current_pid = False
+    if anchor_index >= 0:
+        current_runtime_window_start = _extract_log_time(lines[anchor_index])
+        preceding_provenance = [
+            line for line in lines[: anchor_index + 1]
+            if "[AITS][RuntimeProvenance]" in line
         ]
+        runtime_provenance = preceding_provenance[-1] if preceding_provenance else latest_provenance
+        current_runtime_pid_detected = int(
+            _safe_float(_live_on_stage_extract_value(runtime_provenance, "process_pid"), 0.0)
+        )
+        lines = lines[anchor_index:]
+    else:
+        session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
+        if session_started_at_dt is not None:
+            current_runtime_window_start = session_started_at_dt.isoformat()
+            current_runtime_pid_detected = int(
+                _safe_float(_live_on_stage_extract_value(latest_provenance, "process_pid"), 0.0)
+            )
+            lines = [
+                line for line in lines
+                if (_runtime_provenance_line_ts(line) is None
+                    or _runtime_provenance_line_ts(line) >= session_started_at_dt)
+            ]
     lowered = [line.lower() for line in lines]
     joined = "\n".join(lines)
     joined_lower = "\n".join(lowered)
@@ -9124,6 +9154,37 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     add_position_policy_lines = [line for line in lines if "[AITS][AddPositionPolicy]" in line]
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
+    eta_redecision_lines = [line for line in lines if "[AITS][ETAReDecision]" in line]
+    eta_scheduler_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_probe" in line]
+    eta_scheduler_idle_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_idle" in line]
+    ai_decision_state_registered_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registered" in line]
+    ai_decision_state_registration_skipped_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registration_skipped" in line]
+    eta_registered_lines = [line for line in eta_redecision_lines if "event=eta_registered" in line]
+    invalidation_registered_lines = [line for line in eta_redecision_lines if "event=invalidation_condition_registered" in line]
+    eta_tick_lines = [line for line in eta_redecision_lines if "event=eta_tick" in line]
+    eta_expired_lines = [line for line in eta_redecision_lines if "event=eta_expired" in line]
+    invalidation_checked_lines = [line for line in eta_redecision_lines if "event=invalidation_condition_checked" in line]
+    redecision_payload_lines = [line for line in eta_redecision_lines if "event=eta_redecision_payload_created" in line or "event=invalidation_redecision_payload_created" in line]
+    valid_ai_decision_lines = [
+        line for line in lines
+        if any(marker in line for marker in (
+            "event=buy_decision_validated", "event=promotion_validated", "event=rotation_validated",
+            "event=eta_redecision_validated", "event=position_decision_validated",
+        ))
+    ]
+    latest_eta_probe = eta_scheduler_probe_lines[-1] if eta_scheduler_probe_lines else ""
+    registered_eta_count = int(_safe_float(_live_on_stage_extract_value(latest_eta_probe, "registered_eta_count"), len(eta_registered_lines)))
+    registered_invalidation_condition_count = int(_safe_float(_live_on_stage_extract_value(latest_eta_probe, "registered_invalidation_count"), len(invalidation_registered_lines)))
+    ai_decision_state_registered_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol") for line in ai_decision_state_registered_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    })
+    eta_scheduler_called_but_no_decisions = bool(eta_scheduler_probe_lines and eta_scheduler_idle_lines)
+    eta_scheduler_not_called = not bool(eta_scheduler_probe_lines)
+    ai_decision_registration_missing = bool(valid_ai_decision_lines and not ai_decision_state_registered_lines)
+    eta_runtime_state_source = "registered_ai_decision_state" if ai_decision_state_registered_lines else (
+        "scheduler_idle" if eta_scheduler_idle_lines else "runtime_probe_missing"
+    )
     ai_decision_authority_lines = [line for line in lines if "[AITS][AIDecisionAuthority]" in line]
     sell_order_intent_lines = [line for line in lines if "[AITS][SellOrderIntent]" in line]
     sell_apply_guard_lines = [line for line in lines if "[AITS][SellApplyGuard]" in line]
@@ -9738,6 +9799,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = "live_preflight_passed_but_execution_not_requested"
     if heartbeat_expected and not heartbeat_detected and first_blocker in {"", "no_buy_ready_candidate", "buy_ready_but_candidate_not_selected"}:
         first_blocker = "live_log_heartbeat_missing"
+    eta_runtime_first_blocker = ""
+    if eta_scheduler_not_called:
+        eta_runtime_first_blocker = "eta_scheduler_not_called_in_runtime"
+    elif ai_decision_registration_missing:
+        eta_runtime_first_blocker = "ai_decision_registration_missing"
+    elif eta_scheduler_called_but_no_decisions:
+        eta_runtime_first_blocker = "eta_scheduler_running_but_no_registered_ai_decisions"
+    elif ai_decision_state_registered_lines and not eta_tick_lines:
+        eta_runtime_first_blocker = "eta_tick_not_running"
+    elif eta_expired_lines and not redecision_payload_lines:
+        eta_runtime_first_blocker = "eta_expired_but_redecision_payload_missing"
+    elif ai_decision_state_registered_lines and eta_tick_lines:
+        eta_runtime_first_blocker = "eta_scheduler_runtime_ready"
+    if runtime_contract_active and eta_runtime_first_blocker not in {"", "eta_scheduler_runtime_ready"}:
+        first_blocker = eta_runtime_first_blocker
+        if eta_runtime_first_blocker not in all_blockers:
+            all_blockers.insert(0, eta_runtime_first_blocker)
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -9798,6 +9876,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "log_read_error": log_read_error,
         "analyzed_log_line_count": len(lines),
         "recent_report_count": len(reports),
+        "current_runtime_window_start": str(current_runtime_window_start or ""),
+        "current_runtime_pid_detected": int(current_runtime_pid_detected or 0),
+        "log_window_filtered_by_current_pid": bool(log_window_filtered_by_current_pid),
         "on_state_detected": bool(on_state_detected),
         "runtime_loop_started": bool(runtime_loop_started),
         "runtime_start_requested": bool(runtime_start_requested),
@@ -10079,6 +10160,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_log_buy_blocked_monitoring_message": bool(live_log_buy_blocked_monitoring_message),
         "actual_buy_submit_count_after_buy_blocked": int(actual_buy_submit_count_after_buy_blocked),
         "actual_sell_submit_count_after_buy_blocked": int(actual_sell_submit_count_after_buy_blocked),
+        "eta_scheduler_probe_detected": bool(eta_scheduler_probe_lines),
+        "eta_scheduler_idle_detected": bool(eta_scheduler_idle_lines),
+        "eta_scheduler_probe_count": int(len(eta_scheduler_probe_lines)),
+        "eta_scheduler_idle_count": int(len(eta_scheduler_idle_lines)),
+        "ai_decision_state_registered_count": int(len(ai_decision_state_registered_lines)),
+        "ai_decision_state_registered_symbols": ai_decision_state_registered_symbols,
+        "ai_decision_state_registration_skipped_count": int(len(ai_decision_state_registration_skipped_lines)),
+        "registered_eta_count": int(registered_eta_count),
+        "registered_invalidation_condition_count": int(registered_invalidation_condition_count),
+        "eta_scheduler_called_but_no_decisions": bool(eta_scheduler_called_but_no_decisions),
+        "eta_scheduler_not_called": bool(eta_scheduler_not_called),
+        "ai_decision_registration_missing": bool(ai_decision_registration_missing),
+        "eta_runtime_state_source": str(eta_runtime_state_source),
+        "eta_tick_detected": bool(eta_tick_lines),
+        "eta_expired_detected": bool(eta_expired_lines),
+        "invalidation_condition_checked": bool(invalidation_checked_lines),
+        "redecision_payload_created": bool(redecision_payload_lines),
+        "eta_runtime_first_blocker": str(eta_runtime_first_blocker),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),
@@ -20596,13 +20695,20 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     elif not rotation_training_record_detected:
         rotation_blocker = "rotation_training_record_missing"
     eta_invalidation_scheduler_enabled = bool(
-        "_register_ai_decision_redecision_state" in app_text
+        "_register_ai_decision_runtime_state" in app_text
         and "_run_ai_redecision_scheduler" in app_text
+        and "event=eta_scheduler_probe" in app_text
+        and "event=eta_scheduler_idle" in app_text
+        and "event=ai_decision_state_registered" in app_text
         and "event=eta_registered" in app_text
         and "event=eta_redecision_triggered" in app_text
         and "event=invalidation_condition_triggered" in app_text
     )
     ai_decision_eta_registered = bool("event=eta_registered" in app_text)
+    eta_scheduler_probe_detected = bool("event=eta_scheduler_probe" in app_text)
+    eta_scheduler_idle_detected = bool("event=eta_scheduler_idle" in app_text)
+    ai_decision_state_registration_helper_detected = bool("_register_ai_decision_runtime_state" in app_text)
+    ai_decision_state_registration_skipped_detected = bool("event=ai_decision_state_registration_skipped" in app_text)
     eta_tick_detected = bool("event=eta_tick" in app_text)
     eta_expired_detected = bool("event=eta_expired" in app_text)
     eta_redecision_triggered = bool("event=eta_redecision_triggered" in app_text)
@@ -21123,6 +21229,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "rotation_training_record_detected": bool(rotation_training_record_detected),
         "eta_invalidation_scheduler_enabled": bool(eta_invalidation_scheduler_enabled),
         "ai_decision_eta_registered": bool(ai_decision_eta_registered),
+        "eta_scheduler_probe_detected": bool(eta_scheduler_probe_detected),
+        "eta_scheduler_idle_detected": bool(eta_scheduler_idle_detected),
+        "ai_decision_state_registration_helper_detected": bool(ai_decision_state_registration_helper_detected),
+        "ai_decision_state_registration_skipped_detected": bool(ai_decision_state_registration_skipped_detected),
         "eta_tick_detected": bool(eta_tick_detected),
         "eta_expired_detected": bool(eta_expired_detected),
         "eta_redecision_triggered": bool(eta_redecision_triggered),

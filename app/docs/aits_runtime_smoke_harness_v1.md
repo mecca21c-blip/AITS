@@ -1957,3 +1957,12 @@ summary modes.
 - `dry-read` reports scheduler, ETA registration/tick/expiry, invalidation, redecision payload/provider/training, and direct-action guard fields.
 - ETA expiry and invalidation must create `ai_redecision`; they must not create a direct order, rotation, or managed-pool mutation.
 - Provider-blocked outcomes remain non-executable with `actual_order=False` and `submitted=0`.
+## ETA Scheduler Runtime Probe And Decision Registration
+
+- `[AITS][ETAReDecision] event=eta_scheduler_probe` proves that the existing runtime active path called the scheduler.
+- `event=eta_scheduler_idle` with `reason=no_registered_ai_decision_state` is a healthy idle result, not a scheduler failure.
+- Valid buy, position-management sell, promotion, rotation, and redecision responses use the common AI decision runtime-state registration helper.
+- Provider-blocked, missing-response, and invalid-schema decisions are not registered as active ETA state.
+- Valid `hold`, `wait`, and `reject` decisions remain watchable when they provide ETA or invalidation conditions.
+- The E2E summary separates `eta_scheduler_not_called_in_runtime`, `eta_scheduler_running_but_no_registered_ai_decisions`, `ai_decision_registration_missing`, and `eta_tick_not_running`.
+- Runtime log analysis anchors on the latest real ON transition when available. PID is reported when provenance is available; logs are not claimed to be PID-filtered unless per-line PID filtering was possible.

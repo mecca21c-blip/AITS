@@ -336,3 +336,6 @@ rotation from an observe-only score plan into an AI-gated rotation decision.
 - Candidate feed score updates check ETA and supported invalidation conditions.
 - ETA expiry or a breach produces `task=ai_redecision`, not an OrderIntent, RiskGuard, LivePreflight, Execution, or Managed Pool mutation.
 - ReDecision provider outcomes are retained under `redecision_events.jsonl`.
+## ETA Registration Coverage Follow-up
+
+The runtime scheduler must be observable even when no AI decision exists. A scheduler probe followed by an idle event means the scheduler ran but had no valid decision state to watch. Every validated buy, position-management sell, promotion, rotation, or redecision response must pass through the common runtime-state registration helper. Blocked or invalid provider results remain audit/training events only and must not create active ETA state.

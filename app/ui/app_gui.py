@@ -40814,6 +40814,7 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
+        self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
         return decision
 
     def _build_ai_promotion_decision_payload(
@@ -41023,6 +41024,7 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
+        self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
         return decision
 
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
@@ -41070,23 +41072,34 @@ class MainWindow(QMainWindow):
                 row["ai_action"] or "-",
                 payload_hash,
             )
-            self._register_ai_decision_redecision_state(payload=payload, decision=decision, payload_hash=payload_hash)
         except Exception as exc:
             try:
                 self._log.info("[AITS][AIDecisionAuthority] event=local_training_record_failed error_type=%s actual_order=False submitted=0", type(exc).__name__)
             except Exception:
                 pass
 
-    def _register_ai_decision_redecision_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> None:
+    def _register_ai_decision_runtime_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> bool:
         """Keep validated AI scenario watches; this helper never creates an order action."""
         if not bool((decision or {}).get("validation_passed")):
-            return
+            self._log.info(
+                "[AITS][ETAReDecision] event=ai_decision_state_registration_skipped task=%s symbol=%s ai_decision_id=%s provider=%s action=%s eta_seconds=%s invalidation_condition_count=%s payload_hash=%s blocker=%s reason=decision_not_validated actual_order=False submitted=0",
+                str((payload or {}).get("task") or "manage_position_decision"), str((payload or {}).get("symbol") or "-").upper(),
+                str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or "-"), str((decision or {}).get("provider") or "-"),
+                str((decision or {}).get("action") or "wait"), (decision or {}).get("eta_seconds"), len((decision or {}).get("invalidation_conditions") or []),
+                payload_hash or str((decision or {}).get("ai_payload_hash") or "-"), str((decision or {}).get("blocker") or (decision or {}).get("validation_blocker") or "ai_decision_invalid"),
+            )
+            return False
         task = str((payload or {}).get("task") or "manage_position_decision").strip()
         symbol = self._normalize_managed_pool_symbol_for_persistence((payload or {}).get("symbol"))
         if not symbol and task == "rotation_decision":
             symbol = self._normalize_managed_pool_symbol_for_persistence(((payload or {}).get("rotation_candidate") or {}).get("old_symbol"))
         if not symbol:
-            return
+            self._log.info(
+                "[AITS][ETAReDecision] event=ai_decision_state_registration_skipped task=%s symbol=- ai_decision_id=- provider=%s action=%s eta_seconds=%s invalidation_condition_count=%s payload_hash=%s blocker=redecision_symbol_not_relevant reason=symbol_missing actual_order=False submitted=0",
+                task, str((decision or {}).get("provider") or "-"), str((decision or {}).get("action") or "wait"),
+                (decision or {}).get("eta_seconds"), len((decision or {}).get("invalidation_conditions") or []), payload_hash or "-",
+            )
+            return False
         try:
             eta_seconds = max(0, int(float((decision or {}).get("eta_seconds") or 0)))
         except Exception:
@@ -41135,6 +41148,7 @@ class MainWindow(QMainWindow):
             "decision_symbol": symbol,
             "decision_scope": scope_map.get(task, "position_management"),
             "current_status": "active",
+            "registered_at": now,
             "prior_snapshot": {
                 "position": dict(position),
                 "portfolio": dict(portfolio),
@@ -41143,6 +41157,10 @@ class MainWindow(QMainWindow):
             "last_tick_at": 0.0,
         }
         states[decision_id] = state
+        self._log.info(
+            "[AITS][ETAReDecision] event=ai_decision_state_registered task=%s symbol=%s ai_decision_id=%s provider=%s action=%s eta_seconds=%s invalidation_condition_count=%s payload_hash=%s blocker=- reason=validated_ai_decision actual_order=False submitted=0",
+            task, symbol, decision_id, state["provider"] or "-", state["action"], eta_seconds, len(state["invalidation_conditions"]), payload_hash or "-",
+        )
         self._log.info(
             "[AITS][ETAReDecision] event=eta_registered symbol=%s decision_id=%s task=%s action=%s eta_seconds=%s eta_started_at=%s eta_expires_at=%s provider=%s actual_order=False submitted=0",
             symbol, decision_id, task, state["action"], eta_seconds, int(now), int(state["eta_expires_at"]), state["provider"] or "-",
@@ -41155,6 +41173,15 @@ class MainWindow(QMainWindow):
                 str(condition.get("expected") if isinstance(condition, dict) else "-"),
                 str(condition.get("threshold") if isinstance(condition, dict) else "-"),
             )
+        if not state["invalidation_conditions"]:
+            self._log.info(
+                "[AITS][ETAReDecision] event=invalidation_condition_missing symbol=%s ai_decision_id=%s condition_count=0 condition_types=- reason=ai_response_has_no_invalidation_condition actual_order=False submitted=0",
+                symbol, decision_id,
+            )
+        return True
+
+    def _register_ai_decision_redecision_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> bool:
+        return self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
 
     def _build_ai_redecision_payload(self, *, state: dict, current: dict, trigger_reason: str, condition: dict | None = None) -> dict:
         prior = dict(state or {})
@@ -41250,16 +41277,43 @@ class MainWindow(QMainWindow):
     def _run_ai_redecision_scheduler(self, *, reason: str, rows: list[dict]) -> dict:
         states = getattr(self, "_ai_redecision_states", {})
         if not isinstance(states, dict):
-            return {"checked": 0, "triggered": 0}
+            states = {}
+            self._ai_redecision_states = states
+        now = time.time()
+        last_probe_at = float(getattr(self, "_ai_redecision_scheduler_last_probe_at", 0.0) or 0.0)
+        if now - last_probe_at < 10.0:
+            return {"checked": 0, "triggered": 0, "scheduler_result": "probe_debounced"}
+        self._ai_redecision_scheduler_last_probe_at = now
         runtime_active = bool(
             getattr(self, "_aits_runtime_contract_active", False)
             or getattr(self, "_aits_monitor_only_mode", False)
             or getattr(self, "_aits_runtime_monitor_only_mode", False)
         )
+        active_states = [state for state in states.values() if isinstance(state, dict) and state.get("current_status") == "active"]
+        registered_eta_count = sum(1 for state in active_states if state.get("eta_expires_at") is not None)
+        registered_invalidation_count = sum(len(state.get("invalidation_conditions") or []) for state in active_states)
+        try:
+            on_state = bool(getattr(self, "btn_run_toggle", None) and self.btn_run_toggle.isChecked())
+        except Exception:
+            on_state = runtime_active
+        self._log.info(
+            "[AITS][ETAReDecision] event=eta_scheduler_probe runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s active_decision_count=%s registered_eta_count=%s registered_invalidation_count=%s scheduler_should_run=%s scheduler_result=%s reason=%s actual_order=False submitted=0",
+            bool(getattr(self, "_aits_runtime_contract_active", False)), on_state,
+            bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
+            bool(getattr(self, "_aits_buy_blocked", False)), str(self._get_aits_execution_mode() or ""),
+            len(active_states), registered_eta_count, registered_invalidation_count, runtime_active,
+            "running" if runtime_active and active_states else ("idle" if runtime_active else "inactive"), reason or "runtime_tick",
+        )
         if not runtime_active:
             return {"checked": 0, "triggered": 0, "blocker": "runtime_inactive_for_redecision"}
-        now = time.time(); checked = 0; triggered = 0
-        for state in list(states.values()):
+        if not active_states:
+            self._log.info(
+                "[AITS][ETAReDecision] event=eta_scheduler_idle active_decision_count=0 registered_eta_count=0 registered_invalidation_count=0 reason=no_registered_ai_decision_state actual_order=False submitted=0"
+            )
+            return {"checked": 0, "triggered": 0, "scheduler_result": "idle", "blocker": "no_registered_ai_decision_state"}
+        checked = 0
+        triggered = 0
+        for state in active_states:
             if not isinstance(state, dict) or state.get("current_status") != "active":
                 continue
             if now - float(state.get("last_tick_at") or 0.0) < 10.0:
@@ -41286,6 +41340,10 @@ class MainWindow(QMainWindow):
                         self._log.info("[AITS][ETAReDecision] event=invalidation_condition_triggered symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=True actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"))
                         break
             if not trigger_reason:
+                self._log.info(
+                    "[AITS][ETAReDecision] event=eta_waiting symbol=%s decision_id=%s task=%s eta_expires_at=%s now=%s elapsed_sec=%s reason=eta_not_expired actual_order=False submitted=0",
+                    symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", int(state.get("eta_expires_at") or 0), int(now), elapsed,
+                )
                 continue
             triggered += 1
             if trigger_reason == "eta_expired":
@@ -41313,6 +41371,7 @@ class MainWindow(QMainWindow):
                 from app.services.ai_engine_provider import AIEngineProvider
                 decision = dict(AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None)).generate_position_management_decision(provider=provider, context=payload) or {})
                 decision["ai_payload_hash"] = payload_hash
+                self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
                 if bool(decision.get("response_confirmed")):
                     self._log.info("[AITS][ETAReDecision] event=eta_redecision_response_received symbol=%s decision_id=%s provider=%s action=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-")
                 if bool(decision.get("validation_passed")):
@@ -41427,6 +41486,7 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
+        self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
         return decision
 
     def _request_ai_position_decision(self, *, payload: dict, candidate: dict) -> dict:
@@ -41500,7 +41560,10 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        return dict(decision or {})
+        decision = dict(decision or {})
+        decision["ai_payload_hash"] = payload_hash
+        self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        return decision
 
     def _execute_ai_position_decision(self, *, candidate: dict, payload: dict, decision: dict) -> dict:
         action = str((decision or {}).get("action") or "").strip().lower()
