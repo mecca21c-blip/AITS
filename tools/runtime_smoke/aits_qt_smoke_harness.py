@@ -20559,6 +20559,42 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         promotion_blocker = "promotion_decision_payload_missing"
     elif not promotion_training_record_detected:
         promotion_blocker = "promotion_training_record_missing"
+    rotation_ai_gate_enabled = bool(
+        "_build_ai_rotation_decision_payload" in app_text
+        and "_request_ai_rotation_decision" in app_text
+        and "event=rotation_trigger_detected" in app_text
+        and "event=rotation_payload_created" in app_text
+        and "event=rotation_allowed" in app_text
+        and "rotation_decisions.jsonl" in app_text
+    )
+    rotation_trigger_detected = bool("event=rotation_trigger_detected" in app_text)
+    rotation_payload_created = bool("event=rotation_payload_created" in app_text)
+    rotation_provider_requested = bool("event=rotation_provider_requested" in app_text)
+    rotation_provider_blocked = bool("event=rotation_provider_blocked" in app_text)
+    rotation_response_received = bool("event=rotation_response_received" in app_text)
+    rotation_validated = bool("event=rotation_validated" in app_text)
+    rotation_ai_metadata_required = bool("_ai_rotation_metadata" in app_text and "ai_validation_passed" in app_text)
+    rotation_training_record_detected = bool("rotation_decisions.jsonl" in app_text and "rotation_decision" in app_text and "rotation_result" in app_text)
+    normalized_rotation_score_direct_action_detected = bool(
+        "normalized_rotation_score" in promotion_text
+        and ("managed_pool_mutation=True" in promotion_text or "rotation_execution=True" in promotion_text)
+        and not rotation_ai_gate_enabled
+    )
+    rotation_replace_without_ai_approval_detected = bool(
+        "planned_rotation" in promotion_text
+        and "rotation_allowed" in promotion_text
+        and not rotation_ai_gate_enabled
+    )
+    rotation_without_ai_decision_detected = bool(normalized_rotation_score_direct_action_detected or rotation_replace_without_ai_approval_detected)
+    rotation_blocker = "rotation_ai_gate_ready"
+    if normalized_rotation_score_direct_action_detected:
+        rotation_blocker = "normalized_rotation_score_direct_action_active"
+    elif rotation_without_ai_decision_detected:
+        rotation_blocker = "rotation_without_ai_decision"
+    elif not rotation_payload_created:
+        rotation_blocker = "rotation_decision_payload_missing"
+    elif not rotation_training_record_detected:
+        rotation_blocker = "rotation_training_record_missing"
     basic_direct_buy_decision_detected = bool(
         "[AITS][OrderIntentCandidate]" in app_text
         and "side=buy" in app_text
@@ -20567,8 +20603,9 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and not buy_ready_ai_gate_enabled
     )
     basic_direct_rotation_decision_detected = bool(
-        "rotation_allowed=True" in promotion_text
-        or ("managed_pool_mutation=True" in promotion_text and "ai_decision" not in promotion_text.lower())
+        ("rotation_allowed=True" in promotion_text
+         or ("managed_pool_mutation=True" in promotion_text and "ai_decision" not in promotion_text.lower()))
+        and not rotation_ai_gate_enabled
     )
     fixed_threshold_direct_action_samples = _line_samples(
         scan_targets,
@@ -20606,8 +20643,9 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         or any("SellOrderIntent" in sample or "side=sell" in sample for sample in order_intent_without_ai_decision_samples)
     )
     rotation_intent_without_ai_decision_detected = bool(
-        basic_direct_rotation_decision_detected
-        or any("RotationIntent" in sample or "rotation_allowed" in sample for sample in order_intent_without_ai_decision_samples)
+        (basic_direct_rotation_decision_detected
+         or any("RotationIntent" in sample or "rotation_allowed" in sample for sample in order_intent_without_ai_decision_samples))
+        and not rotation_ai_gate_enabled
     )
     order_intent_without_ai_decision_detected = bool(
         buy_order_intent_without_ai_decision_detected
@@ -20668,7 +20706,7 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     )
     ai_decision_required_but_not_called_path_detected = bool(
         basic_direct_buy_decision_detected
-        or ("planned_rotation" in promotion_text and "ai_decision" not in promotion_text.lower())
+        or (("planned_rotation" in promotion_text and "ai_decision" not in promotion_text.lower()) and not rotation_ai_gate_enabled)
     )
     local_training_record_path_detected = bool(
         "_record_ai_position_decision_training" in app_text
@@ -20860,7 +20898,7 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     samples.extend(order_intent_without_ai_decision_samples[:3])
     samples.extend(trigger_to_action_samples[:2])
     samples.extend(bypass_samples[:2])
-    if "planned_rotation" in promotion_text and "observe_only" in promotion_text:
+    if "planned_rotation" in promotion_text and "observe_only" in promotion_text and not rotation_ai_gate_enabled:
         samples.append(
             "app/services/managed_pool_promotion_policy.py: rotation is normalized-score observe-only; AI is not yet the rotation final judge."
         )
@@ -20888,6 +20926,8 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         violations.append("trigger_used_as_action_detected")
     if managed_pool_promotion_without_ai_decision_detected:
         violations.append("managed_pool_promotion_without_ai_decision")
+    if rotation_without_ai_decision_detected:
+        violations.append("rotation_without_ai_decision")
     if ai_decision_required_but_not_called_path_detected:
         violations.append("ai_decision_required_but_not_called_path_detected")
     if not ai_decision_payload_builder_detected:
@@ -20929,6 +20969,8 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         first_blocker = "fixed_threshold_direct_sell_active"
     elif managed_pool_promotion_without_ai_decision_detected:
         first_blocker = "managed_pool_promotion_without_ai_decision"
+    elif rotation_without_ai_decision_detected:
+        first_blocker = "normalized_rotation_score_direct_action_active" if normalized_rotation_score_direct_action_detected else "rotation_without_ai_decision"
     elif not ai_decision_payload_builder_detected:
         first_blocker = "ai_decision_payload_builder_missing"
     elif not ai_response_validator_detected:
@@ -21018,6 +21060,23 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "ai_promoted_symbols": [],
         "promotion_blocker": promotion_blocker,
         "promotion_training_record_detected": bool(promotion_training_record_detected),
+        "rotation_ai_gate_enabled": bool(rotation_ai_gate_enabled),
+        "rotation_trigger_detected": bool(rotation_trigger_detected),
+        "rotation_payload_created": bool(rotation_payload_created),
+        "rotation_provider_requested": bool(rotation_provider_requested),
+        "rotation_provider_blocked": bool(rotation_provider_blocked),
+        "rotation_response_received": bool(rotation_response_received),
+        "rotation_validated": bool(rotation_validated),
+        "rotation_allowed_count": 0,
+        "rotation_blocked_count": 0,
+        "rotation_ai_metadata_required": bool(rotation_ai_metadata_required),
+        "rotation_without_ai_decision_detected": bool(rotation_without_ai_decision_detected),
+        "normalized_rotation_score_direct_action_detected": bool(normalized_rotation_score_direct_action_detected),
+        "rotation_replace_without_ai_approval_detected": bool(rotation_replace_without_ai_approval_detected),
+        "rotation_execution_pending_count": 0,
+        "rotation_ai_decision_symbols": [],
+        "rotation_blocker": rotation_blocker,
+        "rotation_training_record_detected": bool(rotation_training_record_detected),
         "buy_ready_ai_gate_enabled": bool(buy_ready_ai_gate_enabled),
         "buy_ready_trigger_detected": bool("event=buy_ready_trigger_detected" in app_text),
         "buy_decision_payload_created": bool("event=buy_decision_payload_created" in app_text),

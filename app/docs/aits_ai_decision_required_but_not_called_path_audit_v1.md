@@ -312,3 +312,20 @@ decision.
   Managed Pool insertion and record a blocker.
 - Promotion decision records are written for LOCAL training under
   `promotion_decisions.jsonl`.
+
+## 12. Rotation AI Decision Gate Follow-Up
+
+The `AITS-ROTATION-AI-DECISION-GATE-FIX` patch converts normalized-score
+rotation from an observe-only score plan into an AI-gated rotation decision.
+
+- `normalized_rotation_score` remains trigger evidence only.
+- Rotation payloads use `task=rotation_decision`.
+- Valid rotation actions are `rotate`, `wait`, `hold`, `replace`,
+  `reduce_and_rotate`, and `reject`.
+- Protected, user-added, live-holding, and external-holding rows cannot be
+  removed by simple replacement.
+- `replace` requires a removable target and AI metadata.
+- `rotate` and `reduce_and_rotate` are recorded as execution-pending decisions
+  and do not submit orders in this stage.
+- Rotation decision records are written for LOCAL training under
+  `rotation_decisions.jsonl`.

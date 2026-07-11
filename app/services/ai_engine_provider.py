@@ -38,6 +38,7 @@ AI_DECISION_ALLOWED_ACTIONS = {
     "reject",
     "replace",
     "rotate_review",
+    "reduce_and_rotate",
     "take_profit",
     "stop_loss",
 }
@@ -207,15 +208,20 @@ def validate_ai_decision_response(
             blockers.append("ai_decision_sell_ratio_missing")
         elif sell_ratio > 1.0:
             blockers.append("ai_decision_sell_ratio_invalid")
-    if action == "rotate":
+    if action in {"rotate", "reduce_and_rotate"}:
         if not rotate_to_symbol:
             blockers.append("ai_decision_rotate_target_missing")
         else:
             allowed_rotation_symbols = _decision_allowed_rotation_symbols(candidates)
             if allowed_rotation_symbols and rotate_to_symbol not in allowed_rotation_symbols:
                 blockers.append("ai_decision_rotate_target_invalid")
+    if action == "reduce_and_rotate":
+        if sell_ratio <= 0.0:
+            blockers.append("rotation_sell_ratio_missing")
+        elif sell_ratio > 1.0:
+            blockers.append("ai_decision_sell_ratio_invalid")
     if action == "replace" and not replace_symbol:
-        blockers.append("promotion_replace_target_missing")
+        blockers.append("rotation_replace_target_missing" if task_text == "rotation_decision" else "promotion_replace_target_missing")
 
     sell_ratio = max(0.0, min(1.0, sell_ratio))
     buy_amount_krw = max(0.0, buy_amount_krw)
@@ -720,6 +726,18 @@ class AIEngineProvider:
 
     def _build_position_management_decision_prompt(self, context: Optional[Dict[str, Any]]) -> str:
         safe_context = dict(context or {})
+        if str(safe_context.get("task") or "").strip() == "rotation_decision":
+            return (
+                "You are the AITS final AI decision authority for managed-pool rotation.\n"
+                "BASIC has collected rotation score evidence only. normalized_rotation_score is a trigger, not action.\n"
+                "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
+                "execution_plan, replace_symbol, rotate_to_symbol, sell_ratio, buy_amount_krw, risk_notes, invalidation_conditions.\n"
+                "Allowed action values: rotate, wait, hold, replace, reduce_and_rotate, reject.\n"
+                "Protected, user-added, live holding, or external holding rows must not be removed by simple replacement.\n"
+                "If data is insufficient, choose wait or hold with eta_seconds and reason_ko.\n"
+                "Context JSON:\n"
+                + json.dumps(safe_context, ensure_ascii=False, default=str)
+            )
         if str(safe_context.get("task") or "").strip() == "managed_pool_promotion_decision":
             return (
                 "You are the AITS final AI decision authority for managed-pool promotion.\n"
@@ -865,6 +883,7 @@ class AIEngineProvider:
             "sell_ratio": sell_ratio,
             "buy_amount_krw": max(0.0, buy_amount_krw),
             "rotate_to_symbol": str(parsed.get("rotate_to_symbol") or "").strip().upper(),
+            "replace_symbol": str(parsed.get("replace_symbol") or parsed.get("replace_target_symbol") or "").strip().upper(),
             "execution_plan": parsed.get("execution_plan") if isinstance(parsed.get("execution_plan"), dict) else {},
             "risk_notes": str(parsed.get("risk_notes") or "")[:800],
             "invalidation_conditions": parsed.get("invalidation_conditions") or [],
@@ -883,6 +902,71 @@ class AIEngineProvider:
         context = dict(context or {})
         symbol = str(context.get("symbol") or "").strip().upper()
         task = str(context.get("task") or "").strip()
+        if task == "rotation_decision":
+            rotation_candidate = context.get("rotation_candidate") if isinstance(context.get("rotation_candidate"), dict) else {}
+            old_position = context.get("old_position") if isinstance(context.get("old_position"), dict) else {}
+            new_candidate = context.get("new_candidate") if isinstance(context.get("new_candidate"), dict) else {}
+            old_symbol = str(rotation_candidate.get("old_symbol") or old_position.get("symbol") or symbol or "").strip().upper()
+            new_symbol = str(rotation_candidate.get("new_symbol") or new_candidate.get("symbol") or "").strip().upper()
+            gap = _clamp_float(rotation_candidate.get("score_gap"), lo=-100.0, hi=100.0, default=0.0)
+            new_score = _clamp_float(
+                rotation_candidate.get("new_score") or new_candidate.get("scanner_score") or new_candidate.get("basic_score"),
+                lo=0.0,
+                hi=100.0,
+                default=0.0,
+            )
+            source_type = str(old_position.get("source_type") or "").strip()
+            old_protected = bool(old_position.get("protected") or old_position.get("managed_protected"))
+            old_holding = bool(old_position.get("holding"))
+            execution_plan: Dict[str, Any] = {
+                "replace_symbol": old_symbol,
+                "rotate_to_symbol": new_symbol,
+                "rotation_execution": False,
+                "execution_pending": False,
+            }
+            action = "wait"
+            confidence = 0.52
+            reason = "로테이션 후보는 추가 관찰 후 다시 판단합니다."
+            if old_holding or old_protected or source_type in {"user_added", "live_holding", "external_holding"}:
+                action = "wait"
+                confidence = 0.62
+                execution_plan["replace_symbol"] = ""
+                reason = "보유/보호 종목은 단순 로테이션 교체 대상에서 제외합니다."
+            elif old_symbol and new_symbol and gap >= 8.0 and new_score >= 65.0:
+                action = "replace"
+                confidence = min(0.90, 0.64 + min(gap, 25.0) / 100.0)
+                reason = f"{new_symbol} 후보가 {old_symbol}보다 우위라 관리종목 교체 검토를 승인합니다."
+            elif old_symbol and new_symbol and gap >= 5.0:
+                action = "wait"
+                confidence = 0.57
+                reason = f"{new_symbol} 후보가 우위지만 교체 확정 전 추가 관찰이 필요합니다."
+            else:
+                action = "reject"
+                confidence = 0.60
+                execution_plan["replace_symbol"] = ""
+                reason = "로테이션 점수 격차가 충분하지 않아 교체하지 않습니다."
+            return {
+                "schema": "aits_position_management_decision_v1",
+                "task": task,
+                "provider": "local",
+                "action": action,
+                "confidence": round(float(confidence), 4),
+                "reason_ko": reason,
+                "eta_seconds": 600,
+                "execution_plan": execution_plan,
+                "replace_symbol": execution_plan.get("replace_symbol", ""),
+                "rotate_to_symbol": execution_plan.get("rotate_to_symbol", ""),
+                "sell_ratio": _clamp_float(execution_plan.get("sell_ratio"), lo=0.0, hi=1.0, default=0.0),
+                "buy_amount_krw": 0.0,
+                "risk_notes": "LOCAL rotation gate decision; no order submit in this stage.",
+                "invalidation_conditions": [
+                    "rotation_score_gap_reverses",
+                    "protected_or_holding_status_changes",
+                    "market_data_stale",
+                ],
+                "actual_order": False,
+                "submitted": 0,
+            }
         if task == "managed_pool_promotion_decision":
             candidate = context.get("candidate") if isinstance(context.get("candidate"), dict) else {}
             constraints = context.get("constraints") if isinstance(context.get("constraints"), dict) else {}

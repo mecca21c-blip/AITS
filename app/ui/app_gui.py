@@ -17556,6 +17556,156 @@ class MainWindow(QMainWindow):
             old_symbol = str(first.get("old_symbol") or first.get("rotate_out") or "").strip()
             new_symbol = str(first.get("new_symbol") or first.get("rotate_in") or "").strip()
             blocker = "" if planned else str(plan.get("rotation_blocker") or "rotation_candidate_below_margin")
+            rotation_decision: dict = {}
+            rotation_result = "not_applicable"
+            rotation_allowed_count = 0
+            rotation_blocked_count = 0
+            if planned and old_symbol and new_symbol:
+                try:
+                    self._log.info(
+                        "[AITS][RotationAIGate] event=rotation_trigger_detected old_symbol=%s new_symbol=%s old_score=%s new_score=%s normalized_rotation_score=%s score_gap=%s old_source_type=%s old_holding=%s old_protected=%s new_scanner_score=%s new_basic_score=%s trigger_reason=%s actual_order=False submitted=0",
+                        old_symbol,
+                        new_symbol,
+                        first.get("old_rotation_score", ""),
+                        first.get("new_rotation_score", ""),
+                        first.get("new_rotation_score", ""),
+                        first.get("score_gap", ""),
+                        first.get("old_source_type", ""),
+                        bool(first.get("old_holding")),
+                        bool(first.get("old_protected")),
+                        first.get("new_scanner_score", ""),
+                        first.get("new_rotation_score", ""),
+                        source,
+                    )
+                except Exception:
+                    pass
+                payload = self._build_ai_rotation_decision_payload(
+                    rotation_item=first,
+                    before_rows=before_rows,
+                    max_size=max_size,
+                    trigger_reason=source,
+                )
+                rotation_decision = self._request_ai_rotation_decision(payload=payload, rotation_item=first)
+                action = str(rotation_decision.get("action") or "").strip().lower()
+                blocker = str(rotation_decision.get("blocker") or rotation_decision.get("validation_blocker") or blocker or "")
+                execution_plan = rotation_decision.get("execution_plan") if isinstance(rotation_decision.get("execution_plan"), dict) else {}
+                replace_symbol = self._normalize_managed_pool_symbol_for_persistence(rotation_decision.get("replace_symbol") or execution_plan.get("replace_symbol"))
+                rotate_to_symbol = self._normalize_managed_pool_symbol_for_persistence(rotation_decision.get("rotate_to_symbol") or execution_plan.get("rotate_to_symbol"))
+                removable_symbols = {
+                    self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+                    for row in before_rows
+                    if isinstance(row, dict)
+                    and not bool(row.get("holding"))
+                    and not bool(row.get("protected"))
+                    and not bool(row.get("managed_protected"))
+                    and str(row.get("source_type") or row.get("source") or "").strip().lower() not in {"user_added", "live_holding", "external_holding"}
+                }
+                if not bool(rotation_decision.get("validation_passed")):
+                    rotation_result = "blocked"
+                    rotation_blocked_count += 1
+                    blocker = blocker or "rotation_ai_decision_invalid_schema"
+                elif action in {"wait", "hold"}:
+                    rotation_result = "wait"
+                    rotation_blocked_count += 1
+                    blocker = "rotation_blocked_by_ai_wait"
+                elif action == "reject":
+                    rotation_result = "reject"
+                    rotation_blocked_count += 1
+                    blocker = "rotation_rejected_by_ai"
+                elif action == "replace":
+                    if not replace_symbol:
+                        rotation_result = "blocked"
+                        rotation_blocked_count += 1
+                        blocker = "rotation_replace_target_missing"
+                    elif replace_symbol not in removable_symbols:
+                        rotation_result = "blocked"
+                        rotation_blocked_count += 1
+                        blocker = "rotation_replace_target_protected"
+                    else:
+                        rotation_result = "replace_ready"
+                        rotation_allowed_count += 1
+                        blocker = ""
+                elif action in {"rotate", "reduce_and_rotate"}:
+                    if not rotate_to_symbol:
+                        rotation_result = "blocked"
+                        rotation_blocked_count += 1
+                        blocker = "rotation_target_missing"
+                    else:
+                        rotation_result = "execution_pending"
+                        rotation_allowed_count += 1
+                        blocker = ""
+                else:
+                    rotation_result = "blocked"
+                    rotation_blocked_count += 1
+                    blocker = "rotation_ai_action_not_allowed"
+                first["_ai_rotation_metadata"] = {
+                    "ai_decision_id": rotation_decision.get("decision_id") or f"rotation-{int(time.time())}-{old_symbol}-{new_symbol}",
+                    "ai_provider": rotation_decision.get("provider") or self._selected_ai_decision_provider(),
+                    "ai_action": action,
+                    "ai_confidence": rotation_decision.get("confidence"),
+                    "ai_reason_ko": rotation_decision.get("reason_ko"),
+                    "ai_eta_seconds": rotation_decision.get("eta_seconds"),
+                    "ai_payload_hash": rotation_decision.get("ai_payload_hash"),
+                    "ai_validation_passed": bool(rotation_decision.get("validation_passed")),
+                    "rotation_result": rotation_result,
+                    "blocker": blocker,
+                }
+                try:
+                    self._record_ai_position_decision_training(
+                        payload=payload,
+                        decision=rotation_decision,
+                        execution_result={
+                            "rotation_result": rotation_result,
+                            "blocker": blocker,
+                            "old_symbol": old_symbol,
+                            "new_symbol": new_symbol,
+                            "actual_order": False,
+                            "submitted": 0,
+                        },
+                    )
+                except Exception:
+                    pass
+                try:
+                    if rotation_allowed_count:
+                        self._log.info(
+                            "[AITS][RotationAIGate] event=rotation_allowed old_symbol=%s new_symbol=%s ai_action=%s ai_confidence=%s ai_reason_ko=%s ai_eta_seconds=%s ai_payload_hash=%s blocker=%s reason=%s actual_order=False submitted=0",
+                            old_symbol,
+                            new_symbol,
+                            action or "-",
+                            rotation_decision.get("confidence"),
+                            bool(str(rotation_decision.get("reason_ko") or "").strip()),
+                            rotation_decision.get("eta_seconds"),
+                            rotation_decision.get("ai_payload_hash") or "-",
+                            blocker or "-",
+                            rotation_result,
+                        )
+                    else:
+                        self._log.info(
+                            "[AITS][RotationAIGate] event=rotation_blocked old_symbol=%s new_symbol=%s ai_action=%s ai_confidence=%s ai_reason_ko=%s ai_eta_seconds=%s ai_payload_hash=%s blocker=%s reason=%s actual_order=False submitted=0",
+                            old_symbol,
+                            new_symbol,
+                            action or "-",
+                            rotation_decision.get("confidence"),
+                            bool(str(rotation_decision.get("reason_ko") or "").strip()),
+                            rotation_decision.get("eta_seconds"),
+                            rotation_decision.get("ai_payload_hash") or "-",
+                            blocker or "-",
+                            rotation_result,
+                        )
+                except Exception:
+                    pass
+                try:
+                    appender = getattr(self, "_append_aits_live_log", None)
+                    if callable(appender):
+                        reason_text = str(rotation_decision.get("reason_ko") or "").strip()
+                        if rotation_allowed_count and rotation_result == "replace_ready":
+                            appender(f"AI ??: {new_symbol}? ???? ?? ?? ?? ? ?? ?? ??", category="managed", level="info", event="rotation_allowed", symbol=new_symbol)
+                        elif rotation_allowed_count and rotation_result == "execution_pending":
+                            appender(f"AI ??: {new_symbol} ???? ?? ?? ?? ? ?? ???? ?? ??", category="managed", level="info", event="rotation_execution_pending", symbol=new_symbol)
+                        else:
+                            appender(f"AI ??: {old_symbol} ?? ? {reason_text or '???? ??'}", category="managed", level="info", event="rotation_blocked", symbol=old_symbol)
+                except Exception:
+                    pass
             try:
                 self._log.info(
                     "[AITS][ManagedPoolRotation] event=rotation_scan source=%s managed_pool_count_mode=%s old_symbol=%s new_symbol=%s old_rotation_score=%s new_rotation_score=%s score_gap=%s min_promotion_score=%s rotation_margin=%s rotation_allowed=%s blocker=%s reason=%s observe_only=True managed_pool_mutation=False submitted=0 actual_order=False",
@@ -17608,6 +17758,13 @@ class MainWindow(QMainWindow):
                 pass
             plan["managed_pool_count_mode"] = count_mode
             plan["rotation_plan_observe_only"] = True
+            plan["rotation_ai_gate_enabled"] = True
+            plan["rotation_ai_decision"] = rotation_decision
+            plan["rotation_result"] = rotation_result
+            plan["rotation_allowed_count"] = rotation_allowed_count
+            plan["rotation_blocked_count"] = rotation_blocked_count
+            plan["rotation_execution_pending_count"] = 1 if rotation_result == "execution_pending" else 0
+            plan["rotation_blocker"] = blocker
             plan["managed_pool_mutation"] = False
             try:
                 self._last_managed_pool_rotation_plan = dict(plan)
@@ -18089,6 +18246,11 @@ class MainWindow(QMainWindow):
                 "normalized_rotation_score_supported": bool(rotation_preview.get("normalized_rotation_score_supported")),
                 "rotation_plan_detected": bool(rotation_preview.get("planned_rotation")),
                 "rotation_plan_observe_only": True,
+                "rotation_ai_gate_enabled": bool(rotation_preview.get("rotation_ai_gate_enabled")),
+                "rotation_result": str(rotation_preview.get("rotation_result") or ""),
+                "rotation_allowed_count": int(rotation_preview.get("rotation_allowed_count") or 0),
+                "rotation_blocked_count": int(rotation_preview.get("rotation_blocked_count") or 0),
+                "rotation_execution_pending_count": int(rotation_preview.get("rotation_execution_pending_count") or 0),
                 "rotation_blocker": str(rotation_preview.get("rotation_blocker") or ""),
                 "managed_pool_count_mode": str(rotation_preview.get("managed_pool_count_mode") or ("ai_dynamic" if int(max_size or 0) <= 0 else "user_cap")),
                 "after_count_expected": plan.get("after_count_expected"),
@@ -18289,6 +18451,11 @@ class MainWindow(QMainWindow):
             result["normalized_rotation_score_supported"] = bool(rotation_preview.get("normalized_rotation_score_supported"))
             result["rotation_plan_detected"] = bool(rotation_preview.get("planned_rotation"))
             result["rotation_plan_observe_only"] = True
+            result["rotation_ai_gate_enabled"] = bool(rotation_preview.get("rotation_ai_gate_enabled"))
+            result["rotation_result"] = str(rotation_preview.get("rotation_result") or "")
+            result["rotation_allowed_count"] = int(rotation_preview.get("rotation_allowed_count") or 0)
+            result["rotation_blocked_count"] = int(rotation_preview.get("rotation_blocked_count") or 0)
+            result["rotation_execution_pending_count"] = int(rotation_preview.get("rotation_execution_pending_count") or 0)
             result["rotation_blocker"] = str(rotation_preview.get("rotation_blocker") or "")
             result["managed_pool_count_mode"] = str(rotation_preview.get("managed_pool_count_mode") or ("ai_dynamic" if int(max_size or 0) <= 0 else "user_cap"))
             if not candidates:
@@ -40420,6 +40587,235 @@ class MainWindow(QMainWindow):
             },
         }
 
+
+    def _build_ai_rotation_decision_payload(
+        self,
+        *,
+        rotation_item: dict,
+        before_rows: list[dict],
+        max_size: int,
+        trigger_reason: str = "managed_pool_rotation_candidate",
+    ) -> dict:
+        old_symbol = self._normalize_managed_pool_symbol_for_persistence((rotation_item or {}).get("old_symbol") or (rotation_item or {}).get("rotate_out"))
+        new_symbol = self._normalize_managed_pool_symbol_for_persistence((rotation_item or {}).get("new_symbol") or (rotation_item or {}).get("rotate_in"))
+        managed_symbols: list[str] = []
+        live_holding: list[str] = []
+        external_holding: list[str] = []
+        user_added: list[str] = []
+        ai_promoted: list[str] = []
+        old_row: dict = {}
+        for row in list(before_rows or []):
+            if not isinstance(row, dict):
+                continue
+            row_symbol = self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            if not row_symbol:
+                continue
+            managed_symbols.append(row_symbol)
+            if row_symbol == old_symbol:
+                old_row = dict(row)
+            source_type = str(row.get("source_type") or row.get("source") or "").strip().lower()
+            if source_type == "user_added" or bool(row.get("user_added")):
+                user_added.append(row_symbol)
+            elif source_type == "live_holding":
+                live_holding.append(row_symbol)
+            elif source_type == "external_holding":
+                external_holding.append(row_symbol)
+            elif source_type in {"ai_promoted", "basic_added_ai_approved"}:
+                ai_promoted.append(row_symbol)
+        old_source_type = str((rotation_item or {}).get("old_source_type") or old_row.get("source_type") or old_row.get("source") or "").strip()
+        old_holding = bool((rotation_item or {}).get("old_holding") or old_row.get("holding"))
+        old_protected = bool((rotation_item or {}).get("old_protected") or old_row.get("protected") or old_row.get("managed_protected"))
+        total_asset = self._managed_pool_num_value(
+            getattr(self, "_investment_total_asset_krw", 0.0)
+            or getattr(self, "_aits_total_asset_krw", 0.0)
+            or getattr(self, "_last_total_asset_krw", 0.0),
+            0.0,
+        )
+        return {
+            "schema": "aits_ai_decision_payload_v1",
+            "task": "rotation_decision",
+            "trigger_reason": str(trigger_reason or "managed_pool_rotation_candidate"),
+            "symbol": old_symbol,
+            "rotation_candidate": {
+                "old_symbol": old_symbol,
+                "new_symbol": new_symbol,
+                "old_score": (rotation_item or {}).get("old_rotation_score") or (rotation_item or {}).get("old_operating_score"),
+                "new_score": (rotation_item or {}).get("new_rotation_score") or (rotation_item or {}).get("new_scanner_score"),
+                "normalized_rotation_score": (rotation_item or {}).get("new_rotation_score"),
+                "score_gap": (rotation_item or {}).get("score_gap"),
+                "opportunity_reason": (rotation_item or {}).get("reason") or "normalized_rotation_score_trigger",
+            },
+            "old_position": {
+                "symbol": old_symbol,
+                "holding": old_holding,
+                "protected": old_protected,
+                "source_type": old_source_type,
+                "qty": old_row.get("qty") or old_row.get("balance"),
+                "avg_buy_price": old_row.get("avg_buy_price"),
+                "current_price": old_row.get("current_price"),
+                "pnl_krw": old_row.get("pnl_krw"),
+                "pnl_pct": old_row.get("pnl_pct"),
+                "weight_pct": old_row.get("weight_pct"),
+                "target_weight_pct": old_row.get("target_weight_pct"),
+                "holding_age": old_row.get("holding_age"),
+            },
+            "new_candidate": {
+                "symbol": new_symbol,
+                "scanner_score": (rotation_item or {}).get("new_scanner_score") or (rotation_item or {}).get("new_rotation_score"),
+                "basic_score": (rotation_item or {}).get("new_rotation_score"),
+                "price_change_1m": (rotation_item or {}).get("price_change_1m"),
+                "price_change_5m": (rotation_item or {}).get("price_change_5m"),
+                "price_change_15m": (rotation_item or {}).get("price_change_15m"),
+                "price_change_1h": (rotation_item or {}).get("price_change_1h"),
+                "volume_change": (rotation_item or {}).get("volume_change"),
+                "trade_value": (rotation_item or {}).get("trade_value") or (rotation_item or {}).get("new_trade_value"),
+                "volatility": (rotation_item or {}).get("volatility"),
+                "indicators": (rotation_item or {}).get("indicators") if isinstance((rotation_item or {}).get("indicators"), dict) else {},
+            },
+            "current_managed_pool": {
+                "symbols": managed_symbols,
+                "max_count": int(max_size or 0),
+                "live_holding": live_holding,
+                "external_holding": external_holding,
+                "user_added": user_added,
+                "ai_promoted": ai_promoted,
+                "basic_added_ai_approved": ai_promoted,
+            },
+            "portfolio": {
+                "total_asset_krw": total_asset if total_asset > 0.0 else None,
+                "available_krw": getattr(self, "_last_available_krw", None),
+                "total_budget_krw": getattr(self, "_aits_total_budget_krw", None),
+                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
+                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+            },
+            "constraints": {
+                "protected_holding_removal_forbidden": True,
+                "dust_excluded": True,
+                "min_order_krw": getattr(self, "_aits_min_order_krw", 5000),
+                "buy_blocked_reason": getattr(self, "_aits_buy_blocker", ""),
+                "sell_availability": "guarded_future_goal",
+                "duplicate_locks": [],
+                "replace_candidates": [old_symbol] if old_symbol and not old_holding and not old_protected else [],
+            },
+            "requested_decision": {
+                "trigger": "rotation",
+                "allowed_actions": ["rotate", "wait", "hold", "replace", "reduce_and_rotate", "reject"],
+            },
+            "output_schema": {
+                "action": "rotate|wait|hold|replace|reduce_and_rotate|reject",
+                "confidence": "0.0-1.0",
+                "reason_ko": "string",
+                "eta_seconds": "integer",
+                "execution_plan": {"replace_symbol": "required for replace", "rotate_to_symbol": "required for rotate/reduce_and_rotate"},
+                "replace_symbol": "non-holding/non-protected managed symbol if replacing",
+                "rotate_to_symbol": "candidate symbol",
+                "sell_ratio": "required for reduce_and_rotate",
+                "buy_amount_krw": "optional future guarded buy part",
+                "invalidation_conditions": "list",
+            },
+        }
+
+    def _request_ai_rotation_decision(self, *, payload: dict, rotation_item: dict) -> dict:
+        old_symbol = str((payload or {}).get("symbol") or (rotation_item or {}).get("old_symbol") or "").strip().upper()
+        new_symbol = str(((payload or {}).get("rotation_candidate") or {}).get("new_symbol") or (rotation_item or {}).get("new_symbol") or "").strip().upper()
+        provider = self._selected_ai_decision_provider()
+        try:
+            payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+        except Exception:
+            payload_hash = ""
+        try:
+            rotation_data = (payload or {}).get("rotation_candidate") if isinstance((payload or {}).get("rotation_candidate"), dict) else {}
+            self._log.info(
+                "[AITS][RotationAIGate] event=rotation_payload_created old_symbol=%s new_symbol=%s old_score=%s new_score=%s normalized_rotation_score=%s score_gap=%s trigger_reason=%s ai_provider=%s ai_payload_hash=%s actual_order=False submitted=0",
+                old_symbol or "-",
+                new_symbol or "-",
+                rotation_data.get("old_score"),
+                rotation_data.get("new_score"),
+                rotation_data.get("normalized_rotation_score"),
+                rotation_data.get("score_gap"),
+                (payload or {}).get("trigger_reason") or "-",
+                provider or "-",
+                payload_hash or "-",
+            )
+            self._log.info(
+                "[AITS][RotationAIGate] event=rotation_provider_requested old_symbol=%s new_symbol=%s ai_provider=%s ai_payload_hash=%s actual_order=False submitted=0",
+                old_symbol or "-",
+                new_symbol or "-",
+                provider or "-",
+                payload_hash or "-",
+            )
+            from app.services.ai_engine_provider import AIEngineProvider
+
+            engine = AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None))
+            decision = engine.generate_position_management_decision(provider=provider, context=payload)
+        except Exception as exc:
+            decision = {
+                "schema": "aits_ai_decision_response_v1",
+                "provider": provider,
+                "response_confirmed": False,
+                "provider_call_attempted": True,
+                "action": "wait",
+                "confidence": 0.0,
+                "reason_ko": "???? ??? ????? AI ??? ???? ?????.",
+                "eta_seconds": 300,
+                "execution_plan": {},
+                "risk_notes": "",
+                "invalidation_conditions": [],
+                "validation_passed": False,
+                "validator_result": "failed",
+                "blocker": f"rotation_ai_decision_missing:{type(exc).__name__}",
+                "actual_order": False,
+                "submitted": 0,
+            }
+        decision = dict(decision or {})
+        decision["ai_payload_hash"] = payload_hash
+        try:
+            action = str(decision.get("action") or "").strip().lower()
+            blocker = str(decision.get("blocker") or decision.get("validation_blocker") or "")
+            if bool(decision.get("response_confirmed")):
+                self._log.info(
+                    "[AITS][RotationAIGate] event=rotation_response_received old_symbol=%s new_symbol=%s ai_provider=%s ai_action=%s ai_confidence=%s ai_payload_hash=%s actual_order=False submitted=0",
+                    old_symbol or "-",
+                    new_symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    decision.get("confidence"),
+                    payload_hash or "-",
+                )
+            else:
+                self._log.info(
+                    "[AITS][RotationAIGate] event=rotation_provider_blocked old_symbol=%s new_symbol=%s ai_provider=%s blocker=%s ai_payload_hash=%s actual_order=False submitted=0",
+                    old_symbol or "-",
+                    new_symbol or "-",
+                    provider or "-",
+                    blocker or "rotation_provider_blocked",
+                    payload_hash or "-",
+                )
+            if bool(decision.get("validation_passed")):
+                self._log.info(
+                    "[AITS][RotationAIGate] event=rotation_validated old_symbol=%s new_symbol=%s ai_provider=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s ai_payload_hash=%s actual_order=False submitted=0",
+                    old_symbol or "-",
+                    new_symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    decision.get("confidence"),
+                    decision.get("eta_seconds"),
+                    payload_hash or "-",
+                )
+            else:
+                self._log.info(
+                    "[AITS][RotationAIGate] event=rotation_blocked old_symbol=%s new_symbol=%s ai_provider=%s ai_action=%s blocker=%s reason=%s actual_order=False submitted=0",
+                    old_symbol or "-",
+                    new_symbol or "-",
+                    provider or "-",
+                    action or "-",
+                    blocker or "rotation_ai_decision_invalid_schema",
+                    bool(str(decision.get("reason_ko") or "").strip()),
+                )
+        except Exception:
+            pass
+        return decision
+
     def _build_ai_promotion_decision_payload(
         self,
         *,
@@ -40658,6 +41054,8 @@ class MainWindow(QMainWindow):
                 target_name = "buy_decisions.jsonl"
             elif row["task"] == "managed_pool_promotion_decision":
                 target_name = "promotion_decisions.jsonl"
+            elif row["task"] == "rotation_decision":
+                target_name = "rotation_decisions.jsonl"
             else:
                 target_name = "position_decisions.jsonl"
             with (root / target_name).open("a", encoding="utf-8") as fh:

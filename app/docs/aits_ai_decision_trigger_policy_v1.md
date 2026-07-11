@@ -214,3 +214,13 @@ BASIC은 계속 감시한다. AI는 판단이 필요한 순간에 호출한다. 
 - `user_added`, `live_holding`, and `external_holding` are exception policies. They do not represent BASIC scanner promotion.
 - If the provider is blocked, the response is invalid, or AI chooses wait/reject/hold, BASIC must not add the scanner candidate to the Managed Pool.
 - Promotion decisions must be recorded for LOCAL training with payload hash, provider, AI action, confidence, reason, validator result, promotion result, blocker, and outcome placeholders.
+
+## Rotation AI Decision Trigger Policy
+
+- `normalized_rotation_score` and score gap are trigger evidence, not action.
+- Rotation candidates must become `task=rotation_decision` payloads before replacement or future execution can proceed.
+- AI may decide `rotate`, `wait`, `hold`, `replace`, `reduce_and_rotate`, or `reject`.
+- `replace` requires a removable non-holding and non-protected target. Protected, user-added, live-holding, and external-holding rows are excluded from simple replacement.
+- `rotate` and `reduce_and_rotate` are execution-pending decisions in this stage. They do not create immediate buy or sell submit.
+- If provider response is blocked or invalid, BASIC records a blocker and does not rotate.
+- Rotation decisions must be recorded for LOCAL training with old symbol, new symbol, payload hash, provider, AI action, confidence, reason, validator result, rotation result, blocker, and outcome placeholders.

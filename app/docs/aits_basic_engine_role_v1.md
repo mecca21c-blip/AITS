@@ -190,3 +190,11 @@ BASIC은 계산한다. BASIC은 정리한다. BASIC은 AI에게 묻는다. AI가
 - AI-approved automatic promotion rows must carry promotion metadata such as provider, action, confidence, reason, ETA, payload hash, and validation result.
 - `user_added`, `live_holding`, and `external_holding` remain exception policies because they represent user intent or actual account holdings.
 - BASIC must record promotion decisions and blockers for LOCAL training.
+
+## BASIC Rotation Gate Duty
+
+- BASIC may compute rotation candidates and `normalized_rotation_score`, but the score is not a rotation action.
+- BASIC must build `task=rotation_decision` payload before any managed-pool replacement or future reduce-and-rotate execution can proceed.
+- BASIC must not remove protected, user-added, live-holding, or external-holding rows through simple rotation replacement.
+- BASIC must treat `rotate` and `reduce_and_rotate` as execution-pending in this stage and avoid immediate buy/sell submit.
+- BASIC must record rotation decisions and blockers for LOCAL training.

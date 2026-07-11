@@ -138,3 +138,12 @@ BASIC Signal Collector
 - AI promotion actions include `promote`, `reject`, `wait`, `replace`, `rotate_review`, and `hold`.
 - `user_added`, `live_holding`, and `external_holding` are exceptions because they are user-directed or account-truth holdings. Dust exclusion remains a safety filter.
 - Promotion decisions and blockers are recorded for LOCAL training, including payload hash, provider, AI action, confidence, reason, validator result, promotion result, and outcome placeholders.
+
+## Rotation Decision Boundary
+
+- Rotation changes the managed universe or prepares future sell/buy execution, so it requires AI decision authority.
+- BASIC may compute `normalized_rotation_score`, score gap, and rotation candidates, but those values are triggers and evidence only.
+- AI rotation actions include `rotate`, `wait`, `hold`, `replace`, `reduce_and_rotate`, and `reject`.
+- `replace` can only target a non-holding, non-protected, removable row. Protected, user-added, live-holding, and external-holding rows are not simple replacement targets.
+- `rotate` and `reduce_and_rotate` are execution-pending decisions in the gate stage. They must not submit sell or buy orders until a later guarded execution goal connects RiskGuard, LivePreflight, and Execution.
+- Rotation decisions and blockers are recorded for LOCAL training with payload hash, provider, AI action, confidence, reason, validator result, rotation result, and outcome placeholders.

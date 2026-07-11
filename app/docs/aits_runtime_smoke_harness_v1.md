@@ -1942,3 +1942,12 @@ summary modes.
 - `user_added`, `live_holding`, and `external_holding` remain policy exceptions because they represent user intent or real account holdings. Dust exclusion remains a safety filter and does not require AI approval.
 - Harness fields include `managed_pool_promotion_ai_gate_enabled`, `promotion_trigger_detected`, `promotion_payload_created`, `promotion_provider_requested`, `promotion_provider_blocked`, `promotion_response_received`, `promotion_validated`, `promotion_allowed_count`, `promotion_blocked_count`, `promotion_ai_metadata_required`, `basic_added_requires_ai_approval`, `basic_added_without_ai_approval_detected`, `managed_pool_promotion_without_ai_decision_detected`, `ai_promoted_symbols`, `promotion_blocker`, and `promotion_training_record_detected`.
 - Blockers include `managed_pool_promotion_without_ai_decision`, `promotion_decision_payload_missing`, `promotion_provider_blocked`, `promotion_ai_decision_invalid_schema`, `promotion_rejected_or_wait_by_ai`, and `managed_pool_promotion_ai_gate_ready`.
+
+## Rotation AI Decision Gate
+
+- Rotation is an AI decision action. `normalized_rotation_score` is trigger evidence only.
+- Rotation candidates create `task=rotation_decision` payloads and may return `rotate`, `wait`, `hold`, `replace`, `reduce_and_rotate`, or `reject`.
+- Protected, user-added, live-holding, and external-holding rows cannot be removed by a simple replacement decision.
+- `replace` may prepare a managed-pool universe replacement only when the replace target is removable and AI metadata is present. `rotate` and `reduce_and_rotate` remain `execution_pending` in this stage and do not submit orders.
+- Rotation decision records are written for LOCAL training under `rotation_decisions.jsonl`.
+- Harness fields include `rotation_ai_gate_enabled`, `rotation_trigger_detected`, `rotation_payload_created`, `rotation_provider_requested`, `rotation_provider_blocked`, `rotation_response_received`, `rotation_validated`, `rotation_allowed_count`, `rotation_blocked_count`, `rotation_ai_metadata_required`, `rotation_without_ai_decision_detected`, `normalized_rotation_score_direct_action_detected`, `rotation_replace_without_ai_approval_detected`, `rotation_execution_pending_count`, `rotation_ai_decision_symbols`, `rotation_blocker`, and `rotation_training_record_detected`.
