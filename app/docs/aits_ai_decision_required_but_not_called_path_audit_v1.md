@@ -339,3 +339,6 @@ rotation from an observe-only score plan into an AI-gated rotation decision.
 ## ETA Registration Coverage Follow-up
 
 The runtime scheduler must be observable even when no AI decision exists. A scheduler probe followed by an idle event means the scheduler ran but had no valid decision state to watch. Every validated buy, position-management sell, promotion, rotation, or redecision response must pass through the common runtime-state registration helper. Blocked or invalid provider results remain audit/training events only and must not create active ETA state.
+## ETA Active Writer Callsite Follow-up
+
+The scheduler call is anchored beside the proven SellEvaluation writer in `CandidateFeedState.score_update`. Callsite provenance must show whether the condition allowed the call, whether the scheduler function was entered, and whether it exited idle or raised an exception. An empty AI decision registry is an idle state. RuntimeContract heartbeat state and the scheduler's prior instance flag are compared explicitly. Holdings SSOT discrepancies remain a separate repair target.

@@ -41275,28 +41275,40 @@ class MainWindow(QMainWindow):
         return bool(triggered), {"type": kind or "unsupported", "expected": data.get("expected"), "actual": actual, "threshold": threshold, "triggered": bool(triggered)}
 
     def _run_ai_redecision_scheduler(self, *, reason: str, rows: list[dict]) -> dict:
+        eta_logger = logging.getLogger("aits")
         states = getattr(self, "_ai_redecision_states", {})
         if not isinstance(states, dict):
             states = {}
             self._ai_redecision_states = states
         now = time.time()
-        last_probe_at = float(getattr(self, "_ai_redecision_scheduler_last_probe_at", 0.0) or 0.0)
-        if now - last_probe_at < 10.0:
-            return {"checked": 0, "triggered": 0, "scheduler_result": "probe_debounced"}
-        self._ai_redecision_scheduler_last_probe_at = now
-        runtime_active = bool(
-            getattr(self, "_aits_runtime_contract_active", False)
-            or getattr(self, "_aits_monitor_only_mode", False)
-            or getattr(self, "_aits_runtime_monitor_only_mode", False)
-        )
         active_states = [state for state in states.values() if isinstance(state, dict) and state.get("current_status") == "active"]
         registered_eta_count = sum(1 for state in active_states if state.get("eta_expires_at") is not None)
         registered_invalidation_count = sum(len(state.get("invalidation_conditions") or []) for state in active_states)
+        eta_logger.info(
+            "[AITS][ETAReDecision] event=eta_scheduler_entered active_decision_count=%s registered_eta_count=%s registered_invalidation_count=%s result=entered reason=%s actual_order=False submitted=0",
+            len(active_states), registered_eta_count, registered_invalidation_count, reason or "runtime_tick",
+        )
+        last_probe_at = float(getattr(self, "_ai_redecision_scheduler_last_probe_at", 0.0) or 0.0)
+        if now - last_probe_at < 10.0:
+            result = {"checked": 0, "triggered": 0, "scheduler_result": "probe_debounced"}
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=eta_scheduler_exit active_decision_count=%s registered_eta_count=%s registered_invalidation_count=%s result=probe_debounced reason=probe_interval actual_order=False submitted=0",
+                len(active_states), registered_eta_count, registered_invalidation_count,
+            )
+            return result
+        self._ai_redecision_scheduler_last_probe_at = now
+        contract_state = dict(getattr(self, "_aits_runtime_contract_state", {}) or {})
+        runtime_active = bool(
+            contract_state.get("runtime_contract_active")
+            or getattr(self, "_aits_runtime_contract_active", False)
+            or getattr(self, "_aits_monitor_only_mode", False)
+            or getattr(self, "_aits_runtime_monitor_only_mode", False)
+        )
         try:
             on_state = bool(getattr(self, "btn_run_toggle", None) and self.btn_run_toggle.isChecked())
         except Exception:
             on_state = runtime_active
-        self._log.info(
+        eta_logger.info(
             "[AITS][ETAReDecision] event=eta_scheduler_probe runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s active_decision_count=%s registered_eta_count=%s registered_invalidation_count=%s scheduler_should_run=%s scheduler_result=%s reason=%s actual_order=False submitted=0",
             bool(getattr(self, "_aits_runtime_contract_active", False)), on_state,
             bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
@@ -41305,12 +41317,21 @@ class MainWindow(QMainWindow):
             "running" if runtime_active and active_states else ("idle" if runtime_active else "inactive"), reason or "runtime_tick",
         )
         if not runtime_active:
-            return {"checked": 0, "triggered": 0, "blocker": "runtime_inactive_for_redecision"}
+            result = {"checked": 0, "triggered": 0, "blocker": "runtime_inactive_for_redecision"}
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=eta_scheduler_exit active_decision_count=%s registered_eta_count=%s registered_invalidation_count=%s result=inactive reason=runtime_inactive_for_redecision actual_order=False submitted=0",
+                len(active_states), registered_eta_count, registered_invalidation_count,
+            )
+            return result
         if not active_states:
-            self._log.info(
+            eta_logger.info(
                 "[AITS][ETAReDecision] event=eta_scheduler_idle active_decision_count=0 registered_eta_count=0 registered_invalidation_count=0 reason=no_registered_ai_decision_state actual_order=False submitted=0"
             )
-            return {"checked": 0, "triggered": 0, "scheduler_result": "idle", "blocker": "no_registered_ai_decision_state"}
+            result = {"checked": 0, "triggered": 0, "scheduler_result": "idle", "blocker": "no_registered_ai_decision_state"}
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=eta_scheduler_exit active_decision_count=0 registered_eta_count=0 registered_invalidation_count=0 result=idle reason=no_registered_ai_decision_state actual_order=False submitted=0"
+            )
+            return result
         checked = 0
         triggered = 0
         for state in active_states:
@@ -41389,7 +41410,12 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_provider_blocked error_type=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", type(exc).__name__)
                 self._record_ai_position_decision_training(payload=payload, decision={"provider": provider, "action": "wait", "confidence": 0.0, "reason_ko": "AI 재판단 요청을 대기합니다.", "validation_passed": False, "blocker": "redecision_provider_blocked"}, execution_result={"redecision_result": "blocked", "trigger_reason": trigger_reason, "actual_order": False, "submitted_count": 0})
-        return {"checked": checked, "triggered": triggered}
+        result = {"checked": checked, "triggered": triggered, "scheduler_result": "completed"}
+        eta_logger.info(
+            "[AITS][ETAReDecision] event=eta_scheduler_exit active_decision_count=%s registered_eta_count=%s registered_invalidation_count=%s result=completed reason=%s actual_order=False submitted=0",
+            len(active_states), registered_eta_count, registered_invalidation_count, reason or "runtime_tick",
+        )
+        return result
 
     def _request_ai_buy_decision(self, *, payload: dict, candidate: dict) -> dict:
         symbol = str((payload or {}).get("symbol") or (candidate or {}).get("symbol") or "").strip().upper()
@@ -43835,7 +43861,70 @@ class MainWindow(QMainWindow):
                         type(exc).__name__,
                     )
                 try:
-                    redecision_result = self._run_ai_redecision_scheduler(reason="CandidateFeedState.score_update", rows=[row for row in rows if isinstance(row, dict)])
+                    eta_logger = logging.getLogger("aits")
+                    self_contract_before = bool(getattr(self, "_aits_runtime_contract_active", False))
+                    contract_snapshot = self._build_live_runtime_contract_state(
+                        source_path="eta_scheduler_callsite",
+                        reason="CandidateFeedState.score_update",
+                        emit_log=False,
+                        last_writer="eta_scheduler_callsite",
+                    )
+                    heartbeat_contract_active = bool(contract_snapshot.get("runtime_contract_active"))
+                    try:
+                        eta_on_state = bool(self.btn_run_toggle.isChecked())
+                    except Exception:
+                        eta_on_state = bool(contract_snapshot.get("on_state"))
+                    active_decision_count_before = sum(
+                        1 for state in dict(getattr(self, "_ai_redecision_states", {}) or {}).values()
+                        if isinstance(state, dict) and state.get("current_status") == "active"
+                    )
+                    scheduler_should_run = bool(
+                        eta_on_state
+                        or heartbeat_contract_active
+                        or self_contract_before
+                        or getattr(self, "_aits_candidate_loop_running", False)
+                    )
+                    scheduler_condition_reason = (
+                        "active_writer_score_update" if getattr(self, "_aits_candidate_loop_running", False)
+                        else "runtime_contract_active" if heartbeat_contract_active
+                        else "on_state_active" if eta_on_state
+                        else "runtime_inactive"
+                    )
+                    eta_logger.info(
+                        "[AITS][ETAReDecision] event=eta_scheduler_callsite_probe writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update pid=%s runtime_contract_active_from_heartbeat_source=%s self_aits_runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s sell_eval_called_in_same_cycle=True active_decision_count_before=%s scheduler_should_run=%s scheduler_condition_reason=%s result=probed exception_type=- exception_message=- actual_order=False submitted=0",
+                        os.getpid(), heartbeat_contract_active, self_contract_before, eta_on_state,
+                        bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
+                        bool(getattr(self, "_aits_buy_blocked", False)), str(contract_snapshot.get("execution_mode") or self._get_aits_execution_mode() or ""),
+                        active_decision_count_before, scheduler_should_run, scheduler_condition_reason,
+                    )
+                    eta_logger.info(
+                        "[AITS][ETAReDecision] event=eta_scheduler_callsite_condition writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update pid=%s runtime_contract_active_from_heartbeat_source=%s self_aits_runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s sell_eval_called_in_same_cycle=True active_decision_count_before=%s scheduler_should_run=%s scheduler_condition_reason=%s result=%s exception_type=- exception_message=- actual_order=False submitted=0",
+                        os.getpid(), heartbeat_contract_active, self_contract_before, eta_on_state,
+                        bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
+                        bool(getattr(self, "_aits_buy_blocked", False)), str(contract_snapshot.get("execution_mode") or self._get_aits_execution_mode() or ""),
+                        active_decision_count_before, scheduler_should_run, scheduler_condition_reason,
+                        "allowed" if scheduler_should_run else "blocked",
+                    )
+                    redecision_result = {"checked": 0, "triggered": 0, "scheduler_result": "condition_false"}
+                    if scheduler_should_run:
+                        eta_logger.info(
+                            "[AITS][ETAReDecision] event=eta_scheduler_callsite_before_call writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update pid=%s runtime_contract_active_from_heartbeat_source=%s self_aits_runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s sell_eval_called_in_same_cycle=True active_decision_count_before=%s scheduler_should_run=True scheduler_condition_reason=%s result=calling exception_type=- exception_message=- actual_order=False submitted=0",
+                            os.getpid(), heartbeat_contract_active, self_contract_before, eta_on_state,
+                            bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
+                            bool(getattr(self, "_aits_buy_blocked", False)), str(contract_snapshot.get("execution_mode") or self._get_aits_execution_mode() or ""),
+                            active_decision_count_before, scheduler_condition_reason,
+                        )
+                        redecision_result = self._run_ai_redecision_scheduler(
+                            reason="CandidateFeedState.score_update",
+                            rows=[row for row in rows if isinstance(row, dict)],
+                        )
+                    eta_logger.info(
+                        "[AITS][ETAReDecision] event=eta_scheduler_callsite_after_call writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update pid=%s runtime_contract_active_from_heartbeat_source=%s self_aits_runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s sell_eval_called_in_same_cycle=True active_decision_count_before=%s scheduler_should_run=%s scheduler_condition_reason=%s result=%s exception_type=- exception_message=- actual_order=False submitted=0",
+                        os.getpid(), heartbeat_contract_active, self_contract_before, eta_on_state,
+                        bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
+                        bool(getattr(self, "_aits_buy_blocked", False)), str(contract_snapshot.get("execution_mode") or self._get_aits_execution_mode() or ""),
+                        active_decision_count_before, scheduler_should_run, scheduler_condition_reason, str(redecision_result.get("scheduler_result") or "completed"),
+                    )
                     if int(redecision_result.get("triggered") or 0) > 0:
                         self._append_aits_live_log(
                             f"AI 판단 유효 시간이 만료되었거나 조건이 변경되어 재판단을 요청했습니다. ({int(redecision_result.get('triggered') or 0)}건)",
@@ -43845,8 +43934,12 @@ class MainWindow(QMainWindow):
                         )
                 except Exception as exc:
                     logging.getLogger("aits").info(
-                        "[AITS][ETAReDecision] event=eta_redecision_blocked symbol=- decision_id=- provider=- blocker=redecision_context_missing error_type=%s actual_order=False submitted=0",
-                        type(exc).__name__,
+                        "[AITS][ETAReDecision] event=eta_scheduler_callsite_exception writer_name=_update_ai_pool_statuses source_event=CandidateFeedState.score_update pid=%s runtime_contract_active_from_heartbeat_source=%s self_aits_runtime_contract_active=%s on_state=%s monitor_only=%s buy_blocked=%s execution_mode=%s sell_eval_called_in_same_cycle=True active_decision_count_before=%s scheduler_should_run=%s scheduler_condition_reason=%s result=exception exception_type=%s exception_message=%s actual_order=False submitted=0",
+                        os.getpid(), bool(locals().get("heartbeat_contract_active", False)), bool(locals().get("self_contract_before", False)),
+                        bool(locals().get("eta_on_state", False)), bool(getattr(self, "_aits_monitor_only_mode", False) or getattr(self, "_aits_runtime_monitor_only_mode", False)),
+                        bool(getattr(self, "_aits_buy_blocked", False)), str(self._get_aits_execution_mode() or ""), int(locals().get("active_decision_count_before", 0)),
+                        bool(locals().get("scheduler_should_run", False)), str(locals().get("scheduler_condition_reason", "callsite_exception")),
+                        type(exc).__name__, str(exc).replace("\n", " ")[:160] or "-",
                     )
                 try:
                     contract_state = self._build_live_runtime_contract_state(

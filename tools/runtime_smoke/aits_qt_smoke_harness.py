@@ -8621,6 +8621,13 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "exchange_response_missing": "inspect Upbit response/reconciliation logs",
         "trade_log_missing": "inspect trade log recording after submit",
         "position_update_missing": "inspect investment/position reflection after submit",
+        "eta_scheduler_callsite_probe_missing": "verify restarted app loads ETA scheduler active-writer callsite instrumentation",
+        "eta_scheduler_callsite_condition_false": "inspect ETA scheduler callsite condition reason",
+        "eta_scheduler_function_not_entered": "inspect active writer to ETA scheduler function handoff",
+        "eta_scheduler_exception": "inspect ETA scheduler callsite exception fields",
+        "eta_scheduler_running_but_no_registered_ai_decisions": "continue runtime observation until a validated AI decision is registered",
+        "eta_tick_not_running": "inspect registered AI decision ETA tick loop",
+        "eta_scheduler_active_callsite_ready": "AITS-HOLDINGS-MANAGED-POOL-SELL-EVAL-TARGET-SSOT-FIX",
     }
     return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
@@ -8643,6 +8650,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     ]
     anchor_index = (on_anchor_indexes or runtime_anchor_indexes or [-1])[-1]
     current_runtime_window_start = ""
+    current_runtime_window_end = ""
     current_runtime_pid_detected = 0
     log_window_filtered_by_current_pid = False
     if anchor_index >= 0:
@@ -8655,7 +8663,15 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         current_runtime_pid_detected = int(
             _safe_float(_live_on_stage_extract_value(runtime_provenance, "process_pid"), 0.0)
         )
-        lines = lines[anchor_index:]
+        off_indexes = [
+            index for index, line in enumerate(lines[anchor_index + 1 :], start=anchor_index + 1)
+            if ("[AITS][ON]" in line and "event=run_branch" in line and "branch=off" in line)
+            or ("[AITS][RuntimeContract]" in line and "last_writer=runtime_stop" in line)
+        ]
+        window_end_index = off_indexes[0] if off_indexes else len(lines) - 1
+        if off_indexes:
+            current_runtime_window_end = _extract_log_time(lines[window_end_index])
+        lines = lines[anchor_index : window_end_index + 1]
     else:
         session_started_at_dt = _runtime_provenance_line_ts(latest_provenance)
         if session_started_at_dt is not None:
@@ -9155,6 +9171,13 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     total_operating_cap_lines = [line for line in lines if "[AITS][TotalOperatingCap]" in line]
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
     eta_redecision_lines = [line for line in lines if "[AITS][ETAReDecision]" in line]
+    eta_scheduler_callsite_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_probe" in line]
+    eta_scheduler_callsite_condition_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_condition" in line]
+    eta_scheduler_callsite_before_call_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_before_call" in line]
+    eta_scheduler_callsite_after_call_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_after_call" in line]
+    eta_scheduler_callsite_exception_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_exception" in line]
+    eta_scheduler_entered_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_entered" in line]
+    eta_scheduler_exit_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_exit" in line]
     eta_scheduler_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_probe" in line]
     eta_scheduler_idle_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_idle" in line]
     ai_decision_state_registered_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registered" in line]
@@ -9184,6 +9207,30 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     ai_decision_registration_missing = bool(valid_ai_decision_lines and not ai_decision_state_registered_lines)
     eta_runtime_state_source = "registered_ai_decision_state" if ai_decision_state_registered_lines else (
         "scheduler_idle" if eta_scheduler_idle_lines else "runtime_probe_missing"
+    )
+    latest_eta_callsite = (eta_scheduler_callsite_after_call_lines or eta_scheduler_callsite_condition_lines or eta_scheduler_callsite_probe_lines or [""])[-1]
+    eta_scheduler_condition_false_lines = [
+        line for line in eta_scheduler_callsite_condition_lines
+        if not _live_on_runtime_bool_marker(line, "scheduler_should_run")
+    ]
+    eta_scheduler_condition_false_reasons = sorted({
+        _live_on_stage_extract_value(line, "scheduler_condition_reason")
+        for line in eta_scheduler_condition_false_lines
+        if _live_on_stage_extract_value(line, "scheduler_condition_reason")
+    })
+    heartbeat_contract_lines = [line for line in runtime_contract_lines if "last_writer=heartbeat" in line]
+    runtime_contract_heartbeat_value = _live_on_runtime_bool_marker(
+        heartbeat_contract_lines[-1] if heartbeat_contract_lines else latest_runtime_contract,
+        "runtime_contract_active",
+    )
+    runtime_contract_scheduler_value = _live_on_runtime_bool_marker(
+        latest_eta_callsite,
+        "self_aits_runtime_contract_active",
+    )
+    runtime_contract_source_mismatch_detected = any(
+        _live_on_runtime_bool_marker(line, "runtime_contract_active_from_heartbeat_source")
+        != _live_on_runtime_bool_marker(line, "self_aits_runtime_contract_active")
+        for line in eta_scheduler_callsite_probe_lines
     )
     ai_decision_authority_lines = [line for line in lines if "[AITS][AIDecisionAuthority]" in line]
     sell_order_intent_lines = [line for line in lines if "[AITS][SellOrderIntent]" in line]
@@ -9800,19 +9847,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     if heartbeat_expected and not heartbeat_detected and first_blocker in {"", "no_buy_ready_candidate", "buy_ready_but_candidate_not_selected"}:
         first_blocker = "live_log_heartbeat_missing"
     eta_runtime_first_blocker = ""
-    if eta_scheduler_not_called:
-        eta_runtime_first_blocker = "eta_scheduler_not_called_in_runtime"
+    if not eta_scheduler_callsite_probe_lines:
+        eta_runtime_first_blocker = "eta_scheduler_callsite_probe_missing"
+    elif eta_scheduler_condition_false_lines:
+        eta_runtime_first_blocker = "eta_scheduler_callsite_condition_false"
+    elif eta_scheduler_callsite_before_call_lines and not eta_scheduler_entered_lines:
+        eta_runtime_first_blocker = "eta_scheduler_function_not_entered"
+    elif eta_scheduler_callsite_exception_lines:
+        eta_runtime_first_blocker = "eta_scheduler_exception"
     elif ai_decision_registration_missing:
         eta_runtime_first_blocker = "ai_decision_registration_missing"
-    elif eta_scheduler_called_but_no_decisions:
+    elif eta_scheduler_entered_lines and eta_scheduler_idle_lines:
         eta_runtime_first_blocker = "eta_scheduler_running_but_no_registered_ai_decisions"
     elif ai_decision_state_registered_lines and not eta_tick_lines:
         eta_runtime_first_blocker = "eta_tick_not_running"
     elif eta_expired_lines and not redecision_payload_lines:
         eta_runtime_first_blocker = "eta_expired_but_redecision_payload_missing"
-    elif ai_decision_state_registered_lines and eta_tick_lines:
-        eta_runtime_first_blocker = "eta_scheduler_runtime_ready"
-    if runtime_contract_active and eta_runtime_first_blocker not in {"", "eta_scheduler_runtime_ready"}:
+    elif eta_scheduler_callsite_after_call_lines and eta_scheduler_entered_lines:
+        eta_runtime_first_blocker = "eta_scheduler_active_callsite_ready"
+    if runtime_contract_active and eta_runtime_first_blocker not in {"", "eta_scheduler_active_callsite_ready"}:
         first_blocker = eta_runtime_first_blocker
         if eta_runtime_first_blocker not in all_blockers:
             all_blockers.insert(0, eta_runtime_first_blocker)
@@ -9877,6 +9930,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "analyzed_log_line_count": len(lines),
         "recent_report_count": len(reports),
         "current_runtime_window_start": str(current_runtime_window_start or ""),
+        "current_runtime_window_end": str(current_runtime_window_end or ""),
         "current_runtime_pid_detected": int(current_runtime_pid_detected or 0),
         "log_window_filtered_by_current_pid": bool(log_window_filtered_by_current_pid),
         "on_state_detected": bool(on_state_detected),
@@ -10160,6 +10214,26 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "live_log_buy_blocked_monitoring_message": bool(live_log_buy_blocked_monitoring_message),
         "actual_buy_submit_count_after_buy_blocked": int(actual_buy_submit_count_after_buy_blocked),
         "actual_sell_submit_count_after_buy_blocked": int(actual_sell_submit_count_after_buy_blocked),
+        "eta_scheduler_callsite_probe_detected": bool(eta_scheduler_callsite_probe_lines),
+        "eta_scheduler_callsite_condition_detected": bool(eta_scheduler_callsite_condition_lines),
+        "eta_scheduler_callsite_before_call_detected": bool(eta_scheduler_callsite_before_call_lines),
+        "eta_scheduler_callsite_after_call_detected": bool(eta_scheduler_callsite_after_call_lines),
+        "eta_scheduler_callsite_exception_detected": bool(eta_scheduler_callsite_exception_lines),
+        "eta_scheduler_entered_detected": bool(eta_scheduler_entered_lines),
+        "eta_scheduler_exit_detected": bool(eta_scheduler_exit_lines),
+        "eta_scheduler_callsite_writer_name": _live_on_stage_extract_value(latest_eta_callsite, "writer_name"),
+        "eta_scheduler_callsite_source_event": _live_on_stage_extract_value(latest_eta_callsite, "source_event"),
+        "eta_scheduler_condition_false_count": int(len(eta_scheduler_condition_false_lines)),
+        "eta_scheduler_condition_false_reasons": eta_scheduler_condition_false_reasons,
+        "eta_scheduler_exception_count": int(len(eta_scheduler_callsite_exception_lines)),
+        "eta_scheduler_called_from_sell_eval_active_path": bool(
+            eta_scheduler_callsite_before_call_lines
+            and eta_scheduler_entered_lines
+            and any("sell_eval_called_in_same_cycle=True" in line for line in eta_scheduler_callsite_before_call_lines)
+        ),
+        "runtime_contract_source_mismatch_detected": bool(runtime_contract_source_mismatch_detected),
+        "runtime_contract_heartbeat_value": bool(runtime_contract_heartbeat_value),
+        "runtime_contract_scheduler_value": bool(runtime_contract_scheduler_value),
         "eta_scheduler_probe_detected": bool(eta_scheduler_probe_lines),
         "eta_scheduler_idle_detected": bool(eta_scheduler_idle_lines),
         "eta_scheduler_probe_count": int(len(eta_scheduler_probe_lines)),
@@ -10178,6 +10252,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "invalidation_condition_checked": bool(invalidation_checked_lines),
         "redecision_payload_created": bool(redecision_payload_lines),
         "eta_runtime_first_blocker": str(eta_runtime_first_blocker),
+        "holdings_sell_eval_target_ssot_mismatch_detected": bool(manageable_holding_count_for_sell_eval > managed_pool_count),
+        "holdings_ssot_next_fix_target": (
+            "AITS-HOLDINGS-MANAGED-POOL-SELL-EVAL-TARGET-SSOT-FIX"
+            if manageable_holding_count_for_sell_eval > managed_pool_count or pnl_source_missing_symbols else ""
+        ),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),
@@ -20697,6 +20776,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text
         and "_run_ai_redecision_scheduler" in app_text
+        and "event=eta_scheduler_callsite_probe" in app_text
+        and "event=eta_scheduler_callsite_before_call" in app_text
+        and "event=eta_scheduler_entered" in app_text
+        and "event=eta_scheduler_exit" in app_text
         and "event=eta_scheduler_probe" in app_text
         and "event=eta_scheduler_idle" in app_text
         and "event=ai_decision_state_registered" in app_text
@@ -20707,6 +20790,13 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     ai_decision_eta_registered = bool("event=eta_registered" in app_text)
     eta_scheduler_probe_detected = bool("event=eta_scheduler_probe" in app_text)
     eta_scheduler_idle_detected = bool("event=eta_scheduler_idle" in app_text)
+    eta_scheduler_callsite_probe_detected = bool("event=eta_scheduler_callsite_probe" in app_text)
+    eta_scheduler_callsite_condition_detected = bool("event=eta_scheduler_callsite_condition" in app_text)
+    eta_scheduler_callsite_before_call_detected = bool("event=eta_scheduler_callsite_before_call" in app_text)
+    eta_scheduler_callsite_after_call_detected = bool("event=eta_scheduler_callsite_after_call" in app_text)
+    eta_scheduler_callsite_exception_detected = bool("event=eta_scheduler_callsite_exception" in app_text)
+    eta_scheduler_entered_detected = bool("event=eta_scheduler_entered" in app_text)
+    eta_scheduler_exit_detected = bool("event=eta_scheduler_exit" in app_text)
     ai_decision_state_registration_helper_detected = bool("_register_ai_decision_runtime_state" in app_text)
     ai_decision_state_registration_skipped_detected = bool("event=ai_decision_state_registration_skipped" in app_text)
     eta_tick_detected = bool("event=eta_tick" in app_text)
@@ -21231,6 +21321,13 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "ai_decision_eta_registered": bool(ai_decision_eta_registered),
         "eta_scheduler_probe_detected": bool(eta_scheduler_probe_detected),
         "eta_scheduler_idle_detected": bool(eta_scheduler_idle_detected),
+        "eta_scheduler_callsite_probe_detected": bool(eta_scheduler_callsite_probe_detected),
+        "eta_scheduler_callsite_condition_detected": bool(eta_scheduler_callsite_condition_detected),
+        "eta_scheduler_callsite_before_call_detected": bool(eta_scheduler_callsite_before_call_detected),
+        "eta_scheduler_callsite_after_call_detected": bool(eta_scheduler_callsite_after_call_detected),
+        "eta_scheduler_callsite_exception_detected": bool(eta_scheduler_callsite_exception_detected),
+        "eta_scheduler_entered_detected": bool(eta_scheduler_entered_detected),
+        "eta_scheduler_exit_detected": bool(eta_scheduler_exit_detected),
         "ai_decision_state_registration_helper_detected": bool(ai_decision_state_registration_helper_detected),
         "ai_decision_state_registration_skipped_detected": bool(ai_decision_state_registration_skipped_detected),
         "eta_tick_detected": bool(eta_tick_detected),

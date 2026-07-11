@@ -1966,3 +1966,10 @@ summary modes.
 - Valid `hold`, `wait`, and `reject` decisions remain watchable when they provide ETA or invalidation conditions.
 - The E2E summary separates `eta_scheduler_not_called_in_runtime`, `eta_scheduler_running_but_no_registered_ai_decisions`, `ai_decision_registration_missing`, and `eta_tick_not_running`.
 - Runtime log analysis anchors on the latest real ON transition when available. PID is reported when provenance is available; logs are not claimed to be PID-filtered unless per-line PID filtering was possible.
+## ETA Scheduler Active Callsite Provenance
+
+- The active `CandidateFeedState.score_update` writer records ETA scheduler callsite probe, condition, before-call, after-call, and exception events next to the SellEvaluation call.
+- Scheduler internals record entered, idle, and exit events. Zero active decisions is a healthy idle result, not a missing scheduler.
+- Runtime diagnostics distinguish a missing callsite, a false call condition, a function that was not entered, idle operation, and an exception.
+- The heartbeat contract value and the scheduler's prior self flag are reported separately so last-writer/SSOT mismatches remain visible.
+- Holdings/Managed Pool/SellEvaluation target disagreement is not repaired by this instrumentation Goal. Its follow-up is `AITS-HOLDINGS-MANAGED-POOL-SELL-EVAL-TARGET-SSOT-FIX`.
