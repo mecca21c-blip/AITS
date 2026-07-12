@@ -252,3 +252,8 @@ The first active cycle of a new ON session is an event-based AI trigger. BASIC c
 - A validated AI decision becomes active only after runtime-state store readback succeeds.
 - `wait` and `hold` with a positive ETA remain active scenarios and must be reconsidered when ETA expires.
 - Missing invalidation conditions do not cancel a valid ETA watch unless the validator rejects the response.
+## Payload Feature Observability
+
+Every AI decision request must have a feature manifest and freshness summary. BASIC reports whether each required feature is available, computed, null, missing, unavailable, or stale; it does not invent missing indicators or freshness. AI data-insufficiency reasons are correlated with this manifest. Safe previews are limited to numeric values and compact state/count summaries, with no raw prompt or API key material.
+
+Invalidation conditions should use `condition_type`, `feature`, `operator`, `threshold`, `current_value`, `expected_direction`, and `reason_ko` so BASIC can determine whether a redecision trigger is measurable.

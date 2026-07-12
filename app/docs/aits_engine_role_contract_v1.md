@@ -171,3 +171,6 @@ ON activation requires BASIC to assemble the initial management context and ask 
 - Registration helper writes and ETA scheduler reads one runtime decision-state SSOT.
 - A registered log must reflect an actual active state found by decision ID in that store.
 - BASIC may monitor validated `wait` and `hold` states, but it may not convert ETA or invalidation events directly into orders.
+## AI Payload Observation Boundary
+
+BASIC owns factual feature availability and freshness metadata. It may compute and report payload quality, but a quality grade is not a trade action and does not replace AI judgment. Provider prompts and secret bodies are not audit output. Runtime training stores payload/manifest hashes and safe coverage summaries only. Missing or stale data may block or qualify a decision request, but never authorizes BASIC to create a buy, sell, or rotation action.

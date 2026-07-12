@@ -1,5 +1,9 @@
 # AITS AI Decision Payload Quality Audit v1
 
+## Feature Observability Follow-up
+
+Goal 21 adds a privacy-safe feature manifest, freshness summary, quality grade, data-gap correlation, and structured invalidation shape counters. Training records retain the manifest summary rather than raw payload input. A payload hash proves identity; the manifest proves feature presence and value state without exposing secrets or the full prompt.
+
 ## 1. Audit Summary
 
 The latest verified ON session completed the operational chain from initial seed through OpenAI response, validation, runtime-state registration, and ETA monitoring. All four initial decisions were `wait`; this was not a hardcoded action. The strongest evidence indicates that sparse market/indicator context combined with the provider prompt's explicit "choose wait or hold when data is insufficient" fallback produced the repeated conservative result.

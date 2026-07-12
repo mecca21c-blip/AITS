@@ -41037,10 +41037,22 @@ class MainWindow(QMainWindow):
                 "payload_hash": payload_hash,
                 "symbol": str((payload or {}).get("symbol") or ""),
                 "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
-                "input_features": payload,
+                "payload_feature_manifest_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
+                "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
+                "feature_coverage_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
+                "missing_critical_features": list(((decision or {}).get("payload_feature_manifest_summary") or {}).get("critical_missing_features") or []),
+                "stale_features": list(((decision or {}).get("payload_feature_manifest_summary") or {}).get("stale_features") or []),
+                "feature_manifest_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("feature_manifest_hash"),
                 "ai_action": str((decision or {}).get("action") or ""),
                 "ai_confidence": (decision or {}).get("confidence"),
                 "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
+                "ai_reason_mentions_insufficient_data": bool((decision or {}).get("ai_reason_mentions_insufficient_data")),
+                "insufficient_data_related_missing_features": list((decision or {}).get("insufficient_data_related_missing_features") or []),
+                "insufficient_data_related_stale_features": list((decision or {}).get("insufficient_data_related_stale_features") or []),
+                "ai_wait_due_to_data_gap": bool((decision or {}).get("ai_wait_due_to_data_gap")),
+                "invalidation_conditions_structured_count": int((decision or {}).get("invalidation_conditions_structured_count") or 0),
+                "invalidation_conditions_natural_language_count": int((decision or {}).get("invalidation_conditions_natural_language_count") or 0),
+                "invalidation_conditions_missing_count": int((decision or {}).get("invalidation_conditions_missing_count") or 0),
                 "validator_result": str((decision or {}).get("validator_result") or ("passed" if (decision or {}).get("validation_passed") else "failed")),
                 "execution_result": execution_result or {},
                 "realized_outcome_later": None,
@@ -41391,12 +41403,24 @@ class MainWindow(QMainWindow):
                 "symbol": str((payload or {}).get("symbol") or "PORTFOLIO"),
                 "provider": str((decision or {}).get("provider") or ""),
                 "payload_hash": payload_hash,
+                "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
+                "feature_coverage_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
+                "missing_critical_features": list(((decision or {}).get("payload_feature_manifest_summary") or {}).get("critical_missing_features") or []),
+                "stale_features": list(((decision or {}).get("payload_feature_manifest_summary") or {}).get("stale_features") or []),
+                "feature_manifest_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("feature_manifest_hash"),
                 "trigger_reason": "on_initial_management_seed",
                 "ai_action": str((decision or {}).get("action") or ""),
                 "ai_confidence": (decision or {}).get("confidence"),
                 "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
                 "eta_seconds": (decision or {}).get("eta_seconds"),
                 "invalidation_conditions": list((decision or {}).get("invalidation_conditions") or []),
+                "ai_reason_mentions_insufficient_data": bool((decision or {}).get("ai_reason_mentions_insufficient_data")),
+                "insufficient_data_related_missing_features": list((decision or {}).get("insufficient_data_related_missing_features") or []),
+                "insufficient_data_related_stale_features": list((decision or {}).get("insufficient_data_related_stale_features") or []),
+                "ai_wait_due_to_data_gap": bool((decision or {}).get("ai_wait_due_to_data_gap")),
+                "invalidation_conditions_structured_count": int((decision or {}).get("invalidation_conditions_structured_count") or 0),
+                "invalidation_conditions_natural_language_count": int((decision or {}).get("invalidation_conditions_natural_language_count") or 0),
+                "invalidation_conditions_missing_count": int((decision or {}).get("invalidation_conditions_missing_count") or 0),
                 "validator_result": "passed" if bool((decision or {}).get("validation_passed")) else "failed",
                 "registration_result": "registered" if registered else "not_registered",
                 "execution_result": "not_executed_or_pending",
@@ -41434,6 +41458,28 @@ class MainWindow(QMainWindow):
         response_received = bool(decision.get("response_confirmed"))
         validation_passed = bool(decision.get("validation_passed"))
         blocker = str(decision.get("blocker") or "")
+        quality = dict(decision.get("payload_feature_manifest_summary") or {})
+        quality_grade = str(quality.get("payload_quality_grade") or "-")
+        missing_features = list(quality.get("critical_missing_features") or [])
+        self._aits_ai_payload_quality_status_text = (
+            f"AI \ud310\ub2e8 \ub370\uc774\ud130 \ud488\uc9c8 {quality_grade} \u00b7 \ubd80\uc871 \uc9c0\ud45c {len(missing_features)}\uac1c"
+        )
+        seed_logger.info(
+            "[AITS][AIPayloadQuality] event=payload_quality_live_log task=%s symbol=%s payload_hash=%s payload_quality_grade=%s missing_count=%s status_summary_visible=True actual_order=False submitted=0",
+            task or "-", symbol or "-", payload_hash or "-", quality_grade, len(missing_features),
+        )
+        if response_received and bool(decision.get("ai_reason_mentions_insufficient_data")):
+            safe_names = [item.rsplit(".", 1)[-1].replace("_", " ") for item in missing_features[:3]]
+            detail = ", ".join(safe_names) or "\uc138\ubd80 \uc9c0\ud45c"
+            self._append_aits_live_log(
+                f"AI\uac00 \ub370\uc774\ud130 \ubd80\uc871\uc73c\ub85c \ub300\uae30\ub97c \uc120\ud0dd\ud588\uc2b5\ub2c8\ub2e4 \u00b7 \ubd80\uc871 \ud56d\ubaa9: {detail}",
+                category="pipeline", level="warning", event="ai_payload_data_gap", symbol=symbol,
+            )
+        elif response_received:
+            self._append_aits_live_log(
+                f"{symbol} AI \ud310\ub2e8 \ub370\uc774\ud130 \ud488\uc9c8 {quality_grade} \u00b7 \ud310\ub2e8 \uadfc\uac70 {int(quality.get('payload_available_feature_count') or 0)}\uac1c \ud655\uc778",
+                category="pipeline", level="info", event="ai_payload_quality_summary", symbol=symbol,
+            )
         if response_received:
             seed_logger.info(
                 "[AITS][AIManagementSeed] event=initial_seed_response_received session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=response_confirmed actual_order=False submitted=0",
@@ -42792,6 +42838,9 @@ class MainWindow(QMainWindow):
         seed_status_text = str(getattr(self, "_aits_initial_management_seed_status_text", "") or "")
         if seed_status_text:
             risk_text = f"{risk_text} | {seed_status_text}"
+        payload_quality_text = str(getattr(self, "_aits_ai_payload_quality_status_text", "") or "")
+        if payload_quality_text:
+            risk_text = f"{risk_text} | {payload_quality_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text

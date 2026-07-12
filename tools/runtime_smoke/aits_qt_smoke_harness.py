@@ -9263,6 +9263,37 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     openai_runtime_decision_blocker = _live_on_stage_extract_value(latest_runtime_decision_line, "blocker")
     if openai_runtime_decision_blocker == "-":
         openai_runtime_decision_blocker = ""
+    payload_quality_lines = [line for line in lines if "[AITS][AIPayloadQuality]" in line]
+    payload_manifest_lines = [line for line in payload_quality_lines if "event=payload_feature_manifest_created" in line]
+    payload_scored_lines = [line for line in payload_quality_lines if "event=payload_quality_scored" in line]
+    payload_missing_lines = [line for line in payload_quality_lines if "event=payload_feature_missing" in line]
+    payload_stale_lines = [line for line in payload_quality_lines if "event=payload_feature_stale" in line]
+    payload_data_gap_lines = [line for line in payload_quality_lines if "event=ai_data_gap_reason_correlated" in line]
+    invalidation_shape_lines = [line for line in payload_quality_lines if "event=invalidation_condition_shape_checked" in line]
+    payload_quality_live_log_lines = [line for line in payload_quality_lines if "event=payload_quality_live_log" in line]
+    latest_payload_score = payload_scored_lines[-1] if payload_scored_lines else ""
+    payload_quality_grades = sorted({
+        _live_on_stage_extract_value(line, "payload_quality_grade")
+        for line in payload_scored_lines
+        if _live_on_stage_extract_value(line, "payload_quality_grade") not in ("", "-")
+    })
+    position_score_lines = [line for line in payload_scored_lines if "task=position_management_decision" in line]
+    portfolio_score_lines = [line for line in payload_scored_lines if "task=portfolio_management_decision" in line]
+    missing_feature_names = sorted({
+        feature
+        for line in payload_missing_lines
+        for feature in _live_on_stage_extract_value(line, "features").split(",")
+        if feature and feature != "-"
+    })
+    stale_feature_names = sorted({
+        feature
+        for line in payload_stale_lines
+        for feature in _live_on_stage_extract_value(line, "features").split(",")
+        if feature and feature != "-"
+    })
+    invalidation_conditions_structured_count = sum(int(_safe_float(_live_on_stage_extract_value(line, "structured_count"), 0)) for line in invalidation_shape_lines)
+    invalidation_conditions_natural_language_count = sum(int(_safe_float(_live_on_stage_extract_value(line, "natural_language_count"), 0)) for line in invalidation_shape_lines)
+    invalidation_conditions_missing_count = sum(int(_safe_float(_live_on_stage_extract_value(line, "missing_count"), 0)) for line in invalidation_shape_lines)
     eta_scheduler_callsite_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_probe" in line]
     eta_scheduler_callsite_condition_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_condition" in line]
     eta_scheduler_callsite_before_call_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_before_call" in line]
@@ -10130,6 +10161,26 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = holdings_ssot_blocker
         if holdings_ssot_blocker not in all_blockers:
             all_blockers.insert(0, holdings_ssot_blocker)
+    ai_payload_quality_blocker = ""
+    if runtime_decision_requested_lines or payload_quality_lines:
+        if not payload_manifest_lines:
+            ai_payload_quality_blocker = "ai_payload_feature_manifest_missing"
+        elif not payload_scored_lines:
+            ai_payload_quality_blocker = "ai_payload_quality_score_missing"
+        elif missing_feature_names:
+            ai_payload_quality_blocker = "ai_payload_critical_features_missing"
+        elif any(name.startswith("indicators.") for name in missing_feature_names):
+            ai_payload_quality_blocker = "ai_payload_indicators_missing"
+        elif not payload_stale_lines and not payload_scored_lines:
+            ai_payload_quality_blocker = "ai_payload_freshness_unobservable"
+        elif payload_data_gap_lines and not missing_feature_names and not stale_feature_names:
+            ai_payload_quality_blocker = "ai_data_gap_reason_not_correlated"
+        else:
+            ai_payload_quality_blocker = "ai_payload_feature_observability_ready"
+        if runtime_contract_active:
+            first_blocker = ai_payload_quality_blocker
+            if ai_payload_quality_blocker not in all_blockers:
+                all_blockers.insert(0, ai_payload_quality_blocker)
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -10507,6 +10558,35 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "provider_call_payload_hash": _live_on_stage_extract_value(latest_runtime_decision_line, "payload_hash"),
         "provider_call_cost_guard_result": _live_on_stage_extract_value(latest_runtime_decision_line, "cost_guard_result"),
         "provider_call_key_masked": _live_on_stage_extract_value(latest_runtime_decision_line, "key_masked").lower() == "true",
+        "ai_payload_feature_manifest_enabled": True,
+        "ai_payload_feature_manifest_created": bool(payload_manifest_lines),
+        "ai_payload_quality_scored": bool(payload_scored_lines),
+        "ai_payload_quality_grades": payload_quality_grades,
+        "position_payload_quality_grade": _live_on_stage_extract_value(position_score_lines[-1], "payload_quality_grade") if position_score_lines else "",
+        "portfolio_payload_quality_grade": _live_on_stage_extract_value(portfolio_score_lines[-1], "payload_quality_grade") if portfolio_score_lines else "",
+        "payload_required_feature_count": int(_safe_float(_live_on_stage_extract_value(latest_payload_score, "required_count"), 0)),
+        "payload_available_feature_count": int(_safe_float(_live_on_stage_extract_value(latest_payload_score, "available_count"), 0)),
+        "payload_missing_feature_count": int(_safe_float(_live_on_stage_extract_value(latest_payload_score, "missing_count"), 0)),
+        "payload_stale_feature_count": int(_safe_float(_live_on_stage_extract_value(latest_payload_score, "stale_count"), 0)),
+        "payload_unavailable_feature_count": int(_safe_float(_live_on_stage_extract_value(latest_payload_score, "unavailable_count"), 0)),
+        "payload_unknown_freshness_count": int(_safe_float(_live_on_stage_extract_value(latest_payload_score, "unknown_freshness_count"), 0)),
+        "critical_missing_features": missing_feature_names,
+        "rsi_payload_available": "indicators.RSI" not in missing_feature_names if payload_scored_lines else False,
+        "macd_payload_available": "indicators.MACD" not in missing_feature_names if payload_scored_lines else False,
+        "volume_payload_available": "market.volume_change" not in missing_feature_names if payload_scored_lines else False,
+        "volatility_payload_available": "market.volatility" not in missing_feature_names if payload_scored_lines else False,
+        "price_change_payload_available": not any(name.startswith("market.price_change_") for name in missing_feature_names) if payload_scored_lines else False,
+        "portfolio_cap_payload_available": "portfolio.cap_remaining_krw" not in missing_feature_names if payload_scored_lines else False,
+        "candidates_payload_available": not any(name.startswith("candidates.") for name in missing_feature_names) if payload_scored_lines else False,
+        "payload_freshness_summary_detected": bool(payload_scored_lines),
+        "ai_reason_mentions_insufficient_data": bool(payload_data_gap_lines),
+        "insufficient_data_related_missing_features": missing_feature_names if payload_data_gap_lines else [],
+        "invalidation_conditions_structured_count": int(invalidation_conditions_structured_count),
+        "invalidation_conditions_natural_language_count": int(invalidation_conditions_natural_language_count),
+        "invalidation_conditions_missing_count": int(invalidation_conditions_missing_count),
+        "ai_payload_quality_log_detected": bool(payload_quality_lines),
+        "ai_payload_quality_live_log_detected": bool(payload_quality_live_log_lines),
+        "ai_payload_quality_blocker": str(ai_payload_quality_blocker or ""),
         "eta_scheduler_idle_after_initial_seed": bool(eta_scheduler_idle_after_initial_seed),
         "eta_scheduler_tick_after_initial_seed": bool(eta_scheduler_tick_after_initial_seed),
         "eta_scheduler_callsite_probe_detected": bool(eta_scheduler_callsite_probe_lines),
@@ -21147,6 +21227,22 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "_runtime_decision_call_policy" in provider_text
         and "event=runtime_decision_call_allowed" in provider_text
     )
+    ai_payload_feature_manifest_enabled = bool(
+        "build_ai_payload_feature_manifest" in provider_text
+        and "payload_feature_manifest_created" in provider_text
+        and "payload_quality_scored" in provider_text
+        and "feature_coverage_summary" in app_text
+    )
+    ai_payload_freshness_summary_enabled = bool(
+        '"freshness"' in provider_text and '"age_sec"' in provider_text and '"updated_at"' in provider_text
+    )
+    ai_payload_data_gap_correlation_enabled = bool(
+        "correlate_ai_data_gap_reason" in provider_text and "ai_data_gap_reason_correlated" in provider_text
+    )
+    structured_invalidation_condition_detection_enabled = bool(
+        "summarize_invalidation_condition_shapes" in provider_text
+        and "invalidation_condition_shape_checked" in provider_text
+    )
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text
         and "_run_ai_redecision_scheduler" in app_text
@@ -21658,6 +21754,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
             "risk_notes",
             "invalidation_conditions",
         ],
+        "ai_payload_feature_manifest_enabled": bool(ai_payload_feature_manifest_enabled),
+        "ai_payload_freshness_summary_enabled": bool(ai_payload_freshness_summary_enabled),
+        "ai_payload_data_gap_correlation_enabled": bool(ai_payload_data_gap_correlation_enabled),
+        "structured_invalidation_condition_detection_enabled": bool(structured_invalidation_condition_detection_enabled),
         "managed_pool_promotion_ai_gate_enabled": bool(managed_pool_promotion_ai_gate_enabled),
         "promotion_trigger_detected": bool(promotion_trigger_detected),
         "promotion_payload_created": bool(promotion_payload_created),

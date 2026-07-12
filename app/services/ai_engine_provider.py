@@ -71,6 +71,226 @@ AI_DECISION_REQUIRED_FIELDS = (
 )
 
 
+_PAYLOAD_REQUIRED_FEATURES = {
+    "position": (
+        "qty", "avg_buy_price", "current_price", "position_value_krw", "pnl_krw",
+        "pnl_pct", "weight_pct", "target_weight_pct", "holding_age", "source_type", "dust",
+    ),
+    "market": (
+        "current_price", "price_change_1m", "price_change_5m", "price_change_15m",
+        "price_change_1h", "volume_change", "trade_value", "volatility", "market_data_stale",
+    ),
+    "indicators": ("RSI", "MACD", "moving_averages", "momentum", "trend_strength"),
+    "portfolio": (
+        "total_asset_krw", "available_krw", "total_budget_krw", "exposure_for_cap",
+        "cap_remaining_krw", "current_positions",
+    ),
+    "candidates": (
+        "scanner_top_candidates", "rotation_candidates", "managed_pool_symbols", "opportunity_gap",
+    ),
+    "constraints": (
+        "min_order_krw", "available_qty", "buy_blocked", "buy_blocker",
+        "sell_allowed_precheck", "duplicate_locks", "dust_excluded",
+    ),
+    "prior_decision": ("prior_ai_decision",),
+    "eta_state": ("eta_state", "invalidation_conditions"),
+    "output_schema": ("action", "confidence", "reason_ko", "eta_seconds", "invalidation_conditions"),
+}
+
+
+def _payload_feature_value(payload: Dict[str, Any], group: str, name: str) -> tuple[bool, Any]:
+    aliases = {
+        ("candidates", "opportunity_gap"): ("opportunity_score_gap",),
+        ("constraints", "sell_allowed_precheck"): ("sell_allowed_guard_precheck",),
+        ("constraints", "dust_excluded"): ("dust", "dust_holdings_excluded"),
+    }
+    if group in ("prior_decision", "eta_state"):
+        container = payload
+    elif group == "output_schema":
+        container = payload.get("output_schema") or payload.get("required_output_schema") or {}
+    else:
+        container = payload.get(group) or {}
+    if not isinstance(container, dict):
+        return False, None
+    for key in (name, *aliases.get((group, name), ())):
+        if key in container:
+            return True, container.get(key)
+    if group == "market" and name == "current_price":
+        position = payload.get("position") or {}
+        if isinstance(position, dict) and "current_price" in position:
+            return True, position.get("current_price")
+    if group == "eta_state" and name == "invalidation_conditions":
+        prior = payload.get("prior_ai_decision") or {}
+        if isinstance(prior, dict) and "invalidation_conditions" in prior:
+            return True, prior.get("invalidation_conditions")
+    return False, None
+
+
+def _safe_payload_preview(value: Any) -> Any:
+    if isinstance(value, bool) or isinstance(value, (int, float)):
+        return value
+    if isinstance(value, (list, tuple, set, dict)):
+        return {"count": len(value)}
+    text = str(value or "").strip()
+    if text.lower() in {"none", "unavailable", "unknown", "fresh", "stale"}:
+        return text.lower()
+    return None
+
+
+def build_ai_payload_feature_manifest(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    safe_payload = dict(payload or {})
+    encoded = json.dumps(safe_payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    payload_hash = hashlib.sha256(encoded).hexdigest()[:24]
+    task = str(safe_payload.get("task") or "")
+    symbol = str(safe_payload.get("symbol") or "PORTFOLIO")
+    is_portfolio = task == "portfolio_management_decision"
+    groups: Dict[str, list[Dict[str, Any]]] = {}
+    available = missing = stale = unavailable = unknown_freshness = 0
+    critical_missing: list[str] = []
+    stale_features: list[str] = []
+    required_total = 0
+    market_stale = bool((safe_payload.get("market") or {}).get("market_data_stale")) if isinstance(safe_payload.get("market"), dict) else False
+    computed_names = {"pnl_krw", "pnl_pct", "weight_pct", "position_value_krw", "opportunity_gap"}
+    for group, names in _PAYLOAD_REQUIRED_FEATURES.items():
+        entries = []
+        group_required = not is_portfolio or group in {"portfolio", "candidates", "constraints", "output_schema"}
+        for name in names:
+            present, value = _payload_feature_value(safe_payload, group, name)
+            required = bool(group_required)
+            required_total += int(required)
+            value_state = "missing" if not present else "null" if value is None else "available"
+            if present and isinstance(value, str) and value.strip().lower() in {"unavailable", "n/a", "unknown"}:
+                value_state = "unavailable"
+            if present and value_state == "available" and name in computed_names:
+                value_state = "computed"
+            freshness = "stale" if market_stale and group in {"market", "indicators"} else "unknown"
+            if group == "market" and name == "market_data_stale" and present:
+                freshness = "stale" if bool(value) else "fresh"
+            if freshness == "stale":
+                stale += int(required)
+                stale_features.append(f"{group}.{name}")
+            elif required and freshness == "unknown" and group in {"market", "indicators"} and value_state in {"available", "computed"}:
+                unknown_freshness += 1
+            if required:
+                if value_state in {"available", "computed"}:
+                    available += 1
+                elif value_state == "unavailable":
+                    unavailable += 1
+                    critical_missing.append(f"{group}.{name}")
+                else:
+                    missing += 1
+                    critical_missing.append(f"{group}.{name}")
+            entries.append({
+                "name": name,
+                "present": present,
+                "value_state": value_state,
+                "source": f"payload.{group}" if present else "",
+                "updated_at": None,
+                "age_sec": None,
+                "freshness": freshness,
+                "required": required,
+                "blocker": "" if value_state in {"available", "computed"} else f"feature_{value_state}",
+                "safe_preview_value": _safe_payload_preview(value),
+            })
+        groups[group] = entries
+    coverage = available / max(required_total, 1)
+    if coverage >= 0.90 and stale == 0 and unknown_freshness == 0:
+        grade = "A"
+    elif coverage >= 0.75:
+        grade = "B"
+    elif coverage >= 0.50:
+        grade = "C"
+    elif coverage >= 0.25:
+        grade = "D"
+    else:
+        grade = "F"
+    manifest = {
+        "payload_hash": payload_hash,
+        "task": task,
+        "symbol_or_scope": symbol,
+        "created_at": int(time.time()),
+        "feature_groups": groups,
+        "payload_quality_grade": grade,
+        "payload_required_feature_count": required_total,
+        "payload_available_feature_count": available,
+        "payload_missing_feature_count": missing,
+        "payload_stale_feature_count": stale,
+        "payload_unavailable_feature_count": unavailable,
+        "payload_unknown_freshness_count": unknown_freshness,
+        "critical_missing_features": critical_missing,
+        "stale_features": sorted(set(stale_features)),
+        "recommended_blocker": "" if grade in {"A", "B"} else "ai_payload_critical_features_missing",
+    }
+    manifest_basis = dict(manifest)
+    manifest_basis.pop("created_at", None)
+    manifest["feature_manifest_hash"] = hashlib.sha256(
+        json.dumps(manifest_basis, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()[:24]
+    return manifest
+
+
+def summarize_ai_payload_feature_manifest(manifest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    source = dict(manifest or {})
+    return {key: source.get(key) for key in (
+        "payload_hash", "feature_manifest_hash", "payload_quality_grade",
+        "payload_required_feature_count", "payload_available_feature_count",
+        "payload_missing_feature_count", "payload_stale_feature_count",
+        "payload_unavailable_feature_count", "critical_missing_features", "stale_features",
+        "payload_unknown_freshness_count",
+        "recommended_blocker",
+    )}
+
+
+def correlate_ai_data_gap_reason(decision: Optional[Dict[str, Any]], manifest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    decision = dict(decision or {})
+    reason = f"{decision.get('reason_ko') or ''} {decision.get('risk_notes') or ''}".lower()
+    mentions = any(token in reason for token in ("데이터 부족", "데이터가 부족", "정보 부족", "불충분", "insufficient data", "missing data"))
+    missing_features = list((manifest or {}).get("critical_missing_features") or []) if mentions else []
+    stale_features = list((manifest or {}).get("stale_features") or []) if mentions else []
+    return {
+        "ai_reason_mentions_insufficient_data": mentions,
+        "insufficient_data_related_missing_features": missing_features,
+        "insufficient_data_related_stale_features": stale_features,
+        "ai_wait_due_to_data_gap": bool(mentions and str(decision.get("action") or "").lower() in {"wait", "hold"}),
+    }
+
+
+def summarize_invalidation_condition_shapes(decision: Optional[Dict[str, Any]]) -> Dict[str, int]:
+    conditions = list((decision or {}).get("invalidation_conditions") or [])
+    structured = sum(1 for item in conditions if isinstance(item, dict) and all(key in item for key in ("condition_type", "feature", "operator")))
+    natural = sum(1 for item in conditions if isinstance(item, str) and item.strip())
+    return {
+        "invalidation_conditions_structured_count": structured,
+        "invalidation_conditions_natural_language_count": natural,
+        "invalidation_conditions_missing_count": int(not conditions),
+    }
+
+
+def log_ai_payload_feature_manifest(manifest: Optional[Dict[str, Any]]) -> None:
+    item = dict(manifest or {})
+    missing = list(item.get("critical_missing_features") or [])
+    stale_items = list(item.get("stale_features") or [])
+    common = (
+        f"task={item.get('task') or '-'} symbol={item.get('symbol_or_scope') or '-'} "
+        f"payload_hash={item.get('payload_hash') or '-'} feature_manifest_hash={item.get('feature_manifest_hash') or '-'}"
+    )
+    _safe_log_info(f"[AITS][AIPayloadQuality] event=payload_feature_manifest_created {common} actual_order=False submitted=0")
+    _safe_log_info(
+        f"[AITS][AIPayloadQuality] event=payload_quality_scored {common} "
+        f"payload_quality_grade={item.get('payload_quality_grade') or '-'} "
+        f"required_count={int(item.get('payload_required_feature_count') or 0)} "
+        f"available_count={int(item.get('payload_available_feature_count') or 0)} "
+        f"missing_count={int(item.get('payload_missing_feature_count') or 0)} "
+        f"stale_count={int(item.get('payload_stale_feature_count') or 0)} "
+        f"unavailable_count={int(item.get('payload_unavailable_feature_count') or 0)} "
+        f"unknown_freshness_count={int(item.get('payload_unknown_freshness_count') or 0)} actual_order=False submitted=0"
+    )
+    if missing:
+        _safe_log_info(f"[AITS][AIPayloadQuality] event=payload_feature_missing {common} features={','.join(missing)} actual_order=False submitted=0")
+    if stale_items:
+        _safe_log_info(f"[AITS][AIPayloadQuality] event=payload_feature_stale {common} features={','.join(stale_items)} actual_order=False submitted=0")
+
+
 def build_ai_decision_blocker(blockers: Any) -> str:
     if isinstance(blockers, (list, tuple)):
         for item in blockers:
@@ -714,6 +934,37 @@ class AIEngineProvider:
         """
         provider = str(provider or "local").strip().lower()
         context = dict(context or {})
+        feature_manifest = build_ai_payload_feature_manifest(context)
+        log_ai_payload_feature_manifest(feature_manifest)
+
+        def _with_payload_quality(decision: Dict[str, Any]) -> Dict[str, Any]:
+            result = dict(decision or {})
+            summary = summarize_ai_payload_feature_manifest(feature_manifest)
+            correlation = correlate_ai_data_gap_reason(result, feature_manifest)
+            condition_shapes = summarize_invalidation_condition_shapes(result)
+            result["payload_feature_manifest_summary"] = summary
+            result.update(correlation)
+            result.update(condition_shapes)
+            if correlation["ai_reason_mentions_insufficient_data"]:
+                _safe_log_info(
+                    "[AITS][AIPayloadQuality] event=ai_data_gap_reason_correlated "
+                    f"task={feature_manifest.get('task') or '-'} symbol={feature_manifest.get('symbol_or_scope') or '-'} "
+                    f"payload_hash={feature_manifest.get('payload_hash') or '-'} "
+                    f"ai_wait_due_to_data_gap={correlation['ai_wait_due_to_data_gap']} "
+                    f"missing_features={','.join(correlation['insufficient_data_related_missing_features']) or '-'} "
+                    f"stale_features={','.join(correlation['insufficient_data_related_stale_features']) or '-'} "
+                    "actual_order=False submitted=0"
+                )
+            _safe_log_info(
+                "[AITS][AIPayloadQuality] event=invalidation_condition_shape_checked "
+                f"task={feature_manifest.get('task') or '-'} symbol={feature_manifest.get('symbol_or_scope') or '-'} "
+                f"payload_hash={feature_manifest.get('payload_hash') or '-'} "
+                f"structured_count={condition_shapes['invalidation_conditions_structured_count']} "
+                f"natural_language_count={condition_shapes['invalidation_conditions_natural_language_count']} "
+                f"missing_count={condition_shapes['invalidation_conditions_missing_count']} "
+                "actual_order=False submitted=0"
+            )
+            return result
         if provider in ("gpt", "chatgpt"):
             provider = "openai"
         elif provider in ("google", "google_gemini"):
@@ -733,7 +984,7 @@ class AIEngineProvider:
                 parsed["response_confirmed"] = bool(validation.get("validation_passed"))
                 parsed["provider_call_attempted"] = False
                 parsed["reason"] = parsed.get("reason_ko") or parsed.get("reason") or "LOCAL AI decision"
-                return parsed
+                return _with_payload_quality(parsed)
             if provider not in ("openai", "gemini"):
                 return {
                     "schema": "aits_position_management_decision_v1",
@@ -774,7 +1025,7 @@ class AIEngineProvider:
                     "submitted": 0,
                 }
             )
-            return parsed
+            return _with_payload_quality(parsed)
         except NotImplementedError as exc:
             return {
                 "schema": "aits_position_management_decision_v1",
@@ -818,6 +1069,7 @@ class AIEngineProvider:
                 "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
                 "execution_plan, sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
                 "Allowed action values: hold, wait, sell, reduce, add, buy, rotate, stop_loss, take_profit.\n"
+                "Each invalidation condition should be an object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
                 "If evidence is incomplete, choose wait or hold with a new ETA and explicit invalidation conditions.\n"
                 "Context JSON:\n"
                 + json.dumps(safe_context, ensure_ascii=False, default=str)
@@ -829,6 +1081,7 @@ class AIEngineProvider:
                 "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
                 "execution_plan, replace_symbol, rotate_to_symbol, sell_ratio, buy_amount_krw, risk_notes, invalidation_conditions.\n"
                 "Allowed action values: rotate, wait, hold, replace, reduce_and_rotate, reject.\n"
+                "Each invalidation condition should be a structured object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
                 "Protected, user-added, live holding, or external holding rows must not be removed by simple replacement.\n"
                 "If data is insufficient, choose wait or hold with eta_seconds and reason_ko.\n"
                 "Context JSON:\n"
@@ -841,6 +1094,7 @@ class AIEngineProvider:
                 "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
                 "execution_plan, replace_symbol, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
                 "Allowed action values: promote, reject, wait, replace, rotate_review, hold.\n"
+                "Each invalidation condition should be a structured object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
                 "Do not decide from scanner score alone. Use market context, current pool, holdings protection, cap, and alternatives together.\n"
                 "If data is insufficient, choose wait or hold with eta_seconds and reason_ko.\n"
                 "Context JSON:\n"
@@ -852,6 +1106,7 @@ class AIEngineProvider:
             "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
             "sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
             "Allowed action values: hold, wait, sell, reduce, add, buy, rotate, stop_loss, take_profit.\n"
+            "Each invalidation condition should be a structured object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
             "Use pnl, RSI, MACD, volume, volatility, portfolio cap, alternatives, and risk context together; "
             "do not decide from pnl threshold alone.\n"
             "If data is insufficient, choose wait or hold with eta_seconds and reason_ko.\n"

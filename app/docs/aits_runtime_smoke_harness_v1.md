@@ -2011,3 +2011,11 @@ summary modes.
 - A manageable holding with missing PnL inputs remains in the target set and reports `pnl_source_missing_for_manageable_holding` as an evaluation blocker.
 - Live and external holding recovery is a holding-protection exception to candidate promotion; it never promotes a non-holding candidate.
 - The E2E summary compares the normalized, managed, sell-evaluation, and AI-payload symbol sets and reports their exact differences.
+## AI Payload Feature Observability And Freshness
+
+- Runtime decision payloads emit an `AIPayloadQuality` feature manifest, payload hash, manifest hash, quality grade, coverage counts, missing features, and stale features.
+- The manifest records only safe numeric/state previews. It must not store API keys, account raw data, full prompts, or private response bodies.
+- Freshness is explicit: `fresh`, `stale`, or `unknown`. Unknown freshness must never be reported as fresh.
+- The runtime summary distinguishes RSI, MACD, volume, volatility, price-change, portfolio-cap, and candidate coverage.
+- When an AI reason mentions insufficient data, the harness correlates it with manifest missing/stale features.
+- Invalidation results are counted separately as structured objects, natural-language strings, or missing.
