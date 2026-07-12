@@ -18856,6 +18856,80 @@ class MainWindow(QMainWindow):
                 "manageable_holding": False,
             }
 
+    def _build_normalized_holding_snapshot(self, *, additional_rows: list | None = None, reason: str = "runtime") -> dict:
+        from app.services.aits_orchestrator import build_normalized_holdings_snapshot
+
+        groups = []
+        if isinstance(additional_rows, list):
+            groups.append(("live_account", [dict(row) for row in additional_rows if isinstance(row, dict)]))
+        for source_path, attr_name in (
+            ("live_account", "_live_holdings_rows"),
+            ("investment_center", "_investment_center_positions"),
+            ("portfolio_positions", "_portfolio_positions"),
+            ("holdings_rows", "_holdings_rows"),
+            ("managed_pool", "ai_managed_rows"),
+        ):
+            rows = getattr(self, attr_name, None)
+            if isinstance(rows, list):
+                groups.append((source_path, [dict(row) for row in rows if isinstance(row, dict)]))
+        snapshot = build_normalized_holdings_snapshot(
+            groups,
+            normalize_symbol=self._managed_pool_holding_symbol,
+            dust_threshold_krw=float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
+            managed_holding_min_value_krw=float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
+        )
+        managed_symbols = {
+            self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)
+        }
+        manageable_symbols = set(snapshot.get("normalized_manageable_holding_symbols") or [])
+        snapshot["managed_pool_holding_symbols"] = sorted(managed_symbols & manageable_symbols)
+        snapshot["missing_in_managed_pool"] = sorted(manageable_symbols - managed_symbols)
+        self._aits_normalized_holdings_snapshot = snapshot
+        self._aits_manageable_holding_symbols = sorted(manageable_symbols)
+        signature = (
+            tuple(snapshot.get("normalized_all_holding_symbols") or []),
+            tuple(snapshot.get("normalized_manageable_holding_symbols") or []),
+            tuple(snapshot.get("normalized_dust_holding_symbols") or []),
+            tuple(snapshot.get("missing_pnl_source") or []),
+            tuple(snapshot.get("missing_in_managed_pool") or []),
+        )
+        if signature != getattr(self, "_aits_holdings_ssot_last_log_signature", None):
+            self._aits_holdings_ssot_last_log_signature = signature
+            logging.getLogger("aits").info(
+                "[AITS][HoldingsSSOT] event=normalized_snapshot_built reason=%s all_symbols=%s manageable_symbols=%s dust_symbols=%s managed_pool_symbols=%s missing_in_managed_pool=%s missing_pnl_source=%s normalized_all_count=%s normalized_manageable_count=%s dust_count=%s actual_order=False submitted=0 managed_pool_mutation=False",
+                reason,
+                ",".join(snapshot.get("normalized_all_holding_symbols") or []) or "-",
+                ",".join(snapshot.get("normalized_manageable_holding_symbols") or []) or "-",
+                ",".join(snapshot.get("normalized_dust_holding_symbols") or []) or "-",
+                ",".join(snapshot.get("managed_pool_holding_symbols") or []) or "-",
+                ",".join(snapshot.get("missing_in_managed_pool") or []) or "-",
+                ",".join(snapshot.get("missing_pnl_source") or []) or "-",
+                len(snapshot.get("all_holdings") or []),
+                len(snapshot.get("manageable_holdings") or []),
+                len(snapshot.get("dust_holdings") or []),
+            )
+        return snapshot
+
+    def _log_holdings_ssot_target_consistency(self, *, sell_eval_symbols=None, ai_payload_symbols=None, reason: str = "runtime") -> dict:
+        snapshot = dict(getattr(self, "_aits_normalized_holdings_snapshot", {}) or self._build_normalized_holding_snapshot(reason=reason))
+        normalized = set(snapshot.get("normalized_manageable_holding_symbols") or [])
+        managed = set(snapshot.get("managed_pool_holding_symbols") or [])
+        sell_targets = set(sell_eval_symbols if sell_eval_symbols is not None else normalized)
+        ai_targets = set(ai_payload_symbols if ai_payload_symbols is not None else normalized)
+        mismatch = sorted((normalized - managed) | (normalized - sell_targets) | (normalized - ai_targets))
+        logging.getLogger("aits").info(
+            "[AITS][HoldingsSSOT] event=target_set_consistency_check reason=%s normalized_manageable_symbols=%s managed_pool_manageable_symbols=%s sell_eval_target_symbols=%s ai_position_payload_symbols=%s investment_position_symbols=%s mismatch_symbols=%s status_bar_count=%s managed_pool_count=%s sell_eval_count=%s ai_payload_count=%s normalized_manageable_count=%s consistent=%s actual_order=False submitted=0 managed_pool_mutation=False",
+            reason,
+            ",".join(sorted(normalized)) or "-",
+            ",".join(sorted(managed)) or "-",
+            ",".join(sorted(sell_targets)) or "-",
+            ",".join(sorted(ai_targets)) or "-",
+            ",".join(sorted(normalized)) or "-",
+            ",".join(mismatch) or "-",
+            len(normalized), len(managed), len(sell_targets), len(ai_targets), len(normalized), not mismatch,
+        )
+        return {"consistent": not mismatch, "mismatch_symbols": mismatch}
     def _managed_pool_total_asset_for_weight(self) -> tuple[float, str]:
         try:
             total = self._managed_pool_num_value(getattr(self, "_last_total_asset", None), 0.0)
@@ -19048,52 +19122,10 @@ class MainWindow(QMainWindow):
         return managed
 
     def _load_managed_pool_live_holding_rows(self, *, reason: str = "managed_pool_holdings_include", holdings: list | None = None) -> list[dict]:
-        source_rows = holdings if isinstance(holdings, list) else None
-        if source_rows is None:
-            source_rows = []
-            try:
-                result = self._refresh_investment_position_source(reason)
-                rows = result.get("rows") if isinstance(result, dict) else []
-                if isinstance(rows, list):
-                    source_rows.extend([dict(row) for row in rows if isinstance(row, dict)])
-            except Exception:
-                pass
-            for attr_name in ("_live_holdings_rows", "_investment_center_positions", "_portfolio_positions", "_holdings_rows"):
-                try:
-                    rows = getattr(self, attr_name, None)
-                    if isinstance(rows, list):
-                        source_rows.extend([dict(row) for row in rows if isinstance(row, dict)])
-                except Exception:
-                    pass
-        out: list[dict] = []
-        dust_excluded: list[dict] = []
-        seen = set()
-        for item in source_rows or []:
-            if not isinstance(item, dict):
-                continue
-            row = self._build_managed_pool_row_from_live_holding(item)
-            symbol = str(row.get("symbol") or "").strip() if isinstance(row, dict) else ""
-            if not symbol or symbol in seen:
-                continue
-            if bool(row.get("dust_holding") or row.get("is_dust_holding")) or not bool(row.get("manageable_holding", True)):
-                dust_excluded.append(dict(row))
-                seen.add(symbol)
-                continue
-            out.append(row)
-            seen.add(symbol)
-        try:
-            self._last_managed_pool_dust_excluded = dust_excluded
-            if dust_excluded:
-                self._log.info(
-                    "[AITS][ManagedPoolDust] event=dust_excluded reason=%s symbols=%s dust_threshold_krw=%s managed_holding_min_value_krw=%s submitted=0 actual_order=False managed_pool_mutation=False",
-                    reason,
-                    ",".join(str(row.get("symbol") or "") for row in dust_excluded if row.get("symbol")) or "-",
-                    float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
-                    float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
-                )
-        except Exception:
-            pass
-        return out
+        snapshot = self._build_normalized_holding_snapshot(additional_rows=holdings, reason=reason)
+        self._last_managed_pool_dust_excluded = [dict(row) for row in snapshot.get("dust_holdings", []) if isinstance(row, dict)]
+        rows = [self._build_managed_pool_row_from_live_holding(row) for row in snapshot.get("manageable_holdings", [])]
+        return [row for row in rows if isinstance(row, dict) and row.get("symbol")]
 
     def _ensure_managed_pool_holdings_included(self, *, reason: str = "refresh", holdings: list | None = None, persist: bool = True) -> dict:
         rows = list(getattr(self, "ai_managed_rows", None) or [])
@@ -39993,7 +40025,8 @@ class MainWindow(QMainWindow):
     def _managed_pool_status_bar_snapshot(self) -> dict:
         rows = [row for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)]
         managed_count = len(rows)
-        holding_count = sum(1 for row in rows if self._managed_pool_status_bar_row_is_holding(row))
+        holdings_snapshot = self._build_normalized_holding_snapshot(reason="managed_pool_status_bar")
+        holding_count = len(holdings_snapshot.get("manageable_holdings", []))
         protected_count = sum(1 for row in rows if self._managed_pool_status_bar_row_is_protected(row))
         max_count = 0
         try:
@@ -40019,6 +40052,8 @@ class MainWindow(QMainWindow):
             "managed_count": managed_count,
             "max_count": max_count,
             "holding_count": holding_count,
+            "dust_holding_count": len(holdings_snapshot.get("dust_holdings", [])),
+            "pnl_pending_count": len(holdings_snapshot.get("missing_pnl_source", [])),
             "protected_count": protected_count,
             "non_holding_rotation_targets_count": len([x for x in rotation_targets if x]),
             "rotation_plan_detected": rotation_plan_detected,
@@ -40235,46 +40270,8 @@ class MainWindow(QMainWindow):
         return out
 
     def _sell_evaluation_observe_rows(self) -> list[dict]:
-        rows: list[dict] = []
-        by_symbol: dict[str, dict] = {}
-
-        def _symbol_for(row: dict) -> str:
-            symbol = str(row.get("symbol") or row.get("market") or row.get("code") or row.get("ticker") or "").strip().upper()
-            if symbol and "-" not in symbol and symbol != "KRW":
-                symbol = f"KRW-{symbol}"
-            return symbol
-
-        def _add_row(row: dict, source_attr: str) -> None:
-            if not isinstance(row, dict):
-                return
-            symbol = _symbol_for(row)
-            if not symbol or symbol == "KRW":
-                return
-            clean = dict(row)
-            clean["symbol"] = symbol
-            if source_attr != "ai_managed_rows":
-                clean.setdefault("source_type", "live_holding")
-                clean.setdefault("source", "live_holding")
-                clean.setdefault("holding", True)
-                clean.setdefault("protected", True)
-                clean.setdefault("managed_protected", True)
-            if symbol in by_symbol:
-                existing = by_symbol[symbol]
-                for key, value in clean.items():
-                    if existing.get(key) in (None, "", "-", 0, 0.0) and value not in (None, "", "-"):
-                        existing[key] = value
-                return
-            by_symbol[symbol] = clean
-            rows.append(clean)
-
-        for item in getattr(self, "ai_managed_rows", None) or []:
-            _add_row(item, "ai_managed_rows")
-        for attr_name in ("_live_holdings_rows", "_investment_center_positions", "_portfolio_positions", "_holdings_rows"):
-            value = getattr(self, attr_name, None)
-            if isinstance(value, list):
-                for item in value:
-                    _add_row(item, attr_name)
-        return rows
+        snapshot = self._build_normalized_holding_snapshot(reason="sell_evaluation")
+        return [dict(row) for row in snapshot.get("manageable_holdings", []) if isinstance(row, dict)]
 
     def _sell_apply_runtime_active(self) -> bool:
         try:
@@ -41516,6 +41513,7 @@ class MainWindow(QMainWindow):
         self._aits_initial_seed_last_attempt_at = now
         managed_symbols = sorted({self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market")) for row in managed_rows if row.get("symbol") or row.get("market")})
         holding_symbols = sorted({self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market")) for row in holding_rows if row.get("symbol") or row.get("market")})
+        self._log_holdings_ssot_target_consistency(ai_payload_symbols=holding_symbols, reason="initial_ai_management_seed")
         seed_logger.info(
             "[AITS][AIManagementSeed] event=initial_seed_trigger_detected session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=- ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 blocker=- reason=first_active_runtime_cycle actual_order=False submitted=0",
             session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", ",".join(holding_symbols) or "-", len(managed_rows), provider,
@@ -42567,6 +42565,7 @@ class MainWindow(QMainWindow):
             "actual_sell_order_count": 1 if bool((sell_apply_result or {}).get("actual_order")) else 0,
         }
         self._last_sell_evaluation_observe_result = result
+        self._log_holdings_ssot_target_consistency(sell_eval_symbols=result.get("sell_evaluated_symbols") or [], reason="sell_evaluation")
         return result
 
     def _run_sell_evaluation_heartbeat_probe(

@@ -1659,7 +1659,12 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
     recent_reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
     recent_position_symbols: list[str] = []
     recent_position_source = ""
+    recent_ssot_manageable_symbols: list[str] = []
     for recent in recent_reports:
+        if not recent_ssot_manageable_symbols and bool(recent.get("normalized_holding_snapshot_detected")):
+            values = recent.get("normalized_manageable_holding_symbols")
+            if isinstance(values, list):
+                recent_ssot_manageable_symbols = sorted({_normalize_symbol_text(item) for item in values if _normalize_symbol_text(item)})
         symbols = recent.get("investment_position_symbols")
         if not isinstance(symbols, list) or not symbols:
             symbols = recent.get("holdings_symbols")
@@ -1698,6 +1703,11 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
     ens_in = "KRW-ENSO" in managed_set
     bera_in = "KRW-BERA" in managed_set
     manageable_holding_symbols = sorted({_row_symbol(row) for row in holding_source_rows if _row_symbol(row)})
+    if recent_ssot_manageable_symbols:
+        holding_symbols = list(recent_ssot_manageable_symbols)
+        manageable_holding_symbols = list(recent_ssot_manageable_symbols)
+        missing = [symbol for symbol in manageable_holding_symbols if symbol not in managed_set]
+        holding_source = "normalized_holdings_ssot"
     managed_pool_dust_symbols_readded = sorted([symbol for symbol in dust_holding_symbols_from_rows if symbol in managed_set])
     weight_target_zero_zero_count = 0
     holding_weight_display_nonzero_count = 0
@@ -9197,6 +9207,40 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     sell_evaluation_lines = [line for line in lines if "[AITS][SellEvaluation]" in line]
     eta_redecision_lines = [line for line in lines if "[AITS][ETAReDecision]" in line]
     initial_seed_lines = [line for line in lines if "[AITS][AIManagementSeed]" in line]
+    holdings_ssot_lines = [line for line in lines if "[AITS][HoldingsSSOT]" in line]
+    holdings_snapshot_lines = [line for line in holdings_ssot_lines if "event=normalized_snapshot_built" in line]
+    holdings_consistency_lines = [line for line in holdings_ssot_lines if "event=target_set_consistency_check" in line]
+    latest_holdings_snapshot = holdings_snapshot_lines[-1] if holdings_snapshot_lines else ""
+    latest_holdings_consistency = holdings_consistency_lines[-1] if holdings_consistency_lines else ""
+    normalized_all_holding_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_snapshot, "all_symbols")))
+    normalized_manageable_holding_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_snapshot, "manageable_symbols")))
+    normalized_dust_holding_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_snapshot, "dust_symbols")))
+    managed_pool_manageable_holding_symbols = sorted(_aits_split_symbol_field(
+        _live_on_stage_extract_value(latest_holdings_consistency, "managed_pool_manageable_symbols")
+        or _live_on_stage_extract_value(latest_holdings_snapshot, "managed_pool_symbols")
+    ))
+    sell_eval_target_symbols_ssot = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_consistency, "sell_eval_target_symbols")))
+    initial_position_payload_symbols_ssot = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_consistency, "ai_position_payload_symbols")))
+    investment_position_symbols_ssot = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_consistency, "investment_position_symbols")))
+    holdings_target_set_mismatch_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_consistency, "mismatch_symbols")))
+    managed_pool_missing_manageable_holding_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_snapshot, "missing_in_managed_pool")))
+    holdings_pnl_source_missing_symbols = sorted(_aits_split_symbol_field(_live_on_stage_extract_value(latest_holdings_snapshot, "missing_pnl_source")))
+    managed_pool_recovered_manageable_holding_symbols = sorted({
+        symbol
+        for line in lines if "[AITS][ManagedPoolSSOT]" in line and "event=holdings_must_include" in line
+        for symbol in _aits_split_symbol_field(_live_on_stage_extract_value(line, "added"))
+    })
+    sell_eval_missing_manageable_holding_symbols = sorted(set(normalized_manageable_holding_symbols) - set(sell_eval_target_symbols_ssot)) if holdings_consistency_lines else []
+    ai_payload_missing_manageable_holding_symbols = sorted(set(normalized_manageable_holding_symbols) - set(initial_position_payload_symbols_ssot)) if holdings_consistency_lines else []
+    dust_readded_symbols = sorted(set(normalized_dust_holding_symbols) & set(managed_pool_manageable_holding_symbols))
+    holdings_target_sets_consistent = bool(
+        holdings_consistency_lines
+        and not holdings_target_set_mismatch_symbols
+        and not managed_pool_missing_manageable_holding_symbols
+        and not sell_eval_missing_manageable_holding_symbols
+        and not ai_payload_missing_manageable_holding_symbols
+        and not dust_readded_symbols
+    )
     initial_seed_trigger_lines = [line for line in initial_seed_lines if "event=initial_seed_trigger_detected" in line]
     initial_seed_skipped_lines = [line for line in initial_seed_lines if "event=initial_seed_skipped" in line]
     initial_seed_payload_lines = [line for line in initial_seed_lines if "event=initial_seed_payload_created" in line]
@@ -10067,6 +10111,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = eta_runtime_first_blocker
         if eta_runtime_first_blocker not in all_blockers:
             all_blockers.insert(0, eta_runtime_first_blocker)
+    holdings_ssot_blocker = ""
+    if holdings_snapshot_lines:
+        if managed_pool_missing_manageable_holding_symbols:
+            holdings_ssot_blocker = "managed_pool_missing_manageable_holding"
+        elif sell_eval_missing_manageable_holding_symbols:
+            holdings_ssot_blocker = "sell_eval_missing_manageable_holding"
+        elif ai_payload_missing_manageable_holding_symbols:
+            holdings_ssot_blocker = "ai_payload_missing_manageable_holding"
+        elif dust_readded_symbols:
+            holdings_ssot_blocker = "dust_holding_readded_to_managed_pool"
+        elif holdings_pnl_source_missing_symbols:
+            holdings_ssot_blocker = "pnl_source_missing_for_manageable_holding"
+        elif holdings_target_sets_consistent:
+            holdings_ssot_blocker = "holdings_managed_pool_sell_eval_target_ssot_ready"
+        else:
+            holdings_ssot_blocker = "holdings_target_set_consistency_pending"
+        first_blocker = holdings_ssot_blocker
+        if holdings_ssot_blocker not in all_blockers:
+            all_blockers.insert(0, holdings_ssot_blocker)
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -10516,6 +10579,29 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             "AITS-HOLDINGS-MANAGED-POOL-SELL-EVAL-TARGET-SSOT-FIX"
             if manageable_holding_count_for_sell_eval > managed_pool_count or pnl_source_missing_symbols else ""
         ),
+        "holdings_ssot_enabled": True,
+        "normalized_holding_snapshot_detected": bool(holdings_snapshot_lines),
+        "normalized_all_holding_symbols": normalized_all_holding_symbols,
+        "normalized_manageable_holding_symbols": normalized_manageable_holding_symbols,
+        "normalized_dust_holding_symbols": normalized_dust_holding_symbols,
+        "status_bar_holding_symbols": normalized_manageable_holding_symbols,
+        "managed_pool_manageable_holding_symbols": managed_pool_manageable_holding_symbols,
+        "sell_eval_target_symbols": sell_eval_target_symbols_ssot,
+        "initial_position_payload_symbols": initial_position_payload_symbols_ssot,
+        "investment_position_symbols_ssot": investment_position_symbols_ssot,
+        "holdings_target_sets_consistent": bool(holdings_target_sets_consistent),
+        "holdings_target_set_mismatch_symbols": holdings_target_set_mismatch_symbols,
+        "managed_pool_missing_manageable_holding_symbols": managed_pool_missing_manageable_holding_symbols,
+        "managed_pool_recovered_manageable_holding_symbols": managed_pool_recovered_manageable_holding_symbols,
+        "sell_eval_missing_manageable_holding_symbols": sell_eval_missing_manageable_holding_symbols,
+        "ai_payload_missing_manageable_holding_symbols": ai_payload_missing_manageable_holding_symbols,
+        "holdings_pnl_source_missing_symbols": holdings_pnl_source_missing_symbols,
+        "kat_manageable_holding_detected": "KRW-KAT" in normalized_manageable_holding_symbols,
+        "kat_in_managed_pool": "KRW-KAT" in managed_pool_manageable_holding_symbols,
+        "kat_in_sell_eval_targets": "KRW-KAT" in sell_eval_target_symbols_ssot,
+        "kat_in_initial_payload_targets": "KRW-KAT" in initial_position_payload_symbols_ssot,
+        "dust_readded_to_managed_pool": bool(dust_readded_symbols),
+        "holdings_ssot_blocker": str(holdings_ssot_blocker),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),

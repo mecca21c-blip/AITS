@@ -1,5 +1,9 @@
 # AITS Engine Role Contract v1
 
+## Holdings Runtime SSOT
+
+The BASIC engine normalizes live-account, investment-center, portfolio, and managed-row holding facts into one manageable-holdings snapshot. Status, SellEvaluation, initial AI position payloads, and Managed Pool holding protection consume that snapshot. Dust remains a reported balance but is not an AI-managed position. Missing PnL inputs block evaluation detail, not inclusion in the manageable target set.
+
 This contract defines the authority boundary for AITS live operation.
 
 ## 1. BASIC Engine

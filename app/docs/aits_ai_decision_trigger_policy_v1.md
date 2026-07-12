@@ -1,5 +1,9 @@
 # AITS AI Decision Trigger Policy v1
 
+## Holdings Input Boundary
+
+Position-management triggers and payloads use the normalized manageable-holdings snapshot. A missing PnL source is carried as a blocker and does not silently remove a real manageable holding. Dust balances are summarized separately and do not create management actions.
+
 This policy defines when BASIC asks AI to decide. BASIC watches continuously, but AI calls are event-based. Indicators and thresholds are evidence for judgment, not direct order authority.
 
 ## 1. 핵심 원칙

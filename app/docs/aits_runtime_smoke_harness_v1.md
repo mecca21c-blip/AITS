@@ -2003,3 +2003,11 @@ summary modes.
 - ETA scheduler events are evaluated in timestamp order. Idle events before the first registration are normal startup state.
 - An idle-after-registration blocker is emitted only when active registration is followed by idle events without any later `eta_tick` or `eta_waiting` event.
 - Registration followed by `eta_tick` or `eta_waiting` is reported as `ai_decision_runtime_state_registration_ready`.
+
+### Holdings Target SSOT
+
+- `normalized_manageable_holding_symbols` is the shared target set for the status bar, Managed Pool holding protection, SellEvaluation, and initial position-management payloads.
+- Dust holdings remain visible in summary diagnostics but are excluded from Managed Pool recovery, SellEvaluation, and AI position-management targets.
+- A manageable holding with missing PnL inputs remains in the target set and reports `pnl_source_missing_for_manageable_holding` as an evaluation blocker.
+- Live and external holding recovery is a holding-protection exception to candidate promotion; it never promotes a non-holding candidate.
+- The E2E summary compares the normalized, managed, sell-evaluation, and AI-payload symbol sets and reports their exact differences.

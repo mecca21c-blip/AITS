@@ -56,6 +56,138 @@ except Exception:
     build_risk_guard_input_from_action = None
 
 
+def build_normalized_holdings_snapshot(
+    source_groups: list[tuple[str, list[dict]]],
+    *,
+    normalize_symbol,
+    dust_threshold_krw: float = 5000.0,
+    managed_holding_min_value_krw: float = 10000.0,
+) -> dict:
+    """Normalize prioritized holding sources into one runtime target snapshot."""
+    merged: dict[str, dict] = {}
+
+    def number(row: dict, *keys: str) -> float:
+        for key in keys:
+            try:
+                value = float(str(row.get(key) or 0).replace(",", ""))
+            except Exception:
+                value = 0.0
+            if value > 0.0:
+                return value
+        return 0.0
+
+    for source_path, rows in source_groups:
+        for raw in rows or []:
+            if not isinstance(raw, dict):
+                continue
+            symbol = str(normalize_symbol(raw) or "").strip().upper()
+            if not symbol or symbol == "KRW":
+                continue
+            balance = number(raw, "balance")
+            locked = number(raw, "locked", "locked_qty")
+            qty = max(number(raw, "qty", "quantity", "volume"), balance + locked, balance)
+            source_type = str(raw.get("source_type") or raw.get("source") or "").strip().lower()
+            if not (qty > 0.0 or raw.get("holding") or raw.get("is_holding") or raw.get("has_position") or source_type in {"live_holding", "external_holding", "holding"}):
+                continue
+            item = merged.setdefault(symbol, {
+                "symbol": symbol,
+                "market": symbol,
+                "qty": 0.0,
+                "available_qty": 0.0,
+                "locked_qty": 0.0,
+                "avg_buy_price": 0.0,
+                "current_price": 0.0,
+                "position_value_krw": 0.0,
+                "source_paths": [],
+                "source_type": "",
+                "valuation_source": "unavailable",
+                "avg_price_source": "unavailable",
+                "current_price_source": "unavailable",
+            })
+            if source_path not in item["source_paths"]:
+                item["source_paths"].append(source_path)
+            if not item["source_type"] and source_type:
+                item["source_type"] = source_type
+            if item["qty"] <= 0.0 and qty > 0.0:
+                item["qty"] = qty
+                item["available_qty"] = number(raw, "available_qty", "available", "balance") or qty
+                item["locked_qty"] = locked
+            avg = number(raw, "avg_buy_price", "avg_price", "avg")
+            if item["avg_buy_price"] <= 0.0 and avg > 0.0:
+                item["avg_buy_price"] = avg
+                item["avg_price_source"] = source_path
+            current = number(raw, "current_price", "trade_price", "price")
+            if item["current_price"] <= 0.0 and current > 0.0:
+                item["current_price"] = current
+                item["current_price_source"] = source_path
+            value = number(raw, "position_value_krw", "eval_krw", "eval_amount", "value_krw", "position_value")
+            if item["position_value_krw"] <= 0.0 and value > 0.0:
+                item["position_value_krw"] = value
+                item["valuation_source"] = source_path
+            item["external"] = bool(item.get("external") or source_type == "external_holding")
+            item["live_holding"] = bool(item.get("live_holding") or source_path == "live_account" or source_type in {"live_holding", "external_holding", "holding"})
+            for key in ("name", "target_weight_pct", "target_weight", "weight_pct", "holding_age"):
+                if item.get(key) in (None, "", 0, 0.0) and raw.get(key) not in (None, ""):
+                    item[key] = raw.get(key)
+
+    all_holdings: list[dict] = []
+    dust_holdings: list[dict] = []
+    manageable_holdings: list[dict] = []
+    missing_pnl_source: list[str] = []
+    for symbol in sorted(merged):
+        item = merged[symbol]
+        qty = float(item.get("qty") or 0.0)
+        current = float(item.get("current_price") or 0.0)
+        value = float(item.get("position_value_krw") or 0.0)
+        if current <= 0.0 and qty > 0.0 and value > 0.0:
+            current = value / qty
+            item["current_price_source"] = f"{item.get('valuation_source')}_valuation_per_qty"
+        if value <= 0.0 and qty > 0.0 and current > 0.0:
+            value = qty * current
+            item["valuation_source"] = "qty_times_current_price"
+        avg = float(item.get("avg_buy_price") or 0.0)
+        pnl_available = bool(avg > 0.0 and current > 0.0)
+        dust = bool(qty > 0.0 and value < managed_holding_min_value_krw)
+        manageable = bool(qty > 0.0 and value >= managed_holding_min_value_krw and not dust and (current > 0.0 or value > 0.0))
+        item.update({
+            "position_value_krw": value,
+            "eval_krw": value,
+            "value_krw": value,
+            "avg_price": avg,
+            "current_price": current,
+            "price": current,
+            "pnl_krw": (current - avg) * qty if pnl_available else None,
+            "pnl_pct": ((current - avg) / avg * 100.0) if pnl_available else None,
+            "pnl_source": "avg_and_current_price" if pnl_available else "unavailable",
+            "dust": dust,
+            "dust_holding": dust,
+            "is_dust_holding": dust,
+            "manageable": manageable,
+            "manageable_holding": manageable,
+            "protected": manageable,
+            "blocker": "" if pnl_available else "pnl_source_missing_for_manageable_holding",
+            "dust_threshold_krw": float(dust_threshold_krw),
+            "managed_holding_min_value_krw": float(managed_holding_min_value_krw),
+        })
+        all_holdings.append(item)
+        if dust:
+            dust_holdings.append(item)
+        elif manageable:
+            manageable_holdings.append(item)
+            if not pnl_available:
+                missing_pnl_source.append(symbol)
+    return {
+        "all_holdings": all_holdings,
+        "dust_holdings": dust_holdings,
+        "manageable_holdings": manageable_holdings,
+        "normalized_all_holding_symbols": [row["symbol"] for row in all_holdings],
+        "normalized_dust_holding_symbols": [row["symbol"] for row in dust_holdings],
+        "normalized_manageable_holding_symbols": [row["symbol"] for row in manageable_holdings],
+        "missing_pnl_source": sorted(missing_pnl_source),
+        "source_conflicts": [],
+    }
+
+
 def _fetch_upbit_price_once(symbol: str) -> tuple[float | None, str]:
     """
     Upbit ticker 1회 조회 (shadow 성과추적 전용)
