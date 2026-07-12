@@ -162,3 +162,8 @@ ON activation requires BASIC to assemble the initial management context and ask 
 - Verification-call controls and runtime-management-call controls are separate contracts.
 - Runtime OpenAI/GPT calls require readiness and cost/duplicate guards, never expose key bodies, and feed only Validator and decision registration.
 - Any later trade remains behind RiskGuard, LivePreflight, and the unchanged Execution Layer.
+## Decision State Store Boundary
+
+- Registration helper writes and ETA scheduler reads one runtime decision-state SSOT.
+- A registered log must reflect an actual active state found by decision ID in that store.
+- BASIC may monitor validated `wait` and `hold` states, but it may not convert ETA or invalidation events directly into orders.

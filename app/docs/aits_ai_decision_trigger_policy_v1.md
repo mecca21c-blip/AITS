@@ -243,3 +243,8 @@ The first active cycle of a new ON session is an event-based AI trigger. BASIC c
 - Verification and shadow one-shot guards do not own initial, position, portfolio, buy, sell, promotion, rotation, or redecision calls.
 - The selected provider, key/model readiness, cost limit, payload validity, and duplicate cooldown remain mandatory.
 - Only a real response that passes the AI Response Validator may be registered for ETA and invalidation monitoring.
+## Runtime Decision Watch Registration
+
+- A validated AI decision becomes active only after runtime-state store readback succeeds.
+- `wait` and `hold` with a positive ETA remain active scenarios and must be reconsidered when ETA expires.
+- Missing invalidation conditions do not cancel a valid ETA watch unless the validator rejects the response.

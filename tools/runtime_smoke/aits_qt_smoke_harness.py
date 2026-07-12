@@ -8647,6 +8647,12 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "openai_response_missing": "inspect OpenAI runtime decision response transport",
         "openai_response_invalid_schema": "inspect OpenAI decision output against the validator contract",
         "openai_runtime_decision_call_ready": "verify initial decision registration and ETA tick in a fresh ON session",
+        "initial_seed_false_registered_log": "align initial seed registration logs with runtime state store readback",
+        "ai_decision_state_registration_failed": "inspect runtime decision state store write failure",
+        "ai_decision_state_store_mismatch": "align registration write store and ETA scheduler read store",
+        "wait_hold_decision_not_registered": "register validated wait/hold decisions with positive ETA",
+        "invalidation_missing_blocked_eta_registration": "allow ETA registration when invalidation conditions are empty",
+        "ai_decision_runtime_state_registration_ready": "continue ETA waiting and invalidation runtime observation",
     }
     return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
@@ -9223,10 +9229,13 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     eta_scheduler_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_probe" in line]
     eta_scheduler_idle_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_idle" in line]
     ai_decision_state_registered_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registered" in line]
+    ai_decision_state_registration_started_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registration_started" in line]
+    ai_decision_state_registration_failed_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registration_failed" in line]
     ai_decision_state_registration_skipped_lines = [line for line in eta_redecision_lines if "event=ai_decision_state_registration_skipped" in line]
     eta_registered_lines = [line for line in eta_redecision_lines if "event=eta_registered" in line]
     invalidation_registered_lines = [line for line in eta_redecision_lines if "event=invalidation_condition_registered" in line]
     eta_tick_lines = [line for line in eta_redecision_lines if "event=eta_tick" in line]
+    eta_waiting_lines = [line for line in eta_redecision_lines if "event=eta_waiting" in line]
     eta_expired_lines = [line for line in eta_redecision_lines if "event=eta_expired" in line]
     invalidation_checked_lines = [line for line in eta_redecision_lines if "event=invalidation_condition_checked" in line]
     redecision_payload_lines = [line for line in eta_redecision_lines if "event=eta_redecision_payload_created" in line or "event=invalidation_redecision_payload_created" in line]
@@ -9280,6 +9289,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     initial_seed_blocker = _live_on_stage_extract_value(latest_initial_seed_line, "blocker")
     if initial_seed_blocker == "-":
         initial_seed_blocker = ""
+    latest_state_registration = (ai_decision_state_registered_lines or ai_decision_state_registration_failed_lines or ai_decision_state_registration_started_lines or [""])[-1]
+    state_active_count_after = int(_safe_float(_live_on_stage_extract_value(latest_state_registration, "active_decision_count_after"), 0.0))
+    state_store_name = _live_on_stage_extract_value(latest_state_registration, "store_name")
+    initial_seed_registered_log_matches_state_store = bool(
+        initial_seed_registered_lines
+        and ai_decision_state_registered_lines
+        and initial_seed_registered_decision_count == len(ai_decision_state_registered_lines)
+        and state_active_count_after > 0
+    )
+    initial_seed_false_registered_detected = bool(initial_seed_registered_lines and not ai_decision_state_registered_lines)
+    wait_hold_decision_registered = any(
+        re.search(r"\baction=(wait|hold)\b", line) for line in ai_decision_state_registered_lines
+    )
+    invalidation_missing_did_not_block_eta = bool(
+        eta_registered_lines
+        and any("event=invalidation_condition_missing" in line for line in eta_redecision_lines)
+    )
     latest_eta_callsite = (eta_scheduler_callsite_after_call_lines or eta_scheduler_callsite_condition_lines or eta_scheduler_callsite_probe_lines or [""])[-1]
     eta_scheduler_condition_false_lines = [
         line for line in eta_scheduler_callsite_condition_lines
@@ -9919,7 +9945,15 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     if heartbeat_expected and not heartbeat_detected and first_blocker in {"", "no_buy_ready_candidate", "buy_ready_but_candidate_not_selected"}:
         first_blocker = "live_log_heartbeat_missing"
     eta_runtime_first_blocker = ""
-    if runtime_contract_active and not initial_seed_trigger_lines:
+    if initial_seed_false_registered_detected:
+        eta_runtime_first_blocker = "initial_seed_false_registered_log"
+    elif ai_decision_state_registration_failed_lines and not ai_decision_state_registered_lines:
+        eta_runtime_first_blocker = "ai_decision_state_registration_failed"
+    elif initial_seed_registered_lines and ai_decision_state_registered_lines and state_active_count_after <= 0:
+        eta_runtime_first_blocker = "ai_decision_state_store_mismatch"
+    elif initial_seed_validated_lines and any(re.search(r"\bai_action=(wait|hold)\b", line) for line in initial_seed_validated_lines) and not wait_hold_decision_registered:
+        eta_runtime_first_blocker = "wait_hold_decision_not_registered"
+    elif runtime_contract_active and not initial_seed_trigger_lines:
         eta_runtime_first_blocker = "initial_ai_management_seed_not_triggered"
     elif initial_seed_trigger_lines and not initial_seed_payload_lines:
         eta_runtime_first_blocker = "initial_ai_management_payload_missing"
@@ -9939,8 +9973,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         eta_runtime_first_blocker = "initial_ai_management_decision_not_registered"
     elif eta_scheduler_idle_after_initial_seed:
         eta_runtime_first_blocker = "eta_scheduler_idle_after_registered_decision"
-    elif initial_seed_registered_lines and eta_scheduler_tick_after_initial_seed and runtime_decision_response_lines:
-        eta_runtime_first_blocker = "openai_runtime_decision_call_ready"
+    elif initial_seed_registered_log_matches_state_store and eta_scheduler_tick_after_initial_seed:
+        eta_runtime_first_blocker = "ai_decision_runtime_state_registration_ready"
     elif initial_seed_registered_lines and eta_scheduler_tick_after_initial_seed:
         eta_runtime_first_blocker = "initial_ai_management_seed_ready"
     elif not eta_scheduler_callsite_probe_lines:
@@ -10369,6 +10403,19 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "eta_scheduler_probe_count": int(len(eta_scheduler_probe_lines)),
         "eta_scheduler_idle_count": int(len(eta_scheduler_idle_lines)),
         "ai_decision_state_registered_count": int(len(ai_decision_state_registered_lines)),
+        "ai_decision_state_registration_started_count": int(len(ai_decision_state_registration_started_lines)),
+        "ai_decision_state_registration_failed_count": int(len(ai_decision_state_registration_failed_lines)),
+        "ai_decision_state_store_name": str(state_store_name or ""),
+        "ai_decision_state_active_count_after_registration": int(state_active_count_after),
+        "initial_seed_registered_log_matches_state_store": bool(initial_seed_registered_log_matches_state_store),
+        "initial_seed_false_registered_detected": bool(initial_seed_false_registered_detected),
+        "eta_registered_count": int(len(eta_registered_lines)),
+        "eta_waiting_detected": bool(eta_waiting_lines),
+        "eta_waiting_count": int(len(eta_waiting_lines)),
+        "eta_tick_count": int(len(eta_tick_lines)),
+        "wait_hold_decision_registered": bool(wait_hold_decision_registered),
+        "invalidation_missing_did_not_block_eta": bool(invalidation_missing_did_not_block_eta),
+        "scheduler_active_count_after_registration": int(state_active_count_after),
         "ai_decision_state_registered_symbols": ai_decision_state_registered_symbols,
         "ai_decision_state_registration_skipped_count": int(len(ai_decision_state_registration_skipped_lines)),
         "registered_eta_count": int(registered_eta_count),
@@ -20921,6 +20968,12 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     initial_seed_validated = bool("event=initial_seed_validated" in app_text)
     initial_seed_registered = bool("event=initial_seed_registered" in app_text)
     initial_seed_training_record_detected = bool("initial_management_decisions.jsonl" in app_text and "initial_seed_training_record_created" in app_text)
+    registration_store_contract_detected = bool(
+        "_aits_ai_decision_runtime_states" in app_text
+        and "event=ai_decision_state_registration_started" in app_text
+        and "event=ai_decision_state_registration_failed" in app_text
+        and "store_readback_confirmed" in app_text
+    )
     openai_runtime_decision_call_policy_detected = bool(
         "RUNTIME_DECISION_ALLOWED_TASKS" in provider_text
         and "_runtime_decision_call_policy" in provider_text
@@ -21481,6 +21534,19 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "initial_seed_validated": bool(initial_seed_validated),
         "initial_seed_registered": bool(initial_seed_registered),
         "initial_seed_training_record_detected": bool(initial_seed_training_record_detected),
+        "ai_decision_state_registration_started_count": int("event=ai_decision_state_registration_started" in app_text),
+        "ai_decision_state_registration_failed_count": 0,
+        "ai_decision_state_store_name": "_aits_ai_decision_runtime_states" if registration_store_contract_detected else "",
+        "ai_decision_state_active_count_after_registration": 0,
+        "initial_seed_registered_log_matches_state_store": bool(registration_store_contract_detected),
+        "initial_seed_false_registered_detected": False,
+        "eta_registered_count": int("event=eta_registered" in app_text),
+        "eta_waiting_detected": bool("event=eta_waiting" in app_text),
+        "eta_waiting_count": int("event=eta_waiting" in app_text),
+        "eta_tick_count": int("event=eta_tick" in app_text),
+        "wait_hold_decision_registered": bool("wait_hold_requires_positive_eta" in app_text and "store_readback_confirmed" in app_text),
+        "invalidation_missing_did_not_block_eta": bool("event=invalidation_condition_missing" in app_text and "event=eta_registered" in app_text),
+        "scheduler_active_count_after_registration": 0,
         "openai_runtime_decision_call_policy_detected": bool(openai_runtime_decision_call_policy_detected),
         "openai_runtime_decision_call_requested": bool("event=runtime_decision_call_requested" in provider_text),
         "openai_runtime_decision_call_allowed": bool("event=runtime_decision_call_allowed" in provider_text),

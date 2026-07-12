@@ -41078,48 +41078,75 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
-    def _register_ai_decision_runtime_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> bool:
-        """Keep validated AI scenario watches; this helper never creates an order action."""
-        if not bool((decision or {}).get("validation_passed")):
-            self._log.info(
-                "[AITS][ETAReDecision] event=ai_decision_state_registration_skipped task=%s symbol=%s ai_decision_id=%s provider=%s action=%s eta_seconds=%s invalidation_condition_count=%s payload_hash=%s blocker=%s reason=decision_not_validated actual_order=False submitted=0",
-                str((payload or {}).get("task") or "manage_position_decision"), str((payload or {}).get("symbol") or "-").upper(),
-                str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or "-"), str((decision or {}).get("provider") or "-"),
-                str((decision or {}).get("action") or "wait"), (decision or {}).get("eta_seconds"), len((decision or {}).get("invalidation_conditions") or []),
-                payload_hash or str((decision or {}).get("ai_payload_hash") or "-"), str((decision or {}).get("blocker") or (decision or {}).get("validation_blocker") or "ai_decision_invalid"),
-            )
-            return False
+    def _ai_decision_runtime_state_store(self) -> dict:
+        """Return the decision-state SSOT shared by registration and ETA."""
+        states = getattr(self, "_aits_ai_decision_runtime_states", None)
+        if not isinstance(states, dict):
+            legacy = getattr(self, "_ai_redecision_states", None)
+            states = legacy if isinstance(legacy, dict) else {}
+            self._aits_ai_decision_runtime_states = states
+        self._ai_redecision_states = states
+        return states
+
+    def _register_ai_decision_runtime_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> dict:
+        """Store a validated AI watch state and verify it by readback."""
+        eta_logger = logging.getLogger("aits")
         task = str((payload or {}).get("task") or "manage_position_decision").strip()
         raw_symbol = str((payload or {}).get("symbol") or "").strip().upper()
+        action = str((decision or {}).get("action") or "wait").strip().lower()
+        store_name = "_aits_ai_decision_runtime_states"
+        result = {
+            "ok": False, "registered": False, "decision_id": "", "symbol": raw_symbol,
+            "task": task, "scope": "", "eta_registered": False,
+            "invalidation_registered": False, "invalidation_condition_count": 0,
+            "active_decision_count_after": 0, "store_name": store_name,
+            "blocker": "", "reason": "",
+        }
+        provisional_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash or "-")
+        eta_logger.info(
+            "[AITS][ETAReDecision] event=ai_decision_state_registration_started decision_id=%s task=%s symbol=%s scope=- action=%s eta_seconds=%s eta_expires_at=- invalidation_condition_count=%s active_decision_count_after=- store_name=%s registered=False blocker=- reason=validation_check actual_order=False submitted=0",
+            provisional_id, task, raw_symbol or "-", action, (decision or {}).get("eta_seconds"),
+            len((decision or {}).get("invalidation_conditions") or []), store_name,
+        )
+        if not bool((decision or {}).get("validation_passed")):
+            blocker = str((decision or {}).get("blocker") or (decision or {}).get("validation_blocker") or "ai_decision_invalid")
+            result.update({"blocker": blocker, "reason": "decision_not_validated"})
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=%s scope=- action=%s eta_seconds=%s eta_expires_at=- invalidation_condition_count=%s active_decision_count_after=0 store_name=%s registered=False blocker=%s reason=decision_not_validated actual_order=False submitted=0",
+                provisional_id, task, raw_symbol or "-", action, (decision or {}).get("eta_seconds"),
+                len((decision or {}).get("invalidation_conditions") or []), store_name, blocker,
+            )
+            return result
         symbol = "PORTFOLIO" if task == "portfolio_management_decision" and raw_symbol == "PORTFOLIO" else self._normalize_managed_pool_symbol_for_persistence(raw_symbol)
         if not symbol and task == "rotation_decision":
             symbol = self._normalize_managed_pool_symbol_for_persistence(((payload or {}).get("rotation_candidate") or {}).get("old_symbol"))
         if not symbol:
-            self._log.info(
-                "[AITS][ETAReDecision] event=ai_decision_state_registration_skipped task=%s symbol=- ai_decision_id=- provider=%s action=%s eta_seconds=%s invalidation_condition_count=%s payload_hash=%s blocker=redecision_symbol_not_relevant reason=symbol_missing actual_order=False submitted=0",
-                task, str((decision or {}).get("provider") or "-"), str((decision or {}).get("action") or "wait"),
-                (decision or {}).get("eta_seconds"), len((decision or {}).get("invalidation_conditions") or []), payload_hash or "-",
+            result.update({"blocker": "redecision_symbol_not_relevant", "reason": "symbol_missing"})
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=- scope=- action=%s eta_seconds=%s eta_expires_at=- invalidation_condition_count=%s active_decision_count_after=0 store_name=%s registered=False blocker=redecision_symbol_not_relevant reason=symbol_missing actual_order=False submitted=0",
+                provisional_id, task, action, (decision or {}).get("eta_seconds"), len((decision or {}).get("invalidation_conditions") or []), store_name,
             )
-            return False
+            return result
         try:
             eta_seconds = max(0, int(float((decision or {}).get("eta_seconds") or 0)))
         except Exception:
             eta_seconds = 0
+        if action in {"wait", "hold"} and eta_seconds <= 0:
+            result.update({"symbol": symbol, "blocker": "ai_decision_eta_invalid", "reason": "wait_hold_requires_positive_eta"})
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=%s scope=- action=%s eta_seconds=%s eta_expires_at=- invalidation_condition_count=%s active_decision_count_after=0 store_name=%s registered=False blocker=ai_decision_eta_invalid reason=wait_hold_requires_positive_eta actual_order=False submitted=0",
+                provisional_id, task, symbol, action, eta_seconds, len((decision or {}).get("invalidation_conditions") or []), store_name,
+            )
+            return result
         now = time.time()
         decision_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash or f"decision-{int(now)}-{symbol}")
         scope_map = {
-            "buy_decision": "buy",
-            "managed_pool_promotion_decision": "promotion",
-            "rotation_decision": "rotation",
-            "manage_position_decision": "position_management",
+            "buy_decision": "buy", "managed_pool_promotion_decision": "promotion",
+            "rotation_decision": "rotation", "manage_position_decision": "position_management",
             "position_management_decision": "position_management",
-            "portfolio_management_decision": "portfolio_management",
-            "ai_redecision": "position_management",
+            "portfolio_management_decision": "portfolio_management", "ai_redecision": "position_management",
         }
-        states = getattr(self, "_ai_redecision_states", None)
-        if not isinstance(states, dict):
-            states = {}
-            self._ai_redecision_states = states
+        states = self._ai_decision_runtime_state_store()
         for prior in states.values():
             if isinstance(prior, dict) and prior.get("symbol") == symbol and prior.get("current_status") == "active":
                 prior["current_status"] = "superseded"
@@ -41135,53 +41162,56 @@ class MainWindow(QMainWindow):
             portfolio = ((payload or {}).get("current_state") or {}).get("portfolio") or {}
         candidates = (payload or {}).get("candidates") if isinstance((payload or {}).get("candidates"), dict) else {}
         managed_pool = (payload or {}).get("current_managed_pool") if isinstance((payload or {}).get("current_managed_pool"), dict) else {}
+        conditions = list((decision or {}).get("invalidation_conditions") or [])
         state = {
-            "ai_decision_id": decision_id,
-            "symbol": symbol,
+            "ai_decision_id": decision_id, "symbol": symbol,
             "provider": str((decision or {}).get("provider") or self._selected_ai_decision_provider() or ""),
-            "action": str((decision or {}).get("action") or "wait"),
-            "confidence": (decision or {}).get("confidence"),
-            "reason_ko": str((decision or {}).get("reason_ko") or ""),
-            "eta_seconds": eta_seconds,
-            "eta_started_at": now,
-            "eta_expires_at": now + eta_seconds,
-            "invalidation_conditions": list((decision or {}).get("invalidation_conditions") or []),
-            "payload_hash": payload_hash,
-            "decision_task": task,
-            "decision_symbol": symbol,
+            "action": action, "confidence": (decision or {}).get("confidence"),
+            "reason_ko": str((decision or {}).get("reason_ko") or ""), "eta_seconds": eta_seconds,
+            "eta_started_at": now, "eta_expires_at": now + eta_seconds,
+            "invalidation_conditions": conditions, "payload_hash": payload_hash,
+            "decision_task": task, "decision_symbol": symbol,
             "decision_scope": scope_map.get(task, "position_management"),
-            "current_status": "active",
-            "registered_at": now,
-            "prior_snapshot": {
-                "position": dict(position),
-                "portfolio": dict(portfolio),
-                "managed_pool_symbols": list(candidates.get("managed_pool_symbols") or managed_pool.get("symbols") or []),
-            },
+            "current_status": "active", "registered_at": now,
+            "prior_snapshot": {"position": dict(position), "portfolio": dict(portfolio), "managed_pool_symbols": list(candidates.get("managed_pool_symbols") or managed_pool.get("symbols") or [])},
             "last_tick_at": 0.0,
         }
         states[decision_id] = state
-        self._log.info(
-            "[AITS][ETAReDecision] event=ai_decision_state_registered task=%s symbol=%s ai_decision_id=%s provider=%s action=%s eta_seconds=%s invalidation_condition_count=%s payload_hash=%s blocker=- reason=validated_ai_decision actual_order=False submitted=0",
-            task, symbol, decision_id, state["provider"] or "-", state["action"], eta_seconds, len(state["invalidation_conditions"]), payload_hash or "-",
-        )
-        self._log.info(
-            "[AITS][ETAReDecision] event=eta_registered symbol=%s decision_id=%s task=%s action=%s eta_seconds=%s eta_started_at=%s eta_expires_at=%s provider=%s actual_order=False submitted=0",
-            symbol, decision_id, task, state["action"], eta_seconds, int(now), int(state["eta_expires_at"]), state["provider"] or "-",
-        )
-        for condition in state["invalidation_conditions"]:
-            self._log.info(
-                "[AITS][ETAReDecision] event=invalidation_condition_registered symbol=%s decision_id=%s condition_type=%s expected=%s actual=- threshold=%s triggered=False actual_order=False submitted=0",
-                symbol, decision_id,
-                str(condition.get("type") if isinstance(condition, dict) else condition or "unknown"),
-                str(condition.get("expected") if isinstance(condition, dict) else "-"),
-                str(condition.get("threshold") if isinstance(condition, dict) else "-"),
+        stored = states.get(decision_id)
+        active_count = sum(1 for item in states.values() if isinstance(item, dict) and item.get("current_status") == "active")
+        if not isinstance(stored, dict) or stored.get("current_status") != "active":
+            result.update({"decision_id": decision_id, "symbol": symbol, "blocker": "ai_decision_state_registration_failed", "reason": "store_readback_failed", "active_decision_count_after": active_count})
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=False blocker=ai_decision_state_registration_failed reason=store_readback_failed actual_order=False submitted=0",
+                decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
             )
-        if not state["invalidation_conditions"]:
-            self._log.info(
+            return result
+        eta_logger.info(
+            "[AITS][ETAReDecision] event=ai_decision_state_registered decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=True blocker=- reason=store_readback_confirmed actual_order=False submitted=0",
+            decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
+        )
+        eta_logger.info(
+            "[AITS][ETAReDecision] event=eta_registered decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=True blocker=- reason=positive_eta_registered actual_order=False submitted=0",
+            decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
+        )
+        for condition in conditions:
+            eta_logger.info(
+                "[AITS][ETAReDecision] event=invalidation_condition_registered symbol=%s decision_id=%s condition_type=%s expected=%s actual=- threshold=%s triggered=False actual_order=False submitted=0",
+                symbol, decision_id, str(condition.get("type") if isinstance(condition, dict) else condition or "unknown"),
+                str(condition.get("expected") if isinstance(condition, dict) else "-"), str(condition.get("threshold") if isinstance(condition, dict) else "-"),
+            )
+        if not conditions:
+            eta_logger.info(
                 "[AITS][ETAReDecision] event=invalidation_condition_missing symbol=%s ai_decision_id=%s condition_count=0 condition_types=- reason=ai_response_has_no_invalidation_condition actual_order=False submitted=0",
                 symbol, decision_id,
             )
-        return True
+        result.update({
+            "ok": True, "registered": True, "decision_id": decision_id, "symbol": symbol,
+            "scope": state["decision_scope"], "eta_registered": eta_seconds > 0,
+            "invalidation_registered": bool(conditions), "invalidation_condition_count": len(conditions),
+            "active_decision_count_after": active_count, "reason": "store_readback_confirmed",
+        })
+        return result
 
     def _register_ai_decision_redecision_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> bool:
         return self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
@@ -41418,22 +41448,30 @@ class MainWindow(QMainWindow):
                 "[AITS][AIManagementSeed] event=initial_seed_provider_blocked session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=%s reason=provider_response_unavailable actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []), blocker,
             )
-        registered = False
+        registration = {"registered": False, "eta_registered": False, "invalidation_registered": False, "active_decision_count_after": 0, "decision_id": "", "blocker": "", "reason": "not_attempted"}
         if validation_passed:
             seed_logger.info(
                 "[AITS][AIManagementSeed] event=initial_seed_validated session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=validator_passed actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
             )
-            registered = self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+            registration = self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
         elif response_received:
             blocker = blocker or "initial_seed_invalid_schema"
+        registered = bool(registration.get("registered"))
         if registered:
             seed_logger.info(
-                "[AITS][AIManagementSeed] event=initial_seed_registered session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=runtime_state_registered actual_order=False submitted=0",
+                "[AITS][AIManagementSeed] event=initial_seed_registered session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s registered_decision_count=1 eta_registered_count=%s invalidation_registered_count=%s failed_registration_count=0 active_decision_count_after=%s registered_decision_ids=%s failed_symbols=- blocker=- reason=runtime_state_store_confirmed actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
+                int(bool(registration.get("eta_registered"))), int(bool(registration.get("invalidation_registered"))), int(registration.get("active_decision_count_after") or 0), registration.get("decision_id") or "-",
+            )
+        elif validation_passed:
+            blocker = str(registration.get("blocker") or "ai_decision_state_registration_failed")
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_registration_failed session_id=%s trigger_reason=on_initial_management_seed holding_symbols=%s provider=%s payload_hash=%s registered_decision_count=0 eta_registered_count=0 invalidation_registered_count=0 failed_registration_count=1 active_decision_count_after=%s registered_decision_ids=- failed_symbols=%s blocker=%s reason=%s actual_order=False submitted=0",
+                session_id, symbol, provider or "-", payload_hash, int(registration.get("active_decision_count_after") or 0), symbol, blocker, registration.get("reason") or "registration_failed",
             )
         self._record_initial_ai_management_training(payload=payload, decision=decision, session_id=session_id, registered=registered, blocker=blocker)
-        return {"decision": decision, "registered": registered, "blocker": blocker, "payload_hash": payload_hash}
+        return {"decision": decision, "registered": registered, "registration": registration, "blocker": blocker, "payload_hash": payload_hash}
 
     def _run_initial_ai_management_seed(self, *, rows: list[dict], contract_snapshot: dict) -> dict:
         seed_logger = logging.getLogger("aits")
@@ -41485,6 +41523,12 @@ class MainWindow(QMainWindow):
         self._aits_initial_management_seed_status_text = "AI 초기 운용 판단 요청 중"
         self._append_aits_live_log("AITS ON 초기 운용 판단을 AI에게 요청합니다.", category="pipeline", level="info", event="initial_ai_management_seed_requested")
         registered_count = 0
+        eta_registered_count = 0
+        invalidation_registered_count = 0
+        failed_registration_count = 0
+        registered_decision_ids = []
+        failed_symbols = []
+        active_decision_count_after = 0
         blockers = []
         for row in holding_rows:
             symbol = self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
@@ -41510,6 +41554,15 @@ class MainWindow(QMainWindow):
             )
             result = self._request_initial_ai_management_decision(payload=payload, session_id=session_id)
             registered_count += int(bool(result.get("registered")))
+            registration = result.get("registration") if isinstance(result.get("registration"), dict) else {}
+            eta_registered_count += int(bool(registration.get("eta_registered")))
+            invalidation_registered_count += int(bool(registration.get("invalidation_registered")))
+            active_decision_count_after = max(active_decision_count_after, int(registration.get("active_decision_count_after") or 0))
+            if registration.get("decision_id") and registration.get("registered"):
+                registered_decision_ids.append(str(registration.get("decision_id")))
+            if bool(result.get("decision", {}).get("validation_passed")) and not bool(result.get("registered")):
+                failed_registration_count += 1
+                failed_symbols.append(symbol)
             if result.get("blocker"):
                 blockers.append(str(result.get("blocker")))
         portfolio_payload = self._build_initial_portfolio_management_payload(rows=managed_rows, holdings=holding_rows, session_id=session_id)
@@ -41520,6 +41573,15 @@ class MainWindow(QMainWindow):
         )
         portfolio_result = self._request_initial_ai_management_decision(payload=portfolio_payload, session_id=session_id)
         registered_count += int(bool(portfolio_result.get("registered")))
+        portfolio_registration = portfolio_result.get("registration") if isinstance(portfolio_result.get("registration"), dict) else {}
+        eta_registered_count += int(bool(portfolio_registration.get("eta_registered")))
+        invalidation_registered_count += int(bool(portfolio_registration.get("invalidation_registered")))
+        active_decision_count_after = max(active_decision_count_after, int(portfolio_registration.get("active_decision_count_after") or 0))
+        if portfolio_registration.get("decision_id") and portfolio_registration.get("registered"):
+            registered_decision_ids.append(str(portfolio_registration.get("decision_id")))
+        if bool(portfolio_result.get("decision", {}).get("validation_passed")) and not bool(portfolio_result.get("registered")):
+            failed_registration_count += 1
+            failed_symbols.append("PORTFOLIO")
         if portfolio_result.get("blocker"):
             blockers.append(str(portfolio_result.get("blocker")))
         blocker = blockers[0] if blockers and registered_count <= 0 else ""
@@ -41531,17 +41593,16 @@ class MainWindow(QMainWindow):
             self._aits_initial_management_seed_status_text = "AI 초기 판단 대기 · provider 확인 필요"
             self._append_aits_live_log("AI 초기 판단이 provider 제한으로 대기 중입니다.", category="pipeline", level="warning", event="initial_ai_management_seed_blocked")
         seed_logger.info(
-            "[AITS][AIManagementSeed] event=initial_seed_completed session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=%s ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 registered_decision_count=%s blocker=%s reason=%s actual_order=False submitted=0",
-            session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", ",".join(holding_symbols) or "-", len(managed_rows), provider, portfolio_hash, registered_count, blocker or "-", "seed_registered" if registered_count > 0 else "seed_blocked",
+            "[AITS][AIManagementSeed] event=initial_seed_completed session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=%s holding_symbols=%s candidate_count=%s provider=%s payload_hash=%s ai_action=- ai_confidence=- ai_eta_seconds=- invalidation_condition_count=0 registered_decision_count=%s eta_registered_count=%s invalidation_registered_count=%s failed_registration_count=%s active_decision_count_after=%s registered_decision_ids=%s failed_symbols=%s blocker=%s reason=%s actual_order=False submitted=0",
+            session_id, str((contract_snapshot or {}).get("execution_mode") or "live"), ",".join(managed_symbols) or "-", ",".join(holding_symbols) or "-", len(managed_rows), provider, portfolio_hash,
+            registered_count, eta_registered_count, invalidation_registered_count, failed_registration_count, active_decision_count_after,
+            ",".join(registered_decision_ids) or "-", ",".join(failed_symbols) or "-", blocker or "-", "seed_registered" if registered_count > 0 else "seed_blocked",
         )
         return {"triggered": True, "registered": registered_count, "blocker": blocker, "session_id": session_id}
 
     def _run_ai_redecision_scheduler(self, *, reason: str, rows: list[dict]) -> dict:
         eta_logger = logging.getLogger("aits")
-        states = getattr(self, "_ai_redecision_states", {})
-        if not isinstance(states, dict):
-            states = {}
-            self._ai_redecision_states = states
+        states = self._ai_decision_runtime_state_store()
         now = time.time()
         active_states = [state for state in states.values() if isinstance(state, dict) and state.get("current_status") == "active"]
         registered_eta_count = sum(1 for state in active_states if state.get("eta_expires_at") is not None)
@@ -41606,26 +41667,26 @@ class MainWindow(QMainWindow):
             current = self._redecision_current_state(symbol=symbol, rows=rows)
             if not bool(current.get("context_available")):
                 state["current_status"] = "completed"
-                self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_symbol_not_relevant reason=context_missing actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("provider") or "-")
+                eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_symbol_not_relevant reason=context_missing actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("provider") or "-")
                 continue
             elapsed = max(0, int(now - float(state.get("eta_started_at") or now)))
-            self._log.info("[AITS][ETAReDecision] event=eta_tick symbol=%s decision_id=%s task=%s action=%s eta_expires_at=%s now=%s elapsed_sec=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", state.get("action") or "-", int(state.get("eta_expires_at") or 0), int(now), elapsed)
+            eta_logger.info("[AITS][ETAReDecision] event=eta_tick active_decision_count=%s decision_id=%s symbol=%s task=%s action=%s eta_expires_at=%s seconds_remaining=%s current_status=%s actual_order=False submitted=0", len(active_states), state.get("ai_decision_id") or "-", symbol or "-", state.get("decision_task") or "-", state.get("action") or "-", int(state.get("eta_expires_at") or 0), max(0, int(float(state.get("eta_expires_at") or now) - now)), state.get("current_status") or "active")
             trigger_reason = ""; triggered_condition = {}
             if now >= float(state.get("eta_expires_at") or now + 1):
                 state["current_status"] = "expired"; trigger_reason = "eta_expired"
-                self._log.info("[AITS][ETAReDecision] event=eta_expired symbol=%s decision_id=%s task=%s elapsed_sec=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", elapsed)
+                eta_logger.info("[AITS][ETAReDecision] event=eta_expired symbol=%s decision_id=%s task=%s elapsed_sec=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", elapsed)
             else:
                 for condition in list(state.get("invalidation_conditions") or []):
                     hit, observed = self._check_ai_invalidation_condition(condition=condition, state=state, current=current)
-                    self._log.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
+                    eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
                     if hit:
                         state["current_status"] = "invalidated"; trigger_reason = "invalidation_condition_triggered"; triggered_condition = observed
-                        self._log.info("[AITS][ETAReDecision] event=invalidation_condition_triggered symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=True actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"))
+                        eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_triggered symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=True actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"))
                         break
             if not trigger_reason:
-                self._log.info(
-                    "[AITS][ETAReDecision] event=eta_waiting symbol=%s decision_id=%s task=%s eta_expires_at=%s now=%s elapsed_sec=%s reason=eta_not_expired actual_order=False submitted=0",
-                    symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", int(state.get("eta_expires_at") or 0), int(now), elapsed,
+                eta_logger.info(
+                    "[AITS][ETAReDecision] event=eta_waiting active_decision_count=%s decision_id=%s symbol=%s task=%s eta_expires_at=%s seconds_remaining=%s current_status=%s reason=eta_not_expired actual_order=False submitted=0",
+                    len(active_states), state.get("ai_decision_id") or "-", symbol or "-", state.get("decision_task") or "-", int(state.get("eta_expires_at") or 0), max(0, int(float(state.get("eta_expires_at") or now) - now)), state.get("current_status") or "active",
                 )
                 continue
             triggered += 1
@@ -41643,22 +41704,22 @@ class MainWindow(QMainWindow):
                 )
             payload = self._build_ai_redecision_payload(state=state, current=current, trigger_reason=trigger_reason, condition=triggered_condition)
             payload_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
-            self._log.info("[AITS][ETAReDecision] event=eta_redecision_triggered symbol=%s decision_id=%s trigger_reason=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", trigger_reason)
+            eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_triggered symbol=%s decision_id=%s trigger_reason=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", trigger_reason)
             if trigger_reason == "eta_expired":
-                self._log.info("[AITS][ETAReDecision] event=eta_redecision_payload_created symbol=%s decision_id=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", payload_hash)
+                eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_payload_created symbol=%s decision_id=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", payload_hash)
             else:
-                self._log.info("[AITS][ETAReDecision] event=invalidation_redecision_payload_created symbol=%s decision_id=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", payload_hash)
+                eta_logger.info("[AITS][ETAReDecision] event=invalidation_redecision_payload_created symbol=%s decision_id=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", payload_hash)
             provider = self._selected_ai_decision_provider()
             try:
-                self._log.info("[AITS][ETAReDecision] event=eta_redecision_provider_requested symbol=%s decision_id=%s provider=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", payload_hash)
+                eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_provider_requested symbol=%s decision_id=%s provider=%s payload_hash=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", payload_hash)
                 from app.services.ai_engine_provider import AIEngineProvider
                 decision = dict(AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None)).generate_position_management_decision(provider=provider, context=payload) or {})
                 decision["ai_payload_hash"] = payload_hash
                 self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
                 if bool(decision.get("response_confirmed")):
-                    self._log.info("[AITS][ETAReDecision] event=eta_redecision_response_received symbol=%s decision_id=%s provider=%s action=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-")
+                    eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_response_received symbol=%s decision_id=%s provider=%s action=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-")
                 if bool(decision.get("validation_passed")):
-                    self._log.info("[AITS][ETAReDecision] event=eta_redecision_validated symbol=%s decision_id=%s provider=%s action=%s confidence=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-", decision.get("confidence"))
+                    eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_validated symbol=%s decision_id=%s provider=%s action=%s confidence=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-", decision.get("confidence"))
                     self._aits_redecision_status_text = f"AI 재판단 완료 · {int(decision.get('eta_seconds') or 0)}초 감시"
                     self._append_aits_live_log(
                         f"{symbol} AI 재판단: {str(decision.get('reason_ko') or '현재 상태를 계속 감시합니다.')}",
@@ -41667,10 +41728,10 @@ class MainWindow(QMainWindow):
                 if not bool(decision.get("response_confirmed")) or not bool(decision.get("validation_passed")):
                     blocker = str(decision.get("blocker") or "redecision_provider_blocked")
                     self._aits_redecision_status_text = "AI 재판단 요청 대기 · provider 확인 필요"
-                    self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", blocker)
+                    eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", blocker)
                 self._record_ai_position_decision_training(payload=payload, decision=decision, execution_result={"redecision_result": "requested", "trigger_reason": trigger_reason, "blocker": str(decision.get("blocker") or ""), "actual_order": False, "submitted_count": 0})
             except Exception as exc:
-                self._log.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_provider_blocked error_type=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", type(exc).__name__)
+                eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_blocked symbol=%s decision_id=%s provider=%s blocker=redecision_provider_blocked error_type=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", type(exc).__name__)
                 self._record_ai_position_decision_training(payload=payload, decision={"provider": provider, "action": "wait", "confidence": 0.0, "reason_ko": "AI 재판단 요청을 대기합니다.", "validation_passed": False, "blocker": "redecision_provider_blocked"}, execution_result={"redecision_result": "blocked", "trigger_reason": trigger_reason, "actual_order": False, "submitted_count": 0})
         result = {"checked": checked, "triggered": triggered, "scheduler_result": "completed"}
         eta_logger.info(
@@ -44140,7 +44201,7 @@ class MainWindow(QMainWindow):
                     except Exception:
                         eta_on_state = bool(contract_snapshot.get("on_state"))
                     active_decision_count_before = sum(
-                        1 for state in dict(getattr(self, "_ai_redecision_states", {}) or {}).values()
+                        1 for state in self._ai_decision_runtime_state_store().values()
                         if isinstance(state, dict) and state.get("current_status") == "active"
                     )
                     scheduler_should_run = bool(

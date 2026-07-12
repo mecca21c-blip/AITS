@@ -1988,3 +1988,10 @@ summary modes.
 - OpenAI calls require the selected OpenAI/GPT provider, a resolved masked key, a model, an allowed task, cost capacity, and no duplicate-payload cooldown.
 - `runtime_decision_call_requested`, `allowed`, `blocked`, `response_received`, and `response_missing` distinguish policy, transport, and response failures.
 - API keys and full prompts are never written to runtime diagnostics. AI responses still require Validator and runtime-state registration before ETA monitoring.
+## Runtime Decision State Registration Consistency
+
+- `initial_seed_registered` is valid only when the common runtime store confirms the decision by readback.
+- Registration writes and the ETA scheduler read the same `_aits_ai_decision_runtime_states` SSOT.
+- Validated `wait` and `hold` decisions with a positive ETA are active watch states.
+- Empty invalidation conditions produce `invalidation_condition_missing` but do not block ETA registration.
+- The harness distinguishes registration started, store-confirmed, failed, false registered, ETA tick, and ETA waiting.
