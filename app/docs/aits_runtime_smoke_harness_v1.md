@@ -1981,3 +1981,10 @@ summary modes.
 - Provider failures, missing responses, and invalid schemas remain blocked and may retry after the configured cooldown without creating an action.
 - Valid hold/wait decisions are registered like other valid decisions so ETA and invalidation monitoring can begin.
 - Runtime summaries distinguish trigger, payload, provider request, response, validation, registration, training record, and ETA tick after registration.
+## OpenAI Runtime Decision Call Policy
+
+- Provider calls request AI judgment; they do not grant order execution permission.
+- Runtime decision tasks use a dedicated provider policy instead of verification one-shot flags.
+- OpenAI calls require the selected OpenAI/GPT provider, a resolved masked key, a model, an allowed task, cost capacity, and no duplicate-payload cooldown.
+- `runtime_decision_call_requested`, `allowed`, `blocked`, `response_received`, and `response_missing` distinguish policy, transport, and response failures.
+- API keys and full prompts are never written to runtime diagnostics. AI responses still require Validator and runtime-state registration before ETA monitoring.

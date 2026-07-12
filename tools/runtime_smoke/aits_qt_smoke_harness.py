@@ -8637,6 +8637,16 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "initial_ai_management_decision_not_registered": "inspect validated initial decision runtime registration",
         "eta_scheduler_idle_after_registered_decision": "inspect registered initial decision visibility in ETA scheduler",
         "initial_ai_management_seed_ready": "continue ETA/invalidation observation with registered initial decisions",
+        "openai_provider_not_selected": "select OpenAI/GPT for the runtime decision session",
+        "openai_api_key_missing": "restore masked OpenAI key readiness and revalidate connection",
+        "openai_model_missing": "select an OpenAI runtime decision model",
+        "openai_runtime_decision_call_disabled_by_policy": "enable runtime AI decision calls in provider policy",
+        "openai_cost_guard_blocked": "wait for runtime AI decision cost capacity",
+        "openai_duplicate_call_cooldown": "wait for the duplicate payload cooldown",
+        "openai_network_unavailable": "restore provider network access and retry the initial seed",
+        "openai_response_missing": "inspect OpenAI runtime decision response transport",
+        "openai_response_invalid_schema": "inspect OpenAI decision output against the validator contract",
+        "openai_runtime_decision_call_ready": "verify initial decision registration and ETA tick in a fresh ON session",
     }
     return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
@@ -9193,6 +9203,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     initial_seed_registered_lines = [line for line in initial_seed_lines if "event=initial_seed_registered" in line]
     initial_seed_completed_lines = [line for line in initial_seed_lines if "event=initial_seed_completed" in line]
     initial_seed_training_lines = [line for line in initial_seed_lines if "event=initial_seed_training_record_created" in line]
+    runtime_decision_provider_lines = [line for line in lines if "[AITS][AIEngineProvider]" in line and "runtime_decision_" in line]
+    runtime_decision_requested_lines = [line for line in runtime_decision_provider_lines if "event=runtime_decision_call_requested" in line]
+    runtime_decision_allowed_lines = [line for line in runtime_decision_provider_lines if "event=runtime_decision_call_allowed" in line]
+    runtime_decision_blocked_lines = [line for line in runtime_decision_provider_lines if "event=runtime_decision_call_blocked" in line]
+    runtime_decision_response_lines = [line for line in runtime_decision_provider_lines if "event=runtime_decision_response_received" in line]
+    runtime_decision_response_missing_lines = [line for line in runtime_decision_provider_lines if "event=runtime_decision_response_missing" in line]
+    latest_runtime_decision_line = (runtime_decision_response_lines or runtime_decision_response_missing_lines or runtime_decision_blocked_lines or runtime_decision_allowed_lines or runtime_decision_requested_lines or [""])[-1]
+    openai_runtime_decision_blocker = _live_on_stage_extract_value(latest_runtime_decision_line, "blocker")
+    if openai_runtime_decision_blocker == "-":
+        openai_runtime_decision_blocker = ""
     eta_scheduler_callsite_probe_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_probe" in line]
     eta_scheduler_callsite_condition_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_condition" in line]
     eta_scheduler_callsite_before_call_lines = [line for line in eta_redecision_lines if "event=eta_scheduler_callsite_before_call" in line]
@@ -9905,6 +9925,10 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         eta_runtime_first_blocker = "initial_ai_management_payload_missing"
     elif initial_seed_payload_lines and not initial_seed_provider_requested_lines:
         eta_runtime_first_blocker = "initial_ai_management_provider_not_requested"
+    elif runtime_decision_blocked_lines and not initial_seed_registered_lines:
+        eta_runtime_first_blocker = openai_runtime_decision_blocker or "openai_runtime_decision_call_disabled_by_policy"
+    elif runtime_decision_allowed_lines and runtime_decision_response_missing_lines and not initial_seed_registered_lines:
+        eta_runtime_first_blocker = openai_runtime_decision_blocker or "openai_response_missing"
     elif initial_seed_provider_blocked_lines and not initial_seed_registered_lines:
         eta_runtime_first_blocker = "initial_ai_management_provider_blocked"
     elif initial_seed_provider_requested_lines and not initial_seed_response_lines and not initial_seed_provider_blocked_lines:
@@ -9915,6 +9939,8 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         eta_runtime_first_blocker = "initial_ai_management_decision_not_registered"
     elif eta_scheduler_idle_after_initial_seed:
         eta_runtime_first_blocker = "eta_scheduler_idle_after_registered_decision"
+    elif initial_seed_registered_lines and eta_scheduler_tick_after_initial_seed and runtime_decision_response_lines:
+        eta_runtime_first_blocker = "openai_runtime_decision_call_ready"
     elif initial_seed_registered_lines and eta_scheduler_tick_after_initial_seed:
         eta_runtime_first_blocker = "initial_ai_management_seed_ready"
     elif not eta_scheduler_callsite_probe_lines:
@@ -10300,6 +10326,22 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "initial_seed_registered_decision_count": int(initial_seed_registered_decision_count),
         "initial_seed_eta_registered_count": int(initial_seed_eta_registered_count),
         "initial_seed_invalidation_registered_count": int(initial_seed_invalidation_registered_count),
+        "openai_runtime_decision_call_policy_detected": True,
+        "openai_runtime_decision_call_requested": bool(runtime_decision_requested_lines),
+        "openai_runtime_decision_call_allowed": bool(runtime_decision_allowed_lines),
+        "openai_runtime_decision_call_blocked": bool(runtime_decision_blocked_lines),
+        "openai_runtime_decision_blocker": str(openai_runtime_decision_blocker or ""),
+        "openai_live_call_disabled_deprecated_alias_detected": any("openai_live_call_disabled" in line for line in lines),
+        "initial_seed_openai_provider_requested": bool(initial_seed_provider_requested_lines and runtime_decision_requested_lines),
+        "initial_seed_openai_provider_allowed": bool(initial_seed_provider_requested_lines and runtime_decision_allowed_lines),
+        "initial_seed_openai_provider_blocked": bool(initial_seed_provider_requested_lines and runtime_decision_blocked_lines),
+        "initial_seed_openai_response_received": bool(initial_seed_response_lines and runtime_decision_response_lines),
+        "initial_seed_openai_response_missing": bool(runtime_decision_response_missing_lines),
+        "initial_seed_openai_validated": bool(initial_seed_validated_lines and runtime_decision_response_lines),
+        "provider_call_task": _live_on_stage_extract_value(latest_runtime_decision_line, "task"),
+        "provider_call_payload_hash": _live_on_stage_extract_value(latest_runtime_decision_line, "payload_hash"),
+        "provider_call_cost_guard_result": _live_on_stage_extract_value(latest_runtime_decision_line, "cost_guard_result"),
+        "provider_call_key_masked": _live_on_stage_extract_value(latest_runtime_decision_line, "key_masked").lower() == "true",
         "eta_scheduler_idle_after_initial_seed": bool(eta_scheduler_idle_after_initial_seed),
         "eta_scheduler_tick_after_initial_seed": bool(eta_scheduler_tick_after_initial_seed),
         "eta_scheduler_callsite_probe_detected": bool(eta_scheduler_callsite_probe_lines),
@@ -20879,6 +20921,11 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     initial_seed_validated = bool("event=initial_seed_validated" in app_text)
     initial_seed_registered = bool("event=initial_seed_registered" in app_text)
     initial_seed_training_record_detected = bool("initial_management_decisions.jsonl" in app_text and "initial_seed_training_record_created" in app_text)
+    openai_runtime_decision_call_policy_detected = bool(
+        "RUNTIME_DECISION_ALLOWED_TASKS" in provider_text
+        and "_runtime_decision_call_policy" in provider_text
+        and "event=runtime_decision_call_allowed" in provider_text
+    )
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text
         and "_run_ai_redecision_scheduler" in app_text
@@ -21434,6 +21481,18 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "initial_seed_validated": bool(initial_seed_validated),
         "initial_seed_registered": bool(initial_seed_registered),
         "initial_seed_training_record_detected": bool(initial_seed_training_record_detected),
+        "openai_runtime_decision_call_policy_detected": bool(openai_runtime_decision_call_policy_detected),
+        "openai_runtime_decision_call_requested": bool("event=runtime_decision_call_requested" in provider_text),
+        "openai_runtime_decision_call_allowed": bool("event=runtime_decision_call_allowed" in provider_text),
+        "openai_runtime_decision_call_blocked": bool("event=runtime_decision_call_blocked" in provider_text),
+        "openai_runtime_decision_blocker": "",
+        "openai_live_call_disabled_deprecated_alias_detected": bool("openai_live_call_disabled" in provider_text),
+        "initial_seed_openai_provider_requested": bool("event=initial_seed_provider_requested" in app_text),
+        "initial_seed_openai_provider_allowed": bool("event=runtime_decision_call_allowed" in provider_text),
+        "initial_seed_openai_provider_blocked": bool("event=runtime_decision_call_blocked" in provider_text),
+        "initial_seed_openai_response_received": bool("event=runtime_decision_response_received" in provider_text),
+        "initial_seed_openai_response_missing": bool("event=runtime_decision_response_missing" in provider_text),
+        "initial_seed_openai_validated": bool("event=initial_seed_validated" in app_text),
         "eta_invalidation_scheduler_enabled": bool(eta_invalidation_scheduler_enabled),
         "ai_decision_eta_registered": bool(ai_decision_eta_registered),
         "eta_scheduler_probe_detected": bool(eta_scheduler_probe_detected),

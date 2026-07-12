@@ -237,3 +237,9 @@ ETA and invalidation monitoring begins only after a validated AI decision is reg
 ## ON Initial Management Trigger
 
 The first active cycle of a new ON session is an event-based AI trigger. BASIC collects current holdings, Managed Pool, cash, operating cap, scanner candidates, constraints, and available indicators. It asks AI for position and portfolio management decisions and does not convert ON itself into buy, sell, reduce, add, or rotation action. Valid hold/wait responses also establish an ETA watch state. A blocked provider produces no action and may be retried after cooldown.
+## Runtime Provider Decision Calls
+
+- A runtime management provider call is an AI judgment request, not an order request.
+- Verification and shadow one-shot guards do not own initial, position, portfolio, buy, sell, promotion, rotation, or redecision calls.
+- The selected provider, key/model readiness, cost limit, payload validity, and duplicate cooldown remain mandatory.
+- Only a real response that passes the AI Response Validator may be registered for ETA and invalidation monitoring.

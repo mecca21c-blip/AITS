@@ -1,12 +1,28 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
 import json
 import logging
 import os
+import time
 from typing import Any, Dict, Optional
 import urllib.error
 import urllib.request
+
+
+RUNTIME_DECISION_ALLOWED_TASKS = {
+    "initial_management_decision",
+    "position_management_decision",
+    "portfolio_management_decision",
+    "buy_decision",
+    "sell_decision",
+    "managed_pool_promotion_decision",
+    "rotation_decision",
+    "ai_redecision",
+}
+_RUNTIME_DECISION_CALL_TIMES: list[float] = []
+_RUNTIME_DECISION_PAYLOAD_LAST_CALL: dict[str, float] = {}
 
 
 AI_VERIFICATION_ALLOWED_SUGGESTIONS = {
@@ -413,6 +429,70 @@ class AIEngineProvider:
 
         return resolved_key
 
+    def _get_runtime_decision_model(self, provider: str) -> str:
+        provider = normalize_provider_name(provider)
+        names = ("ai_openai_model", "openai_model") if provider == "openai" else ("ai_gemini_model", "gemini_model")
+        for root in (self.strategy, self.settings, self.config):
+            if root is None:
+                continue
+            roots = [root]
+            if isinstance(root, dict):
+                roots.extend(root.get(key) for key in ("strategy", "settings", "config") if root.get(key) is not None)
+            for item in roots:
+                for name in names:
+                    value = item.get(name) if isinstance(item, dict) else getattr(item, name, None)
+                    value = str(value or "").strip()
+                    if value:
+                        return "chat-latest" if provider == "openai" and value == "gpt-5.5-instant" else value
+        if provider == "openai":
+            return str(os.getenv("AITS_OPENAI_POSITION_DECISION_MODEL") or os.getenv("AITS_OPENAI_VERIFY_MODEL") or "gpt-4o-mini").strip()
+        return str(os.getenv("AITS_GEMINI_POSITION_DECISION_MODEL") or os.getenv("AITS_GEMINI_VERIFY_MODEL") or "gemini-2.0-flash").strip()
+
+    def _runtime_decision_call_policy(self, *, provider: str, context: Dict[str, Any], payload_hash: str) -> Dict[str, Any]:
+        """Validate an AI judgment call without granting any order permission."""
+        provider = normalize_provider_name(provider)
+        task = str(context.get("task") or "").strip()
+        current_policy = context.get("current_policy") if isinstance(context.get("current_policy"), dict) else {}
+        selected = normalize_provider_name(
+            current_policy.get("engine_provider") or current_policy.get("provider") or provider
+        )
+        model = self._get_runtime_decision_model(provider)
+        api_key = self._get_config_api_key(provider)
+        now = time.time()
+        max_calls = max(1, int(os.getenv("AITS_RUNTIME_AI_DECISION_MAX_CALLS_PER_HOUR", "60") or 60))
+        duplicate_cooldown = max(0, int(os.getenv("AITS_RUNTIME_AI_DECISION_DUPLICATE_COOLDOWN_SEC", "600") or 600))
+        _RUNTIME_DECISION_CALL_TIMES[:] = [stamp for stamp in _RUNTIME_DECISION_CALL_TIMES if now - stamp < 3600]
+
+        blocker = ""
+        reason = "runtime_decision_policy_ready"
+        cost_guard_result = "passed"
+        if task not in RUNTIME_DECISION_ALLOWED_TASKS:
+            blocker, reason = "openai_payload_invalid", "runtime_decision_task_not_allowed"
+        elif provider != "openai" or selected != "openai":
+            blocker, reason = "openai_provider_not_selected", "selected_provider_mismatch"
+        elif str(os.getenv("AITS_DISABLE_RUNTIME_AI_DECISIONS", "")).strip() == "1":
+            blocker, reason = "openai_runtime_decision_call_disabled_by_policy", "runtime_decision_calls_disabled_by_user_policy"
+        elif not api_key:
+            blocker, reason = "openai_api_key_missing", "provider_key_not_available"
+        elif not model:
+            blocker, reason = "openai_model_missing", "provider_model_not_selected"
+        elif len(_RUNTIME_DECISION_CALL_TIMES) >= max_calls:
+            blocker, reason, cost_guard_result = "openai_cost_guard_blocked", "hourly_call_limit_reached", "blocked"
+        elif payload_hash and now - _RUNTIME_DECISION_PAYLOAD_LAST_CALL.get(payload_hash, 0.0) < duplicate_cooldown:
+            blocker, reason = "openai_duplicate_call_cooldown", "duplicate_payload_cooldown"
+
+        return {
+            "allowed": not blocker,
+            "blocker": blocker,
+            "reason": reason,
+            "task": task,
+            "model": model,
+            "api_key": api_key,
+            "key_masked": bool(api_key),
+            "cost_guard_result": cost_guard_result,
+            "now": now,
+        }
+
     def verify_router_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         AITS Decision Router v2.7
@@ -676,11 +756,15 @@ class AIEngineProvider:
             else:
                 raw = self._call_gemini_position_management_decision(prompt, context)
             parsed = self._parse_position_management_decision_response(raw.get("content"), context)
+            validation_passed = bool(parsed.get("validation_passed"))
+            if not validation_passed:
+                parsed["provider_validation_blocker"] = str(parsed.get("blocker") or parsed.get("validation_blocker") or "")
+                parsed["blocker"] = f"{provider}_response_invalid_schema"
             parsed.update(
                 {
                     "schema": "aits_position_management_decision_v1",
                     "provider": provider,
-                    "response_confirmed": bool(parsed.get("validation_passed")),
+                    "response_confirmed": True,
                     "provider_call_attempted": True,
                     "response_id": str(raw.get("response_id") or ""),
                     "usage_input_tokens": raw.get("usage_input_tokens"),
@@ -776,14 +860,41 @@ class AIEngineProvider:
         )
 
     def _call_openai_position_management_decision(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
-        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
-        if not (real_call_enabled and one_shot_enabled):
-            raise NotImplementedError("openai_live_call_disabled")
-        api_key = self._get_config_api_key("openai")
-        if not api_key:
-            raise NotImplementedError("openai_api_key_missing")
-        model = os.getenv("AITS_OPENAI_POSITION_DECISION_MODEL", os.getenv("AITS_OPENAI_VERIFY_MODEL", "gpt-4o-mini"))
+        task = str(context.get("task") or "").strip()
+        symbol = str(context.get("symbol") or "PORTFOLIO").strip().upper()
+        payload_hash = hashlib.sha256(
+            json.dumps(context, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:24]
+        runtime_policy = self._runtime_decision_call_policy(
+            provider="openai", context=context, payload_hash=payload_hash
+        )
+        current_policy = context.get("current_policy") if isinstance(context.get("current_policy"), dict) else {}
+        log_fields = (
+            f"provider=openai task={task or '-'} symbol={symbol or '-'} payload_hash={payload_hash} "
+            f"model={runtime_policy.get('model') or '-'} key_masked={str(bool(runtime_policy.get('key_masked'))).lower()} "
+            f"runtime_contract_active={str(bool(context.get('runtime_contract_active') or current_policy.get('execution_mode') == 'live')).lower()} "
+            f"execution_mode={str(current_policy.get('execution_mode') or '-')} "
+            f"cost_guard_result={runtime_policy.get('cost_guard_result') or '-'}"
+        )
+        _safe_log_info(
+            f"[AITS][AIEngineProvider] event=runtime_decision_call_requested {log_fields} blocker=- reason=management_decision_requested actual_order=False submitted=0"
+        )
+        if not runtime_policy.get("allowed"):
+            blocker = str(runtime_policy.get("blocker") or "openai_runtime_decision_call_disabled_by_policy")
+            _safe_log_info(
+                f"[AITS][AIEngineProvider] event=runtime_decision_call_blocked {log_fields} blocker={blocker} reason={runtime_policy.get('reason') or '-'} actual_order=False submitted=0"
+            )
+            raise NotImplementedError(blocker)
+        _safe_log_info(
+            f"[AITS][AIEngineProvider] event=runtime_decision_call_allowed {log_fields} blocker=- reason=provider_policy_passed actual_order=False submitted=0"
+        )
+        _safe_log_info(
+            f"[AITS][AIEngineProvider] event=api_call_entry {log_fields} blocker=- reason=runtime_management_decision actual_order=False submitted=0"
+        )
+        _RUNTIME_DECISION_CALL_TIMES.append(float(runtime_policy.get("now") or time.time()))
+        _RUNTIME_DECISION_PAYLOAD_LAST_CALL[payload_hash] = float(runtime_policy.get("now") or time.time())
+        api_key = str(runtime_policy.get("api_key") or "")
+        model = str(runtime_policy.get("model") or "")
         payload = {
             "model": model,
             "temperature": 0.1,
@@ -799,11 +910,26 @@ class AIEngineProvider:
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            _safe_log_info(
+                f"[AITS][AIEngineProvider] event=runtime_decision_response_missing {log_fields} blocker=openai_network_unavailable reason={type(exc).__name__} actual_order=False submitted=0"
+            )
+            raise NotImplementedError("openai_network_unavailable") from exc
         usage = data.get("usage") or {}
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        if not str(content or "").strip():
+            _safe_log_info(
+                f"[AITS][AIEngineProvider] event=runtime_decision_response_missing {log_fields} blocker=openai_response_missing reason=empty_provider_content actual_order=False submitted=0"
+            )
+            raise NotImplementedError("openai_response_missing")
+        _safe_log_info(
+            f"[AITS][AIEngineProvider] event=runtime_decision_response_received {log_fields} blocker=- reason=response_confirmed actual_order=False submitted=0"
+        )
         return {
-            "content": data.get("choices", [{}])[0].get("message", {}).get("content", ""),
+            "content": content,
             "response_id": data.get("id") or "",
             "usage_input_tokens": usage.get("prompt_tokens"),
             "usage_output_tokens": usage.get("completion_tokens"),

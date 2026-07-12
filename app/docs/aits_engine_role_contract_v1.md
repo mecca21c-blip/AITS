@@ -156,3 +156,9 @@ BASIC Signal Collector
 ## Initial AI Management Seed Boundary
 
 ON activation requires BASIC to assemble the initial management context and ask the selected AI provider. AI remains the decision authority. The initial seed may register validated hold, wait, position-management, or portfolio-management scenarios for ETA/invalidation monitoring, but it never submits an order or mutates the Managed Pool by itself. Provider failure or schema failure leaves the seed blocked and records the reason for retry and training audit.
+## Provider Call Boundary
+
+- Provider call means “ask the selected AI to decide”; it never means “execute an order.”
+- Verification-call controls and runtime-management-call controls are separate contracts.
+- Runtime OpenAI/GPT calls require readiness and cost/duplicate guards, never expose key bodies, and feed only Validator and decision registration.
+- Any later trade remains behind RiskGuard, LivePreflight, and the unchanged Execution Layer.
