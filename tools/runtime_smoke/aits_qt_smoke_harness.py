@@ -8672,6 +8672,18 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     mode: str,
 ) -> dict[str, Any]:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log()
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    all_provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
+    target_session_lines, target_provenance, target_started_at, _target_start, _target_end, _ = _latest_non_harness_runtime_session(lines, reports)
+    excluded_harness_pids = sorted({
+        int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0))
+        for line in all_provenance_lines
+        if _harness_report_for_session_start(_runtime_provenance_line_ts(line), reports)
+        and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) > 0
+    })
+    harness_pid_pollution_detected = bool(excluded_harness_pids and target_session_lines)
+    if target_session_lines:
+        lines = target_session_lines
     provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
     latest_provenance = provenance_lines[-1] if provenance_lines else ""
     on_anchor_indexes = [
@@ -8687,14 +8699,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     current_runtime_window_start = ""
     current_runtime_window_end = ""
     current_runtime_pid_detected = 0
-    log_window_filtered_by_current_pid = False
+    log_window_filtered_by_current_pid = bool(target_session_lines and target_provenance)
     if anchor_index >= 0:
         current_runtime_window_start = _extract_log_time(lines[anchor_index])
         preceding_provenance = [
             line for line in lines[: anchor_index + 1]
             if "[AITS][RuntimeProvenance]" in line
         ]
-        runtime_provenance = preceding_provenance[-1] if preceding_provenance else latest_provenance
+        runtime_provenance = preceding_provenance[-1] if preceding_provenance else (target_provenance or latest_provenance)
         current_runtime_pid_detected = int(
             _safe_float(_live_on_stage_extract_value(runtime_provenance, "process_pid"), 0.0)
         )
@@ -8719,10 +8731,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
                 if (_runtime_provenance_line_ts(line) is None
                     or _runtime_provenance_line_ts(line) >= session_started_at_dt)
             ]
+    if target_started_at is not None and not current_runtime_window_start:
+        current_runtime_window_start = target_started_at.isoformat()
     lowered = [line.lower() for line in lines]
     joined = "\n".join(lines)
     joined_lower = "\n".join(lowered)
-    reports = _live_on_runtime_e2e_latest_reports(output_dir)
     dry_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "dry-read")
     readpath_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "live-minimal-order-setting-readpath-preflight")
     top_feed_report = _live_on_runtime_e2e_latest_report_by_mode(reports, "top-markets-feed-proof")
@@ -9328,6 +9341,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     eta_waiting_lines = [line for line in eta_redecision_lines if "event=eta_waiting" in line]
     eta_expired_lines = [line for line in eta_redecision_lines if "event=eta_expired" in line]
     invalidation_checked_lines = [line for line in eta_redecision_lines if "event=invalidation_condition_checked" in line]
+    invalidation_mapping_lines = [line for line in lines if "[AITS][AIInvalidationCondition]" in line]
+    invalidation_mapping_supported_lines = [line for line in invalidation_mapping_lines if "event=condition_mapped_supported " in line]
+    invalidation_mapping_partial_lines = [line for line in invalidation_mapping_lines if "event=condition_mapped_supported_partial" in line]
+    invalidation_mapping_unsupported_lines = [line for line in invalidation_mapping_lines if "event=condition_mapped_unsupported" in line]
+    invalidation_watcher_ready_lines = [line for line in invalidation_mapping_lines if "event=condition_watcher_trigger_ready" in line]
+    invalidation_watcher_unavailable_lines = [line for line in invalidation_mapping_lines if "event=condition_watcher_trigger_unavailable" in line]
     invalidation_supported_lines = [line for line in invalidation_checked_lines if "supported=True" in line or "supported=true" in line]
     invalidation_unsupported_lines = [line for line in invalidation_checked_lines if "supported=False" in line or "supported=false" in line or "condition_type=unsupported" in line]
     invalidation_condition_supported_types = sorted({
@@ -9338,6 +9357,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         _live_on_stage_extract_value(line, "raw_condition_type") or _live_on_stage_extract_value(line, "condition_type")
         for line in invalidation_unsupported_lines
         if (_live_on_stage_extract_value(line, "raw_condition_type") or _live_on_stage_extract_value(line, "condition_type")) not in ("", "-")
+    })
+    invalidation_condition_supported_partial_types = sorted({
+        _live_on_stage_extract_value(line, "normalized_condition_type") for line in invalidation_mapping_partial_lines
+        if _live_on_stage_extract_value(line, "normalized_condition_type") not in ("", "-")
+    })
+    invalidation_condition_unsupported_reasons = sorted({
+        _live_on_stage_extract_value(line, "unsupported_reason") for line in invalidation_mapping_unsupported_lines + invalidation_mapping_partial_lines
+        if _live_on_stage_extract_value(line, "unsupported_reason") not in ("", "-")
     })
     redecision_payload_lines = [line for line in eta_redecision_lines if "event=eta_redecision_payload_created" in line or "event=invalidation_redecision_payload_created" in line]
     valid_ai_decision_lines = [
@@ -10226,7 +10253,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         ))
     )
     portfolio_insufficient_data_phrase_detected = any("task=portfolio_management_decision" in line for line in payload_data_gap_lines)
-    eta_redecision_condition_mapping_ready = bool(invalidation_supported_lines or invalidation_unsupported_lines)
+    eta_redecision_condition_mapping_ready = bool(invalidation_watcher_ready_lines)
+    invalidation_condition_semantic_mapping_ready = bool(
+        invalidation_mapping_lines
+        and invalidation_watcher_ready_lines
+        and len(invalidation_mapping_unsupported_lines) <= len(invalidation_mapping_supported_lines) + len(invalidation_mapping_partial_lines)
+    )
     position_grade_after = _live_on_stage_extract_value(position_score_lines[-1], "payload_quality_grade") if position_score_lines else ""
     portfolio_grade_after = _live_on_stage_extract_value(portfolio_score_lines[-1], "payload_quality_grade") if portfolio_score_lines else ""
     payload_quality_improved = bool(
@@ -10245,16 +10277,29 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             ai_payload_population_blocker = "ai_payload_indicator_features_missing"
         elif not portfolio_cap_features_populated:
             ai_payload_population_blocker = "ai_payload_portfolio_cap_missing"
-        elif not portfolio_insufficient_data_phrase_detected and any("task=portfolio_management_decision" in line for line in payload_scored_lines):
-            ai_payload_population_blocker = "ai_insufficient_data_phrase_matcher_incomplete"
-        elif len(invalidation_unsupported_lines) > len(invalidation_supported_lines):
-            ai_payload_population_blocker = "ai_invalidation_condition_mapping_incomplete"
         else:
             ai_payload_population_blocker = "ai_payload_market_indicator_population_ready"
         if runtime_contract_active:
             first_blocker = ai_payload_population_blocker
             if ai_payload_population_blocker not in all_blockers:
                 all_blockers.insert(0, ai_payload_population_blocker)
+
+    invalidation_semantic_blocker = ""
+    if invalidation_mapping_lines:
+        if not invalidation_watcher_ready_lines:
+            invalidation_semantic_blocker = "ai_invalidation_watcher_trigger_missing"
+        elif invalidation_mapping_partial_lines and not invalidation_mapping_supported_lines:
+            invalidation_semantic_blocker = "ai_invalidation_condition_partial_only"
+        elif not invalidation_condition_semantic_mapping_ready:
+            invalidation_semantic_blocker = "ai_invalidation_condition_mapping_incomplete"
+        else:
+            invalidation_semantic_blocker = "ai_invalidation_condition_semantic_mapping_ready"
+        if runtime_contract_active:
+            first_blocker = invalidation_semantic_blocker
+            if invalidation_semantic_blocker not in all_blockers:
+                all_blockers.insert(0, invalidation_semantic_blocker)
+    if not target_session_lines:
+        first_blocker = "no_active_on_session"
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -10319,6 +10364,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "current_runtime_window_end": str(current_runtime_window_end or ""),
         "current_runtime_pid_detected": int(current_runtime_pid_detected or 0),
         "log_window_filtered_by_current_pid": bool(log_window_filtered_by_current_pid),
+        "target_runtime_pid": int(current_runtime_pid_detected or 0),
+        "target_runtime_session_id": str(initial_seed_session_id or ""),
+        "excluded_harness_pids": excluded_harness_pids,
+        "latest_event_scope": "target_runtime_session",
+        "latest_event_scope_pid_matched": bool(current_runtime_pid_detected and target_provenance),
+        "latest_event_scope_session_matched": bool(initial_seed_session_id),
+        "harness_pid_pollution_detected": bool(harness_pid_pollution_detected),
+        "harness_pid_pollution_excluded": bool(harness_pid_pollution_detected and target_session_lines),
+        "live_summary_uses_target_pid_scope": bool(target_session_lines and target_provenance),
+        "dry_read_pid_excluded_from_live_summary": bool(excluded_harness_pids),
         "on_state_detected": bool(on_state_detected),
         "runtime_loop_started": bool(runtime_loop_started),
         "runtime_start_requested": bool(runtime_start_requested),
@@ -10677,10 +10732,16 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "insufficient_data_phrase_matched": bool(payload_data_gap_lines),
         "portfolio_insufficient_data_phrase_detected": bool(portfolio_insufficient_data_phrase_detected),
         "invalidation_conditions_supported_count": int(len(invalidation_supported_lines)),
+        "invalidation_conditions_supported_partial_count": int(len(invalidation_mapping_partial_lines)),
         "invalidation_conditions_unsupported_count": int(len(invalidation_unsupported_lines)),
         "invalidation_condition_supported_types": invalidation_condition_supported_types,
+        "invalidation_condition_supported_partial_types": invalidation_condition_supported_partial_types,
         "invalidation_condition_unsupported_types": invalidation_condition_unsupported_types,
+        "invalidation_condition_unsupported_reasons": invalidation_condition_unsupported_reasons,
+        "invalidation_condition_watcher_ready_count": int(len(invalidation_watcher_ready_lines)),
+        "invalidation_condition_watcher_unavailable_count": int(len(invalidation_watcher_unavailable_lines)),
         "eta_redecision_condition_mapping_ready": bool(eta_redecision_condition_mapping_ready),
+        "invalidation_condition_semantic_mapping_ready": bool(invalidation_condition_semantic_mapping_ready),
         "ai_payload_population_live_log_detected": bool(payload_population_lines),
         "ai_payload_population_blocker": str(ai_payload_population_blocker or ""),
         "eta_scheduler_idle_after_initial_seed": bool(eta_scheduler_idle_after_initial_seed),
@@ -21355,9 +21416,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and '"cap_remaining_krw"' in app_text
     )
     invalidation_condition_mapping_contract_enabled = bool(
-        'data.get("condition_type")' in app_text
-        and '"price_threshold"' in app_text
-        and '"supported": supported' in app_text
+        "_normalize_ai_invalidation_condition" in app_text
+        and "[AITS][AIInvalidationCondition]" in app_text
+        and '"normalized_condition_type"' in app_text
+        and '"watcher_trigger_type"' in app_text
     )
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text

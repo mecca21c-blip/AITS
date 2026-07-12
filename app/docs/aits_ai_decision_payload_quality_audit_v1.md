@@ -129,3 +129,7 @@ The immediate next target should be Goal 21. Without payload observability, late
 ## Population And Task Contract Follow-up
 
 Goal 23 connects real cached candle and holdings/risk-budget sources to the payload. It also normalizes the legacy position task alias, expands insufficient-data phrase matching, and maps only safely measurable structured invalidation conditions. Quality improvement is evidence of better input coverage, not permission to trade.
+
+## Invalidation Semantics And PID Scope Follow-up
+
+Structured invalidation quality distinguishes supported, supported-partial, and unsupported conditions using semantic aliases and explicit reasons. Runtime quality evidence is scoped to the target application PID/session so a later dry-read process cannot replace the latest user-runtime result.

@@ -41321,55 +41321,133 @@ class MainWindow(QMainWindow):
         }
         return {"context_available": bool(row), "position": position, "market": {"market_data_stale": bool(getattr(self, "_candidate_feed_stale", False)), "price_change": row.get("change_rate") or row.get("change_pct"), "volume_change": row.get("volume_change")}, "indicators": {"rsi": position["rsi"], "macd": position["macd"]}, "portfolio": {"available_krw": getattr(self, "_last_available_krw", None), "total_asset_krw": getattr(self, "_aits_total_asset_krw", None)}, "candidates": {"managed_pool_symbols": managed_symbols}}
 
-    def _check_ai_invalidation_condition(self, *, condition: object, state: dict, current: dict) -> tuple[bool, dict]:
+    def _normalize_ai_invalidation_condition(self, condition: object) -> dict:
         data = dict(condition) if isinstance(condition, dict) else {"type": str(condition or "")}
-        raw_kind = str(data.get("condition_type") or data.get("type") or data.get("condition") or "").strip().lower()
+        original = str(data.get("condition_type") or data.get("type") or data.get("category") or "").strip().lower()
         feature = str(data.get("feature") or "").strip()
-        operator = str(data.get("operator") or data.get("direction") or "").strip().lower()
-        kind = raw_kind
-        if raw_kind == "price" and feature in {"current_price", "price"}:
-            kind = "price_threshold"
-        elif raw_kind == "pnl" and feature in {"pnl_pct", "pnl"}:
-            kind = "pnl_threshold"
-        position = current.get("position") if isinstance(current.get("position"), dict) else {}
-        prior_position = ((state.get("prior_snapshot") or {}).get("position") or {}) if isinstance(state.get("prior_snapshot"), dict) else {}
+        metric = str(data.get("metric") or data.get("indicator") or data.get("name") or "").strip()
+        operator = str(data.get("operator") or data.get("expected_direction") or data.get("direction") or "").strip().lower()
         threshold = data.get("threshold", data.get("value"))
-        actual = None
+        current_value = data.get("current_value")
+        semantic = " ".join((original, feature, metric)).lower().replace(".", "_")
+        normalized = ""
+        if any(token in semantic for token in ("market_data_stale", "data_stale", "stale_market")) or original == "stale":
+            normalized = "market_data_stale"
+        elif any(token in semantic for token in ("price_change", "price_delta", "return_rate")):
+            normalized = "price_change"
+        elif any(token in semantic for token in ("current_price", "market_price", "price_threshold")) or original == "price":
+            normalized = "price_threshold"
+        elif any(token in semantic for token in ("unrealized_pnl", "profit_loss", "pnl", "roi", "return", "gain", "loss")):
+            normalized = "pnl_change"
+        elif "rsi" in semantic:
+            normalized = "rsi"
+        elif "macd" in semantic:
+            normalized = "macd_cross"
+        elif any(token in semantic for token in ("volatility", "volatility_spike")):
+            normalized = "volatility_spike"
+        elif any(token in semantic for token in ("volume_change", "trade_volume", "volume_spike")) or original == "volume":
+            normalized = "volume_change" if "change" in semantic else "volume_spike"
+        elif any(token in semantic for token in ("cap_remaining", "portfolio_cap", "exposure", "budget")) or original == "cap":
+            normalized = "cap_change"
+        elif any(token in semantic for token in ("position_value", "valuation")):
+            normalized = "position_value_change"
+        elif any(token in semantic for token in ("eta_expired", "time_elapsed")) or original == "eta":
+            normalized = "eta_expired"
+        elif original == "market" and not feature and not metric:
+            normalized = ""
+        supported = bool(normalized)
+        threshold_required = normalized not in {"market_data_stale", "macd_cross", "eta_expired"}
+        partial = bool(supported and threshold_required and threshold is None)
+        supported_operators = {"", "above", "below", "greater_than", "less_than", ">", ">=", "<", "<=", "crosses", "crosses_above", "crosses_below", "increase", "decrease"}
+        unsupported_reason = ""
+        if not original and not feature and not metric:
+            unsupported_reason = "missing_condition_type"
+        elif not normalized and original in {"indicator", "market"}:
+            unsupported_reason = "generic_type_without_metric"
+        elif not normalized:
+            unsupported_reason = "unknown_condition_type"
+        elif operator not in supported_operators:
+            partial = True
+            unsupported_reason = "unsupported_operator"
+        elif partial:
+            unsupported_reason = "missing_threshold_for_trigger"
+        return {
+            **data,
+            "original_condition_type": original or "-", "normalized_condition_type": normalized or "unsupported",
+            "feature": feature or "-", "metric": metric or "-", "operator": operator or "-",
+            "threshold": threshold, "current_value": current_value, "supported": supported,
+            "partial": partial, "unsupported_reason": unsupported_reason or "-",
+            "watcher_trigger_type": normalized if supported and not partial else "-",
+            "reason_ko": str(data.get("reason_ko") or ""),
+        }
+
+    def _check_ai_invalidation_condition(self, *, condition: object, state: dict, current: dict) -> tuple[bool, dict]:
+        original_for_log = dict(condition) if isinstance(condition, dict) else {"type": str(condition or "")}
+        logging.getLogger("aits").info(
+            "[AITS][AIInvalidationCondition] event=condition_mapping_started symbol=%s decision_id=%s original_condition_type=%s actual_order=False submitted=0",
+            state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-",
+            str(original_for_log.get("condition_type") or original_for_log.get("type") or original_for_log.get("category") or "-").strip().lower(),
+        )
+        data = self._normalize_ai_invalidation_condition(condition)
+        raw_kind = str(data.get("original_condition_type") or "-")
+        feature = str(data.get("feature") or "-")
+        metric = str(data.get("metric") or "-")
+        operator = str(data.get("operator") or "-").lower()
+        kind = str(data.get("normalized_condition_type") or "unsupported")
+        supported = bool(data.get("supported"))
+        partial = bool(data.get("partial"))
+        position = current.get("position") if isinstance(current.get("position"), dict) else {}
+        market = current.get("market") if isinstance(current.get("market"), dict) else {}
+        indicators = current.get("indicators") if isinstance(current.get("indicators"), dict) else {}
+        portfolio = current.get("portfolio") if isinstance(current.get("portfolio"), dict) else {}
+        prior_position = ((state.get("prior_snapshot") or {}).get("position") or {}) if isinstance(state.get("prior_snapshot"), dict) else {}
+        threshold = data.get("threshold")
+        actual = data.get("current_value")
         triggered = False
         try:
-            if kind in {"pnl_pct", "pnl_pct_crosses_threshold", "pnl_threshold"}:
-                actual = float(position.get("pnl_pct")); limit = float(threshold); direction = str(data.get("direction") or data.get("operator") or "below").lower(); triggered = actual >= limit if direction in {"above", ">", ">="} else actual <= limit
+            if supported and not partial and kind == "pnl_change":
+                actual = float(position.get("pnl_pct")); limit = float(threshold); triggered = actual >= limit if operator in {"above", "greater_than", ">", ">=", "increase"} else actual <= limit
             elif kind == "price_threshold":
                 actual = float(position.get("current_price")); limit = float(threshold); triggered = actual >= limit if operator in {"above", ">", ">="} else actual <= limit
-            elif kind in {"price_change", "price_change_exceeds_threshold"}:
-                actual = float(current.get("market", {}).get("price_change")); triggered = abs(actual) >= abs(float(threshold))
-            elif kind in {"volume_change", "volume_change_exceeds_threshold", "volume_drop"}:
-                actual = float(position.get("volume_change") or current.get("market", {}).get("volume_change")); limit = abs(float(threshold)); triggered = actual <= -limit if kind == "volume_drop" else abs(actual) >= limit
-            elif kind in {"rsi", "rsi_overheat"}:
-                actual = float(position.get("rsi")); limit = float(threshold if threshold is not None else 70); direction = str(data.get("direction") or "above").lower(); triggered = actual >= limit if direction in {"above", ">", ">="} else actual <= limit
-            elif kind in {"macd_direction_changed", "macd_turn_down"}:
-                actual = position.get("macd"); triggered = actual is not None and prior_position.get("macd") is not None and float(actual) < float(prior_position.get("macd"))
-            elif kind in {"holding_qty_changed", "holding_qty_change"}:
-                actual = position.get("qty"); triggered = actual is not None and prior_position.get("qty") is not None and float(actual) != float(prior_position.get("qty"))
-            elif kind in {"available_krw_changed", "cash_changed"}:
-                actual = current.get("portfolio", {}).get("available_krw"); before = ((state.get("prior_snapshot") or {}).get("portfolio") or {}).get("available_krw"); material = abs(float(threshold)) if threshold is not None else max(5000.0, abs(float(before or 0.0)) * 0.1); triggered = actual is not None and before is not None and abs(float(actual) - float(before)) >= material
-            elif kind in {"managed_pool_symbol_changed", "managed_pool_changed"}:
-                actual = current.get("candidates", {}).get("managed_pool_symbols") or []; before = ((state.get("prior_snapshot") or {}).get("managed_pool_symbols") or []); triggered = set(actual) != set(before)
+            elif supported and not partial and kind == "price_change":
+                key = feature.split(".")[-1] if "price_change" in feature else "price_change"; actual = float(market.get(key, market.get("price_change"))); triggered = abs(actual) >= abs(float(threshold))
+            elif supported and not partial and kind in {"volume_change", "volume_spike", "volatility_spike"}:
+                source_key = "volatility" if kind == "volatility_spike" else "volume_change"; actual = float(market.get(source_key, position.get(source_key))); triggered = abs(actual) >= abs(float(threshold))
+            elif supported and not partial and kind == "rsi":
+                actual = float(indicators.get("rsi", indicators.get("RSI", position.get("rsi")))); limit = float(threshold); triggered = actual >= limit if operator in {"above", "greater_than", ">", ">=", "increase"} else actual <= limit
+            elif kind == "macd_cross":
+                actual = indicators.get("macd", indicators.get("MACD", position.get("macd"))); before = prior_position.get("macd"); triggered = actual is not None and before is not None and float(actual) < float(before)
+            elif supported and not partial and kind == "cap_change":
+                cap_key = feature.split(".")[-1] if feature != "-" else "cap_remaining_krw"; actual = float(portfolio.get(cap_key)); triggered = abs(actual) >= abs(float(threshold))
+            elif supported and not partial and kind == "position_value_change":
+                actual = float(position.get("position_value_krw")); triggered = abs(actual) >= abs(float(threshold))
+            elif kind == "eta_expired":
+                actual = float(state.get("eta_expires_at") or 0.0); triggered = actual > 0.0 and actual <= time.time()
             elif kind == "market_data_stale":
-                actual = bool(current.get("market", {}).get("market_data_stale")); triggered = bool(actual)
+                actual = bool(market.get("market_data_stale")); triggered = bool(actual)
         except (TypeError, ValueError):
             triggered = False
-        supported = kind in {
-            "pnl_pct", "pnl_pct_crosses_threshold", "pnl_threshold", "price_threshold",
-            "price_change", "price_change_exceeds_threshold", "volume_change", "volume_change_exceeds_threshold",
-            "volume_drop", "rsi", "rsi_overheat", "macd_direction_changed", "macd_turn_down",
-            "holding_qty_changed", "holding_qty_change", "available_krw_changed", "cash_changed",
-            "managed_pool_symbol_changed", "managed_pool_changed", "market_data_stale",
-        }
+        event = "condition_mapped_unsupported" if not supported else ("condition_mapped_supported_partial" if partial else "condition_mapped_supported")
+        watcher_event = "condition_watcher_trigger_ready" if supported and not partial else "condition_watcher_trigger_unavailable"
+        logging.getLogger("aits").info(
+            "[AITS][AIInvalidationCondition] event=%s symbol=%s decision_id=%s original_condition_type=%s normalized_condition_type=%s feature=%s metric=%s operator=%s threshold_present=%s current_value_present=%s supported=%s partial=%s unsupported_reason=%s watcher_trigger_type=%s actual_order=False submitted=0",
+            event, state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-", raw_kind, kind, feature, metric, operator,
+            threshold is not None, actual is not None, supported, partial, data.get("unsupported_reason") or "-", data.get("watcher_trigger_type") or "-",
+        )
+        logging.getLogger("aits").info(
+            "[AITS][AIInvalidationCondition] event=%s symbol=%s decision_id=%s normalized_condition_type=%s watcher_trigger_type=%s unsupported_reason=%s actual_order=False submitted=0",
+            watcher_event, state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-",
+            kind, data.get("watcher_trigger_type") or "-", data.get("unsupported_reason") or "-",
+        )
+        if supported and not partial:
+            self._aits_redecision_status_text = "AI \uc7ac\ud310\ub2e8 \uc870\uac74 \uac10\uc2dc \uc911"
+        elif partial:
+            self._aits_redecision_status_text = "AI \uc7ac\ud310\ub2e8 \uc870\uac74 \uc77c\ubd80 \uae30\uc900\uac12 \ubd80\uc871"
         return bool(triggered), {
-            "type": kind if supported else "unsupported", "raw_type": raw_kind or "-", "feature": feature or "-",
-            "supported": supported, "expected": data.get("expected"), "actual": actual,
-            "threshold": threshold, "triggered": bool(triggered),
+            "type": kind if supported else "unsupported", "raw_type": raw_kind, "feature": feature, "metric": metric,
+            "supported": supported, "partial": partial, "unsupported_reason": data.get("unsupported_reason"),
+            "watcher_trigger_type": data.get("watcher_trigger_type"), "expected": data.get("expected"),
+            "actual": actual, "threshold": threshold, "triggered": bool(triggered),
         }
 
     def _log_initial_ai_management_seed_skipped(self, *, session_id: str, blocker: str, reason: str) -> None:
@@ -41781,7 +41859,7 @@ class MainWindow(QMainWindow):
             else:
                 for condition in list(state.get("invalidation_conditions") or []):
                     hit, observed = self._check_ai_invalidation_condition(condition=condition, state=state, current=current)
-                    eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s raw_condition_type=%s feature=%s supported=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("raw_type"), observed.get("feature"), observed.get("supported"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
+                    eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s raw_condition_type=%s feature=%s metric=%s supported=%s partial=%s unsupported_reason=%s watcher_trigger_type=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("raw_type"), observed.get("feature"), observed.get("metric"), observed.get("supported"), observed.get("partial"), observed.get("unsupported_reason"), observed.get("watcher_trigger_type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
                     if hit:
                         state["current_status"] = "invalidated"; trigger_reason = "invalidation_condition_triggered"; triggered_condition = observed
                         eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_triggered symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=True actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"))

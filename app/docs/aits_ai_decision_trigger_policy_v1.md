@@ -262,3 +262,7 @@ Invalidation conditions should use `condition_type`, `feature`, `operator`, `thr
 BASIC may calculate RSI, MACD, moving averages, momentum, trend strength, price changes, volume change, and volatility from real candle history. Insufficient history remains unavailable. These values are AI judgment evidence only and cannot directly create buy, sell, reduce, or rotation actions.
 
 The canonical position task is `position_management_decision`. Legacy aliases are normalized before provider validation. Supported invalidation conditions create redecision triggers only; unsupported conditions remain visible to audit and inert.
+
+## Invalidation Semantic Aliases
+
+Generic market, indicator, PnL, volume, and volatility categories require feature or metric evidence before they become watcher triggers. Known aliases normalize to price, PnL, RSI, MACD, volume, volatility, cap, valuation, stale-data, or ETA watcher types. Recognized conditions without required thresholds are partial and cannot trigger redecision.

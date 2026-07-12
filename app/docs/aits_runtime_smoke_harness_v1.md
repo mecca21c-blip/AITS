@@ -2026,3 +2026,10 @@ summary modes.
 - `position_management_decision` is canonical. `manage_position_decision` is accepted only as a logged legacy alias and normalized before provider policy validation.
 - Portfolio cap fields come from the existing risk-budget and normalized-holdings SSOT.
 - Structured invalidation checks report supported and unsupported types separately. Conditions request AI redecision and never become direct actions.
+
+## Invalidation Semantic Mapping And Runtime Scope
+
+- Conditions are normalized from type, category, feature, metric, indicator, and name into watcher trigger types.
+- `supported_partial` means the semantic is known but threshold/operator evidence is insufficient; it remains inert until evaluable.
+- Missing thresholds never cause immediate redecision, and invalidation conditions never create trading actions directly.
+- Live summaries use the latest non-harness runtime PID/session. Dry-read and other harness PIDs are excluded from latest-event aggregation.

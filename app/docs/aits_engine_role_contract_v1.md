@@ -177,3 +177,7 @@ BASIC owns factual feature availability and freshness metadata. It may compute a
 ## BASIC Feature Population Boundary
 
 BASIC owns factual market/indicator calculation from real runtime sources and reports source time and freshness. It does not synthesize missing candles, indicators, volume, price changes, or freshness. Payload quality and invalidation thresholds remain evidence and watch obligations, never final trading authority.
+
+## Invalidation Watcher Boundary
+
+BASIC may normalize and monitor AI invalidation conditions, but a triggered condition only requests AI redecision. Unsupported or partial conditions cannot produce buy, sell, rotate, promotion, or execution actions.
