@@ -9260,10 +9260,40 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "scheduler_idle" if eta_scheduler_idle_lines else "runtime_probe_missing"
     )
     latest_initial_seed_line = (initial_seed_completed_lines or initial_seed_provider_blocked_lines or initial_seed_skipped_lines or initial_seed_trigger_lines or [""])[-1]
+    initial_seed_session_id = _live_on_stage_extract_value(latest_initial_seed_line, "session_id")
+    initial_seed_scoped_lines = [
+        line for line in initial_seed_lines
+        if initial_seed_session_id and _live_on_stage_extract_value(line, "session_id") == initial_seed_session_id
+    ]
+    initial_seed_registered_scoped_lines = [
+        line for line in initial_seed_scoped_lines if "event=initial_seed_registered" in line
+    ]
+    initial_seed_completed_scoped_lines = [
+        line for line in initial_seed_scoped_lines if "event=initial_seed_completed" in line
+    ]
+    initial_seed_registered_decision_ids = {
+        decision_id
+        for line in initial_seed_registered_scoped_lines
+        for decision_id in _live_on_stage_extract_value(line, "registered_decision_ids").split(",")
+        if decision_id and decision_id != "-"
+    }
+    state_registered_decision_ids = {
+        _live_on_stage_extract_value(line, "decision_id")
+        for line in ai_decision_state_registered_lines
+        if _live_on_stage_extract_value(line, "decision_id")
+    }
     initial_seed_registered_decision_count = sum(
         int(_safe_float(_live_on_stage_extract_value(line, "registered_decision_count"), 0.0))
-        for line in initial_seed_completed_lines
-    ) or len(initial_seed_registered_lines)
+        for line in initial_seed_completed_scoped_lines
+    ) or len(initial_seed_registered_scoped_lines)
+    initial_seed_eta_registered_count_scoped = sum(
+        1 for line in eta_registered_lines
+        if _live_on_stage_extract_value(line, "decision_id") in initial_seed_registered_decision_ids
+    )
+    initial_seed_failed_registration_count_scoped = sum(
+        int(_safe_float(_live_on_stage_extract_value(line, "failed_registration_count"), 0.0))
+        for line in initial_seed_completed_scoped_lines
+    )
     initial_seed_eta_registered_count = sum(
         1 for line in eta_registered_lines if "task=position_management_decision" in line or "task=portfolio_management_decision" in line
     )
@@ -9286,6 +9316,33 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         initial_seed_last_registered_index >= 0
         and any(index > initial_seed_last_registered_index and "[AITS][ETAReDecision]" in line and ("event=eta_tick" in line or "event=eta_waiting" in line) for index, line in enumerate(lines))
     )
+    first_registration_index = min(
+        (index for index, line in enumerate(lines) if "[AITS][ETAReDecision]" in line and "event=ai_decision_state_registered" in line),
+        default=-1,
+    )
+    eta_idle_before_registration_lines = [
+        line for index, line in enumerate(lines)
+        if first_registration_index >= 0 and index < first_registration_index
+        and "[AITS][ETAReDecision]" in line and "event=eta_scheduler_idle" in line
+    ]
+    eta_idle_after_registration_lines = [
+        line for index, line in enumerate(lines)
+        if first_registration_index >= 0 and index > first_registration_index
+        and "[AITS][ETAReDecision]" in line and "event=eta_scheduler_idle" in line
+    ]
+    eta_tick_after_registration_lines = [
+        line for index, line in enumerate(lines)
+        if first_registration_index >= 0 and index > first_registration_index
+        and "[AITS][ETAReDecision]" in line and "event=eta_tick" in line
+    ]
+    eta_waiting_after_registration_lines = [
+        line for index, line in enumerate(lines)
+        if first_registration_index >= 0 and index > first_registration_index
+        and "[AITS][ETAReDecision]" in line and "event=eta_waiting" in line
+    ]
+    first_registration_time = _extract_log_time(lines[first_registration_index]) if first_registration_index >= 0 else ""
+    first_eta_tick_after_registration_time = _extract_log_time(eta_tick_after_registration_lines[0]) if eta_tick_after_registration_lines else ""
+    first_eta_waiting_after_registration_time = _extract_log_time(eta_waiting_after_registration_lines[0]) if eta_waiting_after_registration_lines else ""
     initial_seed_blocker = _live_on_stage_extract_value(latest_initial_seed_line, "blocker")
     if initial_seed_blocker == "-":
         initial_seed_blocker = ""
@@ -9293,12 +9350,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     state_active_count_after = int(_safe_float(_live_on_stage_extract_value(latest_state_registration, "active_decision_count_after"), 0.0))
     state_store_name = _live_on_stage_extract_value(latest_state_registration, "store_name")
     initial_seed_registered_log_matches_state_store = bool(
-        initial_seed_registered_lines
-        and ai_decision_state_registered_lines
-        and initial_seed_registered_decision_count == len(ai_decision_state_registered_lines)
+        initial_seed_registered_scoped_lines
+        and initial_seed_registered_decision_ids
+        and initial_seed_registered_decision_count == len(initial_seed_registered_decision_ids)
+        and initial_seed_registered_decision_ids.issubset(state_registered_decision_ids)
+        and initial_seed_eta_registered_count_scoped == initial_seed_registered_decision_count
+        and initial_seed_failed_registration_count_scoped == 0
         and state_active_count_after > 0
     )
-    initial_seed_false_registered_detected = bool(initial_seed_registered_lines and not ai_decision_state_registered_lines)
+    initial_seed_false_registered_detected = bool(
+        initial_seed_registered_scoped_lines
+        and not initial_seed_registered_decision_ids.issubset(state_registered_decision_ids)
+    )
+    eta_scheduler_idle_after_registered_decision = bool(
+        eta_idle_after_registration_lines
+        and not eta_tick_after_registration_lines
+        and not eta_waiting_after_registration_lines
+    )
     wait_hold_decision_registered = any(
         re.search(r"\baction=(wait|hold)\b", line) for line in ai_decision_state_registered_lines
     )
@@ -9971,9 +10039,9 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         eta_runtime_first_blocker = "initial_ai_management_invalid_schema"
     elif initial_seed_validated_lines and not initial_seed_registered_lines:
         eta_runtime_first_blocker = "initial_ai_management_decision_not_registered"
-    elif eta_scheduler_idle_after_initial_seed:
+    elif eta_scheduler_idle_after_registered_decision:
         eta_runtime_first_blocker = "eta_scheduler_idle_after_registered_decision"
-    elif initial_seed_registered_log_matches_state_store and eta_scheduler_tick_after_initial_seed:
+    elif initial_seed_registered_log_matches_state_store and (eta_tick_after_registration_lines or eta_waiting_after_registration_lines):
         eta_runtime_first_blocker = "ai_decision_runtime_state_registration_ready"
     elif initial_seed_registered_lines and eta_scheduler_tick_after_initial_seed:
         eta_runtime_first_blocker = "initial_ai_management_seed_ready"
@@ -10408,11 +10476,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "ai_decision_state_store_name": str(state_store_name or ""),
         "ai_decision_state_active_count_after_registration": int(state_active_count_after),
         "initial_seed_registered_log_matches_state_store": bool(initial_seed_registered_log_matches_state_store),
+        "initial_seed_session_id": str(initial_seed_session_id or ""),
+        "initial_seed_registered_count_scoped": int(initial_seed_registered_decision_count),
+        "initial_seed_eta_registered_count_scoped": int(initial_seed_eta_registered_count_scoped),
+        "initial_seed_failed_registration_count_scoped": int(initial_seed_failed_registration_count_scoped),
+        "total_ai_decision_state_registered_count": int(len(ai_decision_state_registered_lines)),
+        "initial_seed_registered_log_matches_state_store_scoped": bool(initial_seed_registered_log_matches_state_store),
         "initial_seed_false_registered_detected": bool(initial_seed_false_registered_detected),
         "eta_registered_count": int(len(eta_registered_lines)),
         "eta_waiting_detected": bool(eta_waiting_lines),
         "eta_waiting_count": int(len(eta_waiting_lines)),
         "eta_tick_count": int(len(eta_tick_lines)),
+        "eta_idle_before_registration_count": int(len(eta_idle_before_registration_lines)),
+        "eta_idle_after_registration_count": int(len(eta_idle_after_registration_lines)),
+        "eta_tick_after_registration_count": int(len(eta_tick_after_registration_lines)),
+        "eta_waiting_after_registration_count": int(len(eta_waiting_after_registration_lines)),
+        "first_registration_time": str(first_registration_time),
+        "first_eta_tick_after_registration_time": str(first_eta_tick_after_registration_time),
+        "first_eta_waiting_after_registration_time": str(first_eta_waiting_after_registration_time),
+        "eta_scheduler_idle_after_registered_decision": bool(eta_scheduler_idle_after_registered_decision),
         "wait_hold_decision_registered": bool(wait_hold_decision_registered),
         "invalidation_missing_did_not_block_eta": bool(invalidation_missing_did_not_block_eta),
         "scheduler_active_count_after_registration": int(state_active_count_after),

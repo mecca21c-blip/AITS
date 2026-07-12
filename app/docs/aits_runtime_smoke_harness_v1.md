@@ -1995,3 +1995,11 @@ summary modes.
 - Validated `wait` and `hold` decisions with a positive ETA are active watch states.
 - Empty invalidation conditions produce `invalidation_condition_missing` but do not block ETA registration.
 - The harness distinguishes registration started, store-confirmed, failed, false registered, ETA tick, and ETA waiting.
+
+### Initial Seed Session-Scoped Registration
+
+- Initial-seed registration is aggregated by the latest ON-session `session_id`; it is never compared directly with the cumulative runtime registration count.
+- Store consistency is verified by matching the scoped initial-seed decision IDs with store-confirmed `ai_decision_state_registered` events and their ETA registrations.
+- ETA scheduler events are evaluated in timestamp order. Idle events before the first registration are normal startup state.
+- An idle-after-registration blocker is emitted only when active registration is followed by idle events without any later `eta_tick` or `eta_waiting` event.
+- Registration followed by `eta_tick` or `eta_waiting` is reported as `ai_decision_runtime_state_registration_ready`.
