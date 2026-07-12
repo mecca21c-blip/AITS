@@ -126,3 +126,6 @@ The repeated waits are best classified as payload insufficiency plus conservativ
 5. `AITS-AI-DECISION-LIVE-LOG-EXPLANATION-TRACEABILITY-FIX-25`
 
 The immediate next target should be Goal 21. Without payload observability, later quality changes cannot be proven against actual runtime calls.
+## Population And Task Contract Follow-up
+
+Goal 23 connects real cached candle and holdings/risk-budget sources to the payload. It also normalizes the legacy position task alias, expands insufficient-data phrase matching, and maps only safely measurable structured invalidation conditions. Quality improvement is evidence of better input coverage, not permission to trade.

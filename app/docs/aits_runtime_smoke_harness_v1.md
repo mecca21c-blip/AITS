@@ -2019,3 +2019,10 @@ summary modes.
 - The runtime summary distinguishes RSI, MACD, volume, volatility, price-change, portfolio-cap, and candidate coverage.
 - When an AI reason mentions insufficient data, the harness correlates it with manifest missing/stale features.
 - Invalidation results are counted separately as structured objects, natural-language strings, or missing.
+## Market Indicator Payload Population Contract
+
+- Position payloads use cached real minute candles and managed-row market data for price changes, volume change, trade value, volatility, RSI, MACD, moving averages, momentum, and trend strength.
+- Missing candle history remains missing; the harness must not infer fabricated indicators or freshness.
+- `position_management_decision` is canonical. `manage_position_decision` is accepted only as a logged legacy alias and normalized before provider policy validation.
+- Portfolio cap fields come from the existing risk-budget and normalized-holdings SSOT.
+- Structured invalidation checks report supported and unsupported types separately. Conditions request AI redecision and never become direct actions.

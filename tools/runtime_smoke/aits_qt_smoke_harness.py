@@ -9271,6 +9271,13 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     payload_data_gap_lines = [line for line in payload_quality_lines if "event=ai_data_gap_reason_correlated" in line]
     invalidation_shape_lines = [line for line in payload_quality_lines if "event=invalidation_condition_shape_checked" in line]
     payload_quality_live_log_lines = [line for line in payload_quality_lines if "event=payload_quality_live_log" in line]
+    payload_population_lines = [line for line in lines if "[AITS][AIPayloadPopulation]" in line and "event=market_indicator_snapshot_built" in line]
+    latest_payload_population = payload_population_lines[-1] if payload_population_lines else ""
+    task_contract_lines = [line for line in lines if "[AITS][AITaskContract]" in line]
+    task_alias_normalized_lines = [line for line in task_contract_lines if "event=task_alias_normalized" in line]
+    task_contract_validated_lines = [line for line in task_contract_lines if "event=task_contract_validated" in line]
+    openai_payload_invalid_lines = [line for line in lines if "openai_payload_invalid" in line]
+    openai_payload_invalid_due_to_task_alias_lines = [line for line in openai_payload_invalid_lines if "manage_position_decision" in line]
     latest_payload_score = payload_scored_lines[-1] if payload_scored_lines else ""
     payload_quality_grades = sorted({
         _live_on_stage_extract_value(line, "payload_quality_grade")
@@ -9290,6 +9297,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         for line in payload_stale_lines
         for feature in _live_on_stage_extract_value(line, "features").split(",")
         if feature and feature != "-"
+    })
+    position_missing_feature_names = sorted({
+        feature for line in payload_missing_lines if "task=position_management_decision" in line
+        for feature in _live_on_stage_extract_value(line, "features").split(",") if feature and feature != "-"
+    })
+    portfolio_missing_feature_names = sorted({
+        feature for line in payload_missing_lines if "task=portfolio_management_decision" in line
+        for feature in _live_on_stage_extract_value(line, "features").split(",") if feature and feature != "-"
     })
     invalidation_conditions_structured_count = sum(int(_safe_float(_live_on_stage_extract_value(line, "structured_count"), 0)) for line in invalidation_shape_lines)
     invalidation_conditions_natural_language_count = sum(int(_safe_float(_live_on_stage_extract_value(line, "natural_language_count"), 0)) for line in invalidation_shape_lines)
@@ -9313,6 +9328,17 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     eta_waiting_lines = [line for line in eta_redecision_lines if "event=eta_waiting" in line]
     eta_expired_lines = [line for line in eta_redecision_lines if "event=eta_expired" in line]
     invalidation_checked_lines = [line for line in eta_redecision_lines if "event=invalidation_condition_checked" in line]
+    invalidation_supported_lines = [line for line in invalidation_checked_lines if "supported=True" in line or "supported=true" in line]
+    invalidation_unsupported_lines = [line for line in invalidation_checked_lines if "supported=False" in line or "supported=false" in line or "condition_type=unsupported" in line]
+    invalidation_condition_supported_types = sorted({
+        _live_on_stage_extract_value(line, "condition_type") for line in invalidation_supported_lines
+        if _live_on_stage_extract_value(line, "condition_type") not in ("", "-")
+    })
+    invalidation_condition_unsupported_types = sorted({
+        _live_on_stage_extract_value(line, "raw_condition_type") or _live_on_stage_extract_value(line, "condition_type")
+        for line in invalidation_unsupported_lines
+        if (_live_on_stage_extract_value(line, "raw_condition_type") or _live_on_stage_extract_value(line, "condition_type")) not in ("", "-")
+    })
     redecision_payload_lines = [line for line in eta_redecision_lines if "event=eta_redecision_payload_created" in line or "event=invalidation_redecision_payload_created" in line]
     valid_ai_decision_lines = [
         line for line in lines
@@ -10181,6 +10207,54 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = ai_payload_quality_blocker
             if ai_payload_quality_blocker not in all_blockers:
                 all_blockers.insert(0, ai_payload_quality_blocker)
+    position_market_features_populated = bool(
+        payload_population_lines
+        and all(_live_on_stage_extract_value(line, "price_change_available").lower() == "true" for line in payload_population_lines)
+        and all(_live_on_stage_extract_value(line, "volume_available").lower() == "true" for line in payload_population_lines)
+        and all(_live_on_stage_extract_value(line, "volatility_available").lower() == "true" for line in payload_population_lines)
+    )
+    position_indicator_features_populated = bool(
+        payload_population_lines
+        and all(_live_on_stage_extract_value(line, "rsi_available").lower() == "true" for line in payload_population_lines)
+        and all(_live_on_stage_extract_value(line, "macd_available").lower() == "true" for line in payload_population_lines)
+    )
+    portfolio_cap_features_populated = bool(
+        portfolio_score_lines
+        and not any(name in portfolio_missing_feature_names for name in (
+            "portfolio.total_asset_krw", "portfolio.total_budget_krw", "portfolio.exposure_for_cap",
+            "portfolio.cap_remaining_krw", "portfolio.current_positions",
+        ))
+    )
+    portfolio_insufficient_data_phrase_detected = any("task=portfolio_management_decision" in line for line in payload_data_gap_lines)
+    eta_redecision_condition_mapping_ready = bool(invalidation_supported_lines or invalidation_unsupported_lines)
+    position_grade_after = _live_on_stage_extract_value(position_score_lines[-1], "payload_quality_grade") if position_score_lines else ""
+    portfolio_grade_after = _live_on_stage_extract_value(portfolio_score_lines[-1], "payload_quality_grade") if portfolio_score_lines else ""
+    payload_quality_improved = bool(
+        position_grade_after in {"A", "B"}
+        or portfolio_grade_after in {"A", "B", "C"}
+        or (position_missing_feature_names and len(position_missing_feature_names) < 19)
+        or (portfolio_missing_feature_names and len(portfolio_missing_feature_names) < 12)
+    )
+    ai_payload_population_blocker = ""
+    if payload_population_lines or task_contract_lines:
+        if openai_payload_invalid_due_to_task_alias_lines:
+            ai_payload_population_blocker = "ai_position_task_contract_alias_invalid"
+        elif not position_market_features_populated:
+            ai_payload_population_blocker = "ai_payload_market_features_missing"
+        elif not position_indicator_features_populated:
+            ai_payload_population_blocker = "ai_payload_indicator_features_missing"
+        elif not portfolio_cap_features_populated:
+            ai_payload_population_blocker = "ai_payload_portfolio_cap_missing"
+        elif not portfolio_insufficient_data_phrase_detected and any("task=portfolio_management_decision" in line for line in payload_scored_lines):
+            ai_payload_population_blocker = "ai_insufficient_data_phrase_matcher_incomplete"
+        elif len(invalidation_unsupported_lines) > len(invalidation_supported_lines):
+            ai_payload_population_blocker = "ai_invalidation_condition_mapping_incomplete"
+        else:
+            ai_payload_population_blocker = "ai_payload_market_indicator_population_ready"
+        if runtime_contract_active:
+            first_blocker = ai_payload_population_blocker
+            if ai_payload_population_blocker not in all_blockers:
+                all_blockers.insert(0, ai_payload_population_blocker)
 
     critical_flags: list[str] = []
     submitted_symbols = sorted({symbol for symbol in (_live_on_runtime_e2e_extract_symbol(line) for line in submit_lines) if symbol})
@@ -10587,6 +10661,28 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "ai_payload_quality_log_detected": bool(payload_quality_lines),
         "ai_payload_quality_live_log_detected": bool(payload_quality_live_log_lines),
         "ai_payload_quality_blocker": str(ai_payload_quality_blocker or ""),
+        "position_payload_market_features_populated": bool(position_market_features_populated),
+        "position_payload_indicator_features_populated": bool(position_indicator_features_populated),
+        "portfolio_payload_cap_features_populated": bool(portfolio_cap_features_populated),
+        "position_payload_quality_grade_after_population": str(position_grade_after or ""),
+        "portfolio_payload_quality_grade_after_population": str(portfolio_grade_after or ""),
+        "payload_missing_feature_count_after_population": int(len(missing_feature_names)),
+        "payload_quality_improved": bool(payload_quality_improved),
+        "ai_position_task_canonical": "position_management_decision",
+        "ai_position_task_alias_normalized": bool(task_alias_normalized_lines),
+        "openai_payload_invalid_count": int(len(openai_payload_invalid_lines)),
+        "openai_payload_invalid_due_to_task_alias_count": int(len(openai_payload_invalid_due_to_task_alias_lines)),
+        "manage_position_decision_alias_detected": any("input_task=manage_position_decision" in line for line in task_contract_lines),
+        "position_management_decision_canonical_detected": any("canonical_task=position_management_decision" in line for line in task_contract_validated_lines + task_alias_normalized_lines),
+        "insufficient_data_phrase_matched": bool(payload_data_gap_lines),
+        "portfolio_insufficient_data_phrase_detected": bool(portfolio_insufficient_data_phrase_detected),
+        "invalidation_conditions_supported_count": int(len(invalidation_supported_lines)),
+        "invalidation_conditions_unsupported_count": int(len(invalidation_unsupported_lines)),
+        "invalidation_condition_supported_types": invalidation_condition_supported_types,
+        "invalidation_condition_unsupported_types": invalidation_condition_unsupported_types,
+        "eta_redecision_condition_mapping_ready": bool(eta_redecision_condition_mapping_ready),
+        "ai_payload_population_live_log_detected": bool(payload_population_lines),
+        "ai_payload_population_blocker": str(ai_payload_population_blocker or ""),
         "eta_scheduler_idle_after_initial_seed": bool(eta_scheduler_idle_after_initial_seed),
         "eta_scheduler_tick_after_initial_seed": bool(eta_scheduler_tick_after_initial_seed),
         "eta_scheduler_callsite_probe_detected": bool(eta_scheduler_callsite_probe_lines),
@@ -21243,6 +21339,26 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "summarize_invalidation_condition_shapes" in provider_text
         and "invalidation_condition_shape_checked" in provider_text
     )
+    position_payload_population_contract_enabled = bool(
+        "populate_position_payload_market_indicators" in provider_text
+        and "event=market_indicator_snapshot_built" in provider_text
+        and '"task": "position_management_decision"' in app_text
+    )
+    position_task_alias_contract_enabled = bool(
+        "AI_POSITION_TASK_CANONICAL" in provider_text
+        and "AI_POSITION_TASK_ALIASES" in provider_text
+        and "event=task_alias_normalized" in provider_text
+    )
+    portfolio_payload_context_contract_enabled = bool(
+        "_build_ai_payload_portfolio_context" in app_text
+        and '"current_positions"' in app_text
+        and '"cap_remaining_krw"' in app_text
+    )
+    invalidation_condition_mapping_contract_enabled = bool(
+        'data.get("condition_type")' in app_text
+        and '"price_threshold"' in app_text
+        and '"supported": supported' in app_text
+    )
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text
         and "_run_ai_redecision_scheduler" in app_text
@@ -21758,6 +21874,10 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "ai_payload_freshness_summary_enabled": bool(ai_payload_freshness_summary_enabled),
         "ai_payload_data_gap_correlation_enabled": bool(ai_payload_data_gap_correlation_enabled),
         "structured_invalidation_condition_detection_enabled": bool(structured_invalidation_condition_detection_enabled),
+        "position_payload_population_contract_enabled": bool(position_payload_population_contract_enabled),
+        "position_task_alias_contract_enabled": bool(position_task_alias_contract_enabled),
+        "portfolio_payload_context_contract_enabled": bool(portfolio_payload_context_contract_enabled),
+        "invalidation_condition_mapping_contract_enabled": bool(invalidation_condition_mapping_contract_enabled),
         "managed_pool_promotion_ai_gate_enabled": bool(managed_pool_promotion_ai_gate_enabled),
         "promotion_trigger_detected": bool(promotion_trigger_detected),
         "promotion_payload_created": bool(promotion_payload_created),

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 from typing import Any, Dict, Optional
@@ -21,6 +22,8 @@ RUNTIME_DECISION_ALLOWED_TASKS = {
     "rotation_decision",
     "ai_redecision",
 }
+AI_POSITION_TASK_CANONICAL = "position_management_decision"
+AI_POSITION_TASK_ALIASES = {"manage_position_decision": AI_POSITION_TASK_CANONICAL}
 _RUNTIME_DECISION_CALL_TIMES: list[float] = []
 _RUNTIME_DECISION_PAYLOAD_LAST_CALL: dict[str, float] = {}
 
@@ -150,6 +153,7 @@ def build_ai_payload_feature_manifest(payload: Optional[Dict[str, Any]]) -> Dict
     stale_features: list[str] = []
     required_total = 0
     market_stale = bool((safe_payload.get("market") or {}).get("market_data_stale")) if isinstance(safe_payload.get("market"), dict) else False
+    feature_metadata = safe_payload.get("feature_metadata") if isinstance(safe_payload.get("feature_metadata"), dict) else {}
     computed_names = {"pnl_krw", "pnl_pct", "weight_pct", "position_value_krw", "opportunity_gap"}
     for group, names in _PAYLOAD_REQUIRED_FEATURES.items():
         entries = []
@@ -163,7 +167,10 @@ def build_ai_payload_feature_manifest(payload: Optional[Dict[str, Any]]) -> Dict
                 value_state = "unavailable"
             if present and value_state == "available" and name in computed_names:
                 value_state = "computed"
-            freshness = "stale" if market_stale and group in {"market", "indicators"} else "unknown"
+            metadata = feature_metadata.get(f"{group}.{name}") if isinstance(feature_metadata.get(f"{group}.{name}"), dict) else {}
+            freshness = str(metadata.get("freshness") or "").lower()
+            if freshness not in {"fresh", "stale", "unknown"}:
+                freshness = "stale" if market_stale and group in {"market", "indicators"} else "unknown"
             if group == "market" and name == "market_data_stale" and present:
                 freshness = "stale" if bool(value) else "fresh"
             if freshness == "stale":
@@ -184,9 +191,9 @@ def build_ai_payload_feature_manifest(payload: Optional[Dict[str, Any]]) -> Dict
                 "name": name,
                 "present": present,
                 "value_state": value_state,
-                "source": f"payload.{group}" if present else "",
-                "updated_at": None,
-                "age_sec": None,
+                "source": str(metadata.get("source") or (f"payload.{group}" if present else "")),
+                "updated_at": metadata.get("updated_at"),
+                "age_sec": metadata.get("age_sec"),
                 "freshness": freshness,
                 "required": required,
                 "blocker": "" if value_state in {"available", "computed"} else f"feature_{value_state}",
@@ -244,11 +251,19 @@ def summarize_ai_payload_feature_manifest(manifest: Optional[Dict[str, Any]]) ->
 def correlate_ai_data_gap_reason(decision: Optional[Dict[str, Any]], manifest: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     decision = dict(decision or {})
     reason = f"{decision.get('reason_ko') or ''} {decision.get('risk_notes') or ''}".lower()
-    mentions = any(token in reason for token in ("데이터 부족", "데이터가 부족", "정보 부족", "불충분", "insufficient data", "missing data"))
+    phrases = (
+        "데이터 부족", "데이터가 부족", "정보 부족", "추가 데이터 필요", "추가적인 데이터 분석이 필요",
+        "판단 근거 부족", "지표 부족", "시장 데이터 부족", "분석 정보 부족", "불충분",
+        "insufficient data", "insufficient information", "more data needed", "additional data needed",
+        "lack of data", "limited data", "not enough data", "missing data",
+    )
+    matched_phrase = next((token for token in phrases if token in reason), "")
+    mentions = bool(matched_phrase)
     missing_features = list((manifest or {}).get("critical_missing_features") or []) if mentions else []
     stale_features = list((manifest or {}).get("stale_features") or []) if mentions else []
     return {
         "ai_reason_mentions_insufficient_data": mentions,
+        "insufficient_data_phrase_matched": matched_phrase,
         "insufficient_data_related_missing_features": missing_features,
         "insufficient_data_related_stale_features": stale_features,
         "ai_wait_due_to_data_gap": bool(mentions and str(decision.get("action") or "").lower() in {"wait", "hold"}),
@@ -308,6 +323,110 @@ def _decision_float(value: Any, default: float = 0.0) -> float:
         return float(value)
     except Exception:
         return float(default)
+
+
+def populate_position_payload_market_indicators(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    payload = dict(context or {})
+    if str(payload.get("task") or "") != AI_POSITION_TASK_CANONICAL:
+        return payload
+    symbol = str(payload.get("symbol") or "").strip().upper()
+    if not symbol:
+        return payload
+    market = dict(payload.get("market") or {})
+    indicators = dict(payload.get("indicators") or {})
+    metadata = dict(payload.get("feature_metadata") or {})
+    candles = []
+    try:
+        from app.services.market_feed import get_candle_minute
+        candles = list(get_candle_minute(symbol, unit=1, count=121, ttl=30.0) or [])
+    except Exception:
+        candles = []
+    candles = [item for item in reversed(candles) if isinstance(item, dict) and _decision_float(item.get("trade_price"), 0.0) > 0.0]
+    closes = [_decision_float(item.get("trade_price"), 0.0) for item in candles]
+    volumes = [_decision_float(item.get("candle_acc_trade_volume"), 0.0) for item in candles]
+    latest_ts = str(candles[-1].get("candle_date_time_kst") or "") if candles else ""
+    age_sec = None
+    if latest_ts:
+        try:
+            from datetime import datetime
+            age_sec = max(0.0, time.time() - datetime.fromisoformat(latest_ts).timestamp())
+        except Exception:
+            age_sec = None
+    def _pct(minutes: int) -> Optional[float]:
+        if len(closes) <= minutes or closes[-(minutes + 1)] <= 0.0:
+            return None
+        return (closes[-1] / closes[-(minutes + 1)] - 1.0) * 100.0
+    def _ema(values: list[float], period: int) -> Optional[float]:
+        if len(values) < period:
+            return None
+        alpha = 2.0 / (period + 1.0)
+        result = sum(values[:period]) / period
+        for value in values[period:]:
+            result = alpha * value + (1.0 - alpha) * result
+        return result
+    for minutes in (1, 5, 15, 60):
+        key = "price_change_1h" if minutes == 60 else f"price_change_{minutes}m"
+        if market.get(key) is None:
+            market[key] = _pct(minutes)
+    if market.get("current_price") is None:
+        market["current_price"] = (payload.get("position") or {}).get("current_price")
+    if market.get("volume_change") is None and len(volumes) >= 10:
+        recent, prior = sum(volumes[-5:]) / 5.0, sum(volumes[-10:-5]) / 5.0
+        market["volume_change"] = ((recent / prior) - 1.0) * 100.0 if prior > 0.0 else None
+    if market.get("volatility") is None and len(closes) >= 11:
+        returns = [(closes[idx] / closes[idx - 1] - 1.0) * 100.0 for idx in range(max(1, len(closes) - 30), len(closes)) if closes[idx - 1] > 0.0]
+        if returns:
+            mean = sum(returns) / len(returns)
+            market["volatility"] = math.sqrt(sum((item - mean) ** 2 for item in returns) / len(returns))
+    if market.get("trade_value") is None and candles:
+        market["trade_value"] = sum(_decision_float(item.get("candle_acc_trade_price"), 0.0) for item in candles[-60:])
+    if age_sec is not None:
+        market["market_data_stale"] = bool(age_sec > 180.0)
+    elif "market_data_stale" not in market:
+        market["market_data_stale"] = None
+    if indicators.get("RSI") is None and indicators.get("rsi") is None and len(closes) >= 15:
+        changes = [closes[idx] - closes[idx - 1] for idx in range(len(closes) - 14, len(closes))]
+        gain = sum(max(item, 0.0) for item in changes) / 14.0
+        loss = sum(max(-item, 0.0) for item in changes) / 14.0
+        indicators["RSI"] = 100.0 if loss == 0.0 and gain > 0.0 else (50.0 if loss == 0.0 else 100.0 - 100.0 / (1.0 + gain / loss))
+    ema12, ema26 = _ema(closes, 12), _ema(closes, 26)
+    if indicators.get("MACD") is None and indicators.get("macd") is None and ema12 is not None and ema26 is not None:
+        macd_series = []
+        for end in range(26, len(closes) + 1):
+            fast, slow = _ema(closes[:end], 12), _ema(closes[:end], 26)
+            if fast is not None and slow is not None:
+                macd_series.append(fast - slow)
+        signal = _ema(macd_series, 9)
+        value = ema12 - ema26
+        indicators["MACD"] = {"macd": value, "signal": signal, "histogram": value - signal if signal is not None else None}
+    moving = indicators.get("moving_averages") if isinstance(indicators.get("moving_averages"), dict) else {}
+    for period in (5, 20, 60):
+        if len(closes) >= period and moving.get(f"ma{period}") is None:
+            moving[f"ma{period}"] = sum(closes[-period:]) / period
+    indicators["moving_averages"] = moving or None
+    if indicators.get("momentum") is None:
+        indicators["momentum"] = _pct(10)
+    if indicators.get("trend_strength") is None and moving.get("ma5") is not None and moving.get("ma20"):
+        indicators["trend_strength"] = (float(moving["ma5"]) / float(moving["ma20"]) - 1.0) * 100.0
+    freshness = "stale" if age_sec is not None and age_sec > 180.0 else ("fresh" if age_sec is not None else "unknown")
+    for group, names in {
+        "market": ("price_change_1m", "price_change_5m", "price_change_15m", "price_change_1h", "volume_change", "trade_value", "volatility", "market_data_stale"),
+        "indicators": ("RSI", "MACD", "moving_averages", "momentum", "trend_strength"),
+    }.items():
+        for name in names:
+            metadata[f"{group}.{name}"] = {"source": "market_feed.minute_candle_cache" if candles else "payload", "updated_at": latest_ts or None, "age_sec": age_sec, "freshness": freshness}
+    payload["market"], payload["indicators"], payload["feature_metadata"] = market, indicators, metadata
+    _safe_log_info(
+        "[AITS][AIPayloadPopulation] event=market_indicator_snapshot_built "
+        f"symbol={symbol or '-'} candle_count={len(candles)} source={'market_feed.minute_candle_cache' if candles else 'payload'} "
+        f"updated_at={latest_ts or '-'} age_sec={age_sec} "
+        f"rsi_available={indicators.get('RSI') is not None or indicators.get('rsi') is not None} "
+        f"macd_available={indicators.get('MACD') is not None or indicators.get('macd') is not None} "
+        f"price_change_available={all(market.get(key) is not None for key in ('price_change_1m', 'price_change_5m', 'price_change_15m', 'price_change_1h'))} "
+        f"volume_available={market.get('volume_change') is not None} volatility_available={market.get('volatility') is not None} "
+        "actual_order=False submitted=0"
+    )
+    return payload
 
 
 def _decision_allowed_rotation_symbols(candidates: Any) -> set[str]:
@@ -934,6 +1053,22 @@ class AIEngineProvider:
         """
         provider = str(provider or "local").strip().lower()
         context = dict(context or {})
+        raw_task = str(context.get("task") or "").strip()
+        canonical_task = AI_POSITION_TASK_ALIASES.get(raw_task, raw_task)
+        if canonical_task != raw_task:
+            context["task"] = canonical_task
+            _safe_log_info(
+                "[AITS][AITaskContract] event=task_alias_normalized "
+                f"input_task={raw_task} canonical_task={canonical_task} symbol={context.get('symbol') or '-'} "
+                "blocker=- actual_order=False submitted=0"
+            )
+        task_valid = canonical_task in RUNTIME_DECISION_ALLOWED_TASKS
+        _safe_log_info(
+            f"[AITS][AITaskContract] event={'task_contract_validated' if task_valid else 'task_contract_invalid'} "
+            f"input_task={raw_task or '-'} canonical_task={canonical_task or '-'} symbol={context.get('symbol') or '-'} "
+            f"blocker={'-' if task_valid else 'ai_position_task_contract_invalid'} actual_order=False submitted=0"
+        )
+        context = populate_position_payload_market_indicators(context)
         feature_manifest = build_ai_payload_feature_manifest(context)
         log_ai_payload_feature_manifest(feature_manifest)
 

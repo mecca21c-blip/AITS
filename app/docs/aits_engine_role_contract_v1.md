@@ -174,3 +174,6 @@ ON activation requires BASIC to assemble the initial management context and ask 
 ## AI Payload Observation Boundary
 
 BASIC owns factual feature availability and freshness metadata. It may compute and report payload quality, but a quality grade is not a trade action and does not replace AI judgment. Provider prompts and secret bodies are not audit output. Runtime training stores payload/manifest hashes and safe coverage summaries only. Missing or stale data may block or qualify a decision request, but never authorizes BASIC to create a buy, sell, or rotation action.
+## BASIC Feature Population Boundary
+
+BASIC owns factual market/indicator calculation from real runtime sources and reports source time and freshness. It does not synthesize missing candles, indicators, volume, price changes, or freshness. Payload quality and invalidation thresholds remain evidence and watch obligations, never final trading authority.

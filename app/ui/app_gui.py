@@ -40386,7 +40386,42 @@ class MainWindow(QMainWindow):
             return "local"
         return provider
 
+    def _build_ai_payload_portfolio_context(self) -> dict:
+        budget, _budget_source = self._total_operating_cap_budget_krw()
+        exposure, _exposure_source = self._current_manageable_position_value_krw()
+        available = self._managed_pool_num_value(getattr(self, "_last_available_krw", None), 0.0)
+        total_asset = self._managed_pool_num_value(
+            getattr(self, "_aits_total_asset_krw", None)
+            or getattr(self, "_investment_total_asset_krw", None)
+            or getattr(self, "_last_total_asset_krw", None),
+            0.0,
+        )
+        if total_asset <= 0.0 and (available > 0.0 or exposure > 0.0):
+            total_asset = available + exposure
+        try:
+            rows = self._build_managed_pool_rows_snapshot()
+        except Exception:
+            rows = list(getattr(self, "ai_managed_rows", None) or [])
+        managed_symbols = sorted({
+            self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+            for item in rows if isinstance(item, dict) and (item.get("symbol") or item.get("market"))
+        })
+        current_positions = sorted({
+            self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market"))
+            for item in rows if isinstance(item, dict) and self._managed_pool_status_bar_row_is_holding(item)
+        })
+        return {
+            "total_asset_krw": total_asset if total_asset > 0.0 else None,
+            "available_krw": available,
+            "total_budget_krw": budget if budget > 0.0 else None,
+            "exposure_for_cap": exposure,
+            "cap_remaining_krw": max(0.0, budget - exposure) if budget > 0.0 else None,
+            "current_positions": current_positions,
+            "managed_pool_symbols": managed_symbols,
+        }
+
     def _build_ai_position_decision_payload(self, *, row: dict, candidate: dict, reason: str = "sell_evaluation") -> dict:
+        portfolio_context = self._build_ai_payload_portfolio_context()
         symbol = str((candidate or {}).get("symbol") or (row or {}).get("symbol") or "").strip().upper()
         position_value = self._managed_pool_num_value((candidate or {}).get("position_value_krw"), 0.0)
         total_asset = self._managed_pool_num_value(
@@ -40407,7 +40442,7 @@ class MainWindow(QMainWindow):
         )
         return {
             "schema": "aits_ai_decision_payload_v1",
-            "task": "manage_position_decision",
+            "task": "position_management_decision",
             "symbol": symbol,
             "position": {
                 "qty": self._managed_pool_num_value((candidate or {}).get("qty"), 0.0),
@@ -40441,15 +40476,12 @@ class MainWindow(QMainWindow):
                 "trend_strength": (row or {}).get("trend_strength"),
             },
             "portfolio": {
-                "total_asset_krw": total_asset if total_asset > 0.0 else None,
-                "available_krw": getattr(self, "_last_available_krw", None),
-                "total_budget_krw": getattr(self, "_aits_total_operating_cap_krw", None),
-                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
-                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+                **{key: value for key, value in portfolio_context.items() if key != "managed_pool_symbols"},
             },
             "candidates": {
                 "scanner_top_candidates": getattr(self, "_aits_latest_scanner_top_candidates", [])[:10] if isinstance(getattr(self, "_aits_latest_scanner_top_candidates", []), list) else [],
                 "rotation_candidates": getattr(self, "_aits_rotation_candidate_symbols", []),
+                "managed_pool_symbols": portfolio_context.get("managed_pool_symbols") or [],
                 "opportunity_score_gap": getattr(self, "_aits_rotation_score_gap", None),
             },
             "constraints": {
@@ -41034,7 +41066,7 @@ class MainWindow(QMainWindow):
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "task": str((payload or {}).get("task") or "manage_position_decision"),
                 "provider": str((decision or {}).get("provider") or ""),
-                "payload_hash": payload_hash,
+                "payload_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_hash") or payload_hash,
                 "symbol": str((payload or {}).get("symbol") or ""),
                 "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
                 "payload_feature_manifest_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
@@ -41047,6 +41079,7 @@ class MainWindow(QMainWindow):
                 "ai_confidence": (decision or {}).get("confidence"),
                 "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
                 "ai_reason_mentions_insufficient_data": bool((decision or {}).get("ai_reason_mentions_insufficient_data")),
+                "insufficient_data_phrase_matched": str((decision or {}).get("insufficient_data_phrase_matched") or ""),
                 "insufficient_data_related_missing_features": list((decision or {}).get("insufficient_data_related_missing_features") or []),
                 "insufficient_data_related_stale_features": list((decision or {}).get("insufficient_data_related_stale_features") or []),
                 "ai_wait_due_to_data_gap": bool((decision or {}).get("ai_wait_due_to_data_gap")),
@@ -41290,7 +41323,14 @@ class MainWindow(QMainWindow):
 
     def _check_ai_invalidation_condition(self, *, condition: object, state: dict, current: dict) -> tuple[bool, dict]:
         data = dict(condition) if isinstance(condition, dict) else {"type": str(condition or "")}
-        kind = str(data.get("type") or data.get("condition") or "").strip().lower()
+        raw_kind = str(data.get("condition_type") or data.get("type") or data.get("condition") or "").strip().lower()
+        feature = str(data.get("feature") or "").strip()
+        operator = str(data.get("operator") or data.get("direction") or "").strip().lower()
+        kind = raw_kind
+        if raw_kind == "price" and feature in {"current_price", "price"}:
+            kind = "price_threshold"
+        elif raw_kind == "pnl" and feature in {"pnl_pct", "pnl"}:
+            kind = "pnl_threshold"
         position = current.get("position") if isinstance(current.get("position"), dict) else {}
         prior_position = ((state.get("prior_snapshot") or {}).get("position") or {}) if isinstance(state.get("prior_snapshot"), dict) else {}
         threshold = data.get("threshold", data.get("value"))
@@ -41299,6 +41339,8 @@ class MainWindow(QMainWindow):
         try:
             if kind in {"pnl_pct", "pnl_pct_crosses_threshold", "pnl_threshold"}:
                 actual = float(position.get("pnl_pct")); limit = float(threshold); direction = str(data.get("direction") or data.get("operator") or "below").lower(); triggered = actual >= limit if direction in {"above", ">", ">="} else actual <= limit
+            elif kind == "price_threshold":
+                actual = float(position.get("current_price")); limit = float(threshold); triggered = actual >= limit if operator in {"above", ">", ">="} else actual <= limit
             elif kind in {"price_change", "price_change_exceeds_threshold"}:
                 actual = float(current.get("market", {}).get("price_change")); triggered = abs(actual) >= abs(float(threshold))
             elif kind in {"volume_change", "volume_change_exceeds_threshold", "volume_drop"}:
@@ -41317,7 +41359,18 @@ class MainWindow(QMainWindow):
                 actual = bool(current.get("market", {}).get("market_data_stale")); triggered = bool(actual)
         except (TypeError, ValueError):
             triggered = False
-        return bool(triggered), {"type": kind or "unsupported", "expected": data.get("expected"), "actual": actual, "threshold": threshold, "triggered": bool(triggered)}
+        supported = kind in {
+            "pnl_pct", "pnl_pct_crosses_threshold", "pnl_threshold", "price_threshold",
+            "price_change", "price_change_exceeds_threshold", "volume_change", "volume_change_exceeds_threshold",
+            "volume_drop", "rsi", "rsi_overheat", "macd_direction_changed", "macd_turn_down",
+            "holding_qty_changed", "holding_qty_change", "available_krw_changed", "cash_changed",
+            "managed_pool_symbol_changed", "managed_pool_changed", "market_data_stale",
+        }
+        return bool(triggered), {
+            "type": kind if supported else "unsupported", "raw_type": raw_kind or "-", "feature": feature or "-",
+            "supported": supported, "expected": data.get("expected"), "actual": actual,
+            "threshold": threshold, "triggered": bool(triggered),
+        }
 
     def _log_initial_ai_management_seed_skipped(self, *, session_id: str, blocker: str, reason: str) -> None:
         now = time.time()
@@ -41330,6 +41383,7 @@ class MainWindow(QMainWindow):
         )
 
     def _build_initial_portfolio_management_payload(self, *, rows: list[dict], holdings: list[dict], session_id: str) -> dict:
+        portfolio_context = self._build_ai_payload_portfolio_context()
         managed_symbols = sorted({
             self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
             for row in rows if isinstance(row, dict) and (row.get("symbol") or row.get("market"))
@@ -41357,11 +41411,7 @@ class MainWindow(QMainWindow):
             "holdings": holding_summaries,
             "managed_pool": {"symbols": managed_symbols, "count": len(managed_symbols)},
             "portfolio": {
-                "total_asset_krw": getattr(self, "_aits_total_asset_krw", None) or getattr(self, "_investment_total_asset_krw", None),
-                "available_krw": getattr(self, "_last_available_krw", None),
-                "total_budget_krw": getattr(self, "_aits_total_operating_cap_krw", None),
-                "exposure_for_cap": getattr(self, "_aits_exposure_for_cap_krw", None),
-                "cap_remaining_krw": getattr(self, "_aits_cap_remaining_krw", None),
+                **{key: value for key, value in portfolio_context.items() if key != "managed_pool_symbols"},
                 "buy_blocked": bool(getattr(self, "_aits_buy_blocked", False)),
                 "buy_blocker": str(getattr(self, "_aits_buy_blocker", "") or ""),
             },
@@ -41369,8 +41419,16 @@ class MainWindow(QMainWindow):
                 "scanner_top_candidates": scanner,
                 "rotation_candidates": list(getattr(self, "_aits_rotation_candidate_symbols", []) or []),
                 "managed_pool_symbols": managed_symbols,
+                "opportunity_gap": getattr(self, "_aits_rotation_score_gap", None),
             },
             "constraints": {
+                "min_order_krw": 5000.0,
+                "available_qty": sum(self._managed_pool_num_value(item.get("qty"), 0.0) for item in holding_summaries),
+                "buy_blocked": bool(getattr(self, "_aits_buy_blocked", False)),
+                "buy_blocker": str(getattr(self, "_aits_buy_blocker", "") or ""),
+                "sell_allowed_precheck": True,
+                "duplicate_locks": bool(getattr(self, "_aits_sell_intent_locks", {})),
+                "dust_excluded": True,
                 "dust_holdings_excluded": True,
                 "external_holdings": [item["symbol"] for item in holding_summaries if str(item.get("source_type") or "").lower() == "external_holding"],
                 "current_blockers": [str(getattr(self, "_aits_buy_blocker", "") or "")],
@@ -41402,7 +41460,7 @@ class MainWindow(QMainWindow):
                 "session_id": session_id,
                 "symbol": str((payload or {}).get("symbol") or "PORTFOLIO"),
                 "provider": str((decision or {}).get("provider") or ""),
-                "payload_hash": payload_hash,
+                "payload_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_hash") or payload_hash,
                 "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
                 "feature_coverage_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
                 "missing_critical_features": list(((decision or {}).get("payload_feature_manifest_summary") or {}).get("critical_missing_features") or []),
@@ -41415,6 +41473,7 @@ class MainWindow(QMainWindow):
                 "eta_seconds": (decision or {}).get("eta_seconds"),
                 "invalidation_conditions": list((decision or {}).get("invalidation_conditions") or []),
                 "ai_reason_mentions_insufficient_data": bool((decision or {}).get("ai_reason_mentions_insufficient_data")),
+                "insufficient_data_phrase_matched": str((decision or {}).get("insufficient_data_phrase_matched") or ""),
                 "insufficient_data_related_missing_features": list((decision or {}).get("insufficient_data_related_missing_features") or []),
                 "insufficient_data_related_stale_features": list((decision or {}).get("insufficient_data_related_stale_features") or []),
                 "ai_wait_due_to_data_gap": bool((decision or {}).get("ai_wait_due_to_data_gap")),
@@ -41722,7 +41781,7 @@ class MainWindow(QMainWindow):
             else:
                 for condition in list(state.get("invalidation_conditions") or []):
                     hit, observed = self._check_ai_invalidation_condition(condition=condition, state=state, current=current)
-                    eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
+                    eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_checked symbol=%s decision_id=%s condition_type=%s raw_condition_type=%s feature=%s supported=%s expected=%s actual=%s threshold=%s triggered=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("raw_type"), observed.get("feature"), observed.get("supported"), observed.get("expected"), observed.get("actual"), observed.get("threshold"), hit)
                     if hit:
                         state["current_status"] = "invalidated"; trigger_reason = "invalidation_condition_triggered"; triggered_condition = observed
                         eta_logger.info("[AITS][ETAReDecision] event=invalidation_condition_triggered symbol=%s decision_id=%s condition_type=%s expected=%s actual=%s threshold=%s triggered=True actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", observed.get("type"), observed.get("expected"), observed.get("actual"), observed.get("threshold"))

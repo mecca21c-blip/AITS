@@ -257,3 +257,8 @@ The first active cycle of a new ON session is an event-based AI trigger. BASIC c
 Every AI decision request must have a feature manifest and freshness summary. BASIC reports whether each required feature is available, computed, null, missing, unavailable, or stale; it does not invent missing indicators or freshness. AI data-insufficiency reasons are correlated with this manifest. Safe previews are limited to numeric values and compact state/count summaries, with no raw prompt or API key material.
 
 Invalidation conditions should use `condition_type`, `feature`, `operator`, `threshold`, `current_value`, `expected_direction`, and `reason_ko` so BASIC can determine whether a redecision trigger is measurable.
+## Market And Indicator Evidence Population
+
+BASIC may calculate RSI, MACD, moving averages, momentum, trend strength, price changes, volume change, and volatility from real candle history. Insufficient history remains unavailable. These values are AI judgment evidence only and cannot directly create buy, sell, reduce, or rotation actions.
+
+The canonical position task is `position_management_decision`. Legacy aliases are normalized before provider validation. Supported invalidation conditions create redecision triggers only; unsupported conditions remain visible to audit and inert.
