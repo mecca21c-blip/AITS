@@ -41367,6 +41367,7 @@ class MainWindow(QMainWindow):
             request_task = str((payload or {}).get("task") or "manage_position_decision")
             row = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "session_id": str((payload or {}).get("session_id") or ""),
                 "task": str(scope_contract.get("task") or request_task),
                 "request_task": request_task,
                 "scope_type": str(scope_contract.get("scope_type") or ""),
@@ -41376,6 +41377,10 @@ class MainWindow(QMainWindow):
                 "payload_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_hash") or payload_hash,
                 "symbol": str(scope_contract.get("symbol") or ""),
                 "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
+                "provider_runtime_context": {
+                    key: ((payload or {}).get("runtime_context") or {}).get(key)
+                    for key in ("runtime_contract_active", "execution_mode", "session_id", "context_source")
+                } if isinstance((payload or {}).get("runtime_context"), dict) else {},
                 "payload_feature_manifest_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
                 "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
                 "feature_coverage_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
@@ -41414,7 +41419,8 @@ class MainWindow(QMainWindow):
             with (root / target_name).open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
             self._log.info(
-                "[AITS][AIDecisionAuthority] event=local_training_record_created task=%s request_task=%s symbol=%s scope_type=%s scope=%s state_key=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
+                "[AITS][AIDecisionAuthority] event=local_training_record_created session_id=%s task=%s request_task=%s symbol=%s scope_type=%s scope=%s state_key=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
+                row["session_id"] or "-",
                 row["task"] or "-",
                 row["request_task"] or "-",
                 row["symbol"] or "-",
@@ -41781,6 +41787,7 @@ class MainWindow(QMainWindow):
                 "sell_blocker": (payload.get("constraints") or {}).get("sell_blocker"),
             },
         })
+        payload = self._attach_ai_provider_runtime_context(payload)
         if "output_schema" not in payload:
             payload["output_schema"] = dict(payload.get("required_output_schema") or {})
         payload.setdefault("requested_decision", {})["trigger"] = trigger_reason or "ai_redecision"
@@ -42088,6 +42095,38 @@ class MainWindow(QMainWindow):
             session_id or "-", bool(getattr(self, "_aits_runtime_contract_active", False)), str(self._get_aits_execution_mode() or ""), self._selected_ai_decision_provider() or "-", blocker or "-", reason or "-",
         )
 
+    def _build_ai_provider_runtime_context(self) -> dict:
+        """Return a request snapshot sourced from the active runtime contract SSOT."""
+        contract_state = dict(getattr(self, "_aits_runtime_contract_state", {}) or {})
+        if "runtime_contract_active" in contract_state:
+            runtime_active = bool(contract_state.get("runtime_contract_active"))
+            context_source = "runtime_contract_state"
+        elif hasattr(self, "_aits_runtime_contract_active"):
+            runtime_active = bool(getattr(self, "_aits_runtime_contract_active", False))
+            context_source = "runtime_contract_attribute"
+        else:
+            runtime_active = None
+            context_source = "unknown"
+        execution_mode = str(self._get_aits_execution_mode() or "").strip() or None
+        session_id = str(getattr(self, "_aits_initial_seed_session_id", "") or "").strip() or None
+        return {
+            "runtime_contract_active": runtime_active,
+            "execution_mode": execution_mode,
+            "session_id": session_id,
+            "context_source": context_source,
+        }
+
+    def _attach_ai_provider_runtime_context(self, payload: dict) -> dict:
+        runtime_context = self._build_ai_provider_runtime_context()
+        payload["runtime_context"] = dict(runtime_context)
+        payload["runtime_contract_active"] = runtime_context.get("runtime_contract_active")
+        if not payload.get("session_id") and runtime_context.get("session_id"):
+            payload["session_id"] = runtime_context["session_id"]
+        current_policy = payload.setdefault("current_policy", {})
+        if isinstance(current_policy, dict) and runtime_context.get("execution_mode"):
+            current_policy["execution_mode"] = runtime_context["execution_mode"]
+        return payload
+
     def _build_initial_portfolio_management_payload(self, *, rows: list[dict], holdings: list[dict], session_id: str) -> dict:
         portfolio_context = self._build_ai_payload_portfolio_context()
         managed_symbols = sorted({
@@ -42108,7 +42147,7 @@ class MainWindow(QMainWindow):
             })
         scanner = getattr(self, "_aits_latest_scanner_top_candidates", [])
         scanner = list(scanner[:10]) if isinstance(scanner, list) else []
-        return {
+        payload = {
             "schema": "aits_ai_decision_payload_v1",
             "task": "portfolio_management_decision",
             "trigger_reason": "on_initial_management_seed",
@@ -42154,6 +42193,7 @@ class MainWindow(QMainWindow):
                 "invalidation_conditions": "list",
             },
         }
+        return self._attach_ai_provider_runtime_context(payload)
 
     def _record_initial_ai_management_training(self, *, payload: dict, decision: dict, session_id: str, registered: bool, blocker: str) -> None:
         try:
@@ -42206,6 +42246,7 @@ class MainWindow(QMainWindow):
 
     def _request_initial_ai_management_decision(self, *, payload: dict, session_id: str) -> dict:
         seed_logger = logging.getLogger("aits")
+        payload = self._attach_ai_provider_runtime_context(payload)
         provider = self._selected_ai_decision_provider()
         payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
         task = str((payload or {}).get("task") or "")

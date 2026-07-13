@@ -8748,6 +8748,11 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "order_reconciliation_missed_submit": "align actual submit request IDs with reconciliation scope",
         "sell_pnl_price_valuation_unit_ssot_ready": "continue passive sell safety observation",
         "sell_unit_guard_static_ready_runtime_unverified": "await explicit approval for patched runtime verification",
+        "provider_context_parser_scope_mismatch": "fix provider context PID/session filtering",
+        "provider_runtime_context_metadata_missing": "restart the patched app and verify propagated provider runtime metadata",
+        "provider_runtime_context_logging_only_mismatch": "verify provider logging uses the upstream runtime snapshot",
+        "provider_runtime_contract_actual_mismatch": "inspect the runtime contract SSOT at provider request time",
+        "provider_runtime_context_audit_ready": "continue passive provider context observation",
     }
     return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
@@ -9522,6 +9527,45 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     openai_runtime_decision_blocker = _live_on_stage_extract_value(latest_runtime_decision_line, "blocker")
     if openai_runtime_decision_blocker == "-":
         openai_runtime_decision_blocker = ""
+    provider_context_lines = [line for line in lines if "[AITS][ProviderRuntimeContext]" in line]
+    provider_context_request_lines = provider_context_lines or runtime_decision_requested_lines
+    provider_runtime_contract_active_values = sorted({
+        _live_on_stage_extract_value(line, "runtime_contract_active").lower()
+        for line in provider_context_request_lines
+        if _live_on_stage_extract_value(line, "runtime_contract_active")
+    })
+    provider_execution_mode_values = sorted({
+        _live_on_stage_extract_value(line, "execution_mode").lower()
+        for line in provider_context_request_lines
+        if _live_on_stage_extract_value(line, "execution_mode")
+    })
+    provider_context_session_ids = sorted({
+        _live_on_stage_extract_value(line, "session_id")
+        for line in provider_context_request_lines
+        if _live_on_stage_extract_value(line, "session_id") not in ("", "-", "unknown")
+    })
+    provider_context_scope_tasks = sorted({
+        f"{_live_on_stage_extract_value(line, 'scope') or _live_on_stage_extract_value(line, 'symbol')}:{_live_on_stage_extract_value(line, 'task')}"
+        for line in provider_context_request_lines
+        if _live_on_stage_extract_value(line, "task")
+    })
+    portfolio_provider_context_lines = [
+        line for line in provider_context_request_lines
+        if (_live_on_stage_extract_value(line, "scope") or _live_on_stage_extract_value(line, "symbol")) == "PORTFOLIO"
+    ]
+    latest_portfolio_provider_context = portfolio_provider_context_lines[-1] if portfolio_provider_context_lines else ""
+    portfolio_provider_runtime_active = _live_on_stage_extract_value(latest_portfolio_provider_context, "runtime_contract_active").lower()
+    portfolio_provider_execution_mode = _live_on_stage_extract_value(latest_portfolio_provider_context, "execution_mode").lower()
+    portfolio_provider_session_id = _live_on_stage_extract_value(latest_portfolio_provider_context, "session_id")
+    provider_context_metadata_missing = bool(
+        portfolio_provider_context_lines
+        and (
+            portfolio_provider_runtime_active in {"", "-", "unknown"}
+            or portfolio_provider_execution_mode in {"", "-", "unknown"}
+            or portfolio_provider_session_id in {"", "-", "unknown"}
+        )
+    )
+    provider_context_parser_scope_clean = bool(target_session_lines and selected_target_pid not in excluded_harness_pids)
     payload_quality_lines = [line for line in lines if "[AITS][AIPayloadQuality]" in line]
     payload_manifest_lines = [line for line in payload_quality_lines if "event=payload_feature_manifest_created" in line]
     payload_scored_lines = [line for line in payload_quality_lines if "event=payload_quality_scored" in line]
@@ -9740,6 +9784,31 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             or portfolio_registered_as_position_task
         )
     )
+    provider_runtime_context_mismatch_detected = bool(
+        portfolio_provider_context_lines
+        and runtime_contract_active
+        and portfolio_provider_runtime_active != "true"
+    )
+    provider_context_matches_runtime_ssot = bool(
+        portfolio_provider_context_lines
+        and not provider_context_metadata_missing
+        and not provider_runtime_context_mismatch_detected
+    )
+    provider_context_logging_only_mismatch = bool(
+        provider_runtime_context_mismatch_detected
+        and portfolio_redecision_registration_lines
+        and not portfolio_scope_mismatch_detected
+    )
+    if not provider_context_parser_scope_clean:
+        provider_runtime_context_mismatch_type = "parser_scope_mismatch"
+    elif provider_context_metadata_missing:
+        provider_runtime_context_mismatch_type = "metadata_propagation_mismatch"
+    elif provider_context_logging_only_mismatch:
+        provider_runtime_context_mismatch_type = "logging_only_mismatch"
+    elif provider_runtime_context_mismatch_detected:
+        provider_runtime_context_mismatch_type = "actual_runtime_contract_mismatch"
+    else:
+        provider_runtime_context_mismatch_type = "none"
     latest_redecision_quality = redecision_quality_lines[-1] if redecision_quality_lines else ""
     redecision_position_quality_lines = [line for line in redecision_quality_lines if "scope=position_management" in line]
     redecision_portfolio_quality_lines = [line for line in redecision_quality_lines if "scope=portfolio_management" in line]
@@ -10873,6 +10942,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = portfolio_eta_policy_blocker
         if portfolio_eta_policy_blocker not in all_blockers:
             all_blockers.insert(0, portfolio_eta_policy_blocker)
+    provider_runtime_context_blocker = ""
+    if portfolio_provider_context_lines:
+        if not provider_context_parser_scope_clean:
+            provider_runtime_context_blocker = "provider_context_parser_scope_mismatch"
+        elif provider_context_metadata_missing:
+            provider_runtime_context_blocker = "provider_runtime_context_metadata_missing"
+        elif provider_context_logging_only_mismatch:
+            provider_runtime_context_blocker = "provider_runtime_context_logging_only_mismatch"
+        elif provider_runtime_context_mismatch_detected:
+            provider_runtime_context_blocker = "provider_runtime_contract_actual_mismatch"
+        else:
+            provider_runtime_context_blocker = "provider_runtime_context_audit_ready"
+        first_blocker = provider_runtime_context_blocker
+        if provider_runtime_context_blocker not in all_blockers:
+            all_blockers.insert(0, provider_runtime_context_blocker)
     if selected_target_pid in excluded_harness_pids:
         first_blocker = "e2e_selected_dry_read_pid"
     elif target_session_lines and not target_pid_running:
@@ -11280,6 +11364,27 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "provider_call_payload_hash": _live_on_stage_extract_value(latest_runtime_decision_line, "payload_hash"),
         "provider_call_cost_guard_result": _live_on_stage_extract_value(latest_runtime_decision_line, "cost_guard_result"),
         "provider_call_key_masked": _live_on_stage_extract_value(latest_runtime_decision_line, "key_masked").lower() == "true",
+        "provider_runtime_context_audit_enabled": True,
+        "provider_runtime_contract_active_values": provider_runtime_contract_active_values,
+        "provider_execution_mode_values": provider_execution_mode_values,
+        "provider_context_session_ids": provider_context_session_ids,
+        "provider_context_scope_tasks": provider_context_scope_tasks,
+        "provider_runtime_context_mismatch_detected": bool(provider_runtime_context_mismatch_detected),
+        "provider_runtime_context_mismatch_type": provider_runtime_context_mismatch_type,
+        "provider_context_matches_runtime_ssot": bool(provider_context_matches_runtime_ssot),
+        "provider_context_parser_scope_clean": bool(provider_context_parser_scope_clean),
+        "provider_context_logging_only_mismatch": bool(provider_context_logging_only_mismatch),
+        "provider_context_metadata_missing": bool(provider_context_metadata_missing),
+        "provider_context_fix_recommended": bool(
+            provider_context_metadata_missing or provider_runtime_context_mismatch_detected
+        ),
+        "portfolio_provider_context_runtime_contract_active": portfolio_provider_runtime_active,
+        "portfolio_provider_context_execution_mode": portfolio_provider_execution_mode,
+        "portfolio_provider_context_scope": (
+            _live_on_stage_extract_value(latest_portfolio_provider_context, "scope")
+            or _live_on_stage_extract_value(latest_portfolio_provider_context, "symbol")
+        ),
+        "portfolio_provider_context_task": _live_on_stage_extract_value(latest_portfolio_provider_context, "task"),
         "ai_payload_feature_manifest_enabled": True,
         "ai_payload_feature_manifest_created": bool(payload_manifest_lines),
         "ai_payload_quality_scored": bool(payload_scored_lines),

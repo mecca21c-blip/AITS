@@ -1289,11 +1289,35 @@ class AIEngineProvider:
             provider="openai", context=context, payload_hash=payload_hash
         )
         current_policy = context.get("current_policy") if isinstance(context.get("current_policy"), dict) else {}
+        runtime_context = context.get("runtime_context") if isinstance(context.get("runtime_context"), dict) else {}
+        if "runtime_contract_active" in runtime_context:
+            runtime_active = runtime_context.get("runtime_contract_active")
+        elif "runtime_contract_active" in context:
+            runtime_active = context.get("runtime_contract_active")
+        else:
+            runtime_active = None
+        execution_mode = str(runtime_context.get("execution_mode") or current_policy.get("execution_mode") or "").strip()
+        session_id = str(runtime_context.get("session_id") or context.get("session_id") or "").strip()
+        context_source = str(
+            runtime_context.get("context_source")
+            or ("legacy_request_metadata" if runtime_context else "unknown")
+        ).strip()
+        runtime_active_text = "unknown" if runtime_active is None else str(bool(runtime_active)).lower()
+        context_complete = runtime_active is not None and bool(execution_mode) and bool(session_id)
+        _safe_log_info(
+            f"[AITS][ProviderRuntimeContext] event={'context_collected' if context_complete else 'context_missing'} "
+            f"provider=openai task={task or '-'} scope={symbol or '-'} "
+            f"runtime_contract_active={runtime_active_text} execution_mode={execution_mode or 'unknown'} "
+            f"session_id={session_id or 'unknown'} context_source={context_source or 'unknown'} "
+            f"mismatch=unknown blocker={'-' if context_complete else 'provider_runtime_context_metadata_missing'} "
+            "actual_order=False submitted=0"
+        )
         log_fields = (
             f"provider=openai task={task or '-'} symbol={symbol or '-'} payload_hash={payload_hash} "
             f"model={runtime_policy.get('model') or '-'} key_masked={str(bool(runtime_policy.get('key_masked'))).lower()} "
-            f"runtime_contract_active={str(bool(context.get('runtime_contract_active') or current_policy.get('execution_mode') == 'live')).lower()} "
-            f"execution_mode={str(current_policy.get('execution_mode') or '-')} "
+            f"runtime_contract_active={runtime_active_text} "
+            f"execution_mode={execution_mode or 'unknown'} session_id={session_id or 'unknown'} "
+            f"context_source={context_source or 'unknown'} "
             f"cost_guard_result={runtime_policy.get('cost_guard_result') or '-'}"
         )
         _safe_log_info(

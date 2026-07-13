@@ -2087,3 +2087,11 @@ summary modes.
 - Portfolio monitoring defaults to a 300-second minimum and a 3600-second maximum. Position ETA behavior is unchanged.
 - ETA is a monitoring cadence, not a stop time or an order condition. Portfolio invalidation conditions may request redecision before effective ETA expiry.
 - Live summaries require policy evaluation, original preservation, effective registration, and Korean status evidence from the target PID/session.
+# Provider Runtime Context Audit
+
+- Provider runtime metadata must be propagated from the runtime contract SSOT at the callsite.
+- `runtime_contract_active=false` is distinct from missing metadata; missing values are `unknown`.
+- Provider context reports include execution mode, session ID, scope/task, and context provenance.
+- Live summaries compare provider events only inside the selected running PID/session window.
+- Dry-read and terminated process logs cannot overwrite the live provider context result.
+- Provider metadata mismatch is an observability blocker, separate from AI action and order safety.
