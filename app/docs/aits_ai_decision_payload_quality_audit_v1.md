@@ -133,3 +133,7 @@ Goal 23 connects real cached candle and holdings/risk-budget sources to the payl
 ## Invalidation Semantics And PID Scope Follow-up
 
 Structured invalidation quality distinguishes supported, supported-partial, and unsupported conditions using semantic aliases and explicit reasons. Runtime quality evidence is scoped to the target application PID/session so a later dry-read process cannot replace the latest user-runtime result.
+
+## MACD Exists And Visible Status Follow-up
+
+MACD `exists` responses are measured as registered-but-not-triggerable when the feature is present. The status audit records safe Korean message samples so backend state and the intended UI explanation can be compared without dumping raw prompts or event dictionaries.

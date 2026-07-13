@@ -181,3 +181,5 @@ BASIC owns factual market/indicator calculation from real runtime sources and re
 ## Invalidation Watcher Boundary
 
 BASIC may normalize and monitor AI invalidation conditions, but a triggered condition only requests AI redecision. Unsupported or partial conditions cannot produce buy, sell, rotate, promotion, or execution actions.
+
+MACD existence is a registration fact, not a market decision. Status visibility logs contain Korean UI copy for audit and cannot carry raw provider payloads or secrets.

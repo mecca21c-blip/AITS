@@ -9347,6 +9347,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     invalidation_mapping_unsupported_lines = [line for line in invalidation_mapping_lines if "event=condition_mapped_unsupported" in line]
     invalidation_watcher_ready_lines = [line for line in invalidation_mapping_lines if "event=condition_watcher_trigger_ready" in line]
     invalidation_watcher_unavailable_lines = [line for line in invalidation_mapping_lines if "event=condition_watcher_trigger_unavailable" in line]
+    invalidation_watcher_registered_partial_lines = [line for line in invalidation_mapping_lines if "event=condition_watcher_registered_partial" in line]
+    macd_exists_operator_lines = [line for line in invalidation_mapping_lines if "event=macd_exists_operator_detected" in line]
+    macd_exists_registered_partial_lines = [line for line in invalidation_mapping_lines if "event=macd_exists_registered_partial" in line]
+    macd_exists_missing_indicator_lines = [line for line in invalidation_mapping_lines if "event=macd_exists_missing_indicator" in line]
+    macd_exists_not_triggered_lines = [line for line in invalidation_mapping_lines if "event=macd_exists_not_triggered_without_comparison" in line]
+    invalidation_direct_trigger_from_exists_lines = [line for line in macd_exists_not_triggered_lines if "triggered=True" in line or "direct_action=true" in line]
+    status_visibility_lines = [line for line in lines if "[AITS][StatusVisibility]" in line]
+    status_summary_rendered_lines = [line for line in status_visibility_lines if "event=status_summary_rendered" in line]
+    live_log_message_rendered_lines = [line for line in status_visibility_lines if "event=live_log_message_rendered" in line]
+    eta_condition_status_rendered_lines = [line for line in status_visibility_lines if "event=eta_condition_status_rendered" in line]
+    payload_quality_status_rendered_lines = [line for line in status_visibility_lines if "event=payload_quality_status_rendered" in line]
+    status_message_ko_samples = []
+    for line in status_visibility_lines:
+        match = re.search(r"message_ko=(.*?)\s+symbol=", line)
+        if match and match.group(1).strip() and match.group(1).strip() not in status_message_ko_samples:
+            status_message_ko_samples.append(match.group(1).strip())
+    status_message_ko_samples = status_message_ko_samples[:10]
+    status_raw_snake_case_leak_detected = any(re.search(r"\b[a-z]+_[a-z_]+\b", message) for message in status_message_ko_samples)
     invalidation_supported_lines = [line for line in invalidation_checked_lines if "supported=True" in line or "supported=true" in line]
     invalidation_unsupported_lines = [line for line in invalidation_checked_lines if "supported=False" in line or "supported=false" in line or "condition_type=unsupported" in line]
     invalidation_condition_supported_types = sorted({
@@ -10259,6 +10277,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         and invalidation_watcher_ready_lines
         and len(invalidation_mapping_unsupported_lines) <= len(invalidation_mapping_supported_lines) + len(invalidation_mapping_partial_lines)
     )
+    supported_partial_registered_count = len(invalidation_watcher_registered_partial_lines)
+    supported_partial_unavailable_count = len(macd_exists_missing_indicator_lines)
+    condition_registered_but_not_triggerable_count = len(macd_exists_registered_partial_lines)
+    supported_partial_reasons = sorted({
+        _live_on_stage_extract_value(line, "trigger_blocked_reason") or _live_on_stage_extract_value(line, "unsupported_reason")
+        for line in macd_exists_registered_partial_lines + invalidation_mapping_partial_lines
+        if (_live_on_stage_extract_value(line, "trigger_blocked_reason") or _live_on_stage_extract_value(line, "unsupported_reason")) not in ("", "-")
+    })
+    status_visibility_ready = bool(
+        status_visibility_lines
+        and status_message_ko_samples
+        and any(re.search(r"[\uac00-\ud7a3]", message) for message in status_message_ko_samples)
+        and not status_raw_snake_case_leak_detected
+    )
     position_grade_after = _live_on_stage_extract_value(position_score_lines[-1], "payload_quality_grade") if position_score_lines else ""
     portfolio_grade_after = _live_on_stage_extract_value(portfolio_score_lines[-1], "payload_quality_grade") if portfolio_score_lines else ""
     payload_quality_improved = bool(
@@ -10298,6 +10330,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = invalidation_semantic_blocker
             if invalidation_semantic_blocker not in all_blockers:
                 all_blockers.insert(0, invalidation_semantic_blocker)
+    macd_status_blocker = ""
+    if macd_exists_operator_lines or status_visibility_lines:
+        if invalidation_direct_trigger_from_exists_lines:
+            macd_status_blocker = "macd_exists_operator_direct_trigger_risk"
+        elif any("macd_feature_present=True" in line for line in macd_exists_operator_lines) and not macd_exists_registered_partial_lines:
+            macd_status_blocker = "macd_exists_operator_registration_missing"
+        elif not status_visibility_lines:
+            macd_status_blocker = "status_visibility_log_missing"
+        elif not status_message_ko_samples:
+            macd_status_blocker = "status_message_ko_missing"
+        elif status_raw_snake_case_leak_detected:
+            macd_status_blocker = "status_raw_event_leak_detected"
+        else:
+            macd_status_blocker = "invalidation_macd_exists_status_visibility_ready"
+        if runtime_contract_active:
+            first_blocker = macd_status_blocker
+            if macd_status_blocker not in all_blockers:
+                all_blockers.insert(0, macd_status_blocker)
     if not target_session_lines:
         first_blocker = "no_active_on_session"
 
@@ -10740,8 +10790,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "invalidation_condition_unsupported_reasons": invalidation_condition_unsupported_reasons,
         "invalidation_condition_watcher_ready_count": int(len(invalidation_watcher_ready_lines)),
         "invalidation_condition_watcher_unavailable_count": int(len(invalidation_watcher_unavailable_lines)),
+        "macd_exists_operator_detected": bool(macd_exists_operator_lines),
+        "macd_exists_registered_partial_count": int(len(macd_exists_registered_partial_lines)),
+        "macd_exists_not_triggered_count": int(len(macd_exists_not_triggered_lines)),
+        "invalidation_condition_direct_trigger_from_exists_detected": bool(invalidation_direct_trigger_from_exists_lines),
+        "supported_partial_registered_count": int(supported_partial_registered_count),
+        "supported_partial_unavailable_count": int(supported_partial_unavailable_count),
+        "condition_registered_but_not_triggerable_count": int(condition_registered_but_not_triggerable_count),
+        "supported_partial_reasons": supported_partial_reasons,
         "eta_redecision_condition_mapping_ready": bool(eta_redecision_condition_mapping_ready),
         "invalidation_condition_semantic_mapping_ready": bool(invalidation_condition_semantic_mapping_ready),
+        "status_visibility_log_detected": bool(status_visibility_lines),
+        "status_summary_rendered_detected": bool(status_summary_rendered_lines),
+        "live_log_message_rendered_detected": bool(live_log_message_rendered_lines),
+        "eta_condition_status_rendered_detected": bool(eta_condition_status_rendered_lines),
+        "payload_quality_status_rendered_detected": bool(payload_quality_status_rendered_lines),
+        "status_message_ko_samples": status_message_ko_samples,
+        "status_raw_snake_case_leak_detected": bool(status_raw_snake_case_leak_detected),
+        "status_visibility_ready": bool(status_visibility_ready),
         "ai_payload_population_live_log_detected": bool(payload_population_lines),
         "ai_payload_population_blocker": str(ai_payload_population_blocker or ""),
         "eta_scheduler_idle_after_initial_seed": bool(eta_scheduler_idle_after_initial_seed),
@@ -21420,6 +21486,8 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and "[AITS][AIInvalidationCondition]" in app_text
         and '"normalized_condition_type"' in app_text
         and '"watcher_trigger_type"' in app_text
+        and '"macd_exists_registered_partial"' in app_text
+        and "[AITS][StatusVisibility]" in app_text
     )
     eta_invalidation_scheduler_enabled = bool(
         "_register_ai_decision_runtime_state" in app_text

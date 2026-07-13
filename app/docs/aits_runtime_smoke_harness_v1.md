@@ -2033,3 +2033,10 @@ summary modes.
 - `supported_partial` means the semantic is known but threshold/operator evidence is insufficient; it remains inert until evaluable.
 - Missing thresholds never cause immediate redecision, and invalidation conditions never create trading actions directly.
 - Live summaries use the latest non-harness runtime PID/session. Dry-read and other harness PIDs are excluded from latest-event aggregation.
+
+## MACD Exists And Status Visibility
+
+- `operator=exists` for MACD registers feature observability only. A present MACD becomes registered-partial and remains non-triggerable without a comparison direction.
+- Missing MACD remains watcher-unavailable. Neither case creates a direct action.
+- `StatusVisibility` records the same safe Korean candidate text supplied to the status summary or LIVE LOG. It stores no raw event object, prompt, account body, or secret.
+- Screen capture remains a separate user-facing verification; the harness validates backend rendering evidence and snake-case leakage.

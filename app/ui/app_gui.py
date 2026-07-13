@@ -41358,7 +41358,7 @@ class MainWindow(QMainWindow):
         supported = bool(normalized)
         threshold_required = normalized not in {"market_data_stale", "macd_cross", "eta_expired"}
         partial = bool(supported and threshold_required and threshold is None)
-        supported_operators = {"", "above", "below", "greater_than", "less_than", ">", ">=", "<", "<=", "crosses", "crosses_above", "crosses_below", "increase", "decrease"}
+        supported_operators = {"", "above", "below", "greater_than", "less_than", ">", ">=", "<", "<=", "crosses", "crosses_above", "crosses_below", "cross_above", "cross_below", "increase", "decrease", "change", "exists"}
         unsupported_reason = ""
         if not original and not feature and not metric:
             unsupported_reason = "missing_condition_type"
@@ -41366,6 +41366,9 @@ class MainWindow(QMainWindow):
             unsupported_reason = "generic_type_without_metric"
         elif not normalized:
             unsupported_reason = "unknown_condition_type"
+        elif normalized == "macd_cross" and operator == "exists":
+            partial = True
+            unsupported_reason = "missing_comparison_for_trigger"
         elif operator not in supported_operators:
             partial = True
             unsupported_reason = "unsupported_operator"
@@ -41378,6 +41381,7 @@ class MainWindow(QMainWindow):
             "threshold": threshold, "current_value": current_value, "supported": supported,
             "partial": partial, "unsupported_reason": unsupported_reason or "-",
             "watcher_trigger_type": normalized if supported and not partial else "-",
+            "operator_normalized": "feature_exists" if normalized == "macd_cross" and operator == "exists" else ({"cross_above": "crosses_above", "cross_below": "crosses_below"}.get(operator, operator) or "-"),
             "reason_ko": str(data.get("reason_ko") or ""),
         }
 
@@ -41393,6 +41397,7 @@ class MainWindow(QMainWindow):
         feature = str(data.get("feature") or "-")
         metric = str(data.get("metric") or "-")
         operator = str(data.get("operator") or "-").lower()
+        operator_normalized = str(data.get("operator_normalized") or operator or "-")
         kind = str(data.get("normalized_condition_type") or "unsupported")
         supported = bool(data.get("supported"))
         partial = bool(data.get("partial"))
@@ -41403,6 +41408,9 @@ class MainWindow(QMainWindow):
         prior_position = ((state.get("prior_snapshot") or {}).get("position") or {}) if isinstance(state.get("prior_snapshot"), dict) else {}
         threshold = data.get("threshold")
         actual = data.get("current_value")
+        if kind == "macd_cross" and actual is None:
+            actual = indicators.get("macd", indicators.get("MACD", position.get("macd")))
+        macd_feature_present = bool(kind == "macd_cross" and actual is not None)
         triggered = False
         try:
             if supported and not partial and kind == "pnl_change":
@@ -41415,8 +41423,13 @@ class MainWindow(QMainWindow):
                 source_key = "volatility" if kind == "volatility_spike" else "volume_change"; actual = float(market.get(source_key, position.get(source_key))); triggered = abs(actual) >= abs(float(threshold))
             elif supported and not partial and kind == "rsi":
                 actual = float(indicators.get("rsi", indicators.get("RSI", position.get("rsi")))); limit = float(threshold); triggered = actual >= limit if operator in {"above", "greater_than", ">", ">=", "increase"} else actual <= limit
-            elif kind == "macd_cross":
-                actual = indicators.get("macd", indicators.get("MACD", position.get("macd"))); before = prior_position.get("macd"); triggered = actual is not None and before is not None and float(actual) < float(before)
+            elif supported and not partial and kind == "macd_cross":
+                before = prior_position.get("macd")
+                comparable_operator = operator_normalized
+                if actual is not None and before is not None:
+                    triggered = float(actual) > float(before) if comparable_operator in {"crosses_above", "above", ">", ">="} else float(actual) < float(before)
+                else:
+                    triggered = False
             elif supported and not partial and kind == "cap_change":
                 cap_key = feature.split(".")[-1] if feature != "-" else "cap_remaining_krw"; actual = float(portfolio.get(cap_key)); triggered = abs(actual) >= abs(float(threshold))
             elif supported and not partial and kind == "position_value_change":
@@ -41428,12 +41441,33 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError):
             triggered = False
         event = "condition_mapped_unsupported" if not supported else ("condition_mapped_supported_partial" if partial else "condition_mapped_supported")
-        watcher_event = "condition_watcher_trigger_ready" if supported and not partial else "condition_watcher_trigger_unavailable"
+        macd_exists = bool(kind == "macd_cross" and operator == "exists")
+        watcher_event = (
+            "condition_watcher_registered_partial" if macd_exists and macd_feature_present
+            else ("condition_watcher_trigger_ready" if supported and not partial else "condition_watcher_trigger_unavailable")
+        )
         logging.getLogger("aits").info(
             "[AITS][AIInvalidationCondition] event=%s symbol=%s decision_id=%s original_condition_type=%s normalized_condition_type=%s feature=%s metric=%s operator=%s threshold_present=%s current_value_present=%s supported=%s partial=%s unsupported_reason=%s watcher_trigger_type=%s actual_order=False submitted=0",
             event, state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-", raw_kind, kind, feature, metric, operator,
             threshold is not None, actual is not None, supported, partial, data.get("unsupported_reason") or "-", data.get("watcher_trigger_type") or "-",
         )
+        if macd_exists:
+            symbol_for_log = state.get("decision_symbol") or state.get("symbol") or "-"
+            decision_for_log = state.get("ai_decision_id") or "-"
+            logging.getLogger("aits").info(
+                "[AITS][AIInvalidationCondition] event=macd_exists_operator_detected symbol=%s decision_id=%s normalized_condition_type=macd_cross operator=exists operator_normalized=%s macd_feature_present=%s watcher_registered=%s watcher_ready=False partial=True trigger_blocked_reason=missing_comparison_for_trigger direct_action=false actual_order=False submitted=0",
+                symbol_for_log, decision_for_log, operator_normalized, macd_feature_present, macd_feature_present,
+            )
+            mapped_event = "macd_exists_registered_partial" if macd_feature_present else "macd_exists_missing_indicator"
+            mapped_reason = "missing_comparison_for_trigger" if macd_feature_present else "missing_macd_indicator"
+            logging.getLogger("aits").info(
+                "[AITS][AIInvalidationCondition] event=%s symbol=%s decision_id=%s normalized_condition_type=macd_cross operator=exists operator_normalized=%s macd_feature_present=%s watcher_registered=%s watcher_ready=False partial=True trigger_blocked_reason=%s direct_action=false actual_order=False submitted=0",
+                mapped_event, symbol_for_log, decision_for_log, operator_normalized, macd_feature_present, macd_feature_present, mapped_reason,
+            )
+            logging.getLogger("aits").info(
+                "[AITS][AIInvalidationCondition] event=macd_exists_not_triggered_without_comparison symbol=%s decision_id=%s normalized_condition_type=macd_cross operator=exists operator_normalized=%s macd_feature_present=%s watcher_registered=%s watcher_ready=False partial=True trigger_blocked_reason=missing_comparison_for_trigger direct_action=false triggered=False actual_order=False submitted=0",
+                symbol_for_log, decision_for_log, operator_normalized, macd_feature_present, macd_feature_present,
+            )
         logging.getLogger("aits").info(
             "[AITS][AIInvalidationCondition] event=%s symbol=%s decision_id=%s normalized_condition_type=%s watcher_trigger_type=%s unsupported_reason=%s actual_order=False submitted=0",
             watcher_event, state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-",
@@ -41443,10 +41477,34 @@ class MainWindow(QMainWindow):
             self._aits_redecision_status_text = "AI \uc7ac\ud310\ub2e8 \uc870\uac74 \uac10\uc2dc \uc911"
         elif partial:
             self._aits_redecision_status_text = "AI \uc7ac\ud310\ub2e8 \uc870\uac74 \uc77c\ubd80 \uae30\uc900\uac12 \ubd80\uc871"
+        if macd_exists:
+            message_ko = (
+                "MACD \uc870\uac74\uc740 \uac10\uc2dc \ub4f1\ub85d\ub428 \u00b7 \ube44\uad50 \uae30\uc900 \ubd80\uc871\uc73c\ub85c \uc989\uc2dc \uc7ac\ud310\ub2e8\ud558\uc9c0 \uc54a\uc74c"
+                if macd_feature_present else "MACD \uc870\uac74 \uac10\uc2dc \ub300\uae30 \u00b7 \uc9c0\ud45c \uac12 \ud655\uc778 \ud544\uc694"
+            )
+            self._aits_redecision_status_text = message_ko
+            visibility_key = f"{state.get('ai_decision_id') or '-'}:macd_exists:{macd_feature_present}"
+            now_visibility = time.time()
+            visibility_times = dict(getattr(self, "_aits_status_visibility_log_times", {}) or {})
+            if now_visibility - float(visibility_times.get(visibility_key, 0.0) or 0.0) >= 60.0:
+                visibility_times[visibility_key] = now_visibility
+                self._aits_status_visibility_log_times = visibility_times
+                for visibility_event, target in (("eta_condition_status_rendered", "status_bar"), ("status_summary_rendered", "status_summary")):
+                    logging.getLogger("aits").info(
+                        "[AITS][StatusVisibility] event=%s target=%s message_ko=%s symbol=%s decision_id=%s eta_condition_count=1 watcher_ready_count=0 watcher_partial_count=1 unsupported_count=0 payload_quality_grade=- missing_feature_count=0 raw_leak_detected=false actual_order=False submitted=0",
+                        visibility_event, target, message_ko, state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-",
+                    )
+                self._append_aits_live_log(message_ko, category="pipeline", level="warning", event="macd_exists_registered_partial", symbol=str(state.get("decision_symbol") or state.get("symbol") or ""))
+                logging.getLogger("aits").info(
+                    "[AITS][StatusVisibility] event=live_log_message_rendered target=live_log message_ko=%s symbol=%s decision_id=%s eta_condition_count=1 watcher_ready_count=0 watcher_partial_count=1 unsupported_count=0 payload_quality_grade=- missing_feature_count=0 raw_leak_detected=false actual_order=False submitted=0",
+                    message_ko, state.get("decision_symbol") or state.get("symbol") or "-", state.get("ai_decision_id") or "-",
+                )
         return bool(triggered), {
             "type": kind if supported else "unsupported", "raw_type": raw_kind, "feature": feature, "metric": metric,
             "supported": supported, "partial": partial, "unsupported_reason": data.get("unsupported_reason"),
             "watcher_trigger_type": data.get("watcher_trigger_type"), "expected": data.get("expected"),
+            "operator_normalized": operator_normalized, "macd_feature_present": macd_feature_present,
+            "watcher_registered": bool(macd_exists and macd_feature_present),
             "actual": actual, "threshold": threshold, "triggered": bool(triggered),
         }
 
@@ -41604,6 +41662,10 @@ class MainWindow(QMainWindow):
         seed_logger.info(
             "[AITS][AIPayloadQuality] event=payload_quality_live_log task=%s symbol=%s payload_hash=%s payload_quality_grade=%s missing_count=%s status_summary_visible=True actual_order=False submitted=0",
             task or "-", symbol or "-", payload_hash or "-", quality_grade, len(missing_features),
+        )
+        seed_logger.info(
+            "[AITS][StatusVisibility] event=payload_quality_status_rendered target=status_bar message_ko=%s symbol=%s decision_id=- eta_condition_count=0 watcher_ready_count=0 watcher_partial_count=0 unsupported_count=0 payload_quality_grade=%s missing_feature_count=%s raw_leak_detected=false actual_order=False submitted=0",
+            self._aits_ai_payload_quality_status_text, symbol or "-", quality_grade, len(missing_features),
         )
         if response_received and bool(decision.get("ai_reason_mentions_insufficient_data")):
             safe_names = [item.rsplit(".", 1)[-1].replace("_", " ") for item in missing_features[:3]]
