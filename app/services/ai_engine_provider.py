@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 import urllib.error
 import urllib.request
 
+from app.services.ollama_http_client import OllamaHttpClient
+
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
     "initial_management_decision",
@@ -26,6 +28,15 @@ AI_POSITION_TASK_CANONICAL = "position_management_decision"
 AI_POSITION_TASK_ALIASES = {"manage_position_decision": AI_POSITION_TASK_CANONICAL}
 _RUNTIME_DECISION_CALL_TIMES: list[float] = []
 _RUNTIME_DECISION_PAYLOAD_LAST_CALL: dict[str, float] = {}
+_PROVIDER_CALL_HISTORY: list[dict[str, Any]] = []
+_PROVIDER_PAYLOAD_LAST_CALL: dict[str, float] = {}
+_PROVIDER_LAST_CALL: dict[str, float] = {}
+
+_LOCAL_SAFE_ACTIONS = {"wait", "hold", "reject", "rotate_review"}
+_LOCAL_EXTERNAL_CONFIRMATION_ACTIONS = {
+    "buy", "add", "sell", "reduce", "rotate", "promote", "replace",
+    "reduce_and_rotate", "take_profit", "stop_loss",
+}
 
 
 AI_VERIFICATION_ALLOWED_SUGGESTIONS = {
@@ -805,49 +816,216 @@ class AIEngineProvider:
             return str(os.getenv("AITS_OPENAI_POSITION_DECISION_MODEL") or os.getenv("AITS_OPENAI_VERIFY_MODEL") or "gpt-4o-mini").strip()
         return str(os.getenv("AITS_GEMINI_POSITION_DECISION_MODEL") or os.getenv("AITS_GEMINI_VERIFY_MODEL") or "gemini-2.0-flash").strip()
 
-    def _runtime_decision_call_policy(self, *, provider: str, context: Dict[str, Any], payload_hash: str) -> Dict[str, Any]:
-        """Validate an AI judgment call without granting any order permission."""
+    def _read_runtime_config(self, names: tuple[str, ...], default: Any) -> Any:
+        for root in (self.strategy, self.settings, self.config):
+            if root is None:
+                continue
+            roots = [root]
+            if isinstance(root, dict):
+                roots.extend(root.get(key) for key in ("strategy", "settings", "config") if root.get(key) is not None)
+            for item in roots:
+                for name in names:
+                    value = item.get(name) if isinstance(item, dict) else getattr(item, name, None)
+                    if value not in (None, ""):
+                        return value
+        return default
+
+    def _get_local_runtime_config(self) -> Dict[str, Any]:
+        return {
+            "base_url": str(self._read_runtime_config(("ai_local_url", "local_ai_url"), "http://127.0.0.1:11434")).strip(),
+            "model": str(self._read_runtime_config(("ai_local_model", "local_ai_model"), "qwen2.5")).strip(),
+            "timeout_sec": max(5, int(self._read_runtime_config(("ai_local_timeout_seconds",), 45) or 45)),
+            "confidence_threshold": max(0.0, min(1.0, float(self._read_runtime_config(("ai_local_confidence_threshold",), 0.72) or 0.72))),
+        }
+
+    def _provider_cost_guard_policy(
+        self,
+        *,
+        provider: str,
+        context: Dict[str, Any],
+        payload_hash: str,
+        reserve: bool,
+    ) -> Dict[str, Any]:
+        """Gate external judgment calls. This never grants execution permission."""
         provider = normalize_provider_name(provider)
         task = str(context.get("task") or "").strip()
-        current_policy = context.get("current_policy") if isinstance(context.get("current_policy"), dict) else {}
-        selected = normalize_provider_name(
-            current_policy.get("engine_provider") or current_policy.get("provider") or provider
-        )
-        model = self._get_runtime_decision_model(provider)
-        api_key = self._get_config_api_key(provider)
         now = time.time()
-        max_calls = max(1, int(os.getenv("AITS_RUNTIME_AI_DECISION_MAX_CALLS_PER_HOUR", "60") or 60))
-        duplicate_cooldown = max(0, int(os.getenv("AITS_RUNTIME_AI_DECISION_DUPLICATE_COOLDOWN_SEC", "600") or 600))
-        _RUNTIME_DECISION_CALL_TIMES[:] = [stamp for stamp in _RUNTIME_DECISION_CALL_TIMES if now - stamp < 3600]
+        prefix = f"AITS_{provider.upper()}_"
+        enabled_default = self._read_runtime_config((f"ai_{provider}_enabled",), True)
+        enabled = str(os.getenv(prefix + "ENABLED", str(enabled_default))).strip().lower() not in {"0", "false", "off", "no"}
+        request_default = self._read_runtime_config(("ai_external_request_cooldown_seconds",), 15)
+        duplicate_default = self._read_runtime_config(("ai_external_duplicate_payload_cooldown_seconds",), 600)
+        max_hour_default = self._read_runtime_config(("ai_external_max_calls_per_hour",), 60)
+        max_day_default = self._read_runtime_config(("ai_external_max_calls_per_day",), 500)
+        max_live_default = self._read_runtime_config(("ai_external_max_live_order_calls_per_hour",), 20)
+        max_tokens_default = self._read_runtime_config(("ai_external_max_tokens_estimate_per_call",), 1200)
+        daily_cost_default = self._read_runtime_config(("ai_external_daily_estimated_cost_limit",), 5.0)
+        request_cooldown = max(0, int(os.getenv(prefix + "REQUEST_COOLDOWN_SECONDS", str(request_default)) or request_default))
+        duplicate_cooldown = max(0, int(os.getenv(prefix + "DUPLICATE_PAYLOAD_COOLDOWN_SECONDS", str(duplicate_default)) or duplicate_default))
+        max_hour = max(1, int(os.getenv(prefix + "MAX_CALLS_PER_HOUR", str(max_hour_default)) or max_hour_default))
+        max_day = max(1, int(os.getenv(prefix + "MAX_CALLS_PER_DAY", str(max_day_default)) or max_day_default))
+        max_live_hour = max(1, int(os.getenv(prefix + "MAX_LIVE_ORDER_CALLS_PER_HOUR", str(max_live_default)) or max_live_default))
+        max_tokens = max(1, int(os.getenv(prefix + "MAX_TOKENS_ESTIMATE_PER_CALL", str(max_tokens_default)) or max_tokens_default))
+        daily_cost_limit = max(0.0, float(os.getenv(prefix + "DAILY_ESTIMATED_COST_LIMIT", str(daily_cost_default)) or daily_cost_default))
+        estimated_cost = max_tokens / 1_000_000.0 * (0.60 if provider == "openai" else 0.35)
+        api_key = self._get_config_api_key(provider)
+        model = self._get_runtime_decision_model(provider)
+        order_related = task in {"buy_decision", "sell_decision", "rotation_decision", "managed_pool_promotion_decision"}
+        _PROVIDER_CALL_HISTORY[:] = [
+            row for row in _PROVIDER_CALL_HISTORY
+            if now - float(row.get("at") or 0.0) < 86400
+        ]
+        history = [row for row in _PROVIDER_CALL_HISTORY if row.get("provider") == provider]
+        hour_rows = [row for row in history if now - float(row.get("at") or 0.0) < 3600]
+        day_rows = [row for row in history if now - float(row.get("at") or 0.0) < 86400]
+        live_hour_rows = [row for row in hour_rows if bool(row.get("order_related"))]
+        projected_daily_cost = sum(float(row.get("estimated_cost") or 0.0) for row in day_rows) + estimated_cost
+        payload_key = f"{provider}:{payload_hash}"
+        request_remaining = max(0.0, request_cooldown - (now - _PROVIDER_LAST_CALL.get(provider, 0.0)))
+        duplicate_remaining = max(0.0, duplicate_cooldown - (now - _PROVIDER_PAYLOAD_LAST_CALL.get(payload_key, 0.0)))
 
         blocker = ""
-        reason = "runtime_decision_policy_ready"
-        cost_guard_result = "passed"
-        if task not in RUNTIME_DECISION_ALLOWED_TASKS:
-            blocker, reason = "openai_payload_invalid", "runtime_decision_task_not_allowed"
-        elif provider != "openai" or selected != "openai":
-            blocker, reason = "openai_provider_not_selected", "selected_provider_mismatch"
+        event = "cost_guard_passed"
+        if provider not in {"openai", "gemini"}:
+            blocker, event = "provider_unavailable", "provider_unavailable"
+        elif not enabled:
+            blocker, event = "provider_disabled", "provider_unavailable"
+        elif task not in RUNTIME_DECISION_ALLOWED_TASKS:
+            blocker, event = "external_payload_invalid", "cost_guard_blocked"
         elif str(os.getenv("AITS_DISABLE_RUNTIME_AI_DECISIONS", "")).strip() == "1":
-            blocker, reason = "openai_runtime_decision_call_disabled_by_policy", "runtime_decision_calls_disabled_by_user_policy"
+            blocker, event = "runtime_decision_calls_disabled", "cost_guard_blocked"
         elif not api_key:
-            blocker, reason = "openai_api_key_missing", "provider_key_not_available"
+            blocker, event = "provider_api_key_missing", "provider_key_missing"
         elif not model:
-            blocker, reason = "openai_model_missing", "provider_model_not_selected"
-        elif len(_RUNTIME_DECISION_CALL_TIMES) >= max_calls:
-            blocker, reason, cost_guard_result = "openai_cost_guard_blocked", "hourly_call_limit_reached", "blocked"
-        elif payload_hash and now - _RUNTIME_DECISION_PAYLOAD_LAST_CALL.get(payload_hash, 0.0) < duplicate_cooldown:
-            blocker, reason = "openai_duplicate_call_cooldown", "duplicate_payload_cooldown"
+            blocker, event = "provider_model_missing", "provider_unavailable"
+        elif request_remaining > 0:
+            blocker, event = "provider_request_cooldown", "cost_guard_blocked"
+        elif duplicate_remaining > 0:
+            blocker, event = "duplicate_payload_cooldown", "duplicate_payload_blocked"
+        elif len(hour_rows) >= max_hour:
+            blocker, event = "hourly_call_limit_reached", "hourly_budget_blocked"
+        elif len(day_rows) >= max_day:
+            blocker, event = "daily_call_limit_reached", "daily_budget_blocked"
+        elif order_related and len(live_hour_rows) >= max_live_hour:
+            blocker, event = "live_order_related_hourly_limit_reached", "hourly_budget_blocked"
+        elif daily_cost_limit > 0 and projected_daily_cost > daily_cost_limit:
+            blocker, event = "daily_estimated_cost_limit_reached", "daily_budget_blocked"
 
+        allowed = not blocker
+        if allowed and reserve:
+            row = {"provider": provider, "at": now, "estimated_cost": estimated_cost, "order_related": order_related}
+            _PROVIDER_CALL_HISTORY.append(row)
+            _PROVIDER_LAST_CALL[provider] = now
+            if payload_hash:
+                _PROVIDER_PAYLOAD_LAST_CALL[payload_key] = now
+            _RUNTIME_DECISION_CALL_TIMES.append(now)
+            _RUNTIME_DECISION_PAYLOAD_LAST_CALL[payload_hash] = now
+        _safe_log_info(
+            f"[AITS][ProviderCostGuard] event={event} provider={provider or '-'} task={task or '-'} "
+            f"scope={context.get('symbol') or context.get('scope') or 'PORTFOLIO'} payload_hash={payload_hash or '-'} "
+            f"cooldown_remaining_sec={round(max(request_remaining, duplicate_remaining), 3)} "
+            f"hourly_call_count={len(hour_rows)} daily_call_count={len(day_rows)} "
+            f"estimated_cost={estimated_cost:.6f} cost_limit={daily_cost_limit:.4f} "
+            f"blocked_reason={blocker or '-'} external_provider_call_allowed={str(allowed).lower()} "
+            "actual_order=False submitted=0"
+        )
         return {
-            "allowed": not blocker,
+            "allowed": allowed,
             "blocker": blocker,
-            "reason": reason,
+            "reason": "cost_guard_ready" if allowed else blocker,
             "task": task,
             "model": model,
             "api_key": api_key,
             "key_masked": bool(api_key),
-            "cost_guard_result": cost_guard_result,
+            "cost_guard_result": "passed" if allowed else "blocked",
+            "cooldown_remaining_sec": round(max(request_remaining, duplicate_remaining), 3),
+            "hourly_call_count": len(hour_rows),
+            "daily_call_count": len(day_rows),
+            "estimated_cost": estimated_cost,
+            "cost_limit": daily_cost_limit,
             "now": now,
+        }
+
+    def _runtime_decision_call_policy(self, *, provider: str, context: Dict[str, Any], payload_hash: str) -> Dict[str, Any]:
+        return self._provider_cost_guard_policy(
+            provider=provider,
+            context=context,
+            payload_hash=payload_hash,
+            reserve=True,
+        )
+
+    def _call_local_first_decision(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        config = self._get_local_runtime_config()
+        result = OllamaHttpClient(config["base_url"]).generate(
+            config["model"],
+            prompt,
+            timeout_sec=config["timeout_sec"],
+            options={"temperature": 0.1, "num_predict": 420},
+            option_profile="aits_local_first_v1",
+        )
+        content = str((result.data or {}).get("response") or "").strip()
+        if not result.ok or not content:
+            raise NotImplementedError("provider_local_unavailable" if not result.ok else "provider_local_failed")
+        return {
+            "content": content,
+            "model": config["model"],
+            "elapsed_sec": result.elapsed_sec,
+        }
+
+    def _evaluate_external_escalation(
+        self,
+        *,
+        requested_provider: str,
+        local_decision: Dict[str, Any],
+        local_available: bool,
+        feature_manifest: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        action = str(local_decision.get("action") or "wait").lower()
+        confidence = float(local_decision.get("confidence") or 0.0)
+        quality = str(summarize_ai_payload_feature_manifest(feature_manifest).get("payload_quality_grade") or "F")
+        threshold = self._get_local_runtime_config()["confidence_threshold"]
+        unit_mismatch = bool(context.get("valuation_unit_mismatch")) or bool(
+            (context.get("sell_unit_guard") or {}).get("valuation_unit_mismatch")
+            if isinstance(context.get("sell_unit_guard"), dict) else False
+        )
+        post_order = bool(context.get("post_order_replanning") or context.get("post_order_cycle_id"))
+        reasons: list[str] = []
+        blocker = ""
+        if not local_available:
+            reasons.append("local_provider_unavailable")
+        if confidence < threshold:
+            reasons.append("local_confidence_below_threshold")
+        if action in _LOCAL_EXTERNAL_CONFIRMATION_ACTIONS:
+            reasons.append("local_order_action_requires_external_confirmation")
+        if requested_provider in {"openai", "gemini"}:
+            reasons.append("user_external_provider_policy")
+        if post_order:
+            reasons.append("post_order_replanning")
+        if unit_mismatch:
+            blocker = "live_safety_blocker_present"
+        elif quality in {"D", "F"}:
+            blocker = "payload_quality_too_low"
+        target = requested_provider if requested_provider in {"openai", "gemini"} else ""
+        if not target and reasons:
+            target = "openai" if self._get_config_api_key("openai") else ("gemini" if self._get_config_api_key("gemini") else "")
+        required = bool(reasons) and not blocker
+        if not target and required:
+            blocker = "external_provider_unavailable"
+        _safe_log_info(
+            "[AITS][EscalationPolicy] event=escalation_policy_evaluated "
+            f"task={context.get('task') or '-'} scope={context.get('symbol') or context.get('scope') or 'PORTFOLIO'} "
+            f"local_action={action} local_confidence={confidence:.4f} payload_quality_grade={quality} "
+            f"escalation_required={str(required).lower()} escalation_target_provider={target or '-'} "
+            f"escalation_reason={','.join(reasons) or 'local_decision_sufficient'} "
+            f"escalation_blocker={blocker or '-'} actual_order=False submitted=0"
+        )
+        return {
+            "escalation_policy_ready": True,
+            "escalation_required": required,
+            "escalation_target_provider": target,
+            "escalation_reason": ",".join(reasons) or "local_decision_sufficient",
+            "escalation_blocker": blocker,
         }
 
     def verify_router_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -1134,6 +1312,13 @@ class AIEngineProvider:
             provider = "openai"
         elif provider in ("google", "google_gemini"):
             provider = "gemini"
+        return _with_payload_quality(
+            self._route_local_first_decision(
+                requested_provider=provider,
+                context=context,
+                feature_manifest=feature_manifest,
+            )
+        )
         try:
             if provider in ("basic", "local", "local_ai", ""):
                 parsed = self._build_local_position_management_decision(context)
@@ -1223,6 +1408,194 @@ class AIEngineProvider:
                 "actual_order": False,
                 "submitted": 0,
             }
+
+    def _route_local_first_decision(
+        self,
+        *,
+        requested_provider: str,
+        context: Dict[str, Any],
+        feature_manifest: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        requested_provider = requested_provider if requested_provider in {"openai", "gemini"} else "local"
+        prompt = self._build_position_management_decision_prompt(context)
+        manifest_summary = summarize_ai_payload_feature_manifest(feature_manifest)
+        payload_hash = str(manifest_summary.get("payload_hash") or "")
+        symbol_or_scope = str(context.get("symbol") or context.get("scope") or "PORTFOLIO")
+        task = str(context.get("task") or "")
+        local_available = False
+        local_status = "provider_local_unavailable"
+        local_decision: Dict[str, Any] = {
+            "action": "wait",
+            "confidence": 0.0,
+            "reason_ko": "LOCAL 판단을 사용할 수 없어 외부 확인 또는 다음 재판단을 기다립니다.",
+            "eta_seconds": 300,
+            "risk_notes": "",
+            "invalidation_conditions": [],
+            "blocker": "provider_local_unavailable",
+        }
+        _safe_log_info(
+            "[AITS][LocalFirstDecision] event=local_decision_started "
+            f"task={task or '-'} scope={symbol_or_scope} payload_hash={payload_hash or '-'} "
+            "actual_order=False submitted=0"
+        )
+        try:
+            local_raw = self._call_local_first_decision(prompt, context)
+            local_context = dict(context)
+            local_context["provider"] = "local"
+            local_decision = self._parse_position_management_decision_response(local_raw.get("content"), local_context)
+            local_available = bool(local_decision.get("validation_passed"))
+            local_status = "ready" if local_available else "provider_local_schema_mismatch"
+        except NotImplementedError as exc:
+            local_status = str(exc) or "provider_local_unavailable"
+        except Exception as exc:
+            local_status = f"provider_local_failed:{type(exc).__name__}"
+        _safe_log_info(
+            f"[AITS][LocalFirstDecision] event={'local_decision_recorded' if local_available else 'local_decision_unavailable'} "
+            f"task={task or '-'} scope={symbol_or_scope} local_provider_status={local_status} "
+            f"local_action={local_decision.get('action') or 'wait'} local_confidence={float(local_decision.get('confidence') or 0.0):.4f} "
+            f"payload_hash={payload_hash or '-'} actual_order=False submitted=0"
+        )
+
+        escalation = self._evaluate_external_escalation(
+            requested_provider=requested_provider,
+            local_decision=local_decision,
+            local_available=local_available,
+            feature_manifest=feature_manifest,
+            context=context,
+        )
+        external_provider = str(escalation.get("escalation_target_provider") or "")
+        external_decision: Dict[str, Any] = {}
+        external_called = False
+        external_blocker = str(escalation.get("escalation_blocker") or "")
+        cost_guard_passed = False
+        cost_guard: Dict[str, Any] = {}
+        if escalation.get("escalation_required") and external_provider:
+            cost_guard = self._provider_cost_guard_policy(
+                provider=external_provider,
+                context=context,
+                payload_hash=payload_hash,
+                reserve=False,
+            )
+            cost_guard_passed = bool(cost_guard.get("allowed"))
+            if cost_guard_passed:
+                try:
+                    external_called = True
+                    raw = (
+                        self._call_openai_position_management_decision(prompt, context)
+                        if external_provider == "openai"
+                        else self._call_gemini_position_management_decision(prompt, context)
+                    )
+                    external_context = dict(context)
+                    external_context["provider"] = external_provider
+                    external_decision = self._parse_position_management_decision_response(raw.get("content"), external_context)
+                    external_decision.update(
+                        {
+                            "response_id": str(raw.get("response_id") or ""),
+                            "usage_input_tokens": raw.get("usage_input_tokens"),
+                            "usage_output_tokens": raw.get("usage_output_tokens"),
+                            "usage_total_tokens": raw.get("usage_total_tokens"),
+                        }
+                    )
+                    if not bool(external_decision.get("validation_passed")):
+                        external_blocker = f"{external_provider}_response_invalid_schema"
+                except NotImplementedError as exc:
+                    external_blocker = str(exc) or f"{external_provider}_unavailable"
+                except Exception as exc:
+                    external_blocker = f"{external_provider}_call_failed:{type(exc).__name__}"
+            else:
+                external_blocker = str(cost_guard.get("blocker") or "provider_cost_guard_blocked")
+
+        external_valid = bool(external_decision.get("validation_passed")) and not external_blocker
+        local_action = str(local_decision.get("action") or "wait").lower()
+        if external_valid:
+            final_decision = dict(external_decision)
+            final_provider_source = external_provider
+            source_reason = "external_provider_validated_after_local_first"
+        elif local_available and local_action in _LOCAL_SAFE_ACTIONS:
+            final_decision = dict(local_decision)
+            final_provider_source = "local"
+            source_reason = "local_decision_retained"
+        else:
+            final_decision = dict(local_decision)
+            safety_blocker = external_blocker or escalation.get("escalation_blocker") or "local_order_action_requires_external_confirmation"
+            final_decision.update(
+                {
+                    "action": "wait",
+                    "confidence": min(0.49, float(local_decision.get("confidence") or 0.0)),
+                    "reason_ko": "LOCAL 주문성 판단은 외부 확인 전까지 실행하지 않습니다.",
+                    "sell_ratio": 0.0,
+                    "buy_amount_krw": 0.0,
+                    "rotate_to_symbol": "",
+                    "replace_symbol": "",
+                    "execution_plan": {},
+                    "risk_notes": str(local_decision.get("risk_notes") or "external confirmation required"),
+                    "invalidation_conditions": local_decision.get("invalidation_conditions") or [],
+                    "blocker": safety_blocker,
+                }
+            )
+            safety_validation = validate_ai_decision_response(
+                final_decision,
+                provider="local",
+                task=str(context.get("task") or "position_management_decision"),
+                symbol=str(context.get("symbol") or ""),
+                candidates=context.get("candidates"),
+            )
+            final_decision = dict(safety_validation.get("decision") or final_decision)
+            final_decision["blocker"] = safety_blocker
+            final_provider_source = "local_safety_hold"
+            source_reason = "local_order_action_blocked_without_external_confirmation"
+
+        final_decision.update(
+            {
+                "schema": "aits_position_management_decision_v1",
+                "provider": final_provider_source,
+                "response_confirmed": bool(final_decision.get("validation_passed")),
+                "provider_call_attempted": True,
+                "local_decision_attempted": True,
+                "local_decision_available": local_available,
+                "local_provider_status": local_status,
+                "local_action": local_action,
+                "local_confidence": float(local_decision.get("confidence") or 0.0),
+                "local_reason_ko": str(local_decision.get("reason_ko") or ""),
+                "local_eta_seconds": int(local_decision.get("eta_seconds") or 300),
+                "local_risk_notes": str(local_decision.get("risk_notes") or ""),
+                "local_invalidation_conditions": local_decision.get("invalidation_conditions") or [],
+                "local_decision_quality": str(manifest_summary.get("payload_quality_grade") or "F"),
+                "local_blockers": [local_status] if not local_available else [],
+                "local_payload_hash": payload_hash,
+                "local_generated_at": int(time.time()),
+                **escalation,
+                "local_decision_retained": final_provider_source.startswith("local"),
+                "external_provider_requested": bool(external_provider),
+                "external_provider_called": external_called,
+                "external_provider_blocked": bool(external_provider and not external_valid),
+                "external_provider_name": external_provider,
+                "external_blocker": external_blocker,
+                "external_action": str(external_decision.get("action") or ""),
+                "external_confidence": float(external_decision.get("confidence") or 0.0),
+                "cost_guard_passed": cost_guard_passed,
+                "cost_guard_blocker": str(cost_guard.get("blocker") or external_blocker or ""),
+                "final_provider_source": final_provider_source,
+                "final_action": str(final_decision.get("action") or "wait"),
+                "final_confidence": float(final_decision.get("confidence") or 0.0),
+                "final_reason_ko": str(final_decision.get("reason_ko") or ""),
+                "final_decision_source_reason": source_reason,
+                "validator_applied_to_external_response": bool(external_called),
+                "local_only_order_action_blocked_without_external_confirmation": source_reason == "local_order_action_blocked_without_external_confirmation",
+                "actual_order": False,
+                "submitted": 0,
+            }
+        )
+        _safe_log_info(
+            "[AITS][ProviderDecisionRouter] event=final_decision_selected "
+            f"task={task or '-'} scope={symbol_or_scope} final_provider_source={final_provider_source} "
+            f"local_action={local_action} external_provider_called={str(external_called).lower()} "
+            f"external_provider_blocked={str(bool(external_provider and not external_valid)).lower()} "
+            f"external_action={external_decision.get('action') or '-'} final_action={final_decision.get('action') or 'wait'} "
+            f"source_reason={source_reason} blocker={final_decision.get('blocker') or '-'} "
+            "actual_order=False submitted=0"
+        )
+        return final_decision
 
     def _build_position_management_decision_prompt(self, context: Optional[Dict[str, Any]]) -> str:
         safe_context = dict(context or {})
@@ -1381,14 +1754,16 @@ class AIEngineProvider:
         }
 
     def _call_gemini_position_management_decision(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        real_call_enabled = str(os.getenv("AITS_ENABLE_REAL_AI_CALL", "")).strip() == "1"
-        one_shot_enabled = str(os.getenv("AITS_REAL_AI_ONE_SHOT", "")).strip() == "1"
-        if not (real_call_enabled and one_shot_enabled):
-            raise NotImplementedError("gemini_live_call_disabled")
-        api_key = self._get_config_api_key("gemini")
-        if not api_key:
-            raise NotImplementedError("gemini_api_key_missing")
-        model = os.getenv("AITS_GEMINI_POSITION_DECISION_MODEL", os.getenv("AITS_GEMINI_VERIFY_MODEL", "gemini-2.0-flash"))
+        payload_hash = hashlib.sha256(
+            json.dumps(context, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()[:24]
+        runtime_policy = self._runtime_decision_call_policy(
+            provider="gemini", context=context, payload_hash=payload_hash
+        )
+        if not runtime_policy.get("allowed"):
+            raise NotImplementedError(str(runtime_policy.get("blocker") or "gemini_cost_guard_blocked"))
+        api_key = str(runtime_policy.get("api_key") or "")
+        model = str(runtime_policy.get("model") or "")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
         payload = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],

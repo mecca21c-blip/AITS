@@ -2103,3 +2103,6 @@ summary modes.
 - Live summaries compare provider events only inside the selected running PID/session window.
 - Dry-read and terminated process logs cannot overwrite the live provider context result.
 - Provider metadata mismatch is an observability blocker, separate from AI action and order safety.
+## LOCAL-First Provider Completion Summary
+
+`local-first-gpt-cost-guard-v1-summary` is an observe-only Sprint checklist. It combines target PID/session runtime evidence with source-contract checks for LOCAL-first inference, escalation, provider cost guards, final provider routing, comparison training, and Korean reason visibility. It does not invoke providers or trading controls. External calls remain subject to cooldown, duplicate payload, hourly, daily, order-related, and estimated-cost limits.

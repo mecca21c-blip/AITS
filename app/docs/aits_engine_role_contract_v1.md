@@ -211,3 +211,6 @@ BASIC preserves the AI-provided portfolio ETA as evidence and computes a separat
 ## Live Cycle Completion Boundary
 
 BASIC owns refreshed market, holding, valuation, candidate, constraint, and after-order facts. AI owns initial and repeated management decisions. RiskGuard and LivePreflight own safety acceptance, while the existing execution stack owns submission. After a confirmed submit, BASIC refreshes facts and asks AI to replan through registered runtime states; it does not create a replacement action. Outcome records are evidence for later learning, not another decision engine.
+## LOCAL-First Provider Role
+
+BASIC builds facts and payload context. LOCAL is the first AI decision maker and is distinct from BASIC. A LOCAL order-capable decision requires valid external confirmation in v1 and still passes the validator, Router, RiskGuard, LivePreflight, and Execution boundaries. Cost or availability blocking never grants execution permission.

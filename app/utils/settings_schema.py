@@ -109,6 +109,14 @@ class StrategyConfig(BaseModel):
     ai_gemini_model: str = "gemini-2.5-flash"
     ai_local_url: str = "http://127.0.0.1:11434"   # Ollama base URL (provider=local)
     ai_local_model: str = "qwen2.5"               # Ollama model: llama3.1 | qwen2.5 | mistral
+    ai_local_confidence_threshold: float = 0.72
+    ai_external_request_cooldown_seconds: int = 15
+    ai_external_duplicate_payload_cooldown_seconds: int = 600
+    ai_external_max_calls_per_hour: int = 60
+    ai_external_max_calls_per_day: int = 500
+    ai_external_max_live_order_calls_per_hour: int = 20
+    ai_external_max_tokens_estimate_per_call: int = 1200
+    ai_external_daily_estimated_cost_limit: float = 5.0
     ai_reco_ttl_sec: int = 60
     ai_fallback_to_local: bool = True
 

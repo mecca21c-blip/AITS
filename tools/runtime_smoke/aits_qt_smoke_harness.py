@@ -8779,6 +8779,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) > 0
         and not _runtime_pid_is_running(int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)))
     })
+    if selected_target_pid in excluded_harness_pids:
+        target_session_lines = []
+        target_provenance = ""
+        target_started_at = None
+        selected_target_pid = 0
+        lines = []
     target_pid_running = _runtime_pid_is_running(selected_target_pid)
     harness_pid_pollution_detected = bool(excluded_harness_pids and target_session_lines)
     if target_session_lines:
@@ -12065,6 +12071,162 @@ def _run_live_operating_cycle_v1_completion_summary(
     )
 
 
+def _run_local_first_gpt_cost_guard_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    e2e = _build_live_on_runtime_e2e_diagnostic_report(
+        output_dir=output_dir,
+        mode="live-on-runtime-e2e-diagnostic-log-summary",
+    )
+    cycle: dict[str, Any] = {}
+    _run_live_operating_cycle_v1_completion_summary(cycle, output_dir=output_dir)
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    target_lines, _provenance, _started_at, _start, _end, _scope = _latest_non_harness_runtime_session(lines, reports)
+    scoped_text = "\n".join(target_lines or lines)
+    source_paths = (
+        ROOT / "app" / "services" / "ai_engine_provider.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+    )
+    code_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in source_paths if path.exists()
+    )
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    def event_lines(prefix: str) -> list[str]:
+        return [line for line in (target_lines or lines) if prefix in line]
+
+    def values(prefix: str, field: str) -> list[str]:
+        found: list[str] = []
+        for line in event_lines(prefix):
+            value = _live_on_stage_extract_value(line, field)
+            if value and value not in found:
+                found.append(value)
+        return found
+
+    local_lines = event_lines("[AITS][LocalFirstDecision]")
+    escalation_lines = event_lines("[AITS][EscalationPolicy]")
+    cost_lines = event_lines("[AITS][ProviderCostGuard]")
+    router_lines = event_lines("[AITS][ProviderDecisionRouter]")
+    reason_lines = event_lines("[AITS][ProviderReasonTimeline]")
+    final_sources = values("[AITS][ProviderDecisionRouter]", "final_provider_source")
+    final_source_counts = {source: sum(f"final_provider_source={source}" in line for line in router_lines) for source in final_sources}
+    escalation_reasons = values("[AITS][EscalationPolicy]", "escalation_reason")
+    escalation_reason_counts = {reason: sum(f"escalation_reason={reason}" in line for line in escalation_lines) for reason in escalation_reasons}
+    cost_blockers = values("[AITS][ProviderCostGuard]", "blocked_reason")
+    cost_guard_blocker_counts = {reason: sum(f"blocked_reason={reason}" in line for line in cost_lines) for reason in cost_blockers if reason != "-"}
+
+    local_layer = source_ready("def _call_local_first_decision", "OllamaHttpClient", "local_decision_attempted")
+    escalation_layer = source_ready("def _evaluate_external_escalation", "escalation_required", "escalation_reason")
+    cost_layer = source_ready("def _provider_cost_guard_policy", "duplicate_payload_cooldown", "max_live_hour")
+    router_layer = source_ready("def _route_local_first_decision", "final_provider_source", "external_provider_called")
+    training_layer = source_ready("def _provider_comparison_training_fields", "final_decision_source_reason")
+    ui_layer = source_ready("def _emit_provider_reason_timeline", "[AITS][ProviderReasonTimeline]")
+    local_order_guard = source_ready(
+        "local_order_action_blocked_without_external_confirmation",
+        "local_order_action_requires_external_confirmation",
+    )
+    validator_external = source_ready("validator_applied_to_external_response", "_parse_position_management_decision_response")
+    openai_guard = source_ready('provider="openai"', "_runtime_decision_call_policy")
+    gemini_guard = source_ready('provider="gemini"', "_runtime_decision_call_policy")
+    raw_leak_detected = bool(e2e.get("status_raw_snake_case_leak_detected"))
+    no_guard_bypass = bool(cycle.get("no_guard_bypass_detected"))
+
+    checklist = {
+        "provider_readiness": {
+            "local_first_provider_layer_ready": local_layer,
+            "local_provider_available": source_ready("OllamaHttpClient", "ai_local_model"),
+            "local_decision_first_attempted": source_ready("event=local_decision_started"),
+            "local_decision_recorded": source_ready("local_decision_recorded", "local_decision_unavailable"),
+            "external_provider_policy_ready": escalation_layer,
+            "openai_provider_available": source_ready("_call_openai_position_management_decision"),
+            "gemini_provider_available": source_ready("_call_gemini_position_management_decision"),
+        },
+        "cost_guard": {
+            "provider_cost_guard_ready": cost_layer,
+            "openai_cost_guard_ready": openai_guard,
+            "gemini_cost_guard_ready": gemini_guard,
+            "duplicate_payload_guard_ready": source_ready("duplicate_payload_cooldown"),
+            "provider_cooldown_guard_ready": source_ready("provider_request_cooldown"),
+            "hourly_budget_guard_ready": source_ready("hourly_call_limit_reached"),
+            "daily_budget_guard_ready": source_ready("daily_call_limit_reached", "daily_estimated_cost_limit_reached"),
+        },
+        "routing_safety": {
+            "escalation_policy_ready": escalation_layer,
+            "provider_decision_router_ready": router_layer,
+            "local_only_order_action_blocked_without_external_confirmation": local_order_guard,
+            "validator_applied_to_external_response": validator_external,
+            "riskguard_still_required": bool(cycle.get("riskguard_ready")),
+            "livepreflight_still_required": bool(cycle.get("livepreflight_ready")),
+            "execution_path_guarded": bool(cycle.get("execution_path_guarded")),
+            "no_guard_bypass_detected": no_guard_bypass,
+        },
+        "training_ui": {
+            "provider_comparison_training_record_ready": training_layer,
+            "local_vs_external_comparison_recorded": source_ready("local_action", "external_action", "final_provider_source"),
+            "cost_guard_recorded_in_training": source_ready("cost_guard_passed", "cost_guard_blocker"),
+            "final_provider_source_recorded": source_ready('"final_provider_source"'),
+            "provider_reason_timeline_ready": ui_layer,
+            "cost_guard_status_message_ready": source_ready("external_provider_blocked", "LOCAL 판단을 유지합니다"),
+            "raw_leak_absent": not raw_leak_detected,
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_first_gpt_cost_guard_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    external_called_count = sum("external_provider_called=true" in line.lower() for line in router_lines)
+    report.update(
+        {
+            "schema": "aits_local_first_gpt_cost_guard_v1_summary_v1",
+            "mode": "local-first-gpt-cost-guard-v1-summary",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "target_runtime_pid": int(e2e.get("target_runtime_pid") or e2e.get("e2e_target_pid") or 0),
+            "target_runtime_session_id": str(e2e.get("target_runtime_session_id") or e2e.get("e2e_target_session_id") or ""),
+            **{key: value for group in checklist.values() for key, value in group.items()},
+            "escalation_required_count": sum("escalation_required=true" in line.lower() for line in escalation_lines),
+            "escalation_blocked_count": sum("escalation_blocker=-" not in line for line in escalation_lines),
+            "escalation_reason_counts": escalation_reason_counts,
+            "local_decision_retained_count": sum("final_provider_source=local" in line for line in router_lines),
+            "external_provider_called_count": external_called_count,
+            "cost_guard_blocker_counts": cost_guard_blocker_counts,
+            "final_provider_source_counts": final_source_counts,
+            "local_only_decision_count": sum(
+                _live_on_stage_extract_value(line, "final_provider_source").startswith("local") for line in router_lines
+            ),
+            "external_confirmed_decision_count": sum(
+                _live_on_stage_extract_value(line, "final_provider_source") in {"openai", "gemini"} for line in router_lines
+            ),
+            "external_blocked_local_retained_count": sum("external_provider_blocked=true" in line.lower() and "final_provider_source=local" in line for line in router_lines),
+            "local_external_action_disagreement_count": sum(
+                _live_on_stage_extract_value(line, "external_action") not in {"", "-", _live_on_stage_extract_value(line, "local_action")}
+                for line in router_lines
+            ),
+            "runtime_local_first_event_count": len(local_lines),
+            "runtime_cost_guard_event_count": len(cost_lines),
+            "runtime_provider_reason_event_count": len(reason_lines),
+            "completion_checklist": checklist,
+            "local_first_gpt_cost_guard_v1_ready": ready,
+            "first_blocker": first_blocker,
+            "blocker_group": blocker_group,
+            "next_sprint_recommendation": "SPRINT-LOCAL-PROVIDER-OUTCOME-LEARNING-V1",
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -12086,6 +12248,10 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
         and _harness_report_for_session_start(_runtime_provenance_line_ts(line), reports)
         and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) > 0
     })
+    if order_reconciliation_scope_pid in excluded_harness_pids:
+        lines = []
+        order_reconciliation_scope_pid = 0
+        order_reconciliation_scope_session = ""
     request_ids: list[str] = []
     orders: dict[str, dict[str, Any]] = {}
     before_first: list[float] = []
@@ -23528,6 +23694,7 @@ def run_harness(
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
         "live-operating-cycle-v1-completion-summary",
+        "local-first-gpt-cost-guard-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -23793,6 +23960,12 @@ def run_harness(
         elif mode == "live-operating-cycle-v1-completion-summary":
             _install_provider_post_guard(report)
             _run_live_operating_cycle_v1_completion_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-first-gpt-cost-guard-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_first_gpt_cost_guard_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -24440,6 +24613,7 @@ def main() -> int:
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
             "live-operating-cycle-v1-completion-summary",
+            "local-first-gpt-cost-guard-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

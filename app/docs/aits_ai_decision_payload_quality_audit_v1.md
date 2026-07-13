@@ -153,3 +153,6 @@ The 86400-second portfolio ETA was a valid AI response but an impractical runtim
 ## Live Cycle Outcome Link Follow-up
 
 Live Operating Cycle v1 links validated decisions to safe execution metadata and after-order factual snapshots. Decision and outcome records preserve canonical task/scope, reason, confidence, ETA, actual submission result, position and portfolio after-state, and pending 5-minute, 15-minute, 1-hour, and final checkpoints. Pending values remain empty until a dedicated outcome evaluator measures them from real later snapshots.
+## Provider Comparison Metadata
+
+Payload quality is evaluated before escalation and is shared by LOCAL and external providers. Training records preserve LOCAL and external actions, confidence, reasons, escalation and cost blockers, and the final provider source. Low or critically incomplete payload quality can block escalation; it is never upgraded by invented market data or indicators.

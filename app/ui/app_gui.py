@@ -31660,6 +31660,39 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _emit_provider_reason_timeline(self, *, decision: dict, symbol: str = "", task: str = "") -> None:
+        value = dict(decision or {})
+        source = str(value.get("final_provider_source") or value.get("provider") or "LOCAL").lower()
+        local_action = str(value.get("local_action") or "wait")
+        external_name = str(value.get("external_provider_name") or "").upper()
+        if bool(value.get("local_only_order_action_blocked_without_external_confirmation")):
+            message = "LOCAL 주문성 판단은 외부 확인 전까지 실행하지 않습니다."
+        elif bool(value.get("external_provider_blocked")):
+            message = f"{external_name or '외부 AI'} 호출이 제한되어 LOCAL 판단을 유지합니다."
+        elif bool(value.get("external_provider_called")):
+            if str(value.get("external_action") or "") == local_action:
+                message = f"{external_name or '외부 AI'} 판단 결과와 LOCAL 판단이 일치합니다."
+            else:
+                message = f"{external_name or '외부 AI'} 확인을 거쳐 최종 판단을 정했습니다."
+        elif source.startswith("local"):
+            message = "LOCAL이 먼저 판단했고 외부 호출 없이 판단을 유지합니다."
+        else:
+            message = "LOCAL 우선 판단 후 외부 AI 확인 결과를 반영했습니다."
+        self._aits_provider_reason_status_text = message
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][ProviderReasonTimeline] event=provider_reason_rendered message_ko=%s symbol=%s task=%s local_action=%s escalation_required=%s external_provider=%s external_called=%s external_blocked=%s final_provider_source=%s final_action=%s raw_leak_detected=false actual_order=False submitted=0",
+                message, str(symbol or "-")[:40], str(task or "-")[:80], local_action or "-",
+                bool(value.get("escalation_required")), external_name or "-", bool(value.get("external_provider_called")),
+                bool(value.get("external_provider_blocked")), source or "-", str(value.get("action") or "wait"),
+            )
+        except Exception:
+            pass
+        try:
+            self._append_aits_live_log(message, category="pipeline", level="info", event="provider_reason_timeline", symbol=str(symbol or ""))
+        except Exception:
+            pass
+
     def _record_post_order_outcome_link(
         self,
         *,
@@ -31715,6 +31748,7 @@ class MainWindow(QMainWindow):
             "final_outcome": None,
             "learning_record_ready": bool(decision_id and request_id and int(submitted_count or 0) > 0),
             "position_reflection_status": str(position_result.get("status") or "unknown"),
+            **self._provider_comparison_training_fields(context),
         }
         root = Path("data") / "ai_decision_training"
         root.mkdir(parents=True, exist_ok=True)
@@ -41612,8 +41646,40 @@ class MainWindow(QMainWindow):
             "eta_policy_max_seconds": policy_max,
         }
 
+    @staticmethod
+    def _provider_comparison_training_fields(decision: dict | None) -> dict:
+        value = dict(decision or {})
+        return {
+            "local_provider_used": bool(value.get("local_decision_attempted")),
+            "local_decision_available": bool(value.get("local_decision_available")),
+            "local_action": str(value.get("local_action") or ""),
+            "local_confidence": value.get("local_confidence"),
+            "local_reason_ko": str(value.get("local_reason_ko") or ""),
+            "escalation_required": bool(value.get("escalation_required")),
+            "escalation_reason": str(value.get("escalation_reason") or ""),
+            "external_provider_requested": bool(value.get("external_provider_requested")),
+            "external_provider_name": str(value.get("external_provider_name") or ""),
+            "external_provider_called": bool(value.get("external_provider_called")),
+            "external_provider_blocked": bool(value.get("external_provider_blocked")),
+            "external_blocker": str(value.get("external_blocker") or value.get("cost_guard_blocker") or ""),
+            "external_action": str(value.get("external_action") or ""),
+            "external_confidence": value.get("external_confidence"),
+            "cost_guard_passed": bool(value.get("cost_guard_passed")),
+            "cost_guard_blocker": str(value.get("cost_guard_blocker") or ""),
+            "final_provider_source": str(value.get("final_provider_source") or value.get("provider") or ""),
+            "final_action": str(value.get("final_action") or value.get("action") or ""),
+            "final_confidence": value.get("final_confidence", value.get("confidence")),
+            "final_reason_ko": str(value.get("final_reason_ko") or value.get("reason_ko") or ""),
+            "final_decision_source_reason": str(value.get("final_decision_source_reason") or ""),
+        }
+
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
         try:
+            self._emit_provider_reason_timeline(
+                decision=decision,
+                symbol=str((payload or {}).get("symbol") or (payload or {}).get("scope") or "PORTFOLIO"),
+                task=str((payload or {}).get("task") or ""),
+            )
             root = Path("data") / "ai_decision_training"
             root.mkdir(parents=True, exist_ok=True)
             encoded = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
@@ -41674,6 +41740,7 @@ class MainWindow(QMainWindow):
                 "pnl_after_15m": None,
                 "pnl_after_1h": None,
                 "user_override": False,
+                **self._provider_comparison_training_fields(decision),
             }
             if row["task"] == "buy_decision":
                 target_name = "buy_decisions.jsonl"
@@ -42466,6 +42533,11 @@ class MainWindow(QMainWindow):
 
     def _record_initial_ai_management_training(self, *, payload: dict, decision: dict, session_id: str, registered: bool, blocker: str) -> None:
         try:
+            self._emit_provider_reason_timeline(
+                decision=decision,
+                symbol=str((payload or {}).get("symbol") or (payload or {}).get("scope") or "PORTFOLIO"),
+                task=str((payload or {}).get("task") or ""),
+            )
             root = Path("data") / "ai_decision_training"
             root.mkdir(parents=True, exist_ok=True)
             payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
@@ -42517,6 +42589,7 @@ class MainWindow(QMainWindow):
                 "final_outcome": None,
                 "learning_record_ready": bool(decision_id),
                 "outcome_placeholder": {"pnl_after_5m": None, "pnl_after_15m": None, "pnl_after_1h": None, "decision_helped": None},
+                **self._provider_comparison_training_fields(decision),
             }
             with (root / "initial_management_decisions.jsonl").open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
@@ -44082,6 +44155,9 @@ class MainWindow(QMainWindow):
         live_cycle_text = str(getattr(self, "_aits_live_cycle_status_text", "") or "")
         if live_cycle_text:
             risk_text = f"{risk_text} | {live_cycle_text}"
+        provider_reason_text = str(getattr(self, "_aits_provider_reason_status_text", "") or "")
+        if provider_reason_text:
+            risk_text = f"{risk_text} | {provider_reason_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text

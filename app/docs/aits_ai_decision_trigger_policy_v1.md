@@ -296,3 +296,6 @@ AI may express a long portfolio decision horizon, but AITS retains that original
 ## Post-Order Replanning Trigger
 
 A confirmed submitted result is a factual state-change trigger. The post-order coordinator refreshes holdings and positions, reconciles management targets, and marks existing portfolio and remaining-position runtime states for another AI decision. Missing states produce a visible blocker; they are never fabricated. The repeated decisions pass the normal provider, validator, runtime registration, ETA, and safety contracts.
+## Provider Escalation And Cost Policy
+
+Every supported AI trigger first requests LOCAL judgment. High-confidence non-actionable LOCAL decisions may remain final without an external call. Low confidence, order-capable decisions, explicit external-provider policy, and post-order replanning can request GPT or GEMINI confirmation. External calls require provider availability and the shared cooldown, duplicate payload, hourly, daily, order-related, and estimated-cost guards. A blocked external request retains only a safe LOCAL wait/hold; it cannot authorize an order.
