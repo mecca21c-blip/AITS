@@ -30,6 +30,9 @@ class RiskGuardInput:
     execution_mode: str = "disabled"
     dry_run: bool = True
     request_id: str = ""
+    valuation_unit_consistency_checked: bool = False
+    valuation_unit_mismatch: bool = False
+    pnl_valid_for_sell: bool = True
 
 
 @dataclass
@@ -215,6 +218,16 @@ class RiskGuard:
             add_check("sell_quantity", False, "sell_quantity_unavailable")
             return "sell_quantity_unavailable", "warning"
         add_check("sell_quantity", True)
+
+        if side == "sell" and bool(data.valuation_unit_mismatch):
+            add_check("sell_valuation_unit_consistency", False, "sell_blocked_by_valuation_unit_mismatch")
+            return "sell_blocked_by_valuation_unit_mismatch", "critical"
+        add_check("sell_valuation_unit_consistency", True)
+
+        if side == "sell" and bool(data.valuation_unit_consistency_checked) and not bool(data.pnl_valid_for_sell):
+            add_check("sell_pnl_validity", False, "sell_blocked_by_invalid_pnl")
+            return "sell_blocked_by_invalid_pnl", "critical"
+        add_check("sell_pnl_validity", True)
 
         return None
 

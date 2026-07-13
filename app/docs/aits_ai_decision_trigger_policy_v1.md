@@ -276,3 +276,7 @@ Holding recovery is separate from the non-holding promotion trigger policy. A no
 ## Holding Valuation Evidence Policy
 
 AI position-management triggers use the normalized holding classification produced from the selected valuation SSOT. Cost basis, stale values, and threshold-near alternatives remain factual context but cannot independently remove a current-market manageable holding from Managed Pool, SellEvaluation, or the initial position payload. Valuation reconciliation is evidence preparation, not a buy, sell, promotion, or rotation action.
+
+## Sell PnL Validity Policy
+
+Position-management payloads carry valuation-unit consistency, PnL validity, and sell blocker fields. If `qty * current_price` materially disagrees with selected valuation, PnL-driven sell evaluation is invalid and no sell intent may reach submission. An AI `sell`, `reduce`, `take_profit`, or `stop_loss` response does not override this safety blocker.

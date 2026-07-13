@@ -39,6 +39,9 @@ class LiveOrderPreflightInput:
     source: str = ""
     live_guarded_window_order: bool = False
     live_guarded_one_shot_order: bool = False
+    valuation_unit_consistency_checked: bool = False
+    valuation_unit_mismatch: bool = False
+    pnl_valid_for_sell: bool = True
 
 
 @dataclass
@@ -124,9 +127,15 @@ class LiveOrderPreflight:
 
     def log_summary(self, result: LiveOrderPreflightResult, data: LiveOrderPreflightInput | Dict[str, Any]) -> str:
         item = self._coerce_input(data)
+        event = (
+            "sell_rejected_by_unit_mismatch"
+            if str(item.side or "").strip().lower() == "sell"
+            and result.blocked_reason == "sell_blocked_by_valuation_unit_mismatch"
+            else "evaluate"
+        )
         return (
             "[AITS][LiveOrderPreflight] "
-            f"event=evaluate request_id={item.request_id or '-'} "
+            f"event={event} request_id={item.request_id or '-'} "
             f"symbol={item.symbol or '-'} side={item.side or '-'} "
             f"locked={bool(result.locked)} allowed_for_preflight={bool(result.allowed_for_preflight)} "
             f"blocked_reason={result.blocked_reason or '-'} "
@@ -186,6 +195,10 @@ class LiveOrderPreflight:
             missing.append("price_not_fresh")
         if price <= 0:
             missing.append("missing_or_invalid_price")
+        if side == "sell" and bool(item.valuation_unit_mismatch):
+            missing.append("sell_blocked_by_valuation_unit_mismatch")
+        if side == "sell" and bool(item.valuation_unit_consistency_checked) and not bool(item.pnl_valid_for_sell):
+            missing.append("sell_blocked_by_invalid_pnl")
         return missing
 
     def _coerce_input(self, data: LiveOrderPreflightInput | Dict[str, Any]) -> LiveOrderPreflightInput:

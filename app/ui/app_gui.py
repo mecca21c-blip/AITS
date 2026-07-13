@@ -12809,12 +12809,13 @@ class MainWindow(QMainWindow):
             )
         except Exception:
             pass
-        qty_display = round(qty, 1) if qty is not None else qty
-        avg_display = round(avg) if avg is not None else avg
-        price_display = round(price) if price is not None else price
-        eval_display = round(eval_krw) if eval_krw is not None else eval_krw
-        cost_display = round(cost) if cost is not None else cost
-        pnl_display = round(pnl) if pnl is not None else pnl
+        # Preserve source units in the runtime row; UI delegates may format these values.
+        qty_display = qty
+        avg_display = avg
+        price_display = price
+        eval_display = eval_krw
+        cost_display = cost
+        pnl_display = pnl
         try:
             self._log.info(
                 "[AITS][InvestmentPositionFormat] event=position_format_applied symbol=%s qty=%s avg_buy_price=%s current_price=%s eval_krw=%s pnl_krw=%s return_pct=%s weight=%s submitted=0",
@@ -40417,6 +40418,60 @@ class MainWindow(QMainWindow):
         snapshot = self._build_normalized_holding_snapshot(reason="sell_evaluation")
         return [dict(row) for row in snapshot.get("manageable_holdings", []) if isinstance(row, dict)]
 
+    def _build_sell_unit_consistency_snapshot(
+        self, *, row: dict, qty: float, current_price: float, selected_valuation_krw: float
+    ) -> dict:
+        qty = self._managed_pool_num_value(qty, 0.0)
+        current_price = self._managed_pool_num_value(current_price, 0.0)
+        selected = self._managed_pool_num_value(
+            (row or {}).get("selected_valuation_krw") or selected_valuation_krw, 0.0
+        )
+        expected = qty * current_price if qty > 0.0 and current_price > 0.0 else 0.0
+        checked = bool(qty > 0.0 and current_price > 0.0 and selected > 0.0)
+        abs_diff = abs(selected - expected) if checked else 0.0
+        relative_diff = abs_diff / max(selected, expected, 1.0) if checked else 0.0
+        tolerance_pct = 0.05
+        tolerance_krw = max(500.0, max(selected, expected, 1.0) * tolerance_pct)
+        mismatch = bool(checked and abs_diff > tolerance_krw)
+        reason = "valuation_unit_inputs_missing" if not checked else "qty_price_expected_valuation_diff_exceeded" if mismatch else ""
+        return {
+            "valuation_unit_consistency_checked": checked,
+            "expected_valuation_krw": expected,
+            "selected_valuation_krw": selected,
+            "valuation_abs_diff_krw": abs_diff,
+            "valuation_relative_diff": relative_diff,
+            "tolerance_krw": tolerance_krw,
+            "tolerance_pct": tolerance_pct,
+            "valuation_unit_mismatch": mismatch,
+            "valuation_unit_mismatch_reason": reason,
+            "pnl_valid_for_sell": bool(checked and not mismatch),
+            "sell_blocked_by_valuation_unit_mismatch": mismatch,
+            "valuation_source": str((row or {}).get("selected_valuation_source") or (row or {}).get("valuation_source") or "unavailable"),
+            "price_source": str((row or {}).get("current_price_source") or (row or {}).get("price_source") or "unavailable"),
+            "qty_source": str((row or {}).get("qty_source") or (row or {}).get("source_type") or (row or {}).get("source") or "unavailable"),
+        }
+
+    def _log_sell_unit_consistency(
+        self, *, symbol: str, qty: float, current_price: float, pnl_pct: float, state: dict
+    ) -> None:
+        event = "sell_unit_mismatch_detected" if state.get("valuation_unit_mismatch") else "sell_unit_consistency_passed"
+        if not state.get("valuation_unit_consistency_checked"):
+            event = "sell_unit_consistency_checked"
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][SellUnitGuard] event=%s symbol=%s qty=%s current_price=%s expected_valuation_krw=%s selected_valuation_krw=%s valuation_abs_diff_krw=%s valuation_relative_diff=%s tolerance_krw=%s tolerance_pct=%s valuation_source=%s price_source=%s qty_source=%s pnl_pct=%s pnl_valid_for_sell=%s valuation_unit_consistency_checked=%s valuation_unit_mismatch=%s blocker=%s actual_order=False submitted=0",
+                event, str(symbol or "-").upper(), qty, current_price,
+                state.get("expected_valuation_krw"), state.get("selected_valuation_krw"),
+                state.get("valuation_abs_diff_krw"), state.get("valuation_relative_diff"),
+                state.get("tolerance_krw"), state.get("tolerance_pct"),
+                state.get("valuation_source") or "unavailable", state.get("price_source") or "unavailable",
+                state.get("qty_source") or "unavailable", pnl_pct, bool(state.get("pnl_valid_for_sell")),
+                bool(state.get("valuation_unit_consistency_checked")), bool(state.get("valuation_unit_mismatch")),
+                "sell_blocked_by_valuation_unit_mismatch" if state.get("valuation_unit_mismatch") else (state.get("valuation_unit_mismatch_reason") or "-"),
+            )
+        except Exception:
+            pass
+
     def _sell_apply_runtime_active(self) -> bool:
         try:
             if bool(getattr(self, "_aits_runtime_contract_active", False)):
@@ -40488,7 +40543,10 @@ class MainWindow(QMainWindow):
         ratio = 1.0 if trigger == "emergency_stop_loss" else 0.5
         sell_volume = max(0.0, min(available_qty, available_qty * ratio))
         estimated = sell_volume * current_price if current_price > 0.0 else 0.0
-        return {
+        unit_consistency = self._build_sell_unit_consistency_snapshot(
+            row=row, qty=qty, current_price=current_price, selected_valuation_krw=position_value_krw
+        )
+        candidate = {
             "symbol": symbol,
             "trigger": trigger,
             "qty": qty,
@@ -40504,6 +40562,8 @@ class MainWindow(QMainWindow):
             "pnl_pct": pnl_pct,
             "source_type": str(row.get("source_type") or row.get("source") or ""),
         }
+        candidate.update(unit_consistency)
+        return candidate
 
     def _selected_ai_decision_provider(self) -> str:
         provider = ""
@@ -40584,6 +40644,13 @@ class MainWindow(QMainWindow):
             or (row or {}).get("user_target_weight"),
             0.0,
         )
+        unit_consistency = self._build_sell_unit_consistency_snapshot(
+            row=row,
+            qty=self._managed_pool_num_value((candidate or {}).get("qty"), 0.0),
+            current_price=self._managed_pool_num_value((candidate or {}).get("current_price"), 0.0),
+            selected_valuation_krw=position_value,
+        )
+        pnl_valid = bool(unit_consistency.get("pnl_valid_for_sell"))
         return {
             "schema": "aits_ai_decision_payload_v1",
             "task": "position_management_decision",
@@ -40593,8 +40660,11 @@ class MainWindow(QMainWindow):
                 "avg_buy_price": self._managed_pool_num_value((candidate or {}).get("avg_buy_price"), 0.0),
                 "current_price": self._managed_pool_num_value((candidate or {}).get("current_price"), 0.0),
                 "position_value_krw": position_value,
-                "pnl_krw": self._managed_pool_num_value((candidate or {}).get("pnl_krw"), 0.0),
-                "pnl_pct": self._managed_pool_num_value((candidate or {}).get("pnl_pct"), 0.0),
+                "pnl_krw": self._managed_pool_num_value((candidate or {}).get("pnl_krw"), 0.0) if pnl_valid else 0.0,
+                "pnl_pct": self._managed_pool_num_value((candidate or {}).get("pnl_pct"), 0.0) if pnl_valid else 0.0,
+                "valuation_unit_consistency_checked": bool(unit_consistency.get("valuation_unit_consistency_checked")),
+                "valuation_unit_mismatch": bool(unit_consistency.get("valuation_unit_mismatch")),
+                "pnl_valid_for_sell": pnl_valid,
                 "weight_pct": weight_pct,
                 "target_weight_pct": target_weight,
                 "holding_age": (row or {}).get("holding_age") or (row or {}).get("holding_age_sec") or None,
@@ -40635,7 +40705,9 @@ class MainWindow(QMainWindow):
                 "duplicate_locks": bool(getattr(self, "_aits_sell_intent_locks", {})),
                 "buy_blocked": getattr(self, "_aits_buy_blocked", None),
                 "buy_blocker": getattr(self, "_aits_buy_blocker", ""),
-                "sell_allowed_guard_precheck": True,
+                "sell_allowed_guard_precheck": not bool(unit_consistency.get("valuation_unit_mismatch")),
+                "sell_blocker": "sell_blocked_by_valuation_unit_mismatch" if unit_consistency.get("valuation_unit_mismatch") else "",
+                "valuation_unit_mismatch_reason": str(unit_consistency.get("valuation_unit_mismatch_reason") or ""),
             },
             "current_policy": {
                 "engine_provider": str(getattr(self, "_applied_ai_provider", "") or getattr(self, "_selected_ai_provider", "") or ""),
@@ -42368,6 +42440,10 @@ class MainWindow(QMainWindow):
         avg_buy_price = self._managed_pool_num_value((candidate or {}).get("avg_buy_price"), 0.0)
         pnl_pct = self._managed_pool_num_value((candidate or {}).get("pnl_pct"), 0.0)
         pnl_krw = self._managed_pool_num_value((candidate or {}).get("pnl_krw"), 0.0)
+        unit_consistency = self._build_sell_unit_consistency_snapshot(
+            row=dict(candidate or {}), qty=qty, current_price=current_price,
+            selected_valuation_krw=self._managed_pool_num_value((candidate or {}).get("position_value_krw"), 0.0),
+        )
 
         def _log(event: str, **fields) -> None:
             try:
@@ -42393,6 +42469,21 @@ class MainWindow(QMainWindow):
                 pass
 
         _log("sell_apply_candidate", actual_order=False, submitted=0, reason=reason)
+        self._log_sell_unit_consistency(
+            symbol=symbol, qty=qty, current_price=current_price, pnl_pct=pnl_pct, state=unit_consistency
+        )
+        if bool(unit_consistency.get("valuation_unit_mismatch")):
+            _log("sell_blocked_by_unit_mismatch", **unit_consistency,
+                 blocker="sell_blocked_by_valuation_unit_mismatch", actual_order=False, submitted=0)
+            try:
+                self._append_aits_live_log(
+                    f"{symbol} 수량·현재가·평가금액이 일치하지 않아 손익 판단과 매도를 보류했습니다.",
+                    category="pipeline", level="warning", event="sell_blocked_by_unit_mismatch", symbol=symbol,
+                )
+            except Exception:
+                pass
+            return {"submitted_count": 0, "actual_order": False,
+                    "blocker": "sell_blocked_by_valuation_unit_mismatch", **unit_consistency}
         if not self._sell_apply_runtime_active():
             _log("sell_intent_blocked", blocker="runtime_not_active_for_sell_apply", actual_order=False, submitted=0)
             return {"submitted_count": 0, "actual_order": False, "blocker": "runtime_not_active_for_sell_apply"}
@@ -42447,6 +42538,9 @@ class MainWindow(QMainWindow):
                 "stale_price": False,
                 "execution_mode": "live",
                 "dry_run": False,
+                "valuation_unit_consistency_checked": bool(unit_consistency.get("valuation_unit_consistency_checked")),
+                "valuation_unit_mismatch": bool(unit_consistency.get("valuation_unit_mismatch")),
+                "pnl_valid_for_sell": bool(unit_consistency.get("pnl_valid_for_sell")),
             }
             _log("sell_guard_check_started", actual_order=False, submitted=0)
             risk_guard = RiskGuard()
@@ -42516,6 +42610,9 @@ class MainWindow(QMainWindow):
                     "aits_enabled": True,
                     "selected_provider": str(getattr(self, "_applied_ai_provider", "") or "aits"),
                     "source": "sell_apply_guard",
+                    "valuation_unit_consistency_checked": bool(unit_consistency.get("valuation_unit_consistency_checked")),
+                    "valuation_unit_mismatch": bool(unit_consistency.get("valuation_unit_mismatch")),
+                    "pnl_valid_for_sell": bool(unit_consistency.get("pnl_valid_for_sell")),
                 }
             )
             _log("sell_preflight_started", actual_order=False, submitted=0)
@@ -42649,6 +42746,9 @@ class MainWindow(QMainWindow):
             value = self._managed_pool_num_value(row.get("eval_krw") or row.get("value_krw") or row.get("position_value_krw"), 0.0)
             if current <= 0.0 and qty > 0.0 and value > 0.0:
                 current = value / qty
+            unit_consistency = self._build_sell_unit_consistency_snapshot(
+                row=row, qty=qty, current_price=current, selected_valuation_krw=value
+            )
             weight = self._managed_pool_num_value(row.get("position_weight_pct") or row.get("weight_pct") or row.get("weight"), 0.0)
             target = self._managed_pool_num_value(row.get("target_weight_pct") or row.get("target_weight") or row.get("ai_target_weight") or row.get("user_target_weight"), 0.0)
             blocker = ""
@@ -42663,9 +42763,18 @@ class MainWindow(QMainWindow):
                 blocker = "pnl_source_missing_for_external_holding" if is_external else "pnl_source_missing_for_sell"
                 missing_symbols.append(symbol)
                 reason_text = "avg_or_current_price_missing"
+            elif bool(unit_consistency.get("valuation_unit_mismatch")):
+                blocker = "sell_blocked_by_valuation_unit_mismatch"
+                reason_text = "qty_price_valuation_unit_mismatch"
+                self._log_sell_unit_consistency(
+                    symbol=symbol, qty=qty, current_price=current, pnl_pct=0.0, state=unit_consistency
+                )
             else:
                 pnl_krw = (current - avg) * qty
                 pnl_pct = (current - avg) / avg * 100.0
+                self._log_sell_unit_consistency(
+                    symbol=symbol, qty=qty, current_price=current, pnl_pct=pnl_pct, state=unit_consistency
+                )
                 if pnl_pct > top_pnl_pct:
                     top_pnl_pct = pnl_pct
                     top_symbol = symbol

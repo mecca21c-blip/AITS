@@ -191,3 +191,7 @@ Normalized manageable holdings are account/position facts owned by BASIC and mus
 ## Holdings Valuation Boundary
 
 BASIC reconciles real holding valuation sources before classifying dust or manageable holdings. Current-market valuation and cost basis are distinct facts. Only the selected valuation SSOT controls target membership; alternative valuations remain audit evidence. A threshold-boundary warning never changes the configured threshold, creates an AI action, or authorizes an order.
+
+## Sell Unit Consistency Boundary
+
+BASIC may expose PnL as valid for sell only when quantity, current price, and selected valuation use a consistent KRW valuation unit. A mismatch is factual safety evidence delivered to AI, RiskGuard, and LivePreflight. It blocks sell submission without replacing or rewriting the AI action.

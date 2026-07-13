@@ -8671,6 +8671,12 @@ def _live_on_runtime_e2e_next_fix_target(blocker: str) -> str:
         "wait_hold_decision_not_registered": "register validated wait/hold decisions with positive ETA",
         "invalidation_missing_blocked_eta_registration": "allow ETA registration when invalidation conditions are empty",
         "ai_decision_runtime_state_registration_ready": "continue ETA waiting and invalidation runtime observation",
+        "sell_unit_guard_missing": "add sell quantity-price-valuation consistency guard",
+        "sell_unit_mismatch_not_detected": "inspect sell valuation source propagation",
+        "sell_unit_mismatch_submit_not_blocked": "verify patched sell unit guard in a separately approved runtime session",
+        "order_reconciliation_missed_submit": "align actual submit request IDs with reconciliation scope",
+        "sell_pnl_price_valuation_unit_ssot_ready": "continue passive sell safety observation",
+        "sell_unit_guard_static_ready_runtime_unverified": "await explicit approval for patched runtime verification",
     }
     return mapping.get(blocker, "inspect earliest missing live runtime stage")
 
@@ -9231,6 +9237,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     holdings_ssot_lines = [line for line in lines if "[AITS][HoldingsSSOT]" in line]
     managed_pool_recovery_lines = [line for line in lines if "[AITS][ManagedPoolRecovery]" in line]
     holdings_valuation_ssot_lines = [line for line in lines if "[AITS][HoldingsValuationSSOT]" in line]
+    sell_unit_guard_lines = [line for line in lines if "[AITS][SellUnitGuard]" in line]
+    sell_unit_checked_lines = [
+        line for line in sell_unit_guard_lines
+        if "event=sell_unit_consistency_checked" in line
+        or "event=sell_unit_consistency_passed" in line
+        or "event=sell_unit_mismatch_detected" in line
+    ]
+    sell_unit_mismatch_lines = [line for line in sell_unit_guard_lines if "event=sell_unit_mismatch_detected" in line]
+    sell_unit_blocked_lines = [
+        line for line in lines
+        if "event=sell_blocked_by_unit_mismatch" in line or "event=sell_rejected_by_unit_mismatch" in line
+    ]
+    sell_unit_passed_lines = [line for line in sell_unit_guard_lines if "event=sell_unit_consistency_passed" in line]
+    try:
+        sell_unit_guard_enabled = "[AITS][SellUnitGuard]" in (ROOT / "app" / "ui" / "app_gui.py").read_text(encoding="utf-8")
+    except Exception:
+        sell_unit_guard_enabled = False
     valuation_source_collected_lines = [line for line in holdings_valuation_ssot_lines if "event=valuation_source_collected" in line]
     valuation_source_conflict_lines = [line for line in holdings_valuation_ssot_lines if "event=valuation_source_conflict_detected" in line]
     valuation_ssot_selected_lines = [line for line in holdings_valuation_ssot_lines if "event=valuation_ssot_selected" in line]
@@ -9292,6 +9315,14 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         symbol for line in valuation_source_conflict_lines
         for symbol in _aits_split_symbol_field(_live_on_stage_extract_value(line, "symbol"))
     })
+    valuation_conflicts_resolved = all(
+        any(
+            _live_on_stage_extract_value(line, "symbol") == symbol
+            and _live_on_stage_extract_value(line, "selected_valuation_source") not in ("", "-", "unavailable")
+            for line in valuation_ssot_selected_lines
+        )
+        for symbol in valuation_source_conflict_symbols
+    )
     blast_valuation_collected_lines = [line for line in valuation_source_collected_lines if "symbol=KRW-BLAST" in line]
     blast_valuation_selected_lines = [line for line in valuation_ssot_selected_lines if "symbol=KRW-BLAST" in line]
     blast_valuation_boundary_lines = [line for line in valuation_boundary_lines if "symbol=KRW-BLAST" in line]
@@ -9348,6 +9379,46 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         valuation_ssot_selected_lines
         and not managed_pool_excluded_due_to_alternative_dust
         and (not blast_final_manageable or blast_target_set_stable_despite_valuation_conflict)
+    )
+    blast_sell_candidate_lines = [
+        line for line in lines
+        if "symbol=KRW-BLAST" in line
+        and "[AITS][SellApplyGuard]" in line
+        and "event=sell_apply_candidate" in line
+    ]
+    blast_actual_submit_results = [
+        line for line in lines
+        if "symbol=KRW-BLAST" in line
+        and "[AITS][SellApplyGuard]" in line
+        and "event=sell_submit_result" in line
+        and _live_on_runtime_bool_marker(line, "actual_order")
+    ]
+    blast_actual_request_id = (
+        _live_on_stage_extract_value(blast_actual_submit_results[-1], "request_id")
+        if blast_actual_submit_results else ""
+    )
+    blast_submit_candidates = [
+        line for line in blast_sell_candidate_lines
+        if blast_actual_request_id and _live_on_stage_extract_value(line, "request_id") == blast_actual_request_id
+    ]
+    blast_submit_candidate = (blast_submit_candidates or blast_sell_candidate_lines or [""])[0]
+    blast_sell_qty = _safe_float(_live_on_stage_extract_value(blast_submit_candidate, "qty"), 0.0)
+    blast_sell_current_price = _safe_float(_live_on_stage_extract_value(blast_submit_candidate, "current_price"), 0.0)
+    blast_valuation_expected_krw = (
+        blast_sell_qty * blast_sell_current_price
+        if blast_sell_qty > 0.0 and blast_sell_current_price > 0.0 else 0.0
+    )
+    blast_valuation_abs_diff_krw = (
+        abs(blast_selected_valuation_krw - blast_valuation_expected_krw)
+        if blast_selected_valuation_krw > 0.0 and blast_valuation_expected_krw > 0.0 else 0.0
+    )
+    blast_valuation_relative_diff = (
+        blast_valuation_abs_diff_krw / max(blast_selected_valuation_krw, blast_valuation_expected_krw, 1.0)
+        if blast_valuation_abs_diff_krw > 0.0 else 0.0
+    )
+    inferred_blast_unit_mismatch = bool(
+        blast_valuation_abs_diff_krw
+        > max(500.0, max(blast_selected_valuation_krw, blast_valuation_expected_krw, 1.0) * 0.05)
     )
     initial_seed_trigger_lines = [line for line in initial_seed_lines if "event=initial_seed_trigger_detected" in line]
     initial_seed_skipped_lines = [line for line in initial_seed_lines if "event=initial_seed_skipped" in line]
@@ -9905,6 +9976,26 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     sell_submit_count = max(sell_submit_count, sum(1 for line in sell_submit_result_lines if _live_on_runtime_bool_marker(line, "actual_order")))
     side_sell_submit_count = sell_submit_count
     actual_sell_order_count = sum(1 for line in submit_lines if "side=sell" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order"))
+    actual_sell_submit_detected = bool(side_sell_submit_count > 0 or actual_sell_order_count > 0)
+    actual_buy_submit_detected = any(
+        "side=buy" in line.lower() and _live_on_runtime_bool_marker(line, "actual_order")
+        for line in submit_lines
+    )
+    valuation_unit_mismatch_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_unit_mismatch_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    } | ({"KRW-BLAST"} if inferred_blast_unit_mismatch else set()))
+    pnl_invalid_for_sell_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_unit_guard_lines
+        if "pnl_valid_for_sell=False" in line and _live_on_stage_extract_value(line, "symbol")
+    } | ({"KRW-BLAST"} if inferred_blast_unit_mismatch else set()))
+    sell_blocked_by_unit_mismatch_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in sell_unit_blocked_lines
+        if _live_on_stage_extract_value(line, "symbol")
+    })
     external_holding_sell_submit_count = sum(1 for line in submit_lines if "side=sell" in line.lower() and "external_holding" in line.lower())
     pnl_source_missing_symbols = sorted({
         _live_on_stage_extract_value(line, "symbol")
@@ -10467,10 +10558,7 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             valuation_ssot_blocker = "valuation_ssot_source_missing"
         elif managed_pool_excluded_due_to_alternative_dust:
             valuation_ssot_blocker = "alternative_dust_removed_manageable_holding"
-        elif valuation_source_conflict_lines and not all(
-            _live_on_stage_extract_value(line, "selected_valuation_source") not in ("", "-", "unavailable")
-            for line in valuation_ssot_selected_lines
-        ):
+        elif valuation_source_conflict_lines and not valuation_conflicts_resolved:
             valuation_ssot_blocker = "valuation_source_conflict_unresolved"
         elif blast_dust_by_alternative_source and not blast_threshold_boundary_detected:
             valuation_ssot_blocker = "valuation_threshold_boundary_untracked"
@@ -10484,6 +10572,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = valuation_ssot_blocker
             if valuation_ssot_blocker not in all_blockers:
                 all_blockers.insert(0, valuation_ssot_blocker)
+    sell_unit_guard_blocker = ""
+    if inferred_blast_unit_mismatch or sell_unit_guard_lines or sell_unit_guard_enabled:
+        if inferred_blast_unit_mismatch and actual_sell_submit_detected and "KRW-BLAST" not in sell_blocked_by_unit_mismatch_symbols:
+            sell_unit_guard_blocker = "sell_unit_mismatch_submit_not_blocked"
+        elif not sell_unit_guard_enabled:
+            sell_unit_guard_blocker = "sell_unit_guard_missing"
+        elif sell_unit_guard_lines and not sell_unit_checked_lines:
+            sell_unit_guard_blocker = "sell_unit_mismatch_not_detected"
+        elif sell_unit_blocked_lines or sell_unit_passed_lines:
+            sell_unit_guard_blocker = "sell_pnl_price_valuation_unit_ssot_ready"
+        else:
+            sell_unit_guard_blocker = "sell_unit_guard_static_ready_runtime_unverified"
+        first_blocker = sell_unit_guard_blocker
+        if sell_unit_guard_blocker not in all_blockers:
+            all_blockers.insert(0, sell_unit_guard_blocker)
     if not target_session_lines:
         first_blocker = "no_active_on_session"
 
@@ -11071,6 +11174,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "managed_pool_excluded_due_to_alternative_dust": bool(managed_pool_excluded_due_to_alternative_dust),
         "valuation_ssot_consistency_ready": bool(valuation_ssot_consistency_ready),
         "valuation_ssot_blocker": str(valuation_ssot_blocker),
+        "sell_unit_guard_enabled": bool(sell_unit_guard_enabled),
+        "sell_unit_consistency_checked": bool(sell_unit_checked_lines),
+        "sell_unit_mismatch_detected": bool(sell_unit_mismatch_lines or inferred_blast_unit_mismatch),
+        "sell_blocked_by_unit_mismatch": bool(sell_unit_blocked_lines),
+        "sell_unit_consistency_passed": bool(sell_unit_passed_lines),
+        "valuation_unit_consistency_checked": bool(sell_unit_checked_lines),
+        "valuation_unit_mismatch_symbols": valuation_unit_mismatch_symbols,
+        "pnl_invalid_for_sell_symbols": pnl_invalid_for_sell_symbols,
+        "sell_blocked_by_valuation_unit_mismatch_symbols": sell_blocked_by_unit_mismatch_symbols,
+        "blast_sell_unit_consistency_checked": any("symbol=KRW-BLAST" in line for line in sell_unit_checked_lines),
+        "blast_valuation_expected_krw": float(blast_valuation_expected_krw),
+        "blast_valuation_selected_krw": float(blast_selected_valuation_krw),
+        "blast_valuation_abs_diff_krw": float(blast_valuation_abs_diff_krw),
+        "blast_valuation_relative_diff": float(blast_valuation_relative_diff),
+        "blast_sell_blocked_by_unit_mismatch": "KRW-BLAST" in sell_blocked_by_unit_mismatch_symbols,
+        "actual_sell_submit_detected": bool(actual_sell_submit_detected),
+        "actual_buy_submit_detected": bool(actual_buy_submit_detected),
+        "sell_unit_guard_blocker": str(sell_unit_guard_blocker),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),
@@ -11212,13 +11333,32 @@ def _run_live_on_runtime_e2e_diagnostic(
 
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
+    reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
+    all_lines = list(lines)
+    target_lines, target_provenance, _target_started_at, _target_start, _target_end, _ = _latest_non_harness_runtime_session(lines, reports)
+    if target_lines:
+        lines = target_lines
+    order_reconciliation_scope_pid = int(
+        _safe_float(_live_on_stage_extract_value(target_provenance, "process_pid"), 0.0)
+    )
+    target_seed_lines = [line for line in lines if "[AITS][AIManagementSeed]" in line and "session_id=" in line]
+    order_reconciliation_scope_session = (
+        _live_on_stage_extract_value(target_seed_lines[-1], "session_id") if target_seed_lines else ""
+    )
+    excluded_harness_pids = sorted({
+        int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0))
+        for line in all_lines
+        if "[AITS][RuntimeProvenance]" in line
+        and _harness_report_for_session_start(_runtime_provenance_line_ts(line), reports)
+        and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) > 0
+    })
     request_ids: list[str] = []
     orders: dict[str, dict[str, Any]] = {}
     before_first: list[float] = []
     between_orders: list[float] = []
     after_latest: list[float] = []
     for line in lines:
-        if "[AITS][LiveOrderPipeline]" in line:
+        if "[AITS][LiveOrderPipeline]" in line or "[AITS][SellApplyGuard]" in line:
             rid = _live_on_stage_extract_value(line, "request_id")
             if rid:
                 order = orders.setdefault(
@@ -11238,9 +11378,14 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
                 if not order.get("symbol"):
                     order["symbol"] = _live_on_stage_extract_value(line, "symbol")
                 if not order.get("side"):
-                    order["side"] = _live_on_stage_extract_value(line, "side")
+                    order["side"] = _live_on_stage_extract_value(line, "side") or (
+                        "sell" if "[AITS][SellApplyGuard]" in line else ""
+                    )
                 if not order.get("amount_krw"):
-                    order["amount_krw"] = _live_on_runtime_e2e_extract_amount(line)
+                    order["amount_krw"] = (
+                        _safe_float(_live_on_stage_extract_value(line, "estimated_sell_value_krw"), 0.0)
+                        or _live_on_runtime_e2e_extract_amount(line)
+                    )
                 for event in (
                     "candidate_selected",
                     "router_validation_result",
@@ -11250,10 +11395,15 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
                     "order_submit_attempt",
                     "order_submit_result",
                     "order_duplicate_blocked",
+                    "sell_submit_requested",
+                    "sell_submit_result",
                 ):
                     if f"event={event}" in line:
                         order["events"][event] = int(order["events"].get(event) or 0) + 1
-                if _live_on_runtime_bool_marker(line, "actual_order"):
+                if _live_on_runtime_bool_marker(line, "actual_order") and (
+                    _safe_float(_live_on_stage_extract_value(line, "submitted_count"), 0.0) > 0
+                    or _safe_float(_live_on_stage_extract_value(line, "submitted"), 0.0) > 0
+                ):
                     order["actual_order"] = True
                     if rid not in request_ids:
                         request_ids.append(rid)
@@ -11273,6 +11423,35 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
                     after_latest.append(available)
 
     audited_orders = [orders[rid] for rid in request_ids if rid in orders]
+    audited_sell_orders = [
+        order for order in audited_orders
+        if str(order.get("side") or "").lower() == "sell" and bool(order.get("actual_order"))
+    ]
+    audited_buy_orders = [
+        order for order in audited_orders
+        if str(order.get("side") or "").lower() == "buy" and bool(order.get("actual_order"))
+    ]
+    raw_actual_submit_lines = [
+        line for line in lines
+        if _live_on_runtime_bool_marker(line, "actual_order")
+        and (
+            _safe_float(_live_on_stage_extract_value(line, "submitted_count"), 0.0) > 0
+            or _safe_float(_live_on_stage_extract_value(line, "submitted"), 0.0) > 0
+        )
+    ]
+    raw_submit_request_ids = sorted({
+        _live_on_stage_extract_value(line, "request_id")
+        for line in raw_actual_submit_lines
+        if _live_on_stage_extract_value(line, "request_id")
+    })
+    missed_request_ids = sorted(set(raw_submit_request_ids) - set(request_ids))
+    missed_submit_symbols = sorted({
+        _live_on_stage_extract_value(line, "symbol")
+        for line in raw_actual_submit_lines
+        if _live_on_stage_extract_value(line, "request_id") in missed_request_ids
+        and _live_on_stage_extract_value(line, "symbol")
+    })
+    order_reconciliation_missed_submit_detected = bool(missed_request_ids)
     def _parse_order_time(order: dict[str, Any]):
         try:
             text = str(order.get("first_seen_at") or "")
@@ -11448,7 +11627,11 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
     first_before = before_first[0] if before_first else 0.0
     delta = first_before - latest_after if first_before and latest_after else 0.0
     expected_delta = 10000 * max(1, len(audited_orders))
-    if latest_reflection_ok and historical_reflection_missing_count > 0:
+    if order_reconciliation_missed_submit_detected:
+        first_blocker = "order_reconciliation_missed_submit"
+        next_fix_target = "fix_actual_submit_request_scope_reconciliation"
+        reconciliation_status = "blocked"
+    elif latest_reflection_ok and historical_reflection_missing_count > 0:
         first_blocker = "latest_post_submit_reflection_ok"
         next_fix_target = "continue_on_observation_with_position_risk_and_loss_monitoring"
         reconciliation_status = "latest_reconciled_with_historical_gaps"
@@ -11475,6 +11658,15 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
             "log_path": log_path,
             "log_read_error": log_read_error,
             "audited_order_count": len(audited_orders),
+            "audited_sell_order_count": len(audited_sell_orders),
+            "actual_sell_submit_detected": bool(audited_sell_orders),
+            "actual_buy_submit_detected": bool(audited_buy_orders),
+            "order_reconciliation_scope_pid": int(order_reconciliation_scope_pid),
+            "order_reconciliation_scope_session": str(order_reconciliation_scope_session or ""),
+            "excluded_harness_pids": excluded_harness_pids,
+            "order_reconciliation_missed_submit_detected": bool(order_reconciliation_missed_submit_detected),
+            "missed_submit_symbols": missed_submit_symbols,
+            "missed_submit_count": int(len(missed_request_ids)),
             "audited_request_ids": [order.get("request_id") for order in audited_orders],
             "audited_orders": audited_orders,
             "trade_log_reflected_count": trade_log_reflected_count,

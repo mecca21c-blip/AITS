@@ -2057,3 +2057,11 @@ summary modes.
 - Dust and manageable classification use only `selected_valuation_krw`. Alternative dust classifications are warnings, not target-set exclusion reasons.
 - A valuation within 100 KRW of `managed_holding_min_value_krw` emits a threshold-boundary audit. The boundary does not change the configured threshold or reverse the selected classification.
 - `HoldingsValuationSSOT` events expose collected sources, freshness, conflicts, selected valuation, threshold gap, and final classification. The live summary verifies that Managed Pool, SellEvaluation, and initial AI payload targets remain stable.
+
+## Sell Price/Quantity/Valuation Unit Guard
+
+- Before sell PnL or intent creation, BASIC verifies `selected_valuation_krw` against `qty * current_price`.
+- A difference above the larger of 500 KRW or 5 percent marks PnL invalid and blocks sell regardless of the AI action.
+- RiskGuard and LivePreflight accept the same mismatch fields as final sell-only defenses. This safety block creates no action.
+- `SellUnitGuard` records expected/selected valuation, absolute and relative differences, sources, and `submitted=0` without exposing account or provider secrets.
+- Reconciliation aggregates target PID/session events from both `LiveOrderPipeline` and `SellApplyGuard`; an actual submit may never be omitted merely because it used the guarded sell request prefix.
