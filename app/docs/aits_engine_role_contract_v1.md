@@ -183,3 +183,7 @@ BASIC owns factual market/indicator calculation from real runtime sources and re
 BASIC may normalize and monitor AI invalidation conditions, but a triggered condition only requests AI redecision. Unsupported or partial conditions cannot produce buy, sell, rotate, promotion, or execution actions.
 
 MACD existence is a registration fact, not a market decision. Status visibility logs contain Korean UI copy for audit and cannot carry raw provider payloads or secrets.
+
+## Managed Holding Recovery Boundary
+
+Normalized manageable holdings are account/position facts owned by BASIC and must remain represented in the Managed Pool, SellEvaluation, and position-management payload target sets. Recovery protects an existing holding; it is not promotion, rotation, an AI action, or an order. Dust balances remain excluded, while a configured pool-size limit cannot evict an actual manageable holding.

@@ -1804,6 +1804,14 @@ def _run_managed_pool_holdings_include_summary(report: dict[str, Any]) -> None:
         "managed_pool_dust_symbols_excluded": sorted(set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows)),
         "managed_pool_dust_symbols_readded": managed_pool_dust_symbols_readded,
         "managed_pool_manageable_holding_symbols": manageable_holding_symbols,
+        "blast_manageable_holding_detected": "KRW-BLAST" in manageable_holding_symbols,
+        "blast_in_managed_pool": "KRW-BLAST" in managed_set,
+        "blast_holding_recovery_applied": any(
+            _row_symbol(row) == "KRW-BLAST"
+            and bool(row.get("holding_recovery_exception"))
+            for row in managed_rows if isinstance(row, dict)
+        ),
+        "holding_recovery_consistency_ready": bool(holding_source_available and not missing),
         "managed_pool_missing_real_holding_symbols": missing,
         "ethf_dust_excluded": bool("KRW-ETHF" in set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows) and "KRW-ETHF" not in set(manageable_holding_symbols)),
         "ethw_dust_excluded": bool("KRW-ETHW" in set((snapshot.get("dust_holding_symbols") or []) + dust_holding_symbols_from_rows) and "KRW-ETHW" not in set(manageable_holding_symbols)),
@@ -9221,6 +9229,12 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     eta_redecision_lines = [line for line in lines if "[AITS][ETAReDecision]" in line]
     initial_seed_lines = [line for line in lines if "[AITS][AIManagementSeed]" in line]
     holdings_ssot_lines = [line for line in lines if "[AITS][HoldingsSSOT]" in line]
+    managed_pool_recovery_lines = [line for line in lines if "[AITS][ManagedPoolRecovery]" in line]
+    holding_recovery_candidate_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_candidate_detected" in line]
+    holding_recovery_excluded_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_candidate_excluded" in line]
+    holding_recovery_applied_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_applied" in line]
+    holding_recovery_removed_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_removed_by_later_writer" in line]
+    holding_recovery_consistency_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_final_consistency_check" in line]
     holdings_snapshot_lines = [line for line in holdings_ssot_lines if "event=normalized_snapshot_built" in line]
     holdings_consistency_lines = [line for line in holdings_ssot_lines if "event=target_set_consistency_check" in line]
     latest_holdings_snapshot = holdings_snapshot_lines[-1] if holdings_snapshot_lines else ""
@@ -9246,6 +9260,27 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     sell_eval_missing_manageable_holding_symbols = sorted(set(normalized_manageable_holding_symbols) - set(sell_eval_target_symbols_ssot)) if holdings_consistency_lines else []
     ai_payload_missing_manageable_holding_symbols = sorted(set(normalized_manageable_holding_symbols) - set(initial_position_payload_symbols_ssot)) if holdings_consistency_lines else []
     dust_readded_symbols = sorted(set(normalized_dust_holding_symbols) & set(managed_pool_manageable_holding_symbols))
+    recovery_candidate_symbols = sorted({
+        symbol for line in holding_recovery_candidate_lines
+        for symbol in _aits_split_symbol_field(_live_on_stage_extract_value(line, "symbol"))
+    })
+    recovery_applied_symbols = sorted({
+        symbol for line in holding_recovery_applied_lines
+        for symbol in _aits_split_symbol_field(_live_on_stage_extract_value(line, "symbol"))
+    })
+    recovery_removed_symbols = sorted({
+        symbol for line in holding_recovery_removed_lines
+        for symbol in _aits_split_symbol_field(_live_on_stage_extract_value(line, "symbol"))
+    })
+    blast_manageable_holding_detected = "KRW-BLAST" in normalized_manageable_holding_symbols
+    blast_in_managed_pool = "KRW-BLAST" in managed_pool_manageable_holding_symbols
+    blast_in_sell_eval_targets = "KRW-BLAST" in sell_eval_target_symbols_ssot
+    blast_in_initial_payload_targets = "KRW-BLAST" in initial_position_payload_symbols_ssot
+    blast_holding_recovery_attempted = "KRW-BLAST" in recovery_candidate_symbols
+    blast_holding_recovery_applied = "KRW-BLAST" in recovery_applied_symbols
+    blast_removed_by_later_writer = "KRW-BLAST" in recovery_removed_symbols
+    blast_exclusion_lines = [line for line in holding_recovery_excluded_lines if "symbol=KRW-BLAST" in line]
+    blast_holding_recovery_exclusion_reason = _live_on_stage_extract_value(blast_exclusion_lines[-1], "exclusion_reason") if blast_exclusion_lines else ""
     holdings_target_sets_consistent = bool(
         holdings_consistency_lines
         and not holdings_target_set_mismatch_symbols
@@ -9253,6 +9288,11 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         and not sell_eval_missing_manageable_holding_symbols
         and not ai_payload_missing_manageable_holding_symbols
         and not dust_readded_symbols
+    )
+    holding_recovery_consistency_ready = bool(
+        holdings_target_sets_consistent
+        and (not blast_manageable_holding_detected or blast_in_managed_pool)
+        and not blast_removed_by_later_writer
     )
     initial_seed_trigger_lines = [line for line in initial_seed_lines if "event=initial_seed_trigger_detected" in line]
     initial_seed_skipped_lines = [line for line in initial_seed_lines if "event=initial_seed_skipped" in line]
@@ -10348,6 +10388,24 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = macd_status_blocker
             if macd_status_blocker not in all_blockers:
                 all_blockers.insert(0, macd_status_blocker)
+    holding_recovery_blocker = ""
+    if managed_pool_recovery_lines or blast_manageable_holding_detected:
+        if blast_manageable_holding_detected and not blast_holding_recovery_attempted:
+            holding_recovery_blocker = "blast_holding_recovery_not_attempted"
+        elif blast_removed_by_later_writer:
+            holding_recovery_blocker = "blast_removed_by_later_writer"
+        elif blast_manageable_holding_detected and not blast_in_managed_pool:
+            holding_recovery_blocker = "blast_holding_missing_from_managed_pool"
+        elif dust_readded_symbols:
+            holding_recovery_blocker = "dust_holding_readded_to_managed_pool"
+        elif holding_recovery_consistency_ready:
+            holding_recovery_blocker = "managed_pool_holding_recovery_ready"
+        else:
+            holding_recovery_blocker = "holding_recovery_consistency_pending"
+        if runtime_contract_active:
+            first_blocker = holding_recovery_blocker
+            if holding_recovery_blocker not in all_blockers:
+                all_blockers.insert(0, holding_recovery_blocker)
     if not target_session_lines:
         first_blocker = "no_active_on_session"
 
@@ -10905,6 +10963,19 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "kat_in_initial_payload_targets": "KRW-KAT" in initial_position_payload_symbols_ssot,
         "dust_readded_to_managed_pool": bool(dust_readded_symbols),
         "holdings_ssot_blocker": str(holdings_ssot_blocker),
+        "blast_manageable_holding_detected": bool(blast_manageable_holding_detected),
+        "blast_in_managed_pool": bool(blast_in_managed_pool),
+        "blast_in_sell_eval_targets": bool(blast_in_sell_eval_targets),
+        "blast_in_initial_payload_targets": bool(blast_in_initial_payload_targets),
+        "blast_holding_recovery_attempted": bool(blast_holding_recovery_attempted),
+        "blast_holding_recovery_applied": bool(blast_holding_recovery_applied),
+        "blast_holding_recovery_exclusion_reason": str(blast_holding_recovery_exclusion_reason),
+        "blast_removed_by_later_writer": bool(blast_removed_by_later_writer),
+        "holding_recovery_candidate_symbols": recovery_candidate_symbols,
+        "holding_recovery_applied_symbols": recovery_applied_symbols,
+        "holding_recovery_removed_symbols": recovery_removed_symbols,
+        "holding_recovery_consistency_ready": bool(holding_recovery_consistency_ready),
+        "holding_recovery_blocker": str(holding_recovery_blocker),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),

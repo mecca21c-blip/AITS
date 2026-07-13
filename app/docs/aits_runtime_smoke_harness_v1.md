@@ -2040,3 +2040,12 @@ summary modes.
 - Missing MACD remains watcher-unavailable. Neither case creates a direct action.
 - `StatusVisibility` records the same safe Korean candidate text supplied to the status summary or LIVE LOG. It stores no raw event object, prompt, account body, or secret.
 - Screen capture remains a separate user-facing verification; the harness validates backend rendering evidence and snake-case leakage.
+
+## Managed Holding Recovery Provenance
+
+- Every normalized manageable holding must be represented in the Managed Pool, even when it appears after startup through an Investment Center or portfolio snapshot.
+- The active `CandidateFeedState.score_update` writer periodically runs holding recovery; restore-time and live-account refresh are not its only entrypoints.
+- `ManagedPoolRecovery` events distinguish scan, candidate, dust exclusion, applied recovery, later-writer removal, and final consistency.
+- Recovered holdings use `managed_holding_recovered` provenance and an explicit holding-recovery exception marker. They are never counted as AI-promoted candidates.
+- Actual manageable holdings take precedence over the configured pool size. Dust holdings and non-holding candidates cannot use this recovery path.
+- The harness reports BLAST recovery attempt/application, later-writer removal, SellEvaluation/initial-payload membership, and final target-set consistency.

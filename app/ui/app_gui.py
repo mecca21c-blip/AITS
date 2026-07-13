@@ -19131,6 +19131,33 @@ class MainWindow(QMainWindow):
         rows = list(getattr(self, "ai_managed_rows", None) or [])
         holding_rows = self._load_managed_pool_live_holding_rows(reason=reason, holdings=holdings)
         dust_excluded_current = [row for row in (getattr(self, "_last_managed_pool_dust_excluded", []) or []) if isinstance(row, dict)]
+        recovery_logger = logging.getLogger("aits")
+        before_symbols = {
+            self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+            for row in rows if isinstance(row, dict)
+        }
+        before_symbols.discard("")
+        max_count = self._get_managed_pool_max_size_value()
+        recovery_logger.info(
+            "[AITS][ManagedPoolRecovery] event=holding_recovery_scan_started symbol=- managed_pool_before=%s max_size=%s current_size=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
+            ",".join(sorted(before_symbols)) or "-", int(max_count), len(rows), reason,
+        )
+        for holding in holding_rows:
+            recovery_logger.info(
+                "[AITS][ManagedPoolRecovery] event=holding_recovery_candidate_detected symbol=%s qty=%s valuation_krw=%s dust=False manageable=True source_type=%s protected=True managed_pool_before=%s max_size=%s current_size=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
+                holding.get("symbol") or "-", holding.get("qty") or holding.get("quantity") or 0,
+                holding.get("eval_krw") or holding.get("value_krw") or holding.get("position_value_krw") or 0,
+                holding.get("source_type") or "live_holding", ",".join(sorted(before_symbols)) or "-",
+                int(max_count), len(rows), reason,
+            )
+        for holding in dust_excluded_current:
+            recovery_logger.info(
+                "[AITS][ManagedPoolRecovery] event=holding_recovery_candidate_excluded symbol=%s qty=%s valuation_krw=%s dust=True manageable=False source_type=dust_holding protected=False exclusion_reason=dust_holding writer=_ensure_managed_pool_holdings_included callsite=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
+                holding.get("symbol") or holding.get("market") or "-",
+                holding.get("qty") or holding.get("quantity") or 0,
+                holding.get("eval_krw") or holding.get("value_krw") or holding.get("position_value_krw") or 0,
+                reason,
+            )
         if not holding_rows and not dust_excluded_current:
             return {
                 "status": "no_holdings",
@@ -19165,7 +19192,7 @@ class MainWindow(QMainWindow):
             source_type = str(clean.get("source_type") or clean.get("source") or "").strip().lower()
             user_added = bool(clean.get("user_added") or source_type == "user_added" or str(clean.get("source") or "").strip().upper() == "USER")
             dust_info = self._managed_pool_holding_dust_policy(clean)
-            if source_type in {"live_holding", "holding", "external_holding"} and not user_added and bool(dust_info.get("is_dust_holding")):
+            if source_type in {"live_holding", "holding", "external_holding", "managed_holding_recovered"} and not user_added and bool(dust_info.get("is_dust_holding")):
                 removed_dust.append(symbol)
                 continue
             cleaned_ordered.append(clean)
@@ -19180,13 +19207,25 @@ class MainWindow(QMainWindow):
                 continue
             existing = by_symbol.get(symbol)
             if existing is None:
-                ordered.insert(0, dict(holding))
+                recovered = dict(holding)
+                recovered.update({
+                    "source_type": "managed_holding_recovered",
+                    "holding_recovery_exception": True,
+                    "promotion_gate_exception_for_holding_recovery": True,
+                    "ai_promoted": False,
+                    "non_holding_promotion": False,
+                })
+                ordered.insert(0, recovered)
                 by_symbol[symbol] = ordered[0]
                 added.append(symbol)
                 continue
+            recovery_logger.info(
+                "[AITS][ManagedPoolRecovery] event=holding_recovery_already_present symbol=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
+                symbol, reason,
+            )
             existing.update({
                 "source": "HOLDING",
-                "source_type": holding.get("source_type") or "live_holding",
+                "source_type": existing.get("source_type") if existing.get("holding_recovery_exception") else (holding.get("source_type") or "live_holding"),
                 "status": holding.get("status") or "보유관리",
                 "ai_status": holding.get("ai_status") or holding.get("status") or "보유관리",
                 "holding": True,
@@ -19222,6 +19261,33 @@ class MainWindow(QMainWindow):
         self.ai_managed_rows = ordered
         max_count = self._get_managed_pool_max_size_value()
         overrode = bool(len(ordered) > max_count and holding_rows)
+        after_symbols = {str(row.get("symbol") or row.get("market") or "").strip() for row in ordered if isinstance(row, dict)}
+        after_symbols.discard("")
+        candidate_symbols = {str(row.get("symbol") or "").strip() for row in holding_rows if isinstance(row, dict)}
+        previous_recovered = set(getattr(self, "_aits_managed_pool_recovered_symbols", set()) or set())
+        for symbol in sorted((previous_recovered - before_symbols) & candidate_symbols):
+            recovery_logger.info(
+                "[AITS][ManagedPoolRecovery] event=holding_recovery_removed_by_later_writer symbol=%s exclusion_reason=later_writer_removed_recovered_holding writer=_ensure_managed_pool_holdings_included callsite=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
+                symbol, reason,
+            )
+        for symbol in added:
+            recovered_row = next((row for row in ordered if str(row.get("symbol") or "") == symbol), {})
+            recovery_logger.info(
+                "[AITS][ManagedPoolRecovery] event=holding_recovery_applied symbol=%s qty=%s valuation_krw=%s dust=False manageable=True source_type=%s protected=True managed_pool_before=%s managed_pool_after=%s max_size=%s current_size=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=True non_holding_promotion=False holding_recovery_exception=True actual_order=False submitted=0",
+                symbol, recovered_row.get("qty") or recovered_row.get("quantity") or 0,
+                recovered_row.get("eval_krw") or recovered_row.get("value_krw") or recovered_row.get("position_value_krw") or 0,
+                recovered_row.get("source_type") or "managed_holding_recovered",
+                ",".join(sorted(before_symbols)) or "-", ",".join(sorted(after_symbols)) or "-",
+                int(max_count), len(ordered), reason,
+            )
+        missing_after = sorted(candidate_symbols - after_symbols)
+        recovery_logger.info(
+            "[AITS][ManagedPoolRecovery] event=holding_recovery_final_consistency_check symbol=- managed_pool_before=%s managed_pool_after=%s max_size=%s current_size=%s exclusion_reason=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=%s non_holding_promotion=False missing_symbols=%s consistent=%s actual_order=False submitted=0",
+            ",".join(sorted(before_symbols)) or "-", ",".join(sorted(after_symbols)) or "-", int(max_count), len(ordered),
+            "holding_recovery_incomplete" if missing_after else "-", reason, bool(added),
+            ",".join(missing_after) or "-", not missing_after,
+        )
+        self._aits_managed_pool_recovered_symbols = previous_recovered | set(added)
         if added or updated or removed_dust:
             try:
                 self._log.info(
@@ -44250,6 +44316,20 @@ class MainWindow(QMainWindow):
             tp_pct = float(st.get("target_profit_pct", 3.0) or 3.0)
             sl_pct = float(st.get("stop_loss_pct", 1.5) or 1.5)
 
+            try:
+                now = time.time()
+                last_recovery_at = float(getattr(self, "_aits_managed_pool_active_recovery_at", 0.0) or 0.0)
+                if bool(getattr(self, "_aits_runtime_contract_active", False)) and now - last_recovery_at >= 30.0:
+                    self._aits_managed_pool_active_recovery_at = now
+                    self._ensure_managed_pool_holdings_included(
+                        reason="active_writer:CandidateFeedState.score_update",
+                        persist=True,
+                    )
+            except Exception as exc:
+                logging.getLogger("aits").info(
+                    "[AITS][ManagedPoolRecovery] event=holding_recovery_final_consistency_check writer=_update_ai_pool_statuses callsite=CandidateFeedState.score_update exclusion_reason=active_writer_exception exception_type=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
+                    type(exc).__name__,
+                )
             rows = self.ai_managed_rows or []
             position_limit_blocked = False
             prev_scores_for_queue = {}

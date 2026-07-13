@@ -268,3 +268,7 @@ The canonical position task is `position_management_decision`. Legacy aliases ar
 Generic market, indicator, PnL, volume, and volatility categories require feature or metric evidence before they become watcher triggers. Known aliases normalize to price, PnL, RSI, MACD, volume, volatility, cap, valuation, stale-data, or ETA watcher types. Recognized conditions without required thresholds are partial and cannot trigger redecision.
 
 `MACD exists` means that BASIC may register MACD as observable evidence. It does not define cross direction, threshold, redecision timing, or a trading action. A later comparable condition must provide that trigger meaning.
+
+## Managed Holding Recovery Policy
+
+Holding recovery is separate from the non-holding promotion trigger policy. A normalized manageable holding may be restored to the Managed Pool without an AI promotion decision because the operation preserves an already-held asset rather than selecting a new candidate. The recovery path rejects dust and non-holdings, records explicit provenance, and never creates an order or trading action.
