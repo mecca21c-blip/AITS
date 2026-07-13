@@ -9551,6 +9551,68 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         if _live_on_stage_extract_value(line, "unsupported_reason") not in ("", "-")
     })
     redecision_payload_lines = [line for line in eta_redecision_lines if "event=eta_redecision_payload_created" in line or "event=invalidation_redecision_payload_created" in line]
+    redecision_context_lines = [line for line in lines if "[AITS][AIReDecisionPayload]" in line]
+    redecision_context_started_lines = [line for line in redecision_context_lines if "event=redecision_context_population_started" in line]
+    redecision_position_merged_lines = [line for line in redecision_context_lines if "event=redecision_position_context_merged" in line]
+    redecision_portfolio_merged_lines = [line for line in redecision_context_lines if "event=redecision_portfolio_context_merged" in line]
+    redecision_context_completed_lines = [line for line in redecision_context_lines if "event=redecision_context_population_completed" in line]
+    redecision_context_missing_lines = [line for line in redecision_context_lines if "event=redecision_context_missing" in line]
+    redecision_quality_lines = [line for line in redecision_context_lines if "event=redecision_payload_quality_scored" in line]
+    redecision_wait_reason_lines = [line for line in redecision_context_lines if "event=redecision_wait_reason_correlated" in line]
+    latest_redecision_quality = redecision_quality_lines[-1] if redecision_quality_lines else ""
+    redecision_position_quality_lines = [line for line in redecision_quality_lines if "scope=position_management" in line]
+    redecision_portfolio_quality_lines = [line for line in redecision_quality_lines if "scope=portfolio_management" in line]
+    redecision_position_payload_quality_grade = _live_on_stage_extract_value(
+        redecision_position_quality_lines[-1], "payload_quality_grade"
+    ) if redecision_position_quality_lines else ""
+    redecision_portfolio_payload_quality_grade = _live_on_stage_extract_value(
+        redecision_portfolio_quality_lines[-1], "payload_quality_grade"
+    ) if redecision_portfolio_quality_lines else ""
+    redecision_required_feature_count = int(_safe_float(_live_on_stage_extract_value(latest_redecision_quality, "required_count"), 0))
+    redecision_available_feature_count = int(_safe_float(_live_on_stage_extract_value(latest_redecision_quality, "available_count"), 0))
+    redecision_missing_feature_count = int(_safe_float(_live_on_stage_extract_value(latest_redecision_quality, "missing_count"), 0))
+    redecision_missing_feature_groups = sorted({
+        group for line in redecision_context_completed_lines + redecision_context_missing_lines
+        for group in _live_on_stage_extract_value(line, "missing_feature_groups").split(",")
+        if group and group != "-"
+    })
+    inherited_redecision_groups = sorted({
+        group for line in redecision_context_completed_lines
+        for group in _live_on_stage_extract_value(line, "inherited_feature_groups").split(",")
+        if group and group != "-"
+    })
+    redecision_payload_context_merged = bool(redecision_position_merged_lines or redecision_portfolio_merged_lines)
+    redecision_market_features_available = "market" in inherited_redecision_groups and "market" not in redecision_missing_feature_groups
+    redecision_indicator_features_available = "indicators" in inherited_redecision_groups and "indicators" not in redecision_missing_feature_groups
+    redecision_portfolio_context_available = "portfolio" in inherited_redecision_groups and "portfolio" not in redecision_missing_feature_groups
+    redecision_constraints_available = "constraints" in inherited_redecision_groups and "constraints" not in redecision_missing_feature_groups
+    redecision_prior_decision_available = "prior_decision" in inherited_redecision_groups and "prior_decision" not in redecision_missing_feature_groups
+    redecision_trigger_context_available = "trigger_context" in inherited_redecision_groups
+    redecision_payload_quality_improved = bool(
+        redecision_quality_lines
+        and _live_on_stage_extract_value(latest_redecision_quality, "payload_quality_grade") in {"A", "B", "C"}
+    )
+    redecision_ai_reason_mentions_insufficient_data = any(
+        _live_on_stage_extract_value(line, "redecision_ai_reason_mentions_insufficient_data").lower() == "true"
+        for line in redecision_wait_reason_lines
+    )
+    redecision_wait_due_to_data_gap = any(
+        _live_on_stage_extract_value(line, "redecision_wait_due_to_data_gap").lower() == "true"
+        for line in redecision_wait_reason_lines
+    )
+    redecision_wait_due_to_market_condition = any(
+        _live_on_stage_extract_value(line, "redecision_wait_due_to_market_condition").lower() == "true"
+        for line in redecision_wait_reason_lines
+    )
+    redecision_insufficient_data_related_missing_features = sorted({
+        feature for line in redecision_wait_reason_lines
+        for feature in _live_on_stage_extract_value(line, "missing_features").split(",")
+        if feature and feature != "-"
+    })
+    redecision_data_gap_reason_reduced = bool(
+        redecision_wait_reason_lines
+        and (redecision_wait_due_to_market_condition or redecision_missing_feature_count < 45)
+    )
     valid_ai_decision_lines = [
         line for line in lines
         if any(marker in line for marker in (
@@ -10587,6 +10649,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = sell_unit_guard_blocker
         if sell_unit_guard_blocker not in all_blockers:
             all_blockers.insert(0, sell_unit_guard_blocker)
+    redecision_payload_context_blocker = ""
+    if redecision_context_started_lines:
+        if not redecision_payload_context_merged:
+            redecision_payload_context_blocker = "redecision_payload_context_missing"
+        elif not redecision_market_features_available or not redecision_indicator_features_available:
+            redecision_payload_context_blocker = "redecision_market_indicator_context_missing"
+        elif not redecision_portfolio_context_available or not redecision_constraints_available:
+            redecision_payload_context_blocker = "redecision_portfolio_context_missing"
+        elif not redecision_prior_decision_available or not redecision_trigger_context_available:
+            redecision_payload_context_blocker = "redecision_prior_trigger_context_missing"
+        elif not redecision_payload_quality_improved:
+            redecision_payload_context_blocker = "redecision_payload_quality_still_f"
+        else:
+            redecision_payload_context_blocker = "redecision_payload_context_population_ready"
+        first_blocker = redecision_payload_context_blocker
+        if redecision_payload_context_blocker not in all_blockers:
+            all_blockers.insert(0, redecision_payload_context_blocker)
     if not target_session_lines:
         first_blocker = "no_active_on_session"
 
@@ -11115,6 +11194,27 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "eta_expired_detected": bool(eta_expired_lines),
         "invalidation_condition_checked": bool(invalidation_checked_lines),
         "redecision_payload_created": bool(redecision_payload_lines),
+        "redecision_payload_context_population_enabled": True,
+        "redecision_payload_context_merged": bool(redecision_payload_context_merged),
+        "redecision_position_payload_quality_grade": str(redecision_position_payload_quality_grade),
+        "redecision_portfolio_payload_quality_grade": str(redecision_portfolio_payload_quality_grade),
+        "redecision_required_feature_count": int(redecision_required_feature_count),
+        "redecision_available_feature_count": int(redecision_available_feature_count),
+        "redecision_missing_feature_count": int(redecision_missing_feature_count),
+        "redecision_missing_feature_groups": redecision_missing_feature_groups,
+        "redecision_market_features_available": bool(redecision_market_features_available),
+        "redecision_indicator_features_available": bool(redecision_indicator_features_available),
+        "redecision_portfolio_context_available": bool(redecision_portfolio_context_available),
+        "redecision_constraints_available": bool(redecision_constraints_available),
+        "redecision_prior_decision_available": bool(redecision_prior_decision_available),
+        "redecision_trigger_context_available": bool(redecision_trigger_context_available),
+        "redecision_payload_quality_improved": bool(redecision_payload_quality_improved),
+        "redecision_ai_reason_mentions_insufficient_data": bool(redecision_ai_reason_mentions_insufficient_data),
+        "redecision_insufficient_data_related_missing_features": redecision_insufficient_data_related_missing_features,
+        "redecision_wait_due_to_data_gap": bool(redecision_wait_due_to_data_gap),
+        "redecision_wait_due_to_market_condition": bool(redecision_wait_due_to_market_condition),
+        "redecision_data_gap_reason_reduced": bool(redecision_data_gap_reason_reduced),
+        "redecision_payload_context_blocker": str(redecision_payload_context_blocker),
         "eta_runtime_first_blocker": str(eta_runtime_first_blocker),
         "holdings_sell_eval_target_ssot_mismatch_detected": bool(manageable_holding_count_for_sell_eval > managed_pool_count),
         "holdings_ssot_next_fix_target": (
@@ -21881,6 +21981,17 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
     invalidation_condition_triggered = bool("event=invalidation_condition_triggered" in app_text)
     invalidation_redecision_triggered = bool("event=invalidation_redecision_payload_created" in app_text)
     redecision_payload_created = bool("_build_ai_redecision_payload" in app_text and "eta_redecision_payload_created" in app_text)
+    redecision_payload_context_population_enabled = bool(
+        "event=redecision_context_population_started" in app_text
+        and "event=redecision_position_context_merged" in app_text
+        and "event=redecision_portfolio_context_merged" in app_text
+        and "event=redecision_context_population_completed" in app_text
+        and "event=redecision_payload_quality_scored" in app_text
+        and "_build_ai_position_decision_payload" in app_text
+        and "_build_initial_portfolio_management_payload" in app_text
+        and '"prior_ai_decision"' in app_text
+        and '"trigger_context"' in app_text
+    )
     redecision_provider_requested = bool("event=eta_redecision_provider_requested" in app_text)
     redecision_provider_blocked = bool("event=eta_redecision_blocked" in app_text)
     redecision_response_received = bool("event=eta_redecision_response_received" in app_text)
@@ -22456,6 +22567,26 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "invalidation_condition_triggered": bool(invalidation_condition_triggered),
         "invalidation_redecision_triggered": bool(invalidation_redecision_triggered),
         "redecision_payload_created": bool(redecision_payload_created),
+        "redecision_payload_context_population_enabled": bool(redecision_payload_context_population_enabled),
+        "redecision_payload_context_merged": False,
+        "redecision_position_payload_quality_grade": "",
+        "redecision_portfolio_payload_quality_grade": "",
+        "redecision_required_feature_count": 0,
+        "redecision_available_feature_count": 0,
+        "redecision_missing_feature_count": 0,
+        "redecision_missing_feature_groups": [],
+        "redecision_market_features_available": bool(redecision_payload_context_population_enabled),
+        "redecision_indicator_features_available": bool(redecision_payload_context_population_enabled),
+        "redecision_portfolio_context_available": bool(redecision_payload_context_population_enabled),
+        "redecision_constraints_available": bool(redecision_payload_context_population_enabled),
+        "redecision_prior_decision_available": bool(redecision_payload_context_population_enabled),
+        "redecision_trigger_context_available": bool(redecision_payload_context_population_enabled),
+        "redecision_payload_quality_improved": False,
+        "redecision_ai_reason_mentions_insufficient_data": False,
+        "redecision_insufficient_data_related_missing_features": [],
+        "redecision_wait_due_to_data_gap": False,
+        "redecision_wait_due_to_market_condition": False,
+        "redecision_data_gap_reason_reduced": False,
         "redecision_provider_requested": bool(redecision_provider_requested),
         "redecision_provider_blocked": bool(redecision_provider_blocked),
         "redecision_response_received": bool(redecision_response_received),

@@ -137,3 +137,7 @@ Structured invalidation quality distinguishes supported, supported-partial, and 
 ## MACD Exists And Visible Status Follow-up
 
 MACD `exists` responses are measured as registered-but-not-triggerable when the feature is present. The status audit records safe Korean message samples so backend state and the intended UI explanation can be compared without dumping raw prompts or event dictionaries.
+
+## ETA Redecision Context Follow-up
+
+The F-grade redecision payload was caused by a minimal `current_state` path that did not inherit the initial management builders. Goal 36 aligns position redecisions with the position payload SSOT and portfolio redecisions with the portfolio payload SSOT, then adds prior-decision, ETA, invalidation, trigger, and sell-unit context. Final quality is scored after provider market/indicator population so pre-provider gaps cannot overwrite the actual request grade. Wait/hold correlation distinguishes missing-data explanations from market-condition decisions.

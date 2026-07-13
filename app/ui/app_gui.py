@@ -41479,6 +41479,16 @@ class MainWindow(QMainWindow):
         prior_snapshot = prior.get("prior_snapshot") if isinstance(prior.get("prior_snapshot"), dict) else {}
         prior_position = prior_snapshot.get("position") if isinstance(prior_snapshot.get("position"), dict) else {}
         current_position = current.get("position") if isinstance(current.get("position"), dict) else {}
+        symbol = str(prior.get("symbol") or current_position.get("symbol") or "").strip().upper()
+        scope = str(prior.get("decision_scope") or ("portfolio_management" if symbol == "PORTFOLIO" else "position_management"))
+        source_row = current.get("_source_row") if isinstance(current.get("_source_row"), dict) else dict(current_position)
+        managed_rows = current.get("_managed_rows") if isinstance(current.get("_managed_rows"), list) else []
+        holding_rows = current.get("_holding_rows") if isinstance(current.get("_holding_rows"), list) else []
+        redecision_logger = logging.getLogger("aits")
+        redecision_logger.info(
+            "[AITS][AIReDecisionPayload] event=redecision_context_population_started symbol=%s scope=%s prior_decision_id=%s trigger_type=%s trigger_reason=%s actual_order=False submitted=0",
+            symbol or "-", scope, prior.get("ai_decision_id") or "-", trigger_reason or "-", trigger_reason or "-",
+        )
         def _delta(name: str) -> float | None:
             try:
                 before, after = float(prior_position.get(name)), float(current_position.get(name))
@@ -41490,40 +41500,166 @@ class MainWindow(QMainWindow):
                 return float(after) - float(before)
             except Exception:
                 return None
-        return {
+        if scope == "portfolio_management" or symbol == "PORTFOLIO":
+            payload = self._build_initial_portfolio_management_payload(
+                rows=[dict(item) for item in managed_rows if isinstance(item, dict)],
+                holdings=[dict(item) for item in holding_rows if isinstance(item, dict)],
+                session_id=str(getattr(self, "_aits_initial_seed_session_id", "") or "runtime_redecision"),
+            )
+            inherited_groups = ["portfolio", "candidates", "constraints", "output_schema"]
+            merge_event = "redecision_portfolio_context_merged"
+        else:
+            candidate = {
+                "symbol": symbol,
+                "qty": current_position.get("qty"),
+                "available_qty": current_position.get("available_qty", current_position.get("qty")),
+                "avg_buy_price": current_position.get("avg_buy_price"),
+                "current_price": current_position.get("current_price"),
+                "position_value_krw": current_position.get("position_value_krw"),
+                "pnl_krw": current_position.get("pnl_krw"),
+                "pnl_pct": current_position.get("pnl_pct"),
+                "trigger": trigger_reason or "ai_redecision",
+            }
+            payload = self._build_ai_position_decision_payload(
+                row=dict(source_row), candidate=candidate, reason="ai_redecision"
+            )
+            payload.setdefault("market", {})["current_price"] = current_position.get("current_price")
+            payload.setdefault("market", {})["market_data_stale"] = bool(
+                (current.get("market") or {}).get("market_data_stale")
+            )
+            inherited_groups = ["position", "market", "indicators", "portfolio", "candidates", "constraints", "output_schema"]
+            merge_event = "redecision_position_context_merged"
+
+        prior_decision = {
+            "decision_id": prior.get("ai_decision_id"), "task": prior.get("decision_task"), "action": prior.get("action"),
+            "confidence": prior.get("confidence"), "reason_ko": prior.get("reason_ko"), "eta_seconds": prior.get("eta_seconds"),
+            "invalidation_conditions": prior.get("invalidation_conditions") or [], "decision_time": prior.get("eta_started_at"),
+        }
+        eta_state = {
+            "status": prior.get("current_status"),
+            "eta_started_at": prior.get("eta_started_at"),
+            "eta_expires_at": prior.get("eta_expires_at"),
+            "seconds_remaining": max(0, int(float(prior.get("eta_expires_at") or time.time()) - time.time())),
+            "invalidation_conditions": prior.get("invalidation_conditions") or [],
+        }
+        trigger_context = {
+            "trigger_type": trigger_reason or "ai_redecision",
+            "trigger_reason": trigger_reason or "ai_redecision",
+            "triggered_condition": dict(condition or {}),
+            "observed_at": int(time.time()),
+        }
+        safe_current_state = {
+            key: dict(payload.get(key) or {})
+            for key in ("position", "market", "indicators", "portfolio", "candidates", "constraints")
+            if isinstance(payload.get(key), dict)
+        }
+        payload.update({
             "schema": "aits_ai_decision_payload_v1",
             "task": "ai_redecision",
+            "scope": scope,
             "trigger_reason": trigger_reason,
-            "symbol": prior.get("symbol"),
-            "prior_decision": {
-                "decision_id": prior.get("ai_decision_id"), "task": prior.get("decision_task"), "action": prior.get("action"),
-                "confidence": prior.get("confidence"), "reason_ko": prior.get("reason_ko"), "eta_seconds": prior.get("eta_seconds"),
-                "invalidation_conditions": prior.get("invalidation_conditions") or [], "decision_time": prior.get("eta_started_at"),
+            "symbol": symbol,
+            "symbol_or_scope": symbol,
+            "prior_ai_decision": prior_decision,
+            "prior_decision": prior_decision,
+            "eta_state": eta_state,
+            "invalidation_conditions": prior.get("invalidation_conditions") or [],
+            "trigger_context": trigger_context,
+            "invalidation_context": {
+                "registered_conditions": prior.get("invalidation_conditions") or [],
+                "triggered_condition": dict(condition or {}),
             },
-            "current_state": current,
+            "current_position": dict(payload.get("position") or {}),
+            "current_state": safe_current_state,
             "delta_since_prior_decision": {
                 "price_change": _delta("current_price"), "pnl_change": _delta("pnl_pct"), "volume_change": _delta("volume_change"),
                 "indicator_change": {"rsi": _delta("rsi"), "macd": _delta("macd")}, "holding_qty_change": _delta("qty"),
                 "cash_change": _value_delta(
                     (prior_snapshot.get("portfolio") or {}).get("available_krw"),
-                    (current.get("portfolio") or {}).get("available_krw"),
+                    (payload.get("portfolio") or {}).get("available_krw"),
                 ),
-                "condition": condition or {},
+                "condition": dict(condition or {}),
             },
-            "requested_decision": {"allowed_actions": ["hold", "wait", "buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"]},
-            "output_schema": {"action": "allowed action", "confidence": "0.0-1.0", "reason_ko": "string", "eta_seconds": "integer", "execution_plan": "object", "invalidation_conditions": "list"},
-        }
+            "sell_unit_guard_context": {
+                "valuation_unit_consistency_checked": (payload.get("position") or {}).get("valuation_unit_consistency_checked"),
+                "valuation_unit_mismatch": (payload.get("position") or {}).get("valuation_unit_mismatch"),
+                "pnl_valid_for_sell": (payload.get("position") or {}).get("pnl_valid_for_sell"),
+                "sell_blocker": (payload.get("constraints") or {}).get("sell_blocker"),
+            },
+        })
+        if "output_schema" not in payload:
+            payload["output_schema"] = dict(payload.get("required_output_schema") or {})
+        payload.setdefault("requested_decision", {})["trigger"] = trigger_reason or "ai_redecision"
+        payload["requested_decision"].setdefault(
+            "allowed_actions", ["hold", "wait", "buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"]
+        )
+        inherited_groups.extend(["prior_decision", "eta_state", "trigger_context"])
+        missing_groups = [
+            group for group in inherited_groups
+            if group not in {"trigger_context"} and not payload.get(group if group != "prior_decision" else "prior_ai_decision")
+        ]
+        redecision_logger.info(
+            "[AITS][AIReDecisionPayload] event=%s symbol=%s scope=%s prior_decision_id=%s trigger_type=%s inherited_feature_groups=%s missing_feature_groups=%s actual_order=False submitted=0",
+            merge_event, symbol or "-", scope, prior.get("ai_decision_id") or "-", trigger_reason or "-",
+            ",".join(inherited_groups) or "-", ",".join(missing_groups) or "-",
+        )
+        if missing_groups:
+            redecision_logger.info(
+                "[AITS][AIReDecisionPayload] event=redecision_context_missing symbol=%s scope=%s prior_decision_id=%s trigger_type=%s missing_feature_groups=%s actual_order=False submitted=0",
+                symbol or "-", scope, prior.get("ai_decision_id") or "-", trigger_reason or "-", ",".join(missing_groups),
+            )
+        try:
+            from app.services.ai_engine_provider import build_ai_payload_feature_manifest
+            quality = build_ai_payload_feature_manifest(payload)
+        except Exception:
+            quality = {}
+        grade = str(quality.get("payload_quality_grade") or "-")
+        required_count = int(quality.get("payload_required_feature_count") or 0)
+        available_count = int(quality.get("payload_available_feature_count") or 0)
+        missing_count = int(quality.get("payload_missing_feature_count") or 0)
+        payload_hash = str(quality.get("payload_hash") or "-")
+        redecision_logger.info(
+            "[AITS][AIReDecisionPayload] event=redecision_context_population_completed symbol=%s scope=%s prior_decision_id=%s trigger_type=%s trigger_reason=%s payload_quality_grade=%s required_count=%s available_count=%s missing_count=%s inherited_feature_groups=%s missing_feature_groups=%s payload_hash=%s actual_order=False submitted=0",
+            symbol or "-", scope, prior.get("ai_decision_id") or "-", trigger_reason or "-", trigger_reason or "-",
+            grade, required_count, available_count, missing_count, ",".join(inherited_groups) or "-", ",".join(missing_groups) or "-", payload_hash,
+        )
+        redecision_logger.info(
+            "[AITS][AIReDecisionPayload] event=redecision_payload_quality_scored symbol=%s scope=%s payload_quality_grade=%s required_count=%s available_count=%s missing_count=%s payload_hash=%s actual_order=False submitted=0",
+            symbol or "-", scope, grade, required_count, available_count, missing_count, payload_hash,
+        )
+        self._aits_redecision_payload_quality_status_text = f"AI 재판단 데이터 품질 {grade} · 부족 항목 {missing_count}개"
+        self._append_aits_live_log(
+            f"{symbol} 재판단 데이터 품질 {grade} · 시장·지표·보유정보 반영 · 부족 항목 {missing_count}개",
+            category="pipeline", level="info" if grade in {"A", "B"} else "warning",
+            event="ai_redecision_payload_context_populated", symbol=symbol,
+        )
+        redecision_logger.info(
+            "[AITS][StatusVisibility] event=payload_quality_status_rendered target=status_bar message_ko=%s symbol=%s decision_id=%s payload_quality_grade=%s missing_feature_count=%s raw_leak_detected=false actual_order=False submitted=0",
+            self._aits_redecision_payload_quality_status_text, symbol or "-", prior.get("ai_decision_id") or "-", grade, missing_count,
+        )
+        return payload
 
     def _redecision_current_state(self, *, symbol: str, rows: list[dict]) -> dict:
-        context_rows = [dict(item) for item in rows if isinstance(item, dict)]
+        managed_rows = [dict(item) for item in rows if isinstance(item, dict)]
+        context_rows = list(managed_rows)
         scanner_rows = getattr(self, "_aits_latest_scanner_top_candidates", [])
         if isinstance(scanner_rows, list):
             context_rows.extend(dict(item) for item in scanner_rows if isinstance(item, dict))
+        sell_rows = []
         try:
-            context_rows.extend(dict(item) for item in self._sell_evaluation_observe_rows() if isinstance(item, dict))
+            sell_rows = [dict(item) for item in self._sell_evaluation_observe_rows() if isinstance(item, dict)]
+            context_rows.extend(sell_rows)
         except Exception:
-            pass
-        row = next((item for item in context_rows if self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market")) == symbol), {})
+            sell_rows = []
+        matching_rows = [
+            item for item in context_rows
+            if self._normalize_managed_pool_symbol_for_persistence(item.get("symbol") or item.get("market")) == symbol
+        ]
+        row = {}
+        for item in matching_rows:
+            for key, value in item.items():
+                if value is not None and value != "" and value != [] and value != {}:
+                    row[key] = value
         portfolio_scope = symbol == "PORTFOLIO"
         if portfolio_scope:
             row = {"symbol": "PORTFOLIO", "holding": True}
@@ -41532,10 +41668,34 @@ class MainWindow(QMainWindow):
         position = {
             "symbol": symbol, "qty": row.get("qty") or row.get("balance"), "avg_buy_price": row.get("avg_buy_price"),
             "current_price": row.get("current_price") or row.get("price"), "position_value_krw": row.get("position_value_krw") or row.get("valuation_krw"),
-            "pnl_krw": row.get("pnl_krw"), "pnl_pct": row.get("pnl_pct") or row.get("pnl"), "rsi": row.get("rsi") or row.get("RSI"),
-            "macd": row.get("macd") or row.get("MACD"), "volume_change": row.get("volume_change"), "holding": bool(row.get("holding")),
+            "pnl_krw": row.get("pnl_krw"), "pnl_pct": row.get("pnl_pct") if row.get("pnl_pct") is not None else row.get("pnl"),
+            "available_qty": row.get("available_qty") or row.get("qty") or row.get("balance"),
+            "rsi": row.get("rsi") if row.get("rsi") is not None else row.get("RSI"),
+            "macd": row.get("macd") if row.get("macd") is not None else row.get("MACD"),
+            "volume_change": row.get("volume_change"), "holding": bool(row.get("holding")),
         }
-        return {"context_available": bool(row), "position": position, "market": {"market_data_stale": bool(getattr(self, "_candidate_feed_stale", False)), "price_change": row.get("change_rate") or row.get("change_pct"), "volume_change": row.get("volume_change")}, "indicators": {"rsi": position["rsi"], "macd": position["macd"]}, "portfolio": {"available_krw": getattr(self, "_last_available_krw", None), "total_asset_krw": getattr(self, "_aits_total_asset_krw", None)}, "candidates": {"managed_pool_symbols": managed_symbols}}
+        holding_rows = [dict(item) for item in sell_rows if self._managed_pool_status_bar_row_is_holding(item)]
+        return {
+            "context_available": bool(row) or bool(portfolio_scope and (managed_rows or holding_rows)),
+            "position": position,
+            "market": {
+                "market_data_stale": bool(getattr(self, "_candidate_feed_stale", False)),
+                "current_price": position.get("current_price"),
+                "price_change": row.get("change_rate") or row.get("change_pct"),
+                "volume_change": row.get("volume_change"),
+                "volatility": row.get("volatility"),
+            },
+            "indicators": {
+                "RSI": position["rsi"], "MACD": position["macd"],
+                "moving_averages": row.get("moving_averages") or {},
+                "momentum": row.get("momentum"), "trend_strength": row.get("trend_strength"),
+            },
+            "portfolio": self._build_ai_payload_portfolio_context(),
+            "candidates": {"managed_pool_symbols": managed_symbols},
+            "_source_row": dict(row),
+            "_managed_rows": managed_rows,
+            "_holding_rows": holding_rows,
+        }
 
     def _normalize_ai_invalidation_condition(self, condition: object) -> dict:
         data = dict(condition) if isinstance(condition, dict) else {"type": str(condition or "")}
@@ -42174,6 +42334,32 @@ class MainWindow(QMainWindow):
                 from app.services.ai_engine_provider import AIEngineProvider
                 decision = dict(AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None)).generate_position_management_decision(provider=provider, context=payload) or {})
                 decision["ai_payload_hash"] = payload_hash
+                quality_summary = decision.get("payload_feature_manifest_summary") if isinstance(decision.get("payload_feature_manifest_summary"), dict) else {}
+                missing_features = list(quality_summary.get("critical_missing_features") or [])
+                action = str(decision.get("action") or "").strip().lower()
+                wait_due_to_data_gap = bool(action in {"wait", "hold"} and decision.get("ai_wait_due_to_data_gap"))
+                wait_due_to_market = bool(action in {"wait", "hold"} and not wait_due_to_data_gap)
+                eta_logger.info(
+                    "[AITS][AIReDecisionPayload] event=redecision_wait_reason_correlated symbol=%s scope=%s action=%s payload_quality_grade=%s redecision_ai_reason_mentions_insufficient_data=%s redecision_wait_due_to_data_gap=%s redecision_wait_due_to_market_condition=%s missing_feature_count=%s missing_features=%s actual_order=False submitted=0",
+                    symbol or "-", state.get("decision_scope") or "position_management", action or "-",
+                    quality_summary.get("payload_quality_grade") or "-", bool(decision.get("ai_reason_mentions_insufficient_data")),
+                    wait_due_to_data_gap, wait_due_to_market, len(missing_features), ",".join(missing_features[:12]) or "-",
+                )
+                if action in {"wait", "hold"}:
+                    if wait_due_to_data_gap:
+                        detail = ", ".join(item.rsplit(".", 1)[-1].replace("_", " ") for item in missing_features[:3]) or "\uc138\ubd80 \uc9c0\ud45c"
+                        wait_message = f"{symbol} AI\uac00 \ub370\uc774\ud130 \ubd80\uc871\uc73c\ub85c \ub300\uae30\ud588\uc2b5\ub2c8\ub2e4 \u00b7 \ubd80\uc871 \ud56d\ubaa9: {detail}"
+                    else:
+                        wait_message = f"{symbol} AI\uac00 \uc2dc\uc7a5 \uc870\uac74\uc744 \uadfc\uac70\ub85c \ub300\uae30\ub97c \uc120\ud0dd\ud588\uc2b5\ub2c8\ub2e4."
+                    self._append_aits_live_log(
+                        wait_message, category="pipeline", level="warning" if wait_due_to_data_gap else "info",
+                        event="ai_redecision_wait_reason", symbol=symbol,
+                    )
+                    eta_logger.info(
+                        "[AITS][StatusVisibility] event=live_log_message_rendered target=live_log message_ko=%s symbol=%s decision_id=%s payload_quality_grade=%s missing_feature_count=%s raw_leak_detected=false actual_order=False submitted=0",
+                        wait_message, symbol or "-", state.get("ai_decision_id") or "-",
+                        quality_summary.get("payload_quality_grade") or "-", len(missing_features),
+                    )
                 self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
                 if bool(decision.get("response_confirmed")):
                     eta_logger.info("[AITS][ETAReDecision] event=eta_redecision_response_received symbol=%s decision_id=%s provider=%s action=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", provider or "-", decision.get("action") or "-")

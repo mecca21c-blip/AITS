@@ -146,7 +146,13 @@ def build_ai_payload_feature_manifest(payload: Optional[Dict[str, Any]]) -> Dict
     payload_hash = hashlib.sha256(encoded).hexdigest()[:24]
     task = str(safe_payload.get("task") or "")
     symbol = str(safe_payload.get("symbol") or "PORTFOLIO")
-    is_portfolio = task == "portfolio_management_decision"
+    is_portfolio = task == "portfolio_management_decision" or (
+        task == "ai_redecision"
+        and (
+            str(safe_payload.get("scope") or "") == "portfolio_management"
+            or symbol == "PORTFOLIO"
+        )
+    )
     groups: Dict[str, list[Dict[str, Any]]] = {}
     available = missing = stale = unavailable = unknown_freshness = 0
     critical_missing: list[str] = []
@@ -327,9 +333,16 @@ def _decision_float(value: Any, default: float = 0.0) -> float:
 
 def populate_position_payload_market_indicators(context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     payload = dict(context or {})
-    if str(payload.get("task") or "") != AI_POSITION_TASK_CANONICAL:
-        return payload
+    task = str(payload.get("task") or "").strip()
+    scope = str(payload.get("scope") or "").strip().lower()
     symbol = str(payload.get("symbol") or "").strip().upper()
+    is_position_redecision = bool(
+        task == "ai_redecision"
+        and scope != "portfolio_management"
+        and symbol != "PORTFOLIO"
+    )
+    if task != AI_POSITION_TASK_CANONICAL and not is_position_redecision:
+        return payload
     if not symbol:
         return payload
     market = dict(payload.get("market") or {})
@@ -416,6 +429,11 @@ def populate_position_payload_market_indicators(context: Optional[Dict[str, Any]
         for name in names:
             metadata[f"{group}.{name}"] = {"source": "market_feed.minute_candle_cache" if candles else "payload", "updated_at": latest_ts or None, "age_sec": age_sec, "freshness": freshness}
     payload["market"], payload["indicators"], payload["feature_metadata"] = market, indicators, metadata
+    if is_position_redecision and isinstance(payload.get("current_state"), dict):
+        current_state = dict(payload["current_state"])
+        current_state["market"] = dict(market)
+        current_state["indicators"] = dict(indicators)
+        payload["current_state"] = current_state
     _safe_log_info(
         "[AITS][AIPayloadPopulation] event=market_indicator_snapshot_built "
         f"symbol={symbol or '-'} candle_count={len(candles)} source={'market_feed.minute_candle_cache' if candles else 'payload'} "
@@ -1080,6 +1098,18 @@ class AIEngineProvider:
             result["payload_feature_manifest_summary"] = summary
             result.update(correlation)
             result.update(condition_shapes)
+            if str(feature_manifest.get("task") or "") == "ai_redecision":
+                _safe_log_info(
+                    "[AITS][AIReDecisionPayload] event=redecision_payload_quality_scored "
+                    f"symbol={feature_manifest.get('symbol_or_scope') or '-'} "
+                    f"scope={context.get('scope') or 'position_management'} "
+                    f"payload_quality_grade={summary.get('payload_quality_grade') or '-'} "
+                    f"required_count={summary.get('payload_required_feature_count') or 0} "
+                    f"available_count={summary.get('payload_available_feature_count') or 0} "
+                    f"missing_count={summary.get('payload_missing_feature_count') or 0} "
+                    f"payload_hash={summary.get('payload_hash') or '-'} provider_population_applied=True "
+                    "actual_order=False submitted=0"
+                )
             if correlation["ai_reason_mentions_insufficient_data"]:
                 _safe_log_info(
                     "[AITS][AIPayloadQuality] event=ai_data_gap_reason_correlated "

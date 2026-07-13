@@ -280,3 +280,7 @@ AI position-management triggers use the normalized holding classification produc
 ## Sell PnL Validity Policy
 
 Position-management payloads carry valuation-unit consistency, PnL validity, and sell blocker fields. If `qty * current_price` materially disagrees with selected valuation, PnL-driven sell evaluation is invalid and no sell intent may reach submission. An AI `sell`, `reduce`, `take_profit`, or `stop_loss` response does not override this safety blocker.
+
+## Redecision Context Policy
+
+ETA expiry and invalidation are triggers for another AI decision, not actions. The redecision request must carry the same factual position or portfolio SSOT used by the initial decision, together with the prior decision, ETA state, trigger evidence, invalidation context, and current sell-unit safety state. Missing context remains visible as a payload-quality blocker and must never be replaced with fabricated indicators or values.

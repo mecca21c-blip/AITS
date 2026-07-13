@@ -195,3 +195,7 @@ BASIC reconciles real holding valuation sources before classifying dust or manag
 ## Sell Unit Consistency Boundary
 
 BASIC may expose PnL as valid for sell only when quantity, current price, and selected valuation use a consistent KRW valuation unit. A mismatch is factual safety evidence delivered to AI, RiskGuard, and LivePreflight. It blocks sell submission without replacing or rewriting the AI action.
+
+## Redecision Evidence Boundary
+
+BASIC refreshes real market, indicator, holding, portfolio, candidate, constraint, ETA, and trigger evidence before asking AI to reconsider a decision. Redecision uses the same payload builders and sources as initial management decisions. Better payload coverage changes the evidence available to AI; it does not create, rewrite, or execute an action.

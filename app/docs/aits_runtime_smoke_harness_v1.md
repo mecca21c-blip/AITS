@@ -2065,3 +2065,11 @@ summary modes.
 - RiskGuard and LivePreflight accept the same mismatch fields as final sell-only defenses. This safety block creates no action.
 - `SellUnitGuard` records expected/selected valuation, absolute and relative differences, sources, and `submitted=0` without exposing account or provider secrets.
 - Reconciliation aggregates target PID/session events from both `LiveOrderPipeline` and `SellApplyGuard`; an actual submit may never be omitted merely because it used the guarded sell request prefix.
+
+## ETA Redecision Payload Context
+
+- A redecision reuses the initial position or portfolio payload builders instead of constructing a minimal parallel context.
+- Position redecisions inherit position, market, indicators, portfolio, candidates, constraints, sell-unit safety, prior decision, ETA, and trigger context. Portfolio redecisions inherit portfolio, candidates, constraints, prior decision, ETA, and trigger context.
+- Provider candle population also applies to position-scoped `ai_redecision` payloads. Portfolio-scoped redecisions remain excluded from position candle population.
+- `AIReDecisionPayload` events distinguish context start, position/portfolio merge, missing groups, pre-provider score, final provider-populated score, and wait-reason correlation.
+- The live harness uses the final time-ordered score and reports whether wait/hold is associated with a data gap or current market conditions.
