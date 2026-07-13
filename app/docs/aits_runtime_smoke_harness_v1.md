@@ -2106,3 +2106,7 @@ summary modes.
 ## LOCAL-First Provider Completion Summary
 
 `local-first-gpt-cost-guard-v1-summary` is an observe-only Sprint checklist. It combines target PID/session runtime evidence with source-contract checks for LOCAL-first inference, escalation, provider cost guards, final provider routing, comparison training, and Korean reason visibility. It does not invoke providers or trading controls. External calls remain subject to cooldown, duplicate payload, hourly, daily, order-related, and estimated-cost limits.
+
+## LOCAL Provider Outcome Learning Summary
+
+`local-provider-outcome-learning-v1-summary --observe-only` checks decision registration, 5-minute/15-minute/1-hour scheduling, factual checkpoint evaluation, provider comparison, retrospective action classifiers, opportunity-cost evidence, dataset writers, and Korean outcome visibility. Runtime counts are scoped to the selected application PID/session. A zero evaluated count is valid before the first checkpoint is due; structural readiness and runtime activity are reported separately.

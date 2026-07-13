@@ -214,3 +214,7 @@ BASIC owns refreshed market, holding, valuation, candidate, constraint, and afte
 ## LOCAL-First Provider Role
 
 BASIC builds facts and payload context. LOCAL is the first AI decision maker and is distinct from BASIC. A LOCAL order-capable decision requires valid external confirmation in v1 and still passes the validator, Router, RiskGuard, LivePreflight, and Execution boundaries. Cost or availability blocking never grants execution permission.
+
+## Outcome Learning Role
+
+BASIC schedules and records later factual observations. LOCAL and external providers remain decision makers; neither provider labels its own success. Retrospective outcome labels and provider-value estimates are learning evidence only. They cannot create an action, bypass validation, or authorize execution. Missing market, holding, or portfolio sources remain unavailable rather than being inferred.

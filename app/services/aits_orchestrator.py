@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+import json
+import logging
+import math
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -321,6 +325,296 @@ def build_normalized_holdings_snapshot(
         "missing_pnl_source": sorted(missing_pnl_source),
         "source_conflicts": source_conflicts,
     }
+
+
+class AITSDecisionOutcomeTracker:
+    """Persist and evaluate decision outcomes from caller-provided live snapshots."""
+
+    CHECKPOINT_SECONDS = {"outcome_5m": 300, "outcome_15m": 900, "outcome_1h": 3600}
+    ACTIONS = {"wait", "hold", "buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
+
+    def __init__(self, root: Path | str = Path("data") / "ai_decision_training") -> None:
+        self.root = Path(root)
+        self.state_path = self.root / "outcome_tracking_state.json"
+
+    @staticmethod
+    def number(value: Any) -> Optional[float]:
+        try:
+            number = float(value)
+            return number if math.isfinite(number) else None
+        except (TypeError, ValueError):
+            return None
+
+    @classmethod
+    def percent_change(cls, before: Any, after: Any) -> Optional[float]:
+        before_value = cls.number(before)
+        after_value = cls.number(after)
+        if before_value is None or after_value is None or before_value <= 0.0:
+            return None
+        return round((after_value - before_value) / before_value * 100.0, 6)
+
+    def load(self) -> dict:
+        try:
+            value = json.loads(self.state_path.read_text(encoding="utf-8")) if self.state_path.exists() else {}
+            if isinstance(value, dict) and isinstance(value.get("decisions"), dict):
+                return value
+        except Exception:
+            pass
+        return {"schema": "aits_decision_outcome_tracking_state.v1", "decisions": {}}
+
+    def save(self, state: dict) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        temporary = self.root / "outcome_tracking_state.tmp"
+        temporary.write_text(json.dumps(state, ensure_ascii=False, default=str), encoding="utf-8")
+        temporary.replace(self.state_path)
+
+    def append(self, filename: str, record: dict) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        with (self.root / filename).open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+    def register(self, record: dict, *, now: Optional[float] = None) -> bool:
+        decision_id = str(record.get("decision_id") or "")
+        action = str(record.get("final_action") or "").lower()
+        if not decision_id or action not in self.ACTIONS:
+            return False
+        state = self.load()
+        if decision_id in state["decisions"]:
+            return True
+        created_at = float(now if now is not None else time.time())
+        value = dict(record)
+        value.update(
+            {
+                "schema": "aits_decision_outcome.v1",
+                "created_at": created_at,
+                "target_checkpoints": list(self.CHECKPOINT_SECONDS),
+                "checkpoints": {
+                    name: {
+                        "checkpoint_name": name,
+                        "due_at": created_at + seconds,
+                        "evaluated_at": None,
+                        "status": "pending",
+                    }
+                    for name, seconds in self.CHECKPOINT_SECONDS.items()
+                },
+                "final_outcome": {"status": "pending"},
+                "learning_record_ready": False,
+            }
+        )
+        state["decisions"][decision_id] = value
+        self.save(state)
+        return True
+
+    def link_execution(self, decision_id: str, execution: dict) -> bool:
+        if not decision_id:
+            return False
+        state = self.load()
+        record = state["decisions"].get(decision_id)
+        if not isinstance(record, dict):
+            return False
+        record["execution_result"] = dict(execution.get("order_result") or {})
+        record["actual_order"] = bool(execution.get("actual_order"))
+        record["submitted"] = int(execution.get("submitted") or 0)
+        record["position_after"] = execution.get("position_after")
+        record["portfolio_after"] = execution.get("portfolio_after")
+        self.save(state)
+        return True
+
+    @staticmethod
+    def classify(record: dict, current: dict) -> tuple[str, float, str]:
+        action = str(record.get("final_action") or "wait").lower()
+        before = dict(record.get("decision_snapshot") or {})
+        price_change = AITSDecisionOutcomeTracker.percent_change(before.get("price"), current.get("price"))
+        portfolio_change = AITSDecisionOutcomeTracker.percent_change(
+            before.get("portfolio_value_krw"), current.get("portfolio_value_krw")
+        )
+        observed = price_change if price_change is not None else portfolio_change
+        if observed is None:
+            return "data_unavailable", 0.0, "실제 가격 또는 자산 평가 source가 없어 결과 평가를 보류했습니다."
+        if action in {"wait", "hold"}:
+            if observed <= -1.0:
+                return "avoided_loss", min(1.0, abs(observed) / 5.0), "대기 판단 이후 하락해 위험 회피 가능성을 기록했습니다."
+            if observed >= 2.0:
+                return "missed_opportunity", -min(1.0, observed / 8.0), "대기 판단 이후 상승해 기회비용 가능성을 기록했습니다."
+            return "good_wait", max(0.1, 1.0 - abs(observed) / 2.0), "대기 판단 이후 큰 방향 변화가 없어 판단 유지가 적절했습니다."
+        if action in {"buy", "add"}:
+            if observed > 0:
+                return "good_buy", min(1.0, observed / 5.0), "진입 판단 이후 가격이 상승했습니다."
+            return "bad_buy", max(-1.0, observed / 5.0), "진입 판단 이후 가격이 하락했습니다."
+        if action in {"sell", "reduce", "take_profit", "stop_loss"}:
+            if observed < 0:
+                label = "good_stop_loss" if action == "stop_loss" else ("good_take_profit" if action == "take_profit" else "good_sell")
+                return label, min(1.0, abs(observed) / 5.0), "매도 판단 이후 가격이 하락해 회피 또는 실현 효과를 기록했습니다."
+            label = "bad_take_profit" if action == "take_profit" else "early_sell"
+            return label, -min(1.0, observed / 5.0), "매도 판단 이후 가격이 상승해 조기 매도 가능성을 기록했습니다."
+        if action == "rotate":
+            candidate_change = AITSDecisionOutcomeTracker.percent_change(
+                before.get("candidate_price"), current.get("candidate_price")
+            )
+            held_change = price_change
+            if candidate_change is None or held_change is None:
+                return "inconclusive", 0.0, "회전 대상의 상대 성과 source가 충분하지 않아 판단을 보류했습니다."
+            gap = candidate_change - held_change
+            return ("useful_rotation", min(1.0, gap / 5.0), "회전 후보의 상대 성과가 개선됐습니다.") if gap > 0 else ("bad_rotation", max(-1.0, gap / 5.0), "회전 후보의 상대 성과가 개선되지 않았습니다.")
+        return "inconclusive", 0.0, "결과 방향은 확인했지만 분류 근거가 충분하지 않습니다."
+
+    @staticmethod
+    def compare_providers(record: dict, *, label: str, score: float) -> dict:
+        local_action = str(record.get("local_action") or "")
+        external_action = str(record.get("external_action") or "")
+        final_source = str(record.get("final_provider_source") or "")
+        external_called = bool(record.get("external_called"))
+        match = bool(local_action and external_action and local_action == external_action)
+        changed = bool(external_called and local_action and external_action and local_action != external_action)
+        useful = bool(changed and score > 0.0)
+        waste = bool(external_called and (match or (changed and score <= 0.0)))
+        order_actions = {"buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
+        confidence_gap = None
+        try:
+            confidence_gap = round(float(record.get("external_confidence")) - float(record.get("local_confidence")), 6)
+        except (TypeError, ValueError):
+            pass
+        return {
+            "provider_comparison_ready": bool(local_action or external_action),
+            "local_external_action_match": match,
+            "local_external_disagreed": bool(local_action and external_action and not match),
+            "local_external_confidence_gap": confidence_gap,
+            "final_provider_source": final_source,
+            "final_followed_local": final_source.startswith("local"),
+            "final_followed_external": final_source in {"openai", "gemini"},
+            "external_called": external_called,
+            "external_blocked": bool(record.get("external_blocked")),
+            "escalation_reason": str(record.get("escalation_reason") or ""),
+            "cost_guard_blocker": str(record.get("cost_guard_blocker") or ""),
+            "external_changed_action": changed,
+            "external_changed_risk_level": bool(
+                local_action in order_actions and external_action not in order_actions
+                or local_action not in order_actions and external_action in order_actions
+            ),
+            "external_call_value_estimate": "useful" if useful else ("possibly_unnecessary" if waste else "inconclusive"),
+            "provider_outcome_label": "useful_external_call" if useful else ("unnecessary_external_call" if waste else label),
+            "provider_outcome_score": score,
+            "external_call_was_useful": useful,
+            "external_call_waste_suspected": waste,
+            "local_would_have_been_safe": bool(local_action in {"wait", "hold"} and score >= 0.0),
+            "local_learning_value": abs(score) if label != "data_unavailable" else 0.0,
+            "recommended_future_route": "local_candidate" if local_action in {"wait", "hold"} and score >= 0.0 else "retain_escalation_policy",
+        }
+
+    def evaluate_due(self, snapshot_provider, *, now: Optional[float] = None) -> dict:
+        evaluated_at = float(now if now is not None else time.time())
+        state = self.load()
+        events: list[dict] = []
+        dirty = False
+        for record in list(state["decisions"].values()):
+            if not isinstance(record, dict):
+                continue
+            for checkpoint_name, checkpoint in list((record.get("checkpoints") or {}).items()):
+                if not isinstance(checkpoint, dict) or checkpoint.get("status") != "pending":
+                    continue
+                due_at = float(checkpoint.get("due_at") or evaluated_at + 1)
+                if evaluated_at < due_at:
+                    continue
+                logging.getLogger("aits").info(
+                    "[AITS][OutcomeTracker] event=outcome_checkpoint_due decision_id=%s task=%s scope=%s symbol=%s checkpoint=%s due_at=%s action=%s final_provider_source=%s actual_order=%s submitted=%s",
+                    record.get("decision_id") or "-", record.get("task") or "-", record.get("scope") or "-",
+                    record.get("symbol") or "-", checkpoint_name, due_at, record.get("final_action") or "-",
+                    record.get("final_provider_source") or "-", bool(record.get("actual_order")), int(record.get("submitted") or 0),
+                )
+                current = dict(snapshot_provider(record) or {})
+                before = dict(record.get("decision_snapshot") or {})
+                label, score, reason_ko = self.classify(record, current)
+                status = "skipped" if label == "data_unavailable" else "evaluated"
+                late = evaluated_at - due_at > 60.0 and status == "evaluated"
+                checkpoint.update(
+                    {
+                        "evaluated_at": evaluated_at,
+                        "status": status,
+                        "late_evaluated": late,
+                        "price_at_decision": before.get("price"),
+                        "price_at_checkpoint": current.get("price"),
+                        "price_change_pct": self.percent_change(before.get("price"), current.get("price")),
+                        "position_value_at_decision": before.get("position_value_krw"),
+                        "position_value_at_checkpoint": current.get("position_value_krw"),
+                        "pnl_change_pct": self.percent_change(before.get("position_value_krw"), current.get("position_value_krw")),
+                        "portfolio_value_at_decision": before.get("portfolio_value_krw"),
+                        "portfolio_value_at_checkpoint": current.get("portfolio_value_krw"),
+                        "portfolio_change_pct": self.percent_change(before.get("portfolio_value_krw"), current.get("portfolio_value_krw")),
+                        "action_was_executed": bool(record.get("actual_order")),
+                        "order_submitted": bool(int(record.get("submitted") or 0) > 0),
+                        "order_filled": bool((record.get("execution_result") or {}).get("filled")),
+                        "order_side": str((record.get("execution_result") or {}).get("side") or ""),
+                        "order_qty": (record.get("execution_result") or {}).get("qty"),
+                        "order_krw": (record.get("execution_result") or {}).get("amount_krw"),
+                        "outcome_label": label,
+                        "outcome_score": score,
+                        "outcome_reason_ko": reason_ko,
+                        "blocker": "source_data_unavailable" if label == "data_unavailable" else "",
+                        "source": current.get("data_source"),
+                    }
+                )
+                comparison = self.compare_providers(record, label=label, score=score)
+                safe_for_training = bool(record.get("payload_hash") and record.get("final_action") and label != "data_unavailable")
+                candidate_change = self.percent_change(before.get("candidate_price"), current.get("candidate_price"))
+                held_change = self.percent_change(before.get("price"), current.get("price"))
+                opportunity_gap_change = (
+                    round(candidate_change - held_change, 6)
+                    if candidate_change is not None and held_change is not None else None
+                )
+                dataset = {
+                    "schema": "aits_decision_outcome.v1",
+                    "decision_id": record.get("decision_id"),
+                    "created_at": record.get("created_at"),
+                    "evaluated_at": evaluated_at,
+                    "task": record.get("task"),
+                    "scope": record.get("scope"),
+                    "symbol": record.get("symbol"),
+                    "payload_hash": record.get("payload_hash"),
+                    "feature_manifest_hash": record.get("feature_manifest_hash"),
+                    "local_decision": {"action": record.get("local_action"), "confidence": record.get("local_confidence")},
+                    "external_decision": {"action": record.get("external_action"), "confidence": record.get("external_confidence")},
+                    "final_decision": {"provider": record.get("final_provider_source"), "action": record.get("final_action"), "confidence": record.get("final_confidence")},
+                    "execution_result": record.get("execution_result"),
+                    "checkpoint": checkpoint,
+                    "provider_comparison": comparison,
+                    "opportunity_cost": {
+                        "candidate_at_decision": before.get("candidate_symbol"),
+                        "candidate_price_change_pct": candidate_change,
+                        "held_symbol_price_change_pct": held_change,
+                        "opportunity_gap_change": opportunity_gap_change,
+                        "portfolio_opportunity_score": before.get("opportunity_gap"),
+                        "missed_move_detected": bool(label == "missed_opportunity"),
+                        "avoided_drawdown_detected": bool(label == "avoided_loss"),
+                    },
+                    "outcome_label": label,
+                    "outcome_score": score,
+                    "learning_tags": [str(record.get("final_action") or ""), checkpoint_name, label],
+                    "data_quality": "acceptable" if safe_for_training else "unavailable",
+                    "safe_for_local_training": safe_for_training,
+                }
+                self.append("outcome_records.jsonl", dataset)
+                self.append(
+                    "provider_comparison_outcomes.jsonl",
+                    {**comparison, "schema": "aits_provider_comparison_outcome.v1", "decision_id": record.get("decision_id"), "checkpoint": checkpoint_name, "evaluated_at": evaluated_at},
+                )
+                events.append({"record": record, "checkpoint": checkpoint, "checkpoint_name": checkpoint_name, "late": late})
+                dirty = True
+            checkpoints = [item for item in (record.get("checkpoints") or {}).values() if isinstance(item, dict)]
+            if checkpoints and all(item.get("status") != "pending" for item in checkpoints) and (record.get("final_outcome") or {}).get("status") == "pending":
+                usable = [item for item in checkpoints if item.get("outcome_label") != "data_unavailable"]
+                final_label = usable[-1].get("outcome_label") if usable else "data_unavailable"
+                final_score = round(sum(float(item.get("outcome_score") or 0.0) for item in usable) / len(usable), 6) if usable else 0.0
+                record["final_outcome"] = {"status": "evaluated" if usable else "skipped", "evaluated_at": evaluated_at, "outcome_label": final_label, "outcome_score": final_score}
+                record["learning_record_ready"] = bool(usable and record.get("payload_hash") and record.get("final_action"))
+                events.append({"record": record, "finalized": True})
+                dirty = True
+        if dirty:
+            self.save(state)
+        pending = sum(
+            1 for record in state["decisions"].values() if isinstance(record, dict)
+            for checkpoint in (record.get("checkpoints") or {}).values() if isinstance(checkpoint, dict) and checkpoint.get("status") == "pending"
+        )
+        return {"events": events, "evaluated": sum("checkpoint" in event for event in events), "pending": pending}
 
 
 def _fetch_upbit_price_once(symbol: str) -> tuple[float | None, str]:

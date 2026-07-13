@@ -156,3 +156,7 @@ Live Operating Cycle v1 links validated decisions to safe execution metadata and
 ## Provider Comparison Metadata
 
 Payload quality is evaluated before escalation and is shared by LOCAL and external providers. Training records preserve LOCAL and external actions, confidence, reasons, escalation and cost blockers, and the final provider source. Low or critically incomplete payload quality can block escalation; it is never upgraded by invented market data or indicators.
+
+## Outcome Data Quality
+
+Outcome records retain the original payload and feature-manifest hashes so later performance evidence remains attributable to the decision context. Checkpoint data quality is acceptable only when a real market, normalized-holdings, or portfolio source supports the measurement. Missing critical observations yield `data_unavailable` and `safe_for_local_training=false`; they are not replaced with estimated price, PnL, fill, or provider output.

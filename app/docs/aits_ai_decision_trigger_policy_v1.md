@@ -299,3 +299,7 @@ A confirmed submitted result is a factual state-change trigger. The post-order c
 ## Provider Escalation And Cost Policy
 
 Every supported AI trigger first requests LOCAL judgment. High-confidence non-actionable LOCAL decisions may remain final without an external call. Low confidence, order-capable decisions, explicit external-provider policy, and post-order replanning can request GPT or GEMINI confirmation. External calls require provider availability and the shared cooldown, duplicate payload, hourly, daily, order-related, and estimated-cost guards. A blocked external request retains only a safe LOCAL wait/hold; it cannot authorize an order.
+
+## Outcome Checkpoint Policy
+
+Decision registration schedules factual 5-minute, 15-minute, and 1-hour reviews. A due checkpoint is an observation event, not a redecision trigger or order condition. Wait, hold, order-capable, and rotation actions are all reviewed, but retrospective labels never feed directly into Router or execution. A later policy may learn from records marked safe for LOCAL training through a separately approved training pipeline.

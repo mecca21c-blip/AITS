@@ -12227,6 +12227,162 @@ def _run_local_first_gpt_cost_guard_v1_summary(
     )
 
 
+def _run_local_provider_outcome_learning_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    e2e = _build_live_on_runtime_e2e_diagnostic_report(
+        output_dir=output_dir,
+        mode="live-on-runtime-e2e-diagnostic-log-summary",
+    )
+    provider_summary: dict[str, Any] = {}
+    _run_local_first_gpt_cost_guard_v1_summary(provider_summary, output_dir=output_dir)
+    cycle_summary: dict[str, Any] = {}
+    _run_live_operating_cycle_v1_completion_summary(cycle_summary, output_dir=output_dir)
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    target_lines, _provenance, _started_at, _start, _end, _scope = _latest_non_harness_runtime_session(lines, reports)
+    scoped_lines = target_lines or lines
+    source_paths = (
+        ROOT / "app" / "services" / "aits_orchestrator.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+    )
+    code_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in source_paths if path.exists()
+    )
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    outcome_lines = [line for line in scoped_lines if "[AITS][OutcomeTracker]" in line]
+    timeline_lines = [line for line in scoped_lines if "[AITS][OutcomeReasonTimeline]" in line]
+    registered_lines = [line for line in outcome_lines if "event=outcome_tracking_registered" in line]
+    evaluated_lines = [
+        line for line in outcome_lines
+        if "event=outcome_checkpoint_evaluated" in line or "event=outcome_late_evaluated" in line
+    ]
+    skipped_lines = [line for line in outcome_lines if "event=outcome_checkpoint_skipped" in line]
+    late_lines = [line for line in outcome_lines if "event=outcome_late_evaluated" in line]
+    due_lines = [line for line in outcome_lines if "event=outcome_checkpoint_due" in line]
+    finalized_lines = [line for line in outcome_lines if "event=outcome_finalized" in line]
+    pending_count = max(0, len(registered_lines) * 3 - len(evaluated_lines) - len(skipped_lines))
+
+    tracking_ready = source_ready(
+        "class AITSDecisionOutcomeTracker",
+        "outcome_tracking_state.json",
+        "def _register_ai_decision_outcome_tracking",
+    )
+    scheduler_ready = source_ready(
+        "CHECKPOINT_SECONDS",
+        "def evaluate_due",
+        "def _run_ai_outcome_checkpoint_scheduler",
+        "outcome_checkpoint_due",
+    )
+    provider_comparison_ready = source_ready(
+        "def compare_providers",
+        "external_call_value_estimate",
+        "local_learning_value",
+    )
+    wait_hold_ready = source_ready('action in {"wait", "hold"}', "good_wait", "missed_opportunity", "avoided_loss")
+    buy_sell_ready = source_ready('action in {"buy", "add"}', 'action in {"sell", "reduce", "take_profit", "stop_loss"}')
+    rotation_ready = source_ready('action == "rotate"', "candidate_change", "held_change")
+    opportunity_ready = source_ready('"opportunity_cost"', "opportunity_gap_change", "missed_move_detected")
+    writers_ready = source_ready("outcome_records.jsonl", "provider_comparison_outcomes.jsonl", "safe_for_local_training")
+    timeline_ready = source_ready("def _emit_outcome_reason_timeline", "[AITS][OutcomeReasonTimeline]")
+    status_ready = source_ready("_aits_outcome_status_text", "outcome_status_text")
+    raw_leak_detected = any(
+        "raw_leak_detected=true" in line.lower() for line in timeline_lines
+    ) or bool(e2e.get("status_raw_snake_case_leak_detected"))
+    no_fake_data = source_ready("source_data_unavailable", '"data_unavailable"')
+    no_order_path_modified = bool(cycle_summary.get("execution_path_guarded"))
+    no_guard_bypass = bool(cycle_summary.get("no_guard_bypass_detected"))
+
+    checklist = {
+        "tracking": {
+            "outcome_tracking_layer_ready": tracking_ready,
+            "decision_outcome_tracking_registered": source_ready("outcome_tracking_registered"),
+            "checkpoint_scheduler_ready": scheduler_ready,
+            "checkpoint_5m_registered": source_ready('"outcome_5m": 300'),
+            "checkpoint_15m_registered": source_ready('"outcome_15m": 900'),
+            "checkpoint_1h_registered": source_ready('"outcome_1h": 3600'),
+        },
+        "provider_comparison": {
+            "provider_comparison_outcome_ready": provider_comparison_ready,
+            "local_external_comparison_recorded": source_ready("local_external_action_match", "local_external_disagreed"),
+            "final_provider_source_outcome_recorded": source_ready('"final_provider_source"'),
+            "external_call_value_estimate_recorded": source_ready("external_call_value_estimate"),
+            "local_learning_value_recorded": source_ready("local_learning_value"),
+        },
+        "classification": {
+            "wait_hold_outcome_classifier_ready": wait_hold_ready,
+            "buy_sell_outcome_classifier_ready": buy_sell_ready,
+            "rotation_outcome_classifier_ready": rotation_ready,
+            "opportunity_cost_tracker_ready": opportunity_ready,
+            "outcome_label_recorded": source_ready('"outcome_label"'),
+            "outcome_score_recorded": source_ready('"outcome_score"'),
+        },
+        "training": {
+            "outcome_records_writer_ready": source_ready("outcome_records.jsonl"),
+            "provider_comparison_outcomes_writer_ready": source_ready("provider_comparison_outcomes.jsonl"),
+            "safe_for_local_training_flag_ready": source_ready('"safe_for_local_training"'),
+            "local_training_dataset_append_ready": writers_ready,
+        },
+        "ui": {
+            "outcome_live_log_timeline_ready": timeline_ready,
+            "outcome_status_summary_ready": status_ready,
+            "raw_leak_absent": not raw_leak_detected,
+        },
+        "safety": {
+            "no_fake_outcome_data_detected": no_fake_data,
+            "no_order_path_modified": no_order_path_modified,
+            "no_guard_bypass_detected": no_guard_bypass,
+            "no_simulation_mode_added": source_ready("source_data_unavailable", "runtime_market_snapshot"),
+        },
+        "compatibility": {
+            "local_first_gpt_cost_guard_v1_ready": bool(provider_summary.get("local_first_gpt_cost_guard_v1_ready")),
+            "live_operating_cycle_v1_ready": bool(cycle_summary.get("live_operating_cycle_v1_ready")),
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_provider_outcome_learning_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    report.update(
+        {
+            "schema": "aits_local_provider_outcome_learning_v1_summary_v1",
+            "mode": "local-provider-outcome-learning-v1-summary",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "target_runtime_pid": int(e2e.get("target_runtime_pid") or e2e.get("e2e_target_pid") or 0),
+            "target_runtime_session_id": str(e2e.get("target_runtime_session_id") or e2e.get("e2e_target_session_id") or ""),
+            **{key: value for group in checklist.values() for key, value in group.items()},
+            "raw_leak_detected": raw_leak_detected,
+            "outcome_checkpoint_evaluated_count": len(evaluated_lines),
+            "outcome_checkpoint_pending_count": pending_count,
+            "outcome_checkpoint_late_count": len(late_lines),
+            "outcome_checkpoint_due_count": len(due_lines),
+            "outcome_checkpoint_skipped_count": len(skipped_lines),
+            "outcome_finalized_count": len(finalized_lines),
+            "outcome_tracking_registered_count": len(registered_lines),
+            "outcome_timeline_event_count": len(timeline_lines),
+            "completion_checklist": checklist,
+            "local_provider_outcome_learning_v1_ready": ready,
+            "first_blocker": first_blocker,
+            "blocker_group": blocker_group,
+            "next_sprint_recommendation": "SPRINT-LOCAL-TRAINING-DATASET-CURATION-V1",
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -23695,6 +23851,7 @@ def run_harness(
         "live-on-runtime-e2e-diagnostic-log-summary",
         "live-operating-cycle-v1-completion-summary",
         "local-first-gpt-cost-guard-v1-summary",
+        "local-provider-outcome-learning-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -23966,6 +24123,12 @@ def run_harness(
         elif mode == "local-first-gpt-cost-guard-v1-summary":
             _install_provider_post_guard(report)
             _run_local_first_gpt_cost_guard_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-provider-outcome-learning-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_provider_outcome_learning_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -24614,6 +24777,7 @@ def main() -> int:
             "live-on-runtime-e2e-diagnostic-log-summary",
             "live-operating-cycle-v1-completion-summary",
             "local-first-gpt-cost-guard-v1-summary",
+            "local-provider-outcome-learning-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

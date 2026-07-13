@@ -31693,6 +31693,180 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _decision_outcome_tracker(self):
+        tracker = getattr(self, "_aits_decision_outcome_tracker", None)
+        if tracker is None:
+            from app.services.aits_orchestrator import AITSDecisionOutcomeTracker
+            tracker = AITSDecisionOutcomeTracker()
+            self._aits_decision_outcome_tracker = tracker
+        return tracker
+
+    def _build_ai_outcome_decision_snapshot(self, payload: dict) -> dict:
+        value = dict(payload or {})
+        position = dict(value.get("position") or value.get("current_position") or {})
+        market = dict(value.get("market") or {})
+        candidate = dict(value.get("candidate") or {})
+        portfolio = dict(value.get("portfolio") or {})
+        candidates = dict(value.get("candidates") or {})
+        candidate_rows = (
+            candidates.get("scanner_top_candidates") or candidates.get("top_scanner_candidates")
+            or candidates.get("rotation_candidates") or []
+        )
+        first_candidate = dict(candidate_rows[0]) if candidate_rows and isinstance(candidate_rows[0], dict) else {}
+        number = self._decision_outcome_tracker().number
+        return {
+            "price": number(position.get("current_price") or market.get("current_price") or candidate.get("current_price")),
+            "position_value_krw": number(
+                position.get("position_value_krw") or position.get("selected_valuation_krw") or position.get("valuation_krw")
+            ),
+            "portfolio_value_krw": number(portfolio.get("total_asset_krw")),
+            "candidate_symbol": str(first_candidate.get("symbol") or first_candidate.get("market") or "").upper(),
+            "candidate_price": number(first_candidate.get("current_price") or first_candidate.get("price")),
+            "opportunity_gap": number(candidates.get("opportunity_score_gap")),
+            "data_source": "ai_decision_payload",
+        }
+
+    def _register_ai_decision_outcome_tracking(
+        self,
+        *,
+        payload: dict,
+        decision: dict,
+        decision_id: str,
+        payload_hash: str,
+        execution_result: dict | None = None,
+    ) -> bool:
+        if not bool((decision or {}).get("validation_passed")):
+            return False
+        scope_contract = self._normalize_ai_decision_task_scope(payload or {})
+        comparison = self._provider_comparison_training_fields(decision)
+        execution = dict(execution_result or {})
+        record = {
+            "decision_id": decision_id,
+            "parent_decision_id": str((payload or {}).get("parent_decision_id") or ""),
+            "session_id": str((payload or {}).get("session_id") or getattr(self, "_aits_initial_seed_session_id", "") or ""),
+            "task": str(scope_contract.get("task") or (payload or {}).get("task") or ""),
+            "scope_type": str(scope_contract.get("scope_type") or ""),
+            "scope": str(scope_contract.get("scope") or ""),
+            "symbol": str(scope_contract.get("symbol") or ""),
+            "provider_route_id": str((decision or {}).get("provider_route_id") or (decision or {}).get("response_id") or decision_id),
+            "payload_hash": payload_hash,
+            "feature_manifest_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("feature_manifest_hash"),
+            "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
+            "local_action": comparison.get("local_action"),
+            "local_confidence": comparison.get("local_confidence"),
+            "external_action": comparison.get("external_action"),
+            "external_confidence": comparison.get("external_confidence"),
+            "external_called": comparison.get("external_provider_called"),
+            "external_blocked": comparison.get("external_provider_blocked"),
+            "escalation_reason": comparison.get("escalation_reason"),
+            "cost_guard_blocker": comparison.get("cost_guard_blocker"),
+            "final_provider_source": comparison.get("final_provider_source"),
+            "final_action": str(comparison.get("final_action") or "").lower(),
+            "final_confidence": comparison.get("final_confidence"),
+            "reason_ko": comparison.get("final_reason_ko"),
+            "eta_seconds": (decision or {}).get("eta_seconds"),
+            "decision_snapshot": self._build_ai_outcome_decision_snapshot(payload),
+            "execution_result": execution,
+            "actual_order": bool(execution.get("actual_order")),
+            "submitted": int(execution.get("submitted_count") or execution.get("submitted") or 0),
+        }
+        registered = self._decision_outcome_tracker().register(record)
+        if registered:
+            logging.getLogger("aits").info(
+                "[AITS][OutcomeTracker] event=outcome_tracking_registered decision_id=%s task=%s scope=%s symbol=%s action=%s final_provider_source=%s checkpoints=outcome_5m,outcome_15m,outcome_1h actual_order=%s submitted=%s blocker=-",
+                decision_id, record["task"] or "-", record["scope"] or "-", record["symbol"] or "-",
+                record["final_action"] or "-", record["final_provider_source"] or "-", record["actual_order"], record["submitted"],
+            )
+            self._emit_outcome_reason_timeline(
+                event="outcome_tracking_registered",
+                message_ko="AI 판단 결과 추적을 시작했습니다 · 5분/15분/1시간 후 평가",
+                record=record,
+            )
+        return registered
+
+    def _ai_outcome_current_snapshot(self, record: dict) -> dict:
+        number = self._decision_outcome_tracker().number
+        symbol = str(record.get("symbol") or "").upper()
+        snapshot = dict(getattr(self, "_aits_normalized_holdings_snapshot", {}) or {})
+        if not snapshot:
+            snapshot = self._build_normalized_holding_snapshot(reason="outcome_checkpoint")
+        rows = [row for row in (snapshot.get("all_holdings") or []) if isinstance(row, dict)]
+        row = next((item for item in rows if str(item.get("symbol") or "").upper() == symbol), {})
+        price = number(row.get("current_price") or row.get("price") or row.get("trade_price"))
+        valuation = number(
+            row.get("selected_valuation_krw") or row.get("valuation_krw") or row.get("position_value_krw") or row.get("eval_krw")
+        )
+        scanner_rows = [item for item in list(getattr(self, "_aits_latest_scanner_top_candidates", []) or []) if isinstance(item, dict)]
+        if price is None and symbol:
+            scanner_row = next(
+                (item for item in scanner_rows if str(item.get("symbol") or item.get("market") or "").upper() == symbol), {}
+            )
+            price = number(scanner_row.get("current_price") or scanner_row.get("price"))
+        candidate_symbol = str((record.get("decision_snapshot") or {}).get("candidate_symbol") or "").upper()
+        candidate_row = next(
+            (item for item in scanner_rows if str(item.get("symbol") or item.get("market") or "").upper() == candidate_symbol), {}
+        )
+        return {
+            "price": price,
+            "position_value_krw": valuation,
+            "portfolio_value_krw": number(getattr(self, "_last_total_asset", None)),
+            "candidate_price": number(candidate_row.get("current_price") or candidate_row.get("price")),
+            "position_present": bool(row),
+            "data_source": str(row.get("selected_valuation_source") or ("normalized_holdings_ssot" if row else "runtime_market_snapshot")),
+        }
+
+    def _emit_outcome_reason_timeline(self, *, event: str, message_ko: str, record: dict) -> None:
+        safe_message = " ".join(str(message_ko or "").replace("\n", " ").split())[:320]
+        if not safe_message:
+            return
+        self._aits_outcome_status_text = safe_message
+        logging.getLogger("aits").info(
+            "[AITS][OutcomeReasonTimeline] event=%s message_ko=%s decision_id=%s task=%s scope=%s symbol=%s action=%s final_provider_source=%s raw_leak_detected=false actual_order=False submitted=0",
+            event, safe_message, record.get("decision_id") or "-", record.get("task") or "-", record.get("scope") or "-",
+            record.get("symbol") or "-", record.get("final_action") or "-", record.get("final_provider_source") or "-",
+        )
+        try:
+            self._append_aits_live_log(
+                safe_message, category="pipeline", level="info", event=event, symbol=str(record.get("symbol") or "")
+            )
+        except Exception:
+            pass
+
+    def _run_ai_outcome_checkpoint_scheduler(self, *, reason: str) -> dict:
+        now = time.time()
+        if now - float(getattr(self, "_aits_outcome_scheduler_last_run", 0.0) or 0.0) < 15.0:
+            return {"evaluated": 0, "pending": 0, "result": "debounced"}
+        self._aits_outcome_scheduler_last_run = now
+        result = self._decision_outcome_tracker().evaluate_due(self._ai_outcome_current_snapshot, now=now)
+        for event in result.get("events") or []:
+            record = dict(event.get("record") or {})
+            if event.get("finalized"):
+                final = dict(record.get("final_outcome") or {})
+                logging.getLogger("aits").info(
+                    "[AITS][OutcomeTracker] event=outcome_finalized decision_id=%s task=%s scope=%s symbol=%s outcome_label=%s outcome_score=%s learning_record_ready=%s actual_order=%s submitted=%s",
+                    record.get("decision_id") or "-", record.get("task") or "-", record.get("scope") or "-", record.get("symbol") or "-",
+                    final.get("outcome_label") or "-", final.get("outcome_score"), bool(record.get("learning_record_ready")),
+                    bool(record.get("actual_order")), int(record.get("submitted") or 0),
+                )
+                continue
+            checkpoint = dict(event.get("checkpoint") or {})
+            log_event = "outcome_late_evaluated" if event.get("late") else (
+                "outcome_checkpoint_skipped" if checkpoint.get("status") == "skipped" else "outcome_checkpoint_evaluated"
+            )
+            logging.getLogger("aits").info(
+                "[AITS][OutcomeTracker] event=%s decision_id=%s task=%s scope=%s symbol=%s checkpoint=%s due_at=%s evaluated_at=%s action=%s final_provider_source=%s price_change_pct=%s pnl_change_pct=%s portfolio_change_pct=%s outcome_label=%s outcome_score=%s blocker=%s safe_for_local_training=%s actual_order=%s submitted=%s",
+                log_event, record.get("decision_id") or "-", record.get("task") or "-", record.get("scope") or "-", record.get("symbol") or "-",
+                event.get("checkpoint_name") or "-", checkpoint.get("due_at"), checkpoint.get("evaluated_at"), record.get("final_action") or "-",
+                record.get("final_provider_source") or "-", checkpoint.get("price_change_pct"), checkpoint.get("pnl_change_pct"),
+                checkpoint.get("portfolio_change_pct"), checkpoint.get("outcome_label") or "-", checkpoint.get("outcome_score"),
+                checkpoint.get("blocker") or "-", checkpoint.get("outcome_label") != "data_unavailable",
+                bool(record.get("actual_order")), int(record.get("submitted") or 0),
+            )
+            self._emit_outcome_reason_timeline(
+                event=log_event, message_ko=str(checkpoint.get("outcome_reason_ko") or "이번 판단 결과를 기록했습니다."), record=record
+            )
+        return {**result, "result": "checked", "reason": reason}
+
     def _record_post_order_outcome_link(
         self,
         *,
@@ -31754,6 +31928,7 @@ class MainWindow(QMainWindow):
         root.mkdir(parents=True, exist_ok=True)
         with (root / "live_cycle_outcomes.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        self._decision_outcome_tracker().link_execution(decision_id, record)
         logging.getLogger("aits").info(
             "[AITS][AIOutcomeTraining] event=execution_result_linked request_id=%s decision_id=%s task=%s scope=%s symbol=%s action=%s actual_order=%s submitted=%s order_result=%s position_after_ready=%s portfolio_after_ready=%s outcome_5m=pending outcome_15m=pending outcome_1h=pending final_outcome=pending learning_record_ready=%s",
             request_id, decision_id or "-", record["task"] or "-", record["scope"] or "-", symbol or "-",
@@ -41734,6 +41909,7 @@ class MainWindow(QMainWindow):
                 "outcome_15m": None,
                 "outcome_1h": None,
                 "final_outcome": None,
+                "target_checkpoints": ["outcome_5m", "outcome_15m", "outcome_1h"],
                 "learning_record_ready": bool(decision_id),
                 "realized_outcome_later": None,
                 "pnl_after_5m": None,
@@ -41754,6 +41930,13 @@ class MainWindow(QMainWindow):
                 target_name = "position_decisions.jsonl"
             with (root / target_name).open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+            self._register_ai_decision_outcome_tracking(
+                payload=payload,
+                decision=decision,
+                decision_id=decision_id,
+                payload_hash=str(row.get("payload_hash") or payload_hash),
+                execution_result=safe_execution_result,
+            )
             self._log.info(
                 "[AITS][AIDecisionAuthority] event=local_training_record_created session_id=%s task=%s request_task=%s symbol=%s scope_type=%s scope=%s state_key=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
                 row["session_id"] or "-",
@@ -42587,12 +42770,19 @@ class MainWindow(QMainWindow):
                 "outcome_15m": None,
                 "outcome_1h": None,
                 "final_outcome": None,
+                "target_checkpoints": ["outcome_5m", "outcome_15m", "outcome_1h"],
                 "learning_record_ready": bool(decision_id),
                 "outcome_placeholder": {"pnl_after_5m": None, "pnl_after_15m": None, "pnl_after_1h": None, "decision_helped": None},
                 **self._provider_comparison_training_fields(decision),
             }
             with (root / "initial_management_decisions.jsonl").open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+            self._register_ai_decision_outcome_tracking(
+                payload={**dict(payload or {}), "session_id": session_id},
+                decision=decision,
+                decision_id=decision_id,
+                payload_hash=str(record.get("payload_hash") or payload_hash),
+            )
             logging.getLogger("aits").info(
                 "[AITS][AIManagementSeed] event=initial_seed_training_record_created session_id=%s task=%s symbol=%s provider=%s payload_hash=%s blocker=%s actual_order=False submitted=0",
                 session_id, record["task"] or "-", record["symbol"] or "-", record["provider"] or "-", payload_hash, blocker or "-",
@@ -42872,6 +43062,7 @@ class MainWindow(QMainWindow):
                 len(active_states), registered_eta_count, registered_invalidation_count,
             )
             return result
+        self._run_ai_outcome_checkpoint_scheduler(reason=reason or "runtime_tick")
         if not active_states:
             eta_logger.info(
                 "[AITS][ETAReDecision] event=eta_scheduler_idle active_decision_count=0 registered_eta_count=0 registered_invalidation_count=0 reason=no_registered_ai_decision_state actual_order=False submitted=0"
@@ -44158,6 +44349,9 @@ class MainWindow(QMainWindow):
         provider_reason_text = str(getattr(self, "_aits_provider_reason_status_text", "") or "")
         if provider_reason_text:
             risk_text = f"{risk_text} | {provider_reason_text}"
+        outcome_status_text = str(getattr(self, "_aits_outcome_status_text", "") or "")
+        if outcome_status_text:
+            risk_text = f"{risk_text} | {outcome_status_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text
