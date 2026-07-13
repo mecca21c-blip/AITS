@@ -288,3 +288,7 @@ ETA expiry and invalidation are triggers for another AI decision, not actions. T
 ## Redecision Scope Policy
 
 Portfolio redecision preserves `PORTFOLIO` as a portfolio scope and registers a portfolio-management decision. It must not pass through KRW symbol normalization or position-management task normalization. Position and portfolio state keys remain separate, and neither scope contract creates or changes an action.
+
+## Portfolio Monitoring ETA
+
+AI may express a long portfolio decision horizon, but AITS retains that original ETA separately from its monitoring cadence. Portfolio runtime state clamps the effective monitoring ETA to the configured policy range, currently 5 to 60 minutes by default. ETA expiry and portfolio invalidation conditions only request another AI decision; they never create an action or order.

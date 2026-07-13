@@ -145,3 +145,7 @@ The F-grade redecision payload was caused by a minimal `current_state` path that
 ## Portfolio Redecision Registration Follow-up
 
 Payload quality and registration scope are independent contracts. A portfolio payload may be A-grade yet still be stored incorrectly if `PORTFOLIO` enters market-symbol normalization. Goal 38 preserves portfolio scope through runtime state, ETA, and training records, while the E2E audit selects the running user PID instead of later dry-read or terminated processes.
+
+## Portfolio ETA Cadence Follow-up
+
+The 86400-second portfolio ETA was a valid AI response but an impractical runtime observation cadence. Goal 40 preserves that response as the original ETA and registers an effective portfolio monitoring ETA capped at 3600 seconds. The cap changes redecision scheduling only; payload evidence, action, guards, and execution policy remain unchanged.

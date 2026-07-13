@@ -9659,6 +9659,57 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         if _live_on_stage_extract_value(line, "symbol") in {"PORTFOLIO", "KRW-PORTFOLIO"}
         or _live_on_stage_extract_value(line, "scope") == "portfolio_management"
     ]
+    eta_policy_lines = [line for line in lines if "[AITS][AIEtaPolicy]" in line]
+    portfolio_eta_policy_lines = [
+        line for line in eta_policy_lines
+        if _live_on_stage_extract_value(line, "scope") == "PORTFOLIO"
+        or _live_on_stage_extract_value(line, "eta_scope_type") == "portfolio"
+        or _live_on_stage_extract_value(line, "state_key") == "portfolio:PORTFOLIO"
+    ]
+    portfolio_eta_registered_lines = [
+        line for line in portfolio_eta_policy_lines
+        if "event=eta_registered_with_effective_eta" in line
+    ]
+    portfolio_eta_original_lines = [
+        line for line in portfolio_eta_policy_lines
+        if "event=eta_original_preserved" in line
+    ]
+    portfolio_eta_normalized_lines = [
+        line for line in portfolio_eta_policy_lines
+        if "event=portfolio_eta_normalized" in line
+    ]
+    portfolio_eta_status_lines = [
+        line for line in lines
+        if "[AITS][StatusVisibility]" in line
+        and "event=eta_condition_status_rendered" in line
+        and "symbol=PORTFOLIO" in line
+        and ("AITS 감시 ETA" in line or "포트폴리오 판단" in line)
+    ]
+    latest_portfolio_eta_policy = (
+        portfolio_eta_registered_lines[-1]
+        if portfolio_eta_registered_lines else (portfolio_eta_policy_lines[-1] if portfolio_eta_policy_lines else "")
+    )
+    portfolio_original_eta_seconds = int(_safe_float(
+        _live_on_stage_extract_value(latest_portfolio_eta_policy, "original_eta_seconds"), 0
+    ))
+    portfolio_effective_eta_seconds = int(_safe_float(
+        _live_on_stage_extract_value(latest_portfolio_eta_policy, "effective_eta_seconds"), 0
+    ))
+    portfolio_eta_policy_min_seconds = int(_safe_float(
+        _live_on_stage_extract_value(latest_portfolio_eta_policy, "eta_policy_min_seconds"), 0
+    ))
+    portfolio_eta_policy_max_seconds = int(_safe_float(
+        _live_on_stage_extract_value(latest_portfolio_eta_policy, "eta_policy_max_seconds"), 0
+    ))
+    portfolio_eta_normalized = bool(
+        portfolio_eta_normalized_lines
+        or _live_on_stage_extract_value(latest_portfolio_eta_policy, "eta_normalized").lower() == "true"
+    )
+    portfolio_eta_status_message_samples = []
+    for line in portfolio_eta_status_lines[-5:]:
+        match = re.search(r"message_ko=(.*?)\s+symbol=", line)
+        if match:
+            portfolio_eta_status_message_samples.append(match.group(1).strip())
     portfolio_training_lines = [
         line for line in lines
         if "event=local_training_record_created" in line
@@ -10807,6 +10858,21 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = "portfolio_redecision_scope_canonical_ready"
         if first_blocker not in all_blockers:
             all_blockers.insert(0, first_blocker)
+    portfolio_eta_policy_blocker = ""
+    if portfolio_redecision_registration_lines:
+        if not portfolio_eta_policy_lines:
+            portfolio_eta_policy_blocker = "portfolio_eta_policy_missing"
+        elif portfolio_original_eta_seconds <= 0 or not portfolio_eta_original_lines:
+            portfolio_eta_policy_blocker = "portfolio_original_eta_not_preserved"
+        elif portfolio_original_eta_seconds > portfolio_eta_policy_max_seconds > 0 and not portfolio_eta_normalized:
+            portfolio_eta_policy_blocker = "portfolio_eta_not_normalized"
+        elif not portfolio_eta_registered_lines or portfolio_effective_eta_seconds <= 0:
+            portfolio_eta_policy_blocker = "portfolio_effective_eta_not_registered"
+        else:
+            portfolio_eta_policy_blocker = "portfolio_eta_cadence_policy_ready"
+        first_blocker = portfolio_eta_policy_blocker
+        if portfolio_eta_policy_blocker not in all_blockers:
+            all_blockers.insert(0, portfolio_eta_policy_blocker)
     if selected_target_pid in excluded_harness_pids:
         first_blocker = "e2e_selected_dry_read_pid"
     elif target_session_lines and not target_pid_running:
@@ -11395,6 +11461,28 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "portfolio_redecision_eta_registered": bool(portfolio_redecision_eta_lines),
         "portfolio_redecision_training_record_scope": _live_on_stage_extract_value(latest_portfolio_training, "scope"),
         "portfolio_redecision_training_record_task": _live_on_stage_extract_value(latest_portfolio_training, "task"),
+        "portfolio_eta_policy_enabled": bool(portfolio_eta_policy_lines),
+        "portfolio_original_eta_seconds": int(portfolio_original_eta_seconds),
+        "portfolio_effective_eta_seconds": int(portfolio_effective_eta_seconds),
+        "portfolio_eta_normalized": bool(portfolio_eta_normalized),
+        "portfolio_eta_normalization_reason": _live_on_stage_extract_value(
+            latest_portfolio_eta_policy, "reason"
+        ),
+        "portfolio_eta_policy_min_seconds": int(portfolio_eta_policy_min_seconds),
+        "portfolio_eta_policy_max_seconds": int(portfolio_eta_policy_max_seconds),
+        "portfolio_eta_registered_with_effective_eta": bool(portfolio_eta_registered_lines),
+        "portfolio_eta_original_preserved": bool(portfolio_eta_original_lines),
+        "portfolio_redecision_max_eta_seconds": int(portfolio_eta_policy_max_seconds),
+        "portfolio_eta_too_long_detected": bool(
+            portfolio_original_eta_seconds > portfolio_eta_policy_max_seconds > 0
+        ),
+        "portfolio_redecision_expected_within_max_eta": bool(
+            portfolio_eta_registered_lines
+            and 0 < portfolio_effective_eta_seconds <= portfolio_eta_policy_max_seconds
+        ),
+        "portfolio_eta_policy_status_message_detected": bool(portfolio_eta_status_lines),
+        "portfolio_eta_policy_status_message_samples": portfolio_eta_status_message_samples,
+        "portfolio_eta_policy_blocker": str(portfolio_eta_policy_blocker),
         "eta_runtime_first_blocker": str(eta_runtime_first_blocker),
         "holdings_sell_eval_target_ssot_mismatch_detected": bool(manageable_holding_count_for_sell_eval > managed_pool_count),
         "holdings_ssot_next_fix_target": (
@@ -22119,6 +22207,14 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         and '"current_positions"' in app_text
         and '"cap_remaining_krw"' in app_text
     )
+    portfolio_eta_policy_enabled = bool(
+        "PORTFOLIO_REDECISION_MIN_ETA_SECONDS" in app_text
+        and "PORTFOLIO_REDECISION_MAX_ETA_SECONDS" in app_text
+        and "_normalize_ai_decision_eta_for_runtime" in app_text
+        and "eta_registered_with_effective_eta" in app_text
+        and "original_eta_seconds" in app_text
+        and "effective_eta_seconds" in app_text
+    )
     invalidation_condition_mapping_contract_enabled = bool(
         "_normalize_ai_invalidation_condition" in app_text
         and "[AITS][AIInvalidationCondition]" in app_text
@@ -22656,6 +22752,11 @@ def _build_ai_decision_role_contract_audit_report() -> dict[str, Any]:
         "position_payload_population_contract_enabled": bool(position_payload_population_contract_enabled),
         "position_task_alias_contract_enabled": bool(position_task_alias_contract_enabled),
         "portfolio_payload_context_contract_enabled": bool(portfolio_payload_context_contract_enabled),
+        "portfolio_eta_policy_enabled": bool(portfolio_eta_policy_enabled),
+        "portfolio_redecision_max_eta_seconds": 3600 if portfolio_eta_policy_enabled else 0,
+        "portfolio_redecision_min_eta_seconds": 300 if portfolio_eta_policy_enabled else 0,
+        "portfolio_original_eta_preservation_contract_enabled": bool(portfolio_eta_policy_enabled),
+        "portfolio_effective_eta_registration_contract_enabled": bool(portfolio_eta_policy_enabled),
         "invalidation_condition_mapping_contract_enabled": bool(invalidation_condition_mapping_contract_enabled),
         "managed_pool_promotion_ai_gate_enabled": bool(managed_pool_promotion_ai_gate_enabled),
         "promotion_trigger_detected": bool(promotion_trigger_detected),

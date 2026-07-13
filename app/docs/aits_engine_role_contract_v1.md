@@ -203,3 +203,7 @@ BASIC refreshes real market, indicator, holding, portfolio, candidate, constrain
 ## Decision Scope Boundary
 
 BASIC keeps portfolio and position watch states distinct. `PORTFOLIO` uses a portfolio state key and portfolio-management task; only actual market symbols use `KRW-*` position keys. Request aliases may be retained for audit, but runtime registration, ETA state, and training records use the canonical scope contract.
+
+## Portfolio Cadence Boundary
+
+BASIC preserves the AI-provided portfolio ETA as evidence and computes a separate effective monitoring ETA under the runtime cadence policy. This scheduling normalization does not alter the AI action. Changes in portfolio facts or watched invalidation conditions may cause BASIC to ask AI again before the effective ETA expires.

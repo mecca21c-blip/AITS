@@ -23,6 +23,9 @@ from pathlib import Path
 import concurrent.futures
 from PySide6 import QtGui
 
+PORTFOLIO_REDECISION_MIN_ETA_SECONDS = 300
+PORTFOLIO_REDECISION_MAX_ETA_SECONDS = 3600
+
 MASKED_API_KEY_TEXT = "●●●●●●●●●●●●●●●●●●●●"
 
 # Development-only login bypass. Set this to False after repeated runtime testing.
@@ -41326,6 +41329,34 @@ class MainWindow(QMainWindow):
             "corrected": bool(canonical_task != original_task or symbol != original_symbol),
         }
 
+    def _normalize_ai_decision_eta_for_runtime(self, *, eta_seconds: int, scope_contract: dict) -> dict:
+        """Keep the AI ETA while applying the portfolio monitoring cadence."""
+        original_eta = max(0, int(eta_seconds or 0))
+        scope_type = str((scope_contract or {}).get("scope_type") or "position")
+        effective_eta = original_eta
+        policy_min = 0
+        policy_max = 0
+        reason = "position_eta_policy_unchanged"
+        if scope_type == "portfolio":
+            policy_min = PORTFOLIO_REDECISION_MIN_ETA_SECONDS
+            policy_max = PORTFOLIO_REDECISION_MAX_ETA_SECONDS
+            effective_eta = min(max(original_eta, policy_min), policy_max)
+            if original_eta > policy_max:
+                reason = "portfolio_eta_above_monitoring_max"
+            elif original_eta < policy_min:
+                reason = "portfolio_eta_below_monitoring_min"
+            else:
+                reason = "portfolio_eta_within_monitoring_policy"
+        return {
+            "original_eta_seconds": original_eta,
+            "effective_eta_seconds": effective_eta,
+            "eta_normalized": effective_eta != original_eta,
+            "eta_normalization_reason": reason,
+            "eta_scope_type": scope_type,
+            "eta_policy_min_seconds": policy_min,
+            "eta_policy_max_seconds": policy_max,
+        }
+
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
         try:
             root = Path("data") / "ai_decision_training"
@@ -41470,16 +41501,36 @@ class MainWindow(QMainWindow):
             )
             return result
         try:
-            eta_seconds = max(0, int(float((decision or {}).get("eta_seconds") or 0)))
+            original_eta_seconds = max(0, int(float((decision or {}).get("eta_seconds") or 0)))
         except Exception:
-            eta_seconds = 0
-        if action in {"wait", "hold"} and eta_seconds <= 0:
+            original_eta_seconds = 0
+        if action in {"wait", "hold"} and original_eta_seconds <= 0:
             result.update({"symbol": symbol, "blocker": "ai_decision_eta_invalid", "reason": "wait_hold_requires_positive_eta"})
             eta_logger.info(
                 "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=%s scope=- action=%s eta_seconds=%s eta_expires_at=- invalidation_condition_count=%s active_decision_count_after=0 store_name=%s registered=False blocker=ai_decision_eta_invalid reason=wait_hold_requires_positive_eta actual_order=False submitted=0",
-                provisional_id, task, symbol, action, eta_seconds, len((decision or {}).get("invalidation_conditions") or []), store_name,
+                provisional_id, task, symbol, action, original_eta_seconds, len((decision or {}).get("invalidation_conditions") or []), store_name,
             )
             return result
+        eta_policy = self._normalize_ai_decision_eta_for_runtime(
+            eta_seconds=original_eta_seconds, scope_contract=scope_contract,
+        )
+        effective_eta_seconds = int(eta_policy["effective_eta_seconds"])
+        eta_logger.info(
+            "[AITS][AIEtaPolicy] event=eta_policy_evaluated scope=%s task=%s original_eta_seconds=%s effective_eta_seconds=%s eta_normalized=%s reason=%s eta_scope_type=%s eta_policy_min_seconds=%s eta_policy_max_seconds=%s state_key=%s actual_order=False submitted=0",
+            scope_contract.get("scope") or symbol or "-", task, original_eta_seconds,
+            effective_eta_seconds, bool(eta_policy["eta_normalized"]),
+            eta_policy["eta_normalization_reason"], scope_type,
+            eta_policy["eta_policy_min_seconds"], eta_policy["eta_policy_max_seconds"],
+            state_key or symbol,
+        )
+        if scope_type == "portfolio":
+            eta_logger.info(
+                "[AITS][AIEtaPolicy] event=%s scope=PORTFOLIO task=%s original_eta_seconds=%s effective_eta_seconds=%s eta_normalized=%s reason=%s eta_scope_type=portfolio eta_policy_min_seconds=%s eta_policy_max_seconds=%s state_key=%s actual_order=False submitted=0",
+                "portfolio_eta_normalized" if eta_policy["eta_normalized"] else "eta_original_preserved",
+                task, original_eta_seconds, effective_eta_seconds, bool(eta_policy["eta_normalized"]),
+                eta_policy["eta_normalization_reason"], eta_policy["eta_policy_min_seconds"],
+                eta_policy["eta_policy_max_seconds"], state_key,
+            )
         now = time.time()
         decision_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash or f"decision-{int(now)}-{symbol}")
         states = self._ai_decision_runtime_state_store()
@@ -41507,8 +41558,14 @@ class MainWindow(QMainWindow):
             "ai_decision_id": decision_id, "symbol": symbol,
             "provider": str((decision or {}).get("provider") or self._selected_ai_decision_provider() or ""),
             "action": action, "confidence": (decision or {}).get("confidence"),
-            "reason_ko": str((decision or {}).get("reason_ko") or ""), "eta_seconds": eta_seconds,
-            "eta_started_at": now, "eta_expires_at": now + eta_seconds,
+            "reason_ko": str((decision or {}).get("reason_ko") or ""), "eta_seconds": effective_eta_seconds,
+            "original_eta_seconds": original_eta_seconds, "effective_eta_seconds": effective_eta_seconds,
+            "eta_normalized": bool(eta_policy["eta_normalized"]),
+            "eta_normalization_reason": eta_policy["eta_normalization_reason"],
+            "eta_policy_min_seconds": eta_policy["eta_policy_min_seconds"],
+            "eta_policy_max_seconds": eta_policy["eta_policy_max_seconds"],
+            "eta_started_at": now, "eta_expires_at": now + effective_eta_seconds,
+            "original_eta_expires_at": now + original_eta_seconds,
             "invalidation_conditions": conditions, "payload_hash": payload_hash,
             "decision_task": task, "request_task": request_task, "decision_symbol": symbol,
             "decision_scope": decision_scope, "scope_type": scope_type,
@@ -41538,7 +41595,7 @@ class MainWindow(QMainWindow):
             )
             eta_logger.info(
                 "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=False blocker=ai_decision_state_registration_failed reason=store_readback_failed actual_order=False submitted=0",
-                decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
+                decision_id, task, symbol, state["decision_scope"], action, effective_eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
             )
             return result
         eta_logger.info(
@@ -41549,12 +41606,43 @@ class MainWindow(QMainWindow):
         )
         eta_logger.info(
             "[AITS][ETAReDecision] event=ai_decision_state_registered decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=True blocker=- reason=store_readback_confirmed actual_order=False submitted=0",
-            decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
+            decision_id, task, symbol, state["decision_scope"], action, effective_eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
         )
         eta_logger.info(
             "[AITS][ETAReDecision] event=eta_registered decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=True blocker=- reason=positive_eta_registered actual_order=False submitted=0",
-            decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
+            decision_id, task, symbol, state["decision_scope"], action, effective_eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
         )
+        eta_logger.info(
+            "[AITS][AIEtaPolicy] event=eta_registered_with_effective_eta scope=%s task=%s original_eta_seconds=%s effective_eta_seconds=%s eta_normalized=%s reason=%s eta_scope_type=%s eta_policy_min_seconds=%s eta_policy_max_seconds=%s state_key=%s actual_order=False submitted=0",
+            scope_contract.get("scope") or symbol, task, original_eta_seconds, effective_eta_seconds,
+            bool(eta_policy["eta_normalized"]), eta_policy["eta_normalization_reason"], scope_type,
+            eta_policy["eta_policy_min_seconds"], eta_policy["eta_policy_max_seconds"], state_key or symbol,
+        )
+        eta_logger.info(
+            "[AITS][AIEtaPolicy] event=eta_original_preserved scope=%s task=%s original_eta_seconds=%s effective_eta_seconds=%s eta_normalized=%s reason=%s eta_scope_type=%s eta_policy_min_seconds=%s eta_policy_max_seconds=%s state_key=%s actual_order=False submitted=0",
+            scope_contract.get("scope") or symbol, task, original_eta_seconds, effective_eta_seconds,
+            bool(eta_policy["eta_normalized"]), eta_policy["eta_normalization_reason"], scope_type,
+            eta_policy["eta_policy_min_seconds"], eta_policy["eta_policy_max_seconds"], state_key or symbol,
+        )
+        if scope_type == "portfolio":
+            message_ko = (
+                f"AI 원본 ETA {max(1, original_eta_seconds // 3600)}시간 · "
+                f"AITS 감시 ETA {max(1, effective_eta_seconds // 60)}분"
+                if eta_policy["eta_normalized"]
+                else f"포트폴리오 판단은 {max(1, effective_eta_seconds // 60)}분 안에 다시 점검합니다"
+            )
+            self._aits_redecision_status_text = message_ko
+            try:
+                self._append_aits_live_log(
+                    message_ko, category="pipeline", level="info",
+                    event="portfolio_eta_monitoring_cadence", symbol="PORTFOLIO",
+                )
+            except Exception:
+                pass
+            eta_logger.info(
+                "[AITS][StatusVisibility] event=eta_condition_status_rendered target=status_bar message_ko=%s symbol=PORTFOLIO decision_id=%s eta_condition_count=%s watcher_ready_count=0 watcher_partial_count=0 unsupported_count=0 payload_quality_grade=- missing_feature_count=0 raw_leak_detected=false actual_order=False submitted=0",
+                message_ko, decision_id, len(conditions),
+            )
         for condition in conditions:
             eta_logger.info(
                 "[AITS][ETAReDecision] event=invalidation_condition_registered symbol=%s decision_id=%s condition_type=%s expected=%s actual=- threshold=%s triggered=False actual_order=False submitted=0",
@@ -41568,7 +41656,10 @@ class MainWindow(QMainWindow):
             )
         result.update({
             "ok": True, "registered": True, "decision_id": decision_id, "symbol": symbol,
-            "scope": state["decision_scope"], "eta_registered": eta_seconds > 0,
+            "scope": state["decision_scope"], "eta_registered": effective_eta_seconds > 0,
+            "original_eta_seconds": original_eta_seconds,
+            "effective_eta_seconds": effective_eta_seconds,
+            "eta_normalized": bool(eta_policy["eta_normalized"]),
             "invalidation_registered": bool(conditions), "invalidation_condition_count": len(conditions),
             "active_decision_count_after": active_count, "reason": "store_readback_confirmed",
         })

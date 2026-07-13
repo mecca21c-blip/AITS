@@ -2080,3 +2080,10 @@ summary modes.
 - Position redecisions remain `position_management_decision` with a `position:KRW-*` state key. The original request task is retained separately for provenance.
 - The E2E live summary prefers a running, ON, runtime-contract-active non-harness PID. Dry-read report windows and terminated PIDs cannot replace that target.
 - Portfolio payload, registration, ETA, and training scope fields are compared explicitly; `KRW-PORTFOLIO` or a position-management registration is a mismatch.
+
+## Portfolio ETA Cadence
+
+- The AI response ETA is retained as `original_eta_seconds`; the scheduler uses a separate `effective_eta_seconds`.
+- Portfolio monitoring defaults to a 300-second minimum and a 3600-second maximum. Position ETA behavior is unchanged.
+- ETA is a monitoring cadence, not a stop time or an order condition. Portfolio invalidation conditions may request redecision before effective ETA expiry.
+- Live summaries require policy evaluation, original preservation, effective registration, and Korean status evidence from the target PID/session.
