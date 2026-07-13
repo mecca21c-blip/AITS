@@ -9230,6 +9230,13 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     initial_seed_lines = [line for line in lines if "[AITS][AIManagementSeed]" in line]
     holdings_ssot_lines = [line for line in lines if "[AITS][HoldingsSSOT]" in line]
     managed_pool_recovery_lines = [line for line in lines if "[AITS][ManagedPoolRecovery]" in line]
+    holdings_valuation_ssot_lines = [line for line in lines if "[AITS][HoldingsValuationSSOT]" in line]
+    valuation_source_collected_lines = [line for line in holdings_valuation_ssot_lines if "event=valuation_source_collected" in line]
+    valuation_source_conflict_lines = [line for line in holdings_valuation_ssot_lines if "event=valuation_source_conflict_detected" in line]
+    valuation_ssot_selected_lines = [line for line in holdings_valuation_ssot_lines if "event=valuation_ssot_selected" in line]
+    valuation_boundary_lines = [line for line in holdings_valuation_ssot_lines if "event=dust_threshold_boundary_detected" in line]
+    valuation_manageable_finalized_lines = [line for line in holdings_valuation_ssot_lines if "event=manageable_classification_finalized" in line]
+    valuation_dust_finalized_lines = [line for line in holdings_valuation_ssot_lines if "event=dust_classification_finalized" in line]
     holding_recovery_candidate_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_candidate_detected" in line]
     holding_recovery_excluded_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_candidate_excluded" in line]
     holding_recovery_applied_lines = [line for line in managed_pool_recovery_lines if "event=holding_recovery_applied" in line]
@@ -9281,6 +9288,40 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     blast_removed_by_later_writer = "KRW-BLAST" in recovery_removed_symbols
     blast_exclusion_lines = [line for line in holding_recovery_excluded_lines if "symbol=KRW-BLAST" in line]
     blast_holding_recovery_exclusion_reason = _live_on_stage_extract_value(blast_exclusion_lines[-1], "exclusion_reason") if blast_exclusion_lines else ""
+    valuation_source_conflict_symbols = sorted({
+        symbol for line in valuation_source_conflict_lines
+        for symbol in _aits_split_symbol_field(_live_on_stage_extract_value(line, "symbol"))
+    })
+    blast_valuation_collected_lines = [line for line in valuation_source_collected_lines if "symbol=KRW-BLAST" in line]
+    blast_valuation_selected_lines = [line for line in valuation_ssot_selected_lines if "symbol=KRW-BLAST" in line]
+    blast_valuation_boundary_lines = [line for line in valuation_boundary_lines if "symbol=KRW-BLAST" in line]
+    latest_blast_valuation_selected = blast_valuation_selected_lines[-1] if blast_valuation_selected_lines else ""
+    latest_blast_valuation_boundary = blast_valuation_boundary_lines[-1] if blast_valuation_boundary_lines else ""
+    blast_valuation_sources = [
+        {
+            "source": _live_on_stage_extract_value(line, "source"),
+            "valuation_krw": _safe_float(_live_on_stage_extract_value(line, "valuation_krw"), 0.0),
+            "valuation_kind": _live_on_stage_extract_value(line, "valuation_kind"),
+            "freshness": _live_on_stage_extract_value(line, "freshness"),
+            "dust_by_source": _live_on_runtime_bool_marker(line, "dust_by_source"),
+        }
+        for line in blast_valuation_collected_lines
+    ]
+    blast_selected_valuation_source = _live_on_stage_extract_value(latest_blast_valuation_selected, "selected_valuation_source")
+    blast_selected_valuation_krw = _safe_float(_live_on_stage_extract_value(latest_blast_valuation_selected, "selected_valuation_krw"), 0.0)
+    blast_alternative_valuation_krw = sorted({
+        float(item.get("valuation_krw") or 0.0) for item in blast_valuation_sources
+        if str(item.get("source") or "") != blast_selected_valuation_source and float(item.get("valuation_krw") or 0.0) > 0.0
+    })
+    blast_threshold_boundary_detected = bool(blast_valuation_boundary_lines)
+    blast_boundary_gap_krw = _safe_float(_live_on_stage_extract_value(latest_blast_valuation_boundary, "boundary_gap_krw"), 0.0)
+    blast_final_dust = _live_on_runtime_bool_marker(latest_blast_valuation_selected, "final_dust")
+    blast_final_manageable = _live_on_runtime_bool_marker(latest_blast_valuation_selected, "final_manageable")
+    blast_dust_by_alternative_source = any(bool(item.get("dust_by_source")) for item in blast_valuation_sources if str(item.get("source") or "") != blast_selected_valuation_source)
+    blast_stale_low_valuation_conflict = any(
+        "symbol=KRW-BLAST" in line and _live_on_runtime_bool_marker(line, "stale_low_valuation_conflict")
+        for line in valuation_source_conflict_lines
+    )
     holdings_target_sets_consistent = bool(
         holdings_consistency_lines
         and not holdings_target_set_mismatch_symbols
@@ -9293,6 +9334,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         holdings_target_sets_consistent
         and (not blast_manageable_holding_detected or blast_in_managed_pool)
         and not blast_removed_by_later_writer
+    )
+    managed_pool_excluded_due_to_alternative_dust = bool(
+        blast_final_manageable and blast_holding_recovery_exclusion_reason == "dust_holding" and not blast_in_managed_pool
+    )
+    blast_target_set_stable_despite_valuation_conflict = bool(
+        blast_final_manageable
+        and blast_in_managed_pool
+        and blast_in_sell_eval_targets
+        and blast_in_initial_payload_targets
+    )
+    valuation_ssot_consistency_ready = bool(
+        valuation_ssot_selected_lines
+        and not managed_pool_excluded_due_to_alternative_dust
+        and (not blast_final_manageable or blast_target_set_stable_despite_valuation_conflict)
     )
     initial_seed_trigger_lines = [line for line in initial_seed_lines if "event=initial_seed_trigger_detected" in line]
     initial_seed_skipped_lines = [line for line in initial_seed_lines if "event=initial_seed_skipped" in line]
@@ -10406,6 +10461,29 @@ def _build_live_on_runtime_e2e_diagnostic_report(
             first_blocker = holding_recovery_blocker
             if holding_recovery_blocker not in all_blockers:
                 all_blockers.insert(0, holding_recovery_blocker)
+    valuation_ssot_blocker = ""
+    if holdings_valuation_ssot_lines:
+        if not valuation_ssot_selected_lines:
+            valuation_ssot_blocker = "valuation_ssot_source_missing"
+        elif managed_pool_excluded_due_to_alternative_dust:
+            valuation_ssot_blocker = "alternative_dust_removed_manageable_holding"
+        elif valuation_source_conflict_lines and not all(
+            _live_on_stage_extract_value(line, "selected_valuation_source") not in ("", "-", "unavailable")
+            for line in valuation_ssot_selected_lines
+        ):
+            valuation_ssot_blocker = "valuation_source_conflict_unresolved"
+        elif blast_dust_by_alternative_source and not blast_threshold_boundary_detected:
+            valuation_ssot_blocker = "valuation_threshold_boundary_untracked"
+        elif blast_final_manageable and not blast_in_managed_pool:
+            valuation_ssot_blocker = "blast_holding_missing_from_managed_pool"
+        elif valuation_ssot_consistency_ready:
+            valuation_ssot_blocker = "holdings_valuation_ssot_ready"
+        else:
+            valuation_ssot_blocker = "valuation_source_conflict_unresolved"
+        if runtime_contract_active:
+            first_blocker = valuation_ssot_blocker
+            if valuation_ssot_blocker not in all_blockers:
+                all_blockers.insert(0, valuation_ssot_blocker)
     if not target_session_lines:
         first_blocker = "no_active_on_session"
 
@@ -10976,6 +11054,23 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "holding_recovery_removed_symbols": recovery_removed_symbols,
         "holding_recovery_consistency_ready": bool(holding_recovery_consistency_ready),
         "holding_recovery_blocker": str(holding_recovery_blocker),
+        "holdings_valuation_ssot_enabled": True,
+        "valuation_source_conflict_detected": bool(valuation_source_conflict_lines),
+        "valuation_source_conflict_symbols": valuation_source_conflict_symbols,
+        "blast_valuation_sources": blast_valuation_sources,
+        "blast_selected_valuation_source": str(blast_selected_valuation_source),
+        "blast_selected_valuation_krw": float(blast_selected_valuation_krw),
+        "blast_alternative_valuation_krw": blast_alternative_valuation_krw,
+        "blast_threshold_boundary_detected": bool(blast_threshold_boundary_detected),
+        "blast_boundary_gap_krw": float(blast_boundary_gap_krw),
+        "blast_final_dust": bool(blast_final_dust),
+        "blast_final_manageable": bool(blast_final_manageable),
+        "blast_dust_by_alternative_source": bool(blast_dust_by_alternative_source),
+        "blast_stale_low_valuation_conflict": bool(blast_stale_low_valuation_conflict),
+        "blast_target_set_stable_despite_valuation_conflict": bool(blast_target_set_stable_despite_valuation_conflict),
+        "managed_pool_excluded_due_to_alternative_dust": bool(managed_pool_excluded_due_to_alternative_dust),
+        "valuation_ssot_consistency_ready": bool(valuation_ssot_consistency_ready),
+        "valuation_ssot_blocker": str(valuation_ssot_blocker),
         "sell_evaluation_called": bool(sell_evaluation_called),
         "sell_eval_cycle_count": int(sell_eval_cycle_count),
         "sell_eval_last_time": str(sell_eval_last_time or ""),

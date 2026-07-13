@@ -187,3 +187,7 @@ MACD existence is a registration fact, not a market decision. Status visibility 
 ## Managed Holding Recovery Boundary
 
 Normalized manageable holdings are account/position facts owned by BASIC and must remain represented in the Managed Pool, SellEvaluation, and position-management payload target sets. Recovery protects an existing holding; it is not promotion, rotation, an AI action, or an order. Dust balances remain excluded, while a configured pool-size limit cannot evict an actual manageable holding.
+
+## Holdings Valuation Boundary
+
+BASIC reconciles real holding valuation sources before classifying dust or manageable holdings. Current-market valuation and cost basis are distinct facts. Only the selected valuation SSOT controls target membership; alternative valuations remain audit evidence. A threshold-boundary warning never changes the configured threshold, creates an AI action, or authorizes an order.

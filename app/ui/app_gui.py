@@ -18878,6 +18878,84 @@ class MainWindow(QMainWindow):
             dust_threshold_krw=float(AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW),
             managed_holding_min_value_krw=float(AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
         )
+        valuation_rows = [row for row in (snapshot.get("all_holdings") or []) if isinstance(row, dict)]
+        valuation_signature = tuple(
+            (
+                str(row.get("symbol") or ""),
+                str(row.get("selected_valuation_source") or ""),
+                round(float(row.get("selected_valuation_krw") or 0.0), 2),
+                bool(row.get("valuation_source_conflict")),
+                bool(row.get("threshold_boundary_detected")),
+                bool(row.get("final_manageable")),
+            )
+            for row in valuation_rows
+        )
+        if valuation_signature != getattr(self, "_aits_holdings_valuation_ssot_log_signature", None):
+            self._aits_holdings_valuation_ssot_log_signature = valuation_signature
+            valuation_logger = logging.getLogger("aits")
+            conflict_messages = []
+            for row in valuation_rows:
+                symbol = str(row.get("symbol") or "-")
+                candidates = [candidate for candidate in (row.get("valuation_candidates") or []) if isinstance(candidate, dict)]
+                selected_source = str(row.get("selected_valuation_source") or "unavailable")
+                selected_value = float(row.get("selected_valuation_krw") or 0.0)
+                alternatives = ",".join(
+                    f"{candidate.get('source') or 'unavailable'}:{float(candidate.get('valuation_krw') or 0.0):.2f}"
+                    for candidate in (row.get("alternative_valuations") or []) if isinstance(candidate, dict)
+                ) or "-"
+                for candidate in candidates:
+                    candidate_value = float(candidate.get("valuation_krw") or 0.0)
+                    valuation_logger.info(
+                        "[AITS][HoldingsValuationSSOT] event=valuation_source_collected symbol=%s qty=%s current_price=%s valuation_krw=%s source=%s source_priority=%s updated_at=%s age_sec=%s freshness=%s valuation_kind=%s dust_threshold_krw=%s managed_holding_min_value_krw=%s dust_by_source=%s actual_order=False submitted=0 managed_pool_mutation=False",
+                        symbol, candidate.get("qty") or 0, candidate.get("current_price") or 0,
+                        candidate_value, candidate.get("source") or "unavailable", candidate.get("source_priority") or 90,
+                        candidate.get("updated_at") or "-", candidate.get("age_sec") if candidate.get("age_sec") is not None else "-",
+                        candidate.get("freshness") or "unknown", candidate.get("valuation_kind") or "unavailable",
+                        row.get("dust_threshold_krw") or AITS_MANAGED_HOLDING_DUST_THRESHOLD_KRW,
+                        row.get("managed_holding_min_value_krw") or AITS_MANAGED_HOLDING_MIN_VALUE_KRW,
+                        candidate_value < float(row.get("managed_holding_min_value_krw") or AITS_MANAGED_HOLDING_MIN_VALUE_KRW),
+                    )
+                valuation_logger.info(
+                    "[AITS][HoldingsValuationSSOT] event=valuation_source_compared symbol=%s selected_valuation_source=%s selected_valuation_krw=%s alternative_valuations=%s source_count=%s conflict=%s conflict_reason=%s actual_order=False submitted=0 managed_pool_mutation=False",
+                    symbol, selected_source, selected_value, alternatives, len(candidates), bool(row.get("valuation_source_conflict")),
+                    row.get("valuation_conflict_reason") or "-",
+                )
+                if row.get("valuation_source_conflict"):
+                    valuation_logger.warning(
+                        "[AITS][HoldingsValuationSSOT] event=valuation_source_conflict_detected symbol=%s selected_valuation_source=%s selected_valuation_krw=%s alternative_valuations=%s conflict_reason=%s stale_low_valuation_conflict=%s actual_order=False submitted=0 managed_pool_mutation=False",
+                        symbol, selected_source, selected_value, alternatives, row.get("valuation_conflict_reason") or "unknown",
+                        bool(row.get("stale_low_valuation_conflict")),
+                    )
+                    conflict_messages.append(f"{symbol} \ud3c9\uac00\uae08\uc561 \ucd9c\ucc98 \ucc28\uc774 \uac10\uc9c0 \u00b7 \uc120\ud0dd \uae30\uc900 {selected_value:,.0f}\uc6d0")
+                valuation_logger.info(
+                    "[AITS][HoldingsValuationSSOT] event=valuation_ssot_selected symbol=%s selected_valuation_source=%s selected_valuation_krw=%s selected_valuation_kind=%s final_dust=%s final_manageable=%s alternative_valuations=%s blocker=%s actual_order=False submitted=0 managed_pool_mutation=False",
+                    symbol, selected_source, selected_value, row.get("selected_valuation_kind") or "unavailable",
+                    bool(row.get("final_dust")), bool(row.get("final_manageable")), alternatives, row.get("blocker") or "-",
+                )
+                if row.get("threshold_boundary_detected"):
+                    valuation_logger.warning(
+                        "[AITS][HoldingsValuationSSOT] event=dust_threshold_boundary_detected symbol=%s boundary_gap_krw=%s managed_holding_min_value_krw=%s selected_valuation_source=%s selected_valuation_krw=%s final_dust=%s final_manageable=%s classification_reversed=False actual_order=False submitted=0 managed_pool_mutation=False",
+                        symbol, row.get("boundary_gap_krw"), row.get("managed_holding_min_value_krw"), selected_source,
+                        selected_value, bool(row.get("final_dust")), bool(row.get("final_manageable")),
+                    )
+                classification_event = "manageable_classification_finalized" if row.get("final_manageable") else "dust_classification_finalized"
+                valuation_logger.info(
+                    "[AITS][HoldingsValuationSSOT] event=%s symbol=%s selected_valuation_source=%s selected_valuation_krw=%s dust_by_source=%s final_dust=%s final_manageable=%s boundary_gap_krw=%s blocker=%s actual_order=False submitted=0 managed_pool_mutation=False",
+                    classification_event, symbol, selected_source, selected_value,
+                    ",".join(row.get("dust_by_source") or []) or "-", bool(row.get("final_dust")),
+                    bool(row.get("final_manageable")), row.get("boundary_gap_krw") if row.get("boundary_gap_krw") is not None else "-",
+                    row.get("blocker") or "-",
+                )
+            if conflict_messages:
+                message_ko = " / ".join(conflict_messages[:3]) + " \u00b7 \ucd5c\uc885 \uad00\ub9ac \uae30\uc900\uc740 SSOT\ub97c \uc0ac\uc6a9\ud569\ub2c8\ub2e4"
+                valuation_logger.info(
+                    "[AITS][StatusVisibility] event=status_summary_rendered target=status_bar message_ko=%s symbol=- decision_id=- eta_condition_count=0 watcher_ready_count=0 watcher_partial_count=0 unsupported_count=0 payload_quality_grade=- missing_feature_count=0 raw_leak_detected=false actual_order=False submitted=0",
+                    message_ko,
+                )
+                try:
+                    self._append_aits_live_log(message_ko, category="managed", level="warning", event="holdings_valuation_source_conflict")
+                except Exception:
+                    pass
         managed_symbols = {
             self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
             for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)

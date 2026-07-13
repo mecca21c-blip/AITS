@@ -2049,3 +2049,11 @@ summary modes.
 - Recovered holdings use `managed_holding_recovered` provenance and an explicit holding-recovery exception marker. They are never counted as AI-promoted candidates.
 - Actual manageable holdings take precedence over the configured pool size. Dust holdings and non-holding candidates cannot use this recovery path.
 - The harness reports BLAST recovery attempt/application, later-writer removal, SellEvaluation/initial-payload membership, and final target-set consistency.
+
+## Holdings Valuation SSOT And Threshold Boundary
+
+- Normalized holdings collect every real valuation candidate before selecting one valuation SSOT. Current-market valuation is preferred over cost basis, then source priority and freshness resolve candidates of the same semantic kind.
+- A live account row whose `eval_krw` equals quantity times average buy price is cost basis, not current-market valuation. It remains an alternative audit value and cannot remove a holding selected as manageable by the valuation SSOT.
+- Dust and manageable classification use only `selected_valuation_krw`. Alternative dust classifications are warnings, not target-set exclusion reasons.
+- A valuation within 100 KRW of `managed_holding_min_value_krw` emits a threshold-boundary audit. The boundary does not change the configured threshold or reverse the selected classification.
+- `HoldingsValuationSSOT` events expose collected sources, freshness, conflicts, selected valuation, threshold gap, and final classification. The live summary verifies that Managed Pool, SellEvaluation, and initial AI payload targets remain stable.

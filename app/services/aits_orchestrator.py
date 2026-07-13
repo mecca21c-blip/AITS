@@ -65,6 +65,14 @@ def build_normalized_holdings_snapshot(
 ) -> dict:
     """Normalize prioritized holding sources into one runtime target snapshot."""
     merged: dict[str, dict] = {}
+    source_conflicts: list[dict] = []
+    source_priorities = {
+        "live_account": 10,
+        "investment_center": 20,
+        "portfolio_positions": 30,
+        "holdings_rows": 40,
+        "managed_pool": 50,
+    }
 
     def number(row: dict, *keys: str) -> float:
         for key in keys:
@@ -75,6 +83,26 @@ def build_normalized_holdings_snapshot(
             if value > 0.0:
                 return value
         return 0.0
+
+    def source_time(row: dict) -> tuple[str, float | None, str]:
+        raw_value = next((row.get(key) for key in ("updated_at", "snapshot_at", "observed_at", "timestamp", "created_at") if row.get(key) not in (None, "")), None)
+        if raw_value in (None, ""):
+            return "", None, "unknown"
+        try:
+            if isinstance(raw_value, (int, float)) or str(raw_value).strip().replace(".", "", 1).isdigit():
+                epoch = float(raw_value)
+                if epoch > 10_000_000_000:
+                    epoch /= 1000.0
+                parsed = datetime.fromtimestamp(epoch)
+            else:
+                parsed = datetime.fromisoformat(str(raw_value).strip().replace("Z", "+00:00")).replace(tzinfo=None)
+            age_sec = max(0.0, (datetime.now() - parsed).total_seconds())
+            return str(raw_value), age_sec, "fresh" if age_sec <= 300.0 else "stale"
+        except Exception:
+            return str(raw_value), None, "unknown"
+
+    def close_enough(left: float, right: float) -> bool:
+        return bool(left > 0.0 and right > 0.0 and abs(left - right) <= max(1.0, abs(right) * 0.001))
 
     for source_path, rows in source_groups:
         for raw in rows or []:
@@ -103,6 +131,7 @@ def build_normalized_holdings_snapshot(
                 "valuation_source": "unavailable",
                 "avg_price_source": "unavailable",
                 "current_price_source": "unavailable",
+                "valuation_candidates": [],
             })
             if source_path not in item["source_paths"]:
                 item["source_paths"].append(source_path)
@@ -121,9 +150,49 @@ def build_normalized_holdings_snapshot(
                 item["current_price"] = current
                 item["current_price_source"] = source_path
             value = number(raw, "position_value_krw", "eval_krw", "eval_amount", "value_krw", "position_value")
-            if item["position_value_krw"] <= 0.0 and value > 0.0:
-                item["position_value_krw"] = value
-                item["valuation_source"] = source_path
+            candidate_qty = qty or float(item.get("qty") or 0.0)
+            derived_from_current = False
+            if value <= 0.0 and candidate_qty > 0.0 and current > 0.0:
+                value = candidate_qty * current
+                derived_from_current = True
+            if value > 0.0:
+                updated_at, age_sec, freshness = source_time(raw)
+                hint = str(raw.get("valuation_source") or "").strip().lower()
+                cost_basis = candidate_qty * avg if candidate_qty > 0.0 and avg > 0.0 else 0.0
+                if "cost_basis" in hint or close_enough(value, cost_basis):
+                    value_kind = "cost_basis"
+                elif "current_market" in hint or current > 0.0 or derived_from_current:
+                    value_kind = "market_value"
+                else:
+                    value_kind = "reported_valuation"
+                item["valuation_candidates"].append({
+                    "source": source_path,
+                    "source_priority": int(source_priorities.get(source_path, 90)),
+                    "valuation_krw": float(value),
+                    "qty": float(candidate_qty),
+                    "current_price": float(current),
+                    "avg_buy_price": float(avg),
+                    "valuation_kind": value_kind,
+                    "valuation_source_hint": hint or "-",
+                    "updated_at": updated_at,
+                    "age_sec": age_sec,
+                    "freshness": freshness,
+                })
+                current_market_value = candidate_qty * current if candidate_qty > 0.0 and current > 0.0 else 0.0
+                if value_kind == "cost_basis" and current_market_value > 0.0 and not close_enough(current_market_value, value):
+                    item["valuation_candidates"].append({
+                        "source": f"{source_path}_qty_times_current_price",
+                        "source_priority": int(source_priorities.get(source_path, 90)),
+                        "valuation_krw": float(current_market_value),
+                        "qty": float(candidate_qty),
+                        "current_price": float(current),
+                        "avg_buy_price": float(avg),
+                        "valuation_kind": "market_value",
+                        "valuation_source_hint": "qty_times_current_price",
+                        "updated_at": updated_at,
+                        "age_sec": age_sec,
+                        "freshness": freshness,
+                    })
             item["external"] = bool(item.get("external") or source_type == "external_holding")
             item["live_holding"] = bool(item.get("live_holding") or source_path == "live_account" or source_type in {"live_holding", "external_holding", "holding"})
             for key in ("name", "target_weight_pct", "target_weight", "weight_pct", "holding_age"):
@@ -137,14 +206,78 @@ def build_normalized_holdings_snapshot(
     for symbol in sorted(merged):
         item = merged[symbol]
         qty = float(item.get("qty") or 0.0)
-        current = float(item.get("current_price") or 0.0)
-        value = float(item.get("position_value_krw") or 0.0)
+        candidates = list(item.get("valuation_candidates") or [])
+        freshness_rank = {"fresh": 0, "unknown": 1, "stale": 2}
+        kind_rank = {"market_value": 0, "reported_valuation": 1, "cost_basis": 2}
+        candidates.sort(key=lambda row: (
+            kind_rank.get(str(row.get("valuation_kind") or ""), 3),
+            freshness_rank.get(str(row.get("freshness") or "unknown"), 1),
+            int(row.get("source_priority") or 90),
+        ))
+        selected = candidates[0] if candidates else {}
+        current = float(selected.get("current_price") or item.get("current_price") or 0.0)
+        value = float(selected.get("valuation_krw") or 0.0)
+        selected_source = str(selected.get("source") or "unavailable")
+        selected_kind = str(selected.get("valuation_kind") or "unavailable")
         if current <= 0.0 and qty > 0.0 and value > 0.0:
             current = value / qty
-            item["current_price_source"] = f"{item.get('valuation_source')}_valuation_per_qty"
+            item["current_price_source"] = f"{selected_source}_valuation_per_qty"
         if value <= 0.0 and qty > 0.0 and current > 0.0:
             value = qty * current
-            item["valuation_source"] = "qty_times_current_price"
+            selected_source = "qty_times_current_price"
+            selected_kind = "market_value"
+        item["valuation_source"] = selected_source
+        item["selected_valuation_source"] = selected_source
+        item["selected_valuation_kind"] = selected_kind
+        item["selected_valuation_krw"] = value
+        item["alternative_valuations"] = [dict(row) for row in candidates[1:]]
+        item["dust_by_source"] = [
+            str(row.get("source") or "unavailable")
+            for row in candidates
+            if 0.0 < float(row.get("valuation_krw") or 0.0) < managed_holding_min_value_krw
+        ]
+        boundary_candidates = [
+            row for row in candidates
+            if abs(float(row.get("valuation_krw") or 0.0) - managed_holding_min_value_krw) <= 100.0
+        ]
+        closest_boundary = min(
+            boundary_candidates,
+            key=lambda row: abs(float(row.get("valuation_krw") or 0.0) - managed_holding_min_value_krw),
+            default=None,
+        )
+        boundary_gap = (
+            float(closest_boundary.get("valuation_krw") or 0.0) - managed_holding_min_value_krw
+            if isinstance(closest_boundary, dict) else None
+        )
+        meaningful_alternatives = [
+            row for row in candidates[1:]
+            if abs(float(row.get("valuation_krw") or 0.0) - value) > max(100.0, abs(value) * 0.05)
+            or (float(row.get("valuation_krw") or 0.0) < managed_holding_min_value_krw) != (value < managed_holding_min_value_krw)
+        ]
+        stale_low_conflict = any(
+            str(row.get("freshness") or "") == "stale" and float(row.get("valuation_krw") or 0.0) < value
+            for row in meaningful_alternatives
+        )
+        cost_basis_conflict = any(str(row.get("valuation_kind") or "") == "cost_basis" for row in meaningful_alternatives)
+        conflict_reason = (
+            "stale_low_valuation_conflict" if stale_low_conflict
+            else "cost_basis_valuation_conflict" if cost_basis_conflict
+            else "valuation_source_difference" if meaningful_alternatives
+            else ""
+        )
+        item["valuation_source_conflict"] = bool(meaningful_alternatives)
+        item["valuation_conflict_reason"] = conflict_reason
+        item["stale_low_valuation_conflict"] = stale_low_conflict
+        item["threshold_boundary_detected"] = bool(boundary_candidates)
+        item["boundary_gap_krw"] = boundary_gap
+        if meaningful_alternatives:
+            source_conflicts.append({
+                "symbol": symbol,
+                "selected_valuation_source": selected_source,
+                "selected_valuation_krw": value,
+                "alternative_valuations": [dict(row) for row in meaningful_alternatives],
+                "conflict_reason": conflict_reason,
+            })
         avg = float(item.get("avg_buy_price") or 0.0)
         pnl_available = bool(avg > 0.0 and current > 0.0)
         dust = bool(qty > 0.0 and value < managed_holding_min_value_krw)
@@ -168,6 +301,8 @@ def build_normalized_holdings_snapshot(
             "blocker": "" if pnl_available else "pnl_source_missing_for_manageable_holding",
             "dust_threshold_krw": float(dust_threshold_krw),
             "managed_holding_min_value_krw": float(managed_holding_min_value_krw),
+            "final_dust": dust,
+            "final_manageable": manageable,
         })
         all_holdings.append(item)
         if dust:
@@ -184,7 +319,7 @@ def build_normalized_holdings_snapshot(
         "normalized_dust_holding_symbols": [row["symbol"] for row in dust_holdings],
         "normalized_manageable_holding_symbols": [row["symbol"] for row in manageable_holdings],
         "missing_pnl_source": sorted(missing_pnl_source),
-        "source_conflicts": [],
+        "source_conflicts": source_conflicts,
     }
 
 

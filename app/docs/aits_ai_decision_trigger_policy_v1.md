@@ -272,3 +272,7 @@ Generic market, indicator, PnL, volume, and volatility categories require featur
 ## Managed Holding Recovery Policy
 
 Holding recovery is separate from the non-holding promotion trigger policy. A normalized manageable holding may be restored to the Managed Pool without an AI promotion decision because the operation preserves an already-held asset rather than selecting a new candidate. The recovery path rejects dust and non-holdings, records explicit provenance, and never creates an order or trading action.
+
+## Holding Valuation Evidence Policy
+
+AI position-management triggers use the normalized holding classification produced from the selected valuation SSOT. Cost basis, stale values, and threshold-near alternatives remain factual context but cannot independently remove a current-market manageable holding from Managed Pool, SellEvaluation, or the initial position payload. Valuation reconciliation is evidence preparation, not a buy, sell, promotion, or rotation action.
