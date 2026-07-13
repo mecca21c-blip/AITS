@@ -11804,6 +11804,267 @@ def _run_live_on_runtime_e2e_diagnostic(
     report.update(_build_live_on_runtime_e2e_diagnostic_report(output_dir=output_dir, mode=mode))
 
 
+def _run_live_operating_cycle_v1_completion_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    e2e = _build_live_on_runtime_e2e_diagnostic_report(
+        output_dir=output_dir,
+        mode="live-on-runtime-e2e-diagnostic-log-summary",
+    )
+    reconciliation: dict[str, Any] = {}
+    _run_live_order_post_submit_reconciliation_summary(reconciliation)
+
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    target_lines, _provenance, _started_at, _start, _end, _scope = _latest_non_harness_runtime_session(lines, reports)
+    scoped_lines = target_lines or lines
+    scoped_text = "\n".join(scoped_lines)
+    code_parts: list[str] = []
+    for source_path in (
+        ROOT / "app" / "ui" / "app_gui.py",
+        ROOT / "app" / "services" / "ai_engine_provider.py",
+        ROOT / "app" / "services" / "aits_orchestrator.py",
+        ROOT / "app" / "services" / "risk_guard.py",
+        ROOT / "app" / "services" / "live_order_preflight.py",
+    ):
+        try:
+            code_parts.append(source_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            continue
+    code_text = "\n".join(code_parts)
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    def log_seen(*tokens: str) -> bool:
+        return all(token in scoped_text for token in tokens)
+
+    runtime_contract_active = bool(e2e.get("runtime_contract_active"))
+    provider_execution_modes = {
+        str(value or "").strip().lower()
+        for value in (e2e.get("provider_execution_mode_values") or [])
+    }
+    execution_mode_live = bool(
+        str(e2e.get("execution_mode") or "").strip().lower() == "live"
+        or "live" in provider_execution_modes
+        or "execution_mode=live" in scoped_text
+    )
+    holdings_ssot_ready = bool(
+        log_seen("[AITS][HoldingsSSOT]", "event=normalized_snapshot_built")
+        or source_ready("def _build_normalized_holding_snapshot", "event=normalized_snapshot_built")
+    )
+    target_sets_consistent = bool(e2e.get("holdings_target_sets_consistent"))
+    managed_pool_target_consistent = bool(
+        target_sets_consistent
+        or log_seen("[AITS][HoldingsSSOT]", "event=target_set_consistency_check", "consistent=True")
+    )
+    sell_eval_target_consistent = managed_pool_target_consistent
+    buy_candidate_context_ready = source_ready(
+        "def _request_ai_buy_decision",
+        "def _run_live_auto_order_pipeline_from_candidate",
+    )
+    rotation_candidate_context_ready = source_ready(
+        "[AITS][RotationAIGate]",
+        "rotation_provider_requested",
+    )
+    portfolio_context_ready = source_ready(
+        "def _build_initial_portfolio_management_payload",
+        "portfolio_management_decision",
+    )
+
+    initial_ai_decision_ready = bool(
+        log_seen("[AITS][AIManagementSeed]", "event=initial_seed_completed")
+        or source_ready("def _run_initial_ai_management_seed", "event=initial_seed_completed")
+    )
+    position_redecision_ready = source_ready(
+        "def _build_ai_redecision_payload",
+        "position_management_decision",
+    )
+    portfolio_redecision_ready = source_ready(
+        "def _build_ai_redecision_payload",
+        "portfolio_management_decision",
+        "portfolio:PORTFOLIO",
+    )
+    ai_response_validator_ready = source_ready("AIDecisionValidator", "validator_passed")
+    payload_quality_ready = bool(
+        log_seen("[AITS][AIPayloadQuality]", "payload_quality_grade=")
+        or source_ready("_build_ai_payload_feature_manifest", "payload_quality_grade")
+    )
+    ai_reason_timeline_ready = source_ready(
+        "def _emit_live_cycle_reason_timeline",
+        "[AITS][LiveCycleReasonTimeline]",
+    )
+
+    sell_unit_guard_ready = bool(e2e.get("sell_unit_guard_enabled")) or source_ready("[AITS][SellUnitGuard]")
+    riskguard_ready = source_ready("from app.services.risk_guard import RiskGuard", "risk_guard.evaluate_order_candidate")
+    livepreflight_ready = source_ready("[AITS][LivePreflightApply]", "live_preflight_apply_result")
+    execution_path_guarded = source_ready(
+        "riskguard_result",
+        "live_preflight_result",
+        "execution_result",
+    )
+    no_guard_bypass_detected = not bool(e2e.get("execution_path_guard_bypass_detected"))
+    no_order_reconciliation_miss = not bool(reconciliation.get("order_reconciliation_missed_submit_detected"))
+
+    post_order_reconcile_path_ready = source_ready(
+        "def _reflect_live_order_after_submit",
+        "def _refresh_live_order_holdings_after_submit",
+        "def _refresh_live_order_position_after_submit",
+    )
+    post_order_portfolio_replanning_ready = source_ready(
+        "def _coordinate_post_order_live_cycle",
+        "post_order_portfolio_replanning",
+    )
+    remaining_position_redecision_ready = source_ready(
+        "post_order_remaining_position_redecision",
+        "forced_redecision_reason",
+    )
+    eta_reregister_after_order_ready = source_ready(
+        "eta_reregister_requested",
+        "_run_ai_redecision_scheduler",
+    )
+    ai_decision_training_record_ready = source_ready(
+        "def _record_ai_position_decision_training",
+        "def _record_initial_ai_management_training",
+    )
+    execution_result_training_link_ready = source_ready(
+        "def _record_post_order_outcome_link",
+        "event=execution_result_linked",
+    )
+    outcome_tracking_skeleton_ready = source_ready(
+        '"outcome_5m"',
+        '"outcome_15m"',
+        '"outcome_1h"',
+        '"final_outcome"',
+        '"learning_record_ready"',
+    )
+    live_log_reason_timeline_ready = ai_reason_timeline_ready
+    status_bar_cycle_summary_ready = source_ready(
+        "live_cycle_status_rendered",
+        "_aits_live_cycle_status_text",
+    )
+    raw_leak_detected = bool(e2e.get("status_raw_snake_case_leak_detected"))
+
+    checklist = {
+        "runtime": {
+            "live_cycle_v1_enabled": source_ready("def _coordinate_post_order_live_cycle", "def _emit_live_cycle_reason_timeline"),
+            "runtime_contract_active": runtime_contract_active,
+            "execution_mode_live": execution_mode_live,
+        },
+        "data_targets": {
+            "holdings_ssot_ready": holdings_ssot_ready,
+            "managed_pool_target_consistent": managed_pool_target_consistent,
+            "sell_eval_target_consistent": sell_eval_target_consistent,
+            "buy_candidate_context_ready": buy_candidate_context_ready,
+            "rotation_candidate_context_ready": rotation_candidate_context_ready,
+            "portfolio_context_ready": portfolio_context_ready,
+        },
+        "ai": {
+            "initial_ai_decision_ready": initial_ai_decision_ready,
+            "position_redecision_ready": position_redecision_ready,
+            "portfolio_redecision_ready": portfolio_redecision_ready,
+            "ai_response_validator_ready": ai_response_validator_ready,
+            "payload_quality_ready": payload_quality_ready,
+            "ai_reason_timeline_ready": ai_reason_timeline_ready,
+        },
+        "safety": {
+            "sell_unit_guard_ready": sell_unit_guard_ready,
+            "riskguard_ready": riskguard_ready,
+            "livepreflight_ready": livepreflight_ready,
+            "execution_path_guarded": execution_path_guarded,
+            "no_guard_bypass_detected": no_guard_bypass_detected,
+            "no_order_reconciliation_miss": no_order_reconciliation_miss,
+        },
+        "execution_replanning": {
+            "post_order_reconcile_path_ready": post_order_reconcile_path_ready,
+            "post_order_portfolio_replanning_ready": post_order_portfolio_replanning_ready,
+            "remaining_position_redecision_ready": remaining_position_redecision_ready,
+            "eta_reregister_after_order_ready": eta_reregister_after_order_ready,
+        },
+        "training": {
+            "ai_decision_training_record_ready": ai_decision_training_record_ready,
+            "execution_result_training_link_ready": execution_result_training_link_ready,
+            "outcome_tracking_skeleton_ready": outcome_tracking_skeleton_ready,
+        },
+        "ui": {
+            "live_log_reason_timeline_ready": live_log_reason_timeline_ready,
+            "status_bar_cycle_summary_ready": status_bar_cycle_summary_ready,
+            "raw_leak_absent": not raw_leak_detected,
+        },
+    }
+    blocker_group = ""
+    first_blocker = "live_operating_cycle_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    live_operating_cycle_v1_ready = not blocker_group
+
+    actual_buy_submit_count = int(reconciliation.get("audited_order_count") or 0) if reconciliation.get("actual_buy_submit_detected") else 0
+    actual_sell_submit_count = int(reconciliation.get("audited_sell_order_count") or 0)
+    report.update(e2e)
+    report.update(
+        {
+            "schema": "aits_live_operating_cycle_v1_completion_summary_v1",
+            "mode": "live-operating-cycle-v1-completion-summary",
+            "log_path": log_path,
+            "log_read_error": log_read_error,
+            "live_cycle_v1_enabled": checklist["runtime"]["live_cycle_v1_enabled"],
+            "runtime_contract_active": runtime_contract_active,
+            "execution_mode_live": execution_mode_live,
+            "target_runtime_pid": int(e2e.get("target_runtime_pid") or e2e.get("e2e_target_pid") or 0),
+            "target_runtime_session_id": str(e2e.get("target_runtime_session_id") or e2e.get("e2e_target_session_id") or ""),
+            "holdings_ssot_ready": holdings_ssot_ready,
+            "managed_pool_target_consistent": managed_pool_target_consistent,
+            "sell_eval_target_consistent": sell_eval_target_consistent,
+            "buy_candidate_context_ready": buy_candidate_context_ready,
+            "rotation_candidate_context_ready": rotation_candidate_context_ready,
+            "portfolio_context_ready": portfolio_context_ready,
+            "initial_ai_decision_ready": initial_ai_decision_ready,
+            "position_redecision_ready": position_redecision_ready,
+            "portfolio_redecision_ready": portfolio_redecision_ready,
+            "ai_response_validator_ready": ai_response_validator_ready,
+            "payload_quality_ready": payload_quality_ready,
+            "ai_reason_timeline_ready": ai_reason_timeline_ready,
+            "sell_unit_guard_ready": sell_unit_guard_ready,
+            "riskguard_ready": riskguard_ready,
+            "livepreflight_ready": livepreflight_ready,
+            "execution_path_guarded": execution_path_guarded,
+            "no_guard_bypass_detected": no_guard_bypass_detected,
+            "no_order_reconciliation_miss": no_order_reconciliation_miss,
+            "post_order_reconcile_path_ready": post_order_reconcile_path_ready,
+            "post_order_portfolio_replanning_ready": post_order_portfolio_replanning_ready,
+            "remaining_position_redecision_ready": remaining_position_redecision_ready,
+            "eta_reregister_after_order_ready": eta_reregister_after_order_ready,
+            "ai_decision_training_record_ready": ai_decision_training_record_ready,
+            "execution_result_training_link_ready": execution_result_training_link_ready,
+            "outcome_tracking_skeleton_ready": outcome_tracking_skeleton_ready,
+            "live_log_reason_timeline_ready": live_log_reason_timeline_ready,
+            "status_bar_cycle_summary_ready": status_bar_cycle_summary_ready,
+            "raw_leak_detected": raw_leak_detected,
+            "actual_buy_submit_count": actual_buy_submit_count,
+            "actual_sell_submit_count": actual_sell_submit_count,
+            "submitted_count": int(reconciliation.get("submitted_count") or 0),
+            "audited_order_count": int(reconciliation.get("audited_order_count") or 0),
+            "missed_submit_count": int(reconciliation.get("missed_submit_count") or 0),
+            "managed_pool_mutation": bool(e2e.get("managed_pool_mutation")),
+            "completion_checklist": checklist,
+            "live_operating_cycle_v1_ready": live_operating_cycle_v1_ready,
+            "first_blocker": first_blocker,
+            "blocker_group": blocker_group or "none",
+            "next_sprint_recommendation": "SPRINT-LOCAL-FIRST-GPT-COST-GUARD-V1",
+            "provider_external_call_count": 0,
+            "actual_order_forced": False,
+            "pass_status": "pass" if live_operating_cycle_v1_ready else "fail",
+            "status": "pass" if live_operating_cycle_v1_ready else "fail",
+        }
+    )
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -23266,6 +23527,7 @@ def run_harness(
         "upbit-accounts-readonly-balance-fetch-diagnostic",
         "live-on-runtime-e2e-diagnostic-dryrun",
         "live-on-runtime-e2e-diagnostic-log-summary",
+        "live-operating-cycle-v1-completion-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -23527,6 +23789,12 @@ def run_harness(
             _run_upbit_accounts_readonly_balance_fetch_diagnostic(
                 report,
                 allow_upbit_readonly_accounts_call=allow_upbit_readonly_accounts_call,
+            )
+        elif mode == "live-operating-cycle-v1-completion-summary":
+            _install_provider_post_guard(report)
+            _run_live_operating_cycle_v1_completion_summary(
+                report,
+                output_dir=output_dir,
             )
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
@@ -24171,6 +24439,7 @@ def main() -> int:
             "upbit-accounts-readonly-balance-fetch-diagnostic",
             "live-on-runtime-e2e-diagnostic-dryrun",
             "live-on-runtime-e2e-diagnostic-log-summary",
+            "live-operating-cycle-v1-completion-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

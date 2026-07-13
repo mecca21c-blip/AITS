@@ -292,3 +292,7 @@ Portfolio redecision preserves `PORTFOLIO` as a portfolio scope and registers a 
 ## Portfolio Monitoring ETA
 
 AI may express a long portfolio decision horizon, but AITS retains that original ETA separately from its monitoring cadence. Portfolio runtime state clamps the effective monitoring ETA to the configured policy range, currently 5 to 60 minutes by default. ETA expiry and portfolio invalidation conditions only request another AI decision; they never create an action or order.
+
+## Post-Order Replanning Trigger
+
+A confirmed submitted result is a factual state-change trigger. The post-order coordinator refreshes holdings and positions, reconciles management targets, and marks existing portfolio and remaining-position runtime states for another AI decision. Missing states produce a visible blocker; they are never fabricated. The repeated decisions pass the normal provider, validator, runtime registration, ETA, and safety contracts.

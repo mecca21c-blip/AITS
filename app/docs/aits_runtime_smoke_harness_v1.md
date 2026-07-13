@@ -2087,6 +2087,14 @@ summary modes.
 - Portfolio monitoring defaults to a 300-second minimum and a 3600-second maximum. Position ETA behavior is unchanged.
 - ETA is a monitoring cadence, not a stop time or an order condition. Portfolio invalidation conditions may request redecision before effective ETA expiry.
 - Live summaries require policy evaluation, original preservation, effective registration, and Korean status evidence from the target PID/session.
+
+## Live Operating Cycle v1 Completion Summary
+
+- `live-operating-cycle-v1-completion-summary --observe-only` is the consolidated Sprint check for runtime provenance, target consistency, AI decisions, guards, execution reflection, replanning, training linkage, and UI reasons.
+- Structural post-order readiness is checked independently from whether the selected live session happened to submit an order.
+- When an actual submit exists, the summary requires reconciliation coverage and reports audited buy/sell counts and missed submits.
+- Post-order readiness requires holdings and position refresh, target reconciliation, portfolio replanning, remaining-position reconsideration, ETA registration, and execution-linked outcome evidence.
+- The mode never starts the app, changes ON state, requests an action, or calls a provider.
 # Provider Runtime Context Audit
 
 - Provider runtime metadata must be propagated from the runtime contract SSOT at the callsite.

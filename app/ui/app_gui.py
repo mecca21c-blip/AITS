@@ -31378,6 +31378,7 @@ class MainWindow(QMainWindow):
         submitted_count: int,
         provider: str = "",
         engine: str = "",
+        decision_context: dict | None = None,
     ) -> None:
         if int(submitted_count or 0) <= 0:
             return
@@ -31397,10 +31398,22 @@ class MainWindow(QMainWindow):
             side=side,
             amount_krw=amount_krw,
         )
-        self._refresh_live_order_position_after_submit(
+        position_result = self._refresh_live_order_position_after_submit(
             request_id=request_id,
             symbol=symbol,
             holdings_result=holdings_result,
+        )
+        self._coordinate_post_order_live_cycle(
+            request_id=request_id,
+            symbol=symbol,
+            side=side,
+            amount_krw=amount_krw,
+            status=status,
+            submitted_count=submitted_count,
+            provider=provider,
+            decision_context=decision_context,
+            holdings_result=holdings_result,
+            position_result=position_result,
         )
 
     def _reflect_live_order_trade_log(
@@ -31508,7 +31521,7 @@ class MainWindow(QMainWindow):
         amount_krw: int,
     ) -> dict:
         log = logging.getLogger("aits")
-        result = {"status": "not_run", "symbol_detected": False, "holdings_count": 0, "available_krw": 0.0}
+        result = {"status": "not_run", "symbol_detected": False, "holdings_count": 0, "available_krw": 0.0, "rows": []}
         try:
             log.info(
                 "[AITS][PostSubmitHoldingsRefresh] event=refresh_requested request_id=%s symbol=%s side=%s amount_krw=%s source=holdings_service",
@@ -31544,6 +31557,7 @@ class MainWindow(QMainWindow):
                 "symbol_detected": bool(detected),
                 "holdings_count": len(items),
                 "available_krw": available_krw,
+                "rows": [dict(item) for item in items if isinstance(item, dict)],
             }
             log.info(
                 "[AITS][PostSubmitHoldingsRefresh] event=refresh_result request_id=%s symbol=%s status=%s holdings_count=%s symbol_detected=%s available_krw=%s source=holdings_service",
@@ -31554,14 +31568,14 @@ class MainWindow(QMainWindow):
                 "symbol_detected" if detected else "symbol_missing", request_id, symbol, len(items), available_krw,
             )
         except Exception as exc:
-            result = {"status": "failed", "symbol_detected": False, "holdings_count": 0, "available_krw": 0.0, "reason": type(exc).__name__}
+            result = {"status": "failed", "symbol_detected": False, "holdings_count": 0, "available_krw": 0.0, "rows": [], "reason": type(exc).__name__}
             log.warning(
                 "[AITS][PostSubmitHoldingsRefresh] event=refresh_result request_id=%s symbol=%s status=failed reason=%s holdings_count=0 symbol_detected=False available_krw=0 source=holdings_service",
                 request_id, symbol, type(exc).__name__,
             )
         return result
 
-    def _refresh_live_order_position_after_submit(self, *, request_id: str, symbol: str, holdings_result: dict | None = None) -> None:
+    def _refresh_live_order_position_after_submit(self, *, request_id: str, symbol: str, holdings_result: dict | None = None) -> dict:
         log = logging.getLogger("aits")
         try:
             log.info(
@@ -31587,11 +31601,238 @@ class MainWindow(QMainWindow):
                 "[AITS][PositionReflection] event=%s request_id=%s symbol=%s positions_count=%s source=%s source_status=%s writer=post_submit_reflection",
                 "symbol_position_detected" if detected else "symbol_position_missing", request_id, symbol, len(rows), str(result.get("source") if isinstance(result, dict) else "unknown"), str(result.get("status") if isinstance(result, dict) else "unknown"),
             )
+            return {
+                "status": str(result.get("status") if isinstance(result, dict) else "unknown"),
+                "source": str(result.get("source") if isinstance(result, dict) else "unknown"),
+                "symbol_detected": bool(detected),
+                "rows": [dict(row) for row in rows if isinstance(row, dict)],
+            }
         except Exception as exc:
             log.warning(
                 "[AITS][PositionReflection] event=position_reflection_result request_id=%s symbol=%s positions_count=0 symbol_detected=False source=investment_center source_status=failed writer=post_submit_reflection reason=%s",
                 request_id, symbol, type(exc).__name__,
             )
+            return {"status": "failed", "source": "investment_center", "symbol_detected": False, "rows": [], "reason": type(exc).__name__}
+
+    def _emit_live_cycle_reason_timeline(
+        self,
+        *,
+        event: str,
+        message_ko: str,
+        symbol: str = "",
+        decision_context: dict | None = None,
+        blocker: str = "",
+        actual_order: bool = False,
+        submitted_count: int = 0,
+    ) -> None:
+        context = dict(decision_context or {})
+        safe_message = " ".join(str(message_ko or "").replace("\n", " ").split())[:320]
+        if not safe_message:
+            return
+        self._aits_live_cycle_status_text = safe_message
+        try:
+            logging.getLogger("aits").info(
+                "[AITS][LiveCycleReasonTimeline] event=%s message_ko=%s symbol=%s decision_id=%s task=%s action=%s confidence=%s eta_seconds=%s blocker=%s payload_quality_grade=%s actual_order=%s submitted_count=%s raw_leak_detected=false",
+                str(event or "cycle_update")[:80], safe_message, str(symbol or "-")[:40],
+                str(context.get("decision_id") or context.get("ai_decision_id") or "-")[:120],
+                str(context.get("task") or "-")[:80], str(context.get("action") or context.get("ai_action") or "-")[:40],
+                context.get("confidence", context.get("ai_confidence", "-")),
+                context.get("eta_seconds", context.get("ai_eta_seconds", "-")),
+                str(blocker or "-")[:120], str(context.get("payload_quality_grade") or "-")[:12],
+                bool(actual_order), int(submitted_count or 0),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][StatusVisibility] event=live_cycle_status_rendered target=status_bar message_ko=%s symbol=%s decision_id=%s payload_quality_grade=%s raw_leak_detected=false actual_order=%s submitted=%s",
+                safe_message, str(symbol or "-")[:40],
+                str(context.get("decision_id") or context.get("ai_decision_id") or "-")[:120],
+                str(context.get("payload_quality_grade") or "-")[:12], bool(actual_order), int(submitted_count or 0),
+            )
+        except Exception:
+            pass
+        try:
+            self._append_aits_live_log(
+                safe_message,
+                category="pipeline",
+                level="warning" if blocker else "info",
+                event=str(event or "live_cycle_update"),
+                symbol=str(symbol or ""),
+            )
+        except Exception:
+            pass
+
+    def _record_post_order_outcome_link(
+        self,
+        *,
+        request_id: str,
+        symbol: str,
+        side: str,
+        status: str,
+        submitted_count: int,
+        provider: str,
+        decision_context: dict,
+        normalized_snapshot: dict,
+        position_result: dict,
+    ) -> dict:
+        context = dict(decision_context or {})
+        manageable_rows = [
+            dict(row) for row in (normalized_snapshot.get("manageable_holdings") or [])
+            if isinstance(row, dict)
+        ]
+        position_after = next(
+            (row for row in manageable_rows if str(row.get("symbol") or "").upper() == str(symbol or "").upper()),
+            None,
+        )
+        portfolio_after = {
+            "total_asset_krw": float(getattr(self, "_last_total_asset", 0.0) or 0.0),
+            "available_krw": float(getattr(self, "_last_available_krw", 0.0) or 0.0),
+            "manageable_holding_symbols": list(normalized_snapshot.get("normalized_manageable_holding_symbols") or []),
+            "managed_pool_symbols": sorted({
+                str(row.get("symbol") or row.get("market") or "").upper()
+                for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)
+            }),
+        }
+        decision_id = str(context.get("decision_id") or context.get("ai_decision_id") or "")
+        record = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "session_id": str(getattr(self, "_aits_initial_seed_session_id", "") or ""),
+            "decision_id": decision_id,
+            "provider": str(context.get("provider") or context.get("ai_provider") or provider or ""),
+            "task": str(context.get("task") or ("buy_decision" if str(side).lower() == "buy" else "position_management_decision")),
+            "scope": str(context.get("scope") or symbol),
+            "symbol": str(symbol or ""),
+            "action": str(context.get("action") or context.get("ai_action") or side),
+            "confidence": context.get("confidence", context.get("ai_confidence")),
+            "reason_ko": str(context.get("reason_ko") or context.get("ai_reason_ko") or ""),
+            "eta_seconds": context.get("eta_seconds", context.get("ai_eta_seconds")),
+            "actual_order": bool(int(submitted_count or 0) > 0),
+            "submitted": int(submitted_count or 0),
+            "order_result": {"request_id": request_id, "status": status, "side": side},
+            "position_after": position_after,
+            "portfolio_after": portfolio_after,
+            "outcome_5m": None,
+            "outcome_15m": None,
+            "outcome_1h": None,
+            "final_outcome": None,
+            "learning_record_ready": bool(decision_id and request_id and int(submitted_count or 0) > 0),
+            "position_reflection_status": str(position_result.get("status") or "unknown"),
+        }
+        root = Path("data") / "ai_decision_training"
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / "live_cycle_outcomes.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+        logging.getLogger("aits").info(
+            "[AITS][AIOutcomeTraining] event=execution_result_linked request_id=%s decision_id=%s task=%s scope=%s symbol=%s action=%s actual_order=%s submitted=%s order_result=%s position_after_ready=%s portfolio_after_ready=%s outcome_5m=pending outcome_15m=pending outcome_1h=pending final_outcome=pending learning_record_ready=%s",
+            request_id, decision_id or "-", record["task"] or "-", record["scope"] or "-", symbol or "-",
+            record["action"] or "-", record["actual_order"], record["submitted"], status or "-",
+            position_after is not None, bool(portfolio_after), record["learning_record_ready"],
+        )
+        return record
+
+    def _coordinate_post_order_live_cycle(
+        self,
+        *,
+        request_id: str,
+        symbol: str,
+        side: str,
+        amount_krw: int,
+        status: str,
+        submitted_count: int,
+        provider: str,
+        decision_context: dict | None,
+        holdings_result: dict | None,
+        position_result: dict | None,
+    ) -> dict:
+        if int(submitted_count or 0) <= 0:
+            return {"ready": False, "blocker": "no_submitted_order"}
+        log = logging.getLogger("aits")
+        context = dict(decision_context or {})
+        holdings = [dict(row) for row in ((holdings_result or {}).get("rows") or []) if isinstance(row, dict)]
+        try:
+            log.info(
+                "[AITS][PostOrderReplanning] event=cycle_started request_id=%s symbol=%s side=%s amount_krw=%s submitted_count=%s source=post_submit_reflection non_holding_promotion=False",
+                request_id, symbol, side, int(amount_krw or 0), int(submitted_count or 0),
+            )
+            recovery_result = self._ensure_managed_pool_holdings_included(
+                reason="post_order_reconcile",
+                holdings=holdings,
+                persist=True,
+            )
+            managed_pool_changed = bool(
+                (recovery_result or {}).get("added_symbols")
+                or (recovery_result or {}).get("updated_symbols")
+                or (recovery_result or {}).get("dust_removed_symbols")
+            )
+            normalized = self._build_normalized_holding_snapshot(additional_rows=holdings, reason="post_order_reconcile")
+            manageable = set(normalized.get("normalized_manageable_holding_symbols") or [])
+            consistency = self._log_holdings_ssot_target_consistency(
+                sell_eval_symbols=manageable,
+                ai_payload_symbols=manageable,
+                reason="post_order_reconcile",
+            )
+            states = self._ai_decision_runtime_state_store()
+            requested_keys = ["portfolio:PORTFOLIO"]
+            if symbol in manageable or bool((position_result or {}).get("symbol_detected")):
+                requested_keys.append(f"position:{symbol}")
+            marked_keys = []
+            for state_key in requested_keys:
+                state = states.get(state_key)
+                if not isinstance(state, dict):
+                    continue
+                state["current_status"] = "active"
+                state["last_tick_at"] = 0.0
+                state["forced_redecision_reason"] = (
+                    "post_order_portfolio_replanning" if state_key.startswith("portfolio:")
+                    else "post_order_remaining_position_redecision"
+                )
+                state["post_order_request_id"] = request_id
+                marked_keys.append(state_key)
+            self._ai_redecision_scheduler_last_probe_at = 0.0
+            scheduler_result = self._run_ai_redecision_scheduler(
+                reason="post_order_replanning",
+                rows=[dict(row) for row in (getattr(self, "ai_managed_rows", None) or []) if isinstance(row, dict)],
+            ) if marked_keys else {"checked": 0, "triggered": 0, "blocker": "post_order_ai_state_missing"}
+            outcome_record = self._record_post_order_outcome_link(
+                request_id=request_id,
+                symbol=symbol,
+                side=side,
+                status=status,
+                submitted_count=submitted_count,
+                provider=provider,
+                decision_context=context,
+                normalized_snapshot=normalized,
+                position_result=dict(position_result or {}),
+            )
+            ready = bool(consistency.get("consistent") and "portfolio:PORTFOLIO" in marked_keys)
+            log.info(
+                "[AITS][PostOrderReplanning] event=cycle_completed request_id=%s symbol=%s holdings_refresh_ready=%s normalized_holdings_ready=%s managed_pool_target_ready=%s sell_eval_target_ready=%s portfolio_replanning_requested=%s remaining_position_redecision_requested=%s eta_reregister_requested=%s training_execution_link_ready=%s learning_record_ready=%s scheduler_triggered=%s blocker=%s actual_order=%s submitted=%s managed_pool_mutation=%s",
+                request_id, symbol, str((holdings_result or {}).get("status") or "") == "ok", bool(normalized),
+                bool(consistency.get("consistent")), bool(consistency.get("consistent")),
+                "portfolio:PORTFOLIO" in marked_keys, f"position:{symbol}" in marked_keys,
+                bool(marked_keys), bool(outcome_record), bool(outcome_record.get("learning_record_ready")),
+                int(scheduler_result.get("triggered") or 0), "-" if ready else "post_order_replanning_incomplete",
+                bool(int(submitted_count or 0) > 0), int(submitted_count or 0), managed_pool_changed,
+            )
+            self._emit_live_cycle_reason_timeline(
+                event="post_order_replanning",
+                message_ko=f"{symbol} 주문 반영 후 보유·평가·운용계획을 다시 점검합니다.",
+                symbol=symbol,
+                decision_context=context,
+                blocker="" if ready else "post_order_replanning_incomplete",
+                actual_order=bool(int(submitted_count or 0) > 0),
+                submitted_count=int(submitted_count or 0),
+            )
+            return {
+                "ready": ready,
+                "marked_state_keys": marked_keys,
+                "scheduler_result": scheduler_result,
+                "managed_pool_mutation": managed_pool_changed,
+            }
+        except Exception as exc:
+            log.warning(
+                "[AITS][PostOrderReplanning] event=cycle_failed request_id=%s symbol=%s blocker=post_order_replanning_exception error_type=%s actual_order=%s submitted=%s managed_pool_mutation=False",
+                request_id, symbol, type(exc).__name__, bool(int(submitted_count or 0) > 0), int(submitted_count or 0),
+            )
+            return {"ready": False, "blocker": "post_order_replanning_exception"}
 
     def _save_trade_log_center_state(self, reason: str = "trade_log_center_state_save") -> bool:
         started_at = time.time()
@@ -41063,6 +41304,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        self._emit_live_cycle_reason_timeline(
+            event="rotation_ai_decision",
+            message_ko=f"{old_symbol}에서 {new_symbol} 교체 판단: {str(decision.get('reason_ko') or '현재 후보 조건을 계속 감시합니다.')}",
+            symbol=old_symbol,
+            decision_context={"decision_id": decision.get("decision_id") or decision.get("response_id"), "task": payload.get("task"), "action": decision.get("action"), "confidence": decision.get("confidence"), "eta_seconds": decision.get("eta_seconds"), "payload_quality_grade": ((decision.get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"))},
+            blocker=str(decision.get("blocker") or ""),
+        )
         return decision
 
     def _build_ai_promotion_decision_payload(
@@ -41273,6 +41521,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        self._emit_live_cycle_reason_timeline(
+            event="promotion_ai_decision",
+            message_ko=f"{symbol} 관리대상 편입 판단: {str(decision.get('reason_ko') or '현재 후보 조건을 계속 감시합니다.')}",
+            symbol=symbol,
+            decision_context={"decision_id": decision.get("decision_id") or decision.get("response_id"), "task": payload.get("task"), "action": decision.get("action"), "confidence": decision.get("confidence"), "eta_seconds": decision.get("eta_seconds"), "payload_quality_grade": ((decision.get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"))},
+            blocker=str(decision.get("blocker") or ""),
+        )
         return decision
 
     def _normalize_ai_decision_task_scope(self, payload: dict) -> dict:
@@ -41365,6 +41620,8 @@ class MainWindow(QMainWindow):
             payload_hash = hashlib.sha256(encoded).hexdigest()[:24]
             scope_contract = self._normalize_ai_decision_task_scope(payload or {})
             request_task = str((payload or {}).get("task") or "manage_position_decision")
+            decision_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash)
+            safe_execution_result = dict(execution_result or {})
             row = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "session_id": str((payload or {}).get("session_id") or ""),
@@ -41374,6 +41631,7 @@ class MainWindow(QMainWindow):
                 "scope": str(scope_contract.get("scope") or ""),
                 "state_key": str(scope_contract.get("state_key") or ""),
                 "provider": str((decision or {}).get("provider") or ""),
+                "decision_id": decision_id,
                 "payload_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_hash") or payload_hash,
                 "symbol": str(scope_contract.get("symbol") or ""),
                 "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
@@ -41390,6 +41648,7 @@ class MainWindow(QMainWindow):
                 "ai_action": str((decision or {}).get("action") or ""),
                 "ai_confidence": (decision or {}).get("confidence"),
                 "ai_reason_ko": str((decision or {}).get("reason_ko") or ""),
+                "eta_seconds": (decision or {}).get("eta_seconds"),
                 "ai_reason_mentions_insufficient_data": bool((decision or {}).get("ai_reason_mentions_insufficient_data")),
                 "insufficient_data_phrase_matched": str((decision or {}).get("insufficient_data_phrase_matched") or ""),
                 "insufficient_data_related_missing_features": list((decision or {}).get("insufficient_data_related_missing_features") or []),
@@ -41399,7 +41658,17 @@ class MainWindow(QMainWindow):
                 "invalidation_conditions_natural_language_count": int((decision or {}).get("invalidation_conditions_natural_language_count") or 0),
                 "invalidation_conditions_missing_count": int((decision or {}).get("invalidation_conditions_missing_count") or 0),
                 "validator_result": str((decision or {}).get("validator_result") or ("passed" if (decision or {}).get("validation_passed") else "failed")),
-                "execution_result": execution_result or {},
+                "actual_order": bool(safe_execution_result.get("actual_order")),
+                "submitted": int(safe_execution_result.get("submitted_count") or safe_execution_result.get("submitted") or 0),
+                "order_result": safe_execution_result,
+                "execution_result": safe_execution_result,
+                "position_after": None,
+                "portfolio_after": None,
+                "outcome_5m": None,
+                "outcome_15m": None,
+                "outcome_1h": None,
+                "final_outcome": None,
+                "learning_record_ready": bool(decision_id),
                 "realized_outcome_later": None,
                 "pnl_after_5m": None,
                 "pnl_after_15m": None,
@@ -42200,12 +42469,19 @@ class MainWindow(QMainWindow):
             root = Path("data") / "ai_decision_training"
             root.mkdir(parents=True, exist_ok=True)
             payload_hash = hashlib.sha256(json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
+            decision_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash)
+            runtime_context = dict((payload or {}).get("runtime_context") or {})
             record = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
                 "task": str((payload or {}).get("task") or ""),
                 "session_id": session_id,
                 "symbol": str((payload or {}).get("symbol") or "PORTFOLIO"),
                 "provider": str((decision or {}).get("provider") or ""),
+                "decision_id": decision_id,
+                "provider_runtime_context": {
+                    key: runtime_context.get(key)
+                    for key in ("runtime_contract_active", "execution_mode", "session_id", "context_source")
+                },
                 "payload_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_hash") or payload_hash,
                 "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
                 "feature_coverage_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
@@ -42229,7 +42505,17 @@ class MainWindow(QMainWindow):
                 "validator_result": "passed" if bool((decision or {}).get("validation_passed")) else "failed",
                 "registration_result": "registered" if registered else "not_registered",
                 "execution_result": "not_executed_or_pending",
+                "actual_order": False,
+                "submitted": 0,
+                "order_result": None,
+                "position_after": None,
+                "portfolio_after": None,
                 "blocker": str(blocker or ""),
+                "outcome_5m": None,
+                "outcome_15m": None,
+                "outcome_1h": None,
+                "final_outcome": None,
+                "learning_record_ready": bool(decision_id),
                 "outcome_placeholder": {"pnl_after_5m": None, "pnl_after_15m": None, "pnl_after_1h": None, "decision_helped": None},
             }
             with (root / "initial_management_decisions.jsonl").open("a", encoding="utf-8") as fh:
@@ -42294,6 +42580,19 @@ class MainWindow(QMainWindow):
             seed_logger.info(
                 "[AITS][AIManagementSeed] event=initial_seed_response_received session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=response_confirmed actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
+            )
+            self._emit_live_cycle_reason_timeline(
+                event="initial_ai_decision",
+                message_ko=f"{symbol} AI 초기 판단: {str(decision.get('reason_ko') or '현재 조건을 계속 감시합니다.')}",
+                symbol=symbol,
+                decision_context={
+                    "decision_id": decision.get("decision_id") or decision.get("response_id"),
+                    "task": task,
+                    "action": decision.get("action"),
+                    "confidence": decision.get("confidence"),
+                    "eta_seconds": decision.get("eta_seconds"),
+                    "payload_quality_grade": quality_grade,
+                },
             )
         else:
             blocker = blocker or "initial_seed_response_missing"
@@ -42526,7 +42825,15 @@ class MainWindow(QMainWindow):
             elapsed = max(0, int(now - float(state.get("eta_started_at") or now)))
             eta_logger.info("[AITS][ETAReDecision] event=eta_tick active_decision_count=%s decision_id=%s symbol=%s task=%s action=%s eta_expires_at=%s seconds_remaining=%s current_status=%s actual_order=False submitted=0", len(active_states), state.get("ai_decision_id") or "-", symbol or "-", state.get("decision_task") or "-", state.get("action") or "-", int(state.get("eta_expires_at") or 0), max(0, int(float(state.get("eta_expires_at") or now) - now)), state.get("current_status") or "active")
             trigger_reason = ""; triggered_condition = {}
-            if now >= float(state.get("eta_expires_at") or now + 1):
+            forced_redecision_reason = str(state.pop("forced_redecision_reason", "") or "")
+            if forced_redecision_reason in {"post_order_portfolio_replanning", "post_order_remaining_position_redecision"}:
+                state["current_status"] = "invalidated"
+                trigger_reason = forced_redecision_reason
+                eta_logger.info(
+                    "[AITS][PostOrderReplanning] event=redecision_triggered request_id=%s symbol=%s decision_id=%s trigger_reason=%s direct_action=False actual_order=False submitted=0",
+                    state.get("post_order_request_id") or "-", symbol or "-", state.get("ai_decision_id") or "-", trigger_reason,
+                )
+            elif now >= float(state.get("eta_expires_at") or now + 1):
                 state["current_status"] = "expired"; trigger_reason = "eta_expired"
                 eta_logger.info("[AITS][ETAReDecision] event=eta_expired symbol=%s decision_id=%s task=%s elapsed_sec=%s actual_order=False submitted=0", symbol or "-", state.get("ai_decision_id") or "-", state.get("decision_task") or "-", elapsed)
             else:
@@ -42550,11 +42857,23 @@ class MainWindow(QMainWindow):
                     f"{symbol} 기존 AI 판단 ETA가 만료되어 재판단을 요청합니다.",
                     category="pipeline", level="info", event="ai_redecision_eta_expired", symbol=symbol,
                 )
-            else:
+            elif trigger_reason == "invalidation_condition_triggered":
                 self._aits_redecision_status_text = "AI 판단 조건 변경 · 재판단 요청 중"
                 self._append_aits_live_log(
                     f"{symbol} 기존 AI 판단 조건이 변경되어 재판단을 요청합니다.",
                     category="pipeline", level="warning", event="ai_redecision_invalidation", symbol=symbol,
+                )
+            else:
+                self._aits_redecision_status_text = "주문 반영 후 AI 운용계획 재점검 중"
+                self._emit_live_cycle_reason_timeline(
+                    event="post_order_ai_replanning_requested",
+                    message_ko=(
+                        "주문 반영 후 포트폴리오 배분을 다시 판단합니다."
+                        if symbol == "PORTFOLIO"
+                        else f"{symbol} 잔여 포지션의 관리계획을 다시 판단합니다."
+                    ),
+                    symbol=symbol,
+                    decision_context={"decision_id": state.get("ai_decision_id"), "task": state.get("decision_task"), "action": state.get("action")},
                 )
             payload = self._build_ai_redecision_payload(state=state, current=current, trigger_reason=trigger_reason, condition=triggered_condition)
             payload_hash = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()[:24]
@@ -42604,6 +42923,19 @@ class MainWindow(QMainWindow):
                     self._append_aits_live_log(
                         f"{symbol} AI 재판단: {str(decision.get('reason_ko') or '현재 상태를 계속 감시합니다.')}",
                         category="pipeline", level="info", event="ai_redecision_completed", symbol=symbol,
+                    )
+                    self._emit_live_cycle_reason_timeline(
+                        event="ai_redecision_completed",
+                        message_ko=f"{symbol} AI 재판단: {str(decision.get('reason_ko') or '현재 상태를 계속 감시합니다.')}",
+                        symbol=symbol,
+                        decision_context={
+                            "decision_id": decision.get("decision_id") or decision.get("response_id"),
+                            "task": payload.get("task"),
+                            "action": decision.get("action"),
+                            "confidence": decision.get("confidence"),
+                            "eta_seconds": decision.get("eta_seconds"),
+                            "payload_quality_grade": quality_summary.get("payload_quality_grade"),
+                        },
                     )
                 if not bool(decision.get("response_confirmed")) or not bool(decision.get("validation_passed")):
                     blocker = str(decision.get("blocker") or "redecision_provider_blocked")
@@ -42716,6 +43048,13 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
         self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        self._emit_live_cycle_reason_timeline(
+            event="buy_ai_decision",
+            message_ko=f"{symbol} 매수 판단: {str(decision.get('reason_ko') or '현재 매수 조건을 계속 감시합니다.')}",
+            symbol=symbol,
+            decision_context={"decision_id": decision.get("decision_id") or decision.get("response_id"), "task": payload.get("task"), "action": decision.get("action"), "confidence": decision.get("confidence"), "eta_seconds": decision.get("eta_seconds"), "payload_quality_grade": ((decision.get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"))},
+            blocker=str(decision.get("blocker") or ""),
+        )
         return decision
 
     def _request_ai_position_decision(self, *, payload: dict, candidate: dict) -> dict:
@@ -42792,6 +43131,13 @@ class MainWindow(QMainWindow):
         decision = dict(decision or {})
         decision["ai_payload_hash"] = payload_hash
         self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        self._emit_live_cycle_reason_timeline(
+            event="position_ai_decision",
+            message_ko=f"{symbol} 보유종목 판단: {str(decision.get('reason_ko') or '현재 포지션 조건을 계속 감시합니다.')}",
+            symbol=symbol,
+            decision_context={"decision_id": decision.get("decision_id") or decision.get("response_id"), "task": payload.get("task"), "action": decision.get("action"), "confidence": decision.get("confidence"), "eta_seconds": decision.get("eta_seconds"), "payload_quality_grade": ((decision.get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"))},
+            blocker=str(decision.get("blocker") or ""),
+        )
         return decision
 
     def _execute_ai_position_decision(self, *, candidate: dict, payload: dict, decision: dict) -> dict:
@@ -42828,6 +43174,17 @@ class MainWindow(QMainWindow):
         planned["sell_ratio"] = ratio
         planned["sell_volume"] = max(0.0, min(available_qty, available_qty * ratio))
         planned["estimated_sell_value_krw"] = planned["sell_volume"] * current_price if current_price > 0.0 else 0.0
+        planned["_ai_decision_context"] = {
+            "decision_id": str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or ""),
+            "provider": str((decision or {}).get("provider") or ""),
+            "task": str((payload or {}).get("task") or "position_management_decision"),
+            "scope": symbol,
+            "action": action,
+            "confidence": (decision or {}).get("confidence"),
+            "reason_ko": str((decision or {}).get("reason_ko") or ""),
+            "eta_seconds": (decision or {}).get("eta_seconds"),
+            "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
+        }
         try:
             self._log.info(
                 "[AITS][SellOrderIntent] event=sell_apply_candidate symbol=%s trigger=%s ai_action=%s ai_confidence=%s pnl_pct=%s sell_ratio=%s sell_volume=%s estimated_sell_value_krw=%s actual_order=False submitted=0 reason=ai_decision_based",
@@ -43097,6 +43454,7 @@ class MainWindow(QMainWindow):
                         submitted_count=submitted_count,
                         provider=str(getattr(self, "_applied_ai_provider", "") or "aits"),
                         engine=str(getattr(self, "_applied_ai_provider", "") or "aits"),
+                        decision_context=dict((candidate or {}).get("_ai_decision_context") or {}),
                     )
                 except Exception:
                     pass
@@ -43110,7 +43468,14 @@ class MainWindow(QMainWindow):
                     )
                 except Exception:
                     pass
-            return {"submitted_count": submitted_count, "actual_order": success, "blocker": "" if success else "sell_submit_failed_or_blocked"}
+            return {
+                "request_id": request_id,
+                "order_result": "submitted" if success else "sell_submit_failed_or_blocked",
+                "submitted_count": submitted_count,
+                "actual_order": success,
+                "blocker": "" if success else "sell_submit_failed_or_blocked",
+                "post_order_replanning_requested": bool(success),
+            }
         except Exception as exc:
             _log("sell_submit_result", blocker="sell_submit_exception", error_type=type(exc).__name__, actual_order=False, submitted=0)
             return {"submitted_count": 0, "actual_order": False, "blocker": "sell_submit_exception"}
@@ -43714,6 +44079,9 @@ class MainWindow(QMainWindow):
         payload_quality_text = str(getattr(self, "_aits_ai_payload_quality_status_text", "") or "")
         if payload_quality_text:
             risk_text = f"{risk_text} | {payload_quality_text}"
+        live_cycle_text = str(getattr(self, "_aits_live_cycle_status_text", "") or "")
+        if live_cycle_text:
+            risk_text = f"{risk_text} | {live_cycle_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text
@@ -58632,11 +59000,24 @@ class MainWindow(QMainWindow):
                 symbol = str(payload.get("symbol") or "").strip()
                 status = str(payload.get("status") or "").strip()
                 blocker = str(payload.get("blocker") or "").strip()
-                message = str(event or "")
+                blocker_messages = {
+                    "runtime_not_running": "운영 엔진이 실행 중이 아니어서 주문을 보류했습니다.",
+                    "execution_mode_not_live": "실거래 운영 조건이 아니어서 주문을 보류했습니다.",
+                    "duplicate_candidate_locked": "같은 종목의 중복 주문 방지 시간이 적용 중입니다.",
+                    "amount_below_min_order": "최소 주문금액보다 작아 주문을 보류했습니다.",
+                    "amount_exceeds_live_cap": "운용한도를 초과해 주문을 차단했습니다.",
+                    "account_or_api_not_ready": "계좌 또는 거래소 연결 상태를 확인할 수 없어 주문을 보류했습니다.",
+                    "price_missing": "현재가를 확인할 수 없어 주문을 보류했습니다.",
+                    "router_validation_blocked": "AI 판단의 주문 경로 검증을 통과하지 못했습니다.",
+                }
                 if blocker:
-                    message = f"{message} - {blocker}"
+                    message = f"{symbol} {blocker_messages.get(blocker, '안전검사에서 주문을 보류했습니다.')}"
+                elif str(event or "") in {"order_submit_result", "execution_result"} and bool(payload.get("actual_order")):
+                    message = f"{symbol} 주문 제출을 확인했으며 보유정보와 운용계획을 다시 점검합니다."
                 elif status:
-                    message = f"{message} - {status}"
+                    message = f"{symbol} 주문 경로 상태를 확인했습니다: {status}"
+                else:
+                    message = f"{symbol} 주문 경로를 점검 중입니다."
                 self._append_aits_live_log(
                     message,
                     category="pipeline",
@@ -58644,6 +59025,15 @@ class MainWindow(QMainWindow):
                     event=str(event or ""),
                     symbol=symbol if symbol != "-" else "",
                 )
+                if blocker or bool(payload.get("actual_order")):
+                    self._emit_live_cycle_reason_timeline(
+                        event="order_guard_blocked" if blocker else "order_submitted",
+                        message_ko=message,
+                        symbol=symbol if symbol != "-" else "",
+                        blocker=blocker,
+                        actual_order=bool(payload.get("actual_order")),
+                        submitted_count=int(payload.get("submitted_count") or 0),
+                    )
             except Exception:
                 pass
         except Exception:
@@ -59691,6 +60081,17 @@ class MainWindow(QMainWindow):
                     submitted_count=submitted_count,
                     provider=provider or "unknown",
                     engine=provider or "unknown",
+                    decision_context={
+                        "decision_id": str(ai_meta.get("ai_decision_id") or ""),
+                        "provider": provider or "unknown",
+                        "task": "buy_decision",
+                        "scope": symbol,
+                        "action": ai_action,
+                        "confidence": ai_confidence,
+                        "reason_ko": ai_reason_ko,
+                        "eta_seconds": ai_meta.get("ai_eta_seconds"),
+                        "payload_quality_grade": ai_meta.get("payload_quality_grade"),
+                    },
                 )
             self._set_aits_runtime_status_display(
                 "ON - order submitted" if submitted_count > 0 else "ON - order blocked",

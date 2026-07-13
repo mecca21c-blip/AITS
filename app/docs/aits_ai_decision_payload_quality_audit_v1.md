@@ -149,3 +149,7 @@ Payload quality and registration scope are independent contracts. A portfolio pa
 ## Portfolio ETA Cadence Follow-up
 
 The 86400-second portfolio ETA was a valid AI response but an impractical runtime observation cadence. Goal 40 preserves that response as the original ETA and registers an effective portfolio monitoring ETA capped at 3600 seconds. The cap changes redecision scheduling only; payload evidence, action, guards, and execution policy remain unchanged.
+
+## Live Cycle Outcome Link Follow-up
+
+Live Operating Cycle v1 links validated decisions to safe execution metadata and after-order factual snapshots. Decision and outcome records preserve canonical task/scope, reason, confidence, ETA, actual submission result, position and portfolio after-state, and pending 5-minute, 15-minute, 1-hour, and final checkpoints. Pending values remain empty until a dedicated outcome evaluator measures them from real later snapshots.

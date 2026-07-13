@@ -207,3 +207,7 @@ BASIC keeps portfolio and position watch states distinct. `PORTFOLIO` uses a por
 ## Portfolio Cadence Boundary
 
 BASIC preserves the AI-provided portfolio ETA as evidence and computes a separate effective monitoring ETA under the runtime cadence policy. This scheduling normalization does not alter the AI action. Changes in portfolio facts or watched invalidation conditions may cause BASIC to ask AI again before the effective ETA expires.
+
+## Live Cycle Completion Boundary
+
+BASIC owns refreshed market, holding, valuation, candidate, constraint, and after-order facts. AI owns initial and repeated management decisions. RiskGuard and LivePreflight own safety acceptance, while the existing execution stack owns submission. After a confirmed submit, BASIC refreshes facts and asks AI to replan through registered runtime states; it does not create a replacement action. Outcome records are evidence for later learning, not another decision engine.
