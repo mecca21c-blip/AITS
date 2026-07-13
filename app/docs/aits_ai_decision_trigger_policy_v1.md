@@ -284,3 +284,7 @@ Position-management payloads carry valuation-unit consistency, PnL validity, and
 ## Redecision Context Policy
 
 ETA expiry and invalidation are triggers for another AI decision, not actions. The redecision request must carry the same factual position or portfolio SSOT used by the initial decision, together with the prior decision, ETA state, trigger evidence, invalidation context, and current sell-unit safety state. Missing context remains visible as a payload-quality blocker and must never be replaced with fabricated indicators or values.
+
+## Redecision Scope Policy
+
+Portfolio redecision preserves `PORTFOLIO` as a portfolio scope and registers a portfolio-management decision. It must not pass through KRW symbol normalization or position-management task normalization. Position and portfolio state keys remain separate, and neither scope contract creates or changes an action.

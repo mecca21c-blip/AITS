@@ -199,3 +199,7 @@ BASIC may expose PnL as valid for sell only when quantity, current price, and se
 ## Redecision Evidence Boundary
 
 BASIC refreshes real market, indicator, holding, portfolio, candidate, constraint, ETA, and trigger evidence before asking AI to reconsider a decision. Redecision uses the same payload builders and sources as initial management decisions. Better payload coverage changes the evidence available to AI; it does not create, rewrite, or execute an action.
+
+## Decision Scope Boundary
+
+BASIC keeps portfolio and position watch states distinct. `PORTFOLIO` uses a portfolio state key and portfolio-management task; only actual market symbols use `KRW-*` position keys. Request aliases may be retained for audit, but runtime registration, ETA state, and training records use the canonical scope contract.

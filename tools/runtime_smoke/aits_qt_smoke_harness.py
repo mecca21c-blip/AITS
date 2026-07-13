@@ -8108,28 +8108,99 @@ def _harness_report_for_session_start(session_started_at_dt: datetime | None, re
     return ""
 
 
+def _runtime_pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            process_query_limited_information = 0x1000
+            still_active = 259
+            handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, int(pid))
+            if not handle:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                return bool(
+                    ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+                    and exit_code.value == still_active
+                )
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _harness_report_time_windows(reports: list[dict[str, Any]]) -> list[tuple[datetime, datetime]]:
+    windows: list[tuple[datetime, datetime]] = []
+    for item in reports:
+        started_dt = _dt_from_report_field(item, "started_at")
+        finished_dt = _dt_from_report_field(item, "finished_at", fallback="started_at")
+        if started_dt is None or finished_dt is None:
+            continue
+        if _harness_report_for_session_start(started_dt, [item]):
+            windows.append((started_dt, finished_dt))
+    return windows
+
+
+def _line_in_harness_report_window(line: str, windows: list[tuple[datetime, datetime]]) -> bool:
+    line_dt = _runtime_provenance_line_ts(line)
+    if line_dt is None:
+        return False
+    for started_dt, finished_dt in windows:
+        if line_dt.tzinfo is None and started_dt.tzinfo is not None:
+            line_dt = line_dt.replace(tzinfo=started_dt.tzinfo)
+        if started_dt.tzinfo is None and line_dt.tzinfo is not None:
+            started_dt = started_dt.replace(tzinfo=line_dt.tzinfo)
+        if finished_dt.tzinfo is None and line_dt.tzinfo is not None:
+            finished_dt = finished_dt.replace(tzinfo=line_dt.tzinfo)
+        if started_dt <= line_dt <= finished_dt:
+            return True
+    return False
+
+
 def _latest_non_harness_runtime_session(
     lines: list[str],
     reports: list[dict[str, Any]],
 ) -> tuple[list[str], str, datetime | None, int, int, str]:
     provenance_indices = [idx for idx, line in enumerate(lines) if "[AITS][RuntimeProvenance]" in line]
     latest_harness_report = ""
+    harness_windows = _harness_report_time_windows(reports)
+    candidates: list[tuple[bool, bool, bool, int, int, str, datetime | None]] = []
     for pos in range(len(provenance_indices) - 1, -1, -1):
         start_idx = provenance_indices[pos]
-        end_idx = provenance_indices[pos + 1] if pos + 1 < len(provenance_indices) else len(lines)
         provenance = lines[start_idx]
         started_at = _runtime_provenance_line_ts(provenance)
         harness_report = _harness_report_for_session_start(started_at, reports)
         if harness_report:
             latest_harness_report = latest_harness_report or harness_report
             continue
-        session_lines = lines[start_idx:end_idx]
+        pid = int(_safe_float(_live_on_stage_extract_value(provenance, "process_pid"), 0.0))
+        tail = [line for line in lines[start_idx:] if not _line_in_harness_report_window(line, harness_windows)]
+        on_state = any(
+            ("[AITS][ON]" in line and "event=run_branch" in line and "branch=on" in line)
+            or f"session_id=on-{pid}-" in line
+            for line in tail
+        )
+        runtime_active = any("runtime_contract_active=True" in line for line in tail)
+        candidates.append((_runtime_pid_is_running(pid), on_state, runtime_active, start_idx, pid, provenance, started_at))
+    if candidates:
+        running_candidates = [item for item in candidates if item[0]]
+        selected = max(running_candidates or candidates, key=lambda item: (item[1], item[2], item[3]))
+        _running, _on_state, _runtime_active, start_idx, _pid, provenance, started_at = selected
+        session_lines = [line for line in lines[start_idx:] if not _line_in_harness_report_window(line, harness_windows)]
         if started_at is not None:
             session_lines = [
                 line for line in session_lines
                 if (_runtime_provenance_line_ts(line) is None or _runtime_provenance_line_ts(line) >= started_at)
             ]
-        return session_lines, provenance, started_at, start_idx + 1, end_idx, latest_harness_report
+        return session_lines, provenance, started_at, start_idx + 1, len(lines), latest_harness_report
     latest_provenance = lines[provenance_indices[-1]] if provenance_indices else ""
     latest_started = _runtime_provenance_line_ts(latest_provenance)
     return [], latest_provenance, latest_started, -1, -1, latest_harness_report
@@ -8685,16 +8756,25 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     output_dir: Path,
     mode: str,
 ) -> dict[str, Any]:
-    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log()
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(output_dir)
     all_provenance_lines = [line for line in lines if "[AITS][RuntimeProvenance]" in line]
     target_session_lines, target_provenance, target_started_at, _target_start, _target_end, _ = _latest_non_harness_runtime_session(lines, reports)
+    selected_target_pid = int(_safe_float(_live_on_stage_extract_value(target_provenance, "process_pid"), 0.0))
     excluded_harness_pids = sorted({
         int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0))
         for line in all_provenance_lines
         if _harness_report_for_session_start(_runtime_provenance_line_ts(line), reports)
         and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) > 0
     })
+    excluded_terminated_pids = sorted({
+        int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0))
+        for line in all_provenance_lines
+        if not _harness_report_for_session_start(_runtime_provenance_line_ts(line), reports)
+        and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) > 0
+        and not _runtime_pid_is_running(int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)))
+    })
+    target_pid_running = _runtime_pid_is_running(selected_target_pid)
     harness_pid_pollution_detected = bool(excluded_harness_pids and target_session_lines)
     if target_session_lines:
         lines = target_session_lines
@@ -9559,6 +9639,56 @@ def _build_live_on_runtime_e2e_diagnostic_report(
     redecision_context_missing_lines = [line for line in redecision_context_lines if "event=redecision_context_missing" in line]
     redecision_quality_lines = [line for line in redecision_context_lines if "event=redecision_payload_quality_scored" in line]
     redecision_wait_reason_lines = [line for line in redecision_context_lines if "event=redecision_wait_reason_correlated" in line]
+    decision_scope_lines = [line for line in lines if "[AITS][AIDecisionScope]" in line]
+    portfolio_scope_lines = [
+        line for line in decision_scope_lines
+        if "canonical_scope_type=portfolio" in line or "canonical_scope=PORTFOLIO" in line
+    ]
+    portfolio_redecision_payload_lines = [
+        line for line in redecision_portfolio_merged_lines
+        if _live_on_stage_extract_value(line, "symbol") == "PORTFOLIO"
+        or _live_on_stage_extract_value(line, "scope") == "portfolio_management"
+    ]
+    portfolio_redecision_registration_lines = [
+        line for line in ai_decision_state_registered_lines
+        if _live_on_stage_extract_value(line, "symbol") in {"PORTFOLIO", "KRW-PORTFOLIO"}
+        or _live_on_stage_extract_value(line, "scope") == "portfolio_management"
+    ]
+    portfolio_redecision_eta_lines = [
+        line for line in eta_registered_lines
+        if _live_on_stage_extract_value(line, "symbol") in {"PORTFOLIO", "KRW-PORTFOLIO"}
+        or _live_on_stage_extract_value(line, "scope") == "portfolio_management"
+    ]
+    portfolio_training_lines = [
+        line for line in lines
+        if "event=local_training_record_created" in line
+        and (
+            _live_on_stage_extract_value(line, "symbol") == "PORTFOLIO"
+            or _live_on_stage_extract_value(line, "scope") == "PORTFOLIO"
+        )
+    ]
+    latest_portfolio_registration = portfolio_redecision_registration_lines[-1] if portfolio_redecision_registration_lines else ""
+    latest_portfolio_scope = portfolio_scope_lines[-1] if portfolio_scope_lines else ""
+    latest_portfolio_training = portfolio_training_lines[-1] if portfolio_training_lines else ""
+    portfolio_registration_symbol = _live_on_stage_extract_value(latest_portfolio_registration, "symbol")
+    portfolio_registration_scope = _live_on_stage_extract_value(latest_portfolio_registration, "scope")
+    portfolio_registration_task = _live_on_stage_extract_value(latest_portfolio_registration, "task")
+    portfolio_registered_as_krw_symbol = portfolio_registration_symbol == "KRW-PORTFOLIO"
+    portfolio_registered_as_position_task = bool(
+        latest_portfolio_registration
+        and (
+            portfolio_registration_scope == "position_management"
+            or portfolio_registration_task in {"manage_position_decision", "position_management_decision"}
+        )
+    )
+    portfolio_scope_mismatch_detected = bool(
+        portfolio_redecision_payload_lines
+        and (
+            not latest_portfolio_registration
+            or portfolio_registered_as_krw_symbol
+            or portfolio_registered_as_position_task
+        )
+    )
     latest_redecision_quality = redecision_quality_lines[-1] if redecision_quality_lines else ""
     redecision_position_quality_lines = [line for line in redecision_quality_lines if "scope=position_management" in line]
     redecision_portfolio_quality_lines = [line for line in redecision_quality_lines if "scope=portfolio_management" in line]
@@ -10666,7 +10796,22 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         first_blocker = redecision_payload_context_blocker
         if redecision_payload_context_blocker not in all_blockers:
             all_blockers.insert(0, redecision_payload_context_blocker)
-    if not target_session_lines:
+    if portfolio_redecision_payload_lines:
+        if portfolio_registered_as_krw_symbol:
+            first_blocker = "portfolio_redecision_registered_as_krw_symbol"
+        elif portfolio_registered_as_position_task:
+            first_blocker = "portfolio_redecision_registered_as_position_task"
+        elif portfolio_scope_mismatch_detected:
+            first_blocker = "portfolio_redecision_scope_mismatch"
+        else:
+            first_blocker = "portfolio_redecision_scope_canonical_ready"
+        if first_blocker not in all_blockers:
+            all_blockers.insert(0, first_blocker)
+    if selected_target_pid in excluded_harness_pids:
+        first_blocker = "e2e_selected_dry_read_pid"
+    elif target_session_lines and not target_pid_running:
+        first_blocker = "e2e_selected_terminated_pid"
+    elif not target_session_lines:
         first_blocker = "no_active_on_session"
 
     critical_flags: list[str] = []
@@ -10735,6 +10880,20 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "target_runtime_pid": int(current_runtime_pid_detected or 0),
         "target_runtime_session_id": str(initial_seed_session_id or ""),
         "excluded_harness_pids": excluded_harness_pids,
+        "e2e_target_pid_selection_ready": bool(selected_target_pid and target_pid_running and target_session_lines),
+        "e2e_target_pid": int(selected_target_pid or 0),
+        "e2e_target_session_id": str(initial_seed_session_id or ""),
+        "e2e_target_pid_running": bool(target_pid_running),
+        "e2e_target_pid_on_state": bool(on_state_detected),
+        "e2e_target_pid_runtime_contract_active": bool(runtime_contract_active),
+        "e2e_excluded_dry_read_pids": excluded_harness_pids,
+        "e2e_excluded_terminated_pids": excluded_terminated_pids,
+        "e2e_target_selection_reason": (
+            "running_user_app_pid_with_on_runtime_contract"
+            if target_pid_running and on_state_detected and runtime_contract_active
+            else "running_user_app_pid" if target_pid_running else "latest_non_harness_runtime_pid"
+        ),
+        "e2e_false_no_active_session_prevented": bool(target_pid_running and target_session_lines),
         "latest_event_scope": "target_runtime_session",
         "latest_event_scope_pid_matched": bool(current_runtime_pid_detected and target_provenance),
         "latest_event_scope_session_matched": bool(initial_seed_session_id),
@@ -11215,6 +11374,27 @@ def _build_live_on_runtime_e2e_diagnostic_report(
         "redecision_wait_due_to_market_condition": bool(redecision_wait_due_to_market_condition),
         "redecision_data_gap_reason_reduced": bool(redecision_data_gap_reason_reduced),
         "redecision_payload_context_blocker": str(redecision_payload_context_blocker),
+        "portfolio_redecision_payload_detected": bool(portfolio_redecision_payload_lines),
+        "portfolio_redecision_payload_scope": "PORTFOLIO" if portfolio_redecision_payload_lines else "",
+        "portfolio_redecision_payload_task": "ai_redecision" if portfolio_redecision_payload_lines else "",
+        "portfolio_redecision_registration_detected": bool(portfolio_redecision_registration_lines),
+        "portfolio_redecision_registration_scope": str(portfolio_registration_scope or ""),
+        "portfolio_redecision_registration_task": str(portfolio_registration_task or ""),
+        "portfolio_redecision_scope_canonical": bool(
+            latest_portfolio_registration
+            and portfolio_registration_symbol == "PORTFOLIO"
+            and portfolio_registration_scope == "portfolio_management"
+        ),
+        "portfolio_redecision_task_canonical": bool(
+            latest_portfolio_registration and portfolio_registration_task == "portfolio_management_decision"
+        ),
+        "portfolio_redecision_registered_as_krw_symbol": bool(portfolio_registered_as_krw_symbol),
+        "portfolio_redecision_registered_as_position_task": bool(portfolio_registered_as_position_task),
+        "portfolio_redecision_scope_mismatch_detected": bool(portfolio_scope_mismatch_detected),
+        "portfolio_redecision_state_key": _live_on_stage_extract_value(latest_portfolio_scope, "state_key"),
+        "portfolio_redecision_eta_registered": bool(portfolio_redecision_eta_lines),
+        "portfolio_redecision_training_record_scope": _live_on_stage_extract_value(latest_portfolio_training, "scope"),
+        "portfolio_redecision_training_record_task": _live_on_stage_extract_value(latest_portfolio_training, "task"),
         "eta_runtime_first_blocker": str(eta_runtime_first_blocker),
         "holdings_sell_eval_target_ssot_mismatch_detected": bool(manageable_holding_count_for_sell_eval > managed_pool_count),
         "holdings_ssot_next_fix_target": (

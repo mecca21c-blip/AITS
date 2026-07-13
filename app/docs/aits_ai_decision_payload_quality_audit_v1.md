@@ -141,3 +141,7 @@ MACD `exists` responses are measured as registered-but-not-triggerable when the 
 ## ETA Redecision Context Follow-up
 
 The F-grade redecision payload was caused by a minimal `current_state` path that did not inherit the initial management builders. Goal 36 aligns position redecisions with the position payload SSOT and portfolio redecisions with the portfolio payload SSOT, then adds prior-decision, ETA, invalidation, trigger, and sell-unit context. Final quality is scored after provider market/indicator population so pre-provider gaps cannot overwrite the actual request grade. Wait/hold correlation distinguishes missing-data explanations from market-condition decisions.
+
+## Portfolio Redecision Registration Follow-up
+
+Payload quality and registration scope are independent contracts. A portfolio payload may be A-grade yet still be stored incorrectly if `PORTFOLIO` enters market-symbol normalization. Goal 38 preserves portfolio scope through runtime state, ETA, and training records, while the E2E audit selects the running user PID instead of later dry-read or terminated processes.

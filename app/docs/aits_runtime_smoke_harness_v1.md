@@ -2073,3 +2073,10 @@ summary modes.
 - Provider candle population also applies to position-scoped `ai_redecision` payloads. Portfolio-scoped redecisions remain excluded from position candle population.
 - `AIReDecisionPayload` events distinguish context start, position/portfolio merge, missing groups, pre-provider score, final provider-populated score, and wait-reason correlation.
 - The live harness uses the final time-ordered score and reports whether wait/hold is associated with a data gap or current market conditions.
+
+## Portfolio Redecision Scope And Running PID
+
+- `PORTFOLIO` is a portfolio scope, never a KRW market symbol. Runtime state, ETA registration, and training records use `portfolio_management_decision`, `portfolio_management`, and `portfolio:PORTFOLIO`.
+- Position redecisions remain `position_management_decision` with a `position:KRW-*` state key. The original request task is retained separately for provenance.
+- The E2E live summary prefers a running, ON, runtime-contract-active non-harness PID. Dry-read report windows and terminated PIDs cannot replace that target.
+- Portfolio payload, registration, ETA, and training scope fields are compared explicitly; `KRW-PORTFOLIO` or a position-management registration is a mismatch.

@@ -41272,18 +41272,78 @@ class MainWindow(QMainWindow):
         self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
         return decision
 
+    def _normalize_ai_decision_task_scope(self, payload: dict) -> dict:
+        """Return one canonical task/scope contract for runtime decision state."""
+        source = payload if isinstance(payload, dict) else {}
+        original_task = str(source.get("task") or "manage_position_decision").strip()
+        original_symbol = str(source.get("symbol") or source.get("symbol_or_scope") or "").strip().upper()
+        original_scope = str(source.get("scope") or "").strip().lower()
+        portfolio_scope = bool(
+            original_symbol == "PORTFOLIO"
+            or original_scope in {"portfolio", "portfolio_management"}
+            or original_task in {"portfolio_management", "portfolio_management_decision"}
+        )
+        if portfolio_scope:
+            return {
+                "original_task": original_task,
+                "original_symbol": original_symbol,
+                "original_scope": original_scope,
+                "scope_type": "portfolio",
+                "scope": "PORTFOLIO",
+                "symbol": "PORTFOLIO",
+                "task": "portfolio_management_decision",
+                "decision_scope": "portfolio_management",
+                "state_key": "portfolio:PORTFOLIO",
+                "corrected": bool(
+                    original_task != "portfolio_management_decision"
+                    or original_symbol != "PORTFOLIO"
+                    or original_scope not in {"portfolio", "portfolio_management"}
+                ),
+            }
+        symbol = self._normalize_managed_pool_symbol_for_persistence(original_symbol)
+        canonical_task = (
+            "position_management_decision"
+            if original_task in {"ai_redecision", "manage_position_decision", "position_management_decision"}
+            else original_task
+        )
+        scope_map = {
+            "buy_decision": "buy",
+            "managed_pool_promotion_decision": "promotion",
+            "rotation_decision": "rotation",
+            "position_management_decision": "position_management",
+        }
+        decision_scope = scope_map.get(canonical_task, "position_management")
+        return {
+            "original_task": original_task,
+            "original_symbol": original_symbol,
+            "original_scope": original_scope,
+            "scope_type": "position",
+            "scope": symbol,
+            "symbol": symbol,
+            "task": canonical_task,
+            "decision_scope": decision_scope,
+            "state_key": f"position:{symbol}" if symbol else "",
+            "corrected": bool(canonical_task != original_task or symbol != original_symbol),
+        }
+
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
         try:
             root = Path("data") / "ai_decision_training"
             root.mkdir(parents=True, exist_ok=True)
             encoded = json.dumps(payload or {}, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
             payload_hash = hashlib.sha256(encoded).hexdigest()[:24]
+            scope_contract = self._normalize_ai_decision_task_scope(payload or {})
+            request_task = str((payload or {}).get("task") or "manage_position_decision")
             row = {
                 "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-                "task": str((payload or {}).get("task") or "manage_position_decision"),
+                "task": str(scope_contract.get("task") or request_task),
+                "request_task": request_task,
+                "scope_type": str(scope_contract.get("scope_type") or ""),
+                "scope": str(scope_contract.get("scope") or ""),
+                "state_key": str(scope_contract.get("state_key") or ""),
                 "provider": str((decision or {}).get("provider") or ""),
                 "payload_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_hash") or payload_hash,
-                "symbol": str((payload or {}).get("symbol") or ""),
+                "symbol": str(scope_contract.get("symbol") or ""),
                 "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
                 "payload_feature_manifest_summary": dict((decision or {}).get("payload_feature_manifest_summary") or {}),
                 "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
@@ -41316,16 +41376,20 @@ class MainWindow(QMainWindow):
                 target_name = "promotion_decisions.jsonl"
             elif row["task"] == "rotation_decision":
                 target_name = "rotation_decisions.jsonl"
-            elif row["task"] == "ai_redecision":
+            elif request_task == "ai_redecision":
                 target_name = "redecision_events.jsonl"
             else:
                 target_name = "position_decisions.jsonl"
             with (root / target_name).open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
             self._log.info(
-                "[AITS][AIDecisionAuthority] event=local_training_record_created task=%s symbol=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
+                "[AITS][AIDecisionAuthority] event=local_training_record_created task=%s request_task=%s symbol=%s scope_type=%s scope=%s state_key=%s provider=%s ai_action=%s payload_hash=%s actual_order=False submitted=0",
                 row["task"] or "-",
+                row["request_task"] or "-",
                 row["symbol"] or "-",
+                row["scope_type"] or "-",
+                row["scope"] or "-",
+                row["state_key"] or "-",
                 row["provider"] or "-",
                 row["ai_action"] or "-",
                 payload_hash,
@@ -41349,18 +41413,38 @@ class MainWindow(QMainWindow):
     def _register_ai_decision_runtime_state(self, *, payload: dict, decision: dict, payload_hash: str = "") -> dict:
         """Store a validated AI watch state and verify it by readback."""
         eta_logger = logging.getLogger("aits")
-        task = str((payload or {}).get("task") or "manage_position_decision").strip()
-        raw_symbol = str((payload or {}).get("symbol") or "").strip().upper()
+        scope_contract = self._normalize_ai_decision_task_scope(payload or {})
+        request_task = str(scope_contract.get("original_task") or "manage_position_decision")
+        task = str(scope_contract.get("task") or request_task)
+        raw_symbol = str(scope_contract.get("original_symbol") or "").strip().upper()
+        symbol = str(scope_contract.get("symbol") or "")
+        decision_scope = str(scope_contract.get("decision_scope") or "position_management")
+        scope_type = str(scope_contract.get("scope_type") or "position")
+        state_key = str(scope_contract.get("state_key") or "")
         action = str((decision or {}).get("action") or "wait").strip().lower()
         store_name = "_aits_ai_decision_runtime_states"
         result = {
             "ok": False, "registered": False, "decision_id": "", "symbol": raw_symbol,
-            "task": task, "scope": "", "eta_registered": False,
+            "task": task, "request_task": request_task, "scope": decision_scope,
+            "scope_type": scope_type, "state_key": state_key, "eta_registered": False,
             "invalidation_registered": False, "invalidation_condition_count": 0,
             "active_decision_count_after": 0, "store_name": store_name,
             "blocker": "", "reason": "",
         }
         provisional_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash or "-")
+        eta_logger.info(
+            "[AITS][AIDecisionScope] event=scope_normalized original_scope=%s original_symbol=%s original_task=%s canonical_scope_type=%s canonical_scope=%s canonical_symbol=%s canonical_task=%s state_key=%s corrected=%s blocker=- actual_order=False submitted=0",
+            scope_contract.get("original_scope") or "-", raw_symbol or "-", request_task,
+            scope_type, scope_contract.get("scope") or "-", symbol or "-", task,
+            state_key or "-", bool(scope_contract.get("corrected")),
+        )
+        eta_logger.info(
+            "[AITS][AIDecisionScope] event=%s original_scope=%s original_symbol=%s original_task=%s canonical_scope_type=%s canonical_scope=%s canonical_symbol=%s canonical_task=%s state_key=%s corrected=%s blocker=- actual_order=False submitted=0",
+            "portfolio_scope_preserved" if scope_type == "portfolio" else "position_scope_preserved",
+            scope_contract.get("original_scope") or "-", raw_symbol or "-", request_task,
+            scope_type, scope_contract.get("scope") or "-", symbol or "-", task,
+            state_key or "-", bool(scope_contract.get("corrected")),
+        )
         eta_logger.info(
             "[AITS][ETAReDecision] event=ai_decision_state_registration_started decision_id=%s task=%s symbol=%s scope=- action=%s eta_seconds=%s eta_expires_at=- invalidation_condition_count=%s active_decision_count_after=- store_name=%s registered=False blocker=- reason=validation_check actual_order=False submitted=0",
             provisional_id, task, raw_symbol or "-", action, (decision or {}).get("eta_seconds"),
@@ -41375,9 +41459,9 @@ class MainWindow(QMainWindow):
                 len((decision or {}).get("invalidation_conditions") or []), store_name, blocker,
             )
             return result
-        symbol = "PORTFOLIO" if task == "portfolio_management_decision" and raw_symbol == "PORTFOLIO" else self._normalize_managed_pool_symbol_for_persistence(raw_symbol)
         if not symbol and task == "rotation_decision":
             symbol = self._normalize_managed_pool_symbol_for_persistence(((payload or {}).get("rotation_candidate") or {}).get("old_symbol"))
+            state_key = f"position:{symbol}" if symbol else ""
         if not symbol:
             result.update({"blocker": "redecision_symbol_not_relevant", "reason": "symbol_missing"})
             eta_logger.info(
@@ -41398,15 +41482,13 @@ class MainWindow(QMainWindow):
             return result
         now = time.time()
         decision_id = str((decision or {}).get("decision_id") or (decision or {}).get("response_id") or payload_hash or f"decision-{int(now)}-{symbol}")
-        scope_map = {
-            "buy_decision": "buy", "managed_pool_promotion_decision": "promotion",
-            "rotation_decision": "rotation", "manage_position_decision": "position_management",
-            "position_management_decision": "position_management",
-            "portfolio_management_decision": "portfolio_management", "ai_redecision": "position_management",
-        }
         states = self._ai_decision_runtime_state_store()
         for prior in states.values():
-            if isinstance(prior, dict) and prior.get("symbol") == symbol and prior.get("current_status") == "active":
+            if (
+                isinstance(prior, dict)
+                and (prior.get("state_key") or prior.get("symbol")) == (state_key or symbol)
+                and prior.get("current_status") == "active"
+            ):
                 prior["current_status"] = "superseded"
         position = (payload or {}).get("position") if isinstance((payload or {}).get("position"), dict) else {}
         if not position and isinstance((payload or {}).get("old_position"), dict):
@@ -41428,8 +41510,9 @@ class MainWindow(QMainWindow):
             "reason_ko": str((decision or {}).get("reason_ko") or ""), "eta_seconds": eta_seconds,
             "eta_started_at": now, "eta_expires_at": now + eta_seconds,
             "invalidation_conditions": conditions, "payload_hash": payload_hash,
-            "decision_task": task, "decision_symbol": symbol,
-            "decision_scope": scope_map.get(task, "position_management"),
+            "decision_task": task, "request_task": request_task, "decision_symbol": symbol,
+            "decision_scope": decision_scope, "scope_type": scope_type,
+            "scope": scope_contract.get("scope"), "state_key": state_key or symbol,
             "current_status": "active", "registered_at": now,
             "prior_snapshot": {"position": dict(position), "portfolio": dict(portfolio), "managed_pool_symbols": list(candidates.get("managed_pool_symbols") or managed_pool.get("symbols") or [])},
             "last_tick_at": 0.0,
@@ -41437,13 +41520,33 @@ class MainWindow(QMainWindow):
         states[decision_id] = state
         stored = states.get(decision_id)
         active_count = sum(1 for item in states.values() if isinstance(item, dict) and item.get("current_status") == "active")
-        if not isinstance(stored, dict) or stored.get("current_status") != "active":
+        registration_matches = bool(
+            isinstance(stored, dict)
+            and stored.get("current_status") == "active"
+            and stored.get("decision_task") == task
+            and stored.get("decision_scope") == decision_scope
+            and stored.get("symbol") == symbol
+            and stored.get("state_key") == (state_key or symbol)
+        )
+        if not registration_matches:
             result.update({"decision_id": decision_id, "symbol": symbol, "blocker": "ai_decision_state_registration_failed", "reason": "store_readback_failed", "active_decision_count_after": active_count})
+            eta_logger.info(
+                "[AITS][AIDecisionScope] event=scope_registration_mismatch_detected original_scope=%s original_symbol=%s original_task=%s canonical_scope_type=%s canonical_scope=%s canonical_symbol=%s canonical_task=%s state_key=%s corrected=%s blocker=ai_decision_state_registration_failed actual_order=False submitted=0",
+                scope_contract.get("original_scope") or "-", raw_symbol or "-", request_task,
+                scope_type, scope_contract.get("scope") or "-", symbol, task,
+                state_key or symbol, bool(scope_contract.get("corrected")),
+            )
             eta_logger.info(
                 "[AITS][ETAReDecision] event=ai_decision_state_registration_failed decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=False blocker=ai_decision_state_registration_failed reason=store_readback_failed actual_order=False submitted=0",
                 decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
             )
             return result
+        eta_logger.info(
+            "[AITS][AIDecisionScope] event=scope_registration_validated original_scope=%s original_symbol=%s original_task=%s canonical_scope_type=%s canonical_scope=%s canonical_symbol=%s canonical_task=%s state_key=%s corrected=%s blocker=- actual_order=False submitted=0",
+            scope_contract.get("original_scope") or "-", raw_symbol or "-", request_task,
+            scope_type, scope_contract.get("scope") or "-", symbol, task,
+            state_key or symbol, bool(scope_contract.get("corrected")),
+        )
         eta_logger.info(
             "[AITS][ETAReDecision] event=ai_decision_state_registered decision_id=%s task=%s symbol=%s scope=%s action=%s eta_seconds=%s eta_expires_at=%s invalidation_condition_count=%s active_decision_count_after=%s store_name=%s registered=True blocker=- reason=store_readback_confirmed actual_order=False submitted=0",
             decision_id, task, symbol, state["decision_scope"], action, eta_seconds, int(state["eta_expires_at"]), len(conditions), active_count, store_name,
