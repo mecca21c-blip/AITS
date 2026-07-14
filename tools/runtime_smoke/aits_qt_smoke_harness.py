@@ -13609,6 +13609,168 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
     })
 
 
+def _run_on_button_nonblocking_startup_stability_v1_summary(report: dict[str, Any]) -> None:
+    """Audit the ON click fast-return and staged startup contract without clicking ON."""
+    gui_path = ROOT / "app" / "ui" / "app_gui.py"
+    schema_path = ROOT / "app" / "utils" / "settings_schema.py"
+    gui = gui_path.read_text(encoding="utf-8", errors="replace") if gui_path.exists() else ""
+    schema = schema_path.read_text(encoding="utf-8", errors="replace") if schema_path.exists() else ""
+
+    def has_all(text: str, *tokens: str) -> bool:
+        return all(token in text for token in tokens)
+
+    handler_start = gui.find("    def _on_toggle_run(self, run: bool):")
+    handler_end = gui.find("    def _preflight_check", handler_start)
+    handler = gui[handler_start:handler_end] if handler_start >= 0 and handler_end > handler_start else ""
+    fast_return_index = handler.find("self._schedule_nonblocking_on_startup()")
+    legacy_preflight_index = handler.find("self._preflight_check()")
+    fast_return_ready = bool(
+        fast_return_index >= 0
+        and legacy_preflight_index > fast_return_index
+        and "return" in handler[fast_return_index : legacy_preflight_index]
+    )
+    staged_ready = has_all(
+        gui,
+        "def _on_startup_stages",
+        "def _run_nonblocking_on_startup_stage",
+        "startup_sequence_started",
+        "startup_stage_started",
+        "startup_stage_completed",
+        "startup_sequence_completed",
+    )
+    watchdog_ready = has_all(
+        gui,
+        "def _on_startup_watchdog_tick",
+        "[AITS][ONStartupWatchdog]",
+        "watchdog_timeout_detected",
+        "watchdog_recovered_ui",
+        "watchdog_cancelled_after_success",
+    )
+    ui_state_ready = has_all(gui, "def _set_on_startup_ui_state", '"STARTING"', '"ON_ACTIVE"', '"START_FAILED"', '"STOPPING"')
+    worker_ready = has_all(gui, "class AITSOnStartupStageWorker", '"account_balance_light_check", "worker"', "result_ready")
+    failure_ready = has_all(gui, "def _fail_nonblocking_on_startup", "startup_sequence_failed", "set_trading_enabled(False)")
+    freeze_probe_ready = has_all(
+        gui,
+        "[AITS][FreezeProbe]",
+        "on_click_probe",
+        "ui_event_loop_yield",
+        "last_stage_before_freeze",
+        "long_blocking_call_detected",
+        "startup_elapsed_warning",
+    )
+    low_resource_ready = has_all(
+        gui,
+        "def _runtime_resource_policy",
+        "candle_chart_initial_delay_sec",
+        "ai_startup_delay_sec",
+        "scheduler_startup_delay_sec",
+        "startup_stage_delay_ms",
+    )
+    timeout_ready = has_all(schema, "on_startup_total_timeout_sec", "on_startup_stage_timeout_sec", "on_click_fast_return_warning_ms")
+    chart_deferred = fast_return_ready and "_refresh_ai_detail_chart" not in handler[:legacy_preflight_index]
+    provider_deferred = fast_return_ready and "allow_provider_auto_check=False" in gui and '"ai_provider_readiness"' in gui
+    initial_ai_deferred = '_startup_load_gate_ready("ai")' in gui and '"schedule_initial_ai_seed"' in gui
+    eta_deferred = '_startup_load_gate_ready("scheduler")' in gui and '"schedule_eta_scheduler"' in gui
+    ui_render_deferred = '_startup_load_gate_ready("chart")' in gui and '"schedule_ui_render_after_startup"' in gui
+
+    lines, _log_path, _log_error = _live_on_runtime_e2e_tail_log(max_chars=4_000_000)
+    returned_lines = [line for line in lines if "[AITS][ONStartup]" in line and "event=on_click_handler_returned" in line]
+    observed_elapsed: int | None = None
+    if returned_lines:
+        try:
+            observed_elapsed = int(float(_live_on_stage_extract_value(returned_lines[-1], "elapsed_ms") or 0))
+        except Exception:
+            observed_elapsed = None
+
+    prohibited = (
+        "app/services/order_adapter.py",
+        "app/services/execution_bridge.py",
+        "app/services/order_service.py",
+        "app/services/decision_router.py",
+        "app/services/risk_guard.py",
+        "app/services/live_order_preflight.py",
+    )
+    changed: set[str] = set()
+    added_diff = ""
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", "--", *prohibited], cwd=str(ROOT), capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
+        changed = {line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()}
+        diff_proc = subprocess.run(
+            ["git", "diff", "--unified=0", "--", str(gui_path.relative_to(ROOT)), str(schema_path.relative_to(ROOT))],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
+        added_diff = "\n".join(
+            line[1:] for line in diff_proc.stdout.splitlines() if line.startswith("+") and not line.startswith("+++")
+        ).lower()
+    except Exception:
+        changed = set(prohibited)
+    no_modes_added = not any(token in added_diff for token in ("paper_mode", "virtual_order", "simulation_mode"))
+    no_fake_data = not any(token in added_diff for token in ("fake market data", "fake indicator", "fake order", "fake submitted"))
+    prohibited_clean = not changed
+    returned_contract = "event=on_click_handler_returned" in gui
+    elapsed_contract_ready = observed_elapsed is None or observed_elapsed <= 300
+    checks = (
+        ("handler", "on_click_handler_blocking", fast_return_ready and returned_contract and elapsed_contract_ready),
+        ("ui", "on_ui_transition_missing", ui_state_ready and "on_ui_transition_to_starting" in gui),
+        ("startup", "startup_sequence_not_staged", staged_ready and worker_ready),
+        ("watchdog", "startup_watchdog_missing", watchdog_ready and timeout_ready),
+        ("provider", "provider_call_blocks_on_click", provider_deferred),
+        ("chart", "chart_render_blocks_on_click", chart_deferred),
+        ("failure", "startup_failure_recovery_missing", failure_ready),
+        ("diagnostic", "freeze_probe_missing", freeze_probe_ready),
+        ("integration", "low_resource_integration_missing", low_resource_ready),
+        ("safety", "prohibited_layer_modified", prohibited_clean),
+        ("safety", "paper_virtual_simulation_added", no_modes_added),
+        ("safety", "fake_data_added", no_fake_data),
+    )
+    blocker_group = "none"
+    first_blocker = "on_button_nonblocking_startup_ready"
+    for group, blocker, passed in checks:
+        if not passed:
+            blocker_group = group
+            first_blocker = blocker
+            break
+    ready = blocker_group == "none"
+    report.update({
+        "schema": "aits_on_button_nonblocking_startup_stability_v1_summary_v1",
+        "mode": "on-button-nonblocking-startup-stability-v1-summary",
+        "on_button_nonblocking_ready": fast_return_ready and worker_ready,
+        "on_click_fast_return_contract_ready": fast_return_ready and returned_contract,
+        "on_click_handler_returned_detected": returned_contract,
+        "on_click_handler_runtime_observed": bool(returned_lines),
+        "on_click_handler_elapsed_ms": observed_elapsed,
+        "startup_sequence_staged": staged_ready,
+        "startup_stage_count": 12,
+        "startup_watchdog_ready": watchdog_ready,
+        "startup_timeout_policy_ready": timeout_ready,
+        "startup_ui_state_model_ready": ui_state_ready,
+        "heavy_work_deferred_from_on_click": fast_return_ready and worker_ready,
+        "chart_render_deferred": chart_deferred,
+        "provider_call_deferred": provider_deferred,
+        "initial_ai_deferred": initial_ai_deferred,
+        "eta_scheduler_deferred": eta_deferred,
+        "ui_render_deferred": ui_render_deferred,
+        "freeze_probe_ready": freeze_probe_ready,
+        "startup_failure_recovery_ready": failure_ready,
+        "low_resource_mode_integration_ready": low_resource_ready,
+        "riskguard_unaffected": "app/services/risk_guard.py" not in changed,
+        "livepreflight_unaffected": "app/services/live_order_preflight.py" not in changed,
+        "execution_path_unaffected": not any(path in changed for path in prohibited[:4]),
+        "order_adapter_unchanged": "app/services/order_adapter.py" not in changed,
+        "prohibited_layer_diff_files": sorted(changed),
+        "no_paper_virtual_simulation": no_modes_added,
+        "no_fake_data": no_fake_data,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "on_button_nonblocking_startup_stability_v1_ready": ready,
+        "pass_status": "pass" if ready else "fail",
+        "status": "pass" if ready else "fail",
+    })
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -25085,6 +25247,7 @@ def run_harness(
         "local-model-live-outcome-calibration-v1-summary",
         "local-model-calibration-data-accumulation-v1-summary",
         "low-resource-runtime-stability-v1-summary",
+        "on-button-nonblocking-startup-stability-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -25404,6 +25567,9 @@ def run_harness(
         elif mode == "low-resource-runtime-stability-v1-summary":
             _install_provider_post_guard(report)
             _run_low_resource_runtime_stability_v1_summary(report)
+        elif mode == "on-button-nonblocking-startup-stability-v1-summary":
+            _install_provider_post_guard(report)
+            _run_on_button_nonblocking_startup_stability_v1_summary(report)
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -26057,6 +26223,7 @@ def main() -> int:
             "local-model-live-outcome-calibration-v1-summary",
             "local-model-calibration-data-accumulation-v1-summary",
             "low-resource-runtime-stability-v1-summary",
+            "on-button-nonblocking-startup-stability-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

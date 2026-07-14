@@ -15,6 +15,7 @@ import logging
 import warnings
 import hashlib
 import time
+import threading
 import json
 import math
 import re
@@ -1231,6 +1232,37 @@ class LocalOllamaDiagnosticWorker(QThread):
             _finish("timeout", error_summary="generate timeout")
         except Exception as exc:
             _finish("failed", error_summary=type(exc).__name__)
+
+class AITSOnStartupStageWorker(QThread):
+    """Execute one potentially blocking ON-startup stage away from the UI thread."""
+
+    result_ready = Signal(dict)
+
+    def __init__(self, stage: str, action, parent=None):
+        super().__init__(parent)
+        self.stage = str(stage or "unknown")
+        self.action = action
+
+    def run(self):
+        started = time.perf_counter()
+        try:
+            value = self.action()
+            self.result_ready.emit({
+                "ok": True,
+                "stage": self.stage,
+                "value": value,
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                "exception_type": "",
+            })
+        except Exception as exc:
+            self.result_ready.emit({
+                "ok": False,
+                "stage": self.stage,
+                "value": None,
+                "elapsed_ms": int((time.perf_counter() - started) * 1000),
+                "exception_type": type(exc).__name__,
+            })
+
 
 class AITSProviderRefreshWorker(QThread):
     """Run explicit GPT/Gemini refresh HTTP outside the Qt UI thread."""
@@ -8226,6 +8258,9 @@ class MainWindow(QMainWindow):
             "ai_startup_delay_sec": 8.0,
             "scheduler_startup_delay_sec": 10.0,
             "resource_health_interval_sec": 30.0,
+            "on_startup_total_timeout_sec": 30.0,
+            "on_startup_stage_timeout_sec": 10.0,
+            "on_click_fast_return_warning_ms": 300,
         }
         try:
             value = getattr(getattr(self, "_settings", None), "runtime_resource", None)
@@ -61314,6 +61349,354 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+    def _set_on_startup_ui_state(self, state: str, message: str = "") -> None:
+        state = str(state or "OFF").upper()
+        messages = {
+            "OFF": "AITS OFF",
+            "STARTING": "AITS \uc2dc\uc791 \uc900\ube44 \uc911\uc785\ub2c8\ub2e4.",
+            "ON_ACTIVE": "AITS \uac10\uc2dc\ub97c \uc2dc\uc791\ud588\uc2b5\ub2c8\ub2e4.",
+            "START_FAILED": "\uc2dc\uc791 \uc911 \ubb38\uc81c\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4. \ub85c\uadf8\ub97c \ud655\uc778\ud558\uc138\uc694.",
+            "STOPPING": "AITS \uc885\ub8cc \uc911\uc785\ub2c8\ub2e4.",
+        }
+        display = str(message or messages.get(state) or messages["OFF"])
+        self._aits_on_startup_ui_state = state
+        try:
+            btn = getattr(self, "btn_run_toggle", None)
+            if btn is not None:
+                btn.blockSignals(True)
+                if state == "STARTING":
+                    btn.setChecked(True)
+                    self._style_run_toggle_switch(True)
+                    btn.setText("\uc2dc\uc791 \uc911")
+                    btn.setEnabled(False)
+                elif state == "START_FAILED":
+                    btn.setChecked(False)
+                    self._style_run_toggle_switch(False)
+                    btn.setText("OFF")
+                    btn.setEnabled(True)
+                elif state == "ON_ACTIVE":
+                    btn.setChecked(True)
+                    self._style_run_toggle_switch(True)
+                    btn.setEnabled(True)
+                btn.blockSignals(False)
+        except Exception:
+            pass
+        for name in ("lbl_run_state", "lbl_status"):
+            try:
+                label = getattr(self, name, None)
+                if label is not None:
+                    label.setText(display)
+            except Exception:
+                pass
+        try:
+            status_label = getattr(self, "lbl_managed_pool_status_bar", None)
+            if status_label is not None:
+                status_label.setText(display)
+        except Exception:
+            pass
+
+    def _on_startup_stages(self) -> tuple:
+        return (
+            ("startup_prepare", "ui", 3000),
+            ("runtime_contract_create", "ui", 3000),
+            ("config_snapshot", "ui", 3000),
+            ("account_balance_light_check", "worker", 10000),
+            ("holdings_snapshot", "ui", 3000),
+            ("managed_pool_sync", "ui", 3000),
+            ("market_snapshot_light", "ui", 3000),
+            ("ai_provider_readiness", "ui", 3000),
+            ("enable_runtime_loop", "ui", 5000),
+        )
+
+    def _execute_on_startup_stage(self, stage: str) -> dict:
+        if stage == "startup_prepare":
+            if getattr(self, "_settings", None) is None:
+                return {"ok": False, "blocker": "settings_missing"}
+            if not list(getattr(self, "ai_managed_rows", []) or []):
+                return {"ok": False, "blocker": "managed_pool_empty"}
+            return {"ok": True}
+        if stage == "runtime_contract_create":
+            self._aits_on_startup_contract_state = "pending"
+            return {"ok": True, "deferred": True}
+        if stage == "config_snapshot":
+            try:
+                tab_strategy = getattr(self, "tab_strategy", None)
+                if tab_strategy is not None and hasattr(tab_strategy, "sync_ui_to_settings"):
+                    tab_strategy.sync_ui_to_settings(self._settings)
+            except Exception:
+                pass
+            from app.services.order_service import svc_order
+            svc_order.set_settings(self._settings)
+            return {"ok": True}
+        if stage == "account_balance_light_check":
+            preflight_ok, preflight_message = self._preflight_check()
+            return {
+                "ok": bool(preflight_ok),
+                "blocker": "" if preflight_ok else str(preflight_message or "preflight_failed")[:120],
+                "message": str(preflight_message or "")[:120],
+            }
+        if stage in {"holdings_snapshot", "managed_pool_sync", "market_snapshot_light"}:
+            return {"ok": True, "deferred": True, "owner": "runtime_loop"}
+        if stage == "ai_provider_readiness":
+            readiness = self._build_ai_engine_readiness_state(allow_provider_auto_check=False)
+            return {
+                "ok": bool(readiness.get("engine_ready_for_run")),
+                "blocker": str(readiness.get("provider_readiness_blocker") or readiness.get("engine_not_ready_reason") or "")[:120],
+                "readiness": readiness,
+            }
+        if stage == "enable_runtime_loop":
+            from app.services.order_service import svc_order
+            svc_order.set_trading_enabled(True)
+            scheduled = self._request_aits_runtime_start_once(True, "nonblocking_staged_startup")
+            return {"ok": bool(scheduled), "waiting_runtime_ack": bool(scheduled), "blocker": "" if scheduled else "runtime_start_schedule_failed"}
+        return {"ok": False, "blocker": "unknown_startup_stage"}
+
+    def _schedule_nonblocking_on_startup(self) -> bool:
+        click_started = time.perf_counter()
+        logger = logging.getLogger("aits")
+        logger.info(
+            "[AITS][ONStartup] event=on_click_received elapsed_ms=0 ui_thread_returned=False button_state=starting blocker=- actual_order=False submitted=0"
+        )
+        logger.info(
+            "[AITS][FreezeProbe] event=on_click_probe stage=on_click elapsed_ms=0 thread_name=%s ui_thread=True last_successful_event=click_received actual_order=False submitted=0",
+            threading.current_thread().name,
+        )
+        if bool(getattr(self, "_aits_on_startup_active", False)):
+            logger.info(
+                "[AITS][ONStartup] event=on_click_handler_returned elapsed_ms=0 ui_thread_returned=True button_state=starting blocker=duplicate_startup_request actual_order=False submitted=0"
+            )
+            return True
+        previous_worker = getattr(self, "_aits_on_startup_worker", None)
+        if previous_worker is not None and previous_worker.isRunning():
+            self._set_on_startup_ui_state("START_FAILED", "\uc774\uc804 \uc2dc\uc791 \uc810\uac80\uc774 \ub9c8\ubb34\ub9ac\ub418\ub294 \uc911\uc785\ub2c8\ub2e4.")
+            logger.info(
+                "[AITS][ONStartup] event=on_click_handler_returned elapsed_ms=0 ui_thread_returned=True button_state=start_failed blocker=previous_startup_worker_running actual_order=False submitted=0"
+            )
+            return False
+        token = int(time.time() * 1000)
+        self._aits_on_startup_active = True
+        self._aits_on_startup_token = token
+        self._aits_on_startup_started_perf = time.perf_counter()
+        self._aits_on_startup_stage = "scheduled"
+        self._aits_on_startup_stage_started_perf = self._aits_on_startup_started_perf
+        self._aits_on_startup_stage_timeout_ms = 3000
+        self._begin_low_resource_startup_sequence()
+        self._set_on_startup_ui_state("STARTING")
+        logger.info(
+            "[AITS][ONStartup] event=on_ui_transition_to_starting elapsed_ms=%s ui_thread_returned=False button_state=starting blocker=- actual_order=False submitted=0",
+            int((time.perf_counter() - click_started) * 1000),
+        )
+        logger.info(
+            "[AITS][ONStartup] event=startup_sequence_started stage=scheduled elapsed_ms=%s timeout_ms=%s next_stage=startup_prepare blocker=- exception_type=- safe_message_ko=\uc2dc\uc791_\uc900\ube44 actual_order=False submitted=0",
+            int((time.perf_counter() - click_started) * 1000), int(float(self._runtime_resource_policy().get("on_startup_total_timeout_sec") or 30.0) * 1000),
+        )
+        watchdog = getattr(self, "_aits_on_startup_watchdog", None)
+        if watchdog is None:
+            watchdog = QTimer(self)
+            watchdog.setInterval(1000)
+            watchdog.timeout.connect(self._on_startup_watchdog_tick)
+            self._aits_on_startup_watchdog = watchdog
+        watchdog.start()
+        logger.info(
+            "[AITS][ONStartupWatchdog] event=watchdog_started stage=scheduled elapsed_ms=0 timeout_ms=%s next_stage=startup_prepare blocker=- actual_order=False submitted=0",
+            int(float(self._runtime_resource_policy().get("on_startup_total_timeout_sec") or 30.0) * 1000),
+        )
+        QTimer.singleShot(0, lambda token=token: self._run_nonblocking_on_startup_stage(token, 0))
+        elapsed_ms = int((time.perf_counter() - click_started) * 1000)
+        logger.info(
+            "[AITS][ONStartup] event=on_startup_sequence_scheduled elapsed_ms=%s ui_thread_returned=False button_state=starting blocker=- actual_order=False submitted=0",
+            elapsed_ms,
+        )
+        logger.info(
+            "[AITS][FreezeProbe] event=ui_event_loop_yield stage=on_click elapsed_ms=%s thread_name=%s ui_thread=True last_successful_event=startup_scheduled actual_order=False submitted=0",
+            elapsed_ms, threading.current_thread().name,
+        )
+        warning_ms = int(self._runtime_resource_policy().get("on_click_fast_return_warning_ms") or 300)
+        logger.log(
+            logging.WARNING if elapsed_ms > warning_ms else logging.INFO,
+            "[AITS][ONStartup] event=on_click_handler_returned elapsed_ms=%s ui_thread_returned=True button_state=starting blocker=%s actual_order=False submitted=0",
+            elapsed_ms, "on_click_handler_slow" if elapsed_ms > warning_ms else "-",
+        )
+        if elapsed_ms > warning_ms:
+            logger.warning(
+                "[AITS][FreezeProbe] event=startup_elapsed_warning stage=on_click elapsed_ms=%s thread_name=%s ui_thread=True last_successful_event=startup_scheduled actual_order=False submitted=0",
+                elapsed_ms, threading.current_thread().name,
+            )
+        return True
+
+    def _run_nonblocking_on_startup_stage(self, token: int, index: int) -> None:
+        if not bool(getattr(self, "_aits_on_startup_active", False)) or token != int(getattr(self, "_aits_on_startup_token", 0) or 0):
+            return
+        stages = self._on_startup_stages()
+        if index >= len(stages):
+            return
+        stage, mode, timeout_ms = stages[index]
+        policy_timeout_ms = int(float(self._runtime_resource_policy().get("on_startup_stage_timeout_sec") or 10.0) * 1000)
+        timeout_ms = min(int(timeout_ms), max(1000, policy_timeout_ms))
+        self._aits_on_startup_stage = stage
+        self._aits_on_startup_stage_index = index
+        self._aits_on_startup_stage_started_perf = time.perf_counter()
+        self._aits_on_startup_stage_timeout_ms = timeout_ms
+        elapsed_ms = int((time.perf_counter() - float(getattr(self, "_aits_on_startup_started_perf", time.perf_counter()))) * 1000)
+        next_stage = stages[index + 1][0] if index + 1 < len(stages) else "runtime_ack"
+        logging.getLogger("aits").info(
+            "[AITS][ONStartup] event=startup_stage_started stage=%s elapsed_ms=%s timeout_ms=%s next_stage=%s blocker=- exception_type=- safe_message_ko=- actual_order=False submitted=0",
+            stage, elapsed_ms, timeout_ms, next_stage,
+        )
+        logging.getLogger("aits").info(
+            "[AITS][FreezeProbe] event=last_stage_before_freeze stage=%s elapsed_ms=%s thread_name=%s ui_thread=True last_successful_event=%s actual_order=False submitted=0",
+            stage, elapsed_ms, threading.current_thread().name, stage,
+        )
+        stage_message = {
+            "account_balance_light_check": "\uacc4\uc88c/\ubcf4\uc720\uc885\ubaa9 \ud655\uc778 \uc911\uc785\ub2c8\ub2e4.",
+            "holdings_snapshot": "\uacc4\uc88c/\ubcf4\uc720\uc885\ubaa9 \ud655\uc778 \uc911\uc785\ub2c8\ub2e4.",
+            "market_snapshot_light": "\uc2dc\uc7a5 \ub370\uc774\ud130 \uc900\ube44 \uc911\uc785\ub2c8\ub2e4.",
+            "ai_provider_readiness": "AI \ud310\ub2e8 \uc900\ube44 \uc911\uc785\ub2c8\ub2e4.",
+        }.get(stage)
+        if stage_message:
+            self._set_on_startup_ui_state("STARTING", stage_message)
+        if mode == "worker":
+            worker = AITSOnStartupStageWorker(stage, lambda stage=stage: self._execute_on_startup_stage(stage), self)
+            self._aits_on_startup_worker = worker
+            worker.result_ready.connect(lambda result, token=token, index=index: self._handle_nonblocking_on_startup_stage_result(token, index, result))
+            worker.finished.connect(lambda: setattr(self, "_aits_on_startup_worker", None))
+            worker.finished.connect(worker.deleteLater)
+            worker.start()
+            return
+        started = time.perf_counter()
+        try:
+            value = self._execute_on_startup_stage(stage)
+            result = {"ok": True, "stage": stage, "value": value, "elapsed_ms": int((time.perf_counter() - started) * 1000), "exception_type": ""}
+        except Exception as exc:
+            result = {"ok": False, "stage": stage, "value": None, "elapsed_ms": int((time.perf_counter() - started) * 1000), "exception_type": type(exc).__name__}
+        QTimer.singleShot(0, lambda token=token, index=index, result=result: self._handle_nonblocking_on_startup_stage_result(token, index, result))
+
+    def _handle_nonblocking_on_startup_stage_result(self, token: int, index: int, result: dict) -> None:
+        if not bool(getattr(self, "_aits_on_startup_active", False)) or token != int(getattr(self, "_aits_on_startup_token", 0) or 0):
+            return
+        stages = self._on_startup_stages()
+        stage = stages[index][0]
+        value = result.get("value") if isinstance(result, dict) else None
+        value = value if isinstance(value, dict) else {}
+        elapsed_ms = int(result.get("elapsed_ms") or 0) if isinstance(result, dict) else 0
+        blocker = str(value.get("blocker") or "")
+        success = bool(result.get("ok")) and bool(value.get("ok", True))
+        if elapsed_ms > 300:
+            logging.getLogger("aits").warning(
+                "[AITS][FreezeProbe] event=long_blocking_call_detected stage=%s elapsed_ms=%s thread_name=%s ui_thread=%s last_successful_event=%s actual_order=False submitted=0",
+                stage, elapsed_ms, threading.current_thread().name, stages[index][1] == "ui", stage,
+            )
+        if not success:
+            self._fail_nonblocking_on_startup(
+                blocker or "startup_stage_failed",
+                stage=stage,
+                exception_type=str(result.get("exception_type") or "") if isinstance(result, dict) else "",
+            )
+            return
+        next_stage = stages[index + 1][0] if index + 1 < len(stages) else "runtime_ack"
+        logging.getLogger("aits").info(
+            "[AITS][ONStartup] event=startup_stage_completed stage=%s elapsed_ms=%s timeout_ms=%s next_stage=%s blocker=%s exception_type=- safe_message_ko=- actual_order=False submitted=0",
+            stage, elapsed_ms, int(getattr(self, "_aits_on_startup_stage_timeout_ms", 0) or 0), next_stage,
+            "deferred_to_runtime_loop" if value.get("deferred") else "-",
+        )
+        if stage == "enable_runtime_loop":
+            return
+        delay_ms = max(10, int(self._runtime_resource_policy().get("startup_stage_delay_ms") or 300))
+        QTimer.singleShot(delay_ms, lambda token=token, index=index + 1: self._run_nonblocking_on_startup_stage(token, index))
+
+    def _on_startup_watchdog_tick(self) -> None:
+        if not bool(getattr(self, "_aits_on_startup_active", False)):
+            watchdog = getattr(self, "_aits_on_startup_watchdog", None)
+            if watchdog is not None:
+                watchdog.stop()
+            return
+        now = time.perf_counter()
+        total_ms = int((now - float(getattr(self, "_aits_on_startup_started_perf", now))) * 1000)
+        stage_ms = int((now - float(getattr(self, "_aits_on_startup_stage_started_perf", now))) * 1000)
+        total_timeout_ms = int(float(self._runtime_resource_policy().get("on_startup_total_timeout_sec") or 30.0) * 1000)
+        stage_timeout_ms = int(getattr(self, "_aits_on_startup_stage_timeout_ms", 10000) or 10000)
+        stage = str(getattr(self, "_aits_on_startup_stage", "unknown") or "unknown")
+        logging.getLogger("aits").info(
+            "[AITS][ONStartupWatchdog] event=watchdog_stage_heartbeat stage=%s elapsed_ms=%s timeout_ms=%s next_stage=- blocker=- actual_order=False submitted=0",
+            stage, stage_ms, stage_timeout_ms,
+        )
+        if total_ms >= total_timeout_ms or stage_ms >= stage_timeout_ms:
+            logging.getLogger("aits").warning(
+                "[AITS][ONStartupWatchdog] event=watchdog_timeout_detected stage=%s elapsed_ms=%s timeout_ms=%s next_stage=- blocker=startup_timeout actual_order=False submitted=0",
+                stage, stage_ms, stage_timeout_ms if stage_ms >= stage_timeout_ms else total_timeout_ms,
+            )
+            self._fail_nonblocking_on_startup("startup_timeout", stage=stage, timeout=True)
+
+    def _fail_nonblocking_on_startup(self, blocker: str, *, stage: str = "unknown", exception_type: str = "", timeout: bool = False) -> None:
+        if not bool(getattr(self, "_aits_on_startup_active", False)):
+            return
+        elapsed_ms = int((time.perf_counter() - float(getattr(self, "_aits_on_startup_started_perf", time.perf_counter()))) * 1000)
+        self._aits_on_startup_active = False
+        self._aits_runtime_start_request_inflight = False
+        watchdog = getattr(self, "_aits_on_startup_watchdog", None)
+        if watchdog is not None:
+            watchdog.stop()
+        try:
+            from app.services.order_service import svc_order
+            svc_order.set_trading_enabled(False)
+        except Exception:
+            pass
+        self._set_on_startup_ui_state("START_FAILED")
+        event = "startup_stage_timeout" if timeout else "startup_stage_failed"
+        logger = logging.getLogger("aits")
+        logger.warning(
+            "[AITS][ONStartup] event=%s stage=%s elapsed_ms=%s timeout_ms=%s next_stage=- blocker=%s exception_type=%s safe_message_ko=\uc2dc\uc791_\uc2e4\ud328 actual_order=False submitted=0",
+            event, stage, elapsed_ms, int(getattr(self, "_aits_on_startup_stage_timeout_ms", 0) or 0), str(blocker or "startup_failed")[:120], exception_type or "-",
+        )
+        logger.warning(
+            "[AITS][ONStartup] event=startup_sequence_failed stage=%s elapsed_ms=%s timeout_ms=%s next_stage=- blocker=%s exception_type=%s safe_message_ko=\uc2dc\uc791_\uc911_\ubb38\uc81c_\ubc1c\uc0dd actual_order=False submitted=0",
+            stage, elapsed_ms, int(getattr(self, "_aits_on_startup_stage_timeout_ms", 0) or 0), str(blocker or "startup_failed")[:120], exception_type or "-",
+        )
+        logger.info(
+            "[AITS][ONStartupWatchdog] event=watchdog_recovered_ui stage=%s elapsed_ms=%s timeout_ms=%s next_stage=- blocker=%s actual_order=False submitted=0",
+            stage, elapsed_ms, int(getattr(self, "_aits_on_startup_stage_timeout_ms", 0) or 0), str(blocker or "startup_failed")[:120],
+        )
+
+    def _complete_nonblocking_on_startup_success(self) -> None:
+        if not bool(getattr(self, "_aits_on_startup_active", False)):
+            self._set_running_ui(True)
+            return
+        token = int(getattr(self, "_aits_on_startup_token", 0) or 0)
+        post_stages = ("schedule_initial_ai_seed", "schedule_eta_scheduler", "schedule_ui_render_after_startup")
+
+        def _finish_post_stage(index: int) -> None:
+            if not bool(getattr(self, "_aits_on_startup_active", False)) or token != int(getattr(self, "_aits_on_startup_token", 0) or 0):
+                return
+            if index < len(post_stages):
+                stage = post_stages[index]
+                logging.getLogger("aits").info(
+                    "[AITS][ONStartup] event=startup_stage_started stage=%s elapsed_ms=0 timeout_ms=3000 next_stage=%s blocker=- exception_type=- safe_message_ko=- actual_order=False submitted=0",
+                    stage, post_stages[index + 1] if index + 1 < len(post_stages) else "startup_complete",
+                )
+                logging.getLogger("aits").info(
+                    "[AITS][ONStartup] event=startup_stage_completed stage=%s elapsed_ms=0 timeout_ms=3000 next_stage=%s blocker=scheduled_by_low_resource_gate exception_type=- safe_message_ko=- actual_order=False submitted=0",
+                    stage, post_stages[index + 1] if index + 1 < len(post_stages) else "startup_complete",
+                )
+                QTimer.singleShot(50, lambda index=index + 1: _finish_post_stage(index))
+                return
+            elapsed_ms = int((time.perf_counter() - float(getattr(self, "_aits_on_startup_started_perf", time.perf_counter()))) * 1000)
+            self._aits_on_startup_active = False
+            watchdog = getattr(self, "_aits_on_startup_watchdog", None)
+            if watchdog is not None:
+                watchdog.stop()
+            self._set_running_ui(True)
+            self._set_on_startup_ui_state("ON_ACTIVE")
+            logging.getLogger("aits").info(
+                "[AITS][ONStartup] event=startup_sequence_completed stage=all elapsed_ms=%s timeout_ms=30000 next_stage=runtime_monitoring blocker=- exception_type=- safe_message_ko=\uac10\uc2dc_\uc2dc\uc791 actual_order=False submitted=0",
+                elapsed_ms,
+            )
+            logging.getLogger("aits").info(
+                "[AITS][ONStartupWatchdog] event=watchdog_cancelled_after_success stage=all elapsed_ms=%s timeout_ms=30000 next_stage=runtime_monitoring blocker=- actual_order=False submitted=0",
+                elapsed_ms,
+            )
+
+        _finish_post_stage(0)
+
     def _request_aits_runtime_start_once(self, requested_run: bool, reason: str = "post_preflight_contract") -> bool:
         try:
             import app.strategy.runner as _runner_mod
@@ -61346,6 +61729,10 @@ class MainWindow(QMainWindow):
                 )
                 try:
                     self._mark_live_runtime_contract_start_result("already_running", source_path="on_button", reason="already_running")
+                except Exception:
+                    pass
+                try:
+                    self._complete_nonblocking_on_startup_success()
                 except Exception:
                     pass
                 return True
@@ -61409,6 +61796,9 @@ class MainWindow(QMainWindow):
                         type(exc).__name__,
                     )
                     self._aits_runtime_start_request_inflight = False
+                    self._fail_nonblocking_on_startup(
+                        "start_strategy_exception", stage="enable_runtime_loop", exception_type=type(exc).__name__
+                    )
 
             def _check_started(attempt=0):
                 try:
@@ -61434,7 +61824,7 @@ class MainWindow(QMainWindow):
                         except Exception:
                             pass
                         try:
-                            self._set_running_ui(True)
+                            self._complete_nonblocking_on_startup_success()
                         except Exception:
                             pass
                         self._aits_runtime_start_request_inflight = False
@@ -61451,6 +61841,7 @@ class MainWindow(QMainWindow):
                             self._mark_live_runtime_contract_start_result("timeout", source_path="on_button", reason="start_timeout")
                         except Exception:
                             pass
+                        self._fail_nonblocking_on_startup("start_timeout", stage="enable_runtime_loop", timeout=True)
                         self._aits_runtime_start_request_inflight = False
                         return
                     QTimer.singleShot(100, lambda: _check_started(attempt + 1))
@@ -61791,6 +62182,12 @@ class MainWindow(QMainWindow):
             current_running = False
 
         self._is_running = current_running
+        if bool(run):
+            self._schedule_nonblocking_on_startup()
+            return
+        if bool(getattr(self, "_aits_on_startup_active", False)):
+            self._fail_nonblocking_on_startup("startup_cancelled", stage=str(getattr(self, "_aits_on_startup_stage", "unknown")))
+            return
         
         try:
             live_trade = getattr(self._settings, 'live_trade', False)

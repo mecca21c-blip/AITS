@@ -25,6 +25,8 @@ Users with measured headroom may opt into a higher-performance profile through s
 
 The ON sequence records `[AITS][StartupLoad]` events and yields to the Qt event loop before runtime engine start. Initial AI work, ETA scheduling, and chart rendering have separate warm-up gates. A delayed gate means the work remains pending; it does not create fallback market data or a synthetic decision.
 
+The ON click itself follows the separate nonblocking startup contract. Account preflight runs in a worker, provider readiness reads a verified snapshot without an ON-time network call, and a 30 second watchdog restores the UI after a failed or stalled stage.
+
 ## Rendering And Logs
 
 Chart data updates remain independent from rendering. Hidden charts are skipped, startup renders are delayed, displayed candles are capped, low-resource subplots are omitted, and Matplotlib uses `draw_idle()` for coalesced repaint. Managed Pool and market tables use minimum repaint intervals while their backing data continues to refresh.

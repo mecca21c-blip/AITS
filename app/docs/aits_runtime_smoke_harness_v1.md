@@ -2141,3 +2141,8 @@ summary modes.
 `--mode low-resource-runtime-stability-v1-summary --observe-only` audits the stability-first runtime profile without starting AITS or touching trading controls. It checks ON startup staging, chart and table repaint throttles, batched LIVE LOG updates, AI/indicator backpressure, resource health logging, safe UI-first degradation, and prohibited trading-layer diffs.
 
 The summary is structural. A later user-operated ON session supplies runtime timing evidence; lack of such a session does not cause the structural safety audit to fabricate activity.
+# ON button nonblocking startup summary
+
+`--mode on-button-nonblocking-startup-stability-v1-summary --observe-only` verifies that the active ON branch renders STARTING, schedules a staged sequence, and returns before legacy provider/preflight work. It also checks the account worker, startup watchdog, timeout recovery, low-resource gates, freeze probes, and prohibited trading-layer diffs.
+
+The summary reports `on_click_handler_runtime_observed=false` and a null elapsed value until a user-operated ON session produces the new event. Structural readiness never fabricates a click duration.

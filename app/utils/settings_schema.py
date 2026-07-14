@@ -39,6 +39,9 @@ class RuntimeResourceConfig(BaseModel):
     ai_startup_delay_sec: float = 8.0
     scheduler_startup_delay_sec: float = 10.0
     resource_health_interval_sec: float = 30.0
+    on_startup_total_timeout_sec: float = 30.0
+    on_startup_stage_timeout_sec: float = 10.0
+    on_click_fast_return_warning_ms: int = 300
 
 # ---- Strategy schema (defaults only; UI validates ranges) ----
 # 사용자 노출: aggressiveness(3단계), order_amount_krw, allow_downscale_order_amount, whitelist, blacklist
