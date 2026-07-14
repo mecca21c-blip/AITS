@@ -225,3 +225,6 @@ BASIC may curate allow-listed factual outcome fields into later-learning candida
 # LOCAL Training Feature Boundary
 
 The training feature pipeline is an offline data-preparation owner. BASIC may supply factual payload context, and the pipeline may normalize historical labels, but neither component becomes an AI action owner. Feature records and `safe_for_model_training` never authorize live actions or orders. Router, RiskGuard, LivePreflight, and Execution boundaries remain unchanged.
+# LOCAL Model Training Boundary
+
+LOCAL baseline training is an offline learning owner. Its artifacts and shadow scores do not become BASIC facts, AI actions, Router decisions, or order authorization. Every registered model remains `safe_for_live_decision=false` and `live_decision_enabled=false`; RiskGuard, LivePreflight, and Execution ownership is unchanged.

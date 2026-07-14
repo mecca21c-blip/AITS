@@ -31941,8 +31941,10 @@ class MainWindow(QMainWindow):
         result = self._decision_outcome_tracker().evaluate_due(self._ai_outcome_current_snapshot, now=now)
         curation_summary_path = Path("data") / "ai_decision_training" / "curated_local_training_summary.json"
         feature_summary_path = Path("data") / "ai_decision_training" / "local_training_feature_summary.json"
-        if result.get("events") or not curation_summary_path.exists() or not feature_summary_path.exists():
+        local_model_registry_path = Path("data") / "local_models" / "registry.json"
+        if result.get("events") or not curation_summary_path.exists() or not feature_summary_path.exists() or not local_model_registry_path.exists():
             from app.services.aits_orchestrator import AITSLocalTrainingDatasetCurator, AITSLocalTrainingFeaturePipeline
+            from app.services.local_model_training import AITSLocalModelTrainingPipeline
             curator = getattr(self, "_aits_local_training_dataset_curator", None)
             if curator is None:
                 curator = AITSLocalTrainingDatasetCurator()
@@ -31978,6 +31980,31 @@ class MainWindow(QMainWindow):
             )
             try:
                 self._append_aits_live_log(feature_message_ko, category="pipeline", level="info", event="local_training_features_built")
+            except Exception:
+                pass
+            model_trainer = getattr(self, "_aits_local_model_training_pipeline", None)
+            if model_trainer is None:
+                model_trainer = AITSLocalModelTrainingPipeline()
+                self._aits_local_model_training_pipeline = model_trainer
+            training_summary = model_trainer.run_training()
+            training_status = str(training_summary.get("training_status") or "")
+            if training_status == "trained":
+                training_message_ko = "LOCAL baseline 모델을 저장했습니다. 이 모델은 아직 실거래 판단에 연결되지 않았습니다."
+            elif training_status == "insufficient_data":
+                training_message_ko = "LOCAL 모델 학습 데이터가 부족해 학습을 보류했습니다. 데이터가 쌓이면 다시 준비합니다."
+            else:
+                training_message_ko = "학습 가능한 데이터가 없어 LOCAL 모델 학습을 보류했습니다. 학습 파이프라인은 준비됐습니다."
+            self._aits_local_model_training_status_text = training_message_ko
+            logging.getLogger("aits").info(
+                "[AITS][LocalModelTraining] event=training_status_rendered message_ko=%s training_status=%s source_count=%s usable_count=%s model_training_attempted=%s model_training_skipped=%s safe_for_live_decision=false live_decision_enabled=false raw_leak_detected=false actual_order=False submitted=0",
+                training_message_ko, training_status or "-",
+                int(training_summary.get("training_source_records_count") or 0),
+                int(training_summary.get("training_usable_records_count") or 0),
+                bool(training_summary.get("model_training_attempted")),
+                bool(training_summary.get("model_training_skipped")),
+            )
+            try:
+                self._append_aits_live_log(training_message_ko, category="pipeline", level="info", event="local_model_training_status")
             except Exception:
                 pass
         for event in result.get("events") or []:
@@ -44500,6 +44527,9 @@ class MainWindow(QMainWindow):
         feature_status_text = str(getattr(self, "_aits_feature_pipeline_status_text", "") or "")
         if feature_status_text:
             risk_text = f"{risk_text} | {feature_status_text}"
+        model_training_status_text = str(getattr(self, "_aits_local_model_training_status_text", "") or "")
+        if model_training_status_text:
+            risk_text = f"{risk_text} | {model_training_status_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text

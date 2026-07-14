@@ -310,3 +310,6 @@ Dataset curation is not an AI trigger. Training gate outcomes, exclusion reasons
 # Training Features Are Not Triggers
 
 Historical action labels, outcome targets, risk labels, provider-value labels, split assignments, and feature quality grades are training preparation metadata. They do not trigger redecision, buy, sell, rotation, promotion, or execution. A future model integration requires a separate approved contract and must preserve the existing validator and safety path.
+# Trained Models Do Not Trigger Decisions
+
+Training completion, metrics, registry state, and shadow predictions are not decision or order triggers. The v1 baseline has no live binding. Connecting a trained model to provider routing or action selection requires a separately approved contract and must preserve validation, RiskGuard, and LivePreflight.

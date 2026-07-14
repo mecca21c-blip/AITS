@@ -167,3 +167,6 @@ The curated gate combines payload grade, canonical task/scope/action, provider p
 # Feature Pipeline Quality Mapping
 
 The feature pipeline maps allow-listed factual payload context into market, indicator, position, portfolio, risk, provider, opportunity, time, and data-quality groups. Unavailable values remain null. Feature quality is measured from actual availability and never filled with synthetic values. Payload quality and curated data quality remain distinct upstream evidence; feature quality is the downstream model-input readiness grade.
+# Training Input Quality Boundary
+
+The model trainer accepts only feature records already marked safe for model training, with valid split, feature quality, action label, and measured targets. Missing, corrupt, unsafe, unsplit, or leaking rows are excluded. A no-data or insufficient-data metrics state is evidence, not a fabricated score.

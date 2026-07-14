@@ -2117,3 +2117,6 @@ summary modes.
 # LOCAL Training Feature Pipeline v1
 
 `local-training-feature-pipeline-v1-summary --observe-only` audits the model-neutral feature schema, all feature groups, retrospective labels, feature quality gate, atomic dataset outputs, time-based split readiness, and compatibility with the preceding LOCAL data Sprints. It reads only curated runtime records and never trains a model or invokes live inference. Missing factual source values remain null and are reflected in quality or exclusion results.
+# LOCAL Model Training v1
+
+`local-model-training-v1-summary --observe-only` verifies the real feature loader, stable matrix and label builders, baseline trainer, metrics status, model registry, artifact safety flags, no-data handling, and shadow-only prediction interface. A zero-row dataset passes as `no_data_training_ready` only when no model artifact was fabricated and the registry keeps live decision use disabled.

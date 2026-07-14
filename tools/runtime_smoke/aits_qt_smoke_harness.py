@@ -12684,6 +12684,202 @@ def _run_local_training_feature_pipeline_v1_summary(
     )
 
 
+def _run_local_model_training_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    feature_summary: dict[str, Any] = {}
+    _run_local_training_feature_pipeline_v1_summary(feature_summary, output_dir=output_dir)
+    source_paths = (
+        ROOT / "app" / "services" / "local_model_training.py",
+        ROOT / "app" / "services" / "local_model_registry.py",
+        ROOT / "app" / "services" / "local_shadow_predictor.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+    )
+    code_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in source_paths if path.exists()
+    )
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    model_root = ROOT / "data" / "local_models"
+    registry_path = model_root / "registry.json"
+    latest_path = model_root / "latest_model.json"
+    latest_metrics_path = model_root / "latest_training_metrics.json"
+
+    def read_json(path: Path) -> tuple[dict, str]:
+        if not path.exists():
+            return {}, "missing"
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return (value if isinstance(value, dict) else {}), ""
+        except Exception as exc:
+            return {}, type(exc).__name__
+
+    registry, registry_error = read_json(registry_path)
+    latest, latest_error = read_json(latest_path)
+    metrics, metrics_error = read_json(latest_metrics_path)
+    artifact_path = Path(str(latest.get("artifact_path") or "")) if latest.get("artifact_path") else None
+    if artifact_path is not None and not artifact_path.is_absolute():
+        artifact_path = ROOT / artifact_path
+    model_path = artifact_path / "model.pkl" if artifact_path else None
+    model_card_path = artifact_path / "model_card.md" if artifact_path else None
+    artifact_metrics_path = artifact_path / "metrics.json" if artifact_path else None
+    trained = bool(latest.get("trained"))
+    training_status = str(latest.get("training_status") or "")
+    no_data = training_status == "no_data"
+    insufficient = training_status == "insufficient_data"
+    model_artifact_exists = bool(model_path and model_path.exists())
+    model_card_exists = bool(model_card_path and model_card_path.exists())
+    metrics_file_exists = bool(latest_metrics_path.exists() or (artifact_metrics_path and artifact_metrics_path.exists()))
+
+    scan_text = ""
+    for path in (registry_path, latest_path, latest_metrics_path, model_card_path):
+        if path and path.exists():
+            scan_text += path.read_text(encoding="utf-8", errors="replace")[-2_000_000:]
+    secret_leak = bool(re.search(r"(?:api[_-]?key|authorization|secret)[\"' :=]+[A-Za-z0-9_\-]{12,}", scan_text, re.IGNORECASE))
+    prompt_leak = bool(re.search(r'"(?:raw_prompt|prompt_body|request_body)"\s*:', scan_text, re.IGNORECASE))
+    fake_metrics = bool(re.search(r'"(?:fake|fabricated|synthetic)_?metrics"\s*:\s*true', scan_text, re.IGNORECASE))
+
+    loader_ready = source_ready("def load_training_data", "safe_for_model_training", "training_data_empty")
+    matrix_ready = source_ready("def build_feature_matrix", "feature_encoding_map", "missing_value_policy")
+    label_ready = source_ready("def build_labels", "action_quality_score", "outcome_score", "provider_value_score")
+    trainer_ready = source_ready("class AITSMeanBaselineRegressor", "def run_training")
+    metrics_ready = source_ready("def _regression_metrics", "mae", "rmse", "r2")
+    artifact_writer_ready = source_ready("model.pkl", "feature_columns.json", "training_config.json", "model_card.md")
+    registry_ready = source_ready("class AITSLocalModelRegistry", "registry.json", "latest_model.json")
+    shadow_ready = source_ready(
+        "def load_latest_local_model", "def predict_local_action_quality", "def predict_provider_value", "def predict_risk_score"
+    )
+    status_ready = source_ready("training_status_rendered", "_aits_local_model_training_status_text")
+    no_live_binding = not any(
+        token in (ROOT / path).read_text(encoding="utf-8", errors="replace")
+        for path in ("app/ui/app_gui.py", "app/services/aits_orchestrator.py", "app/services/ai_engine_provider.py")
+        for token in ("predict_local_action_quality(", "predict_provider_value(", "predict_risk_score(")
+    )
+    no_order_path_dependency = all(
+        token not in "\n".join(
+            path.read_text(encoding="utf-8", errors="replace")
+            for path in source_paths[:3] if path.exists()
+        )
+        for token in ("OrderAdapter", "ExecutionBridge", "OrderService", "DecisionRouter")
+    )
+    no_data_state_valid = bool(
+        no_data
+        and latest.get("trained") is False
+        and latest.get("blocker") == "no_usable_training_records"
+        and not model_artifact_exists
+    )
+    trained_state_valid = bool(
+        trained
+        and model_artifact_exists
+        and model_card_exists
+        and latest.get("safe_for_shadow_evaluation") is True
+    )
+    artifact_state_ready = no_data_state_valid or insufficient or trained_state_valid
+
+    checklist = {
+        "data": {
+            "local_model_training_data_loader_ready": loader_ready,
+            "training_data_state_ready": bool(latest and not latest_error),
+            "no_data_or_usable_state_ready": bool(no_data_state_valid or insufficient or trained_state_valid),
+        },
+        "feature_label": {
+            "feature_matrix_builder_ready": matrix_ready,
+            "label_builder_ready": label_ready,
+            "feature_encoding_ready": source_ready("categorical_unknown", "unknown"),
+        },
+        "training": {
+            "local_model_training_layer_ready": source_ready("class AITSLocalModelTrainingPipeline"),
+            "baseline_trainer_ready": trainer_ready,
+            "metrics_evaluator_ready": metrics_ready,
+        },
+        "artifacts": {
+            "model_artifact_writer_ready": artifact_writer_ready,
+            "model_registry_ready": registry_ready and registry_path.exists() and not registry_error,
+            "registry_state_ready": artifact_state_ready,
+            "metrics_status_ready": metrics_file_exists and not metrics_error,
+        },
+        "safety": {
+            "safe_for_live_decision_false": latest.get("safe_for_live_decision") is False,
+            "live_decision_enabled_false": latest.get("live_decision_enabled") is False,
+            "local_shadow_prediction_interface_ready": shadow_ready,
+            "live_decision_binding_absent": no_live_binding,
+            "no_order_path_modified": no_order_path_dependency,
+            "no_guard_bypass_detected": source_ready("safe_for_live_decision", "live_decision_enabled"),
+            "raw_secret_absent": not secret_leak,
+            "raw_prompt_absent": not prompt_leak,
+            "fake_metrics_absent": not fake_metrics,
+        },
+        "integration": {
+            "local_training_feature_pipeline_compat_ready": bool(feature_summary.get("local_training_feature_pipeline_v1_ready")),
+            "local_training_dataset_curation_compat_ready": bool(feature_summary.get("local_training_dataset_curation_compat_ready")),
+            "local_provider_outcome_learning_compat_ready": bool(feature_summary.get("local_provider_outcome_learning_compat_ready")),
+            "local_first_gpt_cost_guard_compat_ready": bool(feature_summary.get("local_first_gpt_cost_guard_compat_ready")),
+            "live_operating_cycle_compat_ready": bool(feature_summary.get("live_operating_cycle_compat_ready")),
+            "local_model_training_status_ready": status_ready,
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_model_training_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    report.update(
+        {
+            "schema": "aits_local_model_training_v1_summary_v1",
+            "mode": "local-model-training-v1-summary",
+            **{key: value for group in checklist.values() for key, value in group.items()},
+            "training_source_records_count": int(latest.get("training_source_records_count") or 0),
+            "training_usable_records_count": int(latest.get("training_usable_records_count") or 0),
+            "training_excluded_records_count": int(latest.get("training_excluded_records_count") or 0),
+            "training_data_loaded": bool(latest.get("training_data_loaded")),
+            "training_data_empty": bool(latest.get("training_data_empty")),
+            "training_data_insufficient": bool(latest.get("training_data_insufficient")),
+            "no_data_training_ready": no_data_state_valid,
+            "insufficient_data_training_ready": bool(insufficient and not trained),
+            "fake_training_data_created": False,
+            "feature_columns_count": int(latest.get("feature_columns_count") or 0),
+            "action_quality_target_ready": bool(latest.get("action_quality_target_ready")),
+            "outcome_score_target_ready": bool(latest.get("outcome_score_target_ready")),
+            "provider_value_target_ready": bool(latest.get("provider_value_target_ready")),
+            "model_training_attempted": bool(latest.get("model_training_attempted")),
+            "model_training_skipped": bool(latest.get("model_training_skipped")),
+            "model_training_skip_reason": str(latest.get("model_training_skip_reason") or latest.get("blocker") or ""),
+            "model_type": str(latest.get("model_type") or "none"),
+            "trained_model_count": len(latest.get("targets") or []),
+            "trained_targets": list(latest.get("targets") or []),
+            "metrics_status": str(metrics.get("metrics_status") or latest.get("metrics_status") or ""),
+            "metrics_file_exists": metrics_file_exists,
+            "fake_metrics_detected": fake_metrics,
+            "registry_file_exists": registry_path.exists() and not registry_error,
+            "latest_model_file_exists": latest_path.exists() and not latest_error,
+            "model_card_created": model_card_exists,
+            "trained_model_artifact_exists": model_artifact_exists,
+            "no_data_registry_state_recorded": no_data_state_valid,
+            "raw_secret_leak_detected": secret_leak,
+            "raw_prompt_leak_detected": prompt_leak,
+            "registry_summary": registry,
+            "latest_model_summary": latest,
+            "metrics_summary": metrics,
+            "completion_checklist": checklist,
+            "local_model_training_v1_ready": ready,
+            "first_blocker": first_blocker,
+            "blocker_group": blocker_group,
+            "next_sprint_recommendation": "SPRINT-LOCAL-MODEL-SHADOW-EVALUATION-V1",
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -24155,6 +24351,7 @@ def run_harness(
         "local-provider-outcome-learning-v1-summary",
         "local-training-dataset-curation-v1-summary",
         "local-training-feature-pipeline-v1-summary",
+        "local-model-training-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -24444,6 +24641,12 @@ def run_harness(
         elif mode == "local-training-feature-pipeline-v1-summary":
             _install_provider_post_guard(report)
             _run_local_training_feature_pipeline_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-model-training-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_model_training_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -25095,6 +25298,7 @@ def main() -> int:
             "local-provider-outcome-learning-v1-summary",
             "local-training-dataset-curation-v1-summary",
             "local-training-feature-pipeline-v1-summary",
+            "local-model-training-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

@@ -1438,6 +1438,7 @@ class AITSLocalTrainingFeaturePipeline:
         safe = not exclusions
         outcome_targets = {
             "action_quality_score": score,
+            "outcome_score": score,
             "risk_adjusted_score": risk_adjusted,
             "provider_value_score": provider_value_score,
             "opportunity_score": opportunity_score,
