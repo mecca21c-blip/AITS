@@ -37820,6 +37820,8 @@ class MainWindow(QMainWindow):
             pass
 
     def _refresh_ai_detail_chart(self) -> None:
+        if bool(getattr(self, "_aits_runtime_contract_active", False)):
+            return
         _aits_t0 = None
         render_used = "legacy"
         mpf_rendered = False

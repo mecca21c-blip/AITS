@@ -13773,6 +13773,30 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         "canvas.draw_idle()",
         "max_chart_candles",
     )
+    chart_auto_render_disabled_on_live = has_all(
+        gui,
+        'def _refresh_ai_detail_chart(self) -> None:',
+        'if bool(getattr(self, "_aits_runtime_contract_active", False)):',
+    )
+    learning_heavy_pipeline_disabled_on_live = has_all(
+        gui,
+        "def _learning_pipeline_allowed_during_live",
+        "learning_pipeline_blocked_during_live",
+    )
+    private_api_blocking_call_detected = has_all(
+        gui,
+        'self._run_timer.timeout.connect(lambda: self.refresh_account_summary("timer"))',
+        "def _compute_upbit_totals",
+    )
+    runtime_timer_duplication_detected = any(
+        gui.count(token) > 1
+        for token in (
+            "self._market_history_timer = QTimer",
+            "self._run_timer = QTimer",
+            "self._wl_timer = QTimer",
+            "self._tables_timer = QTimer",
+        )
+    )
     ui_ready = has_all(gui, "def _aits_ui_update_allowed", "[AITS][UIThrottle]", "managed_pool_table", "market_table")
     log_ready = has_all(
         gui,
@@ -13799,6 +13823,7 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         ("settings", "low_resource_mode_missing", low_resource_available),
         ("startup", "startup_load_staging_missing", startup_ready),
         ("chart", "chart_guard_missing", chart_ready),
+        ("isolation", "hard_freeze_stepwise_isolation_missing", chart_auto_render_disabled_on_live),
         ("ui", "ui_render_throttle_missing", ui_ready and log_ready),
         ("runtime", "runtime_backpressure_missing", backpressure_ready),
         ("health", "resource_health_logging_missing", resource_ready),
@@ -13827,6 +13852,15 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         "chart_render_throttle_ready": chart_ready and "chart_refresh_min_interval_sec" in gui,
         "chart_startup_delay_ready": chart_ready and "candle_chart_initial_delay_sec" in gui,
         "chart_not_visible_skip_ready": "chart_render_skipped_not_visible" in gui,
+        "hard_freeze_stepwise_isolation_ready": chart_auto_render_disabled_on_live,
+        "hard_freeze_suspect_rank_1": "main_detail_chart_mplfinance_canvas_live_path",
+        "isolated_component": "main_detail_chart_auto_render_during_live",
+        "chart_auto_render_disabled_on_live": chart_auto_render_disabled_on_live,
+        "learning_heavy_pipeline_disabled_on_live": learning_heavy_pipeline_disabled_on_live,
+        "private_api_blocking_call_detected": private_api_blocking_call_detected,
+        "runtime_timer_duplication_detected": runtime_timer_duplication_detected,
+        "first_isolation_patch_applied": chart_auto_render_disabled_on_live,
+        "next_user_runtime_check_required": chart_auto_render_disabled_on_live,
         "ui_render_throttle_ready": ui_ready,
         "live_log_throttle_ready": log_ready,
         "table_refresh_throttle_ready": ui_ready,
