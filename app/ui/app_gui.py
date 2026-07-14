@@ -8243,21 +8243,30 @@ class MainWindow(QMainWindow):
     def _runtime_resource_policy(self) -> dict:
         defaults = {
             "low_resource_mode_enabled": True,
+            "ultra_safe_startup_enabled": True,
             "chart_render_on_startup": False,
+            "disable_chart_rendering_in_low_resource": True,
+            "chart_render_manual_only": True,
             "chart_refresh_min_interval_sec": 20.0,
-            "candle_chart_initial_delay_sec": 20.0,
-            "max_chart_candles": 120,
+            "candle_chart_initial_delay_sec": 60.0,
+            "chart_render_after_on_stable_sec": 60.0,
+            "max_chart_candles": 80,
             "enable_chart_subplots_in_low_resource": False,
             "ui_log_max_lines": 500,
             "ui_log_flush_interval_sec": 2.0,
             "table_refresh_min_interval_sec": 5.0,
             "status_refresh_min_interval_sec": 1.5,
-            "market_refresh_batch_size": 20,
-            "indicator_compute_batch_size": 8,
+            "market_refresh_batch_size": 10,
+            "indicator_compute_batch_size": 4,
             "startup_stage_delay_ms": 300,
-            "ai_startup_delay_sec": 8.0,
-            "scheduler_startup_delay_sec": 10.0,
+            "ai_startup_delay_sec": 15.0,
+            "scheduler_startup_delay_sec": 20.0,
             "resource_health_interval_sec": 30.0,
+            "learning_pipeline_auto_run_enabled": False,
+            "local_model_training_auto_run_on_live": False,
+            "calibration_auto_run_on_live": False,
+            "curation_auto_run_on_live": False,
+            "feature_pipeline_auto_run_on_live": False,
             "on_startup_total_timeout_sec": 30.0,
             "on_startup_stage_timeout_sec": 10.0,
             "on_click_fast_return_warning_ms": 300,
@@ -8381,6 +8390,104 @@ class MainWindow(QMainWindow):
             sum(int(value or 0) for value in dict(getattr(self, "_aits_ui_throttle_counts", {}) or {}).values()),
             self._low_resource_mode_enabled(),
         )
+        if bool(getattr(self, "_aits_runtime_contract_active", False)):
+            self._update_hard_freeze_marker(
+                clean_shutdown=False,
+                last_component="resource_health",
+                resource_snapshot={
+                    "available": available,
+                    "process_memory_mb": memory_mb,
+                    "cpu_percent": cpu_percent,
+                    "ui_queue_pressure": sum(
+                        int(value or 0)
+                        for value in dict(getattr(self, "_aits_ui_throttle_counts", {}) or {}).values()
+                    ),
+                    "chart_render_count": int(getattr(self, "_aits_chart_render_count", 0) or 0),
+                },
+            )
+
+    def _hard_freeze_marker_path(self) -> Path:
+        return Path("data") / "runtime" / "aits_last_session_state.json"
+
+    def _update_hard_freeze_marker(
+        self,
+        *,
+        clean_shutdown: bool,
+        last_component: str,
+        resource_snapshot: dict | None = None,
+        create: bool = False,
+    ) -> None:
+        try:
+            path = self._hard_freeze_marker_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            previous = {}
+            if path.exists():
+                try:
+                    previous = json.loads(path.read_text(encoding="utf-8"))
+                except Exception:
+                    previous = {}
+            current_pid = os.getpid()
+            previous_pid = int(previous.get("pid") or 0)
+            previous_unclean = bool(
+                create
+                and previous
+                and previous.get("clean_shutdown") is False
+                and previous_pid != current_pid
+            )
+            if previous_unclean:
+                logging.getLogger("aits").warning(
+                    "[AITS][HardFreezeMarker] event=previous_unclean_shutdown_detected previous_session_id=%s previous_pid=%s last_stage=%s last_component=%s suspected_hard_freeze=true actual_order=False submitted=0",
+                    previous.get("session_id") or "-",
+                    previous_pid or "-",
+                    previous.get("last_stage") or "-",
+                    previous.get("last_component") or "-",
+                )
+            same_session = previous_pid == current_pid and not create
+            now_iso = time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime())
+            session_id = str(
+                getattr(self, "_aits_initial_seed_session_id", "")
+                or (previous.get("session_id") if same_session else "")
+                or f"on-{current_pid}-{int(time.time())}"
+            )
+            record = {
+                "session_id": session_id,
+                "pid": current_pid,
+                "started_at": previous.get("started_at") if same_session else now_iso,
+                "last_heartbeat_at": now_iso,
+                "clean_shutdown": bool(clean_shutdown),
+                "last_stage": str(getattr(self, "_aits_on_startup_last_successful_stage", "runtime_active") or "runtime_active"),
+                "last_component": str(last_component or "runtime"),
+                "last_resource_snapshot": dict(resource_snapshot or previous.get("last_resource_snapshot") or {}),
+                "suspected_hard_freeze": previous_unclean,
+            }
+            tmp_path = path.with_suffix(".tmp")
+            tmp_path.write_text(
+                json.dumps(record, ensure_ascii=True, indent=2, sort_keys=True),
+                encoding="utf-8",
+            )
+            tmp_path.replace(path)
+            event = (
+                "runtime_session_marker_created"
+                if create
+                else "runtime_session_clean_shutdown"
+                if clean_shutdown
+                else "runtime_session_heartbeat_updated"
+            )
+            logging.getLogger("aits").info(
+                "[AITS][HardFreezeMarker] event=%s session_id=%s pid=%s clean_shutdown=%s last_stage=%s last_component=%s suspected_hard_freeze=%s actual_order=False submitted=0",
+                event,
+                session_id,
+                current_pid,
+                bool(clean_shutdown),
+                record["last_stage"],
+                record["last_component"],
+                bool(record["suspected_hard_freeze"]),
+            )
+        except Exception as exc:
+            logging.getLogger("aits").warning(
+                "[AITS][HardFreezeMarker] event=marker_write_failed exception_type=%s actual_order=False submitted=0",
+                type(exc).__name__,
+            )
 
     def _ensure_run_widgets(self):
         """상단 상태 라벨/타이머 지연 생성."""
@@ -32128,6 +32235,37 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _learning_pipeline_allowed_during_live(self, pipeline: str) -> bool:
+        policy = self._runtime_resource_policy()
+        live_runtime_active = bool(getattr(self, "_aits_runtime_contract_active", False))
+        master_enabled = bool(policy.get("learning_pipeline_auto_run_enabled", False))
+        pipeline_key = {
+            "curation": "curation_auto_run_on_live",
+            "feature_pipeline": "feature_pipeline_auto_run_on_live",
+            "model_training": "local_model_training_auto_run_on_live",
+            "calibration": "calibration_auto_run_on_live",
+        }.get(str(pipeline or ""), "learning_pipeline_auto_run_enabled")
+        pipeline_enabled = bool(policy.get(pipeline_key, False))
+        allowed = not live_runtime_active or (master_enabled and pipeline_enabled)
+        now = time.time()
+        log_times = getattr(self, "_aits_learning_pipeline_guard_log_times", None)
+        if not isinstance(log_times, dict):
+            log_times = {}
+            self._aits_learning_pipeline_guard_log_times = log_times
+        if allowed or now - float(log_times.get(pipeline, 0.0) or 0.0) >= 60.0:
+            log_times[pipeline] = now
+            event = "learning_pipeline_auto_run_checked" if allowed else "learning_pipeline_blocked_during_live"
+            logging.getLogger("aits").info(
+                "[AITS][LearningPipelineGuard] event=%s pipeline=%s live_runtime_active=%s auto_run_enabled=%s allowed=%s blocked_reason=%s elapsed_ms=0 actual_order=False submitted=0",
+                event,
+                str(pipeline or "unknown"),
+                live_runtime_active,
+                master_enabled and pipeline_enabled,
+                allowed,
+                "-" if allowed else "manual_only_during_live",
+            )
+        return allowed
+
     def _run_ai_outcome_checkpoint_scheduler(self, *, reason: str) -> dict:
         now = time.time()
         if now - float(getattr(self, "_aits_outcome_scheduler_last_run", 0.0) or 0.0) < 15.0:
@@ -32138,7 +32276,24 @@ class MainWindow(QMainWindow):
         feature_summary_path = Path("data") / "ai_decision_training" / "local_training_feature_summary.json"
         local_model_registry_path = Path("data") / "local_models" / "registry.json"
         calibration_profile_path = Path("data") / "local_models" / "calibration_profile.json"
-        if result.get("events") or not curation_summary_path.exists() or not feature_summary_path.exists() or not local_model_registry_path.exists() or not calibration_profile_path.exists():
+        heavy_pipeline_requested = bool(
+            result.get("events")
+            or not curation_summary_path.exists()
+            or not feature_summary_path.exists()
+            or not local_model_registry_path.exists()
+            or not calibration_profile_path.exists()
+        )
+        heavy_pipeline_checks = [
+            self._learning_pipeline_allowed_during_live(pipeline)
+            for pipeline in ("curation", "feature_pipeline", "model_training", "calibration")
+        ]
+        heavy_pipeline_allowed = all(heavy_pipeline_checks)
+        if result.get("events"):
+            logging.getLogger("aits").info(
+                "[AITS][LearningPipelineGuard] event=outcome_checkpoint_allowed pipeline=outcome_checkpoint live_runtime_active=%s auto_run_enabled=True allowed=True blocked_reason=- elapsed_ms=0 actual_order=False submitted=0",
+                bool(getattr(self, "_aits_runtime_contract_active", False)),
+            )
+        if heavy_pipeline_requested and heavy_pipeline_allowed:
             from app.services.aits_orchestrator import AITSLocalTrainingDatasetCurator, AITSLocalTrainingFeaturePipeline
             from app.services.local_model_training import AITSLocalModelTrainingPipeline
             curator = getattr(self, "_aits_local_training_dataset_curator", None)
@@ -32222,6 +32377,11 @@ class MainWindow(QMainWindow):
                 self._append_aits_live_log(calibration_message_ko, category="pipeline", level="info", event="local_model_calibration_status")
             except Exception:
                 pass
+        elif heavy_pipeline_requested:
+            logging.getLogger("aits").info(
+                "[AITS][LearningPipelineGuard] event=manual_learning_pipeline_required pipeline=curation_feature_training_calibration live_runtime_active=%s auto_run_enabled=False allowed=False blocked_reason=manual_only_during_live elapsed_ms=0 actual_order=False submitted=0",
+                bool(getattr(self, "_aits_runtime_contract_active", False)),
+            )
         for event in result.get("events") or []:
             record = dict(event.get("record") or {})
             if event.get("finalized"):
@@ -33811,7 +33971,11 @@ class MainWindow(QMainWindow):
             self._detail_chart_tf = str(_td) if _td is not None else "60m"
             _cd = self.cmb_detail_chart_count.currentData()
             self._detail_chart_count = int(_cd) if _cd is not None else 50
-            self._refresh_ai_detail_chart()
+            self._aits_chart_manual_render_request = True
+            try:
+                self._refresh_ai_detail_chart()
+            finally:
+                self._aits_chart_manual_render_request = False
         except Exception:
             pass
 
@@ -37594,12 +37758,28 @@ class MainWindow(QMainWindow):
                     self._low_resource_mode_enabled(),
                 )
                 return "hidden"
+            policy = self._runtime_resource_policy()
+            manual_request = bool(getattr(self, "_aits_chart_manual_render_request", False))
+            if (
+                self._low_resource_mode_enabled()
+                and bool(policy.get("disable_chart_rendering_in_low_resource", True))
+                and not manual_request
+            ):
+                logging.getLogger("aits").info(
+                    "[AITS][ChartGuard] event=chart_render_skipped_low_resource chart_name=ai_detail visible=True candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=rendering_disabled_background low_resource_mode=True manual_request=False actual_order=False submitted=0"
+                )
+                return "rendering_disabled_background"
+            if bool(policy.get("chart_render_manual_only", True)) and not manual_request:
+                logging.getLogger("aits").info(
+                    "[AITS][ChartGuard] event=chart_render_skipped_low_resource chart_name=ai_detail visible=True candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=manual_only low_resource_mode=%s manual_request=False actual_order=False submitted=0",
+                    self._low_resource_mode_enabled(),
+                )
+                return "manual_only"
             if self._low_resource_mode_enabled() and not self._startup_load_gate_ready("chart"):
                 logging.getLogger("aits").info(
                     "[AITS][ChartGuard] event=chart_render_blocked_startup chart_name=ai_detail visible=True candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=startup_warmup low_resource_mode=True actual_order=False submitted=0"
                 )
                 return "startup_warmup"
-            policy = self._runtime_resource_policy()
             interval = float(policy.get("chart_refresh_min_interval_sec") or 0.0)
             if self._low_resource_mode_enabled() and not self._aits_ui_update_allowed("ai_detail_chart", interval):
                 logging.getLogger("aits").info(
@@ -46079,6 +46259,28 @@ class MainWindow(QMainWindow):
     def _update_ai_pool_statuses(self) -> None:
         """AI 종목: 규칙 기반 점수로 상태 갱신. USER는 목표/손절만 반영·상태 Watching."""
         try:
+            now = time.time()
+            if self._low_resource_mode_enabled() and bool(getattr(self, "_aits_runtime_contract_active", False)):
+                startup_age = max(
+                    0.0,
+                    now - float(getattr(self, "_aits_startup_sequence_started_at", now) or now),
+                )
+                min_interval = 10.0 if startup_age < 60.0 else 5.0
+                last_cycle = float(getattr(self, "_aits_managed_pool_cycle_last_at", 0.0) or 0.0)
+                if now - last_cycle < min_interval:
+                    skipped = int(getattr(self, "_aits_managed_pool_cycle_skipped", 0) or 0) + 1
+                    self._aits_managed_pool_cycle_skipped = skipped
+                    if skipped == 1 or skipped % 20 == 0:
+                        logging.getLogger("aits").info(
+                            "[AITS][RuntimeBackpressure] event=cycle_skipped_busy cycle_name=managed_pool_status elapsed_ms=0 busy=True skipped=True pending_requests=%s batch_size=%s degraded=%s startup_age_sec=%.1f min_interval_sec=%.1f actual_order=False submitted=0",
+                            len(dict(getattr(self, "_aits_ai_redecision_pending", {}) or {})),
+                            int(self._runtime_resource_policy().get("indicator_compute_batch_size") or 4),
+                            bool(getattr(self, "_aits_low_resource_degraded", False)),
+                            startup_age,
+                            min_interval,
+                        )
+                    return
+                self._aits_managed_pool_cycle_last_at = now
             self._log_resource_health_snapshot()
             try:
                 self._sync_legacy_basic_ai_settings_from_ssot()
@@ -61740,6 +61942,11 @@ class MainWindow(QMainWindow):
                 watchdog.stop()
             self._set_running_ui(True)
             self._set_on_startup_ui_state("ON_ACTIVE")
+            self._update_hard_freeze_marker(
+                clean_shutdown=False,
+                last_component="on_active",
+                create=True,
+            )
             logging.getLogger("aits").info(
                 "[AITS][ONStartup] event=startup_sequence_completed stage=all elapsed_ms=%s timeout_ms=30000 next_stage=runtime_monitoring blocker=- exception_type=- safe_message_ko=\uac10\uc2dc_\uc2dc\uc791 actual_order=False submitted=0",
                 elapsed_ms,
@@ -62985,6 +63192,13 @@ class MainWindow(QMainWindow):
                                     str(self._get_aits_execution_mode() or "unknown"),
                                 )
                                 try:
+                                    self._update_hard_freeze_marker(
+                                        clean_shutdown=True,
+                                        last_component="normal_off",
+                                    )
+                                except Exception:
+                                    pass
+                                try:
                                     self._clear_live_runtime_contract_state(source_path="on_button", reason="stop_ack")
                                 except Exception:
                                     pass
@@ -64186,6 +64400,14 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_market_history_timer") and self._market_history_timer.isActive():
                 self._market_history_timer.stop()
             self._polling_started = False
+        except Exception:
+            pass
+        try:
+            if bool(getattr(self, "_aits_runtime_contract_active", False)) or self._hard_freeze_marker_path().exists():
+                self._update_hard_freeze_marker(
+                    clean_shutdown=True,
+                    last_component="application_close",
+                )
         except Exception:
             pass
         try:

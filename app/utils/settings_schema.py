@@ -24,21 +24,30 @@ class RuntimeResourceConfig(BaseModel):
     """Stable deployment defaults for laptops and integrated graphics."""
 
     low_resource_mode_enabled: bool = True
+    ultra_safe_startup_enabled: bool = True
     chart_render_on_startup: bool = False
+    disable_chart_rendering_in_low_resource: bool = True
+    chart_render_manual_only: bool = True
     chart_refresh_min_interval_sec: float = 20.0
-    candle_chart_initial_delay_sec: float = 20.0
-    max_chart_candles: int = 120
+    candle_chart_initial_delay_sec: float = 60.0
+    chart_render_after_on_stable_sec: float = 60.0
+    max_chart_candles: int = 80
     enable_chart_subplots_in_low_resource: bool = False
     ui_log_max_lines: int = 500
     ui_log_flush_interval_sec: float = 2.0
     table_refresh_min_interval_sec: float = 5.0
     status_refresh_min_interval_sec: float = 1.5
-    market_refresh_batch_size: int = 20
-    indicator_compute_batch_size: int = 8
+    market_refresh_batch_size: int = 10
+    indicator_compute_batch_size: int = 4
     startup_stage_delay_ms: int = 300
-    ai_startup_delay_sec: float = 8.0
-    scheduler_startup_delay_sec: float = 10.0
+    ai_startup_delay_sec: float = 15.0
+    scheduler_startup_delay_sec: float = 20.0
     resource_health_interval_sec: float = 30.0
+    learning_pipeline_auto_run_enabled: bool = False
+    local_model_training_auto_run_on_live: bool = False
+    calibration_auto_run_on_live: bool = False
+    curation_auto_run_on_live: bool = False
+    feature_pipeline_auto_run_on_live: bool = False
     on_startup_total_timeout_sec: float = 30.0
     on_startup_stage_timeout_sec: float = 10.0
     on_click_fast_return_warning_ms: int = 300

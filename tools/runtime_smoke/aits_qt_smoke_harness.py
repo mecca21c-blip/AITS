@@ -13463,6 +13463,247 @@ def _run_local_model_calibration_data_accumulation_v1_summary(
     })
 
 
+def _run_hard_freeze_root_cause_audit_v1_summary(report: dict[str, Any]) -> None:
+    """Audit hard-freeze evidence and live-runtime load guards without starting AITS."""
+    gui_path = ROOT / "app" / "ui" / "app_gui.py"
+    schema_path = ROOT / "app" / "utils" / "settings_schema.py"
+    gui = gui_path.read_text(encoding="utf-8", errors="replace") if gui_path.exists() else ""
+    schema = schema_path.read_text(encoding="utf-8", errors="replace") if schema_path.exists() else ""
+
+    windows_events: list[dict[str, Any]] = []
+    windows_event_error = ""
+    try:
+        command = (
+            "$items=@();"
+            "$items += Get-WinEvent -FilterHashtable @{LogName='System'; StartTime=(Get-Date).AddDays(-1)} "
+            "-ErrorAction SilentlyContinue | Where-Object {$_.Id -in 41,6008,4101 -or $_.ProviderName -match "
+            "'Display|nvlddmkm|amdkmdag|igfx|WHEA|Kernel-Power'} | Select-Object -First 80 TimeCreated,ProviderName,Id,LevelDisplayName,Message;"
+            "$items += Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddDays(-1)} "
+            "-ErrorAction SilentlyContinue | Where-Object {$_.Id -in 1000,1001,1002 -or $_.ProviderName -match "
+            "'Application Hang|Windows Error Reporting'} | Select-Object -First 80 TimeCreated,ProviderName,Id,LevelDisplayName,Message;"
+            "$items | ConvertTo-Json -Compress -Depth 3"
+        )
+        proc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command", command],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30, check=False,
+        )
+        if proc.returncode == 0:
+            parsed = json.loads(proc.stdout or "[]")
+            windows_events = parsed if isinstance(parsed, list) else ([parsed] if isinstance(parsed, dict) else [])
+        else:
+            windows_event_error = (proc.stderr or f"exit_{proc.returncode}")[:300]
+    except Exception as exc:
+        windows_event_error = type(exc).__name__
+
+    kernel_power = any(int(item.get("Id") or 0) in {41, 6008} for item in windows_events)
+    display_driver = any(
+        int(item.get("Id") or 0) == 4101
+        or re.search(r"nvlddmkm|amdkmdag|igfx", str(item.get("ProviderName") or ""), re.I)
+        for item in windows_events
+    )
+    whea_event = any("WHEA" in str(item.get("ProviderName") or "").upper() for item in windows_events)
+    application_hang = any(
+        int(item.get("Id") or 0) == 1002
+        or re.search(r"application hang", str(item.get("ProviderName") or ""), re.I)
+        for item in windows_events
+    )
+
+    lines, log_path, log_error = _live_on_runtime_e2e_tail_log(max_chars=8_000_000)
+    reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
+    target_lines, _provenance, _started_at, _start, _end, _scope = _latest_non_harness_runtime_session(lines, reports)
+    on_sessions = [
+        (index, match.group(1))
+        for index, line in enumerate(lines)
+        for match in [re.search(r"session_id=(on-(\d+)-\d+)", line)]
+        if match
+    ]
+    evidence_lines = target_lines or lines
+    if on_sessions:
+        session_index, _session_id = on_sessions[-1]
+        session_pid = int(re.search(r"on-(\d+)-", _session_id).group(1))
+        provenance_indexes = [
+            index for index, line in enumerate(lines[: session_index + 1])
+            if "[AITS][RuntimeProvenance]" in line
+            and int(_safe_float(_live_on_stage_extract_value(line, "process_pid"), 0.0)) == session_pid
+        ]
+        if provenance_indexes:
+            session_start = provenance_indexes[-1]
+            session_end = next(
+                (
+                    index for index in range(session_index + 1, len(lines))
+                    if "[AITS][RuntimeProvenance]" in lines[index]
+                ),
+                len(lines),
+            )
+            evidence_lines = lines[session_start:session_end]
+    last_aits_line = next(
+        (
+            line for line in reversed(evidence_lines)
+            if "[AITS]" in line
+            and not any(tag in line for tag in ("[LiveLogUX]", "[LiveLogThrottle]", "[UIThrottle]"))
+        ),
+        "",
+    )
+    last_event_match = re.search(r"(\[AITS\]\[[^\]]+\].*?event=[^\s]+)", last_aits_line)
+    last_aits_event = (last_event_match.group(1) if last_event_match else last_aits_line[-400:]) or None
+    learning_auto_observed = any(
+        token in line
+        for line in evidence_lines
+        for token in (
+            "[AITS][LocalTrainingCuration] event=curation_started",
+            "[AITS][LocalTrainingFeaturePipeline] event=feature_pipeline_started",
+            "[AITS][LocalModelTraining] event=training_started",
+            "[AITS][LocalModelCalibration] event=calibration_started",
+        )
+    )
+    chart_render_observed = any(
+        "Chart render_mode used=mplfinance" in line or "event=chart_render_allowed" in line
+        for line in evidence_lines
+    )
+    candidate_updates = sum("[AITS][CandidateFeedState]" in line and "event=score_update" in line for line in evidence_lines)
+    ai_requests = sum("event=api_call_entry" in line or "event=request_started" in line for line in evidence_lines)
+
+    learning_guard_ready = all(token in gui for token in (
+        "def _learning_pipeline_allowed_during_live",
+        "learning_pipeline_blocked_during_live",
+        "manual_learning_pipeline_required",
+        "outcome_checkpoint_allowed",
+    )) and all(token in schema for token in (
+        "learning_pipeline_auto_run_enabled: bool = False",
+        "local_model_training_auto_run_on_live: bool = False",
+        "calibration_auto_run_on_live: bool = False",
+        "curation_auto_run_on_live: bool = False",
+        "feature_pipeline_auto_run_on_live: bool = False",
+    ))
+    chart_manual_ready = all(token in gui for token in (
+        "disable_chart_rendering_in_low_resource",
+        "chart_render_manual_only",
+        "rendering_disabled_background",
+        "_aits_chart_manual_render_request",
+    ))
+    chart_disabled_default = "disable_chart_rendering_in_low_resource: bool = True" in schema
+    marker_ready = all(token in gui for token in (
+        "def _update_hard_freeze_marker",
+        "runtime_session_marker_created",
+        "runtime_session_heartbeat_updated",
+        "runtime_session_clean_shutdown",
+        "previous_unclean_shutdown_detected",
+    ))
+    ultra_safe_ready = all(token in schema for token in (
+        "ultra_safe_startup_enabled: bool = True",
+        "ai_startup_delay_sec: float = 15.0",
+        "scheduler_startup_delay_sec: float = 20.0",
+        "max_chart_candles: int = 80",
+    ))
+    marker_path = ROOT / "data" / "runtime" / "aits_last_session_state.json"
+    previous_unclean = False
+    if marker_path.exists():
+        try:
+            previous_unclean = json.loads(marker_path.read_text(encoding="utf-8")).get("clean_shutdown") is False
+        except Exception:
+            previous_unclean = False
+
+    prohibited = (
+        "app/services/order_adapter.py", "app/services/execution_bridge.py", "app/services/order_service.py",
+        "app/services/decision_router.py", "app/services/risk_guard.py", "app/services/live_order_preflight.py",
+    )
+    changed: set[str] = set()
+    added_diff = ""
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", "--", *prohibited], cwd=str(ROOT), capture_output=True,
+            text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
+        changed = {line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()}
+        diff_proc = subprocess.run(
+            ["git", "diff", "--unified=0", "--", str(gui_path.relative_to(ROOT)), str(schema_path.relative_to(ROOT))],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
+        added_diff = "\n".join(
+            line[1:] for line in diff_proc.stdout.splitlines() if line.startswith("+") and not line.startswith("+++")
+        ).lower()
+    except Exception:
+        changed = set(prohibited)
+    no_modes = not any(token in added_diff for token in ("paper_mode", "virtual_order", "simulation_mode"))
+    no_fake = not any(token in added_diff for token in ("fake outcome", "fake model", "fake prediction", "fake order", "fake submitted"))
+    direct_draw_calls = len(re.findall(r"\bcanvas\.draw\s*\(", gui))
+    backpressure_ready = all(token in gui for token in ("cycle_skipped_busy", "startup_age_sec", "min_interval_sec"))
+
+    checks = (
+        ("evidence", "windows_event_log_unavailable", not windows_event_error),
+        ("learning", "learning_pipeline_auto_run_during_live", learning_guard_ready),
+        ("chart", "chart_render_hard_freeze_suspected", chart_manual_ready and chart_disabled_default),
+        ("runtime", "runtime_loop_storm_suspected", backpressure_ready),
+        ("marker", "hard_freeze_marker_missing", marker_ready),
+        ("startup", "ultra_safe_startup_missing", ultra_safe_ready),
+        ("safety", "prohibited_layer_modified", not changed),
+        ("safety", "paper_virtual_simulation_added", no_modes),
+        ("safety", "fake_data_added", no_fake),
+    )
+    blocker_group = "none"
+    first_blocker = "hard_freeze_audit_ready"
+    for group, blocker, passed in checks:
+        if not passed:
+            blocker_group, first_blocker = group, blocker
+            break
+    ready = blocker_group == "none"
+    suspected = (
+        "live_learning_full_scan_and_background_mplfinance"
+        if learning_auto_observed and chart_render_observed
+        else "live_learning_full_scan"
+        if learning_auto_observed
+        else "background_mplfinance"
+        if chart_render_observed
+        else "cause_not_identified_yet"
+    )
+    report.update({
+        "schema": "aits_hard_freeze_root_cause_audit_v1_summary_v1",
+        "mode": "hard-freeze-root-cause-audit-v1-summary",
+        "hard_freeze_audit_ready": ready,
+        "windows_event_log_checked": not windows_event_error,
+        "windows_event_log_error": windows_event_error or None,
+        "kernel_power_event_detected": kernel_power,
+        "display_driver_event_detected": display_driver,
+        "whea_event_detected": whea_event,
+        "application_hang_event_detected": application_hang,
+        "last_aits_log_event_before_freeze": last_aits_event,
+        "aits_log_path": str(log_path) if log_path else None,
+        "aits_log_error": log_error or None,
+        "freeze_suspected_component": suspected,
+        "learning_pipeline_auto_run_detected": learning_auto_observed,
+        "learning_pipeline_blocked_during_live_ready": learning_guard_ready,
+        "model_training_auto_run_on_live": False,
+        "curation_auto_run_on_live": False,
+        "feature_pipeline_auto_run_on_live": False,
+        "calibration_auto_run_on_live": False,
+        "chart_render_during_on_startup_detected": chart_render_observed,
+        "chart_render_manual_only_ready": chart_manual_ready,
+        "chart_rendering_disabled_in_low_resource": chart_disabled_default,
+        "canvas_draw_direct_calls_remaining": direct_draw_calls,
+        "runtime_loop_storm_detected": candidate_updates > 60,
+        "runtime_candidate_update_count_in_tail": candidate_updates,
+        "ai_request_storm_detected": ai_requests > 100,
+        "ai_request_count_in_tail": ai_requests,
+        "outcome_writer_full_scan_during_live_detected": learning_auto_observed,
+        "hard_freeze_marker_ready": marker_ready,
+        "previous_unclean_shutdown_detected": previous_unclean,
+        "ultra_safe_startup_ready": ultra_safe_ready,
+        "riskguard_unaffected": "app/services/risk_guard.py" not in changed,
+        "livepreflight_unaffected": "app/services/live_order_preflight.py" not in changed,
+        "execution_path_unaffected": not any(path in changed for path in prohibited[:4]),
+        "order_adapter_unchanged": "app/services/order_adapter.py" not in changed,
+        "prohibited_layer_diff_files": sorted(changed),
+        "no_paper_virtual_simulation": no_modes,
+        "no_fake_data": no_fake,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "hard_freeze_root_cause_audit_v1_ready": ready,
+        "pass_status": "pass" if ready else "blocked",
+        "status": "pass" if ready else "blocked",
+    })
+
+
 def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> None:
     """Audit low-resource runtime controls without starting the live application."""
     paths = {
@@ -25311,6 +25552,7 @@ def run_harness(
         "local-model-calibration-data-accumulation-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
+        "hard-freeze-root-cause-audit-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -25633,6 +25875,9 @@ def run_harness(
         elif mode == "on-button-nonblocking-startup-stability-v1-summary":
             _install_provider_post_guard(report)
             _run_on_button_nonblocking_startup_stability_v1_summary(report)
+        elif mode == "hard-freeze-root-cause-audit-v1-summary":
+            _install_provider_post_guard(report)
+            _run_hard_freeze_root_cause_audit_v1_summary(report)
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -26287,6 +26532,7 @@ def main() -> int:
             "local-model-calibration-data-accumulation-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
+            "hard-freeze-root-cause-audit-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

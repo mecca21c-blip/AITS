@@ -9,14 +9,14 @@ AITS uses a stability-first runtime profile so that ON startup does not launch p
 `runtime_resource.low_resource_mode_enabled` defaults to `true` for development and packaged deployments. The default profile uses:
 
 - 300 ms runtime-start yield
-- 8 second initial AI warm-up
-- 10 second ETA scheduler warm-up
-- 20 second chart warm-up and minimum chart refresh interval
+- 15 second initial AI warm-up
+- 20 second ETA scheduler warm-up
+- 60 second chart warm-up and background chart rendering disabled
 - 5 second table refresh interval
 - 2 second batched LIVE LOG flush
 - 500 retained LIVE LOG lines
-- 120 displayed candles
-- 8 Managed Pool indicator/score rows per cycle
+- 80 displayed candles
+- 4 Managed Pool indicator/score rows per cycle
 - optional 30 second process resource snapshots
 
 Users with measured headroom may opt into a higher-performance profile through settings. The application must not infer or force that choice.
@@ -29,9 +29,11 @@ The ON click itself follows the separate nonblocking startup contract. Account p
 
 ## Rendering And Logs
 
-Chart data updates remain independent from rendering. Hidden charts are skipped, startup renders are delayed, displayed candles are capped, low-resource subplots are omitted, and Matplotlib uses `draw_idle()` for coalesced repaint. Managed Pool and market tables use minimum repaint intervals while their backing data continues to refresh.
+Chart data updates remain independent from rendering. Hidden charts are skipped, startup renders are delayed, displayed candles are capped, low-resource subplots are omitted, and Matplotlib uses `draw_idle()` for coalesced repaint. Low-resource defaults block background chart rendering entirely; a user chart option change is the explicit manual render path. Managed Pool and market tables use minimum repaint intervals while their backing data continues to refresh.
 
 Runtime file logging remains immediate. The visible LIVE LOG is buffered, adjacent duplicate messages are counted, flushed in batches, and trimmed to the configured line limit. Raw prompts, keys, and request bodies are not eligible for the visible timeline.
+
+Full dataset curation, feature regeneration, model training, and calibration are manual-only while live runtime is active. The factual outcome checkpoint writer remains enabled. This separates live evidence collection from CPU, memory, and disk intensive learning jobs.
 
 ## Runtime Backpressure
 

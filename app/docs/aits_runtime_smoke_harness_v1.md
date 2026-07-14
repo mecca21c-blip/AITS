@@ -2146,3 +2146,7 @@ The summary is structural. A later user-operated ON session supplies runtime tim
 `--mode on-button-nonblocking-startup-stability-v1-summary --observe-only` verifies that the active ON branch renders STARTING, schedules a staged sequence, and returns before legacy provider/preflight work. It also checks the account worker, startup watchdog, timeout recovery, low-resource gates, freeze probes, and prohibited trading-layer diffs.
 
 The summary reports `on_click_handler_runtime_observed=false` and a null elapsed value until a user-operated ON session produces the new event. Structural readiness never fabricates a click duration.
+
+# Hard freeze root-cause audit summary
+
+`--mode hard-freeze-root-cause-audit-v1-summary --observe-only` combines Windows power/application events, the last persisted AITS event, historical live learning/render evidence, source safety gates, and prohibited-layer diffs. It never starts the application. Kernel-Power confirms an unclean shutdown but is not reported as proof of a GPU fault without a matching Display or WHEA event.
