@@ -31726,6 +31726,94 @@ class MainWindow(QMainWindow):
             "data_source": "ai_decision_payload",
         }
 
+    def _build_local_training_feature_context(self, payload: dict, decision: dict) -> dict:
+        """Keep only factual, model-neutral fields needed by the offline feature pipeline."""
+        value = dict(payload or {})
+        position = dict(value.get("position") or value.get("current_position") or {})
+        market = dict(value.get("market") or value.get("market_context") or {})
+        indicators = dict(value.get("indicators") or market.get("indicators") or position.get("indicators") or {})
+        portfolio = dict(value.get("portfolio") or value.get("portfolio_context") or {})
+        candidates = dict(value.get("candidates") or value.get("candidate_context") or {})
+        constraints = dict(value.get("constraints") or {})
+        quality = dict((decision or {}).get("payload_feature_manifest_summary") or {})
+        provider = self._provider_comparison_training_fields(decision or {})
+
+        def pick(source: dict, aliases: dict[str, tuple[str, ...]]) -> dict:
+            result = {}
+            for target, keys in aliases.items():
+                result[target] = next((source.get(key) for key in keys if source.get(key) is not None), None)
+            return result
+
+        market_features = pick(market, {
+            "price_change_1m": ("price_change_1m", "change_1m_pct"),
+            "price_change_5m": ("price_change_5m", "change_5m_pct"),
+            "price_change_15m": ("price_change_15m", "change_15m_pct"),
+            "price_change_1h": ("price_change_1h", "change_1h_pct"),
+            "volume_change": ("volume_change", "volume_change_pct"),
+            "trade_value": ("trade_value", "trade_value_krw", "acc_trade_price_24h"),
+            "volatility": ("volatility", "volatility_pct"),
+            "market_data_stale": ("market_data_stale",),
+        })
+        moving_averages = dict(indicators.get("moving_averages") or {})
+        for target, aliases in {"ma5": ("ma5", "MA5", "5"), "ma20": ("ma20", "MA20", "20"), "ma60": ("ma60", "MA60", "60")}.items():
+            if indicators.get(target) is None:
+                indicators[target] = next((moving_averages.get(key) for key in aliases if moving_averages.get(key) is not None), None)
+        indicator_features = pick(indicators, {
+            "rsi": ("rsi", "RSI"), "macd": ("macd", "MACD"),
+            "ma5": ("ma5", "MA5"), "ma20": ("ma20", "MA20"), "ma60": ("ma60", "MA60"),
+            "momentum": ("momentum", "momentum_pct"), "trend_strength": ("trend_strength",),
+        })
+        position_features = pick(position, {
+            "qty": ("qty", "quantity"), "avg_buy_price": ("avg_buy_price", "average_buy_price"),
+            "current_price": ("current_price", "price", "trade_price"),
+            "position_value_krw": ("position_value_krw", "selected_valuation_krw", "valuation_krw", "eval_krw"),
+            "pnl_pct": ("pnl_pct", "profit_rate"), "weight_pct": ("weight_pct", "position_weight_pct"),
+            "target_weight_pct": ("target_weight_pct",), "holding_age": ("holding_age", "holding_age_seconds"),
+            "dust": ("dust", "final_dust", "is_dust_holding"),
+            "manageable": ("manageable", "final_manageable", "manageable_holding"),
+        })
+        portfolio_features = pick(portfolio, {
+            "total_asset_krw": ("total_asset_krw",), "available_krw": ("available_krw",),
+            "total_budget_krw": ("total_budget_krw", "budget_krw"),
+            "exposure_for_cap": ("exposure_for_cap",), "cap_remaining_krw": ("cap_remaining_krw",),
+            "position_count": ("position_count", "holding_count"), "managed_pool_count": ("managed_pool_count",),
+            "cash_ratio": ("cash_ratio",), "exposure_ratio": ("exposure_ratio",),
+        })
+        if portfolio_features.get("position_count") is None and isinstance(portfolio.get("current_positions"), list):
+            portfolio_features["position_count"] = len(portfolio["current_positions"])
+        if portfolio_features.get("managed_pool_count") is None and isinstance(portfolio.get("managed_pool_symbols"), list):
+            portfolio_features["managed_pool_count"] = len(portfolio["managed_pool_symbols"])
+        dust_value = position_features.get("dust")
+        risk_features = {
+            "sell_unit_guard_passed": position.get("valuation_unit_consistency_checked") and not position.get("valuation_unit_mismatch"),
+            "valuation_unit_mismatch": position.get("valuation_unit_mismatch"),
+            "livepreflight_blocker_count": len(constraints.get("livepreflight_blockers") or []),
+            "dust_excluded": bool(dust_value) if isinstance(dust_value, bool) else constraints.get("dust_excluded"),
+            "cap_near_limit": constraints.get("cap_near_limit"),
+        }
+        return {
+            "market": market_features,
+            "indicators": indicator_features,
+            "position": position_features,
+            "portfolio": portfolio_features,
+            "risk": risk_features,
+            "provider": {
+                "local_external_agreed": provider.get("local_action") == provider.get("external_action")
+                if provider.get("local_action") and provider.get("external_action") else None,
+                "escalation_required": provider.get("escalation_required"),
+            },
+            "opportunity": pick(candidates, {
+                "opportunity_gap_change": ("opportunity_gap_change", "opportunity_score_gap", "opportunity_gap"),
+            }),
+            "data_quality": {
+                "missing_feature_count": quality.get("missing_feature_count"),
+                "stale_feature_count": quality.get("stale_feature_count"),
+                "unavailable_feature_count": quality.get("unavailable_feature_count"),
+            },
+            "eta_seconds": (decision or {}).get("eta_seconds"),
+            "context_source": "allowlisted_ai_decision_payload",
+        }
+
     def _register_ai_decision_outcome_tracking(
         self,
         *,
@@ -31778,6 +31866,7 @@ class MainWindow(QMainWindow):
             "reason_ko": comparison.get("final_reason_ko"),
             "eta_seconds": (decision or {}).get("eta_seconds"),
             "decision_snapshot": self._build_ai_outcome_decision_snapshot(payload),
+            "feature_context": self._build_local_training_feature_context(payload, decision),
             "execution_result": execution,
             "actual_order": bool(execution.get("actual_order")),
             "submitted": int(execution.get("submitted_count") or execution.get("submitted") or 0),
@@ -31851,8 +31940,9 @@ class MainWindow(QMainWindow):
         self._aits_outcome_scheduler_last_run = now
         result = self._decision_outcome_tracker().evaluate_due(self._ai_outcome_current_snapshot, now=now)
         curation_summary_path = Path("data") / "ai_decision_training" / "curated_local_training_summary.json"
-        if result.get("events") or not curation_summary_path.exists():
-            from app.services.aits_orchestrator import AITSLocalTrainingDatasetCurator
+        feature_summary_path = Path("data") / "ai_decision_training" / "local_training_feature_summary.json"
+        if result.get("events") or not curation_summary_path.exists() or not feature_summary_path.exists():
+            from app.services.aits_orchestrator import AITSLocalTrainingDatasetCurator, AITSLocalTrainingFeaturePipeline
             curator = getattr(self, "_aits_local_training_dataset_curator", None)
             if curator is None:
                 curator = AITSLocalTrainingDatasetCurator()
@@ -31868,6 +31958,26 @@ class MainWindow(QMainWindow):
             )
             try:
                 self._append_aits_live_log(message_ko, category="pipeline", level="info", event="local_training_dataset_curated")
+            except Exception:
+                pass
+            feature_pipeline = getattr(self, "_aits_local_training_feature_pipeline", None)
+            if feature_pipeline is None:
+                feature_pipeline = AITSLocalTrainingFeaturePipeline()
+                self._aits_local_training_feature_pipeline = feature_pipeline
+            feature_summary = feature_pipeline.build()
+            feature_count = int(feature_summary.get("safe_for_model_training_count") or 0)
+            feature_excluded = int(feature_summary.get("feature_excluded_count") or 0)
+            if feature_summary.get("split_strategy") == "unsplit_insufficient_data":
+                feature_message_ko = f"LOCAL 학습 feature 정리 · 학습 가능 {feature_count}건, 제외 {feature_excluded}건 · 데이터가 부족해 학습 split은 보류했습니다."
+            else:
+                feature_message_ko = f"LOCAL 학습 feature 정리 · 학습 가능 {feature_count}건, 제외 {feature_excluded}건"
+            self._aits_feature_pipeline_status_text = feature_message_ko
+            logging.getLogger("aits").info(
+                "[AITS][LocalTrainingFeaturePipeline] event=feature_status_rendered message_ko=%s safe_for_model_training_count=%s feature_excluded_count=%s split_strategy=%s raw_leak_detected=false actual_order=False submitted=0",
+                feature_message_ko, feature_count, feature_excluded, feature_summary.get("split_strategy") or "-",
+            )
+            try:
+                self._append_aits_live_log(feature_message_ko, category="pipeline", level="info", event="local_training_features_built")
             except Exception:
                 pass
         for event in result.get("events") or []:
@@ -44387,6 +44497,9 @@ class MainWindow(QMainWindow):
         dataset_status_text = str(getattr(self, "_aits_dataset_curation_status_text", "") or "")
         if dataset_status_text:
             risk_text = f"{risk_text} | {dataset_status_text}"
+        feature_status_text = str(getattr(self, "_aits_feature_pipeline_status_text", "") or "")
+        if feature_status_text:
+            risk_text = f"{risk_text} | {feature_status_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text

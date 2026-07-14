@@ -307,3 +307,6 @@ Decision registration schedules factual 5-minute, 15-minute, and 1-hour reviews.
 ## Curated Learning Boundary
 
 Dataset curation is not an AI trigger. Training gate outcomes, exclusion reasons, action tags, provider-value tags, and opportunity-cost tags are retrospective metadata only. They may support future LOCAL training research, but they cannot initiate redecision, alter ETA, promote a candidate, or create an order.
+# Training Features Are Not Triggers
+
+Historical action labels, outcome targets, risk labels, provider-value labels, split assignments, and feature quality grades are training preparation metadata. They do not trigger redecision, buy, sell, rotation, promotion, or execution. A future model integration requires a separate approved contract and must preserve the existing validator and safety path.

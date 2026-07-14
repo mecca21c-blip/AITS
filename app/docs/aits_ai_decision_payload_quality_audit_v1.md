@@ -164,3 +164,6 @@ Outcome records retain the original payload and feature-manifest hashes so later
 ## Curated Training Quality
 
 The curated gate combines payload grade, canonical task/scope/action, provider provenance, evaluated checkpoint coverage, source availability, safety blockers, and reconciliation evidence. D/F payloads and unavailable or inconclusive-only outcomes remain excluded. Quality summaries count duplicates and malformed source lines; neither condition is repaired by inventing a replacement record.
+# Feature Pipeline Quality Mapping
+
+The feature pipeline maps allow-listed factual payload context into market, indicator, position, portfolio, risk, provider, opportunity, time, and data-quality groups. Unavailable values remain null. Feature quality is measured from actual availability and never filled with synthetic values. Payload quality and curated data quality remain distinct upstream evidence; feature quality is the downstream model-input readiness grade.

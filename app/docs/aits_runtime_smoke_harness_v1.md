@@ -2114,3 +2114,6 @@ summary modes.
 ## LOCAL Training Dataset Curation Summary
 
 `local-training-dataset-curation-v1-summary --observe-only` validates the curated schema, strict training gate, standardized exclusions, action/provider/opportunity tags, deduplicating writers, quality summary, and safe Korean status contract. It reports actual curated/excluded file presence and counts while treating a valid zero-record source as empty rather than failed. The mode reads existing runtime data and never invokes a provider or trading control.
+# LOCAL Training Feature Pipeline v1
+
+`local-training-feature-pipeline-v1-summary --observe-only` audits the model-neutral feature schema, all feature groups, retrospective labels, feature quality gate, atomic dataset outputs, time-based split readiness, and compatibility with the preceding LOCAL data Sprints. It reads only curated runtime records and never trains a model or invokes live inference. Missing factual source values remain null and are reflected in quality or exclusion results.

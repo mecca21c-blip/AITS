@@ -12530,6 +12530,160 @@ def _run_local_training_dataset_curation_v1_summary(
     )
 
 
+def _run_local_training_feature_pipeline_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    curation_summary: dict[str, Any] = {}
+    _run_local_training_dataset_curation_v1_summary(curation_summary, output_dir=output_dir)
+    source_paths = (
+        ROOT / "app" / "services" / "aits_orchestrator.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+    )
+    code_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in source_paths if path.exists()
+    )
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    training_root = ROOT / "data" / "ai_decision_training"
+    curated_path = training_root / "curated_local_training_records.jsonl"
+    features_path = training_root / "local_training_features.jsonl"
+    excluded_path = training_root / "local_training_features_excluded.jsonl"
+    summary_path = training_root / "local_training_feature_summary.json"
+    summary: dict[str, Any] = {}
+    summary_error = ""
+    if summary_path.exists():
+        try:
+            value = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary = value if isinstance(value, dict) else {}
+        except Exception as exc:
+            summary_error = type(exc).__name__
+
+    dataset_text = ""
+    for path in (features_path, excluded_path):
+        if path.exists():
+            dataset_text += path.read_text(encoding="utf-8", errors="replace")[-2_000_000:]
+    secret_pattern = re.compile(r"(?:api[_-]?key|authorization|secret)[\"' :=]+[A-Za-z0-9_\-]{12,}", re.IGNORECASE)
+    prompt_pattern = re.compile(r'"(?:raw_prompt|prompt_body|request_body)"\s*:', re.IGNORECASE)
+    raw_secret_leak = bool(secret_pattern.search(dataset_text))
+    raw_prompt_leak = bool(prompt_pattern.search(dataset_text))
+    fabricated_feature = bool(re.search(r'"(?:fake|fabricated|synthetic)_?feature"\s*:\s*true', dataset_text, re.IGNORECASE))
+
+    schema_ready = source_ready("aits_local_training_feature_record.v1", "feature_record_id", "source_curated_record_id")
+    vector_ready = source_ready(
+        "market_features", "indicator_features", "position_features", "portfolio_features", "risk_features",
+        "provider_features", "opportunity_features", "time_features", "data_quality_features",
+    )
+    label_ready = source_ready("action_label", "outcome_label", "recommended_action_label", "action_quality_score")
+    risk_label_ready = source_ready("unit_guard_block_correct", "valuation_mismatch_risk", "riskguard_required")
+    provider_label_ready = source_ready("provider_value_labels", "external_call_was_useful", "recommended_future_provider_route")
+    opportunity_label_ready = source_ready("opportunity_labels", "opportunity_cost_label", "missed_move_detected")
+    quality_ready = source_ready(
+        "def _coverage", "def _quality_grade", "safe_for_model_training", "critical_market_feature_missing"
+    )
+    writer_ready = source_ready(
+        "local_training_features.jsonl", "local_training_features_excluded.jsonl",
+        "local_training_feature_summary.json", "def build",
+    )
+    split_ready = source_ready("def _assign_splits", "time_based_70_15_15", "unsplit_insufficient_data")
+    ui_ready = source_ready("feature_status_rendered", "_aits_feature_pipeline_status_text")
+    group_counts = dict(summary.get("feature_group_available_counts") or {})
+
+    checklist = {
+        "schema": {
+            "local_training_feature_schema_ready": schema_ready,
+            "feature_vector_schema_ready": vector_ready,
+            "label_schema_ready": label_ready,
+            "risk_label_schema_ready": risk_label_ready,
+            "provider_value_feature_schema_ready": provider_label_ready,
+        },
+        "extraction": {
+            "feature_extraction_pipeline_ready": source_ready("class AITSLocalTrainingFeaturePipeline", "def _feature_vector"),
+            "market_features_extracted": source_ready("price_change_1m", "market_data_stale"),
+            "indicator_features_extracted": source_ready("rsi", "macd", "trend_strength"),
+            "position_features_extracted": source_ready("qty", "position_value_krw", "manageable"),
+            "portfolio_features_extracted": source_ready("total_asset_krw", "cap_remaining_krw", "cash_ratio"),
+            "risk_features_extracted": source_ready("sell_unit_guard_passed", "valuation_unit_mismatch"),
+            "provider_features_extracted": source_ready("confidence_gap", "external_called", "cost_guard_blocked"),
+            "opportunity_features_extracted": source_ready("candidate_move_pct", "opportunity_gap_change"),
+            "time_features_extracted": source_ready("hour_of_day", "time_since_last_decision", "checkpoint_horizon"),
+            "data_quality_features_extracted": source_ready("payload_quality_numeric", "missing_feature_count"),
+        },
+        "quality": {
+            "feature_quality_gate_ready": quality_ready,
+            "raw_secret_absent": not raw_secret_leak,
+            "raw_prompt_absent": not raw_prompt_leak,
+            "fabricated_feature_absent": not fabricated_feature,
+        },
+        "labels": {
+            "action_label_ready": label_ready,
+            "outcome_label_ready": source_ready("outcome_label"),
+            "risk_label_ready": risk_label_ready,
+            "provider_value_label_ready": provider_label_ready,
+            "opportunity_label_ready": opportunity_label_ready,
+        },
+        "dataset": {
+            "local_training_features_file_exists": features_path.exists(),
+            "local_training_features_excluded_file_exists": excluded_path.exists(),
+            "local_training_feature_summary_exists": summary_path.exists() and not summary_error,
+            "train_validation_split_ready": split_ready,
+            "local_training_feature_writer_ready": writer_ready,
+        },
+        "integration": {
+            "curated_dataset_source_detected": bool(curated_path.exists() or source_ready("curated_local_training_records.jsonl")),
+            "local_training_dataset_curation_compat_ready": bool(curation_summary.get("local_training_dataset_curation_v1_ready")),
+            "local_provider_outcome_learning_compat_ready": bool(curation_summary.get("local_provider_outcome_learning_compat_ready")),
+            "local_first_gpt_cost_guard_compat_ready": bool(curation_summary.get("local_first_gpt_cost_guard_compat_ready")),
+            "live_operating_cycle_compat_ready": bool(curation_summary.get("live_operating_cycle_compat_ready")),
+            "feature_status_timeline_ready": ui_ready,
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_training_feature_pipeline_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    report.update(
+        {
+            "schema": "aits_local_training_feature_pipeline_v1_summary_v1",
+            "mode": "local-training-feature-pipeline-v1-summary",
+            **{key: value for group in checklist.values() for key, value in group.items()},
+            "local_training_feature_dataset_version": str(summary.get("dataset_version") or "v1"),
+            "safe_for_model_training_count": int(summary.get("safe_for_model_training_count") or 0),
+            "feature_excluded_count": int(summary.get("feature_excluded_count") or 0),
+            "feature_exclusion_reason_counts": dict(summary.get("feature_exclusion_reason_counts") or {}),
+            "duplicate_feature_records_detected": int(summary.get("duplicate_feature_records_detected") or 0),
+            "corrupted_feature_source_detected": int(summary.get("corrupted_feature_source_detected") or 0),
+            "raw_secret_leak_detected": raw_secret_leak,
+            "raw_prompt_leak_detected": raw_prompt_leak,
+            "fake_feature_detected": fabricated_feature,
+            "split_strategy": str(summary.get("split_strategy") or "unsplit_insufficient_data"),
+            "train_count": int(summary.get("train_count") or 0),
+            "validation_count": int(summary.get("validation_count") or 0),
+            "holdout_count": int(summary.get("holdout_count") or 0),
+            "unsplit_count": int(summary.get("unsplit_count") or 0),
+            "feature_group_available_counts": group_counts,
+            "dataset_summary": summary,
+            "summary_read_error": summary_error,
+            "completion_checklist": checklist,
+            "local_training_feature_pipeline_v1_ready": ready,
+            "first_blocker": first_blocker,
+            "blocker_group": blocker_group,
+            "next_sprint_recommendation": "SPRINT-LOCAL-MODEL-TRAINING-READINESS-AUDIT-V1",
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -24000,6 +24154,7 @@ def run_harness(
         "local-first-gpt-cost-guard-v1-summary",
         "local-provider-outcome-learning-v1-summary",
         "local-training-dataset-curation-v1-summary",
+        "local-training-feature-pipeline-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -24283,6 +24438,12 @@ def run_harness(
         elif mode == "local-training-dataset-curation-v1-summary":
             _install_provider_post_guard(report)
             _run_local_training_dataset_curation_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-training-feature-pipeline-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_training_feature_pipeline_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -24933,6 +25094,7 @@ def main() -> int:
             "local-first-gpt-cost-guard-v1-summary",
             "local-provider-outcome-learning-v1-summary",
             "local-training-dataset-curation-v1-summary",
+            "local-training-feature-pipeline-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

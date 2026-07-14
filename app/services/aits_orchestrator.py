@@ -969,6 +969,7 @@ class AITSLocalTrainingDatasetCurator:
             "feature_manifest_hash": state.get("feature_manifest_hash") or latest.get("feature_manifest_hash"),
             "payload_quality_grade": str(state.get("payload_quality_grade") or ""),
             "data_quality_grade": gate["training_quality_grade"],
+            "feature_context": dict(state.get("feature_context") or {}),
             "action": action,
             "final_action": action,
             "local_action": str(state.get("local_action") or local.get("action") or ""),
@@ -1097,6 +1098,469 @@ class AITSLocalTrainingDatasetCurator:
             "[AITS][LocalTrainingCuration] event=curation_summary_written total_source_outcome_records=%s total_curated_records=%s total_excluded_records=%s duplicate_records_detected=%s corrupted_source_records_detected=%s dataset_version=%s actual_order=False submitted=0",
             summary["total_source_outcome_records"], summary["total_curated_records"], summary["total_excluded_records"],
             summary["duplicate_records_detected"], summary["corrupted_source_records_detected"], summary["dataset_version"],
+        )
+        return summary
+
+
+class AITSLocalTrainingFeaturePipeline:
+    """Convert curated outcome evidence into model-neutral feature records."""
+
+    SCHEMA = "aits_local_training_feature_record.v1"
+    DATASET_VERSION = "v1"
+    MIN_SPLIT_RECORDS = 20
+    VALID_ACTIONS = AITSDecisionOutcomeTracker.ACTIONS
+    FEATURE_KEYS = {
+        "market_features": (
+            "price_change_1m", "price_change_5m", "price_change_15m", "price_change_1h",
+            "volume_change", "trade_value", "volatility", "market_data_stale",
+        ),
+        "indicator_features": ("rsi", "macd", "ma5", "ma20", "ma60", "momentum", "trend_strength"),
+        "position_features": (
+            "qty", "avg_buy_price", "current_price", "position_value_krw", "pnl_pct", "weight_pct",
+            "target_weight_pct", "holding_age", "dust", "manageable",
+        ),
+        "portfolio_features": (
+            "total_asset_krw", "available_krw", "total_budget_krw", "exposure_for_cap",
+            "cap_remaining_krw", "position_count", "managed_pool_count", "cash_ratio", "exposure_ratio",
+        ),
+        "risk_features": (
+            "sell_unit_guard_passed", "valuation_unit_mismatch", "risk_blocker_count",
+            "safety_blocker_count", "livepreflight_blocker_count", "dust_excluded", "cap_near_limit",
+        ),
+        "provider_features": (
+            "local_confidence", "external_confidence", "confidence_gap", "local_external_agreed",
+            "external_called", "external_blocked", "final_provider_source", "escalation_required",
+            "cost_guard_blocked",
+        ),
+        "opportunity_features": (
+            "candidate_move_pct", "held_symbol_move_pct", "opportunity_gap_change",
+            "missed_move_detected", "avoided_drawdown_detected",
+        ),
+        "time_features": ("hour_of_day", "day_of_week", "time_since_last_decision", "eta_seconds", "checkpoint_horizon"),
+        "data_quality_features": (
+            "payload_quality_numeric", "data_quality_numeric", "missing_feature_count",
+            "stale_feature_count", "unavailable_feature_count",
+        ),
+    }
+
+    def __init__(self, root: Path | str = Path("data") / "ai_decision_training") -> None:
+        self.root = Path(root)
+        self.source_path = self.root / "curated_local_training_records.jsonl"
+        self.features_path = self.root / "local_training_features.jsonl"
+        self.excluded_path = self.root / "local_training_features_excluded.jsonl"
+        self.summary_path = self.root / "local_training_feature_summary.json"
+
+    @staticmethod
+    def _stable_hash(value: Any, length: int = 24) -> str:
+        raw = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()[:length]
+
+    @staticmethod
+    def _number(value: Any) -> Optional[float]:
+        return AITSDecisionOutcomeTracker.number(value)
+
+    @staticmethod
+    def _first(mapping: dict, *keys: str) -> Any:
+        for key in keys:
+            if key in mapping and mapping.get(key) is not None:
+                return mapping.get(key)
+        return None
+
+    @classmethod
+    def _numeric_first(cls, mapping: dict, *keys: str) -> Optional[float]:
+        return cls._number(cls._first(mapping, *keys))
+
+    @staticmethod
+    def _bool_or_none(value: Any) -> Optional[bool]:
+        return value if isinstance(value, bool) else None
+
+    @staticmethod
+    def _grade_numeric(value: Any) -> Optional[float]:
+        return {"A": 1.0, "B": 0.8, "C": 0.6, "D": 0.3, "F": 0.0}.get(str(value or "").upper())
+
+    @staticmethod
+    def _timestamp(value: Any) -> Optional[float]:
+        number = AITSDecisionOutcomeTracker.number(value)
+        if number is not None:
+            return number
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            return None
+
+    def _read_jsonl(self) -> tuple[list[dict], int, int]:
+        rows: list[dict] = []
+        corrupted = 0
+        duplicates = 0
+        seen: set[str] = set()
+        if not self.source_path.exists():
+            return rows, corrupted, duplicates
+        with self.source_path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except Exception:
+                    corrupted += 1
+                    continue
+                if not isinstance(row, dict):
+                    corrupted += 1
+                    continue
+                source_id = str(row.get("record_id") or row.get("source_decision_id") or self._stable_hash(row))
+                if source_id in seen:
+                    duplicates += 1
+                    continue
+                seen.add(source_id)
+                rows.append(row)
+        return rows, corrupted, duplicates
+
+    @staticmethod
+    def _write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        temporary.replace(path)
+
+    @staticmethod
+    def _write_json_atomic(path: Path, value: dict) -> None:
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        temporary.replace(path)
+
+    def _feature_vector(self, row: dict, *, previous_timestamp: Optional[float]) -> dict:
+        context = dict(row.get("feature_context") or {})
+        market = dict(context.get("market") or {})
+        indicators = dict(context.get("indicators") or {})
+        position = dict(context.get("position") or {})
+        portfolio = dict(context.get("portfolio") or {})
+        risk = dict(context.get("risk") or {})
+        provider = dict(context.get("provider") or {})
+        opportunity = dict(context.get("opportunity") or {})
+        quality = dict(context.get("data_quality") or {})
+        created_at = self._timestamp(row.get("created_at"))
+        created_dt = datetime.fromtimestamp(created_at) if created_at is not None else None
+        local_confidence = self._number(row.get("local_confidence"))
+        external_confidence = self._number(row.get("external_confidence"))
+        total_asset = self._numeric_first(portfolio, "total_asset_krw")
+        available = self._numeric_first(portfolio, "available_krw")
+        exposure = self._numeric_first(portfolio, "exposure_for_cap")
+        cash_ratio = self._numeric_first(portfolio, "cash_ratio")
+        exposure_ratio = self._numeric_first(portfolio, "exposure_ratio")
+        if cash_ratio is None and total_asset and available is not None:
+            cash_ratio = available / total_asset
+        if exposure_ratio is None and total_asset and exposure is not None:
+            exposure_ratio = exposure / total_asset
+        macd_value = indicators.get("macd")
+        if isinstance(macd_value, dict):
+            macd_value = self._first(macd_value, "macd", "value", "line")
+        checkpoints = dict(row.get("outcome_checkpoints") or {})
+        evaluated = [name for name, value in checkpoints.items() if isinstance(value, dict) and value.get("status") == "evaluated"]
+        return {
+            "market_features": {
+                "price_change_1m": self._numeric_first(market, "price_change_1m", "change_1m_pct"),
+                "price_change_5m": self._numeric_first(market, "price_change_5m", "change_5m_pct"),
+                "price_change_15m": self._numeric_first(market, "price_change_15m", "change_15m_pct"),
+                "price_change_1h": self._numeric_first(market, "price_change_1h", "change_1h_pct"),
+                "volume_change": self._numeric_first(market, "volume_change", "volume_change_pct"),
+                "trade_value": self._numeric_first(market, "trade_value", "trade_value_krw", "acc_trade_price_24h"),
+                "volatility": self._numeric_first(market, "volatility", "volatility_pct"),
+                "market_data_stale": self._bool_or_none(market.get("market_data_stale")),
+            },
+            "indicator_features": {
+                "rsi": self._numeric_first(indicators, "rsi", "RSI"),
+                "macd": self._number(macd_value),
+                "ma5": self._numeric_first(indicators, "ma5", "MA5"),
+                "ma20": self._numeric_first(indicators, "ma20", "MA20"),
+                "ma60": self._numeric_first(indicators, "ma60", "MA60"),
+                "momentum": self._numeric_first(indicators, "momentum", "momentum_pct"),
+                "trend_strength": self._numeric_first(indicators, "trend_strength"),
+            },
+            "position_features": {
+                "qty": self._numeric_first(position, "qty", "quantity"),
+                "avg_buy_price": self._numeric_first(position, "avg_buy_price", "average_buy_price"),
+                "current_price": self._numeric_first(position, "current_price", "price", "trade_price"),
+                "position_value_krw": self._numeric_first(position, "position_value_krw", "selected_valuation_krw", "valuation_krw", "eval_krw"),
+                "pnl_pct": self._numeric_first(position, "pnl_pct", "profit_rate"),
+                "weight_pct": self._numeric_first(position, "weight_pct", "position_weight_pct"),
+                "target_weight_pct": self._numeric_first(position, "target_weight_pct"),
+                "holding_age": self._numeric_first(position, "holding_age", "holding_age_seconds"),
+                "dust": self._bool_or_none(self._first(position, "dust", "final_dust", "is_dust_holding")),
+                "manageable": self._bool_or_none(self._first(position, "manageable", "final_manageable", "manageable_holding")),
+            },
+            "portfolio_features": {
+                "total_asset_krw": total_asset,
+                "available_krw": available,
+                "total_budget_krw": self._numeric_first(portfolio, "total_budget_krw", "budget_krw"),
+                "exposure_for_cap": exposure,
+                "cap_remaining_krw": self._numeric_first(portfolio, "cap_remaining_krw"),
+                "position_count": self._numeric_first(portfolio, "position_count", "holding_count"),
+                "managed_pool_count": self._numeric_first(portfolio, "managed_pool_count"),
+                "cash_ratio": cash_ratio,
+                "exposure_ratio": exposure_ratio,
+            },
+            "risk_features": {
+                "sell_unit_guard_passed": self._bool_or_none(risk.get("sell_unit_guard_passed")),
+                "valuation_unit_mismatch": self._bool_or_none(risk.get("valuation_unit_mismatch")),
+                "risk_blocker_count": len(row.get("risk_blockers") or []),
+                "safety_blocker_count": len(row.get("safety_blockers") or []),
+                "livepreflight_blocker_count": self._numeric_first(risk, "livepreflight_blocker_count"),
+                "dust_excluded": self._bool_or_none(risk.get("dust_excluded")),
+                "cap_near_limit": self._bool_or_none(risk.get("cap_near_limit")),
+            },
+            "provider_features": {
+                "local_confidence": local_confidence,
+                "external_confidence": external_confidence,
+                "confidence_gap": (external_confidence - local_confidence) if local_confidence is not None and external_confidence is not None else None,
+                "local_external_agreed": self._bool_or_none(provider.get("local_external_agreed")),
+                "external_called": bool((row.get("provider_route") or {}).get("external_called")),
+                "external_blocked": bool((row.get("provider_route") or {}).get("external_blocked")),
+                "final_provider_source": str(row.get("final_provider_source") or "") or None,
+                "escalation_required": self._bool_or_none(provider.get("escalation_required")),
+                "cost_guard_blocked": bool(row.get("cost_guard_blocker")),
+            },
+            "opportunity_features": {
+                "candidate_move_pct": self._number(row.get("candidate_move_pct")),
+                "held_symbol_move_pct": self._number(row.get("held_symbol_move_pct")),
+                "opportunity_gap_change": self._numeric_first(opportunity, "opportunity_gap_change", "opportunity_score_gap"),
+                "missed_move_detected": self._bool_or_none(row.get("missed_move_detected")),
+                "avoided_drawdown_detected": self._bool_or_none(row.get("avoided_drawdown_detected")),
+            },
+            "time_features": {
+                "hour_of_day": created_dt.hour if created_dt else None,
+                "day_of_week": created_dt.weekday() if created_dt else None,
+                "time_since_last_decision": (created_at - previous_timestamp) if created_at is not None and previous_timestamp is not None else None,
+                "eta_seconds": self._number(context.get("eta_seconds")),
+                "checkpoint_horizon": evaluated[-1] if evaluated else None,
+            },
+            "data_quality_features": {
+                "payload_quality_numeric": self._grade_numeric(row.get("payload_quality_grade")),
+                "data_quality_numeric": self._grade_numeric(row.get("data_quality_grade")),
+                "missing_feature_count": self._numeric_first(quality, "missing_feature_count"),
+                "stale_feature_count": self._numeric_first(quality, "stale_feature_count"),
+                "unavailable_feature_count": self._numeric_first(quality, "unavailable_feature_count"),
+            },
+        }
+
+    @classmethod
+    def _coverage(cls, vector: dict) -> tuple[int, int, dict[str, bool]]:
+        available = 0
+        total = 0
+        groups: dict[str, bool] = {}
+        for group, keys in cls.FEATURE_KEYS.items():
+            values = dict(vector.get(group) or {})
+            group_available = False
+            for key in keys:
+                total += 1
+                if values.get(key) is not None:
+                    available += 1
+                    group_available = True
+            groups[group] = group_available
+        return available, total, groups
+
+    @staticmethod
+    def _quality_grade(available: int, total: int) -> str:
+        ratio = available / total if total else 0.0
+        return "A" if ratio >= 0.8 else "B" if ratio >= 0.6 else "C" if ratio >= 0.4 else "D" if ratio >= 0.2 else "F"
+
+    def _build_record(self, row: dict, *, previous_timestamp: Optional[float]) -> dict:
+        vector = self._feature_vector(row, previous_timestamp=previous_timestamp)
+        available, total, groups = self._coverage(vector)
+        action = str(row.get("final_action") or row.get("action") or "").lower()
+        outcome_label = str(row.get("final_outcome_label") or "")
+        outcome_score = self._number(row.get("final_outcome_score"))
+        provider_value_score = self._number(row.get("provider_value_score"))
+        opportunity_score = self._number(row.get("opportunity_cost_score"))
+        risk_count = len(row.get("risk_blockers") or [])
+        safety_count = len(row.get("safety_blockers") or [])
+        source_safe = bool(row.get("safe_for_local_training"))
+        scope_type = str(row.get("scope_type") or "")
+        grade = self._quality_grade(available, total)
+        exclusions: list[str] = []
+        if not source_safe:
+            exclusions.append("curated_source_unsafe")
+        if action not in self.VALID_ACTIONS:
+            exclusions.append("invalid_action_label")
+        if not outcome_label:
+            exclusions.append("missing_label")
+        if outcome_score is None:
+            exclusions.append("missing_outcome_target")
+        if grade == "F":
+            exclusions.append("feature_quality_too_low")
+        if scope_type == "position" and not groups["market_features"]:
+            exclusions.append("critical_market_feature_missing")
+        if scope_type == "position" and not groups["position_features"]:
+            exclusions.append("critical_position_feature_missing")
+        if scope_type == "portfolio" and not groups["portfolio_features"]:
+            exclusions.append("critical_portfolio_feature_missing")
+        if not str(row.get("provider_value_label") or ""):
+            exclusions.append("provider_value_missing")
+        exclusions = sorted(set(exclusions))
+        score = max(-1.0, min(1.0, outcome_score or 0.0))
+        risk_adjusted = max(-1.0, min(1.0, score - min(0.5, (risk_count + safety_count) * 0.1)))
+        safety_text = " ".join(str(value).lower() for value in (row.get("safety_blockers") or []))
+        risk_text = " ".join(str(value).lower() for value in (row.get("risk_blockers") or []))
+        provider_features = dict(vector.get("provider_features") or {})
+        risk_features = dict(vector.get("risk_features") or {})
+        labels = {
+            "action_label": action or None,
+            "outcome_label": outcome_label or None,
+            "recommended_action_label": action or None,
+            "learning_label": row.get("learning_label"),
+        }
+        risk_labels = {
+            "unit_guard_block_correct": "valuation_unit_mismatch" in safety_text and not bool(row.get("actual_order")),
+            "valuation_mismatch_risk": bool(risk_features.get("valuation_unit_mismatch")) or "valuation_unit_mismatch" in safety_text,
+            "cap_limit_risk": "cap" in risk_text or "cap" in safety_text,
+            "dust_position_ignore": bool((vector.get("position_features") or {}).get("dust")),
+            "safety_blocker_valid": safety_count > 0,
+            "order_reconciliation_clean": bool(not row.get("order_submitted") or row.get("order_result")),
+            "guard_bypass_detected_false": None,
+            "livepreflight_required": action in {"buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"},
+            "riskguard_required": action in {"buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"},
+        }
+        provider_labels = {
+            "provider_value_label": row.get("provider_value_label"),
+            "provider_value_score": provider_value_score,
+            "local_action": row.get("local_action"),
+            "external_action": row.get("external_action"),
+            "final_action": action or None,
+            "local_external_action_match": provider_features.get("local_external_agreed"),
+            "confidence_gap": provider_features.get("confidence_gap"),
+            "external_call_was_useful": bool(row.get("external_call_was_useful")),
+            "external_call_waste_suspected": bool(row.get("external_call_waste_suspected")),
+            "cost_guard_correct": bool(row.get("cost_guard_blocker") and score >= 0),
+            "escalation_required_correct": bool(provider_features.get("escalation_required") and score >= 0),
+            "recommended_future_provider_route": row.get("recommended_future_provider_route"),
+        }
+        safe = not exclusions
+        outcome_targets = {
+            "action_quality_score": score,
+            "risk_adjusted_score": risk_adjusted,
+            "provider_value_score": provider_value_score,
+            "opportunity_score": opportunity_score,
+            "should_escalate_to_external": bool(provider_features.get("escalation_required")),
+            "should_wait": action in {"wait", "hold"},
+            "should_block_order": bool(safety_count or risk_count),
+            "safe_to_train": safe,
+        }
+        source_id = str(row.get("record_id") or "")
+        return {
+            "schema": self.SCHEMA,
+            "feature_record_id": f"feature-{self._stable_hash(source_id or row.get('source_decision_id'))}",
+            "source_curated_record_id": source_id,
+            "source_decision_id": str(row.get("source_decision_id") or ""),
+            "created_at": row.get("created_at"),
+            "feature_built_at": time.time(),
+            "session_id": str(row.get("session_id") or ""),
+            "task": str(row.get("task") or ""),
+            "scope_type": scope_type,
+            "scope": str(row.get("scope") or ""),
+            "symbol": str(row.get("symbol") or ""),
+            "action": action,
+            "final_action": action,
+            "provider_source": str(row.get("final_provider_source") or ""),
+            "payload_quality_grade": str(row.get("payload_quality_grade") or ""),
+            "data_quality_grade": str(row.get("data_quality_grade") or ""),
+            "feature_quality_grade": grade,
+            "feature_available_count": available,
+            "feature_total_count": total,
+            "feature_group_availability": groups,
+            "feature_vector": vector,
+            "labels": labels,
+            "risk_labels": risk_labels,
+            "provider_value_labels": provider_labels,
+            "opportunity_labels": {
+                "opportunity_cost_label": row.get("opportunity_cost_label"),
+                "opportunity_cost_score": opportunity_score,
+                "missed_move_detected": row.get("missed_move_detected"),
+                "avoided_drawdown_detected": row.get("avoided_drawdown_detected"),
+            },
+            "outcome_targets": outcome_targets,
+            "split": "unsplit_insufficient_data",
+            "safe_for_model_training": safe,
+            "exclusion_reasons": exclusions,
+            "notes": "Retrospective feature record only; it is not connected to live inference or order generation.",
+        }
+
+    def _assign_splits(self, records: list[dict]) -> str:
+        safe = [row for row in records if row.get("safe_for_model_training")]
+        safe.sort(key=lambda row: (self._timestamp(row.get("created_at")) or 0.0, str(row.get("source_decision_id") or "")))
+        if len(safe) < self.MIN_SPLIT_RECORDS:
+            for row in safe:
+                row["split"] = "unsplit_insufficient_data"
+            return "unsplit_insufficient_data"
+        train_end = max(1, int(len(safe) * 0.70))
+        validation_end = max(train_end + 1, int(len(safe) * 0.85))
+        for index, row in enumerate(safe):
+            row["split"] = "train" if index < train_end else ("validation" if index < validation_end else "holdout")
+        return "time_based_70_15_15"
+
+    def build(self) -> dict:
+        self.root.mkdir(parents=True, exist_ok=True)
+        logging.getLogger("aits").info("[AITS][LocalTrainingFeaturePipeline] event=feature_pipeline_started source=curated_local_training_records actual_order=False submitted=0")
+        source_rows, corrupted, duplicates = self._read_jsonl()
+        source_rows.sort(key=lambda row: (self._timestamp(row.get("created_at")) or 0.0, str(row.get("record_id") or "")))
+        records: list[dict] = []
+        previous_by_session: dict[str, float] = {}
+        for row in source_rows:
+            session_id = str(row.get("session_id") or "")
+            previous = previous_by_session.get(session_id)
+            record = self._build_record(row, previous_timestamp=previous)
+            timestamp = self._timestamp(row.get("created_at"))
+            if timestamp is not None:
+                previous_by_session[session_id] = timestamp
+            records.append(record)
+        split_strategy = self._assign_splits(records)
+        included = [row for row in records if row.get("safe_for_model_training")]
+        excluded = [row for row in records if not row.get("safe_for_model_training")]
+        reason_counts = Counter(reason for row in excluded for reason in row.get("exclusion_reasons") or [])
+        grade_counts = Counter(str(row.get("feature_quality_grade") or "") for row in records)
+        split_counts = Counter(str(row.get("split") or "") for row in records)
+        group_counts = Counter(
+            group for row in records for group, available in (row.get("feature_group_availability") or {}).items() if available
+        )
+        summary = {
+            "schema": "aits_local_training_feature_summary.v1",
+            "dataset_version": self.DATASET_VERSION,
+            "source_record_count": len(source_rows),
+            "safe_for_model_training_count": len(included),
+            "feature_excluded_count": len(excluded),
+            "feature_exclusion_reason_counts": dict(sorted(reason_counts.items())),
+            "feature_quality_grade_counts": dict(sorted(grade_counts.items())),
+            "feature_group_available_counts": dict(sorted(group_counts.items())),
+            "duplicate_feature_records_detected": duplicates,
+            "corrupted_feature_source_detected": corrupted,
+            "split_strategy": split_strategy,
+            "train_count": split_counts.get("train", 0),
+            "validation_count": split_counts.get("validation", 0),
+            "holdout_count": split_counts.get("holdout", 0),
+            "unsplit_count": split_counts.get("unsplit_insufficient_data", 0),
+            "last_feature_built_at": time.time(),
+            "model_training_executed": False,
+            "live_inference_connected": False,
+        }
+        self._write_jsonl_atomic(self.features_path, included)
+        self._write_jsonl_atomic(self.excluded_path, excluded)
+        self._write_json_atomic(self.summary_path, summary)
+        for row in records:
+            event = "feature_record_built" if row.get("safe_for_model_training") else "feature_record_excluded"
+            gate_event = "feature_quality_gate_passed" if row.get("safe_for_model_training") else "feature_quality_gate_failed"
+            logging.getLogger("aits").info(
+                "[AITS][LocalTrainingFeaturePipeline] event=%s decision_id=%s task=%s scope=%s feature_quality_grade=%s safe_for_model_training=%s exclusion_reasons=%s split=%s actual_order=False submitted=0",
+                event, row.get("source_decision_id") or "-", row.get("task") or "-", row.get("scope") or "-",
+                row.get("feature_quality_grade") or "-", bool(row.get("safe_for_model_training")),
+                ",".join(row.get("exclusion_reasons") or []) or "-", row.get("split") or "-",
+            )
+            logging.getLogger("aits").info(
+                "[AITS][LocalTrainingFeaturePipeline] event=%s decision_id=%s safe_for_model_training=%s actual_order=False submitted=0",
+                gate_event, row.get("source_decision_id") or "-", bool(row.get("safe_for_model_training")),
+            )
+        logging.getLogger("aits").info(
+            "[AITS][LocalTrainingFeaturePipeline] event=feature_summary_written source_record_count=%s safe_for_model_training_count=%s feature_excluded_count=%s split_strategy=%s model_training_executed=false live_inference_connected=false actual_order=False submitted=0",
+            len(source_rows), len(included), len(excluded), split_strategy,
         )
         return summary
 

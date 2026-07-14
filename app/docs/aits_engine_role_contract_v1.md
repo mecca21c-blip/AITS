@@ -222,3 +222,6 @@ BASIC schedules and records later factual observations. LOCAL and external provi
 ## Dataset Curation Role
 
 BASIC may curate allow-listed factual outcome fields into later-learning candidates and exclusions. Curation owns data quality, deduplication, exclusion reasons, and retrospective tags; it does not own AI action selection or execution. Curated labels and route recommendations cannot update runtime policy without a separately approved training and deployment contract.
+# LOCAL Training Feature Boundary
+
+The training feature pipeline is an offline data-preparation owner. BASIC may supply factual payload context, and the pipeline may normalize historical labels, but neither component becomes an AI action owner. Feature records and `safe_for_model_training` never authorize live actions or orders. Router, RiskGuard, LivePreflight, and Execution boundaries remain unchanged.
