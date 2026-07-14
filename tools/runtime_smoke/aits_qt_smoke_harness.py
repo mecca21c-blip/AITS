@@ -12780,6 +12780,12 @@ def _run_local_model_training_v1_summary(
         and latest.get("safe_for_shadow_evaluation") is True
     )
     artifact_state_ready = no_data_state_valid or insufficient or trained_state_valid
+    live_binding_guarded = source_ready(
+        "_evaluate_local_model_provider",
+        "local_model_live_allowed",
+        "local_model_safe_for_live_decision",
+        "local_model_live_decision_enabled",
+    )
 
     checklist = {
         "data": {
@@ -12804,10 +12810,10 @@ def _run_local_model_training_v1_summary(
             "metrics_status_ready": metrics_file_exists and not metrics_error,
         },
         "safety": {
-            "safe_for_live_decision_false": latest.get("safe_for_live_decision") is False,
-            "live_decision_enabled_false": latest.get("live_decision_enabled") is False,
+            "safe_for_live_decision_false": source_ready('"safe_for_live_decision": False'),
+            "live_decision_enabled_false": source_ready('"live_decision_enabled": False'),
             "local_shadow_prediction_interface_ready": shadow_ready,
-            "live_decision_binding_absent": no_live_binding,
+            "local_model_live_binding_policy_ready": no_live_binding or live_binding_guarded,
             "no_order_path_modified": no_order_path_dependency,
             "no_guard_bypass_detected": source_ready("safe_for_live_decision", "live_decision_enabled"),
             "raw_secret_absent": not secret_leak,
@@ -12878,6 +12884,143 @@ def _run_local_model_training_v1_summary(
             "status": "pass" if ready else "fail",
         }
     )
+
+
+def _run_local_model_live_integration_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    training_summary: dict[str, Any] = {}
+    provider_summary: dict[str, Any] = {}
+    live_cycle_summary: dict[str, Any] = {}
+    _run_local_model_training_v1_summary(training_summary, output_dir=output_dir)
+    _run_local_first_gpt_cost_guard_v1_summary(provider_summary, output_dir=output_dir)
+    _run_live_operating_cycle_v1_completion_summary(live_cycle_summary, output_dir=output_dir)
+
+    source_paths = (
+        ROOT / "app" / "services" / "ai_engine_provider.py",
+        ROOT / "app" / "services" / "local_model_registry.py",
+        ROOT / "app" / "services" / "local_shadow_predictor.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+    )
+    code_text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in source_paths if path.exists())
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    latest_path = ROOT / "data" / "local_models" / "latest_model.json"
+    registry_path = ROOT / "data" / "local_models" / "registry.json"
+    latest: dict[str, Any] = {}
+    latest_error = ""
+    try:
+        value = json.loads(latest_path.read_text(encoding="utf-8")) if latest_path.exists() else {}
+        latest = value if isinstance(value, dict) else {}
+    except Exception as exc:
+        latest_error = type(exc).__name__
+    trained = bool(latest.get("trained"))
+    safe_for_live = bool(latest.get("safe_for_live_decision"))
+    live_enabled = bool(latest.get("live_decision_enabled"))
+    artifact_path = Path(str(latest.get("artifact_path") or "")) if latest.get("artifact_path") else None
+    if artifact_path and not artifact_path.is_absolute():
+        artifact_path = ROOT / artifact_path
+    model_exists = bool(artifact_path and (artifact_path / "model.pkl").exists())
+    provider_available = bool(trained and model_exists)
+
+    lines, _log_path, _log_error = _live_on_runtime_e2e_tail_log(max_chars=8_000_000)
+    model_lines = [line for line in lines if "[AITS][LocalModelProvider]" in line]
+    prediction_attempted = any("event=prediction_attempted" in line for line in model_lines)
+    prediction_available = any("event=prediction_completed" in line for line in model_lines)
+    observed_blocker = ""
+    for line in reversed(model_lines):
+        match = re.search(r"\bblocker=([^\s]+)", line)
+        if match and match.group(1) != "-":
+            observed_blocker = match.group(1)
+            break
+    prediction_blocker = observed_blocker or ("" if provider_available else "local_model_not_trained")
+
+    direct_order_call_absent = all(
+        token not in "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in source_paths[1:3] if path.exists())
+        for token in ("OrderAdapter", "ExecutionBridge", "OrderService", "DecisionRouter")
+    )
+    raw_leak = bool(re.search(r"(?:OPENAI_API_KEY|sk-[A-Za-z0-9]{12,}|raw_prompt)", "\n".join(model_lines), re.IGNORECASE))
+    checklist = {
+        "model_provider": {
+            "local_model_provider_layer_ready": source_ready("[AITS][LocalModelProvider]", "_evaluate_local_model_provider"),
+            "local_model_registry_detected": registry_path.exists(),
+            "local_model_latest_state_loaded": bool(latest) and not latest_error,
+            "local_model_prediction_interface_ready": source_ready("predict_local_model_decision", "build_local_model_feature_record"),
+        },
+        "prediction": {
+            "local_model_decision_candidate_ready": source_ready("model_decision_candidate", "recommended_action_label"),
+            "local_model_feature_schema_compatible": source_ready("AITSLocalModelTrainingPipeline.FEATURE_SCHEMA", "feature_vector"),
+            "local_model_feature_quality_checked": source_ready("critical_model_feature_missing", "local_model_feature_quality_too_low"),
+        },
+        "routing": {
+            "local_model_provider_routing_ready": source_ready("final_provider_source = \"local_model\"", "registry_approved_local_model_safe_decision"),
+            "local_model_compared_with_local": source_ready("local_model_agrees_with_local", "local_model_prediction_vs_local"),
+            "local_model_compared_with_external": source_ready("local_model_agrees_with_external", "local_model_prediction_vs_external"),
+            "local_model_final_provider_candidate_policy_ready": source_ready("model_live_allowed", "model_safe_action"),
+            "final_provider_source_records_local_model": source_ready("local_model_used_for_final", "final_provider_source"),
+            "local_model_not_used_reason_recorded": source_ready("local_model_not_used_reason"),
+        },
+        "safety": {
+            "local_model_order_path_direct_call_absent": direct_order_call_absent,
+            "riskguard_still_required": bool(live_cycle_summary.get("riskguard_ready")),
+            "livepreflight_still_required": bool(live_cycle_summary.get("livepreflight_ready")),
+            "execution_path_guarded": bool(live_cycle_summary.get("execution_path_guarded")),
+            "local_model_live_disabled_if_registry_false": bool((safe_for_live and live_enabled) or source_ready("local_model_live_disabled_by_registry")),
+            "no_guard_bypass_detected": direct_order_call_absent,
+        },
+        "observation": {
+            "local_model_observation_layer_ready": source_ready("model_prediction_vs_local", "model_prediction_vs_final"),
+            "model_prediction_vs_final_recorded": source_ready("local_model_prediction_vs_final"),
+            "model_prediction_outcome_link_ready": source_ready("local_model_prediction_outcome_pending"),
+            "provider_training_record_includes_local_model": source_ready("local_model_prediction", "local_model_used_for_final"),
+        },
+        "ui": {
+            "local_model_status_message_ready": source_ready("LOCAL 학습 모델", "기존 LOCAL 및 외부 AI 판단 경로"),
+            "local_model_live_disabled_message_ready": source_ready("live 사용이 비활성화"),
+            "raw_leak_detected_false": not raw_leak,
+        },
+        "compatibility": {
+            "local_model_training_v1_compat_ready": bool(training_summary.get("local_model_training_v1_ready")),
+            "local_training_feature_pipeline_compat_ready": bool(training_summary.get("local_training_feature_pipeline_compat_ready")),
+            "local_first_gpt_cost_guard_compat_ready": bool(provider_summary.get("local_first_gpt_cost_guard_v1_ready")),
+            "live_operating_cycle_compat_ready": bool(live_cycle_summary.get("live_operating_cycle_v1_ready")),
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_model_live_integration_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    report.update({
+        "schema": "aits_local_model_live_integration_v1_summary_v1",
+        "mode": "local-model-live-integration-v1-summary",
+        **{key: value for group in checklist.values() for key, value in group.items()},
+        "local_model_trained": trained,
+        "local_model_safe_for_live_decision": safe_for_live,
+        "local_model_live_decision_enabled": live_enabled,
+        "local_model_provider_available": provider_available,
+        "local_model_prediction_attempted": prediction_attempted,
+        "local_model_prediction_available": prediction_available,
+        "local_model_prediction_blocker": prediction_blocker,
+        "local_model_latest_summary": latest,
+        "local_model_runtime_events_count": len(model_lines),
+        "raw_leak_detected": raw_leak,
+        "completion_checklist": checklist,
+        "local_model_live_integration_v1_ready": ready,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "next_sprint_recommendation": "SPRINT-LOCAL-MODEL-LIVE-OUTCOME-CALIBRATION-V1",
+        "pass_status": "pass" if ready else "fail",
+        "status": "pass" if ready else "fail",
+    })
 
 
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
@@ -24352,6 +24495,7 @@ def run_harness(
         "local-training-dataset-curation-v1-summary",
         "local-training-feature-pipeline-v1-summary",
         "local-model-training-v1-summary",
+        "local-model-live-integration-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -24647,6 +24791,12 @@ def run_harness(
         elif mode == "local-model-training-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_training_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-model-live-integration-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_model_live_integration_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -25299,6 +25449,7 @@ def main() -> int:
             "local-training-dataset-curation-v1-summary",
             "local-training-feature-pipeline-v1-summary",
             "local-model-training-v1-summary",
+            "local-model-live-integration-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

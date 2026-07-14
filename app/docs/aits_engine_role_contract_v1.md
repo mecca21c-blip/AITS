@@ -228,3 +228,6 @@ The training feature pipeline is an offline data-preparation owner. BASIC may su
 # LOCAL Model Training Boundary
 
 LOCAL baseline training is an offline learning owner. Its artifacts and shadow scores do not become BASIC facts, AI actions, Router decisions, or order authorization. Every registered model remains `safe_for_live_decision=false` and `live_decision_enabled=false`; RiskGuard, LivePreflight, and Execution ownership is unchanged.
+# LOCAL Model Provider Boundary
+
+LOCAL_MODEL is an AI provider candidate, not BASIC and not an execution engine. It may evaluate a compatible factual feature vector and offer a validated decision candidate. Registry approval controls whether that candidate may become the final provider source. RiskGuard, LivePreflight, and the normal execution path retain their existing ownership; LOCAL_MODEL cannot create or submit orders directly.

@@ -61,12 +61,19 @@ class AITSLocalModelRegistry:
         return value
 
     def latest_shadow_model(self) -> dict:
-        latest = self.load_latest()
-        if not latest.get("trained"):
+        latest = self.latest_model_candidate()
+        if not latest:
             return {}
         if not latest.get("safe_for_shadow_evaluation"):
             return {}
         if latest.get("safe_for_live_decision") or latest.get("live_decision_enabled"):
+            return {}
+        return latest
+
+    def latest_model_candidate(self) -> dict:
+        """Return a trained artifact with registry-owned live policy unchanged."""
+        latest = self.load_latest()
+        if not latest.get("trained"):
             return {}
         artifact_path = Path(str(latest.get("artifact_path") or ""))
         if not artifact_path.is_absolute():

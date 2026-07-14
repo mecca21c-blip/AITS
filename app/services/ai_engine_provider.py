@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 
 from app.services.ollama_http_client import OllamaHttpClient
+from app.services.local_shadow_predictor import predict_local_model_decision
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -980,6 +981,7 @@ class AIEngineProvider:
         local_available: bool,
         feature_manifest: Dict[str, Any],
         context: Dict[str, Any],
+        local_model: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         action = str(local_decision.get("action") or "wait").lower()
         confidence = float(local_decision.get("confidence") or 0.0)
@@ -990,6 +992,8 @@ class AIEngineProvider:
             if isinstance(context.get("sell_unit_guard"), dict) else False
         )
         post_order = bool(context.get("post_order_replanning") or context.get("post_order_cycle_id"))
+        model_state = dict(local_model or {})
+        model_action = str(model_state.get("model_recommended_action") or "").lower()
         reasons: list[str] = []
         blocker = ""
         if not local_available:
@@ -998,6 +1002,10 @@ class AIEngineProvider:
             reasons.append("local_confidence_below_threshold")
         if action in _LOCAL_EXTERNAL_CONFIRMATION_ACTIONS:
             reasons.append("local_order_action_requires_external_confirmation")
+        if model_state.get("local_model_prediction_available") and model_action in _LOCAL_EXTERNAL_CONFIRMATION_ACTIONS:
+            reasons.append("local_model_order_action_requires_external_confirmation")
+        if model_state.get("local_model_prediction_available") and model_action and model_action != action:
+            reasons.append("local_model_local_action_disagreement")
         if requested_provider in {"openai", "gemini"}:
             reasons.append("user_external_provider_policy")
         if post_order:
@@ -1027,6 +1035,61 @@ class AIEngineProvider:
             "escalation_reason": ",".join(reasons) or "local_decision_sufficient",
             "escalation_blocker": blocker,
         }
+
+    def _evaluate_local_model_provider(
+        self,
+        *,
+        context: Dict[str, Any],
+        manifest_summary: Dict[str, Any],
+        local_decision: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        task = str(context.get("task") or "")
+        scope = str(context.get("symbol") or context.get("scope") or "PORTFOLIO")
+        _safe_log_info(
+            "[AITS][LocalModelProvider] event=model_load_attempted "
+            f"task={task or '-'} scope={scope} actual_order=False submitted=0"
+        )
+        try:
+            result = predict_local_model_decision(context, manifest_summary, local_decision)
+        except Exception as exc:
+            result = {
+                "local_model_provider_available": False,
+                "local_model_loaded": False,
+                "local_model_prediction_attempted": False,
+                "local_model_prediction_available": False,
+                "local_model_prediction_blocker": f"local_model_provider_failed:{type(exc).__name__}",
+            }
+        loaded = bool(result.get("local_model_loaded"))
+        blocker = str(result.get("local_model_prediction_blocker") or "")
+        _safe_log_info(
+            f"[AITS][LocalModelProvider] event={'model_loaded' if loaded else 'model_unavailable'} "
+            f"task={task or '-'} scope={scope} model_id={result.get('local_model_id') or '-'} "
+            f"trained={str(bool(result.get('local_model_trained'))).lower()} "
+            f"safe_for_live_decision={str(bool(result.get('local_model_safe_for_live_decision'))).lower()} "
+            f"live_decision_enabled={str(bool(result.get('local_model_live_decision_enabled'))).lower()} "
+            f"blocker={blocker or '-'} actual_order=False submitted=0"
+        )
+        if result.get("local_model_prediction_attempted"):
+            _safe_log_info(
+                "[AITS][LocalModelProvider] event=prediction_attempted "
+                f"task={task or '-'} scope={scope} model_id={result.get('local_model_id') or '-'} "
+                "actual_order=False submitted=0"
+            )
+            event = "prediction_completed" if result.get("local_model_prediction_available") else "prediction_blocked"
+            _safe_log_info(
+                f"[AITS][LocalModelProvider] event={event} task={task or '-'} scope={scope} "
+                f"model_action={result.get('model_recommended_action') or '-'} "
+                f"model_confidence={float(result.get('model_confidence') or 0.0):.4f} "
+                f"model_risk_score={result.get('model_risk_score')} blocker={blocker or '-'} "
+                "actual_order=False submitted=0"
+            )
+        if result.get("local_model_prediction_available") and not result.get("local_model_live_allowed"):
+            _safe_log_info(
+                "[AITS][LocalModelProvider] event=live_decision_disabled "
+                f"task={task or '-'} scope={scope} blocker={blocker or 'local_model_live_disabled_by_registry'} "
+                "actual_order=False submitted=0"
+            )
+        return result
 
     def verify_router_decision(self, *, provider: Any = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -1456,12 +1519,37 @@ class AIEngineProvider:
             f"payload_hash={payload_hash or '-'} actual_order=False submitted=0"
         )
 
+        local_model = self._evaluate_local_model_provider(
+            context=context,
+            manifest_summary=manifest_summary,
+            local_decision=local_decision,
+        )
+        model_decision = dict(local_model.get("model_decision_candidate") or {})
+        model_validation: Dict[str, Any] = {}
+        if local_model.get("local_model_prediction_available") and model_decision:
+            model_validation = validate_ai_decision_response(
+                model_decision,
+                provider="local_model",
+                task=str(context.get("task") or "position_management_decision"),
+                symbol=str(context.get("symbol") or ""),
+                candidates=context.get("candidates"),
+            )
+            model_decision = dict(model_validation.get("decision") or model_decision)
+            local_model["local_model_decision_available"] = bool(model_validation.get("validation_passed"))
+            local_model["local_model_decision_candidate_ready"] = bool(model_validation.get("validation_passed"))
+            if not model_validation.get("validation_passed"):
+                local_model["local_model_prediction_blocker"] = "local_model_candidate_validator_rejected"
+        else:
+            local_model["local_model_decision_available"] = False
+            local_model["local_model_decision_candidate_ready"] = False
+
         escalation = self._evaluate_external_escalation(
             requested_provider=requested_provider,
             local_decision=local_decision,
             local_available=local_available,
             feature_manifest=feature_manifest,
             context=context,
+            local_model=local_model,
         )
         external_provider = str(escalation.get("escalation_target_provider") or "")
         external_decision: Dict[str, Any] = {}
@@ -1507,10 +1595,30 @@ class AIEngineProvider:
 
         external_valid = bool(external_decision.get("validation_passed")) and not external_blocker
         local_action = str(local_decision.get("action") or "wait").lower()
+        model_action = str(local_model.get("model_recommended_action") or "").lower()
+        model_available = bool(local_model.get("local_model_decision_available"))
+        model_live_allowed = bool(local_model.get("local_model_live_allowed"))
+        model_safe_action = model_action in _LOCAL_SAFE_ACTIONS
+        model_confidence = float(local_model.get("model_confidence") or 0.0)
+        local_model_agrees_with_local = bool(model_available and model_action == local_action)
         if external_valid:
             final_decision = dict(external_decision)
             final_provider_source = external_provider
             source_reason = "external_provider_validated_after_local_first"
+        elif (
+            model_available
+            and model_live_allowed
+            and model_safe_action
+            and (not local_available or local_model_agrees_with_local or model_confidence >= float(local_decision.get("confidence") or 0.0))
+        ):
+            final_decision = dict(model_decision)
+            final_provider_source = "local_model"
+            source_reason = "registry_approved_local_model_safe_decision"
+            _safe_log_info(
+                "[AITS][LocalModelProvider] event=provider_candidate_created "
+                f"task={task or '-'} scope={symbol_or_scope} model_action={model_action} "
+                f"model_confidence={model_confidence:.4f} actual_order=False submitted=0"
+            )
         elif local_available and local_action in _LOCAL_SAFE_ACTIONS:
             final_decision = dict(local_decision)
             final_provider_source = "local"
@@ -1564,6 +1672,7 @@ class AIEngineProvider:
                 "local_blockers": [local_status] if not local_available else [],
                 "local_payload_hash": payload_hash,
                 "local_generated_at": int(time.time()),
+                **local_model,
                 **escalation,
                 "local_decision_retained": final_provider_source.startswith("local"),
                 "external_provider_requested": bool(external_provider),
@@ -1580,6 +1689,19 @@ class AIEngineProvider:
                 "final_confidence": float(final_decision.get("confidence") or 0.0),
                 "final_reason_ko": str(final_decision.get("reason_ko") or ""),
                 "final_decision_source_reason": source_reason,
+                "local_model_action": model_action,
+                "local_model_confidence": model_confidence,
+                "local_model_risk_score": local_model.get("model_risk_score"),
+                "local_model_agrees_with_local": local_model_agrees_with_local,
+                "local_model_agrees_with_external": bool(model_available and external_valid and model_action == str(external_decision.get("action") or "").lower()),
+                "local_model_changed_final_decision": final_provider_source == "local_model" and model_action != local_action,
+                "local_model_used_for_final": final_provider_source == "local_model",
+                "local_model_prediction_vs_local": "agree" if local_model_agrees_with_local else ("disagree" if model_available else "unavailable"),
+                "local_model_prediction_vs_external": "agree" if model_available and external_valid and model_action == str(external_decision.get("action") or "").lower() else ("disagree" if model_available and external_valid else "not_compared"),
+                "local_model_prediction_vs_final": "agree" if model_available and model_action == str(final_decision.get("action") or "").lower() else ("disagree" if model_available else "unavailable"),
+                "local_model_prediction_outcome_pending": bool(model_available),
+                "local_model_not_used_reason": "" if final_provider_source == "local_model" else str(local_model.get("local_model_prediction_blocker") or ("external_provider_selected" if external_valid else "existing_local_decision_retained")),
+                "local_model_live_blocker": str(local_model.get("local_model_prediction_blocker") or ""),
                 "validator_applied_to_external_response": bool(external_called),
                 "local_only_order_action_blocked_without_external_confirmation": source_reason == "local_order_action_blocked_without_external_confirmation",
                 "actual_order": False,
@@ -1592,6 +1714,8 @@ class AIEngineProvider:
             f"local_action={local_action} external_provider_called={str(external_called).lower()} "
             f"external_provider_blocked={str(bool(external_provider and not external_valid)).lower()} "
             f"external_action={external_decision.get('action') or '-'} final_action={final_decision.get('action') or 'wait'} "
+            f"local_model_action={model_action or '-'} local_model_used_for_final={str(final_provider_source == 'local_model').lower()} "
+            f"local_model_not_used_reason={final_decision.get('local_model_not_used_reason') or '-'} "
             f"source_reason={source_reason} blocker={final_decision.get('blocker') or '-'} "
             "actual_order=False submitted=0"
         )

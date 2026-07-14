@@ -170,3 +170,6 @@ The feature pipeline maps allow-listed factual payload context into market, indi
 # Training Input Quality Boundary
 
 The model trainer accepts only feature records already marked safe for model training, with valid split, feature quality, action label, and measured targets. Missing, corrupt, unsafe, unsplit, or leaking rows are excluded. A no-data or insufficient-data metrics state is evidence, not a fabricated score.
+# LOCAL Model Feature Quality
+
+LOCAL_MODEL inference reuses the `aits_local_training_feature_record.v1` feature groups. Critical missing features or payload grades D/F make prediction unavailable. Missing values remain missing through feature construction and follow the trained bundle's transform policy; no synthetic market, position, portfolio, confidence, or outcome value is introduced.

@@ -38,6 +38,32 @@ class AITSMeanBaselineRegressor:
         return [float(self.mean_)] * max(0, int(count))
 
 
+class AITSModeBaselineClassifier:
+    """Observed-label baseline used only when real action labels are available."""
+
+    model_type = "mode_baseline_classifier"
+
+    def __init__(self) -> None:
+        self.label_: Optional[str] = None
+        self.training_count_: int = 0
+        self.label_counts_: dict[str, int] = {}
+
+    def fit(self, values: list[str]) -> "AITSModeBaselineClassifier":
+        clean = [str(value).strip().lower() for value in values if str(value).strip()]
+        if not clean:
+            raise ValueError("no_action_labels")
+        counts = Counter(clean)
+        self.label_ = sorted(counts, key=lambda label: (-counts[label], label))[0]
+        self.training_count_ = len(clean)
+        self.label_counts_ = dict(counts)
+        return self
+
+    def predict(self, count: int = 1) -> list[str]:
+        if not self.label_:
+            raise RuntimeError("model_not_trained")
+        return [self.label_] * max(0, int(count))
+
+
 class AITSLocalModelTrainingPipeline:
     """Offline baseline trainer for curated LOCAL feature records."""
 
@@ -269,8 +295,14 @@ class AITSLocalModelTrainingPipeline:
                 targets[target].append(number)
                 missing += int(number is None)
         ready = {target: any(value is not None for value in values) for target, values in targets.items()}
+        action_labels = [
+            str((row.get("labels") or {}).get("recommended_action_label") or row.get("final_action") or "").lower()
+            for row in records
+        ]
+        action_labels = [value for value in action_labels if value in self.VALID_ACTIONS]
         return {
             "targets": targets,
+            "recommended_action_labels": action_labels,
             "label_builder_ready": True,
             "action_quality_target_ready": ready["action_quality_score"],
             "outcome_score_target_ready": ready["outcome_score"],
@@ -305,6 +337,8 @@ class AITSLocalModelTrainingPipeline:
         if validation:
             labels = self.build_labels(validation)["targets"]
             for target, model in models.items():
+                if target not in labels:
+                    continue
                 actual = [value for value in labels[target] if value is not None]
                 metrics[target] = self._regression_metrics(actual, model.predict(len(actual)))
         return {
@@ -316,7 +350,12 @@ class AITSLocalModelTrainingPipeline:
             "holdout_count": len(holdout),
             "feature_count": int(matrix.get("feature_columns_count") or 0),
             "target_distribution": {
-                target: {"count": model.training_count_, "mean": model.mean_} for target, model in models.items()
+                target: {
+                    "count": model.training_count_,
+                    "mean": getattr(model, "mean_", None),
+                    "label_counts": getattr(model, "label_counts_", None),
+                }
+                for target, model in models.items()
             },
             "data_quality_summary": dict(Counter(str(row.get("feature_quality_grade") or "") for row in records)),
             "warnings": [] if validation else ["validation_records_unavailable"],
@@ -333,8 +372,8 @@ class AITSLocalModelTrainingPipeline:
                 f"- Training records: `{metadata.get('train_count')}`",
                 f"- Validation records: `{metadata.get('validation_count')}`",
                 f"- Metrics status: `{metrics.get('metrics_status')}`",
-                "- Intended use: offline shadow evaluation only.",
-                "- Live decision use: prohibited.",
+                "- Intended use: LOCAL provider evaluation with registry-controlled activation.",
+                "- Live decision use: disabled by default and requires both registry approval flags.",
                 "- Order generation: not supported.",
             ]
         ) + "\n"
@@ -360,7 +399,7 @@ class AITSLocalModelTrainingPipeline:
             else matrix["feature_matrix_blocker"] if not matrix["feature_columns"]
             else labels["label_blocker"]
         ) if training_skipped else ""
-        models: dict[str, AITSMeanBaselineRegressor] = {}
+        models: dict[str, Any] = {}
         metrics: dict = {
             "schema": "aits_local_model_metrics.v1",
             "metrics_status": "no_data" if no_data else "insufficient_data",
@@ -382,6 +421,9 @@ class AITSLocalModelTrainingPipeline:
                 values = [value for value in train_labels[target] if value is not None]
                 if values:
                     models[target] = AITSMeanBaselineRegressor().fit(values)
+            action_labels = list(self.build_labels(train_records).get("recommended_action_labels") or [])
+            if action_labels:
+                models["recommended_action_label"] = AITSModeBaselineClassifier().fit(action_labels)
             if not models:
                 training_skipped = True
                 skip_reason = "no_trainable_targets"
@@ -390,7 +432,7 @@ class AITSLocalModelTrainingPipeline:
                 artifact_dir.mkdir(parents=True, exist_ok=True)
                 artifact_path = str(artifact_dir)
                 bundle = {
-                    "schema": "aits_local_shadow_model_bundle.v1",
+                    "schema": "aits_local_model_bundle.v1",
                     "models": models,
                     "feature_columns": matrix["feature_columns"],
                     "feature_types": matrix["feature_types"],

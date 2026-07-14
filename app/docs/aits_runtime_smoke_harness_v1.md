@@ -2120,3 +2120,6 @@ summary modes.
 # LOCAL Model Training v1
 
 `local-model-training-v1-summary --observe-only` verifies the real feature loader, stable matrix and label builders, baseline trainer, metrics status, model registry, artifact safety flags, no-data handling, and shadow-only prediction interface. A zero-row dataset passes as `no_data_training_ready` only when no model artifact was fabricated and the registry keeps live decision use disabled.
+# LOCAL Model Live Integration v1
+
+`--mode local-model-live-integration-v1-summary --observe-only` validates the trained-model registry, prediction feature contract, LOCAL_MODEL provider candidate policy, registry-gated live eligibility, observation fields, and the absence of direct order-layer dependencies. An honest `trained=false` registry is a valid no-model fallback: prediction remains unavailable and the existing LOCAL/external route stays active.

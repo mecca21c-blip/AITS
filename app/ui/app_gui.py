@@ -31665,7 +31665,13 @@ class MainWindow(QMainWindow):
         source = str(value.get("final_provider_source") or value.get("provider") or "LOCAL").lower()
         local_action = str(value.get("local_action") or "wait")
         external_name = str(value.get("external_provider_name") or "").upper()
-        if bool(value.get("local_only_order_action_blocked_without_external_confirmation")):
+        if value.get("local_model_prediction_blocker") in {"local_model_not_trained", "local_model_artifact_missing"}:
+            message = "학습된 LOCAL 모델이 없어 기존 LOCAL 및 외부 AI 판단 경로를 사용합니다."
+        elif bool(value.get("local_model_prediction_available")) and not bool(value.get("local_model_live_allowed")):
+            message = "LOCAL 모델 판단을 함께 검토했지만 live 사용이 비활성화되어 참고 결과로만 기록했습니다."
+        elif source == "local_model":
+            message = "승인된 LOCAL 학습 모델 판단을 반영했습니다. 주문 전 안전검사는 그대로 적용됩니다."
+        elif bool(value.get("local_only_order_action_blocked_without_external_confirmation")):
             message = "LOCAL 주문성 판단은 외부 확인 전까지 실행하지 않습니다."
         elif bool(value.get("external_provider_blocked")):
             message = f"{external_name or '외부 AI'} 호출이 제한되어 LOCAL 판단을 유지합니다."
@@ -42015,6 +42021,21 @@ class MainWindow(QMainWindow):
             "final_confidence": value.get("final_confidence", value.get("confidence")),
             "final_reason_ko": str(value.get("final_reason_ko") or value.get("reason_ko") or ""),
             "final_decision_source_reason": str(value.get("final_decision_source_reason") or ""),
+            "local_model_provider_available": bool(value.get("local_model_provider_available")),
+            "local_model_id": str(value.get("local_model_id") or ""),
+            "local_model_prediction_attempted": bool(value.get("local_model_prediction_attempted")),
+            "local_model_prediction_available": bool(value.get("local_model_prediction_available")),
+            "local_model_prediction": str(value.get("local_model_action") or value.get("model_recommended_action") or ""),
+            "local_model_confidence": value.get("local_model_confidence", value.get("model_confidence")),
+            "local_model_risk_score": value.get("local_model_risk_score", value.get("model_risk_score")),
+            "local_model_used_for_final": bool(value.get("local_model_used_for_final")),
+            "local_model_not_used_reason": str(value.get("local_model_not_used_reason") or ""),
+            "local_model_live_allowed": bool(value.get("local_model_live_allowed")),
+            "local_model_live_blocker": str(value.get("local_model_live_blocker") or value.get("local_model_prediction_blocker") or ""),
+            "model_prediction_vs_local": str(value.get("local_model_prediction_vs_local") or ""),
+            "model_prediction_vs_external": str(value.get("local_model_prediction_vs_external") or ""),
+            "model_prediction_vs_final": str(value.get("local_model_prediction_vs_final") or ""),
+            "model_prediction_outcome_pending": bool(value.get("local_model_prediction_outcome_pending")),
         }
 
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:

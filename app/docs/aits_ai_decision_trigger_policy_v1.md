@@ -313,3 +313,6 @@ Historical action labels, outcome targets, risk labels, provider-value labels, s
 # Trained Models Do Not Trigger Decisions
 
 Training completion, metrics, registry state, and shadow predictions are not decision or order triggers. The v1 baseline has no live binding. Connecting a trained model to provider routing or action selection requires a separately approved contract and must preserve validation, RiskGuard, and LivePreflight.
+# LOCAL Model Routing
+
+Initial and redecision triggers may request a LOCAL_MODEL comparison after the existing LOCAL first decision. Model order-capable actions add an external-confirmation escalation reason. A model prediction does not create a trigger or order by itself, and ETA/invalidation semantics are unchanged.
