@@ -31740,6 +31740,10 @@ class MainWindow(QMainWindow):
         scope_contract = self._normalize_ai_decision_task_scope(payload or {})
         comparison = self._provider_comparison_training_fields(decision)
         execution = dict(execution_result or {})
+        quality = dict((decision or {}).get("payload_feature_manifest_summary") or {})
+        runtime_context = dict((payload or {}).get("runtime_context") or {})
+        constraints = dict((payload or {}).get("constraints") or {})
+        safety_blockers = [str(constraints.get(key)) for key in ("sell_blocker", "buy_blocker", "blocker") if str(constraints.get(key) or "")]
         record = {
             "decision_id": decision_id,
             "parent_decision_id": str((payload or {}).get("parent_decision_id") or ""),
@@ -31750,8 +31754,16 @@ class MainWindow(QMainWindow):
             "symbol": str(scope_contract.get("symbol") or ""),
             "provider_route_id": str((decision or {}).get("provider_route_id") or (decision or {}).get("response_id") or decision_id),
             "payload_hash": payload_hash,
-            "feature_manifest_hash": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("feature_manifest_hash"),
-            "payload_quality_grade": ((decision or {}).get("payload_feature_manifest_summary") or {}).get("payload_quality_grade"),
+            "feature_manifest_hash": quality.get("feature_manifest_hash"),
+            "payload_quality_grade": quality.get("payload_quality_grade"),
+            "missing_critical_features": list(quality.get("critical_missing_features") or []),
+            "provider_context_available": bool(runtime_context.get("context_source") and runtime_context.get("session_id")),
+            "provider_context_source": str(runtime_context.get("context_source") or ""),
+            "market_data_stale": bool(((payload or {}).get("market") or {}).get("market_data_stale")),
+            "trigger_reason": str((payload or {}).get("trigger_reason") or (payload or {}).get("reason") or ""),
+            "safety_blockers": safety_blockers,
+            "valuation_unit_mismatch": bool(((payload or {}).get("position") or {}).get("valuation_unit_mismatch")),
+            "decision_action": str((decision or {}).get("action") or "").lower(),
             "local_action": comparison.get("local_action"),
             "local_confidence": comparison.get("local_confidence"),
             "external_action": comparison.get("external_action"),
@@ -31838,6 +31850,26 @@ class MainWindow(QMainWindow):
             return {"evaluated": 0, "pending": 0, "result": "debounced"}
         self._aits_outcome_scheduler_last_run = now
         result = self._decision_outcome_tracker().evaluate_due(self._ai_outcome_current_snapshot, now=now)
+        curation_summary_path = Path("data") / "ai_decision_training" / "curated_local_training_summary.json"
+        if result.get("events") or not curation_summary_path.exists():
+            from app.services.aits_orchestrator import AITSLocalTrainingDatasetCurator
+            curator = getattr(self, "_aits_local_training_dataset_curator", None)
+            if curator is None:
+                curator = AITSLocalTrainingDatasetCurator()
+                self._aits_local_training_dataset_curator = curator
+            curation_summary = curator.curate()
+            curated_count = int(curation_summary.get("safe_for_training_count") or 0)
+            excluded_count = int(curation_summary.get("excluded_count") or 0)
+            message_ko = f"LOCAL 학습 데이터 정리 · 학습 가능 {curated_count}건, 제외 {excluded_count}건"
+            self._aits_dataset_curation_status_text = message_ko
+            logging.getLogger("aits").info(
+                "[AITS][LocalTrainingCuration] event=dataset_status_rendered message_ko=%s safe_for_training_count=%s excluded_count=%s raw_leak_detected=false actual_order=False submitted=0",
+                message_ko, curated_count, excluded_count,
+            )
+            try:
+                self._append_aits_live_log(message_ko, category="pipeline", level="info", event="local_training_dataset_curated")
+            except Exception:
+                pass
         for event in result.get("events") or []:
             record = dict(event.get("record") or {})
             if event.get("finalized"):
@@ -44352,6 +44384,9 @@ class MainWindow(QMainWindow):
         outcome_status_text = str(getattr(self, "_aits_outcome_status_text", "") or "")
         if outcome_status_text:
             risk_text = f"{risk_text} | {outcome_status_text}"
+        dataset_status_text = str(getattr(self, "_aits_dataset_curation_status_text", "") or "")
+        if dataset_status_text:
+            risk_text = f"{risk_text} | {dataset_status_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text

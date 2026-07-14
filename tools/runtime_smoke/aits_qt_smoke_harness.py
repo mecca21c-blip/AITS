@@ -12383,6 +12383,153 @@ def _run_local_provider_outcome_learning_v1_summary(
     )
 
 
+def _run_local_training_dataset_curation_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    outcome_summary: dict[str, Any] = {}
+    _run_local_provider_outcome_learning_v1_summary(outcome_summary, output_dir=output_dir)
+    provider_summary: dict[str, Any] = {}
+    _run_local_first_gpt_cost_guard_v1_summary(provider_summary, output_dir=output_dir)
+    cycle_summary: dict[str, Any] = {}
+    _run_live_operating_cycle_v1_completion_summary(cycle_summary, output_dir=output_dir)
+    source_paths = (
+        ROOT / "app" / "services" / "aits_orchestrator.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+    )
+    code_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in source_paths if path.exists()
+    )
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    training_root = ROOT / "data" / "ai_decision_training"
+    outcome_path = training_root / "outcome_records.jsonl"
+    provider_path = training_root / "provider_comparison_outcomes.jsonl"
+    curated_path = training_root / "curated_local_training_records.jsonl"
+    excluded_path = training_root / "excluded_local_training_records.jsonl"
+    summary_path = training_root / "curated_local_training_summary.json"
+    summary: dict[str, Any] = {}
+    summary_error = ""
+    if summary_path.exists():
+        try:
+            value = json.loads(summary_path.read_text(encoding="utf-8"))
+            summary = value if isinstance(value, dict) else {}
+        except Exception as exc:
+            summary_error = type(exc).__name__
+
+    dataset_text = ""
+    for path in (curated_path, excluded_path):
+        if path.exists():
+            dataset_text += path.read_text(encoding="utf-8", errors="replace")[-2_000_000:]
+    secret_pattern = re.compile(r"(?:api[_-]?key|authorization|secret)[\"' :=]+[A-Za-z0-9_\-]{12,}", re.IGNORECASE)
+    prompt_pattern = re.compile(r'"(?:raw_prompt|prompt_body|request_body)"\s*:', re.IGNORECASE)
+    raw_secret_leak = bool(secret_pattern.search(dataset_text))
+    raw_prompt_leak = bool(prompt_pattern.search(dataset_text))
+    fake_outcome = bool(re.search(r'"(?:fake|fabricated|synthetic)_?(?:outcome|price|pnl)"\s*:\s*true', dataset_text, re.IGNORECASE))
+
+    schema_ready = source_ready("aits_local_training_curated_record.v1", "record_id", "source_decision_id")
+    gate_ready = source_ready("def _classify_training_gate", "training_gate_status", "exclusion_reasons")
+    exclusion_ready = source_ready(
+        "missing_decision_id", "outcome_not_evaluated", "reconciliation_missing", "manual_or_forced_action"
+    )
+    action_tags_ready = source_ready("def _classify_action_tags", "good_wait", "good_entry", "good_exit")
+    provider_tags_ready = source_ready("def _classify_provider_value", "local_correct", "external_correct")
+    opportunity_tags_ready = source_ready("def _classify_opportunity", "missed_strong_move", "avoided_large_drawdown")
+    writer_ready = source_ready(
+        "curated_local_training_records.jsonl",
+        "excluded_local_training_records.jsonl",
+        "curated_local_training_summary.json",
+        "def curate",
+    )
+    quality_ready = source_ready("def _build_summary", "local_external_agreement_rate", "external_call_usefulness_rate")
+    ui_ready = source_ready("dataset_status_rendered", "_aits_dataset_curation_status_text")
+
+    checklist = {
+        "dataset": {
+            "local_training_curation_layer_ready": source_ready("class AITSLocalTrainingDatasetCurator"),
+            "curated_dataset_schema_ready": schema_ready,
+            "curated_dataset_writer_ready": writer_ready,
+            "curated_records_file_exists": curated_path.exists(),
+            "excluded_records_file_exists": excluded_path.exists(),
+            "curated_summary_file_exists": summary_path.exists() and not summary_error,
+        },
+        "gate": {
+            "safe_for_training_gate_ready": gate_ready,
+            "exclusion_reason_classifier_ready": exclusion_ready,
+        },
+        "tags": {
+            "action_learning_tags_ready": action_tags_ready,
+            "provider_value_tags_ready": provider_tags_ready,
+            "opportunity_cost_tags_ready": opportunity_tags_ready,
+            "wait_hold_tags_ready": source_ready("good_wait", "bad_wait", "good_hold", "bad_hold"),
+            "buy_sell_tags_ready": source_ready("good_entry", "bad_entry", "good_exit", "early_exit"),
+            "rotation_tags_ready": source_ready("good_rotation", "bad_rotation", "missed_rotation"),
+            "portfolio_tags_ready": source_ready("good_portfolio_wait", "bad_portfolio_wait"),
+        },
+        "provider": {
+            "provider_comparison_curation_ready": provider_tags_ready,
+            "local_external_agreement_recorded": source_ready("local_external_agreed", "local_external_disagreed"),
+            "external_call_usefulness_recorded": source_ready("external_call_was_useful", "external_call_waste_suspected"),
+            "recommended_future_provider_route_recorded": source_ready("recommended_future_provider_route"),
+        },
+        "quality": {
+            "dataset_quality_summary_ready": quality_ready and bool(summary or summary_path.exists()),
+            "raw_secret_absent": not raw_secret_leak,
+            "raw_prompt_absent": not raw_prompt_leak,
+            "fake_outcome_absent": not fake_outcome,
+        },
+        "integration": {
+            "outcome_records_source_detected": bool(outcome_path.exists() or source_ready("outcome_records.jsonl")),
+            "provider_comparison_source_detected": bool(provider_path.exists() or source_ready("provider_comparison_outcomes.jsonl")),
+            "local_provider_outcome_learning_compat_ready": bool(outcome_summary.get("local_provider_outcome_learning_v1_ready")),
+            "local_first_gpt_cost_guard_compat_ready": bool(provider_summary.get("local_first_gpt_cost_guard_v1_ready")),
+            "live_operating_cycle_compat_ready": bool(cycle_summary.get("live_operating_cycle_v1_ready")),
+            "dataset_status_timeline_ready": ui_ready,
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_training_dataset_curation_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    report.update(
+        {
+            "schema": "aits_local_training_dataset_curation_v1_summary_v1",
+            "mode": "local-training-dataset-curation-v1-summary",
+            **{key: value for group in checklist.values() for key, value in group.items()},
+            "curated_dataset_version": str(summary.get("dataset_version") or "v1"),
+            "safe_for_training_count": int(summary.get("safe_for_training_count") or 0),
+            "excluded_training_count": int(summary.get("excluded_count") or 0),
+            "exclusion_reason_counts": dict(summary.get("by_exclusion_reason") or {}),
+            "duplicate_records_detected": int(summary.get("duplicate_records_detected") or 0),
+            "corrupted_source_records_detected": int(summary.get("corrupted_source_records_detected") or 0),
+            "raw_secret_leak_detected": raw_secret_leak,
+            "raw_prompt_leak_detected": raw_prompt_leak,
+            "fake_outcome_detected": fake_outcome,
+            "total_source_outcome_records": int(summary.get("total_source_outcome_records") or 0),
+            "total_curated_records": int(summary.get("total_curated_records") or 0),
+            "total_excluded_records": int(summary.get("total_excluded_records") or 0),
+            "dataset_summary": summary,
+            "summary_read_error": summary_error,
+            "completion_checklist": checklist,
+            "local_training_dataset_curation_v1_ready": ready,
+            "first_blocker": first_blocker,
+            "blocker_group": blocker_group,
+            "next_sprint_recommendation": "SPRINT-LOCAL-TRAINING-FEATURE-PIPELINE-V1",
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -23852,6 +23999,7 @@ def run_harness(
         "live-operating-cycle-v1-completion-summary",
         "local-first-gpt-cost-guard-v1-summary",
         "local-provider-outcome-learning-v1-summary",
+        "local-training-dataset-curation-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -24129,6 +24277,12 @@ def run_harness(
         elif mode == "local-provider-outcome-learning-v1-summary":
             _install_provider_post_guard(report)
             _run_local_provider_outcome_learning_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-training-dataset-curation-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_training_dataset_curation_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -24778,6 +24932,7 @@ def main() -> int:
             "live-operating-cycle-v1-completion-summary",
             "local-first-gpt-cost-guard-v1-summary",
             "local-provider-outcome-learning-v1-summary",
+            "local-training-dataset-curation-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

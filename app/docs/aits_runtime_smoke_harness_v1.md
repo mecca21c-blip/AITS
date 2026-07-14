@@ -2110,3 +2110,7 @@ summary modes.
 ## LOCAL Provider Outcome Learning Summary
 
 `local-provider-outcome-learning-v1-summary --observe-only` checks decision registration, 5-minute/15-minute/1-hour scheduling, factual checkpoint evaluation, provider comparison, retrospective action classifiers, opportunity-cost evidence, dataset writers, and Korean outcome visibility. Runtime counts are scoped to the selected application PID/session. A zero evaluated count is valid before the first checkpoint is due; structural readiness and runtime activity are reported separately.
+
+## LOCAL Training Dataset Curation Summary
+
+`local-training-dataset-curation-v1-summary --observe-only` validates the curated schema, strict training gate, standardized exclusions, action/provider/opportunity tags, deduplicating writers, quality summary, and safe Korean status contract. It reports actual curated/excluded file presence and counts while treating a valid zero-record source as empty rather than failed. The mode reads existing runtime data and never invokes a provider or trading control.

@@ -303,3 +303,7 @@ Every supported AI trigger first requests LOCAL judgment. High-confidence non-ac
 ## Outcome Checkpoint Policy
 
 Decision registration schedules factual 5-minute, 15-minute, and 1-hour reviews. A due checkpoint is an observation event, not a redecision trigger or order condition. Wait, hold, order-capable, and rotation actions are all reviewed, but retrospective labels never feed directly into Router or execution. A later policy may learn from records marked safe for LOCAL training through a separately approved training pipeline.
+
+## Curated Learning Boundary
+
+Dataset curation is not an AI trigger. Training gate outcomes, exclusion reasons, action tags, provider-value tags, and opportunity-cost tags are retrospective metadata only. They may support future LOCAL training research, but they cannot initiate redecision, alter ETA, promote a candidate, or create an order.

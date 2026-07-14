@@ -160,3 +160,7 @@ Payload quality is evaluated before escalation and is shared by LOCAL and extern
 ## Outcome Data Quality
 
 Outcome records retain the original payload and feature-manifest hashes so later performance evidence remains attributable to the decision context. Checkpoint data quality is acceptable only when a real market, normalized-holdings, or portfolio source supports the measurement. Missing critical observations yield `data_unavailable` and `safe_for_local_training=false`; they are not replaced with estimated price, PnL, fill, or provider output.
+
+## Curated Training Quality
+
+The curated gate combines payload grade, canonical task/scope/action, provider provenance, evaluated checkpoint coverage, source availability, safety blockers, and reconciliation evidence. D/F payloads and unavailable or inconclusive-only outcomes remain excluded. Quality summaries count duplicates and malformed source lines; neither condition is repaired by inventing a replacement record.

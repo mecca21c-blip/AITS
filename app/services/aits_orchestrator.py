@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from collections import Counter
+import hashlib
 import json
 import logging
 import math
@@ -615,6 +617,488 @@ class AITSDecisionOutcomeTracker:
             for checkpoint in (record.get("checkpoints") or {}).values() if isinstance(checkpoint, dict) and checkpoint.get("status") == "pending"
         )
         return {"events": events, "evaluated": sum("checkpoint" in event for event in events), "pending": pending}
+
+
+class AITSLocalTrainingDatasetCurator:
+    """Build a deduplicated, allow-listed LOCAL training dataset from outcome evidence."""
+
+    SCHEMA = "aits_local_training_curated_record.v1"
+    DATASET_VERSION = "v1"
+    VALID_TASKS = {
+        "position_management_decision",
+        "portfolio_management_decision",
+        "ai_redecision",
+        "buy_decision",
+        "sell_decision",
+        "rotation_decision",
+        "promotion_decision",
+        "managed_pool_promotion_decision",
+    }
+    VALID_ACTIONS = AITSDecisionOutcomeTracker.ACTIONS
+    ORDER_ACTIONS = {"buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
+
+    def __init__(self, root: Path | str = Path("data") / "ai_decision_training") -> None:
+        self.root = Path(root)
+        self.outcome_path = self.root / "outcome_records.jsonl"
+        self.provider_path = self.root / "provider_comparison_outcomes.jsonl"
+        self.state_path = self.root / "outcome_tracking_state.json"
+        self.curated_path = self.root / "curated_local_training_records.jsonl"
+        self.excluded_path = self.root / "excluded_local_training_records.jsonl"
+        self.summary_path = self.root / "curated_local_training_summary.json"
+
+    @staticmethod
+    def _stable_hash(value: Any, length: int = 24) -> str:
+        encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()[:length]
+
+    @staticmethod
+    def _list(value: Any) -> list[str]:
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if str(item or "").strip()]
+        return [str(value)] if str(value or "").strip() else []
+
+    def _read_jsonl(self, path: Path) -> tuple[list[dict], int, int]:
+        rows: list[dict] = []
+        corrupted = 0
+        duplicates = 0
+        seen: set[str] = set()
+        if not path.exists():
+            return rows, corrupted, duplicates
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            for line in handle:
+                raw = line.strip()
+                if not raw:
+                    continue
+                try:
+                    value = json.loads(raw)
+                except Exception:
+                    corrupted += 1
+                    continue
+                if not isinstance(value, dict):
+                    corrupted += 1
+                    continue
+                fingerprint = self._stable_hash(value, 32)
+                if fingerprint in seen:
+                    duplicates += 1
+                    continue
+                seen.add(fingerprint)
+                rows.append(value)
+        return rows, corrupted, duplicates
+
+    def _load_state_decisions(self) -> dict[str, dict]:
+        try:
+            value = json.loads(self.state_path.read_text(encoding="utf-8")) if self.state_path.exists() else {}
+            decisions = value.get("decisions") if isinstance(value, dict) else {}
+            return {str(key): dict(item) for key, item in (decisions or {}).items() if isinstance(item, dict)}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            for row in rows:
+                handle.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
+        temporary.replace(path)
+
+    @staticmethod
+    def _write_json_atomic(path: Path, value: dict) -> None:
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+        temporary.replace(path)
+
+    @staticmethod
+    def _scope_valid(task: str, scope_type: str, scope: str, symbol: str) -> bool:
+        if task == "portfolio_management_decision" or scope_type == "portfolio":
+            return scope == "PORTFOLIO" and not symbol
+        return bool(symbol.startswith("KRW-") and scope in {symbol, ""})
+
+    def _classify_training_gate(self, record: dict, checkpoints: list[dict]) -> dict:
+        reasons: list[str] = []
+        decision_id = str(record.get("decision_id") or "")
+        payload_hash = str(record.get("payload_hash") or "")
+        task = str(record.get("task") or "")
+        scope_type = str(record.get("scope_type") or "")
+        scope = str(record.get("scope") or "")
+        symbol = str(record.get("symbol") or "")
+        action = str(record.get("final_action") or "").lower()
+        provider = str(record.get("final_provider_source") or "")
+        payload_grade = str(record.get("payload_quality_grade") or "").upper()
+        evaluated = [item for item in checkpoints if item.get("status") == "evaluated"]
+        labels = [str(item.get("outcome_label") or "") for item in evaluated]
+        sources = [str(item.get("source") or "") for item in evaluated]
+        blockers = self._list(record.get("safety_blockers")) + self._list(record.get("risk_blockers"))
+        blockers += [str(item.get("blocker")) for item in checkpoints if str(item.get("blocker") or "")]
+        blocker_text = ",".join(blockers).lower()
+
+        if not decision_id:
+            reasons.append("missing_decision_id")
+        if not payload_hash:
+            reasons.append("missing_payload_hash")
+        if task not in self.VALID_TASKS:
+            reasons.append("task_invalid")
+        if not self._scope_valid(task, scope_type, scope, symbol):
+            reasons.append("task_scope_invalid")
+        if action not in self.VALID_ACTIONS:
+            reasons.append("action_schema_invalid")
+        if not provider:
+            reasons.append("provider_context_missing")
+        if record.get("provider_context_available") is False:
+            reasons.append("provider_context_missing")
+        if payload_grade in {"D", "F"}:
+            reasons.append("payload_quality_too_low")
+        elif not payload_grade:
+            reasons.append("payload_quality_missing")
+        if not evaluated:
+            reasons.append("outcome_not_evaluated")
+        if evaluated and all(label in {"", "data_unavailable"} for label in labels):
+            reasons.append("data_unavailable")
+        if evaluated and all(not source or "unavailable" in source or source == "unknown" for source in sources):
+            reasons.append("price_source_unavailable" if symbol else "valuation_source_unavailable")
+        if self._list(record.get("missing_critical_features")):
+            reasons.append("payload_critical_missing")
+        if any(label == "inconclusive" for label in labels) and not any(label not in {"", "inconclusive", "data_unavailable"} for label in labels):
+            reasons.append("inconclusive_outcome")
+        if "valuation_unit_mismatch" in blocker_text or bool(record.get("valuation_unit_mismatch")):
+            reasons.append("valuation_unit_mismatch")
+        if bool(record.get("market_data_stale")) or "stale" in blocker_text or any("stale" in source for source in sources):
+            reasons.append("stale_market_data")
+        provenance_text = " ".join(
+            str(record.get(key) or "").lower() for key in ("trigger_reason", "source", "record_source")
+        )
+        if bool(record.get("manual_action") or record.get("forced_action") or record.get("test_record")) or any(
+            token in provenance_text for token in ("manual", "forced", "fixture", "test_record")
+        ):
+            reasons.append("manual_or_forced_action")
+        decision_action = str(record.get("decision_action") or "").lower()
+        if decision_action and action and decision_action != action:
+            reasons.append("decision_action_mismatch")
+        actual_order = record.get("actual_order")
+        submitted = int(record.get("submitted") or 0)
+        execution = record.get("execution_result") if isinstance(record.get("execution_result"), dict) else {}
+        if actual_order is None:
+            reasons.append("actual_order_unclear")
+        if submitted > 0 and not execution:
+            reasons.append("reconciliation_missing")
+        if submitted > 0 and not str(execution.get("request_id") or execution.get("status") or ""):
+            reasons.append("reconciliation_missing")
+        reasons = sorted(set(reasons))
+        safe = not reasons
+        severity = "none" if safe else ("critical" if any(item in reasons for item in {"manual_or_forced_action", "reconciliation_missing", "valuation_unit_mismatch"}) else "exclude")
+        quality = payload_grade if safe and payload_grade in {"A", "B", "C"} else ("F" if "outcome_not_evaluated" in reasons else "D")
+        can_be_used_for = {
+            "local_action_learning": safe,
+            "local_risk_learning": safe or bool(blockers),
+            "provider_routing_learning": bool(provider and record.get("local_action")),
+            "opportunity_cost_learning": safe and action in {"wait", "hold", "rotate"},
+            "wait_hold_learning": safe and action in {"wait", "hold"},
+            "buy_sell_learning": safe and action in self.ORDER_ACTIONS - {"rotate"},
+            "portfolio_learning": safe and scope_type == "portfolio",
+        }
+        return {
+            "safe_for_local_training": safe,
+            "training_gate_status": "passed" if safe else "excluded",
+            "training_quality_grade": quality,
+            "exclusion_reasons": reasons,
+            "exclusion_severity": severity,
+            "can_be_used_for": can_be_used_for,
+        }
+
+    @staticmethod
+    def _classify_action_tags(action: str, label: str, scope_type: str, blockers: list[str]) -> list[str]:
+        tags: list[str] = []
+        if action in {"wait", "hold"}:
+            mapping = {
+                "good_wait": "good_wait" if action == "wait" else "good_hold",
+                "missed_opportunity": "missed_opportunity",
+                "avoided_loss": "avoided_loss",
+                "data_unavailable": "data_gap_wait",
+            }
+            tags.append(mapping.get(label, "bad_wait" if action == "wait" else "bad_hold"))
+        elif action in {"buy", "add"}:
+            tags.append("good_entry" if label == "good_buy" else ("bad_entry" if label == "bad_buy" else "avoided_bad_buy"))
+        elif action in {"sell", "reduce", "take_profit", "stop_loss"}:
+            mapping = {
+                "good_sell": "good_exit",
+                "early_sell": "early_exit",
+                "good_take_profit": "good_take_profit",
+                "bad_take_profit": "bad_take_profit",
+                "good_stop_loss": "good_stop_loss",
+                "avoided_loss": "avoided_loss",
+            }
+            tags.append(mapping.get(label, "late_exit"))
+            if any("valuation_unit_mismatch" in blocker for blocker in blockers):
+                tags.append("unit_guard_block_correct")
+        elif action == "rotate":
+            tags.append("good_rotation" if label == "useful_rotation" else ("bad_rotation" if label == "bad_rotation" else "missed_rotation"))
+        if scope_type == "portfolio":
+            tags.append("good_portfolio_wait" if label == "good_wait" else "bad_portfolio_wait")
+        return sorted(set(tags))
+
+    @staticmethod
+    def _classify_provider_value(comparison: dict, outcome_score: float) -> dict:
+        match = bool(comparison.get("local_external_action_match"))
+        changed = bool(comparison.get("external_changed_action"))
+        useful = bool(comparison.get("external_call_was_useful"))
+        waste = bool(comparison.get("external_call_waste_suspected"))
+        external_called = bool(comparison.get("external_called"))
+        external_blocked = bool(comparison.get("external_blocked"))
+        tags: list[str] = []
+        if match:
+            tags.append("local_external_agreed")
+        elif comparison.get("local_external_disagreed"):
+            tags.append("local_external_disagreed")
+        if useful:
+            tags += ["external_correct", "external_improved_decision"]
+        elif waste:
+            tags.append("external_unnecessary")
+        elif not external_called and not external_blocked and outcome_score >= 0:
+            tags += ["local_correct", "local_only_safe"]
+        elif external_blocked and outcome_score >= 0:
+            tags.append("external_blocked_no_issue")
+        elif external_blocked and outcome_score < 0:
+            tags.append("external_blocked_possible_opportunity_loss")
+        if changed and bool(comparison.get("external_changed_risk_level")):
+            tags.append("external_risk_reduced" if outcome_score >= 0 else "external_missed_opportunity")
+        label = "useful_external" if useful else ("unnecessary_external" if waste else ("local_sufficient" if outcome_score >= 0 else "route_review"))
+        route = str(comparison.get("recommended_future_route") or ("local_candidate" if outcome_score >= 0 else "retain_escalation_policy"))
+        return {
+            "provider_value_label": label,
+            "provider_value_score": outcome_score,
+            "provider_learning_tags": sorted(set(tags)),
+            "external_call_was_useful": useful,
+            "external_call_waste_suspected": waste,
+            "recommended_future_provider_route": route,
+            "recommended_escalation_policy_adjustment": "review_external_threshold" if waste else "retain_current_policy",
+        }
+
+    @staticmethod
+    def _classify_opportunity(source: dict) -> dict:
+        opportunity = dict(source.get("opportunity_cost") or {})
+        candidate_move = AITSDecisionOutcomeTracker.number(opportunity.get("candidate_price_change_pct"))
+        held_move = AITSDecisionOutcomeTracker.number(opportunity.get("held_symbol_price_change_pct"))
+        portfolio_move = AITSDecisionOutcomeTracker.number(
+            (source.get("checkpoint") or {}).get("portfolio_change_pct") if isinstance(source.get("checkpoint"), dict) else None
+        )
+        missed = bool(opportunity.get("missed_move_detected"))
+        avoided = bool(opportunity.get("avoided_drawdown_detected"))
+        if candidate_move is None and held_move is None and portfolio_move is None:
+            label, score = "data_unavailable_for_opportunity", 0.0
+        elif avoided:
+            label, score = "avoided_large_drawdown", min(1.0, abs(held_move or portfolio_move or 0.0) / 5.0)
+        elif missed:
+            move = candidate_move if candidate_move is not None else (held_move or 0.0)
+            label, score = ("missed_strong_move" if abs(move) >= 2.0 else "missed_small_move"), -min(1.0, abs(move) / 8.0)
+        elif held_move is not None and abs(held_move) < 1.0:
+            label, score = "wait_neutral", max(0.1, 1.0 - abs(held_move))
+        else:
+            label, score = "hold_reasonable", 0.1
+        return {
+            "opportunity_cost_evaluated": label != "data_unavailable_for_opportunity",
+            "candidate_move_pct": candidate_move,
+            "held_symbol_move_pct": held_move,
+            "portfolio_move_pct": portfolio_move,
+            "missed_move_detected": missed,
+            "avoided_drawdown_detected": avoided,
+            "opportunity_cost_label": label,
+            "opportunity_cost_score": score,
+            "opportunity_learning_tags": [label],
+        }
+
+    def _build_curated_record(self, state: dict, sources: list[dict], provider_rows: list[dict]) -> dict:
+        latest = max(sources, key=lambda item: float(item.get("evaluated_at") or 0.0), default={})
+        checkpoint_map: dict[str, dict] = {}
+        for source in sources:
+            checkpoint = dict(source.get("checkpoint") or {})
+            name = str(checkpoint.get("checkpoint_name") or "")
+            if name:
+                checkpoint_map[name] = checkpoint
+        if not checkpoint_map:
+            checkpoint_map = {str(key): dict(value) for key, value in (state.get("checkpoints") or {}).items() if isinstance(value, dict)}
+        checkpoints = list(checkpoint_map.values())
+        final = dict(state.get("final_outcome") or {})
+        final_label = str(final.get("outcome_label") or latest.get("outcome_label") or "inconclusive")
+        final_score = AITSDecisionOutcomeTracker.number(final.get("outcome_score"))
+        if final_score is None:
+            final_score = AITSDecisionOutcomeTracker.number(latest.get("outcome_score")) or 0.0
+        comparison = dict(latest.get("provider_comparison") or {})
+        if not comparison and provider_rows:
+            comparison = dict(max(provider_rows, key=lambda item: float(item.get("evaluated_at") or 0.0)))
+        local = dict(latest.get("local_decision") or {})
+        external = dict(latest.get("external_decision") or {})
+        final_decision = dict(latest.get("final_decision") or {})
+        action = str(state.get("final_action") or final_decision.get("action") or "").lower()
+        scope_type = str(state.get("scope_type") or ("portfolio" if str(state.get("scope") or "") == "PORTFOLIO" else "position"))
+        blockers = self._list(state.get("risk_blockers")) + self._list(state.get("safety_blockers"))
+        blockers += [str(item.get("blocker")) for item in checkpoints if str(item.get("blocker") or "")]
+        gate_source = {
+            **state,
+            "final_action": action,
+            "final_provider_source": state.get("final_provider_source") or final_decision.get("provider"),
+            "payload_hash": state.get("payload_hash") or latest.get("payload_hash"),
+            "payload_quality_grade": state.get("payload_quality_grade"),
+            "actual_order": state.get("actual_order", False),
+            "submitted": state.get("submitted", 0),
+            "execution_result": state.get("execution_result") or latest.get("execution_result") or {},
+            "risk_blockers": self._list(state.get("risk_blockers")),
+            "safety_blockers": self._list(state.get("safety_blockers")),
+        }
+        gate = self._classify_training_gate(gate_source, checkpoints)
+        action_tags = self._classify_action_tags(action, final_label, scope_type, blockers)
+        provider_value = self._classify_provider_value(comparison, final_score)
+        opportunity = self._classify_opportunity(latest)
+        decision_id = str(state.get("decision_id") or latest.get("decision_id") or "")
+        source_ids = sorted(self._stable_hash(source, 20) for source in sources)
+        learning_tags = sorted(set(action_tags + provider_value["provider_learning_tags"] + opportunity["opportunity_learning_tags"]))
+        learning_label = "excluded" if not gate["safe_for_local_training"] else ("positive" if final_score > 0 else ("negative" if final_score < 0 else "neutral"))
+        return {
+            "schema": self.SCHEMA,
+            "record_id": f"curated-{self._stable_hash(decision_id or source_ids)}",
+            "source_decision_id": decision_id,
+            "source_outcome_record_id": ",".join(source_ids),
+            "created_at": state.get("created_at") or latest.get("created_at"),
+            "curated_at": time.time(),
+            "session_id": str(state.get("session_id") or ""),
+            "task": str(state.get("task") or latest.get("task") or ""),
+            "scope_type": scope_type,
+            "scope": str(state.get("scope") or latest.get("scope") or ""),
+            "symbol": str(state.get("symbol") or latest.get("symbol") or ""),
+            "market": str(state.get("symbol") or latest.get("symbol") or ""),
+            "timeframe_context": sorted(checkpoint_map),
+            "payload_hash": str(state.get("payload_hash") or latest.get("payload_hash") or ""),
+            "feature_manifest_hash": state.get("feature_manifest_hash") or latest.get("feature_manifest_hash"),
+            "payload_quality_grade": str(state.get("payload_quality_grade") or ""),
+            "data_quality_grade": gate["training_quality_grade"],
+            "action": action,
+            "final_action": action,
+            "local_action": str(state.get("local_action") or local.get("action") or ""),
+            "external_action": str(state.get("external_action") or external.get("action") or ""),
+            "final_provider_source": str(state.get("final_provider_source") or final_decision.get("provider") or ""),
+            "local_confidence": state.get("local_confidence", local.get("confidence")),
+            "external_confidence": state.get("external_confidence", external.get("confidence")),
+            "final_confidence": state.get("final_confidence", final_decision.get("confidence")),
+            "reason_ko": str(state.get("reason_ko") or ""),
+            "provider_route": {
+                "final_provider_source": str(state.get("final_provider_source") or final_decision.get("provider") or ""),
+                "external_called": bool(state.get("external_called")),
+                "external_blocked": bool(state.get("external_blocked")),
+            },
+            "escalation_reason": str(state.get("escalation_reason") or comparison.get("escalation_reason") or ""),
+            "cost_guard_blocker": str(state.get("cost_guard_blocker") or comparison.get("cost_guard_blocker") or ""),
+            "risk_blockers": self._list(state.get("risk_blockers")),
+            "safety_blockers": self._list(state.get("safety_blockers")) + [item for item in blockers if item not in self._list(state.get("risk_blockers"))],
+            "order_submitted": bool(int(state.get("submitted") or 0) > 0),
+            "actual_order": bool(state.get("actual_order")),
+            "order_side": str((state.get("execution_result") or {}).get("side") or ""),
+            "order_result": dict(state.get("execution_result") or latest.get("execution_result") or {}),
+            "outcome_checkpoints": checkpoint_map,
+            "final_outcome_label": final_label,
+            "final_outcome_score": final_score,
+            "learning_label": learning_label,
+            "learning_tags": learning_tags,
+            **gate,
+            **provider_value,
+            **opportunity,
+            "recommended_local_behavior": "learn_from_observed_outcome" if gate["safe_for_local_training"] else "exclude_until_evidence_complete",
+            "recommended_future_provider_route": provider_value["recommended_future_provider_route"],
+            "notes": "Curated from allow-listed decision and outcome fields; no raw request content retained.",
+        }
+
+    def _build_summary(self, records: list[dict], *, source_count: int, corrupted: int, duplicates: int) -> dict:
+        safe = [row for row in records if row.get("safe_for_local_training")]
+        excluded = [row for row in records if not row.get("safe_for_local_training")]
+        def counts(key: str, *, list_value: bool = False) -> dict:
+            counter: Counter = Counter()
+            for row in records:
+                values = row.get(key) if list_value else [row.get(key)]
+                for value in values or []:
+                    if str(value or ""):
+                        counter[str(value)] += 1
+            return dict(sorted(counter.items()))
+        scores = [float(row.get("final_outcome_score") or 0.0) for row in records]
+        grade_values = {"A": 4.0, "B": 3.0, "C": 2.0, "D": 1.0, "F": 0.0}
+        payload_values = [grade_values.get(str(row.get("payload_quality_grade") or "").upper()) for row in records]
+        payload_values = [value for value in payload_values if value is not None]
+        comparison_rows = [row for row in records if row.get("local_action") and row.get("external_action")]
+        useful_rows = [row for row in records if row.get("provider_route", {}).get("external_called")]
+        return {
+            "schema": "aits_local_training_curated_summary.v1",
+            "dataset_version": self.DATASET_VERSION,
+            "total_source_outcome_records": source_count,
+            "total_curated_records": len(safe),
+            "total_excluded_records": len(excluded),
+            "safe_for_training_count": len(safe),
+            "excluded_count": len(excluded),
+            "by_task": counts("task"),
+            "by_action": counts("final_action"),
+            "by_provider_source": counts("final_provider_source"),
+            "by_outcome_label": counts("final_outcome_label"),
+            "by_learning_tag": counts("learning_tags", list_value=True),
+            "by_exclusion_reason": counts("exclusion_reasons", list_value=True),
+            "avg_payload_quality": round(sum(payload_values) / len(payload_values), 4) if payload_values else None,
+            "avg_outcome_score": round(sum(scores) / len(scores), 6) if scores else None,
+            "local_external_agreement_rate": round(sum(row.get("local_action") == row.get("external_action") for row in comparison_rows) / len(comparison_rows), 6) if comparison_rows else None,
+            "external_call_usefulness_rate": round(sum(bool(row.get("external_call_was_useful")) for row in useful_rows) / len(useful_rows), 6) if useful_rows else None,
+            "cost_guard_block_count": sum(bool(row.get("cost_guard_blocker")) for row in records),
+            "opportunity_cost_records_count": sum(bool(row.get("opportunity_cost_evaluated")) for row in records),
+            "buy_sell_records_count": sum(row.get("final_action") in self.ORDER_ACTIONS - {"rotate"} for row in records),
+            "wait_hold_records_count": sum(row.get("final_action") in {"wait", "hold"} for row in records),
+            "duplicate_records_detected": duplicates,
+            "corrupted_source_records_detected": corrupted,
+            "last_curated_at": time.time(),
+        }
+
+    def curate(self) -> dict:
+        self.root.mkdir(parents=True, exist_ok=True)
+        logging.getLogger("aits").info("[AITS][LocalTrainingCuration] event=curation_started source=outcome_records actual_order=False submitted=0")
+        outcome_rows, outcome_corrupt, outcome_duplicates = self._read_jsonl(self.outcome_path)
+        provider_rows, provider_corrupt, provider_duplicates = self._read_jsonl(self.provider_path)
+        state_decisions = self._load_state_decisions()
+        outcomes_by_decision: dict[str, list[dict]] = {}
+        providers_by_decision: dict[str, list[dict]] = {}
+        for row in outcome_rows:
+            decision_id = str(row.get("decision_id") or "")
+            outcomes_by_decision.setdefault(decision_id, []).append(row)
+        for row in provider_rows:
+            providers_by_decision.setdefault(str(row.get("decision_id") or ""), []).append(row)
+        decision_ids = sorted(set(state_decisions) | {key for key in outcomes_by_decision if key})
+        records = [
+            self._build_curated_record(state_decisions.get(decision_id, {"decision_id": decision_id}), outcomes_by_decision.get(decision_id, []), providers_by_decision.get(decision_id, []))
+            for decision_id in decision_ids
+        ]
+        records.sort(key=lambda row: (str(row.get("created_at") or ""), str(row.get("record_id") or "")))
+        curated = [row for row in records if row.get("safe_for_local_training")]
+        excluded = [row for row in records if not row.get("safe_for_local_training")]
+        summary = self._build_summary(
+            records,
+            source_count=len(outcome_rows),
+            corrupted=outcome_corrupt + provider_corrupt,
+            duplicates=outcome_duplicates + provider_duplicates,
+        )
+        self._write_jsonl_atomic(self.curated_path, curated)
+        self._write_jsonl_atomic(self.excluded_path, excluded)
+        self._write_json_atomic(self.summary_path, summary)
+        for row in records:
+            event = "record_curated" if row.get("safe_for_local_training") else "record_excluded"
+            gate_event = "training_gate_passed" if row.get("safe_for_local_training") else "training_gate_failed"
+            logging.getLogger("aits").info(
+                "[AITS][LocalTrainingCuration] event=%s decision_id=%s task=%s scope=%s symbol=%s safe_for_local_training=%s training_quality_grade=%s exclusion_reasons=%s learning_tags=%s final_outcome_label=%s final_outcome_score=%s actual_order=False submitted=0",
+                event, row.get("source_decision_id") or "-", row.get("task") or "-", row.get("scope") or "-", row.get("symbol") or "-",
+                bool(row.get("safe_for_local_training")), row.get("training_quality_grade") or "-",
+                ",".join(row.get("exclusion_reasons") or []) or "-", ",".join(row.get("learning_tags") or []) or "-",
+                row.get("final_outcome_label") or "-", row.get("final_outcome_score"),
+            )
+            logging.getLogger("aits").info(
+                "[AITS][LocalTrainingCuration] event=%s decision_id=%s safe_for_local_training=%s exclusion_reasons=%s actual_order=False submitted=0",
+                gate_event, row.get("source_decision_id") or "-", bool(row.get("safe_for_local_training")),
+                ",".join(row.get("exclusion_reasons") or []) or "-",
+            )
+        logging.getLogger("aits").info(
+            "[AITS][LocalTrainingCuration] event=curation_summary_written total_source_outcome_records=%s total_curated_records=%s total_excluded_records=%s duplicate_records_detected=%s corrupted_source_records_detected=%s dataset_version=%s actual_order=False submitted=0",
+            summary["total_source_outcome_records"], summary["total_curated_records"], summary["total_excluded_records"],
+            summary["duplicate_records_detected"], summary["corrupted_source_records_detected"], summary["dataset_version"],
+        )
+        return summary
 
 
 def _fetch_upbit_price_once(symbol: str) -> tuple[float | None, str]:

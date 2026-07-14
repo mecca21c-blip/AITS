@@ -218,3 +218,7 @@ BASIC builds facts and payload context. LOCAL is the first AI decision maker and
 ## Outcome Learning Role
 
 BASIC schedules and records later factual observations. LOCAL and external providers remain decision makers; neither provider labels its own success. Retrospective outcome labels and provider-value estimates are learning evidence only. They cannot create an action, bypass validation, or authorize execution. Missing market, holding, or portfolio sources remain unavailable rather than being inferred.
+
+## Dataset Curation Role
+
+BASIC may curate allow-listed factual outcome fields into later-learning candidates and exclusions. Curation owns data quality, deduplication, exclusion reasons, and retrospective tags; it does not own AI action selection or execution. Curated labels and route recommendations cannot update runtime policy without a separately approved training and deployment contract.
