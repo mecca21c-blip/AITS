@@ -19,6 +19,27 @@ class UIConfig(BaseModel):
     saved_id: str = ""                   # 저장된 로그인 아이디(이메일 등)
     remember_id: bool = False            # 아이디 저장 체크 여부
 
+
+class RuntimeResourceConfig(BaseModel):
+    """Stable deployment defaults for laptops and integrated graphics."""
+
+    low_resource_mode_enabled: bool = True
+    chart_render_on_startup: bool = False
+    chart_refresh_min_interval_sec: float = 20.0
+    candle_chart_initial_delay_sec: float = 20.0
+    max_chart_candles: int = 120
+    enable_chart_subplots_in_low_resource: bool = False
+    ui_log_max_lines: int = 500
+    ui_log_flush_interval_sec: float = 2.0
+    table_refresh_min_interval_sec: float = 5.0
+    status_refresh_min_interval_sec: float = 1.5
+    market_refresh_batch_size: int = 20
+    indicator_compute_batch_size: int = 8
+    startup_stage_delay_ms: int = 300
+    ai_startup_delay_sec: float = 8.0
+    scheduler_startup_delay_sec: float = 10.0
+    resource_health_interval_sec: float = 30.0
+
 # ---- Strategy schema (defaults only; UI validates ranges) ----
 # 사용자 노출: aggressiveness(3단계), order_amount_krw, allow_downscale_order_amount, whitelist, blacklist
 # 내부 전용: aggressiveness_level, pos_size_pct, rr_ratio 등 → aggressiveness 프리셋으로 설정
@@ -170,6 +191,7 @@ class AppSettings(BaseModel):
     upbit: UpbitConfig = UpbitConfig()
     poll: PollConfig = PollConfig()
     ui: UIConfig = UIConfig()
+    runtime_resource: RuntimeResourceConfig = RuntimeResourceConfig()
     # [위험 지점] AppSettings() 인자 없이 생성 시 strategy가 기본 인스턴스 → ai_provider=local. docs/P0_AI_PROVIDER_SSOT_DESIGN_AND_PATCH.md
     strategy: StrategyConfig = StrategyConfig()
     trade: TradeConfig = TradeConfig()

@@ -2,6 +2,16 @@
 
 ## Purpose
 
+### LOCAL Model Calibration Data Accumulation v1
+
+`--mode local-model-calibration-data-accumulation-v1-summary --observe-only`
+combines one running non-harness ON session with persisted outcome, curated,
+feature, training, LOCAL_MODEL, calibration, and order-reconciliation evidence.
+It requires at least 120 minutes of observed session time and at least one real
+checkpoint result. It does not start AITS, call a provider, place an order, or
+manufacture missing pipeline data. `no_data` and `insufficient_data` remain
+truthful model states; reconciliation misses and guard bypasses are blockers.
+
 The Qt smoke harness provides a screenshot-free way to inspect the live AITS
 widget tree when Windows screenshot capture or Computer Use click automation is
 unavailable.
@@ -2126,3 +2136,8 @@ summary modes.
 # LOCAL Model Live Outcome Calibration v1
 
 `--mode local-model-live-outcome-calibration-v1-summary --observe-only` checks observed outcome loading, LOCAL_MODEL prediction matching, confidence buckets, action/task and risk calibration, recommendation-only routing metadata, calibration profile files, and prior Sprint compatibility. Zero usable records are reported as `no_data_calibration_ready`; the summary requires a null recommended threshold and `safe_for_live_expansion=false` in that state.
+# Low-resource runtime stability summary
+
+`--mode low-resource-runtime-stability-v1-summary --observe-only` audits the stability-first runtime profile without starting AITS or touching trading controls. It checks ON startup staging, chart and table repaint throttles, batched LIVE LOG updates, AI/indicator backpressure, resource health logging, safe UI-first degradation, and prohibited trading-layer diffs.
+
+The summary is structural. A later user-operated ON session supplies runtime timing evidence; lack of such a session does not cause the structural safety audit to fabricate activity.

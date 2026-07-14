@@ -8208,12 +8208,152 @@ class MainWindow(QMainWindow):
             pass
         return False
 
+    def _runtime_resource_policy(self) -> dict:
+        defaults = {
+            "low_resource_mode_enabled": True,
+            "chart_render_on_startup": False,
+            "chart_refresh_min_interval_sec": 20.0,
+            "candle_chart_initial_delay_sec": 20.0,
+            "max_chart_candles": 120,
+            "enable_chart_subplots_in_low_resource": False,
+            "ui_log_max_lines": 500,
+            "ui_log_flush_interval_sec": 2.0,
+            "table_refresh_min_interval_sec": 5.0,
+            "status_refresh_min_interval_sec": 1.5,
+            "market_refresh_batch_size": 20,
+            "indicator_compute_batch_size": 8,
+            "startup_stage_delay_ms": 300,
+            "ai_startup_delay_sec": 8.0,
+            "scheduler_startup_delay_sec": 10.0,
+            "resource_health_interval_sec": 30.0,
+        }
+        try:
+            value = getattr(getattr(self, "_settings", None), "runtime_resource", None)
+            if hasattr(value, "model_dump"):
+                value = value.model_dump()
+            if isinstance(value, dict):
+                defaults.update({key: value[key] for key in defaults if key in value})
+        except Exception:
+            pass
+        return defaults
+
+    def _low_resource_mode_enabled(self) -> bool:
+        return bool(self._runtime_resource_policy().get("low_resource_mode_enabled", True))
+
+    def _begin_low_resource_startup_sequence(self) -> None:
+        now = time.time()
+        if now - float(getattr(self, "_aits_startup_sequence_started_at", 0.0) or 0.0) < 60.0:
+            return
+        policy = self._runtime_resource_policy()
+        self._aits_startup_sequence_started_at = now
+        chart_delay_sec = 0.0 if bool(policy.get("chart_render_on_startup")) else float(policy.get("candle_chart_initial_delay_sec") or 0.0)
+        self._aits_chart_render_enable_at = now + chart_delay_sec
+        self._aits_ai_startup_enable_at = now + float(policy.get("ai_startup_delay_sec") or 0.0)
+        self._aits_scheduler_startup_enable_at = now + float(policy.get("scheduler_startup_delay_sec") or 0.0)
+        self._aits_low_resource_degraded = False
+        logging.getLogger("aits").info(
+            "[AITS][StartupLoad] event=startup_sequence_started stage=runtime_contract elapsed_ms=0 delay_ms=%s runtime_contract_active=%s ui_thread_safe=True blocker=- low_resource_mode=%s actual_order=False submitted=0",
+            int(policy.get("startup_stage_delay_ms") or 0),
+            bool(getattr(self, "_aits_runtime_contract_active", False)),
+            self._low_resource_mode_enabled(),
+        )
+        stages = (
+            ("runtime_start", int(policy.get("startup_stage_delay_ms") or 0)),
+            ("initial_ai", int(float(policy.get("ai_startup_delay_sec") or 0.0) * 1000)),
+            ("eta_scheduler", int(float(policy.get("scheduler_startup_delay_sec") or 0.0) * 1000)),
+            ("chart_ui", int(chart_delay_sec * 1000)),
+        )
+        for stage, delay_ms in stages:
+            logging.getLogger("aits").info(
+                "[AITS][StartupLoad] event=startup_stage_delayed stage=%s elapsed_ms=0 delay_ms=%s runtime_contract_active=%s ui_thread_safe=True blocker=warmup_window actual_order=False submitted=0",
+                stage, delay_ms, bool(getattr(self, "_aits_runtime_contract_active", False)),
+            )
+            QTimer.singleShot(delay_ms, lambda stage=stage, delay_ms=delay_ms: logging.getLogger("aits").info(
+                "[AITS][StartupLoad] event=startup_stage_completed stage=%s elapsed_ms=%s delay_ms=%s runtime_contract_active=%s ui_thread_safe=True blocker=- actual_order=False submitted=0",
+                stage, delay_ms, delay_ms, bool(getattr(self, "_aits_runtime_contract_active", False)),
+            ))
+        QTimer.singleShot(max(delay for _, delay in stages), lambda: logging.getLogger("aits").info(
+            "[AITS][StartupLoad] event=startup_sequence_completed stage=all elapsed_ms=%s delay_ms=0 runtime_contract_active=%s ui_thread_safe=True blocker=- actual_order=False submitted=0",
+            int((time.time() - float(getattr(self, "_aits_startup_sequence_started_at", time.time()))) * 1000),
+            bool(getattr(self, "_aits_runtime_contract_active", False)),
+        ))
+
+    def _startup_load_gate_ready(self, gate: str) -> bool:
+        key = {
+            "chart": "_aits_chart_render_enable_at",
+            "ai": "_aits_ai_startup_enable_at",
+            "scheduler": "_aits_scheduler_startup_enable_at",
+        }.get(str(gate or ""), "")
+        return not key or time.time() >= float(getattr(self, key, 0.0) or 0.0)
+
+    def _aits_ui_update_allowed(self, component: str, min_interval_sec: float) -> bool:
+        now = time.time()
+        values = getattr(self, "_aits_ui_update_last_allowed", None)
+        if not isinstance(values, dict):
+            values = {}
+            self._aits_ui_update_last_allowed = values
+        last = float(values.get(component, 0.0) or 0.0)
+        allowed = now - last >= max(0.0, float(min_interval_sec or 0.0))
+        throttle_count = 0
+        if allowed:
+            values[component] = now
+        else:
+            counters = getattr(self, "_aits_ui_throttle_counts", None)
+            if not isinstance(counters, dict):
+                counters = {}
+                self._aits_ui_throttle_counts = counters
+            counters[component] = int(counters.get(component, 0) or 0) + 1
+            throttle_count = counters[component]
+        if allowed or throttle_count == 1 or throttle_count % 25 == 0:
+            logging.getLogger("aits").info(
+                "[AITS][UIThrottle] event=%s component=%s requested_at=%s allowed=%s reason=%s min_interval_sec=%s last_render_age_sec=%.3f queue_size=0 throttle_count=%s low_resource_mode=%s actual_order=False submitted=0",
+                "ui_update_allowed" if allowed else "ui_update_throttled",
+                component, int(now * 1000), allowed, "interval_ready" if allowed else "minimum_interval",
+                float(min_interval_sec or 0.0), max(0.0, now - last), throttle_count, self._low_resource_mode_enabled(),
+            )
+        return allowed
+
+    def _log_resource_health_snapshot(self) -> None:
+        policy = self._runtime_resource_policy()
+        now = time.time()
+        interval = max(10.0, float(policy.get("resource_health_interval_sec") or 30.0))
+        if now - float(getattr(self, "_aits_resource_health_last_at", 0.0) or 0.0) < interval:
+            return
+        self._aits_resource_health_last_at = now
+        available = False
+        memory_mb = None
+        cpu_percent = None
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_mb = round(process.memory_info().rss / (1024 * 1024), 2)
+            cpu_percent = round(process.cpu_percent(interval=None), 2)
+            available = True
+        except Exception:
+            pass
+        high_cpu = bool(cpu_percent is not None and cpu_percent >= 85.0)
+        high_memory = bool(memory_mb is not None and memory_mb >= 1500.0)
+        if high_cpu or high_memory:
+            self._aits_low_resource_degraded = True
+        logging.getLogger("aits").info(
+            "[AITS][ResourceHealth] event=%s available=%s process_memory_mb=%s cpu_percent=%s ui_queue_pressure=%s render_elapsed_ms=%s slow_cycle_count=%s chart_render_count=%s throttled_update_count=%s low_resource_mode=%s actual_order=False submitted=0",
+            "ui_freeze_risk_detected" if high_cpu or high_memory else "resource_snapshot",
+            available, memory_mb if memory_mb is not None else "unknown", cpu_percent if cpu_percent is not None else "unknown",
+            sum(int(value or 0) for value in dict(getattr(self, "_aits_ui_throttle_counts", {}) or {}).values()),
+            int(getattr(self, "_aits_last_chart_render_elapsed_ms", 0) or 0),
+            int(getattr(self, "_aits_slow_cycle_count", 0) or 0),
+            int(getattr(self, "_aits_chart_render_count", 0) or 0),
+            sum(int(value or 0) for value in dict(getattr(self, "_aits_ui_throttle_counts", {}) or {}).values()),
+            self._low_resource_mode_enabled(),
+        )
+
     def _ensure_run_widgets(self):
         """상단 상태 라벨/타이머 지연 생성."""
         if not hasattr(self, "_run_timer"):
             from PySide6.QtCore import QTimer
             self._run_timer = QTimer(self)
-            self._run_timer.setInterval(3000)  # 3초마다
+            interval_ms = 5000 if self._low_resource_mode_enabled() else 3000
+            self._run_timer.setInterval(interval_ms)
             self._run_timer.timeout.connect(lambda: self.refresh_account_summary("timer"))
         if not hasattr(self, "lbl_run_state"):
             # 상단 툴바나 적절한 레이아웃에 이미 라벨이 있으면 그걸 쓰고,
@@ -10522,7 +10662,7 @@ class MainWindow(QMainWindow):
 
         # 2b) 실행중 점멸: RUN 시 500ms 간격으로 RUNNING 박스(lbl_status) 배경/텍스트 색 토글, STOP 시 타이머 중단·박스 원복. 정지 버튼은 점멸 금지.
         try:
-            if running:
+            if running and not self._low_resource_mode_enabled():
                 if not hasattr(self, "_run_blink_timer"):
                     self._run_blink_timer = QTimer(self)
                     self._run_blink_timer.timeout.connect(self._run_blink_tick)
@@ -32936,6 +33076,31 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _flush_aits_live_log_ui(self) -> None:
+        try:
+            self._aits_live_log_flush_scheduled = False
+            entries = getattr(self, "_aits_live_log_entries", None)
+            if not isinstance(entries, list):
+                entries = []
+            self._aits_recent_logs = [
+                self._format_aits_live_log_entry_line(item)
+                for item in reversed(entries[-50:])
+                if isinstance(item, dict)
+            ]
+            self._sync_recent_log_label()
+            self._sync_common_settings_system_log_view()
+            self._sync_aits_live_log_inline_history()
+            if not self._low_resource_mode_enabled():
+                self._highlight_aits_live_log_latest()
+            buffered = int(getattr(self, "_aits_live_log_buffered_count", 0) or 0)
+            self._aits_live_log_buffered_count = 0
+            logging.getLogger("aits").info(
+                "[AITS][LiveLogThrottle] event=live_log_flushed buffered_count=%s visible_lines=%s low_resource_mode=%s actual_order=False submitted=0",
+                buffered, min(50, len(entries)), self._low_resource_mode_enabled(),
+            )
+        except Exception:
+            self._aits_live_log_flush_scheduled = False
+
     def _append_aits_live_log(self, message: str, *, category: str = "runtime", level: str = "info", event: str = "", symbol: str = "", stage: str = "") -> None:
         try:
             from datetime import datetime
@@ -32955,17 +33120,40 @@ class MainWindow(QMainWindow):
             entries = getattr(self, "_aits_live_log_entries", None)
             if not isinstance(entries, list):
                 entries = []
-            entries.append(entry)
-            self._aits_live_log_entries = entries[-50:]
-            self._aits_recent_logs = [
-                self._format_aits_live_log_entry_line(item)
-                for item in reversed(self._aits_live_log_entries[-50:])
-                if isinstance(item, dict)
-            ]
-            self._sync_recent_log_label()
-            self._sync_common_settings_system_log_view()
-            self._sync_aits_live_log_inline_history()
-            self._highlight_aits_live_log_latest()
+            duplicate = bool(
+                entries
+                and isinstance(entries[-1], dict)
+                and entries[-1].get("raw_event") == entry.get("raw_event")
+                and entries[-1].get("symbol") == entry.get("symbol")
+                and entries[-1].get("message_ko") == entry.get("message_ko")
+            )
+            if duplicate:
+                entries[-1]["repeat_count"] = int(entries[-1].get("repeat_count") or 1) + 1
+                entries[-1]["timestamp"] = ts
+                logging.getLogger("aits").info(
+                    "[AITS][LiveLogThrottle] event=live_log_deduplicated category=%s symbol=%s repeat_count=%s actual_order=False submitted=0",
+                    entry["category"], entry["symbol"] or "-", entries[-1]["repeat_count"],
+                )
+            else:
+                entries.append(entry)
+            policy = self._runtime_resource_policy()
+            max_lines = max(100, min(2000, int(policy.get("ui_log_max_lines") or 500)))
+            self._aits_live_log_entries = entries[-max_lines:]
+            self._aits_live_log_buffered_count = int(getattr(self, "_aits_live_log_buffered_count", 0) or 0) + 1
+            if self._low_resource_mode_enabled():
+                flush_scheduled_now = False
+                if not bool(getattr(self, "_aits_live_log_flush_scheduled", False)):
+                    self._aits_live_log_flush_scheduled = True
+                    flush_scheduled_now = True
+                    flush_ms = max(250, int(float(policy.get("ui_log_flush_interval_sec") or 2.0) * 1000.0))
+                    QTimer.singleShot(flush_ms, self._flush_aits_live_log_ui)
+                if flush_scheduled_now:
+                    logging.getLogger("aits").info(
+                        "[AITS][LiveLogThrottle] event=live_log_buffered buffered_count=%s duplicate=%s actual_order=False submitted=0",
+                        self._aits_live_log_buffered_count, duplicate,
+                    )
+            else:
+                self._flush_aits_live_log_ui()
             try:
                 logging.getLogger("aits").info(
                     "[AITS][LiveLogUX] event=append category=%s level=%s symbol=%s submitted=0 actual_order=false",
@@ -37352,9 +37540,35 @@ class MainWindow(QMainWindow):
     def _should_skip_ai_detail_chart_render(self, canvas, signature) -> str:
         try:
             if not self._is_ai_detail_chart_visible_for_render(canvas):
+                logging.getLogger("aits").info(
+                    "[AITS][ChartGuard] event=chart_render_skipped_not_visible chart_name=ai_detail visible=False candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=not_visible low_resource_mode=%s actual_order=False submitted=0",
+                    self._low_resource_mode_enabled(),
+                )
                 return "hidden"
+            if self._low_resource_mode_enabled() and not self._startup_load_gate_ready("chart"):
+                logging.getLogger("aits").info(
+                    "[AITS][ChartGuard] event=chart_render_blocked_startup chart_name=ai_detail visible=True candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=startup_warmup low_resource_mode=True actual_order=False submitted=0"
+                )
+                return "startup_warmup"
+            policy = self._runtime_resource_policy()
+            interval = float(policy.get("chart_refresh_min_interval_sec") or 0.0)
+            if self._low_resource_mode_enabled() and not self._aits_ui_update_allowed("ai_detail_chart", interval):
+                logging.getLogger("aits").info(
+                    "[AITS][ChartGuard] event=chart_render_throttled chart_name=ai_detail visible=True candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=minimum_interval low_resource_mode=True actual_order=False submitted=0"
+                )
+                return "minimum_interval"
+            if bool(getattr(self, "_aits_low_resource_degraded", False)):
+                logging.getLogger("aits").info(
+                    "[AITS][ChartGuard] event=chart_render_skipped_low_resource chart_name=ai_detail visible=True candle_count=0 subplot_count=0 elapsed_ms=0 blocked_reason=resource_pressure low_resource_mode=True actual_order=False submitted=0"
+                )
+                return "resource_pressure"
             if signature == getattr(self, "_ai_detail_chart_last_render_signature", None):
                 return "signature_unchanged"
+            logging.getLogger("aits").info(
+                "[AITS][ChartGuard] event=chart_render_allowed chart_name=ai_detail visible=True candle_count=0 subplot_count=%s elapsed_ms=0 blocked_reason=- low_resource_mode=%s actual_order=False submitted=0",
+                1 if self._low_resource_mode_enabled() else 2,
+                self._low_resource_mode_enabled(),
+            )
             return ""
         except Exception:
             return ""
@@ -37399,6 +37613,8 @@ class MainWindow(QMainWindow):
                     break
             _tf = str(getattr(self, "_detail_chart_tf", "60m") or "60m")
             _cnt = int(getattr(self, "_detail_chart_count", 50) or 50)
+            if self._low_resource_mode_enabled():
+                _cnt = min(_cnt, max(20, int(self._runtime_resource_policy().get("max_chart_candles") or 120)))
             render_signature = self._build_ai_detail_chart_render_signature(
                 sym,
                 row if isinstance(row, dict) else None,
@@ -37431,7 +37647,7 @@ class MainWindow(QMainWindow):
                     transform=ax.transAxes,
                 )
                 ax.set_axis_off()
-                canvas.draw()
+                canvas.draw_idle()
                 return
             name = (row.get("name") or "").strip() or sym
             tp = float(row.get("target_price") or 0.0)
@@ -37468,7 +37684,7 @@ class MainWindow(QMainWindow):
                     transform=ax.transAxes,
                 )
                 ax.set_axis_off()
-                canvas.draw()
+                canvas.draw_idle()
                 return
             _tf_ko = {"1m": "1분봉", "5m": "5분봉", "60m": "1시간봉", "1d": "일봉"}.get(
                 _tf, "1분봉"
@@ -37542,6 +37758,16 @@ class MainWindow(QMainWindow):
                         )
                     except Exception:
                         mpf_rsi_addplots = []
+                    if (
+                        self._low_resource_mode_enabled()
+                        and not bool(self._runtime_resource_policy().get("enable_chart_subplots_in_low_resource"))
+                    ):
+                        mpf_addplots = []
+                        mpf_rsi_addplots = []
+                        logging.getLogger("aits").info(
+                            "[AITS][ChartGuard] event=chart_render_skipped_low_resource chart_name=ai_detail_subplots visible=True candle_count=%s subplot_count=0 elapsed_ms=0 blocked_reason=subplots_disabled low_resource_mode=True actual_order=False submitted=0",
+                            len(mpf_df),
+                        )
 
                     mc = mpf.make_marketcolors(
                         up="#22c55e",
@@ -43107,6 +43333,11 @@ class MainWindow(QMainWindow):
 
     def _run_initial_ai_management_seed(self, *, rows: list[dict], contract_snapshot: dict) -> dict:
         seed_logger = logging.getLogger("aits")
+        if self._low_resource_mode_enabled() and not self._startup_load_gate_ready("ai"):
+            seed_logger.info(
+                "[AITS][RuntimeBackpressure] event=ai_request_skipped_pending cycle_name=initial_ai_seed elapsed_ms=0 busy=False skipped=True pending_requests=1 batch_size=0 degraded=True blocker=startup_warmup actual_order=False submitted=0"
+            )
+            return {"triggered": False, "registered": 0, "blocker": "startup_ai_warmup"}
         runtime_active = bool((contract_snapshot or {}).get("runtime_contract_active"))
         if not runtime_active:
             if bool(getattr(self, "_aits_initial_seed_runtime_was_active", False)):
@@ -43235,6 +43466,11 @@ class MainWindow(QMainWindow):
 
     def _run_ai_redecision_scheduler(self, *, reason: str, rows: list[dict]) -> dict:
         eta_logger = logging.getLogger("aits")
+        if self._low_resource_mode_enabled() and not self._startup_load_gate_ready("scheduler"):
+            eta_logger.info(
+                "[AITS][RuntimeBackpressure] event=cycle_skipped_busy cycle_name=eta_redecision elapsed_ms=0 busy=True skipped=True pending_requests=0 batch_size=0 degraded=True blocker=startup_warmup actual_order=False submitted=0"
+            )
+            return {"checked": 0, "triggered": 0, "scheduler_result": "startup_warmup"}
         states = self._ai_decision_runtime_state_store()
         now = time.time()
         active_states = [state for state in states.values() if isinstance(state, dict) and state.get("current_status") == "active"]
@@ -44617,14 +44853,20 @@ class MainWindow(QMainWindow):
         data["state"] = state
         data["text"] = text
         label = getattr(self, "lbl_managed_pool_status_bar", None)
-        if label is not None:
+        status_render_allowed = True
+        if self._low_resource_mode_enabled() and bool(getattr(self, "_aits_runtime_contract_active", False)):
+            status_render_allowed = self._aits_ui_update_allowed(
+                "managed_pool_status",
+                float(self._runtime_resource_policy().get("status_refresh_min_interval_sec") or 1.5),
+            )
+        if label is not None and status_render_allowed:
             try:
                 previous = str(getattr(self, "_managed_pool_status_bar_last_text", "") or "")
                 label.setText(text)
                 label.setToolTip("관리종목 감시 상태입니다. LIVE LOG와 별도로 현재 상태만 보여줍니다.")
                 label.setProperty("managedPoolStatusState", state)
                 label.setProperty("managedPoolStatusReason", str(reason or "refresh"))
-                if previous and previous != text:
+                if previous and previous != text and not self._low_resource_mode_enabled():
                     self._highlight_managed_pool_status_bar()
                 self._managed_pool_status_bar_last_text = text
             except Exception:
@@ -44702,6 +44944,15 @@ class MainWindow(QMainWindow):
 
     def _refresh_ai_managed_table(self) -> None:
         if not hasattr(self, "tbl_ai_managed") or self.tbl_ai_managed is None:
+            return
+        if (
+            self._low_resource_mode_enabled()
+            and bool(getattr(self, "_aits_runtime_contract_active", False))
+            and not self._aits_ui_update_allowed(
+                "managed_pool_table",
+                float(self._runtime_resource_policy().get("table_refresh_min_interval_sec") or 5.0),
+            )
+        ):
             return
         try:
             self._prune_managed_pool_dust_rows_for_display(reason="managed_table_refresh")
@@ -45779,6 +46030,7 @@ class MainWindow(QMainWindow):
     def _update_ai_pool_statuses(self) -> None:
         """AI 종목: 규칙 기반 점수로 상태 갱신. USER는 목표/손절만 반영·상태 Watching."""
         try:
+            self._log_resource_health_snapshot()
             try:
                 self._sync_legacy_basic_ai_settings_from_ssot()
             except Exception:
@@ -45806,6 +46058,28 @@ class MainWindow(QMainWindow):
                     type(exc).__name__,
                 )
             rows = self.ai_managed_rows or []
+            score_batch_ids = {id(row) for row in rows if isinstance(row, dict)}
+            if self._low_resource_mode_enabled():
+                batch_size = max(1, int(self._runtime_resource_policy().get("indicator_compute_batch_size") or 8))
+                score_rows = [row for row in rows if isinstance(row, dict)]
+                holding_symbols = set(getattr(self, "_aits_manageable_holding_symbols", []) or [])
+                mandatory = [
+                    row for row in score_rows
+                    if self._is_managed_manual_hold_row(row)
+                    or str(row.get("symbol") or row.get("market") or "").strip() in holding_symbols
+                    or str(row.get("ai_status") or row.get("status") or "").strip() in {"Holding", "Sell Ready"}
+                    or bool(row.get("holding") or row.get("is_holding") or row.get("has_position"))
+                ]
+                candidates = [row for row in score_rows if id(row) not in {id(item) for item in mandatory}]
+                if len(candidates) > batch_size:
+                    offset = int(getattr(self, "_aits_indicator_batch_offset", 0) or 0) % len(candidates)
+                    selected = mandatory + (candidates + candidates)[offset : offset + batch_size]
+                    score_batch_ids = {id(row) for row in selected}
+                    self._aits_indicator_batch_offset = (offset + batch_size) % len(candidates)
+                    logging.getLogger("aits").info(
+                        "[AITS][RuntimeBackpressure] event=indicator_batch_limited cycle_name=managed_pool_score batch_size=%s protected_holding_count=%s total_rows=%s degraded=%s actual_order=False submitted=0",
+                        batch_size, len(mandatory), len(score_rows), bool(getattr(self, "_aits_low_resource_degraded", False)),
+                    )
             position_limit_blocked = False
             prev_scores_for_queue = {}
             try:
@@ -45849,7 +46123,7 @@ class MainWindow(QMainWindow):
                     row["stop_loss"] = 0.0
 
                 if self._is_managed_manual_hold_row(row):
-                    if pool_analyze:
+                    if pool_analyze and id(row) in score_batch_ids:
                         try:
                             res = self._calc_basic_ai_score(row)
                             sc = int(res.get("score", 0))
@@ -45870,6 +46144,9 @@ class MainWindow(QMainWindow):
                     row["ai_status"] = "Watching"
                     row.pop("ai_score", None)
                     row.pop("ai_reason_summary", None)
+                    continue
+
+                if id(row) not in score_batch_ids:
                     continue
 
                 res = self._calc_basic_ai_score(row)
@@ -50961,6 +51238,15 @@ class MainWindow(QMainWindow):
 
     def _refresh_market_all_table(self) -> None:
         if not hasattr(self, "tbl_market_all") or self.tbl_market_all is None:
+            return
+        if (
+            self._low_resource_mode_enabled()
+            and bool(getattr(self, "_aits_runtime_contract_active", False))
+            and not self._aits_ui_update_allowed(
+                "market_table",
+                float(self._runtime_resource_policy().get("table_refresh_min_interval_sec") or 5.0),
+            )
+        ):
             return
         query = ""
         try:
@@ -61095,6 +61381,12 @@ class MainWindow(QMainWindow):
 
             def _do_start_work():
                 try:
+                    logging.getLogger("aits").info(
+                        "[AITS][StartupLoad] event=startup_stage_started stage=runtime_engine elapsed_ms=%s delay_ms=%s runtime_contract_active=%s ui_thread_safe=True blocker=- actual_order=False submitted=0",
+                        int((time.time() - float(getattr(self, "_aits_startup_sequence_started_at", time.time()))) * 1000),
+                        int(self._runtime_resource_policy().get("startup_stage_delay_ms") or 0),
+                        bool(getattr(self, "_aits_runtime_contract_active", False)),
+                    )
                     self._log_live_on_button_state_trace("runner_start_before", requested_run=requested_run)
                     start_strategy(self._settings)
                     self._log.info("[RUNNER] start_strategy called")
@@ -61165,8 +61457,9 @@ class MainWindow(QMainWindow):
                 except Exception:
                     self._aits_runtime_start_request_inflight = False
 
-            QTimer.singleShot(0, _do_start_work)
-            QTimer.singleShot(100, lambda: _check_started(0))
+            start_delay_ms = int(self._runtime_resource_policy().get("startup_stage_delay_ms") or 0) if self._low_resource_mode_enabled() else 0
+            QTimer.singleShot(max(0, start_delay_ms), _do_start_work)
+            QTimer.singleShot(max(100, start_delay_ms + 100), lambda: _check_started(0))
             return True
         except Exception as exc:
             try:
@@ -61530,6 +61823,10 @@ class MainWindow(QMainWindow):
 
             # 선택 엔진과 실제 적용 엔진이 다르면 시작 전에 경고(실행은 기존 엔진 기준으로 계속)
             if run:
+                try:
+                    self._begin_low_resource_startup_sequence()
+                except Exception:
+                    pass
                 selected = "BASIC"
                 try:
                     selected = str(self._get_aits_engine_ssot()).upper()

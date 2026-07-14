@@ -234,3 +234,6 @@ LOCAL_MODEL is an AI provider candidate, not BASIC and not an execution engine. 
 # LOCAL Model Calibration Boundary
 
 Calibration analyzes observed LOCAL_MODEL predictions and outcomes. It may write provider-routing recommendations, but it cannot change a final action or expand live authority. BASIC supplies facts, AI providers own decisions, and RiskGuard, LivePreflight, and Execution retain their existing safety ownership.
+# Low-resource runtime boundary
+
+Low-resource mode owns scheduling and presentation pressure only. It may delay or coalesce chart, table, status, visible log, initial AI, and ETA scheduler work. It must not remove market or indicator facts from an AI payload, synthesize a decision, change an action, bypass a validator, or weaken SellUnitGuard, RiskGuard, LivePreflight, execution, and reconciliation boundaries.

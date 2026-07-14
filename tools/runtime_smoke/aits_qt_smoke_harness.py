@@ -13184,6 +13184,431 @@ def _run_local_model_live_outcome_calibration_v1_summary(
     })
 
 
+def _run_local_model_calibration_data_accumulation_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    """Summarize one real user-app accumulation run without creating evidence."""
+    e2e: dict[str, Any] = {}
+    reconciliation: dict[str, Any] = {}
+    curation: dict[str, Any] = {}
+    features: dict[str, Any] = {}
+    training: dict[str, Any] = {}
+    integration: dict[str, Any] = {}
+    calibration: dict[str, Any] = {}
+    _run_live_on_runtime_e2e_diagnostic(e2e, output_dir=output_dir, mode="live-on-runtime-e2e-diagnostic-log-summary")
+    _run_live_order_post_submit_reconciliation_summary(reconciliation)
+
+    lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
+    reports = _live_on_runtime_e2e_latest_reports(output_dir)
+    session_lines, provenance, started_at, _start_line, _end_line, _ = _latest_non_harness_runtime_session(lines, reports)
+    target_pid = int(e2e.get("target_runtime_pid") or e2e.get("e2e_target_pid") or 0)
+    target_session = str(e2e.get("target_runtime_session_id") or e2e.get("e2e_target_session_id") or "")
+    runtime_running = bool(e2e.get("e2e_target_pid_running"))
+    runtime_active = bool(e2e.get("runtime_contract_active"))
+    execution_mode_live = str(e2e.get("execution_mode") or "live").lower() == "live" and runtime_active
+    runtime_head = _live_on_stage_extract_value(provenance, "git_head_if_available")
+    current_head = _aits_current_git_head()
+
+    def parse_log_time(value: Any) -> datetime | None:
+        text = str(value or "")[:23]
+        for fmt in ("%Y-%m-%d %H:%M:%S,%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(text, fmt)
+            except Exception:
+                continue
+        return None
+
+    window_started = parse_log_time(e2e.get("current_runtime_window_start")) or started_at
+    observed_until = parse_log_time(e2e.get("current_runtime_window_end")) or window_started
+    observation_minutes = 0.0
+    if window_started is not None and observed_until is not None:
+        observation_minutes = round(max(0.0, (observed_until - window_started).total_seconds() / 60.0), 3)
+
+    training_root = ROOT / "data" / "ai_decision_training"
+    state_path = training_root / "outcome_tracking_state.json"
+
+    def read_json(path: Path) -> dict[str, Any]:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
+        except Exception:
+            return {}
+
+    def read_jsonl(path: Path) -> list[dict[str, Any]]:
+        values: list[dict[str, Any]] = []
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        item = json.loads(line)
+                    except Exception:
+                        continue
+                    if isinstance(item, dict):
+                        values.append(item)
+        except Exception:
+            pass
+        return values
+
+    model_root = ROOT / "data" / "local_models"
+    curation = read_json(training_root / "curated_local_training_summary.json")
+    features = read_json(training_root / "local_training_feature_summary.json")
+    latest_model_file = read_json(model_root / "latest_model.json")
+    registry = read_json(model_root / "registry.json")
+    calibration_summary = read_json(model_root / "latest_calibration_summary.json")
+    calibration_profile = read_json(model_root / "calibration_profile.json")
+    training = {
+        "latest_model_summary": latest_model_file,
+        "model_training_attempted": bool(latest_model_file.get("model_training_attempted")),
+        "model_training_skipped": bool(latest_model_file.get("model_training_skipped")),
+        "model_training_skip_reason": str(latest_model_file.get("model_training_skip_reason") or latest_model_file.get("blocker") or ""),
+        "trained_model_count": len(latest_model_file.get("targets") or []),
+        "no_data_training_ready": latest_model_file.get("training_status") == "no_data" and latest_model_file.get("trained") is False,
+        "insufficient_data_training_ready": latest_model_file.get("training_status") == "insufficient_data" and latest_model_file.get("trained") is False,
+    }
+    calibration = {**calibration_summary, "calibration_profile_summary": calibration_profile}
+    source_text = "\n".join(
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in (
+            ROOT / "app" / "services" / "aits_orchestrator.py",
+            ROOT / "app" / "services" / "ai_engine_provider.py",
+            ROOT / "app" / "services" / "local_model_training.py",
+            ROOT / "app" / "services" / "local_model_calibration.py",
+        )
+        if path.exists()
+    )
+    curation_ready = bool(curation and "class AITSLocalTrainingDatasetCurator" in source_text)
+    features_ready = bool(features and "class AITSLocalTrainingFeaturePipeline" in source_text)
+    training_ready = bool(latest_model_file and registry and "class AITSLocalModelTrainingPipeline" in source_text)
+    calibration_ready = bool(calibration_summary and calibration_profile and "class AITSLocalModelCalibration" in source_text)
+    integration["local_model_provider_routing_ready"] = "def _evaluate_local_model_provider" in source_text
+
+    state = read_json(state_path)
+    decisions = [
+        value for value in dict(state.get("decisions") or {}).values()
+        if isinstance(value, dict) and (not target_session or str(value.get("session_id") or "") == target_session)
+    ]
+    checkpoint_counts = {"outcome_5m": 0, "outcome_15m": 0, "outcome_1h": 0}
+    outcome_data_unavailable_count = 0
+    final_outcome_evaluated_count = 0
+    for decision in decisions:
+        for name, checkpoint in dict(decision.get("checkpoints") or {}).items():
+            if name in checkpoint_counts and isinstance(checkpoint, dict) and checkpoint.get("status") in {"evaluated", "skipped"}:
+                checkpoint_counts[name] += 1
+                if checkpoint.get("outcome_label") == "data_unavailable":
+                    outcome_data_unavailable_count += 1
+        if dict(decision.get("final_outcome") or {}).get("status") in {"evaluated", "skipped"}:
+            final_outcome_evaluated_count += 1
+
+    outcome_records = read_jsonl(training_root / "outcome_records.jsonl")
+    provider_records = read_jsonl(training_root / "provider_comparison_outcomes.jsonl")
+    if target_session:
+        session_decision_ids = {str(value.get("decision_id") or "") for value in decisions}
+        outcome_records = [value for value in outcome_records if str(value.get("decision_id") or "") in session_decision_ids]
+        provider_records = [value for value in provider_records if str(value.get("decision_id") or "") in session_decision_ids]
+
+    local_lines = [line for line in session_lines if "[AITS][LocalFirstDecision]" in line and "event=local_decision_recorded" in line]
+    model_lines = [line for line in session_lines if "[AITS][LocalModelProvider]" in line]
+    router_lines = [line for line in session_lines if "[AITS][ProviderDecisionRouter]" in line and "event=final_decision_selected" in line]
+    external_call_lines = [
+        line for line in session_lines
+        if ("external_provider_called=true" in line.lower())
+        or ("[AITS][ProviderCostGuard]" in line and "event=cost_guard_passed" in line)
+    ]
+    final_provider_source_counts: dict[str, int] = {}
+    ai_action_counts: dict[str, int] = {}
+    for line in router_lines:
+        source = _live_on_stage_extract_value(line, "final_provider_source") or "unknown"
+        action = _live_on_stage_extract_value(line, "final_action") or _live_on_stage_extract_value(line, "action") or "unknown"
+        final_provider_source_counts[source] = final_provider_source_counts.get(source, 0) + 1
+        ai_action_counts[action] = ai_action_counts.get(action, 0) + 1
+    if not router_lines:
+        for decision in decisions:
+            source = str(decision.get("final_provider_source") or "unknown")
+            action = str(decision.get("final_action") or "unknown")
+            final_provider_source_counts[source] = final_provider_source_counts.get(source, 0) + 1
+            ai_action_counts[action] = ai_action_counts.get(action, 0) + 1
+
+    latest_model = dict(training.get("latest_model_summary") or {})
+    latest_calibration = dict(calibration.get("calibration_profile_summary") or {})
+    runtime_start_epoch = started_at.timestamp() if started_at is not None else 0.0
+    registry_updated = bool(float(latest_model.get("created_at") or 0.0) >= runtime_start_epoch) if runtime_start_epoch else bool(latest_model)
+    calibration_profile_updated = bool(float(latest_calibration.get("created_at") or 0.0) >= runtime_start_epoch) if runtime_start_epoch else bool(latest_calibration)
+    model_prediction_attempted = any("event=prediction_attempted" in line for line in model_lines)
+    model_prediction_available = any("event=prediction_completed" in line for line in model_lines)
+    local_model_trained = bool(latest_model.get("trained"))
+    model_provider_available = bool(
+        local_model_trained
+        and latest_model.get("safe_for_live_decision")
+        and latest_model.get("live_decision_enabled")
+    )
+    trained_model_count = int(training.get("trained_model_count") or 0)
+    submitted_count = int(reconciliation.get("submitted_count") or e2e.get("submitted_count") or 0)
+    missed_submit_count = int(reconciliation.get("missed_submit_count") or 0)
+    no_guard_bypass = bool(missed_submit_count == 0 and not reconciliation.get("order_reconciliation_missed_submit_detected"))
+    scan_text = ""
+    for path in (
+        training_root / "outcome_records.jsonl",
+        training_root / "provider_comparison_outcomes.jsonl",
+        training_root / "curated_local_training_records.jsonl",
+        training_root / "local_training_features.jsonl",
+        model_root / "calibration_profile.json",
+    ):
+        if path.exists():
+            scan_text += path.read_text(encoding="utf-8", errors="replace")[-2_000_000:]
+    raw_leak = bool(
+        re.search(r"(?:api[_-]?key|authorization|secret)[\"' :=]+[A-Za-z0-9_\-]{12,}", scan_text, re.IGNORECASE)
+        or re.search(r'\"(?:raw_prompt|prompt_body|request_body)\"\s*:', scan_text, re.IGNORECASE)
+    )
+
+    blocker_group = "none"
+    first_blocker = "local_model_calibration_data_accumulation_v1_ready"
+    checks = (
+        ("runtime", "no_active_live_session", runtime_running and runtime_active and execution_mode_live),
+        ("runtime", "runtime_head_mismatch", bool(runtime_head and current_head and current_head.startswith(runtime_head[:8]))),
+        ("runtime", "observation_duration_below_120_minutes", observation_minutes >= 120.0),
+        ("decision", "live_ai_decision_not_observed", bool(decisions or router_lines)),
+        ("outcome", "outcome_tracking_not_registered", bool(decisions)),
+        ("outcome", "outcome_checkpoint_not_evaluated", sum(checkpoint_counts.values()) > 0),
+        ("outcome", "outcome_record_not_written", bool(outcome_records) or outcome_data_unavailable_count > 0),
+        ("pipeline", "curation_pipeline_not_ready", curation_ready),
+        ("pipeline", "feature_pipeline_not_ready", features_ready),
+        ("pipeline", "training_pipeline_not_ready", training_ready),
+        ("pipeline", "calibration_pipeline_not_ready", calibration_ready),
+        ("safety", "order_reconciliation_missed_submit", missed_submit_count == 0),
+        ("safety", "guard_bypass_detected", no_guard_bypass),
+        ("safety", "managed_pool_target_set_drift", bool(e2e.get("holdings_target_sets_consistent", True))),
+        ("safety", "raw_leak_detected", not raw_leak),
+    )
+    for group, blocker, passed in checks:
+        if not passed:
+            blocker_group = group
+            first_blocker = blocker
+            break
+    ready = blocker_group == "none"
+
+    report.update({
+        "schema": "aits_local_model_calibration_data_accumulation_v1_summary_v1",
+        "mode": "local-model-calibration-data-accumulation-v1-summary",
+        "log_path": log_path,
+        "log_read_error": log_read_error,
+        "calibration_data_accumulation_run_ready": runtime_running and runtime_active and observation_minutes >= 120.0,
+        "target_runtime_pid": target_pid,
+        "target_runtime_session_id": target_session,
+        "current_git_head": current_head,
+        "runtime_git_head": runtime_head,
+        "runtime_contract_active": runtime_active,
+        "execution_mode_live": execution_mode_live,
+        "observation_duration_minutes": observation_minutes,
+        "ai_decision_count": len(decisions or router_lines),
+        "local_decision_count": len(local_lines),
+        "local_model_decision_count": sum("prediction_completed" in line or "provider_candidate_created" in line for line in model_lines),
+        "external_provider_call_count": len(external_call_lines),
+        "final_provider_source_counts": final_provider_source_counts,
+        "ai_action_counts": ai_action_counts,
+        "decision_tracking_registered_count": len(decisions),
+        "outcome_5m_evaluated_count": checkpoint_counts["outcome_5m"],
+        "outcome_15m_evaluated_count": checkpoint_counts["outcome_15m"],
+        "outcome_1h_evaluated_count": checkpoint_counts["outcome_1h"],
+        "final_outcome_evaluated_count": final_outcome_evaluated_count,
+        "outcome_data_unavailable_count": outcome_data_unavailable_count,
+        "outcome_records_written_count": len(outcome_records),
+        "provider_comparison_records_written_count": len(provider_records),
+        "curated_records_count": int(curation.get("total_curated_records") or 0),
+        "excluded_records_count": int(curation.get("total_excluded_records") or 0),
+        "safe_for_training_count": int(curation.get("safe_for_training_count") or 0),
+        "exclusion_reason_counts": dict(curation.get("by_exclusion_reason") or {}),
+        "local_training_feature_count": int(features.get("safe_for_model_training_count") or 0) + int(features.get("feature_excluded_count") or 0),
+        "safe_for_model_training_count": int(features.get("safe_for_model_training_count") or 0),
+        "feature_excluded_count": int(features.get("feature_excluded_count") or 0),
+        "split_strategy": str(features.get("split_strategy") or "unsplit_insufficient_data"),
+        "model_training_attempted": bool(training.get("model_training_attempted")),
+        "model_training_skipped": bool(training.get("model_training_skipped")),
+        "model_training_skip_reason": str(training.get("model_training_skip_reason") or ""),
+        "trained_model_count": trained_model_count,
+        "latest_model_id": str(latest_model.get("model_id") or ""),
+        "registry_updated": registry_updated,
+        "no_data_training_ready": bool(training.get("no_data_training_ready")),
+        "insufficient_data_training_ready": bool(training.get("insufficient_data_training_ready")),
+        "local_model_provider_available": model_provider_available,
+        "local_model_trained": local_model_trained,
+        "local_model_prediction_attempted": model_prediction_attempted,
+        "local_model_prediction_available": model_prediction_available,
+        "local_model_provider_routing_ready": bool(integration.get("local_model_provider_routing_ready")),
+        "calibration_source_records_count": int(calibration.get("calibration_source_records_count") or 0),
+        "outcome_matched_records_count": int(calibration.get("outcome_matched_records_count") or 0),
+        "calibration_usable_records_count": int(calibration.get("calibration_usable_records_count") or 0),
+        "calibration_profile_updated": calibration_profile_updated,
+        "safe_for_live_expansion": bool(calibration.get("safe_for_live_expansion")),
+        "live_policy_auto_expansion": False,
+        "submitted_count": submitted_count,
+        "actual_buy_submit_count": int(reconciliation.get("audited_buy_order_count") or (1 if e2e.get("actual_buy_submit_detected") else 0)),
+        "actual_sell_submit_count": int(reconciliation.get("audited_sell_order_count") or (1 if e2e.get("actual_sell_submit_detected") else 0)),
+        "audited_order_count": int(reconciliation.get("audited_order_count") or 0),
+        "missed_submit_count": missed_submit_count,
+        "no_guard_bypass_detected": no_guard_bypass,
+        "riskguard_still_required": True,
+        "livepreflight_still_required": True,
+        "sell_unit_guard_ready": bool(e2e.get("sell_unit_guard_enabled")),
+        "managed_pool_target_consistent": bool(e2e.get("holdings_target_sets_consistent", True)),
+        "managed_pool_mutation": bool(e2e.get("managed_pool_mutation")),
+        "raw_leak_detected": raw_leak,
+        "local_model_calibration_data_accumulation_v1_ready": ready,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "next_sprint_recommendation": "continue_current_live_accumulation_until_120m_and_1h_checkpoint",
+        "pass_status": "pass" if ready else "blocked",
+        "status": "pass" if ready else "blocked",
+    })
+
+
+def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> None:
+    """Audit low-resource runtime controls without starting the live application."""
+    paths = {
+        "gui": ROOT / "app" / "ui" / "app_gui.py",
+        "schema": ROOT / "app" / "utils" / "settings_schema.py",
+        "docs": ROOT / "app" / "docs" / "aits_low_resource_runtime_stability_v1.md",
+    }
+    sources = {
+        key: path.read_text(encoding="utf-8", errors="replace") if path.exists() else ""
+        for key, path in paths.items()
+    }
+    gui = sources["gui"]
+    schema = sources["schema"]
+    docs = sources["docs"]
+
+    def has_all(text: str, *tokens: str) -> bool:
+        return all(token in text for token in tokens)
+
+    prohibited = (
+        "app/services/order_adapter.py",
+        "app/services/execution_bridge.py",
+        "app/services/order_service.py",
+        "app/services/decision_router.py",
+        "app/services/risk_guard.py",
+        "app/services/live_order_preflight.py",
+    )
+    changed: set[str] = set()
+    added_diff = ""
+    try:
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", "--", *prohibited],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
+        changed = {line.strip().replace("\\", "/") for line in proc.stdout.splitlines() if line.strip()}
+        diff_proc = subprocess.run(
+            ["git", "diff", "--unified=0", "--", str(paths["gui"].relative_to(ROOT)), str(paths["schema"].relative_to(ROOT))],
+            cwd=str(ROOT), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
+        )
+        added_diff = "\n".join(
+            line[1:] for line in diff_proc.stdout.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ).lower()
+    except Exception:
+        changed = set(prohibited)
+
+    low_resource_available = has_all(
+        schema,
+        "class RuntimeResourceConfig",
+        "low_resource_mode_enabled",
+        "chart_refresh_min_interval_sec",
+        "indicator_compute_batch_size",
+    ) and has_all(gui, "def _runtime_resource_policy", "def _low_resource_mode_enabled")
+    startup_ready = has_all(
+        gui,
+        "def _begin_low_resource_startup_sequence",
+        "[AITS][StartupLoad]",
+        "startup_sequence_started",
+        "startup_sequence_completed",
+        "startup_stage_delay_ms",
+    )
+    chart_ready = has_all(
+        gui,
+        "[AITS][ChartGuard]",
+        "chart_render_blocked_startup",
+        "chart_render_skipped_not_visible",
+        "chart_render_throttled",
+        "canvas.draw_idle()",
+        "max_chart_candles",
+    )
+    ui_ready = has_all(gui, "def _aits_ui_update_allowed", "[AITS][UIThrottle]", "managed_pool_table", "market_table")
+    log_ready = has_all(
+        gui,
+        "def _flush_aits_live_log_ui",
+        "[AITS][LiveLogThrottle]",
+        "live_log_buffered",
+        "live_log_deduplicated",
+        "live_log_flushed",
+    )
+    backpressure_ready = has_all(
+        gui,
+        "[AITS][RuntimeBackpressure]",
+        "ai_request_skipped_pending",
+        "cycle_skipped_busy",
+        "indicator_batch_limited",
+    )
+    resource_ready = has_all(gui, "def _log_resource_health_snapshot", "[AITS][ResourceHealth]", "resource_snapshot")
+    degradation_ready = has_all(gui, "_aits_low_resource_degraded", "chart_render_skipped_low_resource") and "RiskGuard" in docs
+    no_modes_added = not any(token in added_diff for token in ("paper_mode", "virtual_order", "simulation_mode"))
+    no_fake_data = not any(token in added_diff for token in ("fake market data", "fake indicator", "fake order", "fake submitted"))
+    prohibited_clean = not changed
+
+    checks = (
+        ("settings", "low_resource_mode_missing", low_resource_available),
+        ("startup", "startup_load_staging_missing", startup_ready),
+        ("chart", "chart_guard_missing", chart_ready),
+        ("ui", "ui_render_throttle_missing", ui_ready and log_ready),
+        ("runtime", "runtime_backpressure_missing", backpressure_ready),
+        ("health", "resource_health_logging_missing", resource_ready),
+        ("degradation", "safe_degradation_policy_missing", degradation_ready),
+        ("safety", "prohibited_layer_modified", prohibited_clean),
+        ("safety", "paper_virtual_simulation_added", no_modes_added),
+        ("safety", "fake_data_added", no_fake_data),
+    )
+    blocker_group = "none"
+    first_blocker = "low_resource_runtime_stability_v1_ready"
+    for group, blocker, passed in checks:
+        if not passed:
+            blocker_group = group
+            first_blocker = blocker
+            break
+    ready = blocker_group == "none"
+    report.update({
+        "schema": "aits_low_resource_runtime_stability_v1_summary_v1",
+        "mode": "low-resource-runtime-stability-v1-summary",
+        "low_resource_mode_available": low_resource_available,
+        "low_resource_mode_default": "low_resource_mode_enabled: bool = True" in schema,
+        "startup_load_staging_ready": startup_ready,
+        "startup_stage_count": 4,
+        "startup_sequence_logged": startup_ready,
+        "chart_guard_ready": chart_ready,
+        "chart_render_throttle_ready": chart_ready and "chart_refresh_min_interval_sec" in gui,
+        "chart_startup_delay_ready": chart_ready and "candle_chart_initial_delay_sec" in gui,
+        "chart_not_visible_skip_ready": "chart_render_skipped_not_visible" in gui,
+        "ui_render_throttle_ready": ui_ready,
+        "live_log_throttle_ready": log_ready,
+        "table_refresh_throttle_ready": ui_ready,
+        "runtime_backpressure_ready": backpressure_ready,
+        "ai_request_pending_guard_ready": "ai_request_skipped_pending" in gui,
+        "indicator_batch_limit_ready": "indicator_batch_limited" in gui,
+        "resource_health_logging_ready": resource_ready,
+        "safe_degradation_policy_ready": degradation_ready,
+        "riskguard_unaffected": "app/services/risk_guard.py" not in changed,
+        "livepreflight_unaffected": "app/services/live_order_preflight.py" not in changed,
+        "execution_path_unaffected": not any(path in changed for path in prohibited[:4]),
+        "order_adapter_unchanged": "app/services/order_adapter.py" not in changed,
+        "prohibited_layer_diff_files": sorted(changed),
+        "no_paper_virtual_simulation": no_modes_added,
+        "no_fake_data": no_fake_data,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "low_resource_runtime_stability_v1_ready": ready,
+        "pass_status": "pass" if ready else "fail",
+        "status": "pass" if ready else "fail",
+    })
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -24658,6 +25083,8 @@ def run_harness(
         "local-model-training-v1-summary",
         "local-model-live-integration-v1-summary",
         "local-model-live-outcome-calibration-v1-summary",
+        "local-model-calibration-data-accumulation-v1-summary",
+        "low-resource-runtime-stability-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -24968,6 +25395,15 @@ def run_harness(
                 report,
                 output_dir=output_dir,
             )
+        elif mode == "local-model-calibration-data-accumulation-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_model_calibration_data_accumulation_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "low-resource-runtime-stability-v1-summary":
+            _install_provider_post_guard(report)
+            _run_low_resource_runtime_stability_v1_summary(report)
         elif mode in {"live-on-runtime-e2e-diagnostic-dryrun", "live-on-runtime-e2e-diagnostic-log-summary"}:
             _install_provider_post_guard(report)
             _run_live_on_runtime_e2e_diagnostic(
@@ -25619,6 +26055,8 @@ def main() -> int:
             "local-model-training-v1-summary",
             "local-model-live-integration-v1-summary",
             "local-model-live-outcome-calibration-v1-summary",
+            "local-model-calibration-data-accumulation-v1-summary",
+            "low-resource-runtime-stability-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",
