@@ -31948,7 +31948,8 @@ class MainWindow(QMainWindow):
         curation_summary_path = Path("data") / "ai_decision_training" / "curated_local_training_summary.json"
         feature_summary_path = Path("data") / "ai_decision_training" / "local_training_feature_summary.json"
         local_model_registry_path = Path("data") / "local_models" / "registry.json"
-        if result.get("events") or not curation_summary_path.exists() or not feature_summary_path.exists() or not local_model_registry_path.exists():
+        calibration_profile_path = Path("data") / "local_models" / "calibration_profile.json"
+        if result.get("events") or not curation_summary_path.exists() or not feature_summary_path.exists() or not local_model_registry_path.exists() or not calibration_profile_path.exists():
             from app.services.aits_orchestrator import AITSLocalTrainingDatasetCurator, AITSLocalTrainingFeaturePipeline
             from app.services.local_model_training import AITSLocalModelTrainingPipeline
             curator = getattr(self, "_aits_local_training_dataset_curator", None)
@@ -32011,6 +32012,25 @@ class MainWindow(QMainWindow):
             )
             try:
                 self._append_aits_live_log(training_message_ko, category="pipeline", level="info", event="local_model_training_status")
+            except Exception:
+                pass
+            calibration_summary = dict(training_summary.get("calibration_summary") or {})
+            usable_calibration = int(calibration_summary.get("calibration_usable_records_count") or 0)
+            if calibration_summary.get("calibration_source_empty"):
+                calibration_message_ko = "LOCAL 모델 보정용 실제 결과가 아직 없어 실전 확대를 보류합니다."
+            elif calibration_summary.get("calibration_data_insufficient"):
+                calibration_message_ko = f"LOCAL 모델 판단 결과 {usable_calibration}건을 비교했지만 보정 데이터가 부족해 실전 확대를 보류합니다."
+            else:
+                calibration_message_ko = f"LOCAL 모델 판단과 실제 결과 {usable_calibration}건을 비교해 보정 profile을 저장했습니다."
+            self._aits_local_model_calibration_status_text = calibration_message_ko
+            logging.getLogger("aits").info(
+                "[AITS][LocalModelCalibration] event=calibration_status_rendered message_ko=%s usable_records=%s data_insufficient=%s safe_for_live_expansion=%s policy_update_applied=false raw_leak_detected=false actual_order=False submitted=0",
+                calibration_message_ko, usable_calibration,
+                bool(calibration_summary.get("calibration_data_insufficient")),
+                bool(calibration_summary.get("safe_for_live_expansion")),
+            )
+            try:
+                self._append_aits_live_log(calibration_message_ko, category="pipeline", level="info", event="local_model_calibration_status")
             except Exception:
                 pass
         for event in result.get("events") or []:
@@ -42028,6 +42048,8 @@ class MainWindow(QMainWindow):
             "local_model_prediction": str(value.get("local_model_action") or value.get("model_recommended_action") or ""),
             "local_model_confidence": value.get("local_model_confidence", value.get("model_confidence")),
             "local_model_risk_score": value.get("local_model_risk_score", value.get("model_risk_score")),
+            "model_action_quality_score": value.get("model_action_quality_score"),
+            "model_provider_value_score": value.get("model_provider_value_score"),
             "local_model_used_for_final": bool(value.get("local_model_used_for_final")),
             "local_model_not_used_reason": str(value.get("local_model_not_used_reason") or ""),
             "local_model_live_allowed": bool(value.get("local_model_live_allowed")),
@@ -42036,6 +42058,11 @@ class MainWindow(QMainWindow):
             "model_prediction_vs_external": str(value.get("local_model_prediction_vs_external") or ""),
             "model_prediction_vs_final": str(value.get("local_model_prediction_vs_final") or ""),
             "model_prediction_outcome_pending": bool(value.get("local_model_prediction_outcome_pending")),
+            "local_model_calibration_profile_loaded": bool(value.get("local_model_calibration_profile_loaded")),
+            "local_model_calibration_data_sufficient": bool(value.get("local_model_calibration_data_sufficient")),
+            "local_model_calibration_recommendation_recorded": bool(value.get("local_model_calibration_recommendation_recorded")),
+            "local_model_calibration_applied_to_final_policy": False,
+            "local_model_calibration_blocker": str(value.get("local_model_calibration_blocker") or ""),
         }
 
     def _record_ai_position_decision_training(self, *, payload: dict, decision: dict, execution_result: dict | None = None) -> None:
@@ -44551,6 +44578,9 @@ class MainWindow(QMainWindow):
         model_training_status_text = str(getattr(self, "_aits_local_model_training_status_text", "") or "")
         if model_training_status_text:
             risk_text = f"{risk_text} | {model_training_status_text}"
+        calibration_status_text = str(getattr(self, "_aits_local_model_calibration_status_text", "") or "")
+        if calibration_status_text:
+            risk_text = f"{risk_text} | {calibration_status_text}"
         redecision_text = str(getattr(self, "_aits_redecision_status_text", "") or "")
         if redecision_text:
             redecision_text = " · " + redecision_text

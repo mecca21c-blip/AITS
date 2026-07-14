@@ -173,3 +173,6 @@ The model trainer accepts only feature records already marked safe for model tra
 # LOCAL Model Feature Quality
 
 LOCAL_MODEL inference reuses the `aits_local_training_feature_record.v1` feature groups. Critical missing features or payload grades D/F make prediction unavailable. Missing values remain missing through feature construction and follow the trained bundle's transform policy; no synthetic market, position, portfolio, confidence, or outcome value is introduced.
+# Calibration Evidence Quality
+
+LOCAL_MODEL calibration requires a real prediction, confidence, evaluated outcome, decision provenance, and an approved training-quality source. Submitted-order records require reconciliation evidence. Missing, inconclusive, duplicated, unresolved valuation, synthetic, manual, or forced records are excluded rather than imputed.

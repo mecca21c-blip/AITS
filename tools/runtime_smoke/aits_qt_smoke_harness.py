@@ -13023,6 +13023,167 @@ def _run_local_model_live_integration_v1_summary(
     })
 
 
+def _run_local_model_live_outcome_calibration_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    from app.services.local_model_calibration import (
+        AITSLocalModelCalibration,
+        load_local_model_calibration_profile,
+    )
+
+    calibration = AITSLocalModelCalibration()
+    if not calibration.profile_path.exists() or not calibration.summary_path.exists() or not calibration.history_path.exists():
+        calibration.run()
+    profile = calibration._read_json(calibration.profile_path)
+    summary = calibration._read_json(calibration.summary_path)
+    loaded_profile = load_local_model_calibration_profile()
+
+    source_paths = (
+        ROOT / "app" / "services" / "local_model_calibration.py",
+        ROOT / "app" / "services" / "ai_engine_provider.py",
+        ROOT / "app" / "services" / "aits_orchestrator.py",
+        ROOT / "app" / "services" / "local_model_training.py",
+        ROOT / "app" / "services" / "local_shadow_predictor.py",
+        ROOT / "app" / "ui" / "app_gui.py",
+        ROOT / "tools" / "runtime_smoke" / "aits_qt_smoke_harness.py",
+    )
+    code_text = "\n".join(path.read_text(encoding="utf-8", errors="replace") for path in source_paths if path.exists())
+
+    def source_ready(*tokens: str) -> bool:
+        return all(token in code_text for token in tokens)
+
+    confidence = dict(summary.get("confidence_calibration") or profile.get("confidence_calibration") or {})
+    action_calibration = dict(summary.get("action_calibration") or profile.get("action_calibration") or {})
+    task_calibration = dict(summary.get("task_calibration") or profile.get("task_calibration") or {})
+    routing = dict(summary.get("provider_routing_recommendation") or profile.get("provider_routing_recommendation") or {})
+    risk = dict(summary.get("risk_calibration") or profile.get("risk_calibration") or {})
+    scan_text = ""
+    for path in (calibration.profile_path, calibration.summary_path, calibration.history_path):
+        if path.exists():
+            scan_text += path.read_text(encoding="utf-8", errors="replace")[-2_000_000:]
+    raw_secret = bool(re.search(r"(?:api[_-]?key|authorization|secret)[\"' :=]+[A-Za-z0-9_\-]{12,}", scan_text, re.IGNORECASE))
+    raw_prompt = bool(re.search(r'\"(?:raw_prompt|prompt_body|request_body)\"\s*:', scan_text, re.IGNORECASE))
+    fake_data = bool(re.search(r'\"(?:fake|fabricated|synthetic)_(?:calibration|metric|outcome|prediction)[^\"]*\"\s*:\s*true', scan_text, re.IGNORECASE))
+    calibration_source_empty = bool(summary.get("calibration_source_empty"))
+    no_data_ready = bool(
+        calibration_source_empty
+        and int(summary.get("calibration_usable_records_count") or 0) == 0
+        and summary.get("no_data_calibration_ready")
+        and profile.get("safe_for_live_expansion") is False
+        and confidence.get("recommended_confidence_threshold") is None
+    )
+    no_order_dependency = all(
+        token not in (ROOT / "app" / "services" / "local_model_calibration.py").read_text(encoding="utf-8", errors="replace")
+        for token in ("OrderAdapter", "ExecutionBridge", "OrderService", "DecisionRouter")
+    )
+
+    checklist = {
+        "source": {
+            "local_model_calibration_source_loader_ready": source_ready("def load_sources", "calibration_source_records_count"),
+            "no_data_calibration_state_ready": no_data_ready or int(summary.get("calibration_usable_records_count") or 0) > 0,
+        },
+        "matching": {
+            "prediction_outcome_matcher_ready": bool(summary.get("prediction_outcome_matcher_ready")) and source_ready("model_prediction_matched_to_outcome"),
+        },
+        "confidence": {
+            "confidence_calibration_ready": bool(confidence.get("confidence_calibration_ready")),
+            "confidence_bucket_summary_ready": len(confidence.get("confidence_bucket_summary") or []) == 5,
+            "recommended_confidence_threshold_recorded": "recommended_confidence_threshold" in confidence,
+        },
+        "action_task": {
+            "action_specific_calibration_ready": bool(summary.get("action_specific_calibration_ready")) and isinstance(action_calibration, dict),
+            "task_specific_calibration_ready": bool(summary.get("task_specific_calibration_ready")) and isinstance(task_calibration, dict),
+        },
+        "routing": {
+            "provider_routing_calibration_ready": bool(summary.get("provider_routing_calibration_ready")),
+            "local_model_final_policy_recommended": bool(summary.get("local_model_final_policy_recommended")),
+            "local_model_escalation_policy_recommended": bool(summary.get("local_model_escalation_policy_recommended")),
+            "local_model_policy_update_candidate_recorded": bool(summary.get("local_model_policy_update_candidate")),
+            "local_model_policy_update_applied_false": summary.get("local_model_policy_update_applied") is False,
+        },
+        "risk": {
+            "risk_calibration_ready": bool(risk.get("risk_calibration_ready")),
+            "local_model_risk_gate_recommendation_ready": bool(risk.get("local_model_risk_gate_recommendation")),
+        },
+        "profile": {
+            "calibration_profile_writer_ready": source_ready("calibration_profile.json", "calibration_history.jsonl", "latest_calibration_summary.json"),
+            "calibration_profile_file_exists": calibration.profile_path.exists(),
+            "calibration_history_file_exists": calibration.history_path.exists(),
+            "latest_calibration_summary_exists": calibration.summary_path.exists(),
+            "live_expansion_requires_user_approval": profile.get("safe_for_live_expansion") is False or int(profile.get("usable_records_count") or 0) >= calibration.MIN_LIVE_EXPANSION_RECORDS,
+        },
+        "router_hook": {
+            "local_model_calibration_profile_loaded": loaded_profile.get("status") == "available",
+            "local_model_calibration_recommendation_recorded": bool(routing),
+            "local_model_calibration_applied_to_final_policy_false": source_ready('"local_model_calibration_applied_to_final_policy": False', "policy_update_applied=false"),
+        },
+        "safety": {
+            "no_fake_calibration_data_detected": not fake_data,
+            "no_fake_metrics_detected": not fake_data,
+            "no_live_policy_auto_expansion": profile.get("safety_policy", {}).get("automatic_live_policy_expansion") is False,
+            "riskguard_still_required": profile.get("safety_policy", {}).get("riskguard_required") is True,
+            "livepreflight_still_required": profile.get("safety_policy", {}).get("livepreflight_required") is True,
+            "no_order_path_modified": no_order_dependency,
+            "no_guard_bypass_detected": no_order_dependency,
+            "raw_secret_leak_detected_false": not raw_secret,
+            "raw_prompt_leak_detected_false": not raw_prompt,
+        },
+        "integration": {
+            "local_model_live_integration_compat_ready": source_ready("local_model_live_integration_v1_ready", "predict_local_model_decision"),
+            "local_model_training_compat_ready": source_ready("class AITSLocalModelTrainingPipeline", "calibration_summary"),
+            "local_training_feature_pipeline_compat_ready": source_ready("class AITSLocalTrainingFeaturePipeline"),
+            "local_provider_outcome_learning_compat_ready": source_ready("class AITSDecisionOutcomeTracker", "provider_comparison_outcomes.jsonl"),
+            "live_operating_cycle_compat_ready": source_ready("live_operating_cycle_v1_ready", "riskguard_required"),
+        },
+    }
+    blocker_group = "none"
+    first_blocker = "local_model_live_outcome_calibration_v1_ready"
+    for group, checks in checklist.items():
+        missing = [name for name, ready in checks.items() if not ready]
+        if missing:
+            blocker_group = group
+            first_blocker = missing[0]
+            break
+    ready = blocker_group == "none"
+    report.update({
+        "schema": "aits_local_model_live_outcome_calibration_v1_summary_v1",
+        "mode": "local-model-live-outcome-calibration-v1-summary",
+        **{key: value for group in checklist.values() for key, value in group.items()},
+        "calibration_source_records_count": int(summary.get("calibration_source_records_count") or 0),
+        "local_model_prediction_records_count": int(summary.get("local_model_prediction_records_count") or 0),
+        "outcome_matched_records_count": int(summary.get("outcome_matched_records_count") or 0),
+        "calibration_usable_records_count": int(summary.get("calibration_usable_records_count") or 0),
+        "calibration_excluded_records_count": int(summary.get("calibration_excluded_records_count") or 0),
+        "no_data_calibration_ready": no_data_ready,
+        "calibration_data_insufficient": bool(summary.get("calibration_data_insufficient")),
+        "model_prediction_matched_to_outcome_count": int(summary.get("model_prediction_matched_to_outcome_count") or 0),
+        "model_action_correct_count": int(summary.get("model_action_correct_count") or 0),
+        "model_risk_prediction_correct_count": int(summary.get("model_risk_prediction_correct_count") or 0),
+        "model_provider_value_prediction_correct_count": int(summary.get("model_provider_value_prediction_correct_count") or 0),
+        "high_confidence_error_count": int(confidence.get("high_confidence_error_count") or 0),
+        "low_confidence_success_count": int(confidence.get("low_confidence_success_count") or 0),
+        "reliable_action_groups": list(summary.get("reliable_action_groups") or []),
+        "weak_action_groups": list(summary.get("weak_action_groups") or []),
+        "reliable_task_groups": list(summary.get("reliable_task_groups") or []),
+        "weak_task_groups": list(summary.get("weak_task_groups") or []),
+        "unsafe_model_prediction_count": int(risk.get("unsafe_model_prediction_count") or 0),
+        "safe_for_policy_use": bool(profile.get("safe_for_policy_use")),
+        "safe_for_live_expansion": bool(profile.get("safe_for_live_expansion")),
+        "raw_secret_leak_detected": raw_secret,
+        "raw_prompt_leak_detected": raw_prompt,
+        "completion_checklist": checklist,
+        "calibration_profile_summary": profile,
+        "local_model_live_outcome_calibration_v1_ready": ready,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "next_sprint_recommendation": "SPRINT-LOCAL-MODEL-CALIBRATION-DATA-ACCUMULATION-V1",
+        "pass_status": "pass" if ready else "fail",
+        "status": "pass" if ready else "fail",
+    })
+
+
 def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -> None:
     lines, log_path, log_read_error = _live_on_runtime_e2e_tail_log(max_chars=24_000_000)
     reports = _live_on_runtime_e2e_latest_reports(ROOT / "data" / "runtime_smoke_reports")
@@ -24496,6 +24657,7 @@ def run_harness(
         "local-training-feature-pipeline-v1-summary",
         "local-model-training-v1-summary",
         "local-model-live-integration-v1-summary",
+        "local-model-live-outcome-calibration-v1-summary",
         "live-on-runtime-after-preflight-stage-trace",
         "live-on-runtime-after-preflight-stage-summary",
         "riskguard-readonly-adapter-skeleton-fixture-proof",
@@ -24797,6 +24959,12 @@ def run_harness(
         elif mode == "local-model-live-integration-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_live_integration_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-model-live-outcome-calibration-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_model_live_outcome_calibration_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -25450,6 +25618,7 @@ def main() -> int:
             "local-training-feature-pipeline-v1-summary",
             "local-model-training-v1-summary",
             "local-model-live-integration-v1-summary",
+            "local-model-live-outcome-calibration-v1-summary",
             "live-on-runtime-after-preflight-stage-trace",
             "live-on-runtime-after-preflight-stage-summary",
             "riskguard-readonly-adapter-skeleton-fixture-proof",

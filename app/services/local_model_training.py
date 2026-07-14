@@ -500,6 +500,11 @@ class AITSLocalModelTrainingPipeline:
         }
         metrics_status = {**metrics, "model_id": model_id, "training_status": training_status, "trained": trained}
         self.registry.record_training_run(metadata, metrics_status)
+        from app.services.local_model_calibration import AITSLocalModelCalibration
+        calibration_summary = AITSLocalModelCalibration(
+            training_root=self.training_root,
+            model_root=self.model_root,
+        ).run()
         result = {
             **loaded,
             **{key: value for key, value in matrix.items() if key != "matrix"},
@@ -529,6 +534,7 @@ class AITSLocalModelTrainingPipeline:
             "artifact_path": artifact_path,
             "model_card_created": model_card_created,
             "training_status": training_status,
+            "calibration_summary": calibration_summary,
         }
         logging.getLogger("aits").info(
             "[AITS][LocalModelTraining] event=training_completed model_id=%s training_status=%s source_count=%s usable_count=%s train_count=%s validation_count=%s model_training_attempted=%s model_training_skipped=%s skip_reason=%s trained_targets=%s safe_for_live_decision=false live_decision_enabled=false actual_order=False submitted=0",

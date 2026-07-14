@@ -13,6 +13,7 @@ import urllib.request
 
 from app.services.ollama_http_client import OllamaHttpClient
 from app.services.local_shadow_predictor import predict_local_model_decision
+from app.services.local_model_calibration import load_local_model_calibration_profile
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -1059,6 +1060,43 @@ class AIEngineProvider:
                 "local_model_prediction_available": False,
                 "local_model_prediction_blocker": f"local_model_provider_failed:{type(exc).__name__}",
             }
+        calibration = load_local_model_calibration_profile()
+        calibration_profile = dict(calibration.get("profile") or {})
+        current_model_id = str(result.get("local_model_id") or "")
+        profile_model_id = str(calibration_profile.get("source_model_id") or "")
+        calibration_available = calibration.get("status") == "available"
+        calibration_model_matches = bool(
+            calibration_available and (not current_model_id or not profile_model_id or current_model_id == profile_model_id)
+        )
+        calibration_blocker = str(calibration.get("reason") or "")
+        if calibration_available and not calibration_model_matches:
+            calibration_blocker = "calibration_model_mismatch"
+        elif calibration_available and not calibration.get("data_sufficient"):
+            calibration_blocker = str(calibration_profile.get("blocker") or "calibration_data_insufficient")
+        result.update({
+            "local_model_calibration_profile_loaded": calibration_available,
+            "local_model_calibration_profile_available": calibration_available,
+            "local_model_calibration_data_sufficient": bool(calibration.get("data_sufficient") and calibration_model_matches),
+            "local_model_calibration_recommendation_recorded": bool(calibration_profile.get("provider_routing_recommendation")),
+            "local_model_calibration_recommendation": dict(calibration_profile.get("provider_routing_recommendation") or {}),
+            "local_model_calibration_safe_for_policy_use": bool(calibration.get("safe_for_policy_use") and calibration_model_matches),
+            "local_model_calibration_safe_for_live_expansion": bool(calibration.get("safe_for_live_expansion") and calibration_model_matches),
+            "local_model_calibration_blocker": calibration_blocker,
+            "local_model_calibration_applied_to_final_policy": False,
+        })
+        _safe_log_info(
+            f"[AITS][LocalModelCalibration] event={'calibration_profile_loaded' if calibration_available else 'calibration_profile_unavailable'} "
+            f"task={task or '-'} scope={scope} model_id={current_model_id or '-'} profile_model_id={profile_model_id or '-'} "
+            f"data_sufficient={str(bool(result.get('local_model_calibration_data_sufficient'))).lower()} "
+            f"safe_for_live_expansion={str(bool(result.get('local_model_calibration_safe_for_live_expansion'))).lower()} "
+            f"policy_update_applied=false blocker={calibration_blocker or '-'} actual_order=False submitted=0"
+        )
+        if result.get("local_model_calibration_recommendation_recorded"):
+            _safe_log_info(
+                "[AITS][LocalModelCalibration] event=calibration_recommendation_recorded "
+                f"task={task or '-'} scope={scope} policy_update_applied=false "
+                "riskguard_required=true livepreflight_required=true actual_order=False submitted=0"
+            )
         loaded = bool(result.get("local_model_loaded"))
         blocker = str(result.get("local_model_prediction_blocker") or "")
         _safe_log_info(

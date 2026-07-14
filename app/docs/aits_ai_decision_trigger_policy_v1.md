@@ -316,3 +316,6 @@ Training completion, metrics, registry state, and shadow predictions are not dec
 # LOCAL Model Routing
 
 Initial and redecision triggers may request a LOCAL_MODEL comparison after the existing LOCAL first decision. Model order-capable actions add an external-confirmation escalation reason. A model prediction does not create a trigger or order by itself, and ETA/invalidation semantics are unchanged.
+# Calibration Is Not A Trigger
+
+A calibration profile is routing metadata, not a decision trigger, invalidation condition, or order signal. V1 records recommendations only. Order-capable LOCAL_MODEL actions retain external confirmation, and live-policy expansion requires a separate user-approved Goal.

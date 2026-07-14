@@ -231,3 +231,6 @@ LOCAL baseline training is an offline learning owner. Its artifacts and shadow s
 # LOCAL Model Provider Boundary
 
 LOCAL_MODEL is an AI provider candidate, not BASIC and not an execution engine. It may evaluate a compatible factual feature vector and offer a validated decision candidate. Registry approval controls whether that candidate may become the final provider source. RiskGuard, LivePreflight, and the normal execution path retain their existing ownership; LOCAL_MODEL cannot create or submit orders directly.
+# LOCAL Model Calibration Boundary
+
+Calibration analyzes observed LOCAL_MODEL predictions and outcomes. It may write provider-routing recommendations, but it cannot change a final action or expand live authority. BASIC supplies facts, AI providers own decisions, and RiskGuard, LivePreflight, and Execution retain their existing safety ownership.

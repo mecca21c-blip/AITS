@@ -2123,3 +2123,6 @@ summary modes.
 # LOCAL Model Live Integration v1
 
 `--mode local-model-live-integration-v1-summary --observe-only` validates the trained-model registry, prediction feature contract, LOCAL_MODEL provider candidate policy, registry-gated live eligibility, observation fields, and the absence of direct order-layer dependencies. An honest `trained=false` registry is a valid no-model fallback: prediction remains unavailable and the existing LOCAL/external route stays active.
+# LOCAL Model Live Outcome Calibration v1
+
+`--mode local-model-live-outcome-calibration-v1-summary --observe-only` checks observed outcome loading, LOCAL_MODEL prediction matching, confidence buckets, action/task and risk calibration, recommendation-only routing metadata, calibration profile files, and prior Sprint compatibility. Zero usable records are reported as `no_data_calibration_ready`; the summary requires a null recommended threshold and `safe_for_live_expansion=false` in that state.
