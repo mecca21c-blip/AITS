@@ -13675,6 +13675,32 @@ def _run_on_button_nonblocking_startup_stability_v1_summary(report: dict[str, An
 
     lines, _log_path, _log_error = _live_on_runtime_e2e_tail_log(max_chars=4_000_000)
     returned_lines = [line for line in lines if "[AITS][ONStartup]" in line and "event=on_click_handler_returned" in line]
+    click_indexes = [
+        index for index, line in enumerate(lines)
+        if "[AITS][ONStartup]" in line and "event=on_click_received" in line
+    ]
+    startup_lines = lines[click_indexes[-1] :] if click_indexes else []
+    failure_lines = [
+        line for line in startup_lines
+        if "[AITS][ONStartup]" in line
+        and ("event=startup_stage_failed" in line or "event=startup_stage_timeout" in line or "event=startup_sequence_failed" in line)
+    ]
+    failure_line = failure_lines[-1] if failure_lines else ""
+    runtime_start_failed_visible = any("event=start_failed_state_visible" in line for line in startup_lines)
+    runtime_failure_persisted = any("event=startup_failure_reason_persisted" in line for line in startup_lines)
+    runtime_off_revert = [
+        line for line in startup_lines
+        if "[AITS][ONStartup]" in line
+        and (_live_on_stage_extract_value(line, "returned_to_off").lower() == "true" or "event=silent_off_revert" in line)
+    ]
+    failure_detected = bool(failure_line)
+    failed_stage = _live_on_stage_extract_value(failure_line, "stage") if failure_line else ""
+    failed_reason = _live_on_stage_extract_value(failure_line, "blocker") if failure_line else ""
+    failed_exception = _live_on_stage_extract_value(failure_line, "exception_type") if failure_line else ""
+    failed_safe_message = _live_on_stage_extract_value(failure_line, "safe_message_ko") if failure_line else ""
+    returned_to_off_callsite = (
+        _live_on_stage_extract_value(runtime_off_revert[-1], "off_callsite") if runtime_off_revert else ""
+    )
     observed_elapsed: int | None = None
     if returned_lines:
         try:
@@ -13711,6 +13737,17 @@ def _run_on_button_nonblocking_startup_stability_v1_summary(report: dict[str, An
     no_fake_data = not any(token in added_diff for token in ("fake market data", "fake indicator", "fake order", "fake submitted"))
     prohibited_clean = not changed
     returned_contract = "event=on_click_handler_returned" in gui
+    start_failed_visible_contract = has_all(gui, "event=start_failed_state_visible", 'btn.setText("\\uc2dc\\uc791 \\uc2e4\\ud328")')
+    failure_persistence_contract = has_all(
+        gui,
+        "_aits_on_startup_failure",
+        "event=startup_failure_reason_persisted",
+        '"returned_to_off": False',
+    )
+    silent_off_guard_contract = has_all(gui, "event=off_revert_blocked", 'off_callsite=_set_running_ui')
+    silent_off_revert_detected = bool(runtime_off_revert) or bool(
+        failure_detected and not (start_failed_visible_contract and failure_persistence_contract and silent_off_guard_contract)
+    )
     elapsed_contract_ready = observed_elapsed is None or observed_elapsed <= 300
     checks = (
         ("handler", "on_click_handler_blocking", fast_return_ready and returned_contract and elapsed_contract_ready),
@@ -13734,6 +13771,21 @@ def _run_on_button_nonblocking_startup_stability_v1_summary(report: dict[str, An
             first_blocker = blocker
             break
     ready = blocker_group == "none"
+    if ready and failure_detected:
+        if not failed_stage:
+            blocker_group = "diagnostic"
+            first_blocker = "startup_failure_stage_unknown"
+            ready = False
+        elif "watchdog_timeout_detected" in "\n".join(startup_lines) and "event=startup_stage_timeout" not in failure_line:
+            blocker_group = "watchdog"
+            first_blocker = "startup_watchdog_false_timeout"
+            ready = False
+        elif silent_off_revert_detected:
+            blocker_group = "ui"
+            first_blocker = "silent_off_revert_after_startup_failure"
+            ready = False
+        elif start_failed_visible_contract and failure_persistence_contract:
+            first_blocker = "on_startup_failure_diagnostics_ready"
     report.update({
         "schema": "aits_on_button_nonblocking_startup_stability_v1_summary_v1",
         "mode": "on-button-nonblocking-startup-stability-v1-summary",
@@ -13742,6 +13794,17 @@ def _run_on_button_nonblocking_startup_stability_v1_summary(report: dict[str, An
         "on_click_handler_returned_detected": returned_contract,
         "on_click_handler_runtime_observed": bool(returned_lines),
         "on_click_handler_elapsed_ms": observed_elapsed,
+        "on_click_fast_return_ok": elapsed_contract_ready and bool(returned_lines),
+        "on_startup_failure_detected": failure_detected,
+        "on_startup_failed_stage": failed_stage or None,
+        "on_startup_failed_reason": failed_reason or None,
+        "on_startup_exception_type": failed_exception or None,
+        "on_startup_safe_message_ko": failed_safe_message or None,
+        "on_startup_returned_to_off": bool(runtime_off_revert),
+        "on_startup_returned_to_off_callsite": returned_to_off_callsite or None,
+        "start_failed_state_visible": runtime_start_failed_visible or start_failed_visible_contract,
+        "silent_off_revert_detected": silent_off_revert_detected,
+        "startup_failure_reason_persisted": runtime_failure_persisted or failure_persistence_contract,
         "startup_sequence_staged": staged_ready,
         "startup_stage_count": 12,
         "startup_watchdog_ready": watchdog_ready,

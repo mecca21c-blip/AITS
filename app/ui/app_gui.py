@@ -10645,6 +10645,20 @@ class MainWindow(QMainWindow):
     def _set_running_ui(self, running: bool):
         """RUNNING/IDLE 표시 + KPI 자동 갱신 on/off + 버튼/라벨 동기화."""
         self._ensure_run_widgets()
+        if not running and str(getattr(self, "_aits_on_startup_ui_state", "") or "").upper() == "START_FAILED":
+            message = str(
+                getattr(self, "_aits_on_startup_safe_message_ko", "")
+                or "\uc2dc\uc791 \uc911 \ubb38\uc81c\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4. \ub2e4\uc2dc \uc2dc\ub3c4\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4."
+            )
+            logging.getLogger("aits").warning(
+                "[AITS][ONStartup] event=off_revert_blocked stage=%s elapsed_ms=0 blocker=%s exception_type=%s safe_message_ko=%s returned_to_off=False off_callsite=_set_running_ui actual_order=False submitted=0",
+                str(getattr(self, "_aits_on_startup_failed_stage", "unknown") or "unknown"),
+                str(getattr(self, "_aits_on_startup_failed_reason", "startup_failed") or "startup_failed")[:120],
+                str(getattr(self, "_aits_on_startup_exception_type", "") or "-"),
+                message.replace(" ", "_"),
+            )
+            self._set_on_startup_ui_state("START_FAILED", message)
+            return
         try:
             self.set_aits_state("RUNNING" if running else "STOPPED")
         except Exception:
@@ -61372,7 +61386,7 @@ class MainWindow(QMainWindow):
                 elif state == "START_FAILED":
                     btn.setChecked(False)
                     self._style_run_toggle_switch(False)
-                    btn.setText("OFF")
+                    btn.setText("\uc2dc\uc791 \uc2e4\ud328")
                     btn.setEnabled(True)
                 elif state == "ON_ACTIVE":
                     btn.setChecked(True)
@@ -61395,6 +61409,14 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        if state == "START_FAILED":
+            logging.getLogger("aits").warning(
+                "[AITS][ONStartup] event=start_failed_state_visible stage=%s elapsed_ms=0 blocker=%s exception_type=%s safe_message_ko=%s returned_to_off=False off_callsite=- actual_order=False submitted=0",
+                str(getattr(self, "_aits_on_startup_failed_stage", "unknown") or "unknown"),
+                str(getattr(self, "_aits_on_startup_failed_reason", "startup_failed") or "startup_failed")[:120],
+                str(getattr(self, "_aits_on_startup_exception_type", "") or "-"),
+                display.replace(" ", "_"),
+            )
     def _on_startup_stages(self) -> tuple:
         return (
             ("startup_prepare", "ui", 3000),
@@ -61445,8 +61467,6 @@ class MainWindow(QMainWindow):
                 "readiness": readiness,
             }
         if stage == "enable_runtime_loop":
-            from app.services.order_service import svc_order
-            svc_order.set_trading_enabled(True)
             scheduled = self._request_aits_runtime_start_once(True, "nonblocking_staged_startup")
             return {"ok": bool(scheduled), "waiting_runtime_ack": bool(scheduled), "blocker": "" if scheduled else "runtime_start_schedule_failed"}
         return {"ok": False, "blocker": "unknown_startup_stage"}
@@ -61481,6 +61501,11 @@ class MainWindow(QMainWindow):
         self._aits_on_startup_stage_started_perf = self._aits_on_startup_started_perf
         self._aits_on_startup_stage_timeout_ms = 3000
         self._begin_low_resource_startup_sequence()
+        self._aits_on_startup_failed_stage = ""
+        self._aits_on_startup_failed_reason = ""
+        self._aits_on_startup_exception_type = ""
+        self._aits_on_startup_safe_message_ko = ""
+        self._aits_on_startup_failure = {}
         self._set_on_startup_ui_state("STARTING")
         logger.info(
             "[AITS][ONStartup] event=on_ui_transition_to_starting elapsed_ms=%s ui_thread_returned=False button_state=starting blocker=- actual_order=False submitted=0",
@@ -61641,7 +61666,36 @@ class MainWindow(QMainWindow):
             svc_order.set_trading_enabled(False)
         except Exception:
             pass
-        self._set_on_startup_ui_state("START_FAILED")
+        safe_messages = {
+            "account_balance_light_check": "\uacc4\uc88c\uc640 \ubcf4\uc720\uc885\ubaa9\uc744 \ud655\uc778\ud558\uc9c0 \ubabb\ud574 \uc2dc\uc791\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.",
+            "ai_provider_readiness": "AI \uc5f0\uacb0 \uc0c1\ud0dc\ub97c \ud655\uc778\ud558\uc9c0 \ubabb\ud574 \uc2dc\uc791\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.",
+            "runtime_contract_create": "AITS \uc2e4\ud589 \uc900\ube44\ub97c \uc644\ub8cc\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.",
+            "enable_runtime_loop": "AITS \uac10\uc2dc \uc5d4\uc9c4\uc744 \uc2dc\uc791\ud558\uc9c0 \ubabb\ud588\uc2b5\ub2c8\ub2e4.",
+        }
+        safe_message = (
+            "\uc2dc\uc791 \ub2e8\uacc4\uac00 \uc81c\ud55c \uc2dc\uac04 \ub0b4\uc5d0 \uc644\ub8cc\ub418\uc9c0 \uc54a\uc558\uc2b5\ub2c8\ub2e4."
+            if timeout
+            else safe_messages.get(stage, "\uc2dc\uc791 \uc911 \ubb38\uc81c\uac00 \ubc1c\uc0dd\ud588\uc2b5\ub2c8\ub2e4. \ub2e4\uc2dc \uc2dc\ub3c4\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4.")
+        )
+        self._aits_on_startup_failed_stage = str(stage or "unknown")
+        self._aits_on_startup_failed_reason = str(blocker or "startup_failed")[:120]
+        self._aits_on_startup_exception_type = str(exception_type or "")[:80]
+        self._aits_on_startup_safe_message_ko = safe_message
+        self._aits_on_startup_failure = {
+            "stage": self._aits_on_startup_failed_stage,
+            "reason": self._aits_on_startup_failed_reason,
+            "exception_type": self._aits_on_startup_exception_type,
+            "safe_message_ko": safe_message,
+            "returned_to_off": False,
+            "off_callsite": "",
+            "failed_at": time.time(),
+        }
+        self._set_on_startup_ui_state("START_FAILED", safe_message)
+        logging.getLogger("aits").warning(
+            "[AITS][ONStartup] event=startup_failure_reason_persisted stage=%s elapsed_ms=%s blocker=%s exception_type=%s safe_message_ko=%s returned_to_off=False off_callsite=- actual_order=False submitted=0",
+            stage, elapsed_ms, self._aits_on_startup_failed_reason,
+            self._aits_on_startup_exception_type or "-", safe_message.replace(" ", "_"),
+        )
         event = "startup_stage_timeout" if timeout else "startup_stage_failed"
         logger = logging.getLogger("aits")
         logger.warning(
