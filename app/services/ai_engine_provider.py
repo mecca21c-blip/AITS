@@ -12,7 +12,10 @@ import urllib.error
 import urllib.request
 
 from app.services.ollama_http_client import OllamaHttpClient
-from app.services.local_shadow_predictor import predict_local_model_decision
+from app.services.local_shadow_predictor import (
+    predict_local_model_decision,
+    record_local_engine_candidate_observation,
+)
 from app.services.local_model_calibration import load_local_model_calibration_profile
 
 
@@ -1791,6 +1794,41 @@ class AIEngineProvider:
                 "local_only_order_action_blocked_without_external_confirmation": source_reason == "local_order_action_blocked_without_external_confirmation",
                 "actual_order": False,
                 "submitted": 0,
+            }
+        )
+        final_action_before_observation = str(final_decision.get("action") or "wait")
+        observation_status = "unavailable"
+        observation_blocker = str(local_model.get("local_model_prediction_blocker") or "local_model_prediction_unavailable")
+        prediction_id = ""
+        outcome_linkage_key = ""
+        if model_available and model_decision:
+            try:
+                observation = record_local_engine_candidate_observation(
+                    candidate=model_decision,
+                    model_state=local_model,
+                    context=context,
+                    manifest_summary=manifest_summary,
+                    final_decision=final_decision,
+                    cost_guard=cost_guard,
+                )
+                prediction_id = str(observation.get("prediction_id") or "")
+                outcome_linkage_key = str(observation.get("outcome_linkage_key") or "")
+                observation_status = "recorded"
+                observation_blocker = ""
+            except Exception as exc:
+                observation_status = "unavailable"
+                observation_blocker = f"candidate_observation_failed:{type(exc).__name__}"
+        final_decision.update(
+            {
+                "local_engine_candidate_observation_schema": "aits_local_engine_candidate_observation.v1",
+                "local_engine_candidate_observation_status": observation_status,
+                "local_engine_candidate_observation_blocker": observation_blocker,
+                "local_engine_prediction_id": prediction_id,
+                "local_engine_candidate_observation_ids": [prediction_id] if prediction_id else [],
+                "local_engine_outcome_linkage_key": outcome_linkage_key,
+                "local_engine_candidate_only": True,
+                "local_engine_applied_to_final_action": False,
+                "local_engine_final_action_unchanged": str(final_decision.get("action") or "wait") == final_action_before_observation,
             }
         )
         _safe_log_info(

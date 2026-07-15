@@ -133,3 +133,35 @@ Manual verification:
 ```powershell
 .\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode local-engine-curation-provenance-repair-v1-summary --observe-only
 ```
+
+## Candidate Observation v1
+
+`aits_local_engine_candidate_observation.v1` records a prediction produced from
+the real provider decision payload by the trained in-process LOCAL_ENGINE. It is
+an observation record, not a decision authority or alternate order path.
+
+The provider route evaluates the existing LOCAL_MODEL candidate and, only after
+the normal final provider decision is selected, stores the candidate with:
+
+- prediction, decision, task, scope, model artifact, and outcome linkage IDs;
+- action, confidence, risk, escalation, ETA, invalidation, evidence, and Korean
+  reason;
+- teacher/final provider, final action/confidence, final reason digest, and cost
+  guard result;
+- `candidate_only=true`, `applied_to_final_action=false`,
+  `safe_for_live_decision=false`, and `live_decision_enabled=false`.
+
+Only successful predictions from a real trained artifact are appended to
+`data/local_engine/local_engine_candidate_observations.jsonl`. Unavailable or
+rejected predictions produce metadata blockers but no fabricated candidate row.
+The append is validated, single-line, flushed, and filesystem-synced.
+
+Future outcome tracking carries `local_engine_prediction_id` and
+`local_engine_outcome_linkage_key`. Historical outcome sources are unchanged.
+Observation failure cannot fail the provider route or change its final action.
+
+Manual structural verification does not generate a prediction:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode local-engine-candidate-observation-v1-summary --observe-only
+```

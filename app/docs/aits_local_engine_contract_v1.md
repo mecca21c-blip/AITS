@@ -223,3 +223,19 @@ Acceptance criteria:
   quality or feature provenance remain excluded with explicit reasons.
 - LOCAL_ENGINE live flags remain false, Ollama remains developer-only, and no
   execution authority is granted by curation or training readiness.
+
+## 16. Candidate Observation Contract v1
+
+- Schema: `aits_local_engine_candidate_observation.v1`.
+- A record is written only for an available prediction from a trained artifact
+  using the actual provider decision payload.
+- Observation records are always candidate-only and never modify the selected
+  final provider, action, confidence, validation, Router, RiskGuard,
+  LivePreflight, or Execution path.
+- The observation joins model evidence with teacher/final provider metadata by
+  `prediction_id`, `decision_id`, task, scope, timestamp, and
+  `outcome_linkage_key`.
+- Unavailable artifacts, insufficient factual features, validator rejection, or
+  final-source conflict do not generate replacement wait/hold predictions.
+- Provider flow continues when observation writing fails.
+- LOCAL_ENGINE and Ollama live authority defaults remain disabled.

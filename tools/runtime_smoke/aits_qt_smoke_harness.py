@@ -14934,6 +14934,160 @@ def _run_local_engine_curation_provenance_repair_v1_summary(
     )
 
 
+def _run_local_engine_candidate_observation_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    from app.services.local_model_registry import AITSLocalModelRegistry
+    from app.services.local_shadow_predictor import (
+        AITSLocalEngineCandidateObservationWriter,
+        LOCAL_ENGINE_OBSERVATION_SCHEMA,
+    )
+    from app.services.local_training_dataset_curation import read_json_dict, read_recoverable_jsonl
+
+    model_root = ROOT / "data" / "local_models"
+    training_root = ROOT / "data" / "ai_decision_training"
+    registry_owner = AITSLocalModelRegistry(model_root)
+    registry = registry_owner.load_registry()
+    latest = registry_owner.load_latest()
+    artifact = registry_owner.latest_model_candidate()
+    calibration = read_json_dict(model_root / "calibration_profile.json")
+    writer = AITSLocalEngineCandidateObservationWriter(ROOT / "data" / "local_engine")
+    observations, observation_metrics = writer.read()
+    outcomes, _ = read_recoverable_jsonl(training_root / "outcome_records.jsonl")
+
+    predictor_text = (ROOT / "app" / "services" / "local_shadow_predictor.py").read_text(encoding="utf-8", errors="replace")
+    provider_text = (ROOT / "app" / "services" / "ai_engine_provider.py").read_text(encoding="utf-8", errors="replace")
+    app_gui_text = (ROOT / "app" / "ui" / "app_gui.py").read_text(encoding="utf-8", errors="replace")
+    orchestrator_text = (ROOT / "app" / "services" / "aits_orchestrator.py").read_text(encoding="utf-8", errors="replace")
+    settings_text = (ROOT / "app" / "utils" / "settings_schema.py").read_text(encoding="utf-8", errors="replace")
+
+    schema_ready = bool(
+        LOCAL_ENGINE_OBSERVATION_SCHEMA == "aits_local_engine_candidate_observation.v1"
+        and "build_local_engine_candidate_observation" in predictor_text
+    )
+    writer_ready = bool(
+        "class AITSLocalEngineCandidateObservationWriter" in predictor_text
+        and "os.fsync" in predictor_text
+        and "record_local_engine_candidate_observation" in provider_text
+    )
+    valid_records = [row for row in observations if writer.validate(row)]
+    applied_count = sum(bool(row.get("applied_to_final_action")) for row in observations)
+    final_action_mutation = bool(
+        applied_count
+        or any(row.get("candidate_only") is not True for row in observations)
+        or any(row.get("local_engine_final_action_unchanged") is False for row in outcomes if row.get("local_engine_prediction_id"))
+    )
+    candidate_only_enforced = bool(
+        "candidate_observation_final_source_conflict" in predictor_text
+        and '"applied_to_final_action": False' in predictor_text
+        and all(row.get("candidate_only") is True and row.get("applied_to_final_action") is False for row in observations)
+    )
+    outcome_linkage_ready = all(
+        token in app_gui_text and token in orchestrator_text
+        for token in ("local_engine_prediction_id", "local_engine_outcome_linkage_key")
+    )
+    teacher_metadata_ready = all(
+        token in predictor_text
+        for token in ("teacher_source", "final_provider_source", "final_reason_digest", "provider_cost_guard_result")
+    )
+    prediction_outcomes = sum(
+        bool(row.get("local_engine_prediction_id") or row.get("local_model_prediction"))
+        and bool(row.get("outcome_label"))
+        for row in outcomes
+    )
+    fake_prediction = any(row.get("fake_prediction") is not False for row in observations)
+    fake_outcome = any(
+        row.get("fake_outcome") is True or row.get("synthetic_outcome") is True
+        for row in outcomes
+    )
+    registry_valid = bool(registry.get("registry_schema") == AITSLocalModelRegistry.REGISTRY_SCHEMA)
+    calibration_valid = bool(calibration.get("schema") == "aits_local_model_calibration_profile.v1")
+    trained_artifact_available = bool(
+        latest.get("trained")
+        and artifact.get("model_path")
+        and Path(str(artifact.get("model_path"))).is_file()
+    )
+    safe_for_live = bool(latest.get("safe_for_live_decision"))
+    live_enabled = bool(latest.get("live_decision_enabled"))
+    ollama_developer_only = "local_ollama_developer_only: bool = True" in settings_text
+    ollama_live_enabled = "local_ollama_auto_generate_on_live_enabled: bool = True" in settings_text
+
+    first_blocker = "local_engine_candidate_observation_ready"
+    if not registry_valid:
+        first_blocker = "model_registry_invalid"
+    elif not schema_ready:
+        first_blocker = "candidate_schema_missing"
+    elif not writer_ready:
+        first_blocker = "candidate_writer_missing"
+    elif not candidate_only_enforced:
+        first_blocker = "candidate_only_contract_broken"
+    elif final_action_mutation:
+        first_blocker = "final_action_mutation_detected"
+    elif safe_for_live:
+        first_blocker = "safe_for_live_decision_true_unexpected"
+    elif live_enabled:
+        first_blocker = "live_decision_enabled_true_unexpected"
+    elif fake_prediction:
+        first_blocker = "fake_prediction_detected"
+    elif fake_outcome:
+        first_blocker = "fake_outcome_detected"
+    elif not outcome_linkage_ready:
+        first_blocker = "outcome_linkage_missing"
+    elif not trained_artifact_available:
+        first_blocker = "trained_artifact_unavailable"
+
+    ready = bool(
+        registry_valid
+        and schema_ready
+        and writer_ready
+        and candidate_only_enforced
+        and not final_action_mutation
+        and not safe_for_live
+        and not live_enabled
+        and not fake_prediction
+        and not fake_outcome
+        and outcome_linkage_ready
+        and teacher_metadata_ready
+        and calibration_valid
+        and ollama_developer_only
+        and not ollama_live_enabled
+        and observation_metrics["corrupted_lines"] == 0
+    )
+    report.update(
+        {
+            "schema": "aits_local_engine_candidate_observation_summary.v1",
+            "mode": "local-engine-candidate-observation-v1-summary",
+            "local_engine_candidate_observation_ready": ready,
+            "local_engine_candidate_schema": LOCAL_ENGINE_OBSERVATION_SCHEMA,
+            "trained_artifact_available": trained_artifact_available,
+            "model_registry_valid": registry_valid,
+            "calibration_valid": calibration_valid,
+            "candidate_writer_ready": writer_ready,
+            "candidate_records_count": len(observations),
+            "candidate_records_valid": len(valid_records) == len(observations) and observation_metrics["corrupted_lines"] == 0,
+            "candidate_only_enforced": candidate_only_enforced,
+            "applied_to_final_action_count": applied_count,
+            "safe_for_live_decision": safe_for_live,
+            "live_decision_enabled": live_enabled,
+            "local_engine_prediction_outcome_count": prediction_outcomes,
+            "outcome_linkage_ready": outcome_linkage_ready,
+            "teacher_comparison_metadata_ready": teacher_metadata_ready,
+            "ollama_developer_only": ollama_developer_only,
+            "ollama_live_auto_generate_enabled": ollama_live_enabled,
+            "fake_prediction_detected": fake_prediction,
+            "fake_outcome_detected": fake_outcome,
+            "final_action_mutation_detected": final_action_mutation,
+            "candidate_observation_file_exists": writer.path.exists(),
+            "candidate_observation_corrupted_lines": observation_metrics["corrupted_lines"],
+            "first_blocker": first_blocker,
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_dir: Path) -> None:
     e2e = _build_live_on_runtime_e2e_diagnostic_report(
         output_dir=output_dir,
@@ -26006,6 +26160,7 @@ def run_harness(
         "local-model-calibration-data-accumulation-v1-summary",
         "internal-local-engine-data-recovery-v1-summary",
         "local-engine-curation-provenance-repair-v1-summary",
+        "local-engine-candidate-observation-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
         "hard-freeze-root-cause-audit-v1-summary",
@@ -26334,6 +26489,12 @@ def run_harness(
         elif mode == "local-engine-curation-provenance-repair-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_curation_provenance_repair_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-engine-candidate-observation-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_candidate_observation_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -27000,6 +27161,7 @@ def main() -> int:
             "local-model-calibration-data-accumulation-v1-summary",
             "internal-local-engine-data-recovery-v1-summary",
             "local-engine-curation-provenance-repair-v1-summary",
+            "local-engine-candidate-observation-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
             "hard-freeze-root-cause-audit-v1-summary",

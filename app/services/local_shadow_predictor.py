@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
+import json
 import math
+import os
 import pickle
 from pathlib import Path
+import threading
 from typing import Any, Optional
 
 from app.services.local_model_registry import AITSLocalModelRegistry
 from app.services.local_model_training import AITSLocalModelTrainingPipeline
+from app.services.local_training_dataset_curation import build_training_eligibility_provenance, read_recoverable_jsonl
 
 
 MODEL_ACTIONS = {"wait", "hold", "buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
 ORDER_ACTIONS = {"buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
 QUALITY_FACTORS = {"A": 1.0, "B": 0.85, "C": 0.65}
 LOCAL_ENGINE_DECISION_SCHEMA = "aits_local_engine_decision_candidate.v1"
+LOCAL_ENGINE_OBSERVATION_SCHEMA = "aits_local_engine_candidate_observation.v1"
 LOCAL_ENGINE_VERSION = "v1"
 LOCAL_ENGINE_HEAD_CONTRACTS = {
     "action_head": {"output": "action", "required_source": "trained_model"},
@@ -28,6 +34,138 @@ LOCAL_ENGINE_HEAD_CONTRACTS = {
         "required_source": "validated_provider_outcome",
     },
 }
+
+
+class AITSLocalEngineCandidateObservationWriter:
+    """Durably append real model candidates without granting decision authority."""
+
+    _lock = threading.Lock()
+
+    def __init__(self, root: Path | str = Path("data") / "local_engine") -> None:
+        self.root = Path(root)
+        self.path = self.root / "local_engine_candidate_observations.jsonl"
+
+    @staticmethod
+    def validate(record: dict) -> bool:
+        return bool(
+            record.get("schema") == LOCAL_ENGINE_OBSERVATION_SCHEMA
+            and str(record.get("prediction_id") or "")
+            and str(record.get("model_artifact_id") or "")
+            and str(record.get("action") or "") in MODEL_ACTIONS
+            and record.get("candidate_only") is True
+            and record.get("applied_to_final_action") is False
+            and record.get("safe_for_live_decision") is False
+            and record.get("live_decision_enabled") is False
+            and record.get("fake_prediction") is False
+        )
+
+    def append(self, record: dict) -> dict:
+        value = dict(record or {})
+        if not self.validate(value):
+            raise ValueError("local_engine_candidate_observation_contract_invalid")
+        payload = (json.dumps(value, ensure_ascii=False, sort_keys=True, default=str) + "\n").encode("utf-8")
+        json.loads(payload.decode("utf-8"))
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            with self.path.open("ab") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+        return value
+
+    def read(self) -> tuple[list[dict], dict[str, int]]:
+        return read_recoverable_jsonl(self.path)
+
+
+def build_local_engine_candidate_observation(
+    *,
+    candidate: dict,
+    model_state: dict,
+    context: dict,
+    manifest_summary: dict,
+    final_decision: dict,
+    cost_guard: dict,
+) -> dict:
+    """Join a real model prediction to teacher metadata without changing it."""
+    source = dict(candidate or {})
+    if source.get("schema") != LOCAL_ENGINE_DECISION_SCHEMA:
+        raise ValueError("local_engine_candidate_schema_invalid")
+    final_provider = str(final_decision.get("final_provider_source") or final_decision.get("provider") or "")
+    if final_provider == "local_model":
+        raise ValueError("candidate_observation_final_source_conflict")
+    metadata = dict(model_state.get("local_model_metadata") or {})
+    model_id = str(model_state.get("local_model_id") or metadata.get("model_id") or "")
+    if not model_id or not bool(model_state.get("local_model_trained")):
+        raise ValueError("local_engine_trained_artifact_unavailable")
+    task = str(context.get("task") or source.get("task") or "")
+    scope = str(context.get("symbol") or context.get("scope") or source.get("scope") or "PORTFOLIO")
+    decision_id = str(
+        final_decision.get("decision_id")
+        or final_decision.get("response_id")
+        or manifest_summary.get("payload_hash")
+        or ""
+    )
+    created_at = str(source.get("created_at") or datetime.now().astimezone().isoformat())
+    identity = {
+        "model_id": model_id,
+        "payload_hash": str(manifest_summary.get("payload_hash") or ""),
+        "task": task,
+        "scope": scope,
+        "created_at": created_at,
+    }
+    prediction_id = "local-engine-" + hashlib.sha256(
+        json.dumps(identity, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:24]
+    final_reason = str(final_decision.get("final_reason_ko") or final_decision.get("reason_ko") or "")
+    outcome_linkage_key = hashlib.sha256(
+        f"{decision_id}|{prediction_id}|{task}|{scope}".encode("utf-8")
+    ).hexdigest()[:32]
+    return {
+        "schema": LOCAL_ENGINE_OBSERVATION_SCHEMA,
+        "prediction_id": prediction_id,
+        "created_at": created_at,
+        "task": task,
+        "scope": scope,
+        "payload_snapshot_schema": str(context.get("schema") or "aits_ai_decision_payload.v1"),
+        "local_engine_schema": LOCAL_ENGINE_DECISION_SCHEMA,
+        "model_artifact_id": model_id,
+        "model_registry_version": str(metadata.get("registry_schema") or AITSLocalModelRegistry.REGISTRY_SCHEMA),
+        "model_trained": True,
+        "calibration_available": bool(model_state.get("local_model_calibration_profile_available")),
+        "action": str(source.get("action") or "").lower(),
+        "confidence": source.get("confidence"),
+        "confidence_calibrated": bool(source.get("confidence_calibrated")),
+        "risk_level": str(source.get("risk_level") or "unknown"),
+        "blockers": list(source.get("blockers") or []),
+        "escalation_required": bool(source.get("escalation_required")),
+        "eta_seconds": int(source.get("eta_seconds") or 0),
+        "invalidation_conditions": list(source.get("invalidation_conditions") or []),
+        "evidence": list(source.get("evidence") or []),
+        "reason_ko": str(source.get("reason_ko") or ""),
+        "candidate_only": True,
+        "applied_to_final_action": False,
+        "safe_for_live_decision": False,
+        "live_decision_enabled": False,
+        "registry_safe_for_live_decision": bool(model_state.get("local_model_safe_for_live_decision")),
+        "registry_live_decision_enabled": bool(model_state.get("local_model_live_decision_enabled")),
+        "teacher_source": final_provider if final_provider in {"openai", "gemini"} else "",
+        "final_provider_source": final_provider,
+        "final_action": str(final_decision.get("final_action") or final_decision.get("action") or ""),
+        "final_confidence": final_decision.get("final_confidence", final_decision.get("confidence")),
+        "final_reason_digest": hashlib.sha256(final_reason.encode("utf-8")).hexdigest()[:24] if final_reason else "",
+        "provider_cost_guard_result": {
+            "passed": bool(final_decision.get("cost_guard_passed")),
+            "blocker": str(cost_guard.get("blocker") or final_decision.get("cost_guard_blocker") or ""),
+        },
+        "decision_id": decision_id,
+        "outcome_linkage_key": outcome_linkage_key,
+        "fake_prediction": False,
+    }
+
+
+def record_local_engine_candidate_observation(**kwargs: Any) -> dict:
+    record = build_local_engine_candidate_observation(**kwargs)
+    return AITSLocalEngineCandidateObservationWriter().append(record)
 
 
 def build_local_engine_decision_candidate(
@@ -162,6 +300,7 @@ def build_local_model_feature_record(
     portfolio = dict(value.get("portfolio") or value.get("portfolio_context") or {})
     guard = dict(value.get("sell_unit_guard") or {})
     candidates = value.get("candidates") or []
+    candidate_context = dict(candidates) if isinstance(candidates, dict) else {}
     candidate_count = len(candidates) if isinstance(candidates, (list, tuple)) else len(candidates) if isinstance(candidates, dict) else 0
     total_asset = _numeric(portfolio, "total_asset_krw")
     available = _numeric(portfolio, "available_krw")
@@ -169,6 +308,12 @@ def build_local_model_feature_record(
     macd = indicators.get("macd")
     if isinstance(macd, dict):
         macd = _first(macd, "macd", "value", "line")
+    valuation_unit_mismatch = _first(guard, "valuation_unit_mismatch")
+    if valuation_unit_mismatch is None:
+        valuation_unit_mismatch = _first(position, "valuation_unit_mismatch")
+    opportunity_gap = _numeric(candidate_context, "opportunity_gap_change", "opportunity_score_gap", "opportunity_gap")
+    if opportunity_gap is None:
+        opportunity_gap = _numeric(value, "opportunity_gap_change", "opportunity_score_gap", "opportunity_gap")
     grade = str(manifest.get("payload_quality_grade") or "F").upper()
     created = datetime.now()
     feature_vector = {
@@ -207,8 +352,8 @@ def build_local_model_feature_record(
             "exposure_ratio": _numeric(portfolio, "exposure_ratio") or (exposure / total_asset if total_asset and exposure is not None else None),
         },
         "risk_features": {
-            "sell_unit_guard_passed": guard.get("valuation_unit_mismatch") is False if guard else None,
-            "valuation_unit_mismatch": guard.get("valuation_unit_mismatch") if isinstance(guard.get("valuation_unit_mismatch"), bool) else None,
+            "sell_unit_guard_passed": valuation_unit_mismatch is False if isinstance(valuation_unit_mismatch, bool) else None,
+            "valuation_unit_mismatch": valuation_unit_mismatch if isinstance(valuation_unit_mismatch, bool) else None,
             "risk_blocker_count": len(value.get("risk_blockers") or []), "safety_blocker_count": len(value.get("safety_blockers") or []),
             "livepreflight_blocker_count": len(value.get("livepreflight_blockers") or []),
             "dust_excluded": bool(position.get("dust") or position.get("final_dust")) if position else None,
@@ -221,7 +366,7 @@ def build_local_model_feature_record(
         },
         "opportunity_features": {
             "candidate_move_pct": None, "held_symbol_move_pct": None,
-            "opportunity_gap_change": _numeric(value, "opportunity_gap_change", "opportunity_score_gap"),
+            "opportunity_gap_change": opportunity_gap,
             "missed_move_detected": None, "avoided_drawdown_detected": None,
         },
         "time_features": {
@@ -311,12 +456,32 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
         "local_model_prediction_attempted": False,
         "local_model_prediction_available": False,
         "local_model_prediction_blocker": str(loaded.get("reason") or ""),
+        "local_model_metadata": metadata,
     }
     if loaded.get("status") != "available":
         return base
     feature_record = build_local_model_feature_record(context, manifest_summary=manifest_summary, local_decision=local_decision)
     grade = str(feature_record.get("feature_quality_grade") or "F")
-    critical_missing = list(feature_record.get("critical_missing_features") or [])
+    feature_vector = dict(feature_record.get("feature_vector") or {})
+    task_provenance = build_training_eligibility_provenance(
+        task=str(context.get("task") or ""),
+        scope_type="portfolio" if str(context.get("symbol") or context.get("scope") or "") == "PORTFOLIO" else "position",
+        scope=str(context.get("symbol") or context.get("scope") or "PORTFOLIO"),
+        symbol=str(context.get("symbol") or ""),
+        provider_source="local_model",
+        final_action=str(local_decision.get("action") or "wait"),
+        feature_context={
+            "market": dict(feature_vector.get("market_features") or {}),
+            "indicators": dict(feature_vector.get("indicator_features") or {}),
+            "position": dict(feature_vector.get("position_features") or {}),
+            "portfolio": dict(feature_vector.get("portfolio_features") or {}),
+            "risk": dict(feature_vector.get("risk_features") or {}),
+            "provider": dict(feature_vector.get("provider_features") or {}),
+            "opportunity": dict(feature_vector.get("opportunity_features") or {}),
+        },
+        payload_quality={"payload_quality_grade": grade},
+    )
+    critical_missing = list(task_provenance.get("missing_fields") or [])
     if grade not in QUALITY_FACTORS or critical_missing:
         blocker = "critical_model_feature_missing" if critical_missing else "local_model_feature_quality_too_low"
         return {**base, "local_model_prediction_attempted": True, "local_model_prediction_blocker": blocker,
@@ -362,6 +527,8 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
             if action in ORDER_ACTIONS
             else "local_engine_live_disabled_by_registry"
         ),
+        risk_level="low" if risk_score >= 0.7 else ("medium" if risk_score >= 0.4 else "high"),
+        invalidation_conditions=list(local_decision.get("invalidation_conditions") or []),
         training_source={
             "model_id": str(metadata.get("model_id") or ""),
             "feature_schema": str(feature_record.get("schema") or ""),
