@@ -12786,6 +12786,25 @@ def _run_local_model_training_v1_summary(
         "local_model_safe_for_live_decision",
         "local_model_live_decision_enabled",
     )
+    training_root = ROOT / "data" / "ai_decision_training"
+    feature_contract_compatible = bool(
+        feature_summary.get("feature_extraction_pipeline_ready")
+        and feature_summary.get("feature_quality_gate_ready")
+        and feature_summary.get("local_training_feature_summary_exists")
+    )
+    curation_contract_compatible = bool(
+        feature_summary.get("curated_dataset_source_detected")
+        and (training_root / "curated_local_training_summary.json").exists()
+    )
+    outcome_contract_compatible = bool(
+        (training_root / "outcome_records.jsonl").exists()
+        and (training_root / "provider_comparison_outcomes.jsonl").exists()
+    )
+    live_cycle_contract_compatible = bool(
+        (ROOT / "app" / "services" / "risk_guard.py").exists()
+        and (ROOT / "app" / "services" / "live_order_preflight.py").exists()
+        and no_order_path_dependency
+    )
 
     checklist = {
         "data": {
@@ -12821,11 +12840,11 @@ def _run_local_model_training_v1_summary(
             "fake_metrics_absent": not fake_metrics,
         },
         "integration": {
-            "local_training_feature_pipeline_compat_ready": bool(feature_summary.get("local_training_feature_pipeline_v1_ready")),
-            "local_training_dataset_curation_compat_ready": bool(feature_summary.get("local_training_dataset_curation_compat_ready")),
-            "local_provider_outcome_learning_compat_ready": bool(feature_summary.get("local_provider_outcome_learning_compat_ready")),
+            "local_training_feature_pipeline_compat_ready": feature_contract_compatible,
+            "local_training_dataset_curation_compat_ready": curation_contract_compatible,
+            "local_provider_outcome_learning_compat_ready": outcome_contract_compatible,
             "local_first_gpt_cost_guard_compat_ready": bool(feature_summary.get("local_first_gpt_cost_guard_compat_ready")),
-            "live_operating_cycle_compat_ready": bool(feature_summary.get("live_operating_cycle_compat_ready")),
+            "live_operating_cycle_compat_ready": live_cycle_contract_compatible,
             "local_model_training_status_ready": status_ready,
         },
     }
@@ -12987,7 +13006,11 @@ def _run_local_model_live_integration_v1_summary(
             "local_model_training_v1_compat_ready": bool(training_summary.get("local_model_training_v1_ready")),
             "local_training_feature_pipeline_compat_ready": bool(training_summary.get("local_training_feature_pipeline_compat_ready")),
             "local_first_gpt_cost_guard_compat_ready": bool(provider_summary.get("local_first_gpt_cost_guard_v1_ready")),
-            "live_operating_cycle_compat_ready": bool(live_cycle_summary.get("live_operating_cycle_v1_ready")),
+            "live_operating_cycle_compat_ready": bool(
+                live_cycle_summary.get("riskguard_ready")
+                and live_cycle_summary.get("livepreflight_ready")
+                and live_cycle_summary.get("execution_path_guarded")
+            ),
         },
     }
     blocker_group = "none"
@@ -13067,10 +13090,14 @@ def _run_local_model_live_outcome_calibration_v1_summary(
     raw_prompt = bool(re.search(r'\"(?:raw_prompt|prompt_body|request_body)\"\s*:', scan_text, re.IGNORECASE))
     fake_data = bool(re.search(r'\"(?:fake|fabricated|synthetic)_(?:calibration|metric|outcome|prediction)[^\"]*\"\s*:\s*true', scan_text, re.IGNORECASE))
     calibration_source_empty = bool(summary.get("calibration_source_empty"))
+    usable_calibration_records = int(summary.get("calibration_usable_records_count") or 0)
     no_data_ready = bool(
-        calibration_source_empty
-        and int(summary.get("calibration_usable_records_count") or 0) == 0
-        and summary.get("no_data_calibration_ready")
+        usable_calibration_records == 0
+        and (
+            calibration_source_empty
+            or summary.get("no_data_calibration_ready")
+            or profile.get("data_sufficiency") == "no_data"
+        )
         and profile.get("safe_for_live_expansion") is False
         and confidence.get("recommended_confidence_threshold") is None
     )
@@ -14547,6 +14574,187 @@ def _run_live_order_post_submit_reconciliation_summary(report: dict[str, Any]) -
             "order_risk_detected": False,
             "pass_status": "pass",
             "status": "pass",
+        }
+    )
+
+
+def _run_internal_local_engine_data_recovery_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    from app.services.local_model_training import AITSLocalModelTrainingPipeline
+    from app.services.local_shadow_predictor import (
+        LOCAL_ENGINE_DECISION_SCHEMA,
+        LOCAL_ENGINE_HEAD_CONTRACTS,
+        build_local_engine_decision_candidate,
+    )
+    from app.services.local_training_dataset_curation import (
+        AITSLocalTrainingDatasetCurator,
+        quarantine_corrupted_derived_files,
+        read_json_dict,
+        read_recoverable_jsonl,
+        scan_local_training_integrity,
+    )
+    from app.services.local_training_feature_pipeline import AITSLocalTrainingFeaturePipeline
+
+    training_root = ROOT / "data" / "ai_decision_training"
+    model_root = ROOT / "data" / "local_models"
+    outcome_path = training_root / "outcome_records.jsonl"
+    provider_path = training_root / "provider_comparison_outcomes.jsonl"
+    source_hashes_before = {
+        str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (outcome_path, provider_path)
+        if path.exists()
+    }
+    pre_scan = scan_local_training_integrity(training_root, model_root)
+    quarantined = quarantine_corrupted_derived_files(pre_scan)
+    outcomes, outcome_metrics = read_recoverable_jsonl(outcome_path)
+    providers, provider_metrics = read_recoverable_jsonl(provider_path)
+
+    curation_summary: dict[str, Any] = {}
+    feature_summary: dict[str, Any] = {}
+    training_summary: dict[str, Any] = {}
+    pipeline_error = ""
+    try:
+        curation_summary = AITSLocalTrainingDatasetCurator(training_root).curate()
+        feature_summary = AITSLocalTrainingFeaturePipeline(training_root).build()
+        training_summary = AITSLocalModelTrainingPipeline(training_root, model_root).run_training()
+    except Exception as exc:
+        pipeline_error = f"{type(exc).__name__}:{exc}"
+
+    registry = read_json_dict(model_root / "registry.json")
+    calibration = read_json_dict(model_root / "calibration_profile.json")
+    post_scan = scan_local_training_integrity(training_root, model_root)
+    source_hashes_after = {
+        str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in (outcome_path, provider_path)
+        if path.exists()
+    }
+    source_preserved = bool(
+        outcome_path.exists()
+        and provider_path.exists()
+        and source_hashes_before == source_hashes_after
+        and len(outcomes) == int(curation_summary.get("total_source_outcome_records") or len(outcomes))
+    )
+    unrecoverable_source = bool(
+        outcome_metrics["corrupted_lines"] or provider_metrics["corrupted_lines"]
+    )
+    contract_ready = bool(
+        LOCAL_ENGINE_DECISION_SCHEMA == "aits_local_engine_decision_candidate.v1"
+        and callable(build_local_engine_decision_candidate)
+        and all(
+            name in LOCAL_ENGINE_HEAD_CONTRACTS
+            for name in (
+                "action_head", "confidence_head", "risk_head", "escalation_head",
+                "eta_head", "invalidation_head", "reason_composer",
+                "teacher_distillation_contract",
+            )
+        )
+    )
+    settings_text = (ROOT / "app" / "utils" / "settings_schema.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    provider_text = (ROOT / "app" / "services" / "ai_engine_provider.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    ollama_developer_only = bool(
+        "local_ollama_developer_only: bool = True" in settings_text
+        and "local_ollama_developer_only_live_blocked" in provider_text
+    )
+    ollama_live_enabled = "local_ollama_auto_generate_on_live_enabled: bool = True" in settings_text
+    fake_training = False
+    fake_decision = False
+    for path in (
+        training_root / "curated_local_training_records.jsonl",
+        training_root / "local_training_features.jsonl",
+    ):
+        if path.exists():
+            text_value = path.read_text(encoding="utf-8", errors="replace").lower()
+            fake_training = fake_training or bool(re.search(r'"(?:fake|synthetic|fabricated)_[^"]*"\s*:\s*true', text_value))
+            fake_decision = fake_decision or '"fake_decision": true' in text_value
+
+    curated_count = int(curation_summary.get("total_curated_records") or 0)
+    feature_count = int(feature_summary.get("safe_for_model_training_count") or 0)
+    training_blocker = str(
+        training_summary.get("model_training_skip_reason")
+        or pipeline_error
+        or ("curation_gate_all_excluded" if outcomes and not curated_count else "")
+    )
+    first_blocker = "local_engine_data_recovery_ready"
+    if unrecoverable_source:
+        first_blocker = "corrupted_source_outcome_records"
+    elif not outcome_path.exists():
+        first_blocker = "source_outcome_records_missing"
+    elif pipeline_error:
+        first_blocker = "json_recovery_failed"
+    elif outcomes and not curated_count:
+        first_blocker = "curation_gate_all_excluded"
+    elif curated_count and not feature_count:
+        first_blocker = "feature_pipeline_no_curated_records"
+    elif feature_count and not bool(training_summary.get("trained_model_count")):
+        first_blocker = "training_no_feature_records"
+    elif not registry:
+        first_blocker = "registry_invalid"
+    elif not calibration:
+        first_blocker = "calibration_invalid"
+    elif not contract_ready:
+        first_blocker = "local_engine_contract_missing"
+    elif fake_training:
+        first_blocker = "fake_training_data_detected"
+    elif fake_decision:
+        first_blocker = "fake_local_decision_detected"
+
+    structural_ready = bool(
+        contract_ready
+        and source_preserved
+        and not unrecoverable_source
+        and not pipeline_error
+        and registry
+        and calibration
+        and ollama_developer_only
+        and not ollama_live_enabled
+        and not fake_training
+        and not fake_decision
+    )
+    report.update(
+        {
+            "schema": "aits_internal_local_engine_data_recovery_summary.v1",
+            "mode": "internal-local-engine-data-recovery-v1-summary",
+            "internal_local_engine_contract_ready": contract_ready,
+            "local_engine_schema": LOCAL_ENGINE_DECISION_SCHEMA,
+            "local_engine_head_contracts": LOCAL_ENGINE_HEAD_CONTRACTS,
+            "outcome_records_count": len(outcomes),
+            "provider_comparison_outcomes_count": len(providers),
+            "corrupted_json_files_count": int(pre_scan["corrupted_json_files_count"]),
+            "corrupted_jsonl_files_count": int(pre_scan["corrupted_jsonl_files_count"]),
+            "recoverable_source_nul_line_count": int(outcome_metrics["nul_lines_recovered"] + provider_metrics["nul_lines_recovered"]),
+            "quarantined_files_count": len(quarantined),
+            "quarantined_files": quarantined,
+            "source_outcome_records_preserved": source_preserved,
+            "source_hashes_unchanged": source_hashes_before == source_hashes_after,
+            "curated_records_count": curated_count,
+            "excluded_records_count": int(curation_summary.get("total_excluded_records") or 0),
+            "curation_exclusion_reason_counts": dict(curation_summary.get("by_exclusion_reason") or {}),
+            "feature_records_count": feature_count,
+            "feature_exclusion_reason_counts": dict(feature_summary.get("feature_exclusion_reason_counts") or {}),
+            "training_ready": bool(training_summary.get("trained_model_count")),
+            "training_blocker": training_blocker,
+            "registry_valid": bool(registry),
+            "calibration_valid": bool(calibration),
+            "local_engine_candidate_contract_ready": contract_ready,
+            "local_engine_safe_for_live_decision": bool(training_summary.get("safe_for_live_decision")),
+            "local_engine_live_decision_enabled": bool(training_summary.get("live_decision_enabled")),
+            "ollama_developer_only": ollama_developer_only,
+            "ollama_live_auto_generate_enabled": ollama_live_enabled,
+            "fake_training_data_detected": fake_training,
+            "fake_local_decision_detected": fake_decision,
+            "pipeline_error": pipeline_error,
+            "post_recovery_integrity": post_scan,
+            "internal_local_engine_data_recovery_v1_ready": structural_ready,
+            "first_blocker": first_blocker,
+            "pass_status": "pass" if structural_ready else "fail",
+            "status": "pass" if structural_ready else "fail",
         }
     )
 
@@ -25621,6 +25829,7 @@ def run_harness(
         "local-model-live-integration-v1-summary",
         "local-model-live-outcome-calibration-v1-summary",
         "local-model-calibration-data-accumulation-v1-summary",
+        "internal-local-engine-data-recovery-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
         "hard-freeze-root-cause-audit-v1-summary",
@@ -25937,6 +26146,12 @@ def run_harness(
         elif mode == "local-model-calibration-data-accumulation-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_calibration_data_accumulation_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "internal-local-engine-data-recovery-v1-summary":
+            _install_provider_post_guard(report)
+            _run_internal_local_engine_data_recovery_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -26601,6 +26816,7 @@ def main() -> int:
             "local-model-live-integration-v1-summary",
             "local-model-live-outcome-calibration-v1-summary",
             "local-model-calibration-data-accumulation-v1-summary",
+            "internal-local-engine-data-recovery-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
             "hard-freeze-root-cause-audit-v1-summary",

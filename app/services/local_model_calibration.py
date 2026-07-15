@@ -9,6 +9,12 @@ from pathlib import Path
 import time
 from typing import Any, Optional
 
+from app.services.local_training_dataset_curation import (
+    atomic_write_json,
+    read_json_dict,
+    read_recoverable_jsonl,
+)
+
 
 class AITSLocalModelCalibration:
     """Build conservative routing recommendations from observed LOCAL_MODEL outcomes."""
@@ -50,11 +56,7 @@ class AITSLocalModelCalibration:
 
     @staticmethod
     def _read_json(path: Path) -> dict:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-            return value if isinstance(value, dict) else {}
-        except Exception:
-            return {}
+        return read_json_dict(path)
 
     @staticmethod
     def _stable_hash(value: Any, length: int = 32) -> str:
@@ -63,31 +65,12 @@ class AITSLocalModelCalibration:
 
     @staticmethod
     def _write_json_atomic(path: Path, value: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        temporary.replace(path)
+        atomic_write_json(path, value)
 
     @staticmethod
     def _read_jsonl(path: Path) -> tuple[list[dict], int]:
-        rows: list[dict] = []
-        corrupted = 0
-        if not path.exists():
-            return rows, corrupted
-        with path.open("r", encoding="utf-8", errors="replace") as handle:
-            for line in handle:
-                raw = line.strip()
-                if not raw:
-                    continue
-                try:
-                    value = json.loads(raw)
-                except Exception:
-                    corrupted += 1
-                    continue
-                if isinstance(value, dict):
-                    rows.append(value)
-                else:
-                    corrupted += 1
+        rows, metrics = read_recoverable_jsonl(path)
+        corrupted = metrics["corrupted_lines"] + metrics["nul_lines_recovered"]
         return rows, corrupted
 
     @staticmethod

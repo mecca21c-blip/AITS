@@ -189,5 +189,22 @@ Acceptance criteria:
 - The manual LOCAL/Ollama LLM diagnostic button runs its `/api/tags` and `/api/generate` checks in a Qt worker thread so the UI thread does not wait on the 60 second diagnostic timeout.
 - This diagnostic path is not the normal LOCAL analysis path. Normal LOCAL analysis remains the internal calculation-based payload path and does not promote Ollama to an active provider.
 - Diagnostic results are displayed as readiness/test feedback only. They must not publish `ai.reco.updated`, create `AISnapshotStore` entries, update detail-chart AI snapshots, or write `TradeLogShadowJournal` decision records.
+
+## 14. Internal LOCAL_ENGINE And Data Recovery v1
+
+- `AITS_LOCAL_ENGINE` is an in-process decision candidate engine, not an Ollama
+  HTTP server, CLI process, or bundled model runtime.
+- Its candidate schema is `aits_local_engine_decision_candidate.v1` and includes
+  action, calibrated-confidence status, risk, escalation, ETA, invalidation,
+  structured evidence, Korean reason, teacher reference, and training provenance.
+- Default policy remains `safe_for_live_decision=false` and
+  `live_decision_enabled=false`. Contract availability does not grant live authority.
+- GPT/Gemini are teacher and escalation sources. Their outputs become learning
+  evidence only after observed outcome, curation, and feature quality gates.
+- Ollama is developer-only/manual experimental infrastructure. Automatic live
+  generation remains blocked by the developer-only gate and disabled defaults.
+- Source outcome JSONL is preserved. Corrupt derived datasets, registry, and
+  calibration outputs are quarantined and regenerated through the offline pipeline.
+- See `app/docs/aits_internal_local_engine_v1.md` for the complete contract.
 - Failure, timeout, unavailable server, missing model, and parse failure states remain `submitted=0`, `order_allowed=False`, and `real_order=False`.
 - Router, Execution, Order, and RiskGuard boundaries remain unchanged.

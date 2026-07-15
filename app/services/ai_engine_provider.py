@@ -845,6 +845,9 @@ class AIEngineProvider:
             "model": str(self._read_runtime_config(("ai_local_model", "local_ai_model"), "qwen2.5")).strip(),
             "timeout_sec": max(5, int(self._read_runtime_config(("ai_local_timeout_seconds",), 45) or 45)),
             "confidence_threshold": max(0.0, min(1.0, float(self._read_runtime_config(("ai_local_confidence_threshold",), 0.72) or 0.72))),
+            "developer_only": _as_bool(
+                self._read_runtime_config(("local_ollama_developer_only",), True), True
+            ),
             "auto_generate_enabled": _as_bool(
                 self._read_runtime_config(("local_ollama_auto_generate_enabled",), False), False
             ),
@@ -977,8 +980,11 @@ class AIEngineProvider:
         )
         auto_generate_enabled = bool(config.get("auto_generate_enabled"))
         auto_generate_on_live_enabled = bool(config.get("auto_generate_on_live_enabled"))
+        developer_only = bool(config.get("developer_only", True))
         blocker = ""
-        if live_runtime_active and not auto_generate_on_live_enabled:
+        if live_runtime_active and developer_only:
+            blocker = "local_ollama_developer_only_live_blocked"
+        elif live_runtime_active and not auto_generate_on_live_enabled:
             blocker = "local_ollama_auto_generate_disabled_on_live"
         elif not auto_generate_enabled:
             blocker = "local_ollama_auto_generate_disabled"
@@ -987,6 +993,7 @@ class AIEngineProvider:
                 "[AITS][LocalFirstDecision] event=local_ollama_auto_generate_blocked "
                 f"task={context.get('task') or '-'} scope={context.get('symbol') or context.get('scope') or 'PORTFOLIO'} "
                 f"provider=local/ollama live_runtime_active={str(live_runtime_active).lower()} "
+                f"developer_only={str(developer_only).lower()} "
                 f"auto_generate_enabled={str(auto_generate_enabled).lower()} "
                 f"auto_generate_on_live_enabled={str(auto_generate_on_live_enabled).lower()} "
                 f"blocker={blocker} elapsed_ms=0 actual_order=False submitted=0"

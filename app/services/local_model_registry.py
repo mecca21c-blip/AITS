@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
+
+from app.services.local_training_dataset_curation import atomic_write_json, read_json_dict
 
 
 class AITSLocalModelRegistry:
@@ -18,18 +19,11 @@ class AITSLocalModelRegistry:
 
     @staticmethod
     def _read_json(path: Path, default: dict) -> dict:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
-            return value if isinstance(value, dict) else default
-        except Exception:
-            return default
+        return read_json_dict(path, default)
 
     @staticmethod
     def _write_json_atomic(path: Path, value: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        temporary.replace(path)
+        atomic_write_json(path, value)
 
     def load_registry(self) -> dict:
         return self._read_json(

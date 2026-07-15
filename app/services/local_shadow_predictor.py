@@ -13,6 +13,77 @@ from app.services.local_model_training import AITSLocalModelTrainingPipeline
 MODEL_ACTIONS = {"wait", "hold", "buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
 ORDER_ACTIONS = {"buy", "add", "sell", "reduce", "rotate", "take_profit", "stop_loss"}
 QUALITY_FACTORS = {"A": 1.0, "B": 0.85, "C": 0.65}
+LOCAL_ENGINE_DECISION_SCHEMA = "aits_local_engine_decision_candidate.v1"
+LOCAL_ENGINE_VERSION = "v1"
+LOCAL_ENGINE_HEAD_CONTRACTS = {
+    "action_head": {"output": "action", "required_source": "trained_model"},
+    "confidence_head": {"output": "confidence", "required_source": "calibrated_model"},
+    "risk_head": {"output": "risk_level,blockers", "required_source": "observed_risk_evidence"},
+    "escalation_head": {"output": "escalation_required,escalation_reason", "required_source": "provider_policy"},
+    "eta_head": {"output": "eta_seconds,eta_policy", "required_source": "observed_cadence"},
+    "invalidation_head": {"output": "invalidation_conditions", "required_source": "feature_evidence"},
+    "reason_composer": {"output": "reason_ko", "required_source": "structured_evidence"},
+    "teacher_distillation_contract": {
+        "output": "teacher_reference,training_source",
+        "required_source": "validated_provider_outcome",
+    },
+}
+
+
+def build_local_engine_decision_candidate(
+    *,
+    task: str,
+    scope: str,
+    action: str,
+    confidence: float,
+    reason_ko: str,
+    eta_seconds: int,
+    blockers: list[str],
+    evidence: list[dict],
+    safe_for_live_decision: bool,
+    live_decision_enabled: bool,
+    confidence_calibrated: bool = False,
+    risk_level: str = "unknown",
+    escalation_required: bool = True,
+    escalation_reason: str = "local_engine_candidate_requires_external_review",
+    eta_policy: str = "inherited_observed_cadence",
+    invalidation_conditions: Optional[list] = None,
+    teacher_reference: Optional[dict] = None,
+    training_source: Optional[dict] = None,
+) -> dict:
+    """Build a candidate only from supplied model output and factual evidence."""
+    normalized_action = str(action or "").lower()
+    if normalized_action not in MODEL_ACTIONS:
+        raise ValueError("local_engine_action_unavailable")
+    if not str(reason_ko or "").strip():
+        raise ValueError("local_engine_reason_unavailable")
+    return {
+        "schema": LOCAL_ENGINE_DECISION_SCHEMA,
+        "engine": "AITS_LOCAL_ENGINE",
+        "engine_version": LOCAL_ENGINE_VERSION,
+        "task": str(task or ""),
+        "scope": str(scope or ""),
+        "action": normalized_action,
+        "confidence": max(0.0, min(1.0, float(confidence))),
+        "confidence_calibrated": bool(confidence_calibrated),
+        "risk_level": str(risk_level or "unknown"),
+        "blockers": [str(item) for item in blockers if str(item or "").strip()],
+        "escalation_required": bool(escalation_required),
+        "escalation_reason": str(escalation_reason or ""),
+        "eta_seconds": max(0, int(eta_seconds or 0)),
+        "eta_policy": str(eta_policy or ""),
+        "invalidation_conditions": list(invalidation_conditions or []),
+        "evidence": [dict(item) for item in evidence if isinstance(item, dict)],
+        "reason_ko": str(reason_ko),
+        "teacher_reference": dict(teacher_reference or {}),
+        "training_source": dict(training_source or {}),
+        "safe_for_live_decision": bool(safe_for_live_decision),
+        "live_decision_enabled": bool(live_decision_enabled),
+        "trained_model_required": True,
+        "calibration_required": True,
+        "fake_decision": False,
+        "created_at": datetime.now().astimezone().isoformat(),
+    }
 
 
 def load_latest_local_model(root: Path | str = Path("data") / "local_models") -> dict:
@@ -270,12 +341,40 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
     live_allowed = bool(base["local_model_safe_for_live_decision"] and base["local_model_live_decision_enabled"])
     reason = f"LOCAL 학습 모델이 {action} 판단을 제안했습니다. 품질 {grade}, 신뢰도 {confidence:.2f}."
     blockers = [] if live_allowed else ["local_model_live_disabled_by_registry"]
-    candidate = {
-        "action": action, "confidence": confidence, "reason_ko": reason,
-        "eta_seconds": int(_number(local_decision.get("eta_seconds")) or 300),
-        "execution_plan": {}, "risk_notes": ",".join(blockers), "invalidation_conditions": [],
-        "sell_ratio": 0.0, "buy_amount_krw": 0.0,
-    }
+    candidate = build_local_engine_decision_candidate(
+        task=str(context.get("task") or ""),
+        scope=str(context.get("symbol") or context.get("scope") or "PORTFOLIO"),
+        action=action,
+        confidence=confidence,
+        reason_ko=reason,
+        eta_seconds=int(_number(local_decision.get("eta_seconds")) or 300),
+        blockers=blockers,
+        evidence=[
+            {"type": "payload_quality", "grade": grade},
+            {"type": "model_score", "name": "action_quality_score", "value": action_score},
+            {"type": "model_score", "name": "risk_adjusted_score", "value": risk_score},
+        ],
+        safe_for_live_decision=base["local_model_safe_for_live_decision"],
+        live_decision_enabled=base["local_model_live_decision_enabled"],
+        escalation_required=bool(not live_allowed or action in ORDER_ACTIONS),
+        escalation_reason=(
+            "local_engine_order_action_requires_external_confirmation"
+            if action in ORDER_ACTIONS
+            else "local_engine_live_disabled_by_registry"
+        ),
+        training_source={
+            "model_id": str(metadata.get("model_id") or ""),
+            "feature_schema": str(feature_record.get("schema") or ""),
+        },
+    )
+    candidate.update(
+        {
+            "execution_plan": {},
+            "risk_notes": ",".join(blockers),
+            "sell_ratio": 0.0,
+            "buy_amount_krw": 0.0,
+        }
+    )
     return {
         **base,
         "local_model_prediction_attempted": True,

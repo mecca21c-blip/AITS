@@ -13,6 +13,11 @@ import time
 from typing import Any, Optional
 
 from app.services.local_model_registry import AITSLocalModelRegistry
+from app.services.local_training_dataset_curation import (
+    atomic_write_bytes,
+    atomic_write_json,
+    read_json_dict,
+)
 
 
 class AITSMeanBaselineRegressor:
@@ -100,26 +105,19 @@ class AITSLocalModelTrainingPipeline:
 
     @staticmethod
     def _read_json(path: Path) -> dict:
-        try:
-            value = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
-            return value if isinstance(value, dict) else {}
-        except Exception:
-            return {}
+        return read_json_dict(path)
 
     @staticmethod
     def _write_json_atomic(path: Path, value: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-        temporary.replace(path)
+        atomic_write_json(path, value)
 
     @staticmethod
     def _write_pickle_atomic(path: Path, value: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        with temporary.open("wb") as handle:
-            pickle.dump(value, handle, protocol=pickle.HIGHEST_PROTOCOL)
-        temporary.replace(path)
+        from io import BytesIO
+
+        payload = BytesIO()
+        pickle.dump(value, payload, protocol=pickle.HIGHEST_PROTOCOL)
+        atomic_write_bytes(path, payload.getvalue())
 
     @classmethod
     def _record_exclusions(cls, row: dict) -> list[str]:
