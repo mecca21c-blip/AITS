@@ -833,11 +833,24 @@ class AIEngineProvider:
         return default
 
     def _get_local_runtime_config(self) -> Dict[str, Any]:
+        def _as_bool(value: Any, default: bool) -> bool:
+            if value in (None, ""):
+                return default
+            if isinstance(value, str):
+                return value.strip().lower() in {"1", "true", "yes", "on"}
+            return bool(value)
+
         return {
             "base_url": str(self._read_runtime_config(("ai_local_url", "local_ai_url"), "http://127.0.0.1:11434")).strip(),
             "model": str(self._read_runtime_config(("ai_local_model", "local_ai_model"), "qwen2.5")).strip(),
             "timeout_sec": max(5, int(self._read_runtime_config(("ai_local_timeout_seconds",), 45) or 45)),
             "confidence_threshold": max(0.0, min(1.0, float(self._read_runtime_config(("ai_local_confidence_threshold",), 0.72) or 0.72))),
+            "auto_generate_enabled": _as_bool(
+                self._read_runtime_config(("local_ollama_auto_generate_enabled",), False), False
+            ),
+            "auto_generate_on_live_enabled": _as_bool(
+                self._read_runtime_config(("local_ollama_auto_generate_on_live_enabled",), False), False
+            ),
         }
 
     def _provider_cost_guard_policy(
@@ -958,6 +971,27 @@ class AIEngineProvider:
 
     def _call_local_first_decision(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
         config = self._get_local_runtime_config()
+        runtime_context = context.get("runtime_context") if isinstance(context.get("runtime_context"), dict) else {}
+        live_runtime_active = bool(
+            runtime_context.get("runtime_contract_active", context.get("runtime_contract_active", False))
+        )
+        auto_generate_enabled = bool(config.get("auto_generate_enabled"))
+        auto_generate_on_live_enabled = bool(config.get("auto_generate_on_live_enabled"))
+        blocker = ""
+        if live_runtime_active and not auto_generate_on_live_enabled:
+            blocker = "local_ollama_auto_generate_disabled_on_live"
+        elif not auto_generate_enabled:
+            blocker = "local_ollama_auto_generate_disabled"
+        if blocker:
+            _safe_log_info(
+                "[AITS][LocalFirstDecision] event=local_ollama_auto_generate_blocked "
+                f"task={context.get('task') or '-'} scope={context.get('symbol') or context.get('scope') or 'PORTFOLIO'} "
+                f"provider=local/ollama live_runtime_active={str(live_runtime_active).lower()} "
+                f"auto_generate_enabled={str(auto_generate_enabled).lower()} "
+                f"auto_generate_on_live_enabled={str(auto_generate_on_live_enabled).lower()} "
+                f"blocker={blocker} elapsed_ms=0 actual_order=False submitted=0"
+            )
+            raise NotImplementedError(blocker)
         result = OllamaHttpClient(config["base_url"]).generate(
             config["model"],
             prompt,
@@ -1590,6 +1624,12 @@ class AIEngineProvider:
             local_model=local_model,
         )
         external_provider = str(escalation.get("escalation_target_provider") or "")
+        if not local_available and escalation.get("escalation_required") and external_provider:
+            _safe_log_info(
+                "[AITS][LocalFirstDecision] event=local_first_external_fallback_allowed "
+                f"task={task or '-'} scope={symbol_or_scope} provider={external_provider} "
+                f"blocker={local_status or '-'} elapsed_ms=0 actual_order=False submitted=0"
+            )
         external_decision: Dict[str, Any] = {}
         external_called = False
         external_blocker = str(escalation.get("escalation_blocker") or "")

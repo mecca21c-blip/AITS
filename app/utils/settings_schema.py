@@ -143,6 +143,8 @@ class StrategyConfig(BaseModel):
     ai_local_url: str = "http://127.0.0.1:11434"   # Ollama base URL (provider=local)
     ai_local_model: str = "qwen2.5"               # Ollama model: llama3.1 | qwen2.5 | mistral
     ai_local_confidence_threshold: float = 0.72
+    local_ollama_auto_generate_enabled: bool = False
+    local_ollama_auto_generate_on_live_enabled: bool = False
     ai_external_request_cooldown_seconds: int = 15
     ai_external_duplicate_payload_cooldown_seconds: int = 600
     ai_external_max_calls_per_hour: int = 60

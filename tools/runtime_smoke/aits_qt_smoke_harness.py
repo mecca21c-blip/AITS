@@ -13708,6 +13708,7 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
     """Audit low-resource runtime controls without starting the live application."""
     paths = {
         "gui": ROOT / "app" / "ui" / "app_gui.py",
+        "provider": ROOT / "app" / "services" / "ai_engine_provider.py",
         "schema": ROOT / "app" / "utils" / "settings_schema.py",
         "docs": ROOT / "app" / "docs" / "aits_low_resource_runtime_stability_v1.md",
     }
@@ -13716,6 +13717,7 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         for key, path in paths.items()
     }
     gui = sources["gui"]
+    provider = sources["provider"]
     schema = sources["schema"]
     docs = sources["docs"]
 
@@ -13797,6 +13799,30 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
             "self._tables_timer = QTimer",
         )
     )
+    local_call_start = provider.find("    def _call_local_first_decision(")
+    local_call_end = provider.find("    def _evaluate_external_escalation(", local_call_start)
+    local_call = provider[local_call_start:local_call_end] if local_call_start >= 0 and local_call_end > local_call_start else ""
+    local_guard_index = local_call.find("local_ollama_auto_generate_disabled_on_live")
+    local_generate_index = local_call.find("OllamaHttpClient(config[")
+    local_ollama_guard_ready = has_all(
+        provider,
+        "local_ollama_auto_generate_disabled_on_live",
+        "event=local_ollama_auto_generate_blocked",
+        "raise NotImplementedError(blocker)",
+    ) and has_all(
+        schema,
+        "local_ollama_auto_generate_enabled: bool = False",
+        "local_ollama_auto_generate_on_live_enabled: bool = False",
+    ) and 0 <= local_guard_index < local_generate_index
+    local_ollama_on_live_enabled = "local_ollama_auto_generate_on_live_enabled: bool = True" in schema
+    local_first_external_fallback_ready = has_all(
+        provider,
+        "event=local_first_external_fallback_allowed",
+        "self._provider_cost_guard_policy(",
+        "_call_openai_position_management_decision",
+        "_call_gemini_position_management_decision",
+    )
+    local_first_fake_decision_detected = "event=fake_local_decision" in provider.lower()
     ui_ready = has_all(gui, "def _aits_ui_update_allowed", "[AITS][UIThrottle]", "managed_pool_table", "market_table")
     log_ready = has_all(
         gui,
@@ -13824,6 +13850,9 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         ("startup", "startup_load_staging_missing", startup_ready),
         ("chart", "chart_guard_missing", chart_ready),
         ("isolation", "hard_freeze_stepwise_isolation_missing", chart_auto_render_disabled_on_live),
+        ("isolation", "local_ollama_generate_still_active_on_live", local_ollama_guard_ready),
+        ("isolation", "fake_local_decision_detected", not local_first_fake_decision_detected),
+        ("isolation", "local_first_external_fallback_broken", local_first_external_fallback_ready),
         ("ui", "ui_render_throttle_missing", ui_ready and log_ready),
         ("runtime", "runtime_backpressure_missing", backpressure_ready),
         ("health", "resource_health_logging_missing", resource_ready),
@@ -13833,7 +13862,7 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         ("safety", "fake_data_added", no_fake_data),
     )
     blocker_group = "none"
-    first_blocker = "low_resource_runtime_stability_v1_ready"
+    first_blocker = "local_ollama_auto_generate_isolated"
     for group, blocker, passed in checks:
         if not passed:
             blocker_group = group
@@ -13854,13 +13883,21 @@ def _run_low_resource_runtime_stability_v1_summary(report: dict[str, Any]) -> No
         "chart_not_visible_skip_ready": "chart_render_skipped_not_visible" in gui,
         "hard_freeze_stepwise_isolation_ready": chart_auto_render_disabled_on_live,
         "hard_freeze_suspect_rank_1": "main_detail_chart_mplfinance_canvas_live_path",
-        "isolated_component": "main_detail_chart_auto_render_during_live",
+        "previous_isolated_component": "main_detail_chart_auto_render_during_live",
         "chart_auto_render_disabled_on_live": chart_auto_render_disabled_on_live,
         "learning_heavy_pipeline_disabled_on_live": learning_heavy_pipeline_disabled_on_live,
         "private_api_blocking_call_detected": private_api_blocking_call_detected,
         "runtime_timer_duplication_detected": runtime_timer_duplication_detected,
         "first_isolation_patch_applied": chart_auto_render_disabled_on_live,
         "next_user_runtime_check_required": chart_auto_render_disabled_on_live,
+        "local_ollama_auto_generate_guard_ready": local_ollama_guard_ready,
+        "local_ollama_auto_generate_on_live_enabled": local_ollama_on_live_enabled,
+        "local_ollama_generate_call_blocked_on_live": local_ollama_guard_ready,
+        "local_ollama_generate_call_detected_after_block": not local_ollama_guard_ready,
+        "local_first_external_fallback_ready": local_first_external_fallback_ready,
+        "local_first_fake_decision_detected": local_first_fake_decision_detected,
+        "hard_freeze_suspect_rank_3": "local_ollama_auto_generate",
+        "isolated_component": "local_ollama_auto_generate",
         "ui_render_throttle_ready": ui_ready,
         "live_log_throttle_ready": log_ready,
         "table_refresh_throttle_ready": ui_ready,
