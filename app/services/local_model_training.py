@@ -454,7 +454,7 @@ class AITSLocalModelTrainingPipeline:
                 model_card_created = True
         trained = bool(models and not training_skipped)
         training_status = "trained" if trained else ("no_data" if no_data else "insufficient_data")
-        previous_latest = self.registry.load_latest()
+        previous_latest = self.registry.load_latest_training_attempt()
         if (
             not trained
             and previous_latest.get("source_feature_summary_hash") == source_hash

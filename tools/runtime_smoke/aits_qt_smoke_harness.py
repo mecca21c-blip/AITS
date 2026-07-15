@@ -14934,6 +14934,126 @@ def _run_local_engine_curation_provenance_repair_v1_summary(
     )
 
 
+def _run_local_model_registry_latest_pointer_policy_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    from app.services.local_model_registry import AITSLocalModelRegistry
+
+    model_root = ROOT / "data" / "local_models"
+    owner = AITSLocalModelRegistry(model_root)
+    registry = owner.load_registry()
+    latest = owner.load_latest()
+    latest_attempt = owner.load_latest_training_attempt()
+    latest_usable = owner.resolve_latest_usable_model()
+    usable_models = owner.list_usable_models()
+    registry_text = (ROOT / "app" / "services" / "local_model_registry.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+    predictor_text = (ROOT / "app" / "services" / "local_shadow_predictor.py").read_text(
+        encoding="utf-8", errors="replace"
+    )
+
+    registry_valid = registry.get("registry_schema") == AITSLocalModelRegistry.REGISTRY_SCHEMA
+    latest_attempt_id = str(latest_attempt.get("model_id") or "")
+    latest_usable_id = str(latest_usable.get("model_id") or "")
+    pointer_id = str(registry.get("latest_usable_model_id") or "")
+    legacy_pointer_id = str(registry.get("latest_model_id") or "")
+    latest_model_id = str(latest.get("model_id") or "")
+    latest_artifact = Path(str(latest_usable.get("model_path") or ""))
+    latest_artifact_exists = bool(latest_artifact.is_file())
+    latest_attempt_no_data = bool(
+        latest_attempt
+        and latest_attempt.get("trained") is False
+        and str(latest_attempt.get("training_status") or "") in {"no_data", "failed", "insufficient_data"}
+    )
+    no_data_overwrites = bool(
+        usable_models
+        and (
+            not latest.get("trained")
+            or latest_model_id != latest_usable_id
+            or pointer_id != latest_usable_id
+            or legacy_pointer_id != latest_usable_id
+        )
+    )
+    no_data_preserved = bool(
+        latest_attempt_no_data
+        and latest_attempt_id == str(registry.get("latest_training_attempt_id") or "")
+        and str(registry.get("latest_training_status") or "")
+        == str(latest_attempt.get("training_status") or "")
+    )
+    repaired = bool(
+        no_data_preserved
+        and latest_usable_id
+        and latest_model_id == latest_usable_id
+        and pointer_id == latest_usable_id
+        and legacy_pointer_id == latest_usable_id
+        and latest_artifact_exists
+    )
+    predictor_uses_latest_usable = bool(
+        "registry.latest_model_candidate()" in predictor_text
+        and "return self.resolve_latest_usable_model()" in registry_text
+    )
+    fake_model = any(
+        bool(item.get("fake_model") or item.get("fake_training_data") or item.get("synthetic_model"))
+        for item in registry.get("models") or []
+        if isinstance(item, dict)
+    )
+    safe_for_live = bool(latest_usable.get("safe_for_live_decision"))
+    live_enabled = bool(latest_usable.get("live_decision_enabled"))
+
+    first_blocker = "registry_latest_pointer_policy_ready"
+    if fake_model:
+        first_blocker = "fake_model_detected"
+    elif safe_for_live:
+        first_blocker = "safe_for_live_decision_true_unexpected"
+    elif live_enabled:
+        first_blocker = "live_decision_enabled_true_unexpected"
+    elif not registry_valid:
+        first_blocker = "registry_invalid"
+    elif not isinstance(usable_models, list):
+        first_blocker = "usable_model_scan_failed"
+    elif not usable_models:
+        first_blocker = "no_usable_trained_artifact_found"
+    elif not latest_usable_id or pointer_id != latest_usable_id:
+        first_blocker = "latest_usable_pointer_missing"
+    elif no_data_overwrites:
+        first_blocker = "no_data_overwrites_latest_usable"
+    elif not predictor_uses_latest_usable:
+        first_blocker = "predictor_not_using_latest_usable"
+
+    ready = first_blocker == "registry_latest_pointer_policy_ready"
+    report.update(
+        {
+            "schema": "aits_local_model_registry_latest_pointer_policy_summary.v1",
+            "mode": "local-model-registry-latest-pointer-policy-v1-summary",
+            "registry_latest_pointer_policy_ready": ready,
+            "latest_model_id": latest_model_id,
+            "latest_model_trained": bool(latest.get("trained")),
+            "latest_model_artifact_exists": latest_artifact_exists and latest_model_id == latest_usable_id,
+            "latest_training_attempt_id": latest_attempt_id,
+            "latest_training_attempt_status": str(latest_attempt.get("training_status") or ""),
+            "latest_usable_model_id": latest_usable_id,
+            "latest_usable_model_trained": bool(latest_usable.get("trained")),
+            "latest_usable_model_artifact_exists": latest_artifact_exists,
+            "usable_model_count": len(usable_models),
+            "no_data_attempt_preserved": no_data_preserved,
+            "no_data_overwrites_latest_usable_detected": no_data_overwrites,
+            "no_data_overwrites_latest_usable_repaired": repaired,
+            "predictor_uses_latest_usable_model": predictor_uses_latest_usable,
+            "local_model_available_for_candidate_observation": bool(latest_usable_id and latest_artifact_exists),
+            "safe_for_live_decision": safe_for_live,
+            "live_decision_enabled": live_enabled,
+            "fake_model_detected": fake_model,
+            "fake_prediction_detected": False,
+            "first_blocker": first_blocker,
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_local_engine_candidate_observation_v1_summary(
     report: dict[str, Any],
     *,
@@ -26242,6 +26362,7 @@ def run_harness(
         "internal-local-engine-data-recovery-v1-summary",
         "local-engine-curation-provenance-repair-v1-summary",
         "local-engine-candidate-observation-v1-summary",
+        "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
         "hard-freeze-root-cause-audit-v1-summary",
@@ -26576,6 +26697,12 @@ def run_harness(
         elif mode == "local-engine-candidate-observation-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_candidate_observation_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_model_registry_latest_pointer_policy_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -27243,6 +27370,7 @@ def main() -> int:
             "internal-local-engine-data-recovery-v1-summary",
             "local-engine-curation-provenance-repair-v1-summary",
             "local-engine-candidate-observation-v1-summary",
+            "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
             "hard-freeze-root-cause-audit-v1-summary",

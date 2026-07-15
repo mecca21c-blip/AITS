@@ -242,3 +242,13 @@ Acceptance criteria:
 - The source candidate schema remains `aits_local_engine_decision_candidate.v1`; validator normalization is stored under `validator_metadata`.
 - Writer contract `v2` exposes attempted/success state, status, blocker, and safe error type to future outcome records.
 - Observation failure cannot be silently represented as an empty prediction ID.
+
+## 17. Registry Latest Pointer Contract v1
+
+- Every training run remains in registry history and the latest attempt status, including no-data and failed runs.
+- The latest usable pointer accepts only trained entries backed by an existing `model.pkl`, feature columns, and encoding manifest.
+- No-data or failed attempts never replace `latest_model.json` when a usable trained artifact exists.
+- Predictor lookup resolves the latest usable model from the registry instead of trusting the latest attempt.
+- Missing calibration may permit candidate-only observation metadata; it never grants final-action authority.
+- Registry recovery reuses existing artifacts only. It never creates a trained flag, model artifact, prediction, or confidence value.
+- Live decision and execution authority remain disabled.

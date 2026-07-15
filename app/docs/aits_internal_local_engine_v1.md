@@ -173,3 +173,19 @@ Manual structural verification does not generate a prediction:
 - Writer contract `v2` records attempted/success status, structured blockers, safe error type, prediction ID, and outcome linkage metadata.
 - Missing directories are created only when a real candidate is durably appended. No self-test or placeholder observation is generated.
 - Runtime summaries fail when a `v2` prediction succeeds but no observation is written; pre-repair gaps remain visible as historical diagnostics.
+
+## Registry Latest Pointer Policy v1
+
+Training history and model selection have separate owners:
+
+- `latest_training_attempt` records the newest run, including no-data, insufficient, or failed attempts.
+- `latest_usable_model` selects only a trained artifact with a real `model.pkl` and compatible feature/encoding manifests.
+- `latest_model.json` remains the compatibility view of `latest_usable_model`; an unsuccessful attempt cannot replace it.
+- Registry repair scans existing artifacts and restores the most recent usable model without creating or modifying model content.
+- Candidate observation may use the restored model, but `safe_for_live_decision=false` and `live_decision_enabled=false` remain mandatory.
+
+Manual verification:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode local-model-registry-latest-pointer-policy-v1-summary --observe-only
+```

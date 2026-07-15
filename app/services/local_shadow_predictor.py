@@ -272,16 +272,20 @@ def build_local_engine_decision_candidate(
 
 def load_latest_local_model(root: Path | str = Path("data") / "local_models") -> dict:
     registry = AITSLocalModelRegistry(root)
-    latest = registry.load_latest()
     metadata = registry.latest_model_candidate()
     if not metadata:
-        reason = "local_model_not_trained" if latest and not latest.get("trained") else "local_model_artifact_missing"
+        latest_attempt = registry.load_latest_training_attempt()
+        reason = (
+            "local_model_not_trained"
+            if latest_attempt and not latest_attempt.get("trained")
+            else "local_model_artifact_missing"
+        )
         return {
             "status": "unavailable",
             "reason": reason,
-            "metadata": latest,
-            "safe_for_live_decision": bool(latest.get("safe_for_live_decision")),
-            "live_decision_enabled": bool(latest.get("live_decision_enabled")),
+            "metadata": latest_attempt,
+            "safe_for_live_decision": False,
+            "live_decision_enabled": False,
         }
     try:
         with Path(metadata["model_path"]).open("rb") as handle:
