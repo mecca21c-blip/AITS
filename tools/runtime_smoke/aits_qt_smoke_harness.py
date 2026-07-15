@@ -14759,6 +14759,181 @@ def _run_internal_local_engine_data_recovery_v1_summary(
     )
 
 
+def _run_local_engine_curation_provenance_repair_v1_summary(
+    report: dict[str, Any],
+    *,
+    output_dir: Path,
+) -> None:
+    from app.services.local_model_training import AITSLocalModelTrainingPipeline
+    from app.services.local_training_dataset_curation import (
+        AITSLocalTrainingDatasetCurator,
+        TASK_REQUIRED_FEATURES,
+        read_json_dict,
+        read_recoverable_jsonl,
+    )
+    from app.services.local_training_feature_pipeline import AITSLocalTrainingFeaturePipeline
+
+    training_root = ROOT / "data" / "ai_decision_training"
+    model_root = ROOT / "data" / "local_models"
+    source_paths = (
+        training_root / "outcome_records.jsonl",
+        training_root / "provider_comparison_outcomes.jsonl",
+        training_root / "outcome_tracking_state.json",
+    )
+    source_hashes_before = {
+        str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in source_paths if path.exists()
+    }
+    outcomes, outcome_metrics = read_recoverable_jsonl(source_paths[0])
+    providers, provider_metrics = read_recoverable_jsonl(source_paths[1])
+    curator = AITSLocalTrainingDatasetCurator(training_root)
+    existing_excluded, _ = read_recoverable_jsonl(curator.excluded_path)
+    analysis_before = curator.analyze_provenance(existing_excluded)
+    state_count = len(curator._load_state_decisions())
+    unique_decisions = len({str(row.get("decision_id") or "") for row in outcomes if row.get("decision_id")})
+    baseline_excluded = unique_decisions
+    baseline_curated = 0 if (
+        analysis_before.get("opportunity_gap_missing_count") == state_count
+        and baseline_excluded >= state_count
+    ) else max(0, baseline_excluded - int(analysis_before.get("excluded_records_count") or 0))
+
+    curation_summary: dict[str, Any] = {}
+    feature_summary: dict[str, Any] = {}
+    training_summary: dict[str, Any] = {}
+    pipeline_error = ""
+    try:
+        curation_summary = curator.curate()
+        feature_summary = AITSLocalTrainingFeaturePipeline(training_root).build()
+        training_summary = AITSLocalModelTrainingPipeline(training_root, model_root).run_training()
+    except Exception as exc:
+        pipeline_error = f"{type(exc).__name__}:{exc}"
+
+    excluded_after, _ = read_recoverable_jsonl(curator.excluded_path)
+    analysis = curator.analyze_provenance(excluded_after)
+    source_hashes_after = {
+        str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in source_paths if path.exists()
+    }
+    source_preserved = bool(source_hashes_before and source_hashes_before == source_hashes_after)
+    app_gui_text = (ROOT / "app" / "ui" / "app_gui.py").read_text(encoding="utf-8", errors="replace")
+    orchestrator_text = (ROOT / "app" / "services" / "aits_orchestrator.py").read_text(encoding="utf-8", errors="replace")
+    settings_text = (ROOT / "app" / "utils" / "settings_schema.py").read_text(encoding="utf-8", errors="replace")
+    writer_repair = bool(
+        "build_training_eligibility_provenance" in app_gui_text
+        and all(
+            token in orchestrator_text
+            for token in (
+                "decision_contract_schema",
+                "payload_snapshot_schema",
+                "task_specific_required_fields",
+                "training_eligibility_precheck",
+            )
+        )
+    )
+    curated_after = int(curation_summary.get("total_curated_records") or 0)
+    excluded_after_count = int(curation_summary.get("total_excluded_records") or 0)
+    feature_count = int(feature_summary.get("safe_for_model_training_count") or 0)
+    training_blocker = str(
+        training_summary.get("model_training_skip_reason")
+        or pipeline_error
+        or ("training_no_feature_records" if not feature_count else "")
+    )
+    registry = read_json_dict(model_root / "registry.json")
+    fake_training = False
+    fake_decision = False
+    for path in (curator.curated_path, training_root / "local_training_features.jsonl"):
+        rows, _ = read_recoverable_jsonl(path)
+        for row in rows:
+            fake_training = fake_training or bool(row.get("fake_training_data"))
+            fake_decision = fake_decision or bool(row.get("fake_decision"))
+    task_contract_ready = bool(all(TASK_REQUIRED_FEATURES.get(kind) for kind in ("position", "portfolio", "candidate")))
+    common_overreach = int(analysis.get("common_gate_overreach_count") or 0) > 0
+    unrecoverable_source = bool(outcome_metrics["corrupted_lines"] or provider_metrics["corrupted_lines"])
+
+    first_blocker = "local_engine_curation_provenance_ready"
+    if not source_paths[0].exists():
+        first_blocker = "source_outcome_records_missing"
+    elif unrecoverable_source:
+        first_blocker = "corrupted_source_outcome_records"
+    elif pipeline_error:
+        first_blocker = "provenance_analysis_failed"
+    elif common_overreach and not task_contract_ready:
+        first_blocker = "common_gate_overreach_unrepaired"
+    elif not task_contract_ready:
+        first_blocker = "task_specific_contract_missing"
+    elif not analysis.get("likely_writer_path"):
+        first_blocker = "writer_path_unknown"
+    elif not writer_repair:
+        first_blocker = "writer_path_repair_required"
+    elif outcomes and not curated_after:
+        first_blocker = "curation_gate_all_excluded"
+    elif curated_after and not feature_count:
+        first_blocker = "feature_pipeline_no_curated_records"
+    elif feature_count <= 0:
+        first_blocker = "training_no_feature_records"
+    elif fake_training:
+        first_blocker = "fake_training_data_detected"
+    elif fake_decision:
+        first_blocker = "fake_local_decision_detected"
+
+    ready = bool(
+        source_preserved
+        and not unrecoverable_source
+        and not pipeline_error
+        and task_contract_ready
+        and writer_repair
+        and curated_after > 0
+        and feature_count > 0
+        and not fake_training
+        and not fake_decision
+        and not bool(registry.get("safe_for_live_decision"))
+        and not bool(registry.get("live_decision_enabled"))
+    )
+    report.update(
+        {
+            "schema": "aits_local_engine_curation_provenance_repair_summary.v1",
+            "mode": "local-engine-curation-provenance-repair-v1-summary",
+            "local_engine_curation_provenance_ready": ready,
+            "outcome_records_count": len(outcomes),
+            "provider_comparison_outcomes_count": len(providers),
+            "curated_records_before": baseline_curated,
+            "curated_records_after": curated_after,
+            "excluded_records_before": baseline_excluded,
+            "excluded_records_after": excluded_after_count,
+            "excluded_reason_counts": dict(curation_summary.get("by_exclusion_reason") or {}),
+            "excluded_reason_counts_before_repair": analysis.get("excluded_reason_counts_before_repair"),
+            "excluded_sample_by_reason": analysis.get("excluded_sample_by_reason"),
+            "opportunity_gap_missing_count": analysis.get("opportunity_gap_missing_count"),
+            "opportunity_gap_missing_task_counts": analysis.get("opportunity_gap_missing_task_counts"),
+            "opportunity_gap_missing_writer_candidates": analysis.get("opportunity_gap_missing_writer_candidates"),
+            "task_invalid_values": analysis.get("task_invalid_values"),
+            "task_scope_invalid_values": analysis.get("task_scope_invalid_values"),
+            "payload_quality_missing_task_counts": analysis.get("payload_quality_missing_task_counts"),
+            "likely_writer_path": analysis.get("likely_writer_path"),
+            "repair_required_fields_by_task": analysis.get("repair_required_fields_by_task"),
+            "task_specific_contract_ready": task_contract_ready,
+            "common_gate_overreach_detected": common_overreach,
+            "common_gate_overreach_count": analysis.get("common_gate_overreach_count"),
+            "writer_path_repair_required": True,
+            "writer_path_repair_applied": writer_repair,
+            "future_training_eligibility_precheck_ready": "build_training_eligibility_provenance" in app_gui_text,
+            "feature_records_count": feature_count,
+            "training_ready": bool(training_summary.get("trained_model_count")),
+            "training_blocker": training_blocker,
+            "source_outcome_records_preserved": source_preserved,
+            "fake_training_data_detected": fake_training,
+            "fake_local_decision_detected": fake_decision,
+            "local_engine_safe_for_live_decision": bool(registry.get("safe_for_live_decision")),
+            "local_engine_live_decision_enabled": bool(registry.get("live_decision_enabled")),
+            "ollama_developer_only": "local_ollama_developer_only: bool = True" in settings_text,
+            "pipeline_error": pipeline_error,
+            "first_blocker": first_blocker,
+            "pass_status": "pass" if ready else "fail",
+            "status": "pass" if ready else "fail",
+        }
+    )
+
+
 def _run_live_order_guarded_readiness_summary(report: dict[str, Any], *, output_dir: Path) -> None:
     e2e = _build_live_on_runtime_e2e_diagnostic_report(
         output_dir=output_dir,
@@ -25830,6 +26005,7 @@ def run_harness(
         "local-model-live-outcome-calibration-v1-summary",
         "local-model-calibration-data-accumulation-v1-summary",
         "internal-local-engine-data-recovery-v1-summary",
+        "local-engine-curation-provenance-repair-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
         "hard-freeze-root-cause-audit-v1-summary",
@@ -26152,6 +26328,12 @@ def run_harness(
         elif mode == "internal-local-engine-data-recovery-v1-summary":
             _install_provider_post_guard(report)
             _run_internal_local_engine_data_recovery_v1_summary(
+                report,
+                output_dir=output_dir,
+            )
+        elif mode == "local-engine-curation-provenance-repair-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_curation_provenance_repair_v1_summary(
                 report,
                 output_dir=output_dir,
             )
@@ -26817,6 +26999,7 @@ def main() -> int:
             "local-model-live-outcome-calibration-v1-summary",
             "local-model-calibration-data-accumulation-v1-summary",
             "internal-local-engine-data-recovery-v1-summary",
+            "local-engine-curation-provenance-repair-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
             "hard-freeze-root-cause-audit-v1-summary",

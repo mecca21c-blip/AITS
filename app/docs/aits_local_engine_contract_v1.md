@@ -208,3 +208,18 @@ Acceptance criteria:
 - See `app/docs/aits_internal_local_engine_v1.md` for the complete contract.
 - Failure, timeout, unavailable server, missing model, and parse failure states remain `submitted=0`, `order_allowed=False`, and `real_order=False`.
 - Router, Execution, Order, and RiskGuard boundaries remain unchanged.
+
+## 15. Curation Provenance Contract v1
+
+- Curation requirements are task-specific. Candidate opportunity evidence is not
+  a position or portfolio requirement.
+- Correcting task ownership is a contract repair, not a quality-gate relaxation.
+- Future outcome records carry `decision_task`, `decision_scope`, provider and
+  teacher source, decision/payload schemas, payload quality, evidence summary,
+  required/present/missing fields, and `training_eligibility_precheck`.
+- The precheck is factual metadata only. The offline curation and feature gates
+  remain authoritative for training eligibility.
+- Historical source outcome JSONL is never rewritten. Records lacking persisted
+  quality or feature provenance remain excluded with explicit reasons.
+- LOCAL_ENGINE live flags remain false, Ollama remains developer-only, and no
+  execution authority is granted by curation or training readiness.

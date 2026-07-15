@@ -32134,6 +32134,20 @@ class MainWindow(QMainWindow):
         runtime_context = dict((payload or {}).get("runtime_context") or {})
         constraints = dict((payload or {}).get("constraints") or {})
         safety_blockers = [str(constraints.get(key)) for key in ("sell_blocker", "buy_blocker", "blocker") if str(constraints.get(key) or "")]
+        feature_context = self._build_local_training_feature_context(payload, decision)
+        from app.services.local_training_dataset_curation import build_training_eligibility_provenance
+        provenance = build_training_eligibility_provenance(
+            task=str(scope_contract.get("task") or (payload or {}).get("task") or ""),
+            scope_type=str(scope_contract.get("scope_type") or ""),
+            scope=str(scope_contract.get("scope") or ""),
+            symbol=str(scope_contract.get("symbol") or ""),
+            provider_source=str(comparison.get("final_provider_source") or ""),
+            final_action=str(comparison.get("final_action") or "").lower(),
+            feature_context=feature_context,
+            payload_quality=quality,
+            decision_contract_schema=str((decision or {}).get("schema") or "aits_ai_decision.v1"),
+            payload_snapshot_schema=str((payload or {}).get("schema") or "aits_ai_decision_payload.v1"),
+        )
         record = {
             "decision_id": decision_id,
             "parent_decision_id": str((payload or {}).get("parent_decision_id") or ""),
@@ -32168,7 +32182,8 @@ class MainWindow(QMainWindow):
             "reason_ko": comparison.get("final_reason_ko"),
             "eta_seconds": (decision or {}).get("eta_seconds"),
             "decision_snapshot": self._build_ai_outcome_decision_snapshot(payload),
-            "feature_context": self._build_local_training_feature_context(payload, decision),
+            "feature_context": feature_context,
+            **provenance,
             "execution_result": execution,
             "actual_order": bool(execution.get("actual_order")),
             "submitted": int(execution.get("submitted_count") or execution.get("submitted") or 0),

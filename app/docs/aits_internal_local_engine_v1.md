@@ -103,3 +103,33 @@ Run:
 
 This command may regenerate derived offline training artifacts. It does not start
 the app, activate live runtime, call providers, or submit orders.
+
+## Curation Provenance Repair v1
+
+The original curation gate treated every payload-manifest critical field as a
+training requirement for every task. That incorrectly required
+`candidates.opportunity_gap` for position and portfolio decisions. The repaired
+contract keeps strict gates but evaluates factual evidence by task:
+
+- Position: quantity, current price, valuation, PnL, portfolio value, and the
+  valuation-unit risk observation.
+- Portfolio: total assets, available KRW, exposure, remaining cap, and position
+  count.
+- Candidate/rotation/promotion: opportunity gap plus portfolio and cash context.
+
+Historical outcome source files are read-only. Existing factual state records may
+be reclassified by the corrected task contract, but missing values are never
+invented or backfilled. Outcome-only orphan records remain excluded when payload
+quality or feature context was not persisted.
+
+Future outcome registrations persist the decision task/scope, provider and teacher
+source, contract schemas, payload quality, factual evidence summary, task-specific
+required/present/missing fields, and a non-authoritative training eligibility
+precheck. Checkpoint JSONL output carries the same metadata so state rotation does
+not sever provenance again.
+
+Manual verification:
+
+```powershell
+.\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode local-engine-curation-provenance-repair-v1-summary --observe-only
+```
