@@ -14943,6 +14943,7 @@ def _run_local_engine_candidate_observation_v1_summary(
     from app.services.local_shadow_predictor import (
         AITSLocalEngineCandidateObservationWriter,
         LOCAL_ENGINE_OBSERVATION_SCHEMA,
+        LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT,
     )
     from app.services.local_training_dataset_curation import read_json_dict, read_recoverable_jsonl
 
@@ -14956,6 +14957,13 @@ def _run_local_engine_candidate_observation_v1_summary(
     writer = AITSLocalEngineCandidateObservationWriter(ROOT / "data" / "local_engine")
     observations, observation_metrics = writer.read()
     outcomes, _ = read_recoverable_jsonl(training_root / "outcome_records.jsonl")
+    tracking_state = read_json_dict(training_root / "outcome_tracking_state.json")
+    tracking_decisions = tracking_state.get("decisions") if isinstance(tracking_state.get("decisions"), dict) else {}
+    tracking_rows = [row for row in tracking_decisions.values() if isinstance(row, dict)]
+    contract_rows = [
+        row for row in tracking_rows
+        if row.get("local_engine_candidate_writer_contract") == LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT
+    ]
 
     predictor_text = (ROOT / "app" / "services" / "local_shadow_predictor.py").read_text(encoding="utf-8", errors="replace")
     provider_text = (ROOT / "app" / "services" / "ai_engine_provider.py").read_text(encoding="utf-8", errors="replace")
@@ -14971,6 +14979,44 @@ def _run_local_engine_candidate_observation_v1_summary(
         "class AITSLocalEngineCandidateObservationWriter" in predictor_text
         and "os.fsync" in predictor_text
         and "record_local_engine_candidate_observation" in provider_text
+    )
+    candidate_directory_ready = "self.root.mkdir(parents=True, exist_ok=True)" in predictor_text
+    candidate_schema_preserved = bool(
+        "model_routing_decision = dict(model_decision)" in provider_text
+        and "candidate=model_decision" in provider_text
+        and all(row.get("candidate_schema") == "aits_local_engine_decision_candidate.v1" for row in observations)
+    )
+    validator_overwrites_candidate_schema = "model_decision = dict(model_validation.get(\"decision\")" in provider_text
+    validator_metadata_separated = bool(
+        "local_engine_validator_metadata" in provider_text
+        and '"validator_metadata": dict(model_state.get("local_engine_validator_metadata") or {})' in predictor_text
+        and all(isinstance(row.get("validator_metadata"), dict) for row in observations)
+    )
+    prediction_attempt_count = sum(bool(row.get("local_model_prediction_attempted")) for row in contract_rows)
+    prediction_success_count = sum(bool(row.get("local_model_prediction_available")) for row in contract_rows)
+    prediction_unavailable_count = max(0, prediction_attempt_count - prediction_success_count)
+    writer_attempt_count = sum(bool(row.get("local_engine_candidate_writer_attempted")) for row in contract_rows)
+    writer_success_count = sum(bool(row.get("local_engine_candidate_writer_success")) for row in contract_rows)
+    writer_failure_rows = [
+        row for row in contract_rows
+        if row.get("local_engine_candidate_writer_attempted") and not row.get("local_engine_candidate_writer_success")
+    ]
+    writer_failure_count = len(writer_failure_rows)
+    observation_failure_blocker_counts: dict[str, int] = {}
+    for row in writer_failure_rows:
+        blocker = str(row.get("local_engine_observation_blocker") or "writer_failure_unspecified")
+        observation_failure_blocker_counts[blocker] = observation_failure_blocker_counts.get(blocker, 0) + 1
+    prediction_success_without_observation = bool(prediction_success_count > 0 and writer_success_count == 0)
+    historical_observation_unavailable_count = sum(
+        row.get("local_engine_candidate_observation_status") == "unavailable"
+        and not row.get("local_engine_candidate_writer_contract")
+        for row in tracking_rows
+    )
+    candidate_writer_last_blocker = str(
+        (writer_failure_rows[-1] if writer_failure_rows else {}).get("local_engine_observation_blocker") or ""
+    )
+    candidate_writer_last_error = str(
+        (writer_failure_rows[-1] if writer_failure_rows else {}).get("local_engine_observation_error") or ""
     )
     valid_records = [row for row in observations if writer.validate(row)]
     applied_count = sum(bool(row.get("applied_to_final_action")) for row in observations)
@@ -15014,16 +15060,8 @@ def _run_local_engine_candidate_observation_v1_summary(
     ollama_developer_only = "local_ollama_developer_only: bool = True" in settings_text
     ollama_live_enabled = "local_ollama_auto_generate_on_live_enabled: bool = True" in settings_text
 
-    first_blocker = "local_engine_candidate_observation_ready"
-    if not registry_valid:
-        first_blocker = "model_registry_invalid"
-    elif not schema_ready:
-        first_blocker = "candidate_schema_missing"
-    elif not writer_ready:
-        first_blocker = "candidate_writer_missing"
-    elif not candidate_only_enforced:
-        first_blocker = "candidate_only_contract_broken"
-    elif final_action_mutation:
+    first_blocker = "candidate_observation_schema_preservation_ready"
+    if final_action_mutation:
         first_blocker = "final_action_mutation_detected"
     elif safe_for_live:
         first_blocker = "safe_for_live_decision_true_unexpected"
@@ -15031,6 +15069,24 @@ def _run_local_engine_candidate_observation_v1_summary(
         first_blocker = "live_decision_enabled_true_unexpected"
     elif fake_prediction:
         first_blocker = "fake_prediction_detected"
+    elif not candidate_schema_preserved:
+        first_blocker = "candidate_schema_not_preserved"
+    elif validator_overwrites_candidate_schema:
+        first_blocker = "validator_overwrites_candidate_schema"
+    elif not writer_ready:
+        first_blocker = "candidate_writer_missing"
+    elif not candidate_directory_ready:
+        first_blocker = "candidate_directory_missing"
+    elif prediction_success_without_observation:
+        first_blocker = "prediction_success_but_no_observation"
+    elif writer_failure_count:
+        first_blocker = "candidate_writer_failure"
+    elif not registry_valid:
+        first_blocker = "model_registry_invalid"
+    elif not schema_ready:
+        first_blocker = "candidate_schema_missing"
+    elif not candidate_only_enforced:
+        first_blocker = "candidate_only_contract_broken"
     elif fake_outcome:
         first_blocker = "fake_outcome_detected"
     elif not outcome_linkage_ready:
@@ -15042,6 +15098,12 @@ def _run_local_engine_candidate_observation_v1_summary(
         registry_valid
         and schema_ready
         and writer_ready
+        and candidate_directory_ready
+        and candidate_schema_preserved
+        and validator_metadata_separated
+        and not validator_overwrites_candidate_schema
+        and not prediction_success_without_observation
+        and not writer_failure_count
         and candidate_only_enforced
         and not final_action_mutation
         and not safe_for_live
@@ -15065,6 +15127,25 @@ def _run_local_engine_candidate_observation_v1_summary(
             "model_registry_valid": registry_valid,
             "calibration_valid": calibration_valid,
             "candidate_writer_ready": writer_ready,
+            "candidate_directory_ready": candidate_directory_ready,
+            "candidate_directory_exists": writer.root.exists(),
+            "candidate_schema_preserved": candidate_schema_preserved,
+            "validator_metadata_separated": validator_metadata_separated,
+            "validator_overwrites_candidate_schema": validator_overwrites_candidate_schema,
+            "summary_writer_contract": LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT,
+            "summary_contract_records_count": len(contract_rows),
+            "historical_observation_unavailable_count": historical_observation_unavailable_count,
+            "local_model_prediction_attempt_count": prediction_attempt_count,
+            "local_model_prediction_success_count": prediction_success_count,
+            "local_model_prediction_unavailable_count": prediction_unavailable_count,
+            "candidate_writer_attempt_count": writer_attempt_count,
+            "candidate_writer_success_count": writer_success_count,
+            "candidate_writer_failure_count": writer_failure_count,
+            "candidate_observation_records_count": len(observations),
+            "prediction_success_but_no_observation_detected": prediction_success_without_observation,
+            "observation_failure_blocker_counts": observation_failure_blocker_counts,
+            "candidate_writer_last_blocker": candidate_writer_last_blocker,
+            "candidate_writer_last_error": candidate_writer_last_error,
             "candidate_records_count": len(observations),
             "candidate_records_valid": len(valid_records) == len(observations) and observation_metrics["corrupted_lines"] == 0,
             "candidate_only_enforced": candidate_only_enforced,

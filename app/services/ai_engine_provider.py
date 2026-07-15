@@ -13,6 +13,9 @@ import urllib.request
 
 from app.services.ollama_http_client import OllamaHttpClient
 from app.services.local_shadow_predictor import (
+    LOCAL_ENGINE_DECISION_SCHEMA,
+    LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT,
+    LocalEngineCandidateObservationError,
     predict_local_model_decision,
     record_local_engine_candidate_observation,
 )
@@ -1607,6 +1610,7 @@ class AIEngineProvider:
             local_decision=local_decision,
         )
         model_decision = dict(local_model.get("model_decision_candidate") or {})
+        model_routing_decision = dict(model_decision)
         model_validation: Dict[str, Any] = {}
         if local_model.get("local_model_prediction_available") and model_decision:
             model_validation = validate_ai_decision_response(
@@ -1616,14 +1620,30 @@ class AIEngineProvider:
                 symbol=str(context.get("symbol") or ""),
                 candidates=context.get("candidates"),
             )
-            model_decision = dict(model_validation.get("decision") or model_decision)
+            model_routing_decision = dict(model_validation.get("decision") or model_decision)
             local_model["local_model_decision_available"] = bool(model_validation.get("validation_passed"))
             local_model["local_model_decision_candidate_ready"] = bool(model_validation.get("validation_passed"))
+            local_model["local_engine_validator_metadata"] = {
+                "validator_schema": str(model_routing_decision.get("schema") or "aits_ai_decision_response_v1"),
+                "validation_status": "passed" if model_validation.get("validation_passed") else "failed",
+                "validation_errors": list(model_validation.get("blockers") or []),
+                "normalized_action": str(model_routing_decision.get("action") or ""),
+                "normalized_confidence": model_routing_decision.get("confidence"),
+                "contract_warnings": [],
+            }
             if not model_validation.get("validation_passed"):
                 local_model["local_model_prediction_blocker"] = "local_model_candidate_validator_rejected"
         else:
             local_model["local_model_decision_available"] = False
             local_model["local_model_decision_candidate_ready"] = False
+            local_model["local_engine_validator_metadata"] = {
+                "validator_schema": "aits_ai_decision_response_v1",
+                "validation_status": "skipped",
+                "validation_errors": [str(local_model.get("local_model_prediction_blocker") or "local_model_prediction_unavailable")],
+                "normalized_action": "",
+                "normalized_confidence": None,
+                "contract_warnings": [],
+            }
 
         escalation = self._evaluate_external_escalation(
             requested_provider=requested_provider,
@@ -1699,7 +1719,7 @@ class AIEngineProvider:
             and model_safe_action
             and (not local_available or local_model_agrees_with_local or model_confidence >= float(local_decision.get("confidence") or 0.0))
         ):
-            final_decision = dict(model_decision)
+            final_decision = dict(model_routing_decision)
             final_provider_source = "local_model"
             source_reason = "registry_approved_local_model_safe_decision"
             _safe_log_info(
@@ -1797,11 +1817,14 @@ class AIEngineProvider:
             }
         )
         final_action_before_observation = str(final_decision.get("action") or "wait")
-        observation_status = "unavailable"
+        observation_status = "skipped"
         observation_blocker = str(local_model.get("local_model_prediction_blocker") or "local_model_prediction_unavailable")
+        observation_error = ""
+        writer_attempted = bool(model_available and model_decision)
+        writer_success = False
         prediction_id = ""
         outcome_linkage_key = ""
-        if model_available and model_decision:
+        if writer_attempted:
             try:
                 observation = record_local_engine_candidate_observation(
                     candidate=model_decision,
@@ -1815,14 +1838,28 @@ class AIEngineProvider:
                 outcome_linkage_key = str(observation.get("outcome_linkage_key") or "")
                 observation_status = "recorded"
                 observation_blocker = ""
+                writer_success = True
+            except LocalEngineCandidateObservationError as exc:
+                observation_status = exc.status
+                observation_blocker = exc.blocker
+                observation_error = exc.error
             except Exception as exc:
-                observation_status = "unavailable"
-                observation_blocker = f"candidate_observation_failed:{type(exc).__name__}"
+                observation_status = "failed"
+                observation_blocker = "writer_exception"
+                observation_error = type(exc).__name__
         final_decision.update(
             {
                 "local_engine_candidate_observation_schema": "aits_local_engine_candidate_observation.v1",
                 "local_engine_candidate_observation_status": observation_status,
                 "local_engine_candidate_observation_blocker": observation_blocker,
+                "local_engine_observation_status": observation_status,
+                "local_engine_observation_blocker": observation_blocker,
+                "local_engine_observation_error": observation_error,
+                "local_engine_candidate_schema": str(model_decision.get("schema") or LOCAL_ENGINE_DECISION_SCHEMA),
+                "local_engine_candidate_writer_contract": LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT,
+                "local_engine_candidate_writer_attempted": writer_attempted,
+                "local_engine_candidate_writer_success": writer_success,
+                "local_engine_validator_metadata": dict(local_model.get("local_engine_validator_metadata") or {}),
                 "local_engine_prediction_id": prediction_id,
                 "local_engine_candidate_observation_ids": [prediction_id] if prediction_id else [],
                 "local_engine_outcome_linkage_key": outcome_linkage_key,

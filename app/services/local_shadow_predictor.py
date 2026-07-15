@@ -21,6 +21,7 @@ QUALITY_FACTORS = {"A": 1.0, "B": 0.85, "C": 0.65}
 LOCAL_ENGINE_DECISION_SCHEMA = "aits_local_engine_decision_candidate.v1"
 LOCAL_ENGINE_OBSERVATION_SCHEMA = "aits_local_engine_candidate_observation.v1"
 LOCAL_ENGINE_VERSION = "v1"
+LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT = "v2"
 LOCAL_ENGINE_HEAD_CONTRACTS = {
     "action_head": {"output": "action", "required_source": "trained_model"},
     "confidence_head": {"output": "confidence", "required_source": "calibrated_model"},
@@ -36,6 +37,16 @@ LOCAL_ENGINE_HEAD_CONTRACTS = {
 }
 
 
+class LocalEngineCandidateObservationError(ValueError):
+    """Safe, structured failure for candidate observation persistence."""
+
+    def __init__(self, blocker: str, *, status: str, error: str = "") -> None:
+        super().__init__(blocker)
+        self.blocker = blocker
+        self.status = status
+        self.error = error
+
+
 class AITSLocalEngineCandidateObservationWriter:
     """Durably append real model candidates without granting decision authority."""
 
@@ -46,31 +57,56 @@ class AITSLocalEngineCandidateObservationWriter:
         self.path = self.root / "local_engine_candidate_observations.jsonl"
 
     @staticmethod
-    def validate(record: dict) -> bool:
-        return bool(
-            record.get("schema") == LOCAL_ENGINE_OBSERVATION_SCHEMA
-            and str(record.get("prediction_id") or "")
-            and str(record.get("model_artifact_id") or "")
-            and str(record.get("action") or "") in MODEL_ACTIONS
-            and record.get("candidate_only") is True
-            and record.get("applied_to_final_action") is False
-            and record.get("safe_for_live_decision") is False
-            and record.get("live_decision_enabled") is False
-            and record.get("fake_prediction") is False
-        )
+    def validation_blocker(record: dict) -> str:
+        if not str(record.get("schema") or ""):
+            return "candidate_schema_missing"
+        if record.get("schema") != LOCAL_ENGINE_OBSERVATION_SCHEMA:
+            return "candidate_schema_invalid"
+        if not str(record.get("prediction_id") or ""):
+            return "prediction_id_missing"
+        if not str(record.get("model_artifact_id") or ""):
+            return "model_artifact_id_missing"
+        if str(record.get("action") or "") not in MODEL_ACTIONS:
+            return "candidate_action_invalid"
+        if record.get("candidate_only") is not True:
+            return "candidate_only_contract_broken"
+        if record.get("applied_to_final_action") is not False:
+            return "candidate_applied_to_final_action"
+        if record.get("safe_for_live_decision") is not False:
+            return "candidate_safe_for_live_unexpected"
+        if record.get("live_decision_enabled") is not False:
+            return "candidate_live_decision_enabled_unexpected"
+        if record.get("fake_prediction") is not False:
+            return "candidate_prediction_provenance_invalid"
+        return ""
+
+    @classmethod
+    def validate(cls, record: dict) -> bool:
+        return not cls.validation_blocker(record)
 
     def append(self, record: dict) -> dict:
         value = dict(record or {})
-        if not self.validate(value):
-            raise ValueError("local_engine_candidate_observation_contract_invalid")
+        blocker = self.validation_blocker(value)
+        if blocker:
+            raise LocalEngineCandidateObservationError(blocker, status="failed_schema_validation")
         payload = (json.dumps(value, ensure_ascii=False, sort_keys=True, default=str) + "\n").encode("utf-8")
         json.loads(payload.decode("utf-8"))
-        self.root.mkdir(parents=True, exist_ok=True)
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            raise LocalEngineCandidateObservationError(
+                "directory_create_failed", status="failed", error=type(exc).__name__
+            ) from exc
         with self._lock:
-            with self.path.open("ab") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
+            try:
+                with self.path.open("ab") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            except Exception as exc:
+                raise LocalEngineCandidateObservationError(
+                    "writer_exception", status="failed", error=type(exc).__name__
+                ) from exc
         return value
 
     def read(self) -> tuple[list[dict], dict[str, int]]:
@@ -89,14 +125,21 @@ def build_local_engine_candidate_observation(
     """Join a real model prediction to teacher metadata without changing it."""
     source = dict(candidate or {})
     if source.get("schema") != LOCAL_ENGINE_DECISION_SCHEMA:
-        raise ValueError("local_engine_candidate_schema_invalid")
+        raise LocalEngineCandidateObservationError(
+            "candidate_schema_missing" if not source.get("schema") else "candidate_schema_invalid",
+            status="failed_schema_validation",
+        )
     final_provider = str(final_decision.get("final_provider_source") or final_decision.get("provider") or "")
     if final_provider == "local_model":
-        raise ValueError("candidate_observation_final_source_conflict")
+        raise LocalEngineCandidateObservationError(
+            "candidate_observation_final_source_conflict", status="skipped"
+        )
     metadata = dict(model_state.get("local_model_metadata") or {})
     model_id = str(model_state.get("local_model_id") or metadata.get("model_id") or "")
     if not model_id or not bool(model_state.get("local_model_trained")):
-        raise ValueError("local_engine_trained_artifact_unavailable")
+        raise LocalEngineCandidateObservationError(
+            "local_engine_trained_artifact_unavailable", status="skipped"
+        )
     task = str(context.get("task") or source.get("task") or "")
     scope = str(context.get("symbol") or context.get("scope") or source.get("scope") or "PORTFOLIO")
     decision_id = str(
@@ -122,6 +165,7 @@ def build_local_engine_candidate_observation(
     ).hexdigest()[:32]
     return {
         "schema": LOCAL_ENGINE_OBSERVATION_SCHEMA,
+        "writer_contract": LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT,
         "prediction_id": prediction_id,
         "created_at": created_at,
         "task": task,
@@ -142,6 +186,8 @@ def build_local_engine_candidate_observation(
         "invalidation_conditions": list(source.get("invalidation_conditions") or []),
         "evidence": list(source.get("evidence") or []),
         "reason_ko": str(source.get("reason_ko") or ""),
+        "candidate_schema": str(source.get("schema") or ""),
+        "validator_metadata": dict(model_state.get("local_engine_validator_metadata") or {}),
         "candidate_only": True,
         "applied_to_final_action": False,
         "safe_for_live_decision": False,

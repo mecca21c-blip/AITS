@@ -165,3 +165,11 @@ Manual structural verification does not generate a prediction:
 ```powershell
 .\.venv\Scripts\python.exe tools\runtime_smoke\aits_qt_smoke_harness.py --mode local-engine-candidate-observation-v1-summary --observe-only
 ```
+
+### Candidate Schema Preservation
+
+- The original `aits_local_engine_decision_candidate.v1` object remains intact through observation persistence.
+- Generic AI validation produces a separate normalized routing decision and `validator_metadata`; it does not replace the LOCAL_ENGINE candidate.
+- Writer contract `v2` records attempted/success status, structured blockers, safe error type, prediction ID, and outcome linkage metadata.
+- Missing directories are created only when a real candidate is durably appended. No self-test or placeholder observation is generated.
+- Runtime summaries fail when a `v2` prediction succeeds but no observation is written; pre-repair gaps remain visible as historical diagnostics.

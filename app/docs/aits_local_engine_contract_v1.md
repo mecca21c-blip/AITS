@@ -239,3 +239,6 @@ Acceptance criteria:
   final-source conflict do not generate replacement wait/hold predictions.
 - Provider flow continues when observation writing fails.
 - LOCAL_ENGINE and Ollama live authority defaults remain disabled.
+- The source candidate schema remains `aits_local_engine_decision_candidate.v1`; validator normalization is stored under `validator_metadata`.
+- Writer contract `v2` exposes attempted/success state, status, blocker, and safe error type to future outcome records.
+- Observation failure cannot be silently represented as an empty prediction ID.
