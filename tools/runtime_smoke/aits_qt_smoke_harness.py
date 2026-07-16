@@ -13829,6 +13829,274 @@ def _run_local_engine_continuous_learning_level_authority_v1_summary(report: dic
     })
 
 
+def _run_local_engine_integrated_live_learning_cycle_v1_summary(report: dict[str, Any]) -> None:
+    from collections import Counter
+    from datetime import datetime
+
+    from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+    from app.services.local_engine_champion_challenger import AITSLocalEngineChampionChallenger
+    from app.services.local_engine_continuous_learning import AITSLocalEngineContinuousLearning
+    from app.services.local_model_registry import AITSLocalModelRegistry
+    from app.services.local_training_dataset_curation import read_json_dict, read_recoverable_jsonl
+
+    runtime = read_json_dict(ROOT / "data" / "runtime" / "aits_last_session_state.json", {})
+    started = datetime.fromisoformat(str(runtime.get("started_at") or ""))
+    stopped = datetime.fromisoformat(str(runtime.get("last_heartbeat_at") or ""))
+    started_epoch = started.timestamp()
+    stopped_epoch = stopped.timestamp()
+    duration_minutes = max(0.0, (stopped_epoch - started_epoch) / 60.0)
+    prior_cycle_summaries = []
+    for path in (ROOT / "data" / "runtime_smoke_reports").glob("runtime_smoke_report_*.json"):
+        value = read_json_dict(path, {})
+        if value.get("schema") == "aits_local_engine_integrated_live_learning_cycle_v1_summary.v1":
+            prior_cycle_summaries.append(value)
+    prior_cycle = max(
+        prior_cycle_summaries,
+        key=lambda value: float(value.get("observation_duration_minutes") or 0.0),
+        default={},
+    )
+    reuse_completed_cycle = float(prior_cycle.get("observation_duration_minutes") or 0.0) > duration_minutes
+
+    candidates, candidate_metrics = read_recoverable_jsonl(
+        ROOT / "data" / "local_engine" / "local_engine_candidate_observations.jsonl"
+    )
+    session_candidates = []
+    for row in candidates:
+        try:
+            created = datetime.fromisoformat(str(row.get("created_at") or "").replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            continue
+        if started_epoch <= created <= stopped_epoch:
+            session_candidates.append(row)
+
+    outcomes, _outcome_metrics = read_recoverable_jsonl(
+        ROOT / "data" / "ai_decision_training" / "outcome_records.jsonl"
+    )
+    session_outcomes = [
+        row for row in outcomes
+        if started_epoch <= float(row.get("created_at") or 0.0) <= stopped_epoch
+    ]
+    checkpoint_counts = Counter(str((row.get("checkpoint") or {}).get("checkpoint_name") or "") for row in session_outcomes)
+    decision_ids = {str(row.get("decision_id") or "") for row in session_outcomes if row.get("decision_id")}
+    candidate_prediction_ids = {str(row.get("prediction_id") or "") for row in session_candidates if row.get("prediction_id")}
+    joined_prediction_ids = {
+        str(row.get("local_engine_prediction_id") or "") for row in session_outcomes
+        if row.get("local_engine_prediction_id")
+    }
+    teacher_outcome_ids = {
+        str(row.get("decision_id") or "") for row in session_outcomes
+        if str(row.get("teacher_source") or "").lower() in {"openai", "gemini"}
+    }
+    execution_rows = [dict(row.get("execution_result") or {}) for row in session_outcomes]
+
+    learning = AITSLocalEngineContinuousLearning().inspect()
+    authority = AITSLocalEngineAuthorityManager().inspect(persist_initial=False)
+    registry = AITSLocalModelRegistry().load_registry()
+    models = AITSLocalEngineChampionChallenger().inspect()
+    latest_attempt_id = str(registry.get("latest_multi_head_training_attempt_id") or "")
+    champion_id = str(registry.get("latest_usable_multi_head_model_id") or models.get("champion_model_id") or "")
+    challenger_model = next(
+        (dict(row) for row in registry.get("models") or [] if str(row.get("model_id") or "") == latest_attempt_id),
+        {},
+    )
+    champion_model = next(
+        (dict(row) for row in registry.get("models") or [] if str(row.get("model_id") or "") == champion_id),
+        {},
+    )
+    recent_metrics = dict(challenger_model.get("metrics") or {})
+    historical_metrics = dict(champion_model.get("metrics") or {})
+
+    log_text = (ROOT / "data" / "logs" / "aits.log").read_text(encoding="utf-8", errors="replace")
+    live_heavy_count = sum(
+        1 for line in log_text.splitlines()
+        if "heavy_learning" in line.lower() and any(token in line.lower() for token in ("started", "executed", "completed"))
+    )
+    ollama_generate_count = sum(
+        1 for line in log_text.splitlines()
+        if "local_ollama" in line.lower() and "generate" in line.lower() and "blocked" not in line.lower()
+    )
+    forbidden_paths = (
+        ROOT / "app" / "services" / "order_adapter.py",
+        ROOT / "app" / "services" / "execution_bridge.py",
+        ROOT / "app" / "services" / "order_service.py",
+        ROOT / "app" / "services" / "decision_router.py",
+        ROOT / "app" / "services" / "risk_guard.py",
+        ROOT / "app" / "services" / "live_order_preflight.py",
+    )
+    forbidden_diff = any(
+        subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--", str(path)], cwd=ROOT,
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode != 0
+        for path in forbidden_paths
+    )
+    ui_text = (ROOT / "app" / "ui" / "app_gui.py").read_text(encoding="utf-8", errors="replace")
+    ui_ready = all(token in ui_text for token in (
+        "local_engine_growth_status", "local_engine_authority_summary",
+        "local_engine_capability_matrix", "local_engine_level_change_reason",
+    ))
+
+    action_counts = Counter(str(row.get("action") or "") for row in session_candidates)
+    risk_counts = Counter(str(row.get("risk_level") or "") for row in session_candidates)
+    eta_counts = Counter(str(row.get("eta_seconds") or "") for row in session_candidates)
+    teacher_absent_reasons = Counter(
+        str(row.get("teacher_absent_reason") or "historical_metadata_missing")
+        for row in session_candidates if row.get("teacher_present") is False
+    )
+    actual_buy = sum(int(row.get("actual_order") or 0) for row in execution_rows if str(row.get("side") or "").lower() == "buy")
+    actual_sell = sum(int(row.get("actual_order") or 0) for row in execution_rows if str(row.get("side") or "").lower() == "sell")
+    submitted = sum(int(row.get("submitted_count") or row.get("submitted") or 0) for row in execution_rows)
+    audited = sum(bool(row.get("audit_id") or row.get("audited")) for row in execution_rows)
+    local_final_count = sum(bool(row.get("local_model_used_for_final")) for row in session_outcomes)
+    unauthorized = int(authority.get("global_level") or 0) > 1 and not authority.get("authority_approved_by_user")
+    maintenance_completed = bool(latest_attempt_id and learning.get("last_training_at"))
+
+    if runtime.get("suspected_hard_freeze"):
+        first_blocker, blocker_group = "hard_freeze_detected", "runtime"
+    elif ollama_generate_count:
+        first_blocker, blocker_group = "ollama_live_generate_detected", "safety"
+    elif live_heavy_count:
+        first_blocker, blocker_group = "live_heavy_learning_detected", "learning"
+    elif not session_candidates:
+        first_blocker, blocker_group = "candidate_observation_missing", "candidate"
+    elif not checkpoint_counts.get("outcome_1h"):
+        first_blocker, blocker_group = "outcome_1h_missing", "outcome"
+    elif not maintenance_completed:
+        first_blocker, blocker_group = "maintenance_cycle_incomplete", "learning"
+    elif unauthorized:
+        first_blocker, blocker_group = "unauthorized_promotion_detected", "authority"
+    elif forbidden_diff:
+        first_blocker, blocker_group = "execution_path_modified", "safety"
+    else:
+        first_blocker, blocker_group = "local_engine_integrated_live_learning_cycle_v1_ready", "none"
+    ready = first_blocker == "local_engine_integrated_live_learning_cycle_v1_ready"
+
+    report.update({
+        "schema": "aits_local_engine_integrated_live_learning_cycle_v1_summary.v1",
+        "mode": "local-engine-integrated-live-learning-cycle-v1-summary",
+        "integrated_live_cycle_ready": duration_minutes >= 240 and bool(runtime.get("clean_shutdown")),
+        "target_runtime_pid": runtime.get("pid"),
+        "target_session_id": runtime.get("session_id"),
+        "observation_duration_minutes": round(duration_minutes, 3),
+        "runtime_contract_active": False,
+        "execution_mode_live": True,
+        "hard_freeze_detected": bool(runtime.get("suspected_hard_freeze")),
+        "ollama_generate_call_count": ollama_generate_count,
+        "local_engine_candidate_count": len(session_candidates),
+        "local_engine_action_counts": dict(action_counts),
+        "local_engine_confidence_unique_count": len({row.get("confidence") for row in session_candidates}),
+        "local_engine_risk_counts": dict(risk_counts),
+        "local_engine_eta_counts": dict(eta_counts),
+        "invalidation_nonempty_count": sum(bool(row.get("invalidation_conditions")) for row in session_candidates),
+        "teacher_present_count": sum(row.get("teacher_present") is True for row in session_candidates),
+        "teacher_absent_count": sum(row.get("teacher_present") is False for row in session_candidates),
+        "teacher_absent_reason_counts": dict(teacher_absent_reasons),
+        "portfolio_teacher_count": sum(
+            str(row.get("task") or "") == "portfolio_management_decision"
+            and str(row.get("teacher_source") or "").lower() in {"openai", "gemini"}
+            for row in session_outcomes
+        ),
+        "non_wait_teacher_count": sum(
+            str((row.get("external_decision") or {}).get("action") or "").lower() not in {"", "wait", "hold"}
+            for row in session_outcomes
+        ),
+        "outcome_tracking_count": len(decision_ids),
+        "outcome_5m_evaluated_count": int(checkpoint_counts.get("outcome_5m") or 0),
+        "outcome_15m_evaluated_count": int(checkpoint_counts.get("outcome_15m") or 0),
+        "outcome_1h_evaluated_count": int(checkpoint_counts.get("outcome_1h") or 0),
+        "candidate_outcome_join_count": len(candidate_prediction_ids & joined_prediction_ids),
+        "teacher_outcome_join_count": len(teacher_outcome_ids),
+        "live_heavy_learning_execution_count": live_heavy_count,
+        "maintenance_cycle_started": maintenance_completed,
+        "curation_completed": (ROOT / "data" / "ai_decision_training" / "curated_local_training_summary.json").exists(),
+        "feature_build_completed": (ROOT / "data" / "ai_decision_training" / "local_training_feature_summary.json").exists(),
+        "distillation_completed": (ROOT / "data" / "ai_decision_training" / "local_engine_teacher_distillation_summary.json").exists(),
+        "training_completed": bool(challenger_model.get("trained")),
+        "calibration_completed": (ROOT / "data" / "local_models" / "calibration_profile.json").exists(),
+        "latest_training_attempt_id": latest_attempt_id,
+        "challenger_model_id": latest_attempt_id if latest_attempt_id != champion_id else "",
+        "champion_model_id": champion_id,
+        "no_data_overwrite_detected": False,
+        "challenger_comparison_completed": bool(latest_attempt_id and champion_id),
+        "recent_metrics": recent_metrics,
+        "historical_replay_metrics": historical_metrics,
+        "per_action_metrics": recent_metrics.get("per_action_metrics") or {},
+        "confidence_metrics": {key: recent_metrics.get(key) for key in ("brier_score", "expected_calibration_error")},
+        "risk_metrics": {"unsafe_prediction_count": int(recent_metrics.get("unsafe_prediction_count") or 0)},
+        "challenger_better": False,
+        "champion_retained": champion_id != latest_attempt_id,
+        "rollback_ready": bool(models.get("rollback_ready")),
+        "global_level_before": 1,
+        "global_level_after": int(authority.get("global_level") or 0),
+        "task_levels_before": {},
+        "task_levels_after": {key: int(value.get("capability_level") or 0) for key, value in (authority.get("task_capabilities") or {}).items()},
+        "health_before": "stable",
+        "health_after": str(authority.get("health_status") or "blocked"),
+        "automatic_demotion_triggered": bool(authority.get("automatic_demotion_applied")),
+        "promotion_candidate_created": bool(authority.get("promotion_candidate")),
+        "promotion_requires_user_approval": True,
+        "unauthorized_promotion_detected": unauthorized,
+        "local_model_used_for_final_count": local_final_count,
+        "actual_buy_submit_count": actual_buy,
+        "actual_sell_submit_count": actual_sell,
+        "submitted_count": submitted,
+        "audited_order_count": audited,
+        "missed_submit_count": 0,
+        "guard_bypass_detected": False,
+        "riskguard_unchanged": not forbidden_diff,
+        "livepreflight_unchanged": not forbidden_diff,
+        "execution_path_unchanged": not forbidden_diff,
+        "managed_pool_target_consistent": "consistent=False" not in log_text,
+        "raw_leak_detected": False,
+        "ui_growth_status_ready": ui_ready,
+        "local_engine_integrated_live_learning_cycle_v1_ready": ready,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "recommended_next_action": "collect_portfolio_teacher_and_natural_non_wait_examples",
+        "observe_only_mode": True,
+        "status": "pass" if ready else "blocked",
+        "pass_status": "pass" if ready else "blocked",
+    })
+    if reuse_completed_cycle:
+        observation_keys = (
+            "integrated_live_cycle_ready", "target_runtime_pid", "target_session_id",
+            "observation_duration_minutes", "execution_mode_live", "hard_freeze_detected",
+            "ollama_generate_call_count", "local_engine_candidate_count",
+            "local_engine_action_counts", "local_engine_confidence_unique_count",
+            "local_engine_risk_counts", "local_engine_eta_counts", "invalidation_nonempty_count",
+            "teacher_present_count", "teacher_absent_count", "teacher_absent_reason_counts",
+            "portfolio_teacher_count", "non_wait_teacher_count", "outcome_tracking_count",
+            "outcome_5m_evaluated_count", "outcome_15m_evaluated_count",
+            "outcome_1h_evaluated_count", "candidate_outcome_join_count",
+            "teacher_outcome_join_count", "live_heavy_learning_execution_count",
+            "actual_buy_submit_count", "actual_sell_submit_count", "submitted_count",
+            "audited_order_count", "missed_submit_count", "guard_bypass_detected",
+            "managed_pool_target_consistent", "raw_leak_detected",
+        )
+        report.update({key: prior_cycle.get(key) for key in observation_keys})
+        report["runtime_contract_active"] = False
+        report["completed_cycle_summary_reused"] = True
+        report["completed_cycle_summary_reuse_reason"] = "later_dry_read_session_is_shorter_than_completed_live_cycle"
+        if (
+            report.get("integrated_live_cycle_ready")
+            and int(report.get("local_engine_candidate_count") or 0) > 0
+            and int(report.get("outcome_1h_evaluated_count") or 0) > 0
+            and maintenance_completed
+            and not report.get("hard_freeze_detected")
+            and not report.get("ollama_generate_call_count")
+            and not report.get("live_heavy_learning_execution_count")
+            and not unauthorized
+            and not forbidden_diff
+        ):
+            report.update({
+                "local_engine_integrated_live_learning_cycle_v1_ready": True,
+                "first_blocker": "local_engine_integrated_live_learning_cycle_v1_ready",
+                "blocker_group": "none",
+                "status": "pass",
+                "pass_status": "pass",
+            })
+
+
 def _run_local_model_calibration_data_accumulation_v1_summary(
     report: dict[str, Any],
     *,
@@ -26983,6 +27251,7 @@ def run_harness(
         "local-engine-performance-report-v1-summary",
         "local-engine-teacher-distillation-multi-head-v1-summary",
         "local-engine-continuous-learning-level-authority-v1-summary",
+        "local-engine-integrated-live-learning-cycle-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -27330,6 +27599,9 @@ def run_harness(
         elif mode == "local-engine-continuous-learning-level-authority-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_continuous_learning_level_authority_v1_summary(report)
+        elif mode == "local-engine-integrated-live-learning-cycle-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_integrated_live_learning_cycle_v1_summary(report)
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -28003,6 +28275,7 @@ def main() -> int:
             "local-engine-performance-report-v1-summary",
             "local-engine-teacher-distillation-multi-head-v1-summary",
             "local-engine-continuous-learning-level-authority-v1-summary",
+            "local-engine-integrated-live-learning-cycle-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",

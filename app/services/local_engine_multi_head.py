@@ -441,7 +441,7 @@ class AITSLocalEngineMultiHeadTrainer:
             groups[f"{task}|{action}"].append(cadence)
         return {key: min(ETA_BUCKETS, key=lambda bucket: abs(bucket - median(values))) for key, values in groups.items()}
 
-    def train(self, *, persist: bool = False) -> dict:
+    def train(self, *, persist: bool = False, activate: bool = True) -> dict:
         distilled = self.distillation.build(persist=persist)
         all_records = list(distilled.get("records") or [])
         teacher_records = [row for row in all_records if row.get("teacher_present")]
@@ -617,7 +617,11 @@ class AITSLocalEngineMultiHeadTrainer:
             })
             metadata["artifact_path"] = artifact_path
             metadata["metrics_path"] = str(artifact_dir / "metrics.json")
-            self.registry.record_training_run(metadata, {**metrics, "model_id": attempt_id})
+            self.registry.record_training_run(
+                metadata,
+                {**metrics, "model_id": attempt_id},
+                activate=activate,
+            )
         else:
             metadata["artifact_path"] = artifact_path
 
@@ -628,6 +632,7 @@ class AITSLocalEngineMultiHeadTrainer:
             "model": model,
             "evaluation_records": validation_records or holdout_records,
             "persist_requested": bool(persist),
+            "registry_activation_requested": bool(activate),
             "artifact_path": artifact_path,
             "training_ready": trained,
             "first_blocker": blocker or "multi_head_training_ready",

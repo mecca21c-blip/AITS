@@ -8,7 +8,11 @@ from app.services.local_engine_authority_manager import AITSLocalEngineAuthority
 from app.services.local_engine_champion_challenger import AITSLocalEngineChampionChallenger
 from app.services.local_engine_drift_monitor import AITSLocalEngineDriftMonitor
 from app.services.local_engine_multi_head import AITSLocalEngineMultiHeadTrainer
+from app.services.local_engine_teacher_distillation import AITSLocalEngineTeacherDistillation
+from app.services.local_model_calibration import AITSLocalModelCalibration
+from app.services.local_training_feature_pipeline import AITSLocalTrainingFeaturePipeline
 from app.services.local_training_dataset_curation import atomic_write_json, read_json_dict
+from app.services.local_training_dataset_curation import AITSLocalTrainingDatasetCurator
 
 
 class AITSLocalEngineContinuousLearning:
@@ -57,8 +61,23 @@ class AITSLocalEngineContinuousLearning:
     def run_manual_maintenance(self, *, runtime_active: bool, explicit: bool, persist: bool = False) -> dict[str, Any]:
         if runtime_active or not explicit:
             return {**self.inspect(), "maintenance_started": False, "blocker": "runtime_must_be_off_and_manual_maintenance_explicit"}
-        trained = AITSLocalEngineMultiHeadTrainer().train(persist=persist)
-        comparison = AITSLocalEngineChampionChallenger().inspect()
+        champion_before = AITSLocalEngineChampionChallenger().registry.latest_multi_head_candidate()
+        curated = AITSLocalTrainingDatasetCurator().curate()
+        features = AITSLocalTrainingFeaturePipeline().build()
+        distilled = AITSLocalEngineTeacherDistillation().build(persist=persist)
+        trained = AITSLocalEngineMultiHeadTrainer().train(persist=persist, activate=False)
+        calibrated = AITSLocalModelCalibration().run(persist=persist)
+        comparison_state = AITSLocalEngineChampionChallenger().inspect()
+        challenger = dict(trained.get("metadata") or {})
+        comparison = {
+            **comparison_state,
+            **AITSLocalEngineChampionChallenger.compare(champion_before, challenger),
+            "comparison_completed": bool(trained.get("training_ready")),
+            "champion_retained": True,
+            "champion_model_id": str(champion_before.get("model_id") or ""),
+            "challenger_model_id": str(challenger.get("model_id") or ""),
+        }
+        authority = self.authority.evaluate_and_apply_safety_caps(persist=persist)
         state = self.inspect()
         state.update({
             "status": "evaluating_challenger" if trained.get("training_ready") else "failed",
@@ -69,4 +88,14 @@ class AITSLocalEngineContinuousLearning:
         })
         if persist:
             atomic_write_json(self.path, state)
-        return {**state, "maintenance_started": True, "training": trained, "comparison": comparison}
+        return {
+            **state,
+            "maintenance_started": True,
+            "curation": curated,
+            "feature_build": features,
+            "distillation": distilled.get("summary") or {},
+            "training": trained,
+            "calibration": calibrated,
+            "comparison": comparison,
+            "authority": authority,
+        }

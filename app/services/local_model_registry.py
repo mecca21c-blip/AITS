@@ -191,7 +191,13 @@ class AITSLocalModelRegistry:
             "usable_model_count": len(self.list_usable_models(repaired)),
         }
 
-    def record_training_run(self, metadata: dict, metrics_status: dict) -> dict:
+    def record_training_run(
+        self,
+        metadata: dict,
+        metrics_status: dict,
+        *,
+        activate: bool = True,
+    ) -> dict:
         value = dict(metadata or {})
         value["safe_for_live_decision"] = False
         value["live_decision_enabled"] = False
@@ -205,8 +211,17 @@ class AITSLocalModelRegistry:
         candidate_registry = {
             "registry_schema": self.REGISTRY_SCHEMA,
             "models": models,
+            "latest_model_id": str(registry.get("latest_model_id") or ""),
+            "latest_usable_model_id": str(registry.get("latest_usable_model_id") or ""),
+            "latest_usable_multi_head_model_id": str(
+                registry.get("latest_usable_multi_head_model_id") or ""
+            ),
         }
-        latest_usable = self.resolve_latest_usable_model(candidate_registry)
+        latest_usable = (
+            self.resolve_latest_usable_model({"registry_schema": self.REGISTRY_SCHEMA, "models": models})
+            if activate
+            else self.resolve_latest_usable_model(candidate_registry)
+        )
         registry = {
             **candidate_registry,
             "latest_model_id": str(latest_usable.get("model_id") or ""),
