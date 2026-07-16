@@ -15,9 +15,11 @@ def build_local_engine_user_centered_ui_report(root: Path | str = Path(".")) -> 
     view = dict(snapshot.get("user_view") or {})
     authority = dict(snapshot.get("authority") or {})
     panel_path = root / "app" / "ui" / "local_engine_operations_panel.py"
+    app_gui_path = root / "app" / "ui" / "app_gui.py"
     snapshot_path = root / "app" / "services" / "local_engine_status_snapshot.py"
     view_path = root / "app" / "services" / "local_engine_user_view_model.py"
     panel = panel_path.read_text(encoding="utf-8", errors="replace")
+    app_gui = app_gui_path.read_text(encoding="utf-8", errors="replace")
     snapshot_text = snapshot_path.read_text(encoding="utf-8", errors="replace")
     view_text = view_path.read_text(encoding="utf-8", errors="replace")
     combined = "\n".join((panel, snapshot_text, view_text))
@@ -63,6 +65,24 @@ def build_local_engine_user_centered_ui_report(root: Path | str = Path(".")) -> 
         for value in ("판단 기능", "현재 상태", "LOCAL 역할", "외부 AI", "다음 성장 조건")
     )
     one_primary = panel.count('setObjectName("local_engine_primary_action")') == 1
+    new_model_apply_button_count = panel.count('QPushButton("새 모델 적용")')
+    common_start = app_gui.find('_local_status = QLabel')
+    common_end = app_gui.find('def _sync_engine_choice_panel', common_start)
+    common_settings_slice = app_gui[common_start:common_end] if common_start >= 0 and common_end > common_start else ""
+    shadow_visible_count = sum(
+        common_settings_slice.count(token) for token in ("Shadow", "simulation", "가상거래")
+    )
+    overview_start = panel.find("window.lbl_local_ops_overview.setText(")
+    overview_end = panel.find('if hasattr(window, "btn_engine_local")', overview_start)
+    overview_render = panel[overview_start:overview_end] if overview_start >= 0 and overview_end > overview_start else panel
+    raw_model_default_visible = "current_model_id" in overview_render or "challenger_model_id" in overview_render
+    raw_model_advanced_visible = all(
+        token in panel
+        for token in (
+            "current_model_id", "challenger_model_id",
+            "advanced.addWidget(window.lbl_local_technical_metrics)",
+        )
+    )
     actions_use_services = all(
         token in combined
         for token in (
@@ -79,9 +99,10 @@ def build_local_engine_user_centered_ui_report(root: Path | str = Path(".")) -> 
         (not maintenance_consistent, "maintenance_state_mismatch", "maintenance"),
         (not all(("새 모델 적용" in panel, "Level 승격 승인" in panel, "판단 권한은 변하지 않습니다" in panel)), "challenger_level_promotion_confused", "model"),
         (not maintenance_raw_hidden, "raw_internal_state_leak", "terminology"),
-        (not one_primary, "too_many_primary_actions", "actions"),
+        (shadow_visible_count > 0 or raw_model_default_visible or not raw_model_advanced_visible, "raw_internal_state_leak", "terminology"),
+        (not one_primary or new_model_apply_button_count != 1, "too_many_primary_actions", "actions"),
         ('frm_local_advanced.setVisible(False)' not in panel, "state_files_still_in_default_view", "layout"),
-        (not simple_columns, "task_view_too_technical", "task"),
+        (not simple_columns or "tbl_local_capability.verticalHeader().setVisible(False)" not in panel or "tbl_local_state_files.verticalHeader().setVisible(False)" not in panel, "task_view_too_technical", "task"),
     )
     first_blocker = "local_engine_user_centered_ui_simplification_v1_ready"
     blocker_group = "none"
@@ -107,12 +128,18 @@ def build_local_engine_user_centered_ui_report(root: Path | str = Path(".")) -> 
         "capability_simple_view_ready": simple_columns and len(view.get("simple_tasks") or []) == 11,
         "growth_summary_ready": len(view.get("learning_data_summary") or []) >= 4,
         "recommended_single_primary_action_ready": one_primary and bool(recommended.get("code")),
+        "new_model_apply_button_count": new_model_apply_button_count,
+        "new_model_apply_button_single": new_model_apply_button_count == 1,
         "default_view_technical_density_reduced": "상세 관리 펼치기" in panel and 'frm_local_advanced.setVisible(False)' in panel,
         "champion_user_label_ready": "현재 사용 모델" in panel,
         "challenger_user_label_ready": "새 모델 후보" in view_text and "새 모델 적용" in panel,
         "maintenance_user_label_ready": "모델 갱신" in panel,
         "teacher_sync_user_label_ready": "GPT/Gemini로 최신 시장 다시 학습" in panel,
         "rollback_user_label_ready": "이전 모델로 되돌리기" in panel,
+        "shadow_terminology_visible_count": shadow_visible_count,
+        "ai_connection_diagnostic_label_ready": "AI 연결 진단" in common_settings_slice,
+        "raw_model_id_default_view_visible": raw_model_default_visible,
+        "raw_model_id_advanced_view_visible": raw_model_advanced_visible,
         "raw_authority_state_visible": False,
         "raw_health_state_visible": False,
         "raw_maintenance_state_visible": not maintenance_raw_hidden,
@@ -129,6 +156,9 @@ def build_local_engine_user_centered_ui_report(root: Path | str = Path(".")) -> 
         "next_growth_condition_visible": "다음 성장 조건" in panel,
         "technical_task_details_collapsed": "기술 상세" in panel and 'frm_local_advanced.setVisible(False)' in panel,
         "task_table_scroll_starts_at_top": "tbl_local_capability.scrollToTop()" in panel,
+        "task_table_vertical_header_hidden": "tbl_local_capability.verticalHeader().setVisible(False)" in panel,
+        "file_table_vertical_header_hidden": "tbl_local_state_files.verticalHeader().setVisible(False)" in panel,
+        "detail_tables_start_at_first_row": all(token in panel for token in ("tbl_local_capability.scrollToTop()", "tbl_local_state_files.scrollToTop()")),
         "learning_counts_user_friendly": all(value in combined for value in ("학습 가능한 판단", "결과 확인 완료", "교사 AI 판단")),
         "state_files_moved_to_advanced": "데이터·복구" in panel and 'advanced.addWidget(window.tbl_local_state_files)' in panel,
         "friendly_file_names_ready": "LOCAL 후보 판단 기록" in view_text and "판단 결과 기록" in view_text,

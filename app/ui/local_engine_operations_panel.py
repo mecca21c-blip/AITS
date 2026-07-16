@@ -238,8 +238,6 @@ def _apply_snapshot(window, snapshot: dict) -> None:
     window.lbl_local_recommended_action.setText(
         f"지금 필요한 작업 · {recommended.get('text', '현재 필요한 작업 없음')}"
     )
-    window.btn_local_primary_action.setText(recommended.get("button") or "상태 새로고침")
-    window.btn_local_primary_action.setProperty("localActionCode", recommended.get("code") or "collect_data")
 
     teacher = dict(view.get("teacher_sync_summary") or {})
     window.lbl_local_teacher_sync.setText(
@@ -256,10 +254,12 @@ def _apply_snapshot(window, snapshot: dict) -> None:
 
     metrics = dict(view.get("technical_metrics") or {})
     window.lbl_local_technical_metrics.setText(
-        "기술 성능 지표\n"
+        "모델 성능 자세히\n"
         f"판단 균형: {_metric_delta(metrics, 'macro_f1')}\n"
         f"균형 정확도: {_metric_delta(metrics, 'balanced_accuracy')}\n"
-        f"신뢰도 오차: {_metric_delta(metrics, 'brier_score', lower_is_better=True)}"
+        f"신뢰도 오차: {_metric_delta(metrics, 'brier_score', lower_is_better=True)}\n"
+        f"현재 모델 ID: {view.get('current_model_id') or '확인 필요'}\n"
+        f"새 모델 ID: {view.get('challenger_model_id') or '없음'}"
     )
 
     promotion_visible = bool(view.get("promotion_visible"))
@@ -292,18 +292,6 @@ def _apply_snapshot(window, snapshot: dict) -> None:
     window.lbl_local_history.setText(
         "최근 운영 이력\n" + ("\n".join(lines) if lines else "기록이 없습니다.")
     )
-
-
-def _run_primary_action(window) -> None:
-    code = str(window.btn_local_primary_action.property("localActionCode") or "")
-    if code == "apply_challenger":
-        _operation(window, "champion")
-    elif code == "teacher_sync":
-        _operation(window, "teacher")
-    elif code == "maintenance":
-        _maintenance(window)
-    else:
-        window._refresh_local_engine_operations_async()
 
 
 def _maintenance(window) -> None:
@@ -422,6 +410,7 @@ def build_local_engine_operations_card(window, build_card):
         ["판단 기능", "현재 상태", "LOCAL 역할", "외부 AI", "다음 성장 조건"]
     )
     window.tbl_local_capability.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_local_capability.verticalHeader().setVisible(False)
     window.tbl_local_capability.setHorizontalScrollBarPolicy(
         Qt.ScrollBarPolicy.ScrollBarAlwaysOff
     )
@@ -447,6 +436,7 @@ def build_local_engine_operations_card(window, build_card):
     window.lbl_local_models_status.setWordWrap(True)
     model_layout.addWidget(window.lbl_local_models_status)
     window.btn_local_ops_champion = QPushButton("새 모델 적용")
+    window.btn_local_ops_champion.setObjectName("local_engine_primary_action")
     window.btn_local_ops_champion.clicked.connect(lambda: _operation(window, "champion"))
     model_layout.addWidget(window.btn_local_ops_champion)
     layout.addWidget(window.frm_local_new_model)
@@ -455,13 +445,9 @@ def build_local_engine_operations_card(window, build_card):
     window.lbl_local_recommended_action = QLabel("지금 필요한 작업을 확인하는 중입니다.")
     window.lbl_local_recommended_action.setObjectName("local_engine_single_recommended_action")
     window.lbl_local_recommended_action.setWordWrap(True)
-    window.btn_local_primary_action = QPushButton("상태 새로고침")
-    window.btn_local_primary_action.setObjectName("local_engine_primary_action")
-    window.btn_local_primary_action.clicked.connect(lambda: _run_primary_action(window))
     refresh = QPushButton("상태 새로고침")
     refresh.clicked.connect(window._refresh_local_engine_operations_async)
     action_row.addWidget(window.lbl_local_recommended_action, 1)
-    action_row.addWidget(window.btn_local_primary_action)
     action_row.addWidget(refresh)
     layout.addLayout(action_row)
 
@@ -478,7 +464,7 @@ def build_local_engine_operations_card(window, build_card):
         lambda checked: _toggle_advanced(window, checked)
     )
 
-    window.lbl_local_technical_metrics = QLabel("기술 성능 지표를 불러오는 중입니다.")
+    window.lbl_local_technical_metrics = QLabel("모델 성능을 불러오는 중입니다.")
     window.lbl_local_technical_metrics.setWordWrap(True)
     advanced.addWidget(window.lbl_local_technical_metrics)
 
@@ -503,7 +489,7 @@ def build_local_engine_operations_card(window, build_card):
     maintenance_row.addWidget(window.btn_local_ops_maintenance)
     advanced.addLayout(maintenance_row)
 
-    advanced.addWidget(_section_label("Level·판단 권한 관리"))
+    advanced.addWidget(_section_label("성장 단계·판단 권한"))
     authority_row = QGridLayout()
     controls = (
         ("btn_local_ops_demotion", "한 단계 낮추기", "demote", 0, 0),
@@ -538,6 +524,7 @@ def build_local_engine_operations_card(window, build_card):
         ["데이터 이름", "상태", "마지막 갱신", "기록 수"]
     )
     window.tbl_local_state_files.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_local_state_files.verticalHeader().setVisible(False)
     window.tbl_local_state_files.setMaximumHeight(250)
     state_header = window.tbl_local_state_files.horizontalHeader()
     state_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

@@ -49,3 +49,11 @@ backend 상태와 모델 비교 결과를 snapshot 계층에서 결합해 사용
 - 모든 권한·모델 변경은 service action과 확인 dialog를 통과한다.
 - `strategy.ai_provider`, Authority state, Capability Matrix, 모델 registry는 기존 SSOT를 유지한다.
 - `safe_for_live_decision`, `live_decision_enabled`, `safe_for_live_expansion`은 모두 false로 유지한다.
+
+## Closeout UI 규칙
+
+- 기본 화면의 주요 작업은 새 모델 안내 카드의 `새 모델 적용` 한 개만 사용한다.
+- 기본 화면은 학습 날짜 기반 모델 이름을 표시하고 raw model ID는 `모델 성능 자세히`에서만 제공한다.
+- 공통설정의 주문 없는 provider 응답 점검은 `AI 연결 진단`으로 표시한다.
+- 역할 및 데이터 표의 행 번호는 숨기며 상세 관리 진입 시 첫 행으로 이동한다.
+- Level 관련 사용자 문구는 `Lv1 · 학습자`처럼 한국어 역할을 함께 표시한다.

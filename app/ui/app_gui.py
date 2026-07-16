@@ -27827,7 +27827,7 @@ class MainWindow(QMainWindow):
         try:
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(
-                    f"Shadow 분석 테스트 중 · 주문 없음 · {api_copy}"
+                    f"AI 연결 진단 중 · 주문 없음 · {api_copy}"
                 )
             QApplication.processEvents()
 
@@ -27884,7 +27884,7 @@ class MainWindow(QMainWindow):
                     state_status_text = ""
 
                 status_text = (
-                    f"Shadow 분석 테스트 완료 · 주문 없음 · {api_copy} · "
+                    f"AI 연결 진단 완료 · 주문 없음 · {api_copy} · "
                     f"{next_action_ko}"
                 )
                 if scenario_label:
@@ -27894,7 +27894,7 @@ class MainWindow(QMainWindow):
             else:
                 error_type = str(result.get("error_type") or "parse_failed")
                 status_text = (
-                    f"Shadow 분석 테스트 실패 · 주문 없음 · {api_copy} · {error_type}"
+                    f"AI 연결 진단 실패 · 주문 없음 · {api_copy} · {error_type}"
                 )
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(status_text)
@@ -27947,7 +27947,7 @@ class MainWindow(QMainWindow):
             error_type = type(exc).__name__
             if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                 self.lbl_ai_analysis_dryrun_status.setText(
-                    f"Shadow 분석 테스트 실패 · 주문 없음 · {api_copy} · {error_type}"
+                    f"AI 연결 진단 실패 · 주문 없음 · {api_copy} · {error_type}"
                 )
             try:
                 self._log.warning(
@@ -28129,7 +28129,7 @@ class MainWindow(QMainWindow):
             briefing_raw = str(
                 payload.get("briefing")
                 or result.get("briefing")
-                or f"Shadow 분석 테스트 완료 · 주문 없음 · {provider_label} · {suggestion}/{next_action}"
+                or f"AI 연결 진단 완료 · 주문 없음 · {provider_label} · {suggestion}/{next_action}"
             )
             briefing_sentences = [
                 part.strip()
@@ -47352,7 +47352,7 @@ class MainWindow(QMainWindow):
                     dryrun_selected_key = _normalize_ai_provider_for_status(dryrun_selected)
                     dryrun_normalized_key = _normalize_ai_provider_for_status(dryrun_normalized)
                     if dryrun_selected_key == dryrun_normalized_key:
-                        dryrun_status = "AITS AI 상태: Shadow 분석 테스트 정상 · 주문 없음"
+                        dryrun_status = "AITS AI 상태: AI 연결 진단 정상 · 주문 없음"
                         try:
                             self._log.info(
                                 "[AITS][GUI] ai_engine_status_resolved | provider=%s | parsed_valid=True | status=ok",
@@ -55439,7 +55439,7 @@ class MainWindow(QMainWindow):
         _gemini_settings_lay.addWidget(self.btn_engine_gemini_test)
         _gemini_settings_lay.addWidget(self.lbl_gemini_key_status)
 
-        _local_status = QLabel("LOCAL 엔진: LOCAL 점검중 · API 없음 · Shadow/Preview")
+        _local_status = QLabel("LOCAL 엔진: 상태 확인 중 · API 없음 · 후보 분석")
         self.lbl_basic_runtime_status = _local_status
         _local_status.setStyleSheet("font-size: 13px; font-weight: 800; color: #15803d;")
         self._build_runtime_panel_container()
@@ -55465,16 +55465,16 @@ class MainWindow(QMainWindow):
         _local_settings_lay.addLayout(_local_btn_row)
         _common_right.addWidget(runtime_preview)
 
-        self.btn_ai_analysis_dryrun_test = QPushButton("Shadow 분석 테스트")
+        self.btn_ai_analysis_dryrun_test = QPushButton("AI 연결 진단")
         self.btn_ai_analysis_dryrun_test.setToolTip(
-            "주문 없이 분석 경로만 확인합니다. 선택한 provider에 따라 API 호출이 발생할 수 있습니다."
+            "AI 판단 응답만 확인하며 주문은 발생하지 않습니다. 선택한 AI에 따라 API 호출이 발생할 수 있습니다."
         )
         self.btn_ai_analysis_dryrun_test.setMinimumHeight(32)
         self.btn_ai_analysis_dryrun_test.clicked.connect(
             self._on_ai_analysis_dryrun_test
         )
         self.lbl_ai_analysis_dryrun_status = QLabel(
-            "Shadow 분석 테스트 · 대기 · 주문 없음 · API 없음"
+            "AI 연결 진단 · 대기 · 주문 없음 · API 없음"
         )
         self.lbl_ai_analysis_dryrun_status.setWordWrap(True)
         self.lbl_ai_analysis_dryrun_status.setStyleSheet(
@@ -55525,7 +55525,7 @@ class MainWindow(QMainWindow):
                 if hasattr(self, "lbl_ai_analysis_dryrun_status"):
                     api_copy = "API 없음" if key == "local" else "API 호출 가능"
                     self.lbl_ai_analysis_dryrun_status.setText(
-                        f"Shadow 분석 테스트 · 대기 · 주문 없음 · {api_copy}"
+                        f"AI 연결 진단 · 대기 · 주문 없음 · {api_copy}"
                     )
                 if select_session:
                     self._select_ai_provider_for_session(

@@ -77,6 +77,20 @@ def _local_time(value: object) -> str:
         return "기록 확인 필요"
 
 
+def _model_name(model: dict[str, Any], fallback: str) -> str:
+    text = str(model.get("trained_at") or "").strip()
+    if not text:
+        return fallback
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+        local = parsed.astimezone(ZoneInfo("Asia/Seoul"))
+        return f"{local.month}월 {local.day}일 학습 모델"
+    except (ValueError, TypeError, OSError):
+        return fallback
+
+
 def _task_status(row: dict[str, Any]) -> str:
     health = str(row.get("health") or "")
     blocker = str(row.get("blocker") or "")
@@ -170,14 +184,15 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
 
     return {
         "schema": "aits_local_engine_user_view_model.v1",
-        "headline": f"LOCAL_ENGINE Lv{level} · 학습 중" if level <= 1 else f"LOCAL_ENGINE Lv{level} · {LEVEL_ROLES.get(level, '상태 확인 필요')}",
+        "headline": f"LOCAL_ENGINE Lv{level} · {LEVEL_ROLES.get(level, '상태 확인 필요')}",
         "level_text": f"Lv{level} · {LEVEL_ROLES.get(level, '상태 확인 필요')}",
         "role_text": snapshot.get("authority_name") or "상태 확인 필요",
         "health_summary": f"전체 상태 · {snapshot.get('health_name') or '상태 확인 필요'}",
         "health_detail": f"전체 엔진은 정상이며, {attention}개 판단 기능은 아직 학습 중입니다." if snapshot.get("health_code") == "stable" else "전체 엔진 상태와 기능별 학습 상태를 확인해 주세요.",
         "task_attention_summary": {"total": len(task_rows), "stable": stable_tasks, "attention": attention},
         "final_decision_message": "최종 주문 판단에는 아직 적용되지 않습니다.",
-        "current_model_text": champion.get("model_id") or "현재 모델 확인 필요",
+        "current_model_text": _model_name(champion, "현재 사용 모델"),
+        "current_model_id": champion.get("model_id") or "",
         "last_training_text": _local_time((snapshot.get("learning") or {}).get("last_training_at")),
         "teacher_sync_summary": {
             "title": f"교사 AI · {teacher_name} 연결됨" if provider in {"openai", "gemini"} else "교사 AI · 연결 상태 확인 필요",
@@ -197,7 +212,8 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
         "challenger_better": challenger_better,
         "challenger_title": "더 나은 새 모델이 준비됐습니다." if challenger_better else "새 모델 후보를 평가했습니다.",
         "challenger_detail": "판단 균형과 신뢰도 오차가 개선됐고 위험 예측 악화는 없습니다." if challenger_better else "평가 결과를 기술 성능 지표에서 확인할 수 있습니다.",
-        "challenger_model_text": challenger.get("model_id") or "",
+        "challenger_model_text": _model_name(challenger, "더 나은 새 모델"),
+        "challenger_model_id": challenger.get("model_id") or "",
         "same_level_explanation": "모델만 교체되며 LOCAL_ENGINE Level과 판단 권한은 변하지 않습니다.",
         "promotion_visible": promotion_visible,
         "promotion_explanation": "Level 승격은 LOCAL_ENGINE의 판단 권한을 확대하며 사용자 승인이 필요합니다.",
