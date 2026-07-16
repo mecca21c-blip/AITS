@@ -1,5 +1,10 @@
 # AITS Local Engine Contract v1
 
+> Continuous learning과 Level/Authority 운영 계약은
+> `aits_local_engine_continuous_learning_level_authority_v1.md`를 따른다.
+> 현재 migration authority는 Level 1 candidate-only이며 사용자 승인 없는
+> 자동 승격과 LOCAL final 적용은 금지된다.
+
 ## 1. Purpose
 
 - Define the user-facing meaning and internal boundaries of the AITS LOCAL engine.

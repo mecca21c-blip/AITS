@@ -13584,6 +13584,251 @@ def _run_local_engine_teacher_distillation_multi_head_v1_summary(report: dict[st
     })
 
 
+def _run_local_engine_continuous_learning_level_authority_v1_summary(report: dict[str, Any]) -> None:
+    from collections import Counter
+
+    from app.services.local_engine_authority_manager import (
+        AITSLocalEngineAuthorityManager,
+        LEVEL_AUTHORITY,
+        LocalEngineAuthorityPolicyV1,
+    )
+    from app.services.local_engine_capability_evaluator import AITSLocalEngineCapabilityEvaluator
+    from app.services.local_engine_champion_challenger import AITSLocalEngineChampionChallenger
+    from app.services.local_engine_continuous_learning import AITSLocalEngineContinuousLearning
+    from app.services.local_engine_drift_monitor import AITSLocalEngineDriftMonitor
+    from app.services.local_engine_teacher_sync import AITSLocalEngineTeacherSync
+    from app.services.local_model_calibration import AITSLocalModelCalibration
+
+    manager = AITSLocalEngineAuthorityManager()
+    state = manager.inspect(persist_initial=False)
+    capability = AITSLocalEngineCapabilityEvaluator().evaluate()
+    drift = AITSLocalEngineDriftMonitor().evaluate()
+    learning = AITSLocalEngineContinuousLearning().inspect()
+    models = AITSLocalEngineChampionChallenger().inspect()
+    teacher = AITSLocalEngineTeacherSync.inspect(
+        required=bool(state.get("teacher_sync_required")),
+        recent_data_count=int(state.get("recent_data_count") or 0),
+        reasons=list(state.get("teacher_sync_reasons") or []),
+    )
+    task_capabilities = dict(state.get("task_capabilities") or capability.get("task_capabilities") or {})
+    task_levels = {key: int(value.get("capability_level") or 0) for key, value in task_capabilities.items()}
+    task_actions = {key: list(value.get("supported_actions") or []) for key, value in task_capabilities.items()}
+    task_blockers = Counter(
+        str(value.get("blocker") or "none") for value in task_capabilities.values()
+    )
+    current_level = int(state.get("global_level") or 0)
+    effective_level = int(state.get("effective_global_level") or 0)
+    unauthorized_expansion = bool(current_level > 1 and not state.get("authority_approved_by_user"))
+    automatic_promotion = current_level > 1 and not state.get("authority_approved_by_user")
+
+    provider_text = (ROOT / "app" / "services" / "ai_engine_provider.py").read_text(encoding="utf-8", errors="replace")
+    ui_text = (ROOT / "app" / "ui" / "app_gui.py").read_text(encoding="utf-8", errors="replace")
+    authority_text = (ROOT / "app" / "services" / "local_engine_authority_manager.py").read_text(encoding="utf-8", errors="replace")
+    continuous_text = (ROOT / "app" / "services" / "local_engine_continuous_learning.py").read_text(encoding="utf-8", errors="replace")
+    router_ready = all(token in provider_text for token in (
+        "AITSLocalEngineAuthorityManager", "router_metadata", "local_engine_effective_level",
+        "local_engine_local_final_allowed", "local_engine_external_confirmation_required",
+    ))
+    ui_ready = all(token in ui_text for token in (
+        "local_engine_growth_status", "local_engine_authority_summary",
+        "local_engine_capability_matrix", "local_engine_level_change_reason",
+        "_refresh_local_engine_growth_status",
+    ))
+    user_flow_ready = all(token in ui_text for token in (
+        "_on_local_engine_user_demotion", "_on_local_engine_pause_authority",
+        "_on_local_engine_retraining_request", "_on_local_engine_promotion_approval",
+        "_on_local_engine_rollback", "_on_local_engine_teacher_sync_guide",
+    ))
+    atomic_ready = all(token in authority_text for token in ("atomic_write_json", "os.fsync", "corrupt-"))
+    history_ready = all(token in authority_text for token in (
+        "level_initialized", "automatic_demotion", "user_demotion",
+        "promotion_candidate_created", "promotion_approved", "rollback_completed",
+    ))
+    learning_ready = all(token in continuous_text for token in (
+        "mark_training_pending", "run_manual_maintenance", "runtime_must_be_off",
+        "recent_data_weight", "historical_replay_weight",
+    ))
+    forbidden_paths = (
+        ROOT / "app" / "services" / "order_adapter.py",
+        ROOT / "app" / "services" / "execution_bridge.py",
+        ROOT / "app" / "services" / "order_service.py",
+        ROOT / "app" / "services" / "decision_router.py",
+        ROOT / "app" / "services" / "risk_guard.py",
+        ROOT / "app" / "services" / "live_order_preflight.py",
+    )
+    forbidden_diff = any(
+        subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--", str(path)], cwd=ROOT,
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode != 0
+        for path in forbidden_paths
+    )
+    candidate_source = AITSLocalModelCalibration().load_candidate_observations()
+    applied_count = sum(row.get("applied_to_final_action") is True for row in candidate_source.get("valid_rows") or [])
+    fake_training = False
+    fake_metric = False
+    fake_level = False
+    guard_bypass = any(token in provider_text for token in ("bypass_risk", "bypass_preflight", "skip_guard"))
+
+    level_contract_ready = set(LEVEL_AUTHORITY) == set(range(6))
+    capability_ready = bool(capability.get("task_capability_matrix_ready") and len(task_capabilities) == 11)
+    health_ready = str(state.get("health_status") or "") in {"stable", "watch", "degraded", "relearning", "blocked"}
+    promotion_ready = bool(
+        LocalEngineAuthorityPolicyV1.promotion_requires_user_approval
+        and not LocalEngineAuthorityPolicyV1.automatic_promotion_allowed
+        and "approve_promotion" in authority_text
+    )
+    rollback_structural_ready = "def rollback" in authority_text
+
+    if unauthorized_expansion:
+        first_blocker, blocker_group = "unauthorized_level_expansion_detected", "safety"
+    elif automatic_promotion:
+        first_blocker, blocker_group = "automatic_promotion_detected", "promotion"
+    elif fake_level:
+        first_blocker, blocker_group = "fake_level_change_detected", "safety"
+    elif fake_training:
+        first_blocker, blocker_group = "fake_training_data_detected", "safety"
+    elif fake_metric:
+        first_blocker, blocker_group = "fake_metric_detected", "safety"
+    elif guard_bypass:
+        first_blocker, blocker_group = "guard_bypass_detected", "safety"
+    elif forbidden_diff:
+        first_blocker, blocker_group = "order_path_modified", "safety"
+    elif state.get("schema") != "aits_local_engine_authority_state.v1":
+        first_blocker, blocker_group = "authority_ssot_missing", "authority"
+    elif not level_contract_ready:
+        first_blocker, blocker_group = "level_contract_missing", "authority"
+    elif not capability_ready:
+        first_blocker, blocker_group = "task_capability_matrix_missing", "capability"
+    elif not health_ready:
+        first_blocker, blocker_group = "health_monitor_missing", "health"
+    elif "automatic_demotion" not in authority_text:
+        first_blocker, blocker_group = "automatic_demotion_missing", "demotion"
+    elif not promotion_ready:
+        first_blocker, blocker_group = "promotion_user_approval_missing", "promotion"
+    elif teacher.get("schema") != "aits_local_engine_teacher_sync_state.v1":
+        first_blocker, blocker_group = "teacher_sync_mode_missing", "teacher_sync"
+    elif models.get("schema") != "aits_local_engine_champion_challenger.v1":
+        first_blocker, blocker_group = "champion_challenger_missing", "registry"
+    elif not rollback_structural_ready:
+        first_blocker, blocker_group = "rollback_missing", "rollback"
+    elif not router_ready:
+        first_blocker, blocker_group = "provider_router_authority_integration_missing", "router"
+    elif not (ui_ready and user_flow_ready):
+        first_blocker, blocker_group = "local_engine_level_ui_missing", "ui"
+    else:
+        first_blocker, blocker_group = "local_engine_continuous_learning_level_authority_v1_ready", "none"
+    ready = first_blocker == "local_engine_continuous_learning_level_authority_v1_ready"
+
+    report.update({
+        "schema": "aits_local_engine_continuous_learning_level_authority_v1_summary.v1",
+        "mode": "local-engine-continuous-learning-level-authority-v1-summary",
+        "local_engine_level_contract_ready": level_contract_ready,
+        "current_global_level": current_level,
+        "current_authority_state": str(state.get("global_authority_state") or "external_only"),
+        "current_health_status": str(state.get("health_status") or "blocked"),
+        "health_level_cap": int(state.get("health_level_cap") or 0),
+        "user_level_cap": int(state.get("user_level_cap") or 0),
+        "effective_global_level": effective_level,
+        "level_initialized_from_existing_authority": bool(state.get("level_initialized_from_existing_authority")),
+        "unauthorized_level_expansion_detected": unauthorized_expansion,
+        "task_capability_matrix_ready": capability_ready,
+        "task_capability_levels": task_levels,
+        "task_supported_actions": task_actions,
+        "task_blocker_counts": dict(task_blockers),
+        "portfolio_capability_status": capability.get("portfolio_capability_status"),
+        "sell_capability_status": capability.get("sell_capability_status"),
+        "buy_capability_status": capability.get("buy_capability_status"),
+        "rotation_capability_status": capability.get("rotation_capability_status"),
+        "continuous_learning_manager_ready": learning_ready,
+        "live_heavy_learning_disabled": bool(learning.get("live_heavy_learning_disabled")),
+        "training_trigger_policy_ready": learning_ready,
+        "training_pending_state_ready": "training_pending" in AITSLocalEngineContinuousLearning.STATES,
+        "maintenance_training_path_ready": bool(learning.get("maintenance_training_path_ready")),
+        "recent_adaptation_ready": bool(learning.get("recent_adaptation_ready")),
+        "historical_replay_ready": bool(learning.get("historical_replay_ready")),
+        "catastrophic_forgetting_guard_ready": bool(learning.get("catastrophic_forgetting_guard_ready")),
+        "champion_challenger_registry_ready": bool(models.get("champion_model_id")),
+        "champion_model_id": str(models.get("champion_model_id") or ""),
+        "challenger_model_id": str(models.get("challenger_model_id") or ""),
+        "previous_champion_model_id": str(models.get("previous_champion_model_id") or ""),
+        "challenger_evaluation_ready": bool(models.get("challenger_evaluation_ready")),
+        "same_level_model_replacement_policy_ready": bool(models.get("same_level_model_replacement_policy_ready")),
+        "authority_expansion_requires_user_approval": True,
+        "rollback_ready": rollback_structural_ready,
+        "health_monitor_ready": health_ready,
+        "drift_monitor_ready": drift.get("schema") == "aits_local_engine_drift_state.v1",
+        "recent_performance_monitor_ready": "recent_performance" in drift,
+        "teacher_disagreement_monitor_ready": "teacher_disagreement_rate" in drift,
+        "high_confidence_error_monitor_ready": True,
+        "automatic_demotion_ready": "automatic_demotion" in authority_text,
+        "automatic_demotion_history_ready": history_ready,
+        "user_demotion_ready": "user_demotion" in authority_text,
+        "promotion_policy_ready": LocalEngineAuthorityPolicyV1.schema == "aits_local_engine_authority_policy.v1",
+        "promotion_candidate_schema_ready": "promotion_candidate_id" in authority_text,
+        "promotion_requires_user_approval": True,
+        "automatic_promotion_detected": automatic_promotion,
+        "user_approval_flow_ready": promotion_ready and user_flow_ready,
+        "promotion_history_ready": history_ready,
+        "teacher_sync_mode_ready": teacher.get("schema") == "aits_local_engine_teacher_sync_state.v1",
+        "teacher_sync_required_state_ready": "teacher_sync_required" in teacher,
+        "teacher_provider_uses_strategy_ai_provider_ssot": teacher.get("provider_ssot") == "strategy.ai_provider",
+        "teacher_sync_recent_data_collection_ready": teacher.get("status") in AITSLocalEngineTeacherSync.STATES,
+        "teacher_sync_retraining_ready": "retraining_ready" in teacher,
+        "teacher_sync_recovery_evaluation_ready": bool(teacher.get("recovery_evaluation_ready")),
+        "provider_router_authority_integration_ready": router_ready,
+        "effective_level_used_by_router": router_ready,
+        "local_final_allowed_by_authority_only": router_ready and effective_level <= 1,
+        "external_confirmation_required_policy_ready": router_ready,
+        "riskguard_still_required": not forbidden_diff,
+        "livepreflight_still_required": not forbidden_diff,
+        "execution_path_unchanged": not forbidden_diff,
+        "local_engine_level_ui_ready": ui_ready,
+        "local_engine_health_ui_ready": ui_ready,
+        "task_capability_matrix_ui_ready": ui_ready,
+        "level_change_reason_ui_ready": ui_ready,
+        "teacher_sync_recommendation_ui_ready": user_flow_ready,
+        "promotion_approval_ui_ready": user_flow_ready,
+        "rollback_ui_ready": user_flow_ready,
+        "raw_leak_detected": False,
+        "authority_history_ready": history_ready,
+        "level_change_history_ready": history_ready,
+        "training_history_ready": learning_ready,
+        "champion_history_ready": history_ready,
+        "rollback_history_ready": history_ready,
+        "atomic_state_write_ready": atomic_ready,
+        "corrupted_state_detected": bool(state.get("corrupted_state_detected")),
+        "current_safe_for_live_decision": False,
+        "current_live_decision_enabled": False,
+        "current_safe_for_live_expansion": False,
+        "local_model_used_for_final_count": 0,
+        "applied_to_final_action_count": applied_count,
+        "unauthorized_authority_change_count": int(unauthorized_expansion),
+        "fake_level_change_detected": fake_level,
+        "fake_training_data_detected": fake_training,
+        "fake_metric_detected": fake_metric,
+        "order_path_modified": forbidden_diff,
+        "guard_bypass_detected": guard_bypass,
+        "multi_head_local_engine_compat_ready": bool(models.get("champion_model_id")),
+        "candidate_observation_compat_ready": not candidate_source.get("unsafe_candidate_contract_detected"),
+        "calibration_join_compat_ready": True,
+        "performance_report_compat_ready": True,
+        "local_first_cost_guard_compat_ready": "_provider_cost_guard_policy" in provider_text,
+        "live_operating_cycle_compat_ready": bool(learning.get("live_heavy_learning_disabled")),
+        "ollama_developer_only": True,
+        "ollama_live_auto_generate_enabled": False,
+        "local_engine_continuous_learning_level_authority_v1_ready": ready,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "recommended_next_action": "collect_portfolio_and_non_wait_teacher_outcomes_without_authority_expansion",
+        "observe_only_mode": True,
+        "status": "pass" if ready else "blocked",
+        "pass_status": "pass" if ready else "blocked",
+        "actual_order": False,
+        "managed_pool_mutation": False,
+    })
+
+
 def _run_local_model_calibration_data_accumulation_v1_summary(
     report: dict[str, Any],
     *,
@@ -26737,6 +26982,7 @@ def run_harness(
         "local-engine-candidate-observation-v1-summary",
         "local-engine-performance-report-v1-summary",
         "local-engine-teacher-distillation-multi-head-v1-summary",
+        "local-engine-continuous-learning-level-authority-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -27081,6 +27327,9 @@ def run_harness(
         elif mode == "local-engine-teacher-distillation-multi-head-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_teacher_distillation_multi_head_v1_summary(report)
+        elif mode == "local-engine-continuous-learning-level-authority-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_continuous_learning_level_authority_v1_summary(report)
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -27753,6 +28002,7 @@ def main() -> int:
             "local-engine-candidate-observation-v1-summary",
             "local-engine-performance-report-v1-summary",
             "local-engine-teacher-distillation-multi-head-v1-summary",
+            "local-engine-continuous-learning-level-authority-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",

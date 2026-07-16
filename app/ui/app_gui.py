@@ -53805,6 +53805,38 @@ class MainWindow(QMainWindow):
         )
         self.lbl_basic_ai_subtitle.setWordWrap(True)
         local_layout.addWidget(self.lbl_basic_ai_subtitle)
+        self.gb_local_engine_growth = QGroupBox("LOCAL_ENGINE 성장 현황")
+        self.gb_local_engine_growth.setObjectName("local_engine_growth_status")
+        growth_layout = QVBoxLayout(self.gb_local_engine_growth)
+        self.lbl_local_engine_authority_summary = QLabel("상태를 확인하는 중입니다.")
+        self.lbl_local_engine_authority_summary.setObjectName("local_engine_authority_summary")
+        self.lbl_local_engine_authority_summary.setWordWrap(True)
+        self.lbl_local_engine_capability_matrix = QLabel("")
+        self.lbl_local_engine_capability_matrix.setObjectName("local_engine_capability_matrix")
+        self.lbl_local_engine_capability_matrix.setWordWrap(True)
+        self.lbl_local_engine_level_reason = QLabel("")
+        self.lbl_local_engine_level_reason.setObjectName("local_engine_level_change_reason")
+        self.lbl_local_engine_level_reason.setWordWrap(True)
+        growth_layout.addWidget(self.lbl_local_engine_authority_summary)
+        growth_layout.addWidget(self.lbl_local_engine_capability_matrix)
+        growth_layout.addWidget(self.lbl_local_engine_level_reason)
+        growth_buttons = QHBoxLayout()
+        for attr, text, object_name, handler in (
+            ("btn_local_engine_downgrade", "Level 낮추기", "btn_local_engine_downgrade", self._on_local_engine_user_demotion),
+            ("btn_local_engine_pause", "LOCAL 중지", "btn_local_engine_pause", self._on_local_engine_pause_authority),
+            ("btn_local_engine_teacher_sync", "교사 연결 안내", "btn_local_engine_teacher_sync", self._on_local_engine_teacher_sync_guide),
+            ("btn_local_engine_retrain", "재학습 요청", "btn_local_engine_retrain", self._on_local_engine_retraining_request),
+            ("btn_local_engine_promotion_approve", "승격 승인", "btn_local_engine_promotion_approve", self._on_local_engine_promotion_approval),
+            ("btn_local_engine_rollback", "이전 모델 롤백", "btn_local_engine_rollback", self._on_local_engine_rollback),
+        ):
+            button = QPushButton(text)
+            button.setObjectName(object_name)
+            button.clicked.connect(handler)
+            setattr(self, attr, button)
+            growth_buttons.addWidget(button)
+        growth_layout.addLayout(growth_buttons)
+        local_layout.addWidget(self.gb_local_engine_growth)
+        self._refresh_local_engine_growth_status()
         # 레거시 Local/Ollama 행만 유지 (숨김 처리용, 메인 설정은 아래 그룹박스)
         self._basic_ai_legacy_form = QFormLayout()
         self._basic_ai_legacy_form.setSpacing(4)
@@ -58408,6 +58440,51 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+    def _refresh_local_engine_growth_status(self):
+        try:
+            from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+            snapshot = AITSLocalEngineAuthorityManager().ui_snapshot_ko()
+            self.lbl_local_engine_authority_summary.setText(snapshot.get("summary", ""))
+            self.lbl_local_engine_capability_matrix.setText(snapshot.get("capabilities", ""))
+            self.lbl_local_engine_level_reason.setText(snapshot.get("reason", ""))
+        except Exception as exc:
+            self.lbl_local_engine_authority_summary.setText(f"LOCAL_ENGINE 상태 확인 실패: {type(exc).__name__}")
+
+    def _on_local_engine_user_demotion(self):
+        from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+        AITSLocalEngineAuthorityManager().user_demotion(reason="user_requested_from_ui", persist=True)
+        self._refresh_local_engine_growth_status()
+
+    def _on_local_engine_pause_authority(self):
+        from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+        AITSLocalEngineAuthorityManager().pause_local_authority(persist=True)
+        self._refresh_local_engine_growth_status()
+
+    def _on_local_engine_teacher_sync_guide(self):
+        QMessageBox.information(self, "GPT/Gemini 교사 연결 안내", "기존 AI Provider에서 GPT 또는 Gemini를 선택하세요. 교사 연결은 LOCAL 권한을 자동으로 높이지 않습니다.")
+
+    def _on_local_engine_retraining_request(self):
+        from app.services.local_engine_continuous_learning import AITSLocalEngineContinuousLearning
+        AITSLocalEngineContinuousLearning().mark_training_pending("user_retraining_requested", runtime_active=bool(getattr(self, "_strategy_running", False)), persist=True)
+        QMessageBox.information(self, "재학습 요청", "요청을 기록했습니다. 학습은 앱 OFF 또는 명시적 maintenance에서만 실행됩니다.")
+        self._refresh_local_engine_growth_status()
+
+    def _on_local_engine_promotion_approval(self):
+        from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+        manager = AITSLocalEngineAuthorityManager()
+        candidate = dict(manager.inspect().get("promotion_candidate") or {})
+        if not candidate or candidate.get("blockers"):
+            QMessageBox.information(self, "승격 승인", "승격 가능한 평가 근거가 아직 없습니다. 현재 Level을 유지합니다.")
+            return
+        if QMessageBox.question(self, "승격 승인", "평가된 승격 후보를 승인하시겠습니까?") == QMessageBox.Yes:
+            manager.approve_promotion(approved_by="local_user", persist=True)
+            self._refresh_local_engine_growth_status()
+
+    def _on_local_engine_rollback(self):
+        from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+        if QMessageBox.question(self, "이전 모델 롤백", "이전 Champion으로 되돌리고 LOCAL 권한을 안전 단계로 낮추시겠습니까?") == QMessageBox.Yes:
+            AITSLocalEngineAuthorityManager().rollback(persist=True)
+            self._refresh_local_engine_growth_status()
     def _on_show_local_guide(self):
         """LOCAL AI 사용 안내 모달 표시."""
         try:

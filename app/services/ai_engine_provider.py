@@ -20,6 +20,7 @@ from app.services.local_shadow_predictor import (
     record_local_engine_candidate_observation,
 )
 from app.services.local_model_calibration import load_local_model_calibration_profile
+from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -45,6 +46,22 @@ _LOCAL_EXTERNAL_CONFIRMATION_ACTIONS = {
     "buy", "add", "sell", "reduce", "rotate", "promote", "replace",
     "reduce_and_rotate", "take_profit", "stop_loss",
 }
+
+
+def _local_engine_authority_task_key(task: str, action: str = "") -> str:
+    normalized_task = str(task or "").lower()
+    normalized_action = str(action or "").lower()
+    if normalized_task == "portfolio_management_decision":
+        return "portfolio_management"
+    if normalized_task == "rotation_decision" or normalized_action == "rotate":
+        return "rotation"
+    if normalized_task in {"buy_decision", "managed_pool_promotion_decision"}:
+        return "position_buy_add" if normalized_task == "buy_decision" else "promotion_candidate_selection"
+    if normalized_action in {"sell", "reduce"}:
+        return "position_sell_reduce"
+    if normalized_action in {"take_profit", "stop_loss"}:
+        return "take_profit_stop_loss"
+    return "position_wait_hold"
 
 
 AI_VERIFICATION_ALLOWED_SUGGESTIONS = {
@@ -1705,7 +1722,14 @@ class AIEngineProvider:
         local_action = str(local_decision.get("action") or "wait").lower()
         model_action = str(local_model.get("model_recommended_action") or "").lower()
         model_available = bool(local_model.get("local_model_decision_available"))
-        model_live_allowed = bool(local_model.get("local_model_live_allowed"))
+        authority_metadata = AITSLocalEngineAuthorityManager().router_metadata(
+            task_key=_local_engine_authority_task_key(task, model_action),
+            action=model_action,
+        )
+        model_live_allowed = bool(
+            local_model.get("local_model_live_allowed")
+            and authority_metadata.get("local_final_allowed")
+        )
         model_safe_action = model_action in _LOCAL_SAFE_ACTIONS
         model_confidence = float(local_model.get("model_confidence") or 0.0)
         local_model_agrees_with_local = bool(model_available and model_action == local_action)
@@ -1810,6 +1834,13 @@ class AIEngineProvider:
                 "local_model_prediction_outcome_pending": bool(model_available),
                 "local_model_not_used_reason": "" if final_provider_source == "local_model" else str(local_model.get("local_model_prediction_blocker") or ("external_provider_selected" if external_valid else "existing_local_decision_retained")),
                 "local_model_live_blocker": str(local_model.get("local_model_prediction_blocker") or ""),
+                "local_engine_authority": authority_metadata,
+                "local_engine_global_level": int(authority_metadata.get("global_level") or 0),
+                "local_engine_task_level": int(authority_metadata.get("task_level") or 0),
+                "local_engine_effective_level": int(authority_metadata.get("effective_level") or 0),
+                "local_engine_authority_state": str(authority_metadata.get("authority_state") or "external_only"),
+                "local_engine_local_final_allowed": bool(authority_metadata.get("local_final_allowed")),
+                "local_engine_external_confirmation_required": bool(authority_metadata.get("external_confirmation_required", True)),
                 "validator_applied_to_external_response": bool(external_called),
                 "local_only_order_action_blocked_without_external_confirmation": source_reason == "local_order_action_blocked_without_external_confirmation",
                 "actual_order": False,
