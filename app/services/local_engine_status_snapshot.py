@@ -60,6 +60,10 @@ class AITSLocalEngineStatusSnapshot:
         champion = AITSLocalModelRegistry().latest_multi_head_candidate()
         attempt = AITSLocalModelRegistry().load_latest_training_attempt()
         challenger = attempt if str(attempt.get("model_id") or "") != str(champion.get("model_id") or "") else {}
+        model_comparison = AITSLocalEngineChampionChallenger.compare(champion, challenger) if challenger else {
+            "metrics": {}, "comparison_complete": False, "challenger_better": False,
+            "activation_performed": False, "user_approval_required": True,
+        }
         calibration = read_json_dict(self.models_root / "latest_calibration_summary.json", {})
         curated = read_json_dict(self.training_root / "curated_local_training_summary.json", {})
         features = read_json_dict(self.training_root / "local_training_feature_summary.json", {})
@@ -113,14 +117,15 @@ class AITSLocalEngineStatusSnapshot:
         level = int(authority.get("effective_global_level") or 0)
         health = str(authority.get("health_status") or "")
         authority_code = str(authority.get("global_authority_state") or "")
-        return {
+        snapshot = {
             "schema": self.SCHEMA, "generated_at": datetime.now(timezone.utc).isoformat(),
             "authority": authority, "learning": learning, "models": models,
             "global_level": int(authority.get("global_level") or 0), "effective_level": level,
             "level_name": LEVEL_NAMES.get(level, "상태 확인 필요"),
             "authority_code": authority_code, "authority_name": AUTHORITY_NAMES.get(authority_code, "상태 확인 필요"),
             "health_code": health, "health_name": HEALTH_NAMES.get(health, "상태 확인 필요"),
-            "champion": champion, "challenger": challenger, "task_rows": task_rows,
+            "champion": champion, "challenger": challenger, "model_comparison": model_comparison,
+            "task_rows": task_rows,
             "data_counts": counts, "state_files": [
                 self._metadata(spec[0], record_count=spec[1], source=spec[2])
                 for spec in file_specs
@@ -131,6 +136,9 @@ class AITSLocalEngineStatusSnapshot:
             "rollback_available": bool(authority.get("rollback_available")),
             "raw_jsonl_scanned": False, "low_resource_mode_integrated": True,
         }
+        from app.services.local_engine_user_view_model import build_local_engine_user_view_model
+        snapshot["user_view"] = build_local_engine_user_view_model(snapshot)
+        return snapshot
 
     @staticmethod
     def recent_history(path: Path | str = Path("data") / "local_engine" / "local_engine_authority_history.jsonl", limit: int = 20) -> list[dict[str, Any]]:
