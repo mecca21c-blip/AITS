@@ -13057,11 +13057,44 @@ def _run_local_model_live_outcome_calibration_v1_summary(
     )
 
     calibration = AITSLocalModelCalibration()
-    if not calibration.profile_path.exists() or not calibration.summary_path.exists() or not calibration.history_path.exists():
-        calibration.run()
+    profile_files_present = bool(
+        calibration.profile_path.exists()
+        and calibration.summary_path.exists()
+        and calibration.history_path.exists()
+    )
     profile = calibration._read_json(calibration.profile_path)
-    summary = calibration._read_json(calibration.summary_path)
+    persisted_summary = calibration._read_json(calibration.summary_path)
+    ephemeral_source = calibration.load_sources()
+    ephemeral_analysis = calibration.analyze(ephemeral_source)
+    summary = {
+        **persisted_summary,
+        **{
+            key: value for key, value in ephemeral_source.items()
+            if key not in {"rows_by_source", "records", "excluded"}
+        },
+        **ephemeral_analysis,
+    }
     loaded_profile = load_local_model_calibration_profile()
+    persisted_created_at = float(persisted_summary.get("created_at") or 0.0)
+    newest_source_mtime = max(
+        [
+            path.stat().st_mtime
+            for path in (*calibration.source_paths.values(), calibration.candidate_path)
+            if path.exists()
+        ]
+        or [0.0]
+    )
+    stale_calibration_profile_reused = bool(
+        profile_files_present
+        and (
+            newest_source_mtime > persisted_created_at
+            or int(persisted_summary.get("calibration_source_records_count") or 0)
+            != int(ephemeral_source.get("calibration_source_records_count") or 0)
+            or int(persisted_summary.get("candidate_join_matched_count") or 0)
+            != int(ephemeral_source.get("candidate_join_matched_count") or 0)
+        )
+    )
+    calibration_recomputed_for_summary = True
 
     source_paths = (
         ROOT / "app" / "services" / "local_model_calibration.py",
@@ -13109,10 +13142,12 @@ def _run_local_model_live_outcome_calibration_v1_summary(
     checklist = {
         "source": {
             "local_model_calibration_source_loader_ready": source_ready("def load_sources", "calibration_source_records_count"),
+            "candidate_observation_source_loaded": bool(summary.get("candidate_observation_source_loaded")),
             "no_data_calibration_state_ready": no_data_ready or int(summary.get("calibration_usable_records_count") or 0) > 0,
         },
         "matching": {
             "prediction_outcome_matcher_ready": bool(summary.get("prediction_outcome_matcher_ready")) and source_ready("model_prediction_matched_to_outcome"),
+            "candidate_loader_exact_join_ready": str(summary.get("first_blocker") or "") == "calibration_loader_candidate_join_ready",
         },
         "confidence": {
             "confidence_calibration_ready": bool(confidence.get("confidence_calibration_ready")),
@@ -13166,13 +13201,16 @@ def _run_local_model_live_outcome_calibration_v1_summary(
         },
     }
     blocker_group = "none"
-    first_blocker = "local_model_live_outcome_calibration_v1_ready"
-    for group, checks in checklist.items():
-        missing = [name for name, ready in checks.items() if not ready]
-        if missing:
-            blocker_group = group
-            first_blocker = missing[0]
-            break
+    first_blocker = str(summary.get("first_blocker") or "calibration_loader_candidate_join_ready")
+    if first_blocker != "calibration_loader_candidate_join_ready":
+        blocker_group = "candidate_join"
+    else:
+        for group, checks in checklist.items():
+            missing = [name for name, ready in checks.items() if not ready]
+            if missing:
+                blocker_group = group
+                first_blocker = missing[0]
+                break
     ready = blocker_group == "none"
     report.update({
         "schema": "aits_local_model_live_outcome_calibration_v1_summary_v1",
@@ -13183,6 +13221,26 @@ def _run_local_model_live_outcome_calibration_v1_summary(
         "outcome_matched_records_count": int(summary.get("outcome_matched_records_count") or 0),
         "calibration_usable_records_count": int(summary.get("calibration_usable_records_count") or 0),
         "calibration_excluded_records_count": int(summary.get("calibration_excluded_records_count") or 0),
+        "candidate_observation_records_count": int(summary.get("candidate_observation_records_count") or 0),
+        "candidate_observation_valid_count": int(summary.get("candidate_observation_valid_count") or 0),
+        "candidate_observation_corrupt_count": int(summary.get("candidate_observation_corrupt_count") or 0),
+        "candidate_prediction_id_index_count": int(summary.get("candidate_prediction_id_index_count") or 0),
+        "candidate_linkage_key_index_count": int(summary.get("candidate_linkage_key_index_count") or 0),
+        "outcome_records_with_prediction_id": int(summary.get("outcome_records_with_prediction_id") or 0),
+        "outcome_records_with_linkage_key": int(summary.get("outcome_records_with_linkage_key") or 0),
+        "candidate_join_matched_count": int(summary.get("candidate_join_matched_count") or 0),
+        "candidate_join_missing_count": int(summary.get("candidate_join_missing_count") or 0),
+        "candidate_join_invalid_count": int(summary.get("candidate_join_invalid_count") or 0),
+        "candidate_join_method_counts": dict(summary.get("candidate_join_method_counts") or {}),
+        "local_model_prediction_records_before_join": int(summary.get("local_model_prediction_records_before_join") or 0),
+        "local_model_prediction_records_after_join": int(summary.get("local_model_prediction_records_after_join") or 0),
+        "outcome_matched_before_join": int(summary.get("outcome_matched_before_join") or 0),
+        "outcome_matched_after_join": int(summary.get("outcome_matched_after_join") or 0),
+        "calibration_usable_after_join": int(summary.get("calibration_usable_after_join") or 0),
+        "missing_local_model_prediction_after_join": int(summary.get("missing_local_model_prediction_after_join") or 0),
+        "missing_local_model_confidence_after_join": int(summary.get("missing_local_model_confidence_after_join") or 0),
+        "stale_calibration_profile_reused": stale_calibration_profile_reused,
+        "calibration_recomputed_for_summary": calibration_recomputed_for_summary,
         "no_data_calibration_ready": no_data_ready,
         "calibration_data_insufficient": bool(summary.get("calibration_data_insufficient")),
         "model_prediction_matched_to_outcome_count": int(summary.get("model_prediction_matched_to_outcome_count") or 0),

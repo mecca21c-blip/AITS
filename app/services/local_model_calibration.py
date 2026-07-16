@@ -30,9 +30,13 @@ class AITSLocalModelCalibration:
         self,
         training_root: Path | str = Path("data") / "ai_decision_training",
         model_root: Path | str = Path("data") / "local_models",
+        candidate_path: Path | str | None = None,
     ) -> None:
         self.training_root = Path(training_root)
         self.model_root = Path(model_root)
+        self.candidate_path = Path(candidate_path) if candidate_path is not None else (
+            self.training_root.parent / "local_engine" / "local_engine_candidate_observations.jsonl"
+        )
         self.source_paths = {
             "outcomes": self.training_root / "outcome_records.jsonl",
             "providers": self.training_root / "provider_comparison_outcomes.jsonl",
@@ -125,6 +129,151 @@ class AITSLocalModelCalibration:
         )
         return any(value is True for value in flags)
 
+    @staticmethod
+    def _candidate_contract_errors(row: dict) -> list[str]:
+        errors: list[str] = []
+        if row.get("candidate_only") is not True:
+            errors.append("candidate_only_not_true")
+        if row.get("applied_to_final_action") is not False:
+            errors.append("applied_to_final_action_not_false")
+        if row.get("safe_for_live_decision") is not False:
+            errors.append("safe_for_live_decision_not_false")
+        if row.get("live_decision_enabled") is not False:
+            errors.append("live_decision_enabled_not_false")
+        if row.get("fake_prediction") is not False:
+            errors.append("fake_prediction_not_false")
+        if not str(row.get("action") or "").strip():
+            errors.append("missing_action")
+        if AITSLocalModelCalibration._number(row.get("confidence")) is None:
+            errors.append("missing_confidence")
+        if not str(row.get("prediction_id") or "") and not str(row.get("outcome_linkage_key") or ""):
+            errors.append("missing_join_key")
+        return errors
+
+    def load_candidate_observations(self) -> dict:
+        rows, read_metrics = read_recoverable_jsonl(self.candidate_path)
+        raw_payload = self.candidate_path.read_bytes() if self.candidate_path.exists() else b""
+        valid_rows: list[dict] = []
+        invalid_rows: list[dict] = []
+        prediction_index: dict[str, dict] = {}
+        linkage_index: dict[str, dict] = {}
+        invalid_prediction_ids: set[str] = set()
+        invalid_linkage_keys: set[str] = set()
+        duplicate_prediction_ids = 0
+        duplicate_linkage_keys = 0
+
+        for row in rows:
+            candidate = dict(row)
+            errors = self._candidate_contract_errors(candidate)
+            if errors:
+                candidate["candidate_contract_errors"] = errors
+                invalid_rows.append(candidate)
+                prediction_id = str(candidate.get("prediction_id") or "")
+                linkage_key = str(candidate.get("outcome_linkage_key") or "")
+                if prediction_id:
+                    invalid_prediction_ids.add(prediction_id)
+                if linkage_key:
+                    invalid_linkage_keys.add(linkage_key)
+                continue
+            valid_rows.append(candidate)
+
+        def newest(existing: dict | None, candidate: dict) -> dict:
+            if not existing:
+                return candidate
+            existing_key = (str(existing.get("created_at") or ""), self._stable_hash(existing))
+            candidate_key = (str(candidate.get("created_at") or ""), self._stable_hash(candidate))
+            return candidate if candidate_key >= existing_key else existing
+
+        for candidate in valid_rows:
+            prediction_id = str(candidate.get("prediction_id") or "")
+            linkage_key = str(candidate.get("outcome_linkage_key") or "")
+            if prediction_id:
+                if prediction_id in prediction_index:
+                    duplicate_prediction_ids += 1
+                prediction_index[prediction_id] = newest(prediction_index.get(prediction_id), candidate)
+            if linkage_key:
+                if linkage_key in linkage_index:
+                    duplicate_linkage_keys += 1
+                linkage_index[linkage_key] = newest(linkage_index.get(linkage_key), candidate)
+
+        return {
+            "candidate_observation_source_loaded": self.candidate_path.exists(),
+            "candidate_observation_records_count": len(rows),
+            "candidate_observation_valid_count": len(valid_rows),
+            "candidate_observation_invalid_count": len(invalid_rows),
+            "candidate_observation_corrupt_count": int(read_metrics.get("corrupted_lines") or 0)
+            + int(read_metrics.get("nul_lines_recovered") or 0),
+            "candidate_observation_nul_recovered_count": int(read_metrics.get("nul_lines_recovered") or 0),
+            "candidate_observation_partial_line_count": int(bool(raw_payload) and not raw_payload.endswith(b"\n")),
+            "candidate_prediction_id_index_count": len(prediction_index),
+            "candidate_linkage_key_index_count": len(linkage_index),
+            "candidate_duplicate_prediction_id_count": duplicate_prediction_ids,
+            "candidate_duplicate_linkage_key_count": duplicate_linkage_keys,
+            "fake_prediction_detected": any(row.get("fake_prediction") is not False for row in rows),
+            "unsafe_candidate_contract_detected": bool(invalid_rows),
+            "prediction_index": prediction_index,
+            "linkage_index": linkage_index,
+            "invalid_prediction_ids": invalid_prediction_ids,
+            "invalid_linkage_keys": invalid_linkage_keys,
+            "valid_rows": valid_rows,
+            "invalid_rows": invalid_rows,
+        }
+
+    @staticmethod
+    def _join_candidate_to_outcome(outcome: dict, candidate_source: dict) -> tuple[dict, str, str]:
+        row = dict(outcome)
+        prediction_index = candidate_source["prediction_index"]
+        linkage_index = candidate_source["linkage_index"]
+        prediction_id = str(row.get("local_engine_prediction_id") or "")
+        linkage_key = str(row.get("local_engine_outcome_linkage_key") or "")
+        observation_ids = row.get("local_engine_candidate_observation_ids") or []
+        if not isinstance(observation_ids, list):
+            observation_ids = [observation_ids]
+
+        candidate: dict | None = None
+        method = ""
+        if prediction_id and prediction_id in prediction_index:
+            candidate = prediction_index[prediction_id]
+            method = "prediction_id"
+        elif linkage_key and linkage_key in linkage_index:
+            candidate = linkage_index[linkage_key]
+            method = "outcome_linkage_key"
+        else:
+            for observation_id in observation_ids:
+                exact_id = str(observation_id or "")
+                if exact_id and exact_id in prediction_index:
+                    candidate = prediction_index[exact_id]
+                    method = "observation_id"
+                    break
+
+        has_linkage = bool(prediction_id or linkage_key or any(str(value or "") for value in observation_ids))
+        invalid_match = bool(
+            (prediction_id and prediction_id in candidate_source["invalid_prediction_ids"])
+            or (linkage_key and linkage_key in candidate_source["invalid_linkage_keys"])
+        )
+        if candidate is None:
+            status = "invalid_candidate" if invalid_match else ("missing" if has_linkage else "not_applicable")
+            row["local_engine_candidate_join_status"] = status
+            row["local_engine_candidate_join_method"] = ""
+            return row, status, ""
+
+        action = str(candidate.get("action") or "").lower()
+        row.update({
+            "local_model_prediction": action,
+            "local_model_action": action,
+            "local_model_confidence": candidate.get("confidence"),
+            "local_model_risk": str(candidate.get("risk_level") or ""),
+            "local_model_risk_level": str(candidate.get("risk_level") or ""),
+            "local_model_eta_seconds": candidate.get("eta_seconds"),
+            "local_model_evidence": list(candidate.get("evidence") or []),
+            "local_model_blockers": list(candidate.get("blockers") or []),
+            "local_engine_prediction_id": str(candidate.get("prediction_id") or prediction_id),
+            "local_engine_outcome_linkage_key": str(candidate.get("outcome_linkage_key") or linkage_key),
+            "local_engine_candidate_join_status": "matched",
+            "local_engine_candidate_join_method": method,
+        })
+        return row, "matched", method
+
     def load_sources(self) -> dict:
         rows_by_source: dict[str, list[dict]] = {}
         corrupted = 0
@@ -134,6 +283,32 @@ class AITSLocalModelCalibration:
             rows_by_source[name] = rows
             source_count += len(rows)
             corrupted += bad
+
+        candidate_source = self.load_candidate_observations()
+        original_outcomes = rows_by_source["outcomes"]
+        prediction_before_join = sum(bool(row.get("local_model_prediction") or row.get("local_model_action")) for row in original_outcomes)
+        outcome_matched_before_join = sum(bool(
+            (row.get("local_model_prediction") or row.get("local_model_action"))
+            and row.get("outcome_label")
+            and self._number(row.get("outcome_score")) is not None
+        ) for row in original_outcomes)
+        join_methods: Counter[str] = Counter()
+        join_statuses: Counter[str] = Counter()
+        joined_outcomes: list[dict] = []
+        for outcome in original_outcomes:
+            joined, status, method = self._join_candidate_to_outcome(outcome, candidate_source)
+            joined_outcomes.append(joined)
+            if status != "not_applicable":
+                join_statuses[status] += 1
+            if method:
+                join_methods[method] += 1
+        rows_by_source["outcomes"] = joined_outcomes
+        prediction_after_join = sum(bool(row.get("local_model_prediction") or row.get("local_model_action")) for row in joined_outcomes)
+        outcome_matched_after_join = sum(bool(
+            (row.get("local_model_prediction") or row.get("local_model_action"))
+            and row.get("outcome_label")
+            and self._number(row.get("outcome_score")) is not None
+        ) for row in joined_outcomes)
 
         merged: dict[str, dict] = {}
         duplicate_ids: set[str] = set()
@@ -272,6 +447,38 @@ class AITSLocalModelCalibration:
                 "action_group": self._action_group(model_prediction, task),
             })
             matched.append(record)
+        missing_prediction_after_join = sum(
+            "missing_local_model_prediction" in row.get("exclusion_reasons", []) for row in excluded
+        )
+        missing_confidence_after_join = sum(
+            "missing_local_model_confidence" in row.get("exclusion_reasons", []) for row in excluded
+        )
+        if candidate_source["fake_prediction_detected"]:
+            first_blocker = "fake_prediction_detected"
+        elif candidate_source["unsafe_candidate_contract_detected"]:
+            first_blocker = "unsafe_candidate_contract_detected"
+        elif not candidate_source["candidate_observation_source_loaded"]:
+            first_blocker = "candidate_observation_source_missing"
+        elif candidate_source["candidate_observation_corrupt_count"]:
+            first_blocker = "candidate_observation_parse_failed"
+        elif not candidate_source["candidate_observation_valid_count"]:
+            first_blocker = "candidate_observation_no_valid_records"
+        elif not any(
+            row.get("local_engine_prediction_id")
+            or row.get("local_engine_outcome_linkage_key")
+            or row.get("local_engine_candidate_observation_ids")
+            for row in original_outcomes
+        ):
+            first_blocker = "outcome_linkage_fields_missing"
+        elif not join_statuses["matched"]:
+            first_blocker = "candidate_join_no_matches"
+        elif not prediction_after_join:
+            first_blocker = "local_model_prediction_still_zero_after_join"
+        elif not matched:
+            first_blocker = "calibration_usable_zero_after_join"
+        else:
+            first_blocker = "calibration_loader_candidate_join_ready"
+
         return {
             "rows_by_source": rows_by_source,
             "records": matched,
@@ -285,6 +492,27 @@ class AITSLocalModelCalibration:
             "calibration_data_insufficient": len(matched) < self.MIN_CALIBRATION_RECORDS,
             "corrupted_source_records_count": corrupted,
             "duplicate_decision_ids_count": len(duplicate_ids),
+            **{
+                key: value for key, value in candidate_source.items()
+                if key not in {
+                    "prediction_index", "linkage_index", "invalid_prediction_ids",
+                    "invalid_linkage_keys", "valid_rows", "invalid_rows",
+                }
+            },
+            "outcome_records_with_prediction_id": sum(bool(row.get("local_engine_prediction_id")) for row in original_outcomes),
+            "outcome_records_with_linkage_key": sum(bool(row.get("local_engine_outcome_linkage_key")) for row in original_outcomes),
+            "candidate_join_matched_count": int(join_statuses["matched"]),
+            "candidate_join_missing_count": int(join_statuses["missing"]),
+            "candidate_join_invalid_count": int(join_statuses["invalid_candidate"]),
+            "candidate_join_method_counts": dict(join_methods),
+            "local_model_prediction_records_before_join": prediction_before_join,
+            "local_model_prediction_records_after_join": prediction_after_join,
+            "outcome_matched_before_join": outcome_matched_before_join,
+            "outcome_matched_after_join": outcome_matched_after_join,
+            "calibration_usable_after_join": len(matched),
+            "missing_local_model_prediction_after_join": missing_prediction_after_join,
+            "missing_local_model_confidence_after_join": missing_confidence_after_join,
+            "first_blocker": first_blocker,
         }
 
     def _confidence_calibration(self, records: list[dict]) -> dict:
