@@ -36,6 +36,8 @@ class AITSLocalModelRegistry:
                 "latest_model_id": "",
                 "latest_usable_model_id": "",
                 "latest_training_attempt_id": "",
+                "latest_usable_multi_head_model_id": "",
+                "latest_multi_head_training_attempt_id": "",
                 "latest_training_status": "",
                 "models": [],
             },
@@ -95,6 +97,9 @@ class AITSLocalModelRegistry:
             return False
         if entry.get("safe_for_live_decision") is not False or entry.get("live_decision_enabled") is not False:
             return False
+        if str(entry.get("engine_schema") or "").startswith("aits_local_engine_multi_head"):
+            if entry.get("safe_for_live_expansion") is not False:
+                return False
         artifact_path = self._artifact_directory(entry)
         return bool(
             artifact_path
@@ -128,6 +133,17 @@ class AITSLocalModelRegistry:
         pointed = next((item for item in usable if str(item.get("model_id") or "") == pointer_id), None)
         return dict(pointed or usable[-1])
 
+    def latest_multi_head_candidate(self) -> dict:
+        registry = self.load_registry()
+        usable = [
+            item for item in self.list_usable_models(registry)
+            if str(item.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+        ]
+        if not usable:
+            return {}
+        pointer = str(registry.get("latest_usable_multi_head_model_id") or "")
+        return dict(next((item for item in usable if str(item.get("model_id") or "") == pointer), usable[-1]))
+
     def repair_latest_pointers(self) -> dict:
         registry = self.load_registry()
         models = [dict(item) for item in registry.get("models") or [] if isinstance(item, dict)]
@@ -143,6 +159,21 @@ class AITSLocalModelRegistry:
             "latest_usable_model_id": str(latest_usable.get("model_id") or ""),
             "latest_training_attempt_id": str(latest_attempt.get("model_id") or ""),
             "latest_training_status": str(latest_attempt.get("training_status") or ""),
+            "latest_usable_multi_head_model_id": str(
+                max(
+                    (
+                        item for item in self.list_usable_models({**registry, "models": models})
+                        if str(item.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+                    ),
+                    key=lambda item: (float(item.get("created_at") or 0.0), str(item.get("model_id") or "")),
+                    default={},
+                ).get("model_id") or ""
+            ),
+            "latest_multi_head_training_attempt_id": str(
+                latest_attempt.get("model_id") or ""
+            ) if str(latest_attempt.get("engine_schema") or "").startswith("aits_local_engine_multi_head") else str(
+                registry.get("latest_multi_head_training_attempt_id") or ""
+            ),
             "models": models,
         }
         self._write_json_atomic(self.registry_path, repaired)
@@ -164,6 +195,7 @@ class AITSLocalModelRegistry:
         value = dict(metadata or {})
         value["safe_for_live_decision"] = False
         value["live_decision_enabled"] = False
+        value["safe_for_live_expansion"] = False
         registry = self.load_registry()
         models = [item for item in registry.get("models") or [] if isinstance(item, dict)]
         model_id = str(value.get("model_id") or "")
@@ -181,6 +213,14 @@ class AITSLocalModelRegistry:
             "latest_usable_model_id": str(latest_usable.get("model_id") or ""),
             "latest_training_attempt_id": model_id,
             "latest_training_status": str(value.get("training_status") or ""),
+            "latest_usable_multi_head_model_id": str(
+                latest_usable.get("model_id") or ""
+            ) if str(latest_usable.get("engine_schema") or "").startswith("aits_local_engine_multi_head") else str(
+                registry.get("latest_usable_multi_head_model_id") or ""
+            ),
+            "latest_multi_head_training_attempt_id": model_id
+            if str(value.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+            else str(registry.get("latest_multi_head_training_attempt_id") or ""),
         }
         self._write_json_atomic(self.registry_path, registry)
         self._write_json_atomic(

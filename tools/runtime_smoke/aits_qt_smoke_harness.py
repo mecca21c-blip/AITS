@@ -13351,6 +13351,239 @@ def _run_local_engine_performance_report_v1_summary(report: dict[str, Any]) -> N
     })
 
 
+def _run_local_engine_teacher_distillation_multi_head_v1_summary(report: dict[str, Any]) -> None:
+    from collections import Counter
+
+    from app.services.local_engine_multi_head import AITSLocalEngineMultiHeadTrainer
+    from app.services.local_model_calibration import AITSLocalModelCalibration
+
+    trainer = AITSLocalEngineMultiHeadTrainer()
+    trained = trainer.train(persist=False)
+    dataset = dict(trained.get("dataset") or {})
+    metadata = dict(trained.get("metadata") or {})
+    metrics = dict(trained.get("metrics") or {})
+    registry = trainer.registry.load_registry()
+    latest_multi_head = trainer.registry.latest_multi_head_candidate()
+    calibration = AITSLocalModelCalibration().load_sources()
+    candidate_source = AITSLocalModelCalibration().load_candidate_observations()
+
+    predicted_counts = dict(metrics.get("predicted_action_counts") or {})
+    predicted_total = sum(int(value or 0) for value in predicted_counts.values())
+    predicted_wait = int(predicted_counts.get("wait") or 0)
+    confidence_values = [float(value) for value in metrics.get("confidence_values") or []]
+    confidence_counts = Counter(confidence_values)
+    confidence_fixed = bool(
+        confidence_values
+        and (
+            len(confidence_counts) <= 2
+            or max(confidence_counts.values()) / len(confidence_values) >= 0.95
+        )
+    )
+    risk_distribution = dict(metrics.get("risk_distribution") or {})
+    eta_values = [int(value) for value in metrics.get("eta_values") or []]
+    eta_distribution = dict(metrics.get("eta_distribution") or {})
+    eta_fixed = bool(eta_values and len(set(eta_values)) <= 1)
+
+    outcome_rows = list(calibration.get("rows_by_source", {}).get("outcomes", []))
+    portfolio_rows = [row for row in outcome_rows if str(row.get("task") or "") == "portfolio_management_decision"]
+    portfolio_decisions = {
+        str(row.get("decision_id") or "") for row in portfolio_rows if str(row.get("decision_id") or "")
+    }
+    portfolio_blockers = Counter(
+        str(row.get("local_engine_candidate_observation_blocker") or row.get("local_engine_observation_blocker") or "historical_candidate_unavailable")
+        for row in portfolio_rows
+    )
+    portfolio_teacher_count = int(dataset.get("portfolio_teacher_record_count") or 0)
+    portfolio_head_ready = bool(portfolio_teacher_count >= 5 and "portfolio_management_decision" in metadata.get("supported_tasks", []))
+
+    forbidden_paths = (
+        ROOT / "app" / "services" / "order_adapter.py",
+        ROOT / "app" / "services" / "execution_bridge.py",
+        ROOT / "app" / "services" / "order_service.py",
+        ROOT / "app" / "services" / "decision_router.py",
+        ROOT / "app" / "services" / "risk_guard.py",
+        ROOT / "app" / "services" / "live_order_preflight.py",
+    )
+    forbidden_diff = any(
+        subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--", str(path)],
+            cwd=ROOT,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode != 0
+        for path in forbidden_paths
+    )
+    class_labels = dict(dataset.get("supported_action_label_counts") or {})
+    supported_actions = list(metadata.get("supported_actions") or [])
+    action_head_ready = bool(trained.get("training_ready") and len(supported_actions) >= 2)
+    confidence_head_ready = bool(confidence_values and not confidence_fixed)
+    risk_head_ready = bool(len(risk_distribution) >= 2)
+    escalation_head_ready = "escalation_required_count" in metrics
+    eta_head_ready = bool(eta_values and not eta_fixed)
+    invalidation_head_ready = int(metrics.get("invalidation_nonempty_count") or 0) > 0
+    reason_composer_ready = int(metrics.get("reason_nonempty_count") or 0) == int(metrics.get("evaluation_count") or 0) > 0
+    latest_multi_head_id = str(latest_multi_head.get("model_id") or "")
+    registry_ready = bool(
+        latest_multi_head_id
+        and str(registry.get("latest_usable_multi_head_model_id") or "") == latest_multi_head_id
+        and latest_multi_head.get("safe_for_live_decision") is False
+        and latest_multi_head.get("live_decision_enabled") is False
+        and latest_multi_head.get("safe_for_live_expansion") is False
+    )
+    no_data_overwrites_latest = bool(
+        latest_multi_head_id
+        and str(registry.get("latest_usable_multi_head_model_id") or "") == latest_multi_head_id
+    )
+    evaluation_records = list(trained.get("evaluation_records") or [])
+    model = trained.get("model")
+    runtime_fixture: dict[str, Any] = {}
+    if model is not None and evaluation_records:
+        fixture = evaluation_records[0]
+        runtime_fixture = model.predict(
+            feature_context=dict(fixture.get("feature_context") or {}),
+            task=str(fixture.get("task") or ""),
+            scope=str(fixture.get("scope") or ""),
+            quality_grade=str(fixture.get("payload_quality_grade") or ""),
+        )
+    required_runtime_fields = {
+        "action", "action_probabilities", "calibrated_confidence", "risk_level",
+        "risk_score", "escalation_required", "eta_seconds",
+        "invalidation_conditions", "reason_ko", "abstain_required",
+        "provider_route_recommendation",
+    }
+    candidate_multi_head_ready = bool(
+        registry_ready
+        and runtime_fixture.get("status") == "available"
+        and required_runtime_fields.issubset(runtime_fixture)
+    )
+
+    fake_training = bool(dataset.get("fake_training_data_detected"))
+    fake_prediction = bool(candidate_source.get("fake_prediction_detected"))
+    leakage = bool(dataset.get("label_leakage_detected"))
+    unsafe_candidate = bool(candidate_source.get("unsafe_candidate_contract_detected"))
+    if fake_training:
+        first_blocker, blocker_group = "fake_training_data_detected", "safety"
+    elif fake_prediction:
+        first_blocker, blocker_group = "fake_prediction_detected", "safety"
+    elif leakage:
+        first_blocker, blocker_group = "label_leakage_detected", "dataset"
+    elif unsafe_candidate:
+        first_blocker, blocker_group = "unsafe_candidate_contract_detected", "runtime_contract"
+    elif not dataset.get("teacher_distillation_dataset_ready"):
+        first_blocker, blocker_group = "teacher_distillation_dataset_missing", "dataset"
+    elif not action_head_ready:
+        first_blocker, blocker_group = "action_head_missing", "action_head"
+    elif predicted_total and predicted_wait == predicted_total:
+        first_blocker, blocker_group = "action_head_wait_only", "action_head"
+    elif not confidence_head_ready:
+        first_blocker, blocker_group = "confidence_head_fixed", "confidence_head"
+    elif not risk_head_ready:
+        first_blocker, blocker_group = "risk_head_fixed", "risk_head"
+    elif not eta_head_ready:
+        first_blocker, blocker_group = "eta_head_fixed", "eta_head"
+    elif not invalidation_head_ready:
+        first_blocker, blocker_group = "invalidation_head_empty", "invalidation_head"
+    elif not reason_composer_ready:
+        first_blocker, blocker_group = "reason_composer_missing", "reason"
+    elif not portfolio_head_ready:
+        first_blocker, blocker_group = "portfolio_head_missing", "portfolio"
+    elif not registry_ready:
+        first_blocker, blocker_group = "registry_invalid", "registry"
+    else:
+        first_blocker, blocker_group = "local_engine_teacher_distillation_multi_head_v1_ready", "none"
+    ready = first_blocker == "local_engine_teacher_distillation_multi_head_v1_ready"
+
+    report.update({
+        "schema": "aits_local_engine_teacher_distillation_multi_head_v1_summary.v1",
+        "mode": "local-engine-teacher-distillation-multi-head-v1-summary",
+        "teacher_distillation_dataset_ready": bool(dataset.get("teacher_distillation_dataset_ready")),
+        "teacher_present_count": int(dataset.get("teacher_present_count") or 0),
+        "teacher_absent_count": int(dataset.get("teacher_absent_count") or 0),
+        "teacher_absent_reason_counts": dict(dataset.get("teacher_absent_reason_counts") or {}),
+        "supported_action_label_counts": class_labels,
+        "unsupported_action_label_counts": dict(dataset.get("unsupported_action_label_counts") or {}),
+        "train_count": int(dataset.get("train_count") or 0),
+        "validation_count": int(dataset.get("validation_count") or 0),
+        "holdout_count": int(dataset.get("holdout_count") or 0),
+        "class_imbalance_detected": bool(dataset.get("class_imbalance_detected")),
+        "action_head_ready": action_head_ready,
+        "supported_actions": supported_actions,
+        "predicted_action_counts": predicted_counts,
+        "wait_ratio": round(predicted_wait / predicted_total, 6) if predicted_total else None,
+        "non_wait_ratio": round((predicted_total - predicted_wait) / predicted_total, 6) if predicted_total else None,
+        "macro_f1": metrics.get("macro_f1"),
+        "action_accuracy": metrics.get("accuracy"),
+        "balanced_accuracy": metrics.get("balanced_accuracy"),
+        "per_action_metrics": dict(metrics.get("per_action_metrics") or {}),
+        "majority_baseline_score": metrics.get("majority_baseline_score"),
+        "wait_baseline_score": metrics.get("wait_baseline_score"),
+        "improves_over_wait_baseline": bool(metrics.get("improves_over_wait_baseline")),
+        "confidence_head_ready": confidence_head_ready,
+        "confidence_unique_count": len(set(confidence_values)),
+        "confidence_fixed_detected": confidence_fixed,
+        "calibrated_confidence_count": len(confidence_values),
+        "brier_score": metrics.get("brier_score"),
+        "confidence_bucket_summary": list(metrics.get("confidence_bucket_summary") or []),
+        "risk_head_ready": risk_head_ready,
+        "risk_distribution": risk_distribution,
+        "unsafe_prediction_count": int(metrics.get("unsafe_prediction_count") or 0),
+        "blocker_recall": metrics.get("blocker_recall"),
+        "escalation_head_ready": escalation_head_ready,
+        "escalation_required_count": int(metrics.get("escalation_required_count") or 0),
+        "escalation_reason_counts": dict(metrics.get("escalation_reason_counts") or {}),
+        "unnecessary_escalation_rate": metrics.get("unnecessary_escalation_rate"),
+        "eta_head_ready": eta_head_ready,
+        "eta_unique_count": len(set(eta_values)),
+        "eta_distribution": eta_distribution,
+        "eta_fixed_detected": eta_fixed,
+        "invalidation_head_ready": invalidation_head_ready,
+        "invalidation_nonempty_count": int(metrics.get("invalidation_nonempty_count") or 0),
+        "invalidation_empty_count": int(metrics.get("invalidation_empty_count") or 0),
+        "supported_condition_rate": metrics.get("supported_condition_rate"),
+        "reason_composer_ready": reason_composer_ready,
+        "reason_nonempty_count": int(metrics.get("reason_nonempty_count") or 0),
+        "evidence_reference_valid_count": int(metrics.get("evidence_reference_valid_count") or 0),
+        "unsupported_evidence_reference_count": int(metrics.get("unsupported_evidence_reference_count") or 0),
+        "portfolio_head_ready": portfolio_head_ready,
+        "portfolio_prediction_attempt_count": len(portfolio_decisions),
+        "portfolio_prediction_success_count": portfolio_teacher_count,
+        "portfolio_prediction_blocker_counts": dict(portfolio_blockers),
+        "local_engine_multi_head_registry_ready": registry_ready,
+        "latest_usable_multi_head_model_id": latest_multi_head_id,
+        "latest_training_attempt_id": str(registry.get("latest_multi_head_training_attempt_id") or ""),
+        "no_data_overwrites_latest_usable_detected": not no_data_overwrites_latest,
+        "candidate_observation_multi_head_ready": candidate_multi_head_ready,
+        "candidate_only_enforced": not unsafe_candidate,
+        "applied_to_final_action_count": sum(row.get("applied_to_final_action") is True for row in candidate_source.get("valid_rows") or []),
+        "final_action_mutation_detected": any(row.get("applied_to_final_action") is True for row in candidate_source.get("valid_rows") or []),
+        "safe_for_live_decision": False,
+        "live_decision_enabled": False,
+        "safe_for_live_expansion": False,
+        "fake_prediction_detected": fake_prediction,
+        "fake_training_data_detected": fake_training,
+        "label_leakage_detected": leakage,
+        "outcome_linkage_ready": int(calibration.get("candidate_join_matched_count") or 0) > 0,
+        "calibration_join_ready": str(calibration.get("first_blocker") or "") == "calibration_loader_candidate_join_ready",
+        "ollama_developer_only": True,
+        "ollama_live_auto_generate_enabled": False,
+        "riskguard_unchanged": not forbidden_diff,
+        "livepreflight_unchanged": not forbidden_diff,
+        "execution_path_unchanged": not forbidden_diff,
+        "local_engine_teacher_distillation_multi_head_v1_ready": ready,
+        "first_blocker": first_blocker,
+        "blocker_group": blocker_group,
+        "recommended_next_action": (
+            "collect_exact_joined_portfolio_teacher_labels"
+            if first_blocker == "portfolio_head_missing"
+            else "retain_candidate_only_and_review_metrics"
+        ),
+        "observe_only_mode": True,
+        "status": "pass" if ready else "blocked",
+        "pass_status": "pass" if ready else "blocked",
+    })
+
+
 def _run_local_model_calibration_data_accumulation_v1_summary(
     report: dict[str, Any],
     *,
@@ -26503,6 +26736,7 @@ def run_harness(
         "local-engine-curation-provenance-repair-v1-summary",
         "local-engine-candidate-observation-v1-summary",
         "local-engine-performance-report-v1-summary",
+        "local-engine-teacher-distillation-multi-head-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -26844,6 +27078,9 @@ def run_harness(
         elif mode == "local-engine-performance-report-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_performance_report_v1_summary(report)
+        elif mode == "local-engine-teacher-distillation-multi-head-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_teacher_distillation_multi_head_v1_summary(report)
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -27515,6 +27752,7 @@ def main() -> int:
             "local-engine-curation-provenance-repair-v1-summary",
             "local-engine-candidate-observation-v1-summary",
             "local-engine-performance-report-v1-summary",
+            "local-engine-teacher-distillation-multi-head-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",

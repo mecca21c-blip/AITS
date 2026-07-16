@@ -252,3 +252,15 @@ Acceptance criteria:
 - Missing calibration may permit candidate-only observation metadata; it never grants final-action authority.
 - Registry recovery reuses existing artifacts only. It never creates a trained flag, model artifact, prediction, or confidence value.
 - Live decision and execution authority remain disabled.
+
+## 18. Teacher Distillation Multi-Head Contract v1
+
+- Teacher labels come only from an explicit external decision or an OpenAI/Gemini final decision joined by exact prediction/linkage identity.
+- `local_safety_hold`, CostGuard cooldown, provider/network failure, and missing historical metadata never become external action labels.
+- Training features are pre-decision `feature_context` values. Outcome, checkpoint, final-action, teacher-action, and post-provider comparison fields are excluded from the encoder.
+- The multi-action head reports unsupported actions rather than fabricating samples. Current artifact support is determined from observed class counts.
+- Confidence, risk, escalation, ETA, invalidation, and reason heads expose their evidence and insufficient-data state independently.
+- Portfolio records never fall back to a position action head when exact-joined portfolio teacher labels are unavailable.
+- Registry entries with `aits_local_engine_multi_head_model.v2` retain separate latest-usable and latest-attempt pointers; no-data attempts cannot replace the last usable artifact.
+- Runtime output remains `candidate_only=true`, `applied_to_final_action=false`, `final_action_unchanged=true`, and all live authority flags false.
+- See `app/docs/aits_local_engine_teacher_distillation_multi_head_v1.md` for dataset, model, evaluation, and remaining portfolio blocker details.

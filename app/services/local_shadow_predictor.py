@@ -72,6 +72,8 @@ class AITSLocalEngineCandidateObservationWriter:
             return "candidate_only_contract_broken"
         if record.get("applied_to_final_action") is not False:
             return "candidate_applied_to_final_action"
+        if "final_action_unchanged" in record and record.get("final_action_unchanged") is not True:
+            return "candidate_final_action_unchanged_contract_broken"
         if record.get("safe_for_live_decision") is not False:
             return "candidate_safe_for_live_unexpected"
         if record.get("live_decision_enabled") is not False:
@@ -163,6 +165,22 @@ def build_local_engine_candidate_observation(
     outcome_linkage_key = hashlib.sha256(
         f"{decision_id}|{prediction_id}|{task}|{scope}".encode("utf-8")
     ).hexdigest()[:32]
+    teacher_present = final_provider in {"openai", "gemini"}
+    guard_blocker = str(cost_guard.get("blocker") or final_decision.get("cost_guard_blocker") or "")
+    if teacher_present:
+        teacher_absent_reason = ""
+    elif guard_blocker == "provider_request_cooldown":
+        teacher_absent_reason = "provider_request_cooldown"
+    elif "network" in guard_blocker.lower():
+        teacher_absent_reason = "network_unavailable"
+    elif "key" in guard_blocker.lower():
+        teacher_absent_reason = "provider_key_missing"
+    elif guard_blocker:
+        teacher_absent_reason = "provider_unavailable"
+    elif final_provider == "local_safety_hold":
+        teacher_absent_reason = "external_not_required"
+    else:
+        teacher_absent_reason = "historical_metadata_missing"
     return {
         "schema": LOCAL_ENGINE_OBSERVATION_SCHEMA,
         "writer_contract": LOCAL_ENGINE_OBSERVATION_WRITER_CONTRACT,
@@ -177,11 +195,21 @@ def build_local_engine_candidate_observation(
         "model_trained": True,
         "calibration_available": bool(model_state.get("local_model_calibration_profile_available")),
         "action": str(source.get("action") or "").lower(),
+        "action_probabilities": dict(source.get("action_probabilities") or {}),
+        "action_margin": source.get("action_margin"),
+        "supported_action": bool(source.get("action_supported", True)),
         "confidence": source.get("confidence"),
         "confidence_calibrated": bool(source.get("confidence_calibrated")),
+        "raw_confidence": source.get("raw_confidence"),
+        "calibration_method": str(source.get("calibration_method") or ""),
+        "abstain_required": bool(source.get("abstain_required")),
+        "abstain_reason": str(source.get("abstain_reason") or ""),
         "risk_level": str(source.get("risk_level") or "unknown"),
+        "risk_score": source.get("risk_score"),
+        "risk_factors": list(source.get("risk_factors") or []),
         "blockers": list(source.get("blockers") or []),
         "escalation_required": bool(source.get("escalation_required")),
+        "provider_route_recommendation": str(source.get("provider_route_recommendation") or ""),
         "eta_seconds": int(source.get("eta_seconds") or 0),
         "invalidation_conditions": list(source.get("invalidation_conditions") or []),
         "evidence": list(source.get("evidence") or []),
@@ -190,18 +218,24 @@ def build_local_engine_candidate_observation(
         "validator_metadata": dict(model_state.get("local_engine_validator_metadata") or {}),
         "candidate_only": True,
         "applied_to_final_action": False,
+        "final_action_unchanged": True,
         "safe_for_live_decision": False,
         "live_decision_enabled": False,
         "registry_safe_for_live_decision": bool(model_state.get("local_model_safe_for_live_decision")),
         "registry_live_decision_enabled": bool(model_state.get("local_model_live_decision_enabled")),
-        "teacher_source": final_provider if final_provider in {"openai", "gemini"} else "",
+        "teacher_source": final_provider if teacher_present else "",
+        "teacher_present": teacher_present,
+        "teacher_provider": final_provider if teacher_present else None,
+        "teacher_action": str(final_decision.get("final_action") or final_decision.get("action") or "") if teacher_present else None,
+        "teacher_confidence": final_decision.get("final_confidence", final_decision.get("confidence")) if teacher_present else None,
+        "teacher_absent_reason": teacher_absent_reason,
         "final_provider_source": final_provider,
         "final_action": str(final_decision.get("final_action") or final_decision.get("action") or ""),
         "final_confidence": final_decision.get("final_confidence", final_decision.get("confidence")),
         "final_reason_digest": hashlib.sha256(final_reason.encode("utf-8")).hexdigest()[:24] if final_reason else "",
         "provider_cost_guard_result": {
             "passed": bool(final_decision.get("cost_guard_passed")),
-            "blocker": str(cost_guard.get("blocker") or final_decision.get("cost_guard_blocker") or ""),
+            "blocker": guard_blocker,
         },
         "decision_id": decision_id,
         "outcome_linkage_key": outcome_linkage_key,
@@ -234,6 +268,30 @@ def build_local_engine_decision_candidate(
     invalidation_conditions: Optional[list] = None,
     teacher_reference: Optional[dict] = None,
     training_source: Optional[dict] = None,
+    action_probabilities: Optional[dict] = None,
+    action_margin: Optional[float] = None,
+    action_supported: bool = True,
+    unsupported_action_reasons: Optional[list[str]] = None,
+    raw_confidence: Optional[float] = None,
+    calibration_method: str = "",
+    confidence_bucket: str = "",
+    confidence_reliability: str = "",
+    abstain_required: bool = False,
+    abstain_reason: str = "",
+    risk_score: Optional[float] = None,
+    risk_factors: Optional[list[str]] = None,
+    risk_blockers: Optional[list[str]] = None,
+    escalation_target: str = "",
+    external_confirmation_required: bool = True,
+    eta_bucket: Optional[int] = None,
+    eta_reason: str = "",
+    monitoring_priority: str = "",
+    invalidation_supported: bool = False,
+    invalidation_missing_reason: str = "",
+    evidence_summary: Optional[list[dict]] = None,
+    risk_summary_ko: str = "",
+    reason_template_id: str = "",
+    provider_route_recommendation: str = "",
 ) -> dict:
     """Build a candidate only from supplied model output and factual evidence."""
     normalized_action = str(action or "").lower()
@@ -248,17 +306,41 @@ def build_local_engine_decision_candidate(
         "task": str(task or ""),
         "scope": str(scope or ""),
         "action": normalized_action,
+        "action_probabilities": dict(action_probabilities or {}),
+        "action_margin": action_margin,
+        "action_supported": bool(action_supported),
+        "unsupported_action_reasons": list(unsupported_action_reasons or []),
         "confidence": max(0.0, min(1.0, float(confidence))),
         "confidence_calibrated": bool(confidence_calibrated),
+        "raw_confidence": raw_confidence,
+        "calibration_method": str(calibration_method or ""),
+        "confidence_bucket": str(confidence_bucket or ""),
+        "confidence_reliability": str(confidence_reliability or ""),
+        "abstain_required": bool(abstain_required),
+        "abstain_reason": str(abstain_reason or ""),
         "risk_level": str(risk_level or "unknown"),
+        "risk_score": risk_score,
+        "risk_factors": list(risk_factors or []),
+        "risk_blockers": list(risk_blockers or []),
         "blockers": [str(item) for item in blockers if str(item or "").strip()],
         "escalation_required": bool(escalation_required),
         "escalation_reason": str(escalation_reason or ""),
+        "escalation_target": str(escalation_target or ""),
+        "external_confirmation_required": bool(external_confirmation_required),
+        "provider_route_recommendation": str(provider_route_recommendation or ""),
         "eta_seconds": max(0, int(eta_seconds or 0)),
+        "eta_bucket": max(0, int(eta_bucket or eta_seconds or 0)),
+        "eta_reason": str(eta_reason or ""),
+        "monitoring_priority": str(monitoring_priority or ""),
         "eta_policy": str(eta_policy or ""),
         "invalidation_conditions": list(invalidation_conditions or []),
+        "invalidation_supported": bool(invalidation_supported),
+        "invalidation_missing_reason": str(invalidation_missing_reason or ""),
         "evidence": [dict(item) for item in evidence if isinstance(item, dict)],
+        "evidence_summary": [dict(item) for item in (evidence_summary or []) if isinstance(item, dict)],
         "reason_ko": str(reason_ko),
+        "risk_summary_ko": str(risk_summary_ko or ""),
+        "reason_template_id": str(reason_template_id or ""),
         "teacher_reference": dict(teacher_reference or {}),
         "training_source": dict(training_source or {}),
         "safe_for_live_decision": bool(safe_for_live_decision),
@@ -272,7 +354,7 @@ def build_local_engine_decision_candidate(
 
 def load_latest_local_model(root: Path | str = Path("data") / "local_models") -> dict:
     registry = AITSLocalModelRegistry(root)
-    metadata = registry.latest_model_candidate()
+    metadata = registry.latest_multi_head_candidate() or registry.latest_model_candidate()
     if not metadata:
         latest_attempt = registry.load_latest_training_attempt()
         reason = (
@@ -298,7 +380,13 @@ def load_latest_local_model(root: Path | str = Path("data") / "local_models") ->
             "safe_for_live_decision": bool(metadata.get("safe_for_live_decision")),
             "live_decision_enabled": bool(metadata.get("live_decision_enabled")),
         }
-    if not isinstance(bundle, dict) or not isinstance(bundle.get("models"), dict):
+    legacy_bundle_valid = isinstance(bundle, dict) and isinstance(bundle.get("models"), dict)
+    multi_head_bundle_valid = bool(
+        isinstance(bundle, dict)
+        and bundle.get("schema") == "aits_local_engine_multi_head_bundle.v1"
+        and bundle.get("multi_head_model") is not None
+    )
+    if not legacy_bundle_valid and not multi_head_bundle_valid:
         return {
             "status": "unavailable",
             "reason": "model_artifact_contract_invalid",
@@ -348,7 +436,7 @@ def build_local_model_feature_record(
     indicators = dict(value.get("indicators") or value.get("basic_market_indicators") or {})
     position = dict(value.get("current_position") or value.get("position") or {})
     portfolio = dict(value.get("portfolio") or value.get("portfolio_context") or {})
-    guard = dict(value.get("sell_unit_guard") or {})
+    guard = dict(value.get("sell_unit_guard") or value.get("risk") or {})
     candidates = value.get("candidates") or []
     candidate_context = dict(candidates) if isinstance(candidates, dict) else {}
     candidate_count = len(candidates) if isinstance(candidates, (list, tuple)) else len(candidates) if isinstance(candidates, dict) else 0
@@ -513,6 +601,16 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
     feature_record = build_local_model_feature_record(context, manifest_summary=manifest_summary, local_decision=local_decision)
     grade = str(feature_record.get("feature_quality_grade") or "F")
     feature_vector = dict(feature_record.get("feature_vector") or {})
+    multi_head_feature_context = {
+        "market": dict(feature_vector.get("market_features") or {}),
+        "indicators": dict(feature_vector.get("indicator_features") or {}),
+        "position": dict(feature_vector.get("position_features") or {}),
+        "portfolio": dict(feature_vector.get("portfolio_features") or {}),
+        "risk": dict(feature_vector.get("risk_features") or {}),
+        "provider": dict(feature_vector.get("provider_features") or {}),
+        "opportunity": dict(feature_vector.get("opportunity_features") or {}),
+        "data_quality": dict(feature_vector.get("data_quality_features") or {}),
+    }
     task_provenance = build_training_eligibility_provenance(
         task=str(context.get("task") or ""),
         scope_type="portfolio" if str(context.get("symbol") or context.get("scope") or "") == "PORTFOLIO" else "position",
@@ -520,15 +618,7 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
         symbol=str(context.get("symbol") or ""),
         provider_source="local_model",
         final_action=str(local_decision.get("action") or "wait"),
-        feature_context={
-            "market": dict(feature_vector.get("market_features") or {}),
-            "indicators": dict(feature_vector.get("indicator_features") or {}),
-            "position": dict(feature_vector.get("position_features") or {}),
-            "portfolio": dict(feature_vector.get("portfolio_features") or {}),
-            "risk": dict(feature_vector.get("risk_features") or {}),
-            "provider": dict(feature_vector.get("provider_features") or {}),
-            "opportunity": dict(feature_vector.get("opportunity_features") or {}),
-        },
+        feature_context=multi_head_feature_context,
         payload_quality={"payload_quality_grade": grade},
     )
     critical_missing = list(task_provenance.get("missing_fields") or [])
@@ -536,6 +626,114 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
         blocker = "critical_model_feature_missing" if critical_missing else "local_model_feature_quality_too_low"
         return {**base, "local_model_prediction_attempted": True, "local_model_prediction_blocker": blocker,
                 "local_model_feature_schema_compatible": True, "local_model_feature_quality_checked": True}
+    bundle = dict(loaded.get("bundle") or {})
+    multi_head_model = bundle.get("multi_head_model")
+    if bundle.get("schema") == "aits_local_engine_multi_head_bundle.v1" and multi_head_model is not None:
+        task = str(context.get("task") or "")
+        scope = str(context.get("symbol") or context.get("scope") or "PORTFOLIO")
+        multi = multi_head_model.predict(
+            feature_context=multi_head_feature_context,
+            task=task,
+            scope=scope,
+            quality_grade=grade,
+        )
+        if multi.get("status") != "available":
+            return {
+                **base,
+                "local_model_prediction_attempted": True,
+                "local_model_prediction_blocker": str(multi.get("blocker") or "multi_head_prediction_unavailable"),
+                "local_model_feature_schema_compatible": True,
+                "local_model_feature_quality_checked": True,
+                "local_model_abstain_required": bool(multi.get("abstain_required")),
+                "local_model_abstain_reason": str(multi.get("abstain_reason") or ""),
+            }
+        action = str(multi.get("action") or "").lower()
+        confidence = _number(multi.get("calibrated_confidence"))
+        if action not in MODEL_ACTIONS or confidence is None:
+            return {
+                **base,
+                "local_model_prediction_attempted": True,
+                "local_model_prediction_blocker": "multi_head_output_contract_invalid",
+                "local_model_feature_schema_compatible": True,
+                "local_model_feature_quality_checked": True,
+            }
+        live_allowed = bool(base["local_model_safe_for_live_decision"] and base["local_model_live_decision_enabled"])
+        blockers = list(multi.get("risk_blockers") or [])
+        if not live_allowed:
+            blockers.append("local_model_live_disabled_by_registry")
+        evidence = [{"type": "payload_quality", "grade": grade}]
+        evidence.extend(
+            {"type": "feature", **dict(item)} for item in (multi.get("evidence_summary") or []) if isinstance(item, dict)
+        )
+        candidate = build_local_engine_decision_candidate(
+            task=task,
+            scope=scope,
+            action=action,
+            confidence=confidence,
+            reason_ko=str(multi.get("reason_ko") or ""),
+            eta_seconds=int(multi.get("eta_seconds") or 0),
+            blockers=blockers,
+            evidence=evidence,
+            safe_for_live_decision=base["local_model_safe_for_live_decision"],
+            live_decision_enabled=base["local_model_live_decision_enabled"],
+            confidence_calibrated=str(multi.get("calibration_method") or "") == "empirical_bucket_shrinkage",
+            risk_level=str(multi.get("risk_level") or "unknown"),
+            escalation_required=bool(multi.get("escalation_required")),
+            escalation_reason=str(multi.get("escalation_reason") or ""),
+            eta_policy=str(multi.get("eta_reason") or ""),
+            invalidation_conditions=list(multi.get("invalidation_conditions") or []),
+            training_source={
+                "model_id": str(metadata.get("model_id") or ""),
+                "engine_schema": str(metadata.get("engine_schema") or ""),
+                "feature_schema": str(metadata.get("feature_schema") or feature_record.get("schema") or ""),
+            },
+            action_probabilities=dict(multi.get("action_probabilities") or {}),
+            action_margin=_number(multi.get("action_margin")),
+            action_supported=bool(multi.get("action_supported")),
+            unsupported_action_reasons=list(multi.get("unsupported_action_reasons") or []),
+            raw_confidence=_number(multi.get("raw_confidence")),
+            calibration_method=str(multi.get("calibration_method") or ""),
+            confidence_bucket=str(multi.get("confidence_bucket") or ""),
+            confidence_reliability=str(multi.get("confidence_reliability") or ""),
+            abstain_required=bool(multi.get("abstain_required")),
+            abstain_reason=str(multi.get("abstain_reason") or ""),
+            risk_score=_number(multi.get("risk_score")),
+            risk_factors=list(multi.get("risk_factors") or []),
+            risk_blockers=list(multi.get("risk_blockers") or []),
+            escalation_target=str(multi.get("escalation_target") or ""),
+            external_confirmation_required=bool(multi.get("external_confirmation_required")),
+            eta_bucket=int(multi.get("eta_bucket") or 0),
+            eta_reason=str(multi.get("eta_reason") or ""),
+            monitoring_priority=str(multi.get("monitoring_priority") or ""),
+            invalidation_supported=bool(multi.get("invalidation_supported")),
+            invalidation_missing_reason=str(multi.get("invalidation_missing_reason") or ""),
+            evidence_summary=list(multi.get("evidence_summary") or []),
+            risk_summary_ko=str(multi.get("risk_summary_ko") or ""),
+            reason_template_id=str(multi.get("reason_template_id") or ""),
+            provider_route_recommendation=str(multi.get("provider_route_recommendation") or ""),
+        )
+        candidate.update({"execution_plan": {}, "risk_notes": ",".join(blockers), "sell_ratio": 0.0, "buy_amount_krw": 0.0})
+        return {
+            **base,
+            "local_model_prediction_attempted": True,
+            "local_model_prediction_available": True,
+            "local_model_prediction_blocker": "" if live_allowed else "local_model_live_disabled_by_registry",
+            "local_model_feature_schema_compatible": True,
+            "local_model_feature_quality_checked": True,
+            "local_model_feature_quality_grade": grade,
+            "local_model_multi_head_ready": True,
+            "model_recommended_action": action,
+            "model_action_probabilities": dict(multi.get("action_probabilities") or {}),
+            "model_action_quality_score": _number(multi.get("raw_confidence")),
+            "model_provider_value_score": None,
+            "model_risk_score": _number(multi.get("risk_score")),
+            "model_confidence": confidence,
+            "model_reason_ko": str(multi.get("reason_ko") or ""),
+            "model_blockers": blockers,
+            "model_decision_candidate": candidate,
+            "local_model_live_allowed": live_allowed,
+            "local_model_requires_external_confirmation": bool(multi.get("external_confirmation_required")),
+        }
     action_result = _predict_target(feature_record, "recommended_action_label", loaded=loaded)
     action = str(action_result.get("prediction") or "").lower()
     if action_result.get("status") != "available" or action not in MODEL_ACTIONS:
