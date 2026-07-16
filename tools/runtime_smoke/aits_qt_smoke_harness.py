@@ -13329,6 +13329,28 @@ def _run_local_model_live_outcome_calibration_v1_summary(
     })
 
 
+def _run_local_engine_performance_report_v1_summary(report: dict[str, Any]) -> None:
+    from app.services.local_engine_performance_report import AITSLocalEnginePerformanceReport
+
+    try:
+        performance = AITSLocalEnginePerformanceReport().build()
+    except Exception as exc:
+        performance = {
+            "schema": "aits_local_engine_performance_report.v1",
+            "local_engine_performance_report_ready": False,
+            "performance_report_error_type": type(exc).__name__,
+            "safe_for_live_expansion": False,
+            "first_blocker": "performance_report_generation_failed",
+        }
+    report.update({
+        "mode": "local-engine-performance-report-v1-summary",
+        **performance,
+        "observe_only_mode": True,
+        "status": "pass" if performance.get("local_engine_performance_report_ready") else "fail",
+        "pass_status": "pass" if performance.get("local_engine_performance_report_ready") else "fail",
+    })
+
+
 def _run_local_model_calibration_data_accumulation_v1_summary(
     report: dict[str, Any],
     *,
@@ -26480,6 +26502,7 @@ def run_harness(
         "internal-local-engine-data-recovery-v1-summary",
         "local-engine-curation-provenance-repair-v1-summary",
         "local-engine-candidate-observation-v1-summary",
+        "local-engine-performance-report-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -26818,6 +26841,9 @@ def run_harness(
                 report,
                 output_dir=output_dir,
             )
+        elif mode == "local-engine-performance-report-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_performance_report_v1_summary(report)
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -27488,6 +27514,7 @@ def main() -> int:
             "internal-local-engine-data-recovery-v1-summary",
             "local-engine-curation-provenance-repair-v1-summary",
             "local-engine-candidate-observation-v1-summary",
+            "local-engine-performance-report-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
