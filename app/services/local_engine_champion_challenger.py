@@ -40,9 +40,18 @@ class AITSLocalEngineChampionChallenger:
         current = dict(champion.get("metrics") or {})
         proposed = dict(challenger.get("metrics") or {})
         keys = ("macro_f1", "balanced_accuracy", "brier_score", "unsafe_prediction_count")
+        comparable = all(current.get(key) is not None and proposed.get(key) is not None for key in keys)
+        challenger_better = bool(
+            comparable
+            and float(proposed["macro_f1"]) > float(current["macro_f1"])
+            and float(proposed["balanced_accuracy"]) >= float(current["balanced_accuracy"])
+            and float(proposed["brier_score"]) <= float(current["brier_score"])
+            and int(proposed["unsafe_prediction_count"]) <= int(current["unsafe_prediction_count"])
+        )
         return {
             "metrics": {key: {"champion": current.get(key), "challenger": proposed.get(key)} for key in keys},
-            "challenger_better": False,
+            "comparison_complete": comparable,
+            "challenger_better": challenger_better,
             "activation_performed": False,
             "user_approval_required": True,
         }

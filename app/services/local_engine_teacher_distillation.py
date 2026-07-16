@@ -263,6 +263,89 @@ class AITSLocalEngineTeacherDistillation:
             }
             records.append(record)
 
+        # Outcome records already carry a stable decision_id, the pre-decision
+        # feature_context, and an explicit external/final provider response. Use
+        # that exact provenance for decisions which predate candidate coverage.
+        # Only the first checkpoint row is considered, preventing future values
+        # from becoming input features. No task/scope/time inference is used.
+        represented_decisions = {str(row.get("decision_id") or "") for row in records}
+        first_outcome_by_decision: dict[str, dict] = {}
+        for outcome in outcomes:
+            decision_id = str(outcome.get("decision_id") or "")
+            if decision_id and decision_id not in first_outcome_by_decision:
+                first_outcome_by_decision[decision_id] = outcome
+        for decision_id, outcome in first_outcome_by_decision.items():
+            if decision_id in represented_decisions:
+                continue
+            provider_row = dict(providers_by_decision.get(decision_id) or {})
+            external = self._external_decision(outcome, provider_row, {})
+            final = dict(outcome.get("final_decision") or provider_row.get("final_decision") or {})
+            teacher_provider = str(
+                final.get("provider")
+                or outcome.get("teacher_source")
+                or outcome.get("final_provider_source")
+                or outcome.get("provider_source")
+                or ""
+            ).lower()
+            teacher_action = str(external.get("action") or "").lower()
+            if teacher_provider not in {"openai", "gemini"} or teacher_action not in TEACHER_ACTIONS:
+                continue
+            task = str(outcome.get("task") or outcome.get("decision_task") or "")
+            scope = str(outcome.get("scope") or outcome.get("decision_scope") or "")
+            feature_context = dict(outcome.get("feature_context") or {})
+            feature_contract = self._feature_contract(task, scope, feature_context)
+            if not task or not scope or not feature_context or feature_contract.get("missing_groups"):
+                excluded.append({
+                    "decision_id": decision_id,
+                    "exclusion_reason": "outcome_native_feature_contract_incomplete",
+                    "missing_groups": list(feature_contract.get("missing_groups") or []),
+                })
+                continue
+            quality = dict(outcome.get("payload_quality") or {})
+            execution = dict(outcome.get("execution_result") or {})
+            reason = str(external.get("reason_ko") or external.get("reason") or "")
+            record = {
+                "schema": self.SCHEMA,
+                "record_id": self._stable_hash({"decision_id": decision_id, "source": "outcome_native"})[:32],
+                "decision_id": decision_id,
+                "prediction_id": None,
+                "outcome_linkage_key": str(outcome.get("local_engine_outcome_linkage_key") or ""),
+                "exact_join_method": "outcome_decision_id",
+                "task": task,
+                "scope": scope,
+                "symbol": str(outcome.get("symbol") or scope),
+                "created_at": str(outcome.get("created_at") or ""),
+                "created_at_epoch": self._timestamp(outcome.get("created_at")),
+                "teacher_provider": teacher_provider,
+                "teacher_action": teacher_action,
+                "teacher_confidence": external.get("confidence"),
+                "teacher_reason_digest": self._stable_hash(reason)[:24] if reason else "",
+                "teacher_eta_seconds": external.get("eta_seconds"),
+                "teacher_invalidation_conditions": list(external.get("invalidation_conditions") or []),
+                "teacher_present": True,
+                "teacher_absent_reason": "",
+                "final_provider_source": teacher_provider,
+                "final_action": str(final.get("action") or outcome.get("final_action") or "").lower(),
+                "actual_order": bool(outcome.get("actual_order") or execution.get("actual_order")),
+                "submitted": int(outcome.get("submitted") or execution.get("submitted_count") or 0),
+                "outcome_label": str(outcome.get("outcome_label") or ""),
+                "outcome_score": outcome.get("outcome_score"),
+                "payload_quality_grade": str(quality.get("payload_quality_grade") or outcome.get("payload_quality_grade") or ""),
+                "feature_manifest_hash": str(outcome.get("feature_manifest_hash") or quality.get("feature_manifest_hash") or ""),
+                "feature_context": feature_context,
+                "feature_contract": feature_contract,
+                "provider_comparison": dict(outcome.get("provider_comparison") or {}),
+                "candidate_contract_valid": None,
+                "candidate_not_required_for_exact_outcome_teacher": True,
+                "label_leakage_prevented": True,
+                "trainable_action_label": True,
+                "fake_teacher": False,
+            }
+            records.append(record)
+            represented_decisions.add(decision_id)
+            join_methods["outcome_decision_id"] += 1
+            action_counts[teacher_action] += 1
+
         self._add_observed_cadence(records)
         self._assign_splits(records)
         teacher_records = [row for row in records if row.get("teacher_present")]

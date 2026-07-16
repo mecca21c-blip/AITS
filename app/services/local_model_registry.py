@@ -222,17 +222,21 @@ class AITSLocalModelRegistry:
             if activate
             else self.resolve_latest_usable_model(candidate_registry)
         )
+        is_multi_head_attempt = str(value.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+        previous_multi_head_id = str(registry.get("latest_usable_multi_head_model_id") or "")
+        activated_multi_head_id = (
+            str(latest_usable.get("model_id") or "")
+            if activate and is_multi_head_attempt
+            and str(latest_usable.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+            else previous_multi_head_id
+        )
         registry = {
             **candidate_registry,
             "latest_model_id": str(latest_usable.get("model_id") or ""),
             "latest_usable_model_id": str(latest_usable.get("model_id") or ""),
             "latest_training_attempt_id": model_id,
             "latest_training_status": str(value.get("training_status") or ""),
-            "latest_usable_multi_head_model_id": str(
-                latest_usable.get("model_id") or ""
-            ) if str(latest_usable.get("engine_schema") or "").startswith("aits_local_engine_multi_head") else str(
-                registry.get("latest_usable_multi_head_model_id") or ""
-            ),
+            "latest_usable_multi_head_model_id": activated_multi_head_id,
             "latest_multi_head_training_attempt_id": model_id
             if str(value.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
             else str(registry.get("latest_multi_head_training_attempt_id") or ""),
@@ -247,6 +251,29 @@ class AITSLocalModelRegistry:
             self._write_json_atomic(self.latest_path, latest_value)
         self._write_json_atomic(self.metrics_status_path, dict(metrics_status or {}))
         return value
+
+    def restore_multi_head_pointer(self, model_id: str, *, reason: str) -> dict:
+        """Explicit offline rollback of the candidate Champion pointer."""
+        registry = self.load_registry()
+        candidate = next(
+            (
+                row for row in self.list_usable_models(registry)
+                if str(row.get("model_id") or "") == str(model_id or "")
+                and str(row.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+            ),
+            {},
+        )
+        if not candidate:
+            return {"restored": False, "blocker": "rollback_model_not_usable", "model_id": str(model_id or "")}
+        registry["latest_usable_multi_head_model_id"] = str(model_id)
+        self._write_json_atomic(self.registry_path, registry)
+        return {
+            "restored": True,
+            "model_id": str(model_id),
+            "reason": str(reason or "explicit_offline_rollback"),
+            "safe_for_live_decision": False,
+            "live_decision_enabled": False,
+        }
 
     def latest_shadow_model(self) -> dict:
         latest = self.latest_model_candidate()

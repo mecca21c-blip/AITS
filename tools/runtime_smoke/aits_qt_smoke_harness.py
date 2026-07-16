@@ -14097,6 +14097,38 @@ def _run_local_engine_integrated_live_learning_cycle_v1_summary(report: dict[str
             })
 
 
+def _run_local_engine_task_coverage_portfolio_nonwait_learning_v1_summary(report: dict[str, Any]) -> None:
+    from app.services.local_engine_task_coverage_report import AITSLocalEngineTaskCoverageReport
+
+    summary = AITSLocalEngineTaskCoverageReport(ROOT / "data").build()
+    forbidden_paths = (
+        ROOT / "app" / "services" / "order_adapter.py",
+        ROOT / "app" / "services" / "execution_bridge.py",
+        ROOT / "app" / "services" / "order_service.py",
+        ROOT / "app" / "services" / "decision_router.py",
+        ROOT / "app" / "services" / "risk_guard.py",
+        ROOT / "app" / "services" / "live_order_preflight.py",
+    )
+    forbidden_diff = any(
+        subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--", str(path)], cwd=ROOT,
+            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode != 0
+        for path in forbidden_paths
+    )
+    summary.update({
+        "mode": "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary",
+        "riskguard_unchanged": not forbidden_diff,
+        "livepreflight_unchanged": not forbidden_diff,
+        "execution_path_unchanged": not forbidden_diff,
+        "status": "pass" if summary.get("local_engine_task_coverage_portfolio_nonwait_learning_v1_ready") else "blocked",
+        "pass_status": "pass" if summary.get("local_engine_task_coverage_portfolio_nonwait_learning_v1_ready") else "blocked",
+        "actual_order": False,
+        "managed_pool_mutation": False,
+    })
+    report.update(summary)
+
+
 def _run_local_model_calibration_data_accumulation_v1_summary(
     report: dict[str, Any],
     *,
@@ -27252,6 +27284,7 @@ def run_harness(
         "local-engine-teacher-distillation-multi-head-v1-summary",
         "local-engine-continuous-learning-level-authority-v1-summary",
         "local-engine-integrated-live-learning-cycle-v1-summary",
+        "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -27602,6 +27635,9 @@ def run_harness(
         elif mode == "local-engine-integrated-live-learning-cycle-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_integrated_live_learning_cycle_v1_summary(report)
+        elif mode == "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary":
+            _install_provider_post_guard(report)
+            _run_local_engine_task_coverage_portfolio_nonwait_learning_v1_summary(report)
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -28276,6 +28312,7 @@ def main() -> int:
             "local-engine-teacher-distillation-multi-head-v1-summary",
             "local-engine-continuous-learning-level-authority-v1-summary",
             "local-engine-integrated-live-learning-cycle-v1-summary",
+            "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",

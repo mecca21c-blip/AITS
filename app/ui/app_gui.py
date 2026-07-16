@@ -32200,6 +32200,9 @@ class MainWindow(QMainWindow):
             "local_engine_candidate_only": bool(comparison.get("local_engine_candidate_only")),
             "local_engine_applied_to_final_action": bool(comparison.get("local_engine_applied_to_final_action")),
             "local_engine_final_action_unchanged": bool(comparison.get("local_engine_final_action_unchanged")),
+            "local_engine_task_coverage_id": comparison.get("local_engine_task_coverage_id"),
+            "local_engine_task_coverage_recorded": bool(comparison.get("local_engine_task_coverage_recorded")),
+            "local_engine_task_coverage_blocker": comparison.get("local_engine_task_coverage_blocker"),
             "decision_snapshot": self._build_ai_outcome_decision_snapshot(payload),
             "feature_context": feature_context,
             **provenance,
@@ -32301,6 +32304,19 @@ class MainWindow(QMainWindow):
         return allowed
 
     def _run_ai_outcome_checkpoint_scheduler(self, *, reason: str) -> dict:
+        if os.environ.get("AITS_QT_SMOKE_HARNESS") == "1":
+            logging.getLogger("aits").info(
+                "[AITS][LearningPipelineGuard] event=outcome_checkpoint_blocked_observe_only "
+                "pipeline=outcome_checkpoint live_runtime_active=false auto_run_enabled=false allowed=false "
+                "blocked_reason=qt_smoke_observe_only_no_write elapsed_ms=0 actual_order=False submitted=0"
+            )
+            return {
+                "evaluated": 0,
+                "pending": 0,
+                "events": [],
+                "result": "qt_smoke_observe_only_no_write",
+                "persistence_performed": False,
+            }
         now = time.time()
         if now - float(getattr(self, "_aits_outcome_scheduler_last_run", 0.0) or 0.0) < 15.0:
             return {"evaluated": 0, "pending": 0, "result": "debounced"}
@@ -42566,6 +42582,9 @@ class MainWindow(QMainWindow):
             "local_engine_candidate_only": bool(value.get("local_engine_candidate_only")),
             "local_engine_applied_to_final_action": bool(value.get("local_engine_applied_to_final_action")),
             "local_engine_final_action_unchanged": bool(value.get("local_engine_final_action_unchanged")),
+            "local_engine_task_coverage_id": str(value.get("local_engine_task_coverage_id") or ""),
+            "local_engine_task_coverage_recorded": bool(value.get("local_engine_task_coverage_recorded")),
+            "local_engine_task_coverage_blocker": str(value.get("local_engine_task_coverage_blocker") or ""),
             "local_model_calibration_profile_loaded": bool(value.get("local_model_calibration_profile_loaded")),
             "local_model_calibration_data_sufficient": bool(value.get("local_model_calibration_data_sufficient")),
             "local_model_calibration_recommendation_recorded": bool(value.get("local_model_calibration_recommendation_recorded")),

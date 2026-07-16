@@ -155,6 +155,8 @@ def build_local_engine_candidate_observation(
         "model_id": model_id,
         "payload_hash": str(manifest_summary.get("payload_hash") or ""),
         "task": task,
+        "source_task": str(source.get("source_task") or task),
+        "model_task": str(source.get("model_task") or task),
         "scope": scope,
         "created_at": created_at,
     }
@@ -352,9 +354,26 @@ def build_local_engine_decision_candidate(
     }
 
 
-def load_latest_local_model(root: Path | str = Path("data") / "local_models") -> dict:
+def load_latest_local_model(
+    root: Path | str = Path("data") / "local_models",
+    *,
+    task: str = "",
+) -> dict:
     registry = AITSLocalModelRegistry(root)
     metadata = registry.latest_multi_head_candidate() or registry.latest_model_candidate()
+    # A task-specific Challenger may be observed candidate-only when the global
+    # Champion has no support for that task. This does not move any registry
+    # pointer and cannot grant final-action authority.
+    if task and metadata and task not in set(metadata.get("supported_tasks") or []):
+        task_candidates = [
+            row for row in registry.list_usable_models()
+            if str(row.get("engine_schema") or "").startswith("aits_local_engine_multi_head")
+            and task in set(row.get("supported_tasks") or [])
+            and row.get("safe_for_live_decision") is False
+            and row.get("live_decision_enabled") is False
+        ]
+        if task_candidates:
+            metadata = task_candidates[-1]
     if not metadata:
         latest_attempt = registry.load_latest_training_attempt()
         reason = (
@@ -443,6 +462,14 @@ def build_local_model_feature_record(
     total_asset = _numeric(portfolio, "total_asset_krw")
     available = _numeric(portfolio, "available_krw")
     exposure = _numeric(portfolio, "exposure_for_cap")
+    current_positions = portfolio.get("current_positions")
+    managed_pool_symbols = portfolio.get("managed_pool_symbols")
+    position_count = _numeric(portfolio, "position_count", "holding_count")
+    if position_count is None and isinstance(current_positions, (list, tuple, set)):
+        position_count = float(len(current_positions))
+    managed_pool_count = _numeric(portfolio, "managed_pool_count")
+    if managed_pool_count is None and isinstance(managed_pool_symbols, (list, tuple, set)):
+        managed_pool_count = float(len(managed_pool_symbols))
     macd = indicators.get("macd")
     if isinstance(macd, dict):
         macd = _first(macd, "macd", "value", "line")
@@ -484,8 +511,8 @@ def build_local_model_feature_record(
             "total_asset_krw": total_asset, "available_krw": available,
             "total_budget_krw": _numeric(portfolio, "total_budget_krw", "budget_krw"), "exposure_for_cap": exposure,
             "cap_remaining_krw": _numeric(portfolio, "cap_remaining_krw"),
-            "position_count": _numeric(portfolio, "position_count", "holding_count"),
-            "managed_pool_count": _numeric(portfolio, "managed_pool_count") or float(candidate_count),
+            "position_count": position_count,
+            "managed_pool_count": managed_pool_count if managed_pool_count is not None else float(candidate_count),
             "cash_ratio": _numeric(portfolio, "cash_ratio") or (available / total_asset if total_asset and available is not None else None),
             "exposure_ratio": _numeric(portfolio, "exposure_ratio") or (exposure / total_asset if total_asset and exposure is not None else None),
         },
@@ -582,7 +609,12 @@ def predict_risk_score(feature_record: dict) -> dict[str, Any]:
 
 
 def predict_local_model_decision(context: dict, manifest_summary: dict, local_decision: dict) -> dict[str, Any]:
-    loaded = load_latest_local_model()
+    source_task = str(context.get("task") or "")
+    scope = str(context.get("symbol") or context.get("scope") or "PORTFOLIO")
+    model_task = source_task
+    if source_task == "ai_redecision":
+        model_task = "portfolio_management_decision" if scope == "PORTFOLIO" else "position_management_decision"
+    loaded = load_latest_local_model(task=model_task)
     metadata = dict(loaded.get("metadata") or {})
     base = {
         "local_model_provider_available": loaded.get("status") == "available",
@@ -611,9 +643,10 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
         "opportunity": dict(feature_vector.get("opportunity_features") or {}),
         "data_quality": dict(feature_vector.get("data_quality_features") or {}),
     }
+    base.update({"local_model_source_task": source_task, "local_model_task": model_task})
     task_provenance = build_training_eligibility_provenance(
-        task=str(context.get("task") or ""),
-        scope_type="portfolio" if str(context.get("symbol") or context.get("scope") or "") == "PORTFOLIO" else "position",
+        task=model_task,
+        scope_type="portfolio" if scope == "PORTFOLIO" else "position",
         scope=str(context.get("symbol") or context.get("scope") or "PORTFOLIO"),
         symbol=str(context.get("symbol") or ""),
         provider_source="local_model",
@@ -625,12 +658,12 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
     if grade not in QUALITY_FACTORS or critical_missing:
         blocker = "critical_model_feature_missing" if critical_missing else "local_model_feature_quality_too_low"
         return {**base, "local_model_prediction_attempted": True, "local_model_prediction_blocker": blocker,
-                "local_model_feature_schema_compatible": True, "local_model_feature_quality_checked": True}
+                "local_model_feature_schema_compatible": True, "local_model_feature_quality_checked": True,
+                "local_model_missing_features": critical_missing}
     bundle = dict(loaded.get("bundle") or {})
     multi_head_model = bundle.get("multi_head_model")
     if bundle.get("schema") == "aits_local_engine_multi_head_bundle.v1" and multi_head_model is not None:
-        task = str(context.get("task") or "")
-        scope = str(context.get("symbol") or context.get("scope") or "PORTFOLIO")
+        task = model_task
         multi = multi_head_model.predict(
             feature_context=multi_head_feature_context,
             task=task,
@@ -712,6 +745,8 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
             reason_template_id=str(multi.get("reason_template_id") or ""),
             provider_route_recommendation=str(multi.get("provider_route_recommendation") or ""),
         )
+        candidate["source_task"] = source_task
+        candidate["model_task"] = model_task
         candidate.update({"execution_plan": {}, "risk_notes": ",".join(blockers), "sell_ratio": 0.0, "buy_amount_krw": 0.0})
         return {
             **base,
@@ -722,6 +757,8 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
             "local_model_feature_quality_checked": True,
             "local_model_feature_quality_grade": grade,
             "local_model_multi_head_ready": True,
+            "local_model_source_task": source_task,
+            "local_model_task": model_task,
             "model_recommended_action": action,
             "model_action_probabilities": dict(multi.get("action_probabilities") or {}),
             "model_action_quality_score": _number(multi.get("raw_confidence")),

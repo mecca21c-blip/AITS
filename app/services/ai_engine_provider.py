@@ -21,6 +21,7 @@ from app.services.local_shadow_predictor import (
 )
 from app.services.local_model_calibration import load_local_model_calibration_profile
 from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+from app.services.local_engine_task_coverage import AITSLocalEngineTaskCoverage
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -1899,6 +1900,52 @@ class AIEngineProvider:
                 "local_engine_final_action_unchanged": str(final_decision.get("action") or "wait") == final_action_before_observation,
             }
         )
+        supported_tasks = set((local_model.get("local_model_metadata") or {}).get("supported_tasks") or [])
+        source_task = str(context.get("task") or "")
+        model_task = str(local_model.get("local_model_task") or source_task)
+        coverage_record = {
+            "decision_id": str(final_decision.get("decision_id") or final_decision.get("response_id") or payload_hash),
+            "payload_hash": payload_hash,
+            "task": source_task,
+            "source_task": source_task,
+            "model_task": model_task,
+            "scope": str(context.get("symbol") or context.get("scope") or "PORTFOLIO"),
+            "symbol": str(context.get("symbol") or ""),
+            "local_candidate_eligible": bool(local_model.get("local_model_loaded") and model_task in supported_tasks),
+            "local_candidate_attempted": bool(local_model.get("local_model_prediction_attempted")),
+            "local_candidate_available": model_available,
+            "local_candidate_recorded": writer_success,
+            "candidate_blocker": observation_blocker,
+            "feature_contract": str(local_model.get("local_model_feature_quality_grade") or manifest_summary.get("payload_quality_grade") or ""),
+            "missing_features": sorted(set(
+                list(manifest_summary.get("critical_missing_features") or [])
+                + list(local_model.get("local_model_missing_features") or [])
+            )),
+            "model_supported_task": model_task in supported_tasks,
+            "model_supported_actions": list((local_model.get("local_model_metadata") or {}).get("supported_actions") or []),
+            "teacher_present": bool(external_valid and external_provider in {"openai", "gemini"}),
+            "teacher_provider": external_provider if external_valid else None,
+            "teacher_action": str(external_decision.get("action") or "").lower() if external_valid else None,
+            "teacher_absent_reason": "" if external_valid else str(cost_guard.get("blocker") or external_blocker or "external_not_required"),
+            "final_provider_source": final_provider_source,
+            "final_action": str(final_decision.get("action") or "wait").lower(),
+            "prediction_id": prediction_id,
+            "outcome_linkage_key": outcome_linkage_key,
+            "outcome_linkage_ready": bool(prediction_id or outcome_linkage_key),
+            "candidate_only": True,
+            "applied_to_final_action": False,
+            "safe_for_live_decision": False,
+            "live_decision_enabled": False,
+            "fake_candidate": False,
+        }
+        try:
+            coverage = AITSLocalEngineTaskCoverage().append(coverage_record)
+            final_decision["local_engine_task_coverage_id"] = str(coverage.get("coverage_id") or "")
+            final_decision["local_engine_task_coverage_recorded"] = True
+        except Exception as exc:
+            final_decision["local_engine_task_coverage_id"] = ""
+            final_decision["local_engine_task_coverage_recorded"] = False
+            final_decision["local_engine_task_coverage_blocker"] = type(exc).__name__
         _safe_log_info(
             "[AITS][ProviderDecisionRouter] event=final_decision_selected "
             f"task={task or '-'} scope={symbol_or_scope} final_provider_source={final_provider_source} "
