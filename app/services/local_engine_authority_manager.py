@@ -288,6 +288,30 @@ class AITSLocalEngineAuthorityManager:
         state.update({"user_level_cap": 0, "effective_global_level": 0, "global_authority_state": "external_only", "blocker": "user_paused_local_authority"})
         return self._persist_state(state, event="user_demotion", reason_codes=["user_paused_local_authority"]) if persist else state
 
+    def resume_local_authority(self, *, persist: bool = True) -> dict[str, Any]:
+        """Resume only up to the already approved global level; never promote."""
+        state = self.inspect()
+        approved_cap = int(state.get("global_level") or 0)
+        state["user_level_cap"] = approved_cap
+        state["effective_global_level"] = min(
+            approved_cap,
+            int(state.get("health_level_cap") or 0),
+            int(state.get("model_capability_level") or 0),
+        )
+        state["global_authority_state"] = LEVEL_AUTHORITY[state["effective_global_level"]]
+        state["blocker"] = "user_approval_required_above_candidate"
+        return self._persist_state(state, event="authority_resumed", reason_codes=["user_resumed_existing_authority"]) if persist else state
+
+    def reject_promotion(self, *, reason: str = "user_rejected", persist: bool = True) -> dict[str, Any]:
+        state = self.inspect()
+        candidate = dict(state.get("promotion_candidate") or {})
+        if not candidate:
+            return {**state, "promotion_rejected": False, "promotion_blocker": "promotion_candidate_missing"}
+        candidate.update({"approval_status": "rejected", "approved_by": None, "approved_at": self._now()})
+        state["promotion_candidate"] = candidate
+        result = self._persist_state(state, event="promotion_rejected", reason_codes=[reason]) if persist else state
+        return {**result, "promotion_rejected": True}
+
     def request_promotion(self, proposed_level: int, *, persist: bool = True) -> dict[str, Any]:
         state = self.inspect()
         current = int(state.get("global_level") or 0)

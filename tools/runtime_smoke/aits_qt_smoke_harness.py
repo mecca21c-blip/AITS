@@ -27285,6 +27285,7 @@ def run_harness(
         "local-engine-continuous-learning-level-authority-v1-summary",
         "local-engine-integrated-live-learning-cycle-v1-summary",
         "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary",
+        "local-engine-level-status-operations-ui-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -27638,6 +27639,10 @@ def run_harness(
         elif mode == "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary":
             _install_provider_post_guard(report)
             _run_local_engine_task_coverage_portfolio_nonwait_learning_v1_summary(report)
+        elif mode == "local-engine-level-status-operations-ui-v1-summary":
+            _install_provider_post_guard(report)
+            from app.services.local_engine_level_status_ui_report import build_local_engine_level_status_ui_report
+            report.update(build_local_engine_level_status_ui_report(ROOT))
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -28313,6 +28318,7 @@ def main() -> int:
             "local-engine-continuous-learning-level-authority-v1-summary",
             "local-engine-integrated-live-learning-cycle-v1-summary",
             "local-engine-task-coverage-portfolio-nonwait-learning-v1-summary",
+            "local-engine-level-status-operations-ui-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",

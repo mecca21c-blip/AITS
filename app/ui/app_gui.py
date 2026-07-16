@@ -24686,6 +24686,9 @@ class MainWindow(QMainWindow):
         return card
 
     def _build_ai_policy_local_data_card(self):
+        from app.ui.local_engine_operations_panel import build_local_engine_operations_card
+        return build_local_engine_operations_card(self, self._build_ai_policy_card)
+
         card = self._build_ai_policy_card("로컬 데이터 관리 정책")
         layout = card.layout()
         desc = QLabel("LOCAL 데이터 정책은 AI 엔진 선택이나 자동 학습 실행이 아니라 데이터 보관, 복기용 요약 후보, 검증 전 적용 보호 기준을 정하는 영역입니다. 주문 실행 권한을 의미하지 않습니다.")
@@ -55511,6 +55514,8 @@ class MainWindow(QMainWindow):
                     "local": "LOCAL\nAPI 없이 사용하는 내부 계산 기반 분석",
                 }
                 for _key, _button in selected.items():
+                    if _key == "local" and hasattr(self, "_local_engine_provider_button_text"):
+                        button_texts["local"] = self._local_engine_provider_button_text()
                     _button.blockSignals(True)
                     _button.setChecked(_key == key)
                     _button.setText(button_texts[_key] + ("\n선택 중" if _key == key else ""))

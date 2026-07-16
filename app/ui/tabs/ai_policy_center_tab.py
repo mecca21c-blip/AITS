@@ -345,6 +345,9 @@ class AIPolicyCenterTab(QWidget):
         return card
 
     def _build_local_data_card(self) -> QFrame:
+        from app.ui.local_engine_operations_panel import build_policy_center_operations_card
+        return build_policy_center_operations_card(self, self._parent_window)
+
         card = self._card("aitsPolicyLocalDataCard")
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 14)
