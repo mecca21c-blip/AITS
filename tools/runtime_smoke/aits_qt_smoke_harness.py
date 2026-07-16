@@ -13064,16 +13064,21 @@ def _run_local_model_live_outcome_calibration_v1_summary(
     )
     profile = calibration._read_json(calibration.profile_path)
     persisted_summary = calibration._read_json(calibration.summary_path)
-    ephemeral_source = calibration.load_sources()
-    ephemeral_analysis = calibration.analyze(ephemeral_source)
-    summary = {
-        **persisted_summary,
-        **{
-            key: value for key, value in ephemeral_source.items()
-            if key not in {"rows_by_source", "records", "excluded"}
-        },
-        **ephemeral_analysis,
+    persisted_states_before = {
+        "profile": calibration._file_state(calibration.profile_path),
+        "summary": calibration._file_state(calibration.summary_path),
+        "history": calibration._file_state(calibration.history_path),
     }
+    ephemeral_computed = calibration.compute_calibration_profile()
+    summary = dict(ephemeral_computed.get("summary") or {})
+    persisted_states_after = {
+        "profile": calibration._file_state(calibration.profile_path),
+        "summary": calibration._file_state(calibration.summary_path),
+        "history": calibration._file_state(calibration.history_path),
+    }
+    persisted_profile_mtime_unchanged = persisted_states_before["profile"] == persisted_states_after["profile"]
+    persisted_summary_mtime_unchanged = persisted_states_before["summary"] == persisted_states_after["summary"]
+    persisted_history_mtime_unchanged = persisted_states_before["history"] == persisted_states_after["history"]
     loaded_profile = load_local_model_calibration_profile()
     persisted_created_at = float(persisted_summary.get("created_at") or 0.0)
     newest_source_mtime = max(
@@ -13089,9 +13094,9 @@ def _run_local_model_live_outcome_calibration_v1_summary(
         and (
             newest_source_mtime > persisted_created_at
             or int(persisted_summary.get("calibration_source_records_count") or 0)
-            != int(ephemeral_source.get("calibration_source_records_count") or 0)
+            != int(summary.get("calibration_source_records_count") or 0)
             or int(persisted_summary.get("candidate_join_matched_count") or 0)
-            != int(ephemeral_source.get("candidate_join_matched_count") or 0)
+            != int(summary.get("candidate_join_matched_count") or 0)
         )
     )
     calibration_recomputed_for_summary = True
@@ -13109,6 +13114,36 @@ def _run_local_model_live_outcome_calibration_v1_summary(
 
     def source_ready(*tokens: str) -> bool:
         return all(token in code_text for token in tokens)
+
+    persist_default_false = source_ready("def run(self, *, persist: bool = False)")
+    calibration_compute_write_separated = source_ready(
+        "def compute_calibration_profile", "def write_calibration_profile"
+    )
+    dry_read_profile_write_detected = not source_ready(
+        "def run_training(self, *, calibration_persist: bool = False)",
+        ").run(persist=calibration_persist)",
+    )
+    profile_write_attempted = bool(summary.get("calibration_profile_write_attempted"))
+    profile_write_performed = bool(summary.get("calibration_profile_write_performed"))
+    summary_write_attempted = bool(summary.get("calibration_summary_write_attempted"))
+    summary_write_performed = bool(summary.get("calibration_summary_write_performed"))
+    history_write_attempted = bool(summary.get("calibration_history_write_attempted"))
+    history_write_performed = bool(summary.get("calibration_history_write_performed"))
+    if profile_write_attempted or profile_write_performed or not persisted_profile_mtime_unchanged:
+        persistence_first_blocker = "profile_write_in_observe_only"
+    elif summary_write_attempted or summary_write_performed or not persisted_summary_mtime_unchanged:
+        persistence_first_blocker = "summary_write_in_observe_only"
+    elif history_write_attempted or history_write_performed or not persisted_history_mtime_unchanged:
+        persistence_first_blocker = "history_write_in_observe_only"
+    elif dry_read_profile_write_detected:
+        persistence_first_blocker = "dry_read_profile_write_detected"
+    elif not persist_default_false:
+        persistence_first_blocker = "persist_default_true_detected"
+    elif not calibration_compute_write_separated:
+        persistence_first_blocker = "calibration_compute_write_not_separated"
+    else:
+        persistence_first_blocker = "calibration_persistence_boundary_ready"
+    calibration_persistence_boundary_ready = persistence_first_blocker == "calibration_persistence_boundary_ready"
 
     confidence = dict(summary.get("confidence_calibration") or profile.get("confidence_calibration") or {})
     action_calibration = dict(summary.get("action_calibration") or profile.get("action_calibration") or {})
@@ -13144,6 +13179,7 @@ def _run_local_model_live_outcome_calibration_v1_summary(
             "local_model_calibration_source_loader_ready": source_ready("def load_sources", "calibration_source_records_count"),
             "candidate_observation_source_loaded": bool(summary.get("candidate_observation_source_loaded")),
             "no_data_calibration_state_ready": no_data_ready or int(summary.get("calibration_usable_records_count") or 0) > 0,
+            "calibration_persistence_boundary_ready": calibration_persistence_boundary_ready,
         },
         "matching": {
             "prediction_outcome_matcher_ready": bool(summary.get("prediction_outcome_matcher_ready")) and source_ready("model_prediction_matched_to_outcome"),
@@ -13201,9 +13237,13 @@ def _run_local_model_live_outcome_calibration_v1_summary(
         },
     }
     blocker_group = "none"
-    first_blocker = str(summary.get("first_blocker") or "calibration_loader_candidate_join_ready")
-    if first_blocker != "calibration_loader_candidate_join_ready":
+    first_blocker = persistence_first_blocker
+    join_first_blocker = str(summary.get("first_blocker") or "calibration_loader_candidate_join_ready")
+    if not calibration_persistence_boundary_ready:
+        blocker_group = "persistence"
+    elif join_first_blocker != "calibration_loader_candidate_join_ready":
         blocker_group = "candidate_join"
+        first_blocker = join_first_blocker
     else:
         for group, checks in checklist.items():
             missing = [name for name, ready in checks.items() if not ready]
@@ -13241,6 +13281,26 @@ def _run_local_model_live_outcome_calibration_v1_summary(
         "missing_local_model_confidence_after_join": int(summary.get("missing_local_model_confidence_after_join") or 0),
         "stale_calibration_profile_reused": stale_calibration_profile_reused,
         "calibration_recomputed_for_summary": calibration_recomputed_for_summary,
+        "calibration_persistence_boundary_ready": calibration_persistence_boundary_ready,
+        "observe_only_mode": True,
+        "calibration_ephemeral_recomputed": True,
+        "calibration_persist_requested": bool(summary.get("calibration_persist_requested")),
+        "calibration_profile_write_attempted": profile_write_attempted,
+        "calibration_profile_write_performed": profile_write_performed,
+        "calibration_summary_write_attempted": summary_write_attempted,
+        "calibration_summary_write_performed": summary_write_performed,
+        "calibration_history_write_attempted": history_write_attempted,
+        "calibration_history_write_performed": history_write_performed,
+        "observe_only_profile_write_attempted": profile_write_attempted,
+        "observe_only_profile_write_performed": profile_write_performed,
+        "persisted_profile_mtime_unchanged": persisted_profile_mtime_unchanged,
+        "persisted_summary_mtime_unchanged": persisted_summary_mtime_unchanged,
+        "persisted_history_mtime_unchanged": persisted_history_mtime_unchanged,
+        "dry_read_profile_write_detected": dry_read_profile_write_detected,
+        "persist_default_false": persist_default_false,
+        "calibration_compute_write_separated": calibration_compute_write_separated,
+        "ephemeral_usable_calibration_count": int(summary.get("calibration_usable_records_count") or 0),
+        "persisted_usable_calibration_count": int(profile.get("usable_records_count") or 0),
         "no_data_calibration_ready": no_data_ready,
         "calibration_data_insufficient": bool(summary.get("calibration_data_insufficient")),
         "model_prediction_matched_to_outcome_count": int(summary.get("model_prediction_matched_to_outcome_count") or 0),

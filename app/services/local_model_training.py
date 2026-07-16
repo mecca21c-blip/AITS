@@ -376,7 +376,7 @@ class AITSLocalModelTrainingPipeline:
             ]
         ) + "\n"
 
-    def run_training(self) -> dict:
+    def run_training(self, *, calibration_persist: bool = False) -> dict:
         started_at = time.time()
         model_id = f"local_baseline_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         loaded = self.load_training_data()
@@ -502,7 +502,7 @@ class AITSLocalModelTrainingPipeline:
         calibration_summary = AITSLocalModelCalibration(
             training_root=self.training_root,
             model_root=self.model_root,
-        ).run()
+        ).run(persist=calibration_persist)
         result = {
             **loaded,
             **{key: value for key, value in matrix.items() if key != "matrix"},

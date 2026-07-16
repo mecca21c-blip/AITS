@@ -640,9 +640,9 @@ class AITSLocalModelCalibration:
         with self.history_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(profile, ensure_ascii=False, default=str) + "\n")
 
-    def run(self) -> dict:
+    def compute_calibration_profile(self) -> dict:
         logging.getLogger("aits").info(
-            "[AITS][LocalModelCalibration] event=calibration_started source=observed_outcomes actual_order=False submitted=0"
+            "[AITS][LocalModelCalibration] event=calibration_compute_started source=observed_outcomes persist_requested=false actual_order=False submitted=0"
         )
         source = self.load_sources()
         analysis = self.analyze(source)
@@ -709,16 +709,67 @@ class AITSLocalModelCalibration:
             "no_data_calibration_ready": bool(source["calibration_source_records_count"] == 0 and not safe_for_expansion),
             "local_model_policy_update_applied": False,
             "blocker": blocker,
+            "calibration_compute_write_separated": True,
+            "calibration_persist_requested": False,
+            "calibration_profile_write_attempted": False,
+            "calibration_profile_write_performed": False,
+            "calibration_summary_write_attempted": False,
+            "calibration_summary_write_performed": False,
+            "calibration_history_write_attempted": False,
+            "calibration_history_write_performed": False,
         }
-        self._write_json_atomic(self.profile_path, profile)
-        self._append_history_once(profile)
-        self._write_json_atomic(self.summary_path, summary)
         logging.getLogger("aits").info(
-            "[AITS][LocalModelCalibration] event=calibration_profile_written source_records=%s usable_records=%s data_sufficiency=%s safe_for_policy_use=true safe_for_live_expansion=%s policy_update_applied=false blocker=%s actual_order=False submitted=0",
+            "[AITS][LocalModelCalibration] event=calibration_computed source_records=%s usable_records=%s data_sufficiency=%s persist_requested=false safe_for_policy_use=true safe_for_live_expansion=%s policy_update_applied=false blocker=%s actual_order=False submitted=0",
             source["calibration_source_records_count"], source["calibration_usable_records_count"],
             analysis["data_sufficiency"], safe_for_expansion, blocker or "-",
         )
+        return {"profile": profile, "summary": summary}
+
+    @staticmethod
+    def _file_state(path: Path) -> tuple[int, int] | None:
+        if not path.exists():
+            return None
+        stat = path.stat()
+        return stat.st_mtime_ns, stat.st_size
+
+    def write_calibration_profile(self, computed: dict) -> dict:
+        profile = dict(computed.get("profile") or {})
+        summary = dict(computed.get("summary") or {})
+        profile_before = self._file_state(self.profile_path)
+        history_before = self._file_state(self.history_path)
+        summary_before = self._file_state(self.summary_path)
+
+        summary.update({
+            "calibration_persist_requested": True,
+            "calibration_profile_write_attempted": True,
+            "calibration_summary_write_attempted": True,
+            "calibration_history_write_attempted": True,
+        })
+        self._write_json_atomic(self.profile_path, profile)
+        self._append_history_once(profile)
+        summary.update({
+            "calibration_profile_write_performed": self._file_state(self.profile_path) != profile_before,
+            "calibration_history_write_performed": self._file_state(self.history_path) != history_before,
+            "calibration_summary_write_performed": True,
+        })
+        self._write_json_atomic(self.summary_path, summary)
+        summary["calibration_summary_write_performed"] = self._file_state(self.summary_path) != summary_before
+        logging.getLogger("aits").info(
+            "[AITS][LocalModelCalibration] event=calibration_profile_written source_records=%s usable_records=%s persist_requested=true profile_write=%s summary_write=%s history_write=%s safe_for_live_expansion=%s policy_update_applied=false actual_order=False submitted=0",
+            int(summary.get("calibration_source_records_count") or 0),
+            int(summary.get("calibration_usable_records_count") or 0),
+            bool(summary.get("calibration_profile_write_performed")),
+            bool(summary.get("calibration_summary_write_performed")),
+            bool(summary.get("calibration_history_write_performed")),
+            bool(summary.get("safe_for_live_expansion")),
+        )
         return summary
+
+    def run(self, *, persist: bool = False) -> dict:
+        computed = self.compute_calibration_profile()
+        if persist:
+            return self.write_calibration_profile(computed)
+        return dict(computed["summary"])
 
 
 def load_local_model_calibration_profile(
