@@ -53,6 +53,20 @@ class LocalEngineAuthorityPolicyV1:
         "maximum_brier_score": 0.35,
         "maximum_unsafe_predictions": 0,
     }
+    elevated_authority_thresholds = {
+        "minimum_local_final_confidence": 0.75,
+        "maximum_high_confidence_error_rate": 0.05,
+        "maximum_expected_calibration_error": 0.20,
+        "teacher_audit_rate_level4": 0.10,
+        "teacher_audit_rate_level5": 0.05,
+    }
+    deployment_resource_thresholds = {
+        "maximum_artifact_size_mb": 512.0,
+        "maximum_inference_latency_ms": 500.0,
+        "maximum_peak_memory_mb": 1024.0,
+        "cpu_only_required": True,
+        "external_runtime_allowed": False,
+    }
     demotion_thresholds = {
         "maximum_drift_score": 0.65,
         "maximum_teacher_disagreement": 0.55,
@@ -72,6 +86,8 @@ class LocalEngineAuthorityPolicyV1:
             "promotion_thresholds": dict(cls.promotion_thresholds),
             "level2_task_thresholds": dict(cls.level2_task_thresholds),
             "level2_global_thresholds": dict(cls.level2_global_thresholds),
+            "elevated_authority_thresholds": dict(cls.elevated_authority_thresholds),
+            "deployment_resource_thresholds": dict(cls.deployment_resource_thresholds),
             "demotion_thresholds": dict(cls.demotion_thresholds),
             "recent_data_weight": cls.recent_data_weight,
             "historical_replay_weight": cls.historical_replay_weight,
@@ -194,6 +210,8 @@ class AITSLocalEngineAuthorityManager:
             "updated_at": state["updated_at"],
             "task_capabilities": state.get("task_capabilities") or {},
         })
+        from app.services.local_engine_task_action_matrix import AITSLocalEngineTaskActionMatrix
+        AITSLocalEngineTaskActionMatrix(self.root.parent).persist(state)
         atomic_write_json(self.health_path, {
             "schema": "aits_local_engine_health_state.v1",
             "updated_at": state["updated_at"],
@@ -471,16 +489,41 @@ class AITSLocalEngineAuthorityManager:
         result = self.rollback(reason=matched[0], persist=persist)
         return {**result, "rollback_applied": True, "rollback_reason_codes": matched}
 
-    def router_metadata(self, *, task_key: str, action: str = "") -> dict[str, Any]:
-        state = self.inspect()
-        task = dict((state.get("task_capabilities") or {}).get(task_key) or {})
-        effective = min(
-            int(state.get("global_level") or 0), int(task.get("capability_level") or 0),
-            int(state.get("model_capability_level") or 0), int(state.get("health_level_cap") or 0),
-            int(state.get("user_level_cap") or 0),
+    def propose_authority_grant(self, **contract: Any) -> dict[str, Any]:
+        """Create an inert proposal; it grants no authority until explicit approval."""
+        from app.services.local_engine_authority_grants import AITSLocalEngineAuthorityGrantRepository
+        return AITSLocalEngineAuthorityGrantRepository(self.root).propose(**contract)
+
+    def approve_authority_grant(self, proposal: dict[str, Any], *, approved_by: str,
+                                persist: bool = True) -> dict[str, Any]:
+        from app.services.local_engine_authority_grants import AITSLocalEngineAuthorityGrantRepository
+        return AITSLocalEngineAuthorityGrantRepository(self.root).approve(
+            proposal, approved_by=approved_by, persist=persist,
         )
-        order_action = str(action or "").lower() in ORDER_ACTIONS
-        local_final_allowed = bool(effective >= 3 and not order_action and state.get("authority_approved_by_user"))
+
+    def revoke_authority_grant(self, grant_id: str, *, reason: str,
+                               persist: bool = True) -> dict[str, Any]:
+        from app.services.local_engine_authority_grants import AITSLocalEngineAuthorityGrantRepository
+        return AITSLocalEngineAuthorityGrantRepository(self.root).revoke(
+            grant_id, reason=reason, persist=persist,
+        )
+
+    def router_metadata(self, *, task_key: str, action: str = "", confidence: float = 0.0,
+                        risk_level: str = "unknown", abstain: bool = False,
+                        out_of_distribution: bool = False, teacher_available: bool = True) -> dict[str, Any]:
+        state = self.inspect()
+        from app.services.local_engine_authority_resolver import AITSLocalEngineAuthorityResolver
+
+        state["authority_policy"] = {
+            "minimum_local_final_confidence": self.policy.elevated_authority_thresholds["minimum_local_final_confidence"]
+        }
+        resolution = AITSLocalEngineAuthorityResolver(self.root.parent).resolve(
+            authority=state, task_key=task_key, action=str(action or "wait"),
+            confidence=float(confidence or 0.0), risk_level=risk_level, abstain=abstain,
+            out_of_distribution=out_of_distribution, teacher_available=teacher_available,
+        )
+        task = dict((state.get("task_capabilities") or {}).get(task_key) or {})
+        effective = int(resolution.get("effective_level") or 0)
         return {
             "global_level": int(state.get("global_level") or 0),
             "task_level": int(task.get("capability_level") or 0),
@@ -489,8 +532,19 @@ class AITSLocalEngineAuthorityManager:
             "effective_level": effective,
             "authority_state": LEVEL_AUTHORITY[effective],
             "model_id": state.get("champion_model_id"),
-            "local_final_allowed": local_final_allowed,
-            "external_confirmation_required": not local_final_allowed,
+            "action_level": int((resolution.get("matrix_entry") or {}).get("action_capability_level") or 0),
+            "approved_level": int((resolution.get("matrix_entry") or {}).get("approved_level") or 0),
+            "user_grant_id": str(resolution.get("user_grant_id") or ""),
+            "calibrator_id": str(resolution.get("calibrator_id") or ""),
+            "local_final_allowed": bool(resolution.get("local_final_allowed")),
+            "local_non_order_final_allowed": bool(resolution.get("local_non_order_final_allowed")),
+            "local_order_final_candidate_allowed": bool(resolution.get("local_order_final_candidate_allowed")),
+            "external_confirmation_required": bool(resolution.get("external_confirmation_required", True)),
+            "teacher_sampling_required": bool(resolution.get("teacher_sampling_required")),
+            "safe_hold_required": bool(resolution.get("safe_hold_required")),
+            "authority_blockers": list(resolution.get("authority_blockers") or []),
+            "authority_reason_ko": str(resolution.get("decision_reason_ko") or ""),
+            "teacher_audit": dict(resolution.get("teacher_audit") or {}),
             "escalation_reason": "candidate_only_authority" if effective <= 1 else "external_confirmation_policy",
             "level_decision_reason": state.get("blocker") or "authority_policy_evaluated",
             "riskguard_required": True,

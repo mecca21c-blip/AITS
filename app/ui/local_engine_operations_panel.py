@@ -240,6 +240,11 @@ def _apply_snapshot(window, snapshot: dict) -> None:
             else ""
         )
     )
+    future = dict(view.get("future_levels") or {})
+    window.lbl_local_future_levels.setText(
+        f"{future.get('summary', '')}\n" + "\n".join(future.get("levels") or []) +
+        f"\n{future.get('task_authority_summary', '')}\n{future.get('separation_notice', '')}"
+    )
 
     challenger_visible = bool(view.get("challenger_visible"))
     window.frm_local_new_model.setVisible(challenger_visible)
@@ -449,6 +454,13 @@ def build_local_engine_operations_card(window, build_card):
     window.lbl_local_level2_readiness.setWordWrap(True)
     layout.addWidget(window.lbl_local_level2_readiness)
 
+    layout.addWidget(_section_label("다음 성장 단계"))
+    window.lbl_local_future_levels = QLabel("Lv3~Lv5 권한 구조를 확인하는 중입니다.")
+    window.lbl_local_future_levels.setObjectName("local_engine_future_levels")
+    window.lbl_local_future_levels.setProperty("task_authority_summary", True)
+    window.lbl_local_future_levels.setWordWrap(True)
+    layout.addWidget(window.lbl_local_future_levels)
+
     window.frm_local_new_model = QFrame()
     window.frm_local_new_model.setObjectName("local_engine_champion_challenger")
     model_layout = QVBoxLayout(window.frm_local_new_model)
@@ -512,6 +524,10 @@ def build_local_engine_operations_card(window, build_card):
     advanced.addLayout(maintenance_row)
 
     advanced.addWidget(_section_label("성장 단계·판단 권한"))
+    advanced.addWidget(QLabel(
+        "승인 범위는 기능과 행동별로 관리됩니다. 모델 교체는 권한 승격이 아니며, "
+        "승인되지 않은 매도·매수 판단은 계속 외부 AI 확인이 필요합니다."
+    ))
     authority_row = QGridLayout()
     controls = (
         ("btn_local_ops_demotion", "한 단계 낮추기", "demote", 0, 0),

@@ -29,9 +29,12 @@ FILE_NAMES = {
     "local_engine_authority_state.json": "LOCAL 판단 권한 상태",
     "local_engine_authority_history.jsonl": "LOCAL 권한 변경 이력",
     "local_engine_capability_matrix.json": "기능별 학습 단계",
+    "local_engine_task_action_authority_matrix.json": "기능·행동별 판단 권한",
     "local_engine_health_state.json": "엔진 전체 상태",
     "local_engine_continuous_learning_state.json": "모델 학습 진행 상태",
     "local_engine_teacher_sync_state.json": "교사 AI 학습 상태",
+    "local_engine_authority_grants.jsonl": "사용자 판단 권한 승인 이력",
+    "local_engine_authority_grant_state.json": "현재 기능별 승인 범위",
     "local_engine_candidate_observations.jsonl": "LOCAL 후보 판단 기록",
     "outcome_records.jsonl": "판단 결과 기록",
     "provider_comparison_outcomes.jsonl": "교사 AI 비교 기록",
@@ -167,6 +170,11 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
     promotion_visible = bool(snapshot.get("promotion_candidate"))
     level2 = dict(snapshot.get("level2_readiness") or {})
     confidence_calibration = dict(snapshot.get("confidence_calibration") or {})
+    authority_matrix = dict(snapshot.get("task_action_authority_matrix") or {})
+    active_grant_count = len({
+        str(row.get("user_grant_id")) for row in authority_matrix.get("entries") or []
+        if str(row.get("user_grant_id") or "")
+    })
     level2_eligible = bool(level2.get("global_level2_eligibility"))
     eligible_tasks = list(level2.get("level2_eligible_tasks") or [])
     ineligible_tasks = list(level2.get("level2_ineligible_tasks") or [])
@@ -243,6 +251,20 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
             "ece_before": (confidence_calibration.get("holdout_raw_metrics") or {}).get("expected_calibration_error"),
             "ece_after": (confidence_calibration.get("holdout_metrics") or {}).get("expected_calibration_error"),
             "calibration_attempt_status": str(confidence_calibration.get("attempt_status") or ""),
+        },
+        "future_levels": {
+            "title": "다음 성장 단계",
+            "summary": "Lv3~Lv5 구조는 준비되어 있지만 현재는 Lv1 후보 판단만 사용합니다.",
+            "levels": [
+                "Lv3 · 제한적 독립 — 승인된 보유·대기 같은 비주문 판단만 가능",
+                "Lv4 · 주 판단자 — 승인된 기능·행동에서 LOCAL 판단 후보 가능, 모든 안전 검증 필수",
+                "Lv5 · 내부 자산운용자 — 승인 범위에서 LOCAL 우선, 고위험·불확실 판단은 외부 AI 감사",
+            ],
+            "task_authority_summary": (
+                f"승인 범위 {active_grant_count}건 · {int(authority_matrix.get('task_count') or 0)}개 기능과 "
+                f"{int(authority_matrix.get('action_count') or 0)}개 행동을 개별 관리합니다."
+            ),
+            "separation_notice": "모델 교체, Level 권한 승격, 기능별 승인 범위는 서로 다른 작업입니다.",
         },
         "rollback_visible": bool(snapshot.get("rollback_available")),
         "recommended_action": recommended,

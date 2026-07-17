@@ -9,6 +9,7 @@ from typing import Any
 from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
 from app.services.local_engine_continuous_learning import AITSLocalEngineContinuousLearning
 from app.services.local_model_registry import AITSLocalModelRegistry
+from app.services.local_engine_authority_grants import AITSLocalEngineAuthorityGrantRepository
 
 
 class AITSLocalEngineOperations:
@@ -46,6 +47,19 @@ class AITSLocalEngineOperations:
         )
         if not restored.get("restored"):
             return {"approved": False, **restored}
+        grant_repo = AITSLocalEngineAuthorityGrantRepository(self.authority.root)
+        grant_state = grant_repo.inspect()
+        revoked_grants = []
+        for grant in list(grant_state.get("active_grants") or []):
+            if str(grant.get("model_id") or "") == challenger_id:
+                continue
+            revoked = grant_repo.revoke(
+                str(grant.get("grant_id") or ""),
+                reason="champion_model_changed_reapproval_required",
+                persist=True,
+            )
+            if revoked.get("revoked"):
+                revoked_grants.append(str(grant.get("grant_id") or ""))
         state["previous_champion_model_id"] = champion_id
         state["champion_model_id"] = challenger_id
         state["challenger_model_id"] = ""
@@ -55,7 +69,8 @@ class AITSLocalEngineOperations:
             event="champion_replaced",
             reason_codes=["same_level_user_approved_challenger"],
         )
-        return {"approved": True, "champion_model_id": challenger_id, "authority_level_changed": False}
+        return {"approved": True, "champion_model_id": challenger_id, "authority_level_changed": False,
+                "revoked_incompatible_grants": revoked_grants, "grant_reapproval_required": bool(revoked_grants)}
 
     def rollback_champion(self) -> dict[str, Any]:
         state = self.authority.inspect()

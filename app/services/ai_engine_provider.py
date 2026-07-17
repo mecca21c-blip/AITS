@@ -1673,6 +1673,11 @@ class AIEngineProvider:
         authority_metadata = AITSLocalEngineAuthorityManager().router_metadata(
             task_key=_local_engine_authority_task_key(task, pre_copilot_action),
             action=pre_copilot_action,
+            confidence=float(local_model.get("model_confidence") or model_routing_decision.get("confidence") or 0.0),
+            risk_level=str(local_model.get("model_risk_level") or model_routing_decision.get("risk_level") or "unknown"),
+            abstain=bool(local_model.get("model_abstain_required") or model_routing_decision.get("abstain_required")),
+            out_of_distribution=bool(local_model.get("model_out_of_distribution") or model_routing_decision.get("out_of_distribution")),
+            teacher_available=requested_provider in {"openai", "gemini"},
         )
         copilot_decision = AITSLocalEngineCopilot().build(
             candidate=model_routing_decision if local_model.get("local_model_decision_available") else {},
@@ -1699,6 +1704,18 @@ class AIEngineProvider:
             context=context,
             local_model=local_model,
         )
+        if (
+            authority_metadata.get("local_final_allowed")
+            and not authority_metadata.get("external_confirmation_required", True)
+            and not authority_metadata.get("teacher_sampling_required")
+        ):
+            escalation = {
+                **escalation,
+                "escalation_required": False,
+                "escalation_target_provider": "",
+                "escalation_blocker": "",
+                "escalation_reason": "approved_local_authority_no_external_confirmation_required",
+            }
         external_provider = str(escalation.get("escalation_target_provider") or "")
         if not local_available and escalation.get("escalation_required") and external_provider:
             _safe_log_info(
@@ -1760,14 +1777,24 @@ class AIEngineProvider:
         local_action = str(local_decision.get("action") or "wait").lower()
         model_action = str(local_model.get("model_recommended_action") or "").lower()
         model_available = bool(local_model.get("local_model_decision_available"))
-        model_live_allowed = bool(
-            local_model.get("local_model_live_allowed")
-            and authority_metadata.get("local_final_allowed")
+        # Elevated LOCAL authority is owned exclusively by the scoped Authority
+        # Resolver. Legacy registry live flags remain false at today's Lv1 and
+        # must not become a second, conflicting Lv3-Lv5 authority SSOT.
+        model_live_allowed = bool(authority_metadata.get("local_final_allowed"))
+        model_safe_action = bool(
+            model_action in _LOCAL_SAFE_ACTIONS
+            or authority_metadata.get("local_order_final_candidate_allowed")
         )
-        model_safe_action = model_action in _LOCAL_SAFE_ACTIONS
         model_confidence = float(local_model.get("model_confidence") or 0.0)
         local_model_agrees_with_local = bool(model_available and model_action == local_action)
-        if external_valid:
+        external_is_final_authority = bool(
+            external_valid
+            and (
+                int(authority_metadata.get("effective_level") or 0) < 5
+                or authority_metadata.get("external_confirmation_required", True)
+            )
+        )
+        if external_is_final_authority:
             final_decision = dict(external_decision)
             final_provider_source = external_provider
             source_reason = "external_provider_validated_after_local_first"
@@ -1775,10 +1802,9 @@ class AIEngineProvider:
             model_available
             and model_live_allowed
             and model_safe_action
-            and (not local_available or local_model_agrees_with_local or model_confidence >= float(local_decision.get("confidence") or 0.0))
         ):
             final_decision = dict(model_routing_decision)
-            final_provider_source = "local_model"
+            final_provider_source = "local_engine"
             source_reason = "registry_approved_local_model_safe_decision"
             _safe_log_info(
                 "[AITS][LocalModelProvider] event=provider_candidate_created "
@@ -1864,21 +1890,40 @@ class AIEngineProvider:
                 "local_model_risk_score": local_model.get("model_risk_score"),
                 "local_model_agrees_with_local": local_model_agrees_with_local,
                 "local_model_agrees_with_external": bool(model_available and external_valid and model_action == str(external_decision.get("action") or "").lower()),
-                "local_model_changed_final_decision": final_provider_source == "local_model" and model_action != local_action,
-                "local_model_used_for_final": final_provider_source == "local_model",
+                "local_model_changed_final_decision": final_provider_source == "local_engine" and model_action != local_action,
+                "local_model_used_for_final": final_provider_source == "local_engine",
                 "local_model_prediction_vs_local": "agree" if local_model_agrees_with_local else ("disagree" if model_available else "unavailable"),
                 "local_model_prediction_vs_external": "agree" if model_available and external_valid and model_action == str(external_decision.get("action") or "").lower() else ("disagree" if model_available and external_valid else "not_compared"),
                 "local_model_prediction_vs_final": "agree" if model_available and model_action == str(final_decision.get("action") or "").lower() else ("disagree" if model_available else "unavailable"),
                 "local_model_prediction_outcome_pending": bool(model_available),
-                "local_model_not_used_reason": "" if final_provider_source == "local_model" else str(local_model.get("local_model_prediction_blocker") or ("external_provider_selected" if external_valid else "existing_local_decision_retained")),
+                "local_model_not_used_reason": "" if final_provider_source == "local_engine" else str(local_model.get("local_model_prediction_blocker") or ("external_provider_selected" if external_valid else "existing_local_decision_retained")),
                 "local_model_live_blocker": str(local_model.get("local_model_prediction_blocker") or ""),
                 "local_engine_authority": authority_metadata,
                 "local_engine_global_level": int(authority_metadata.get("global_level") or 0),
                 "local_engine_task_level": int(authority_metadata.get("task_level") or 0),
+                "local_engine_action_level": int(authority_metadata.get("action_level") or 0),
                 "local_engine_effective_level": int(authority_metadata.get("effective_level") or 0),
                 "local_engine_authority_state": str(authority_metadata.get("authority_state") or "external_only"),
+                "local_engine_user_grant_id": str(authority_metadata.get("user_grant_id") or ""),
                 "local_engine_local_final_allowed": bool(authority_metadata.get("local_final_allowed")),
                 "local_engine_external_confirmation_required": bool(authority_metadata.get("external_confirmation_required", True)),
+                "local_engine_teacher_sampling_required": bool(authority_metadata.get("teacher_sampling_required")),
+                "local_engine_authority_blockers": list(authority_metadata.get("authority_blockers") or []),
+                "local_engine_authority_reason_ko": str(authority_metadata.get("authority_reason_ko") or ""),
+                "authority_level": int(authority_metadata.get("global_level") or 0),
+                "task_level": int(authority_metadata.get("task_level") or 0),
+                "action_level": int(authority_metadata.get("action_level") or 0),
+                "effective_level": int(authority_metadata.get("effective_level") or 0),
+                "authority_state": str(authority_metadata.get("authority_state") or "external_only"),
+                "user_grant_id": str(authority_metadata.get("user_grant_id") or ""),
+                "local_candidate_action": model_action,
+                "local_candidate_confidence": model_confidence,
+                "local_candidate_risk": local_model.get("model_risk_score"),
+                "local_final_eligible": bool(authority_metadata.get("local_final_allowed")),
+                "external_confirmation_required": bool(authority_metadata.get("external_confirmation_required", True)),
+                "teacher_sampling_required": bool(authority_metadata.get("teacher_sampling_required")),
+                "authority_blockers": list(authority_metadata.get("authority_blockers") or []),
+                "authority_reason_ko": str(authority_metadata.get("authority_reason_ko") or ""),
                 "local_engine_copilot": copilot_decision,
                 "copilot_consulted": bool(local_model.get("local_model_decision_available")),
                 "copilot_recommendation_used": copilot_routing_active,
@@ -1893,6 +1938,10 @@ class AIEngineProvider:
                 "final_action_source": final_provider_source,
                 "copilot_final_action_count": 0,
                 "validator_applied_to_external_response": bool(external_called),
+                "validator_result": (
+                    "passed" if bool(final_decision.get("validation_passed"))
+                    else "failed" if external_called or model_available else "not_applicable"
+                ),
                 "local_only_order_action_blocked_without_external_confirmation": source_reason == "local_order_action_blocked_without_external_confirmation",
                 "actual_order": False,
                 "submitted": 0,

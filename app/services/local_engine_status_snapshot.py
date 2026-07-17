@@ -74,6 +74,8 @@ class AITSLocalEngineStatusSnapshot:
         confidence_calibration = read_json_dict(
             self.models_root / "latest_confidence_calibration_attempt.json", {}
         )
+        from app.services.local_engine_task_action_matrix import AITSLocalEngineTaskActionMatrix
+        task_action_matrix = AITSLocalEngineTaskActionMatrix(self.data_root).build(authority)
         curated = read_json_dict(self.training_root / "curated_local_training_summary.json", {})
         features = read_json_dict(self.training_root / "local_training_feature_summary.json", {})
         distillation = read_json_dict(self.training_root / "local_engine_teacher_distillation_summary.json", {})
@@ -109,9 +111,12 @@ class AITSLocalEngineStatusSnapshot:
             (self.local_root / "local_engine_authority_state.json", None, False),
             (self.local_root / "local_engine_authority_history.jsonl", None, False),
             (self.local_root / "local_engine_capability_matrix.json", None, False),
+            (self.local_root / "local_engine_task_action_authority_matrix.json", None, False),
             (self.local_root / "local_engine_health_state.json", None, False),
             (self.local_root / "local_engine_continuous_learning_state.json", None, False),
             (self.local_root / "local_engine_teacher_sync_state.json", None, False),
+            (self.local_root / "local_engine_authority_grants.jsonl", None, False),
+            (self.local_root / "local_engine_authority_grant_state.json", None, False),
             (self.local_root / "local_engine_candidate_observations.jsonl", counts["candidate_observations"], True),
             (self.training_root / "outcome_records.jsonl", counts["outcome_decisions"], True),
             (self.training_root / "provider_comparison_outcomes.jsonl", None, True),
@@ -144,6 +149,7 @@ class AITSLocalEngineStatusSnapshot:
             "promotion_candidate": authority.get("promotion_candidate"),
             "level2_readiness": level2,
             "confidence_calibration": confidence_calibration,
+            "task_action_authority_matrix": task_action_matrix,
             "rollback_available": bool(authority.get("rollback_available")),
             "raw_jsonl_scanned": False, "low_resource_mode_integrated": True,
         }
