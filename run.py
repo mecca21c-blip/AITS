@@ -3,6 +3,16 @@ import sys
 import logging
 import threading
 
+
+def _configure_release_environment() -> None:
+    """Apply laptop-safe thread/Qt defaults before importing numerical or Qt modules."""
+    for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(name, "2")
+    os.environ.setdefault("QT_OPENGL", "software")
+
+
+_configure_release_environment()
+
 try:
     from dotenv import load_dotenv
 
@@ -16,29 +26,13 @@ from typing import Any, Dict, Optional
 from app.utils.prefs import init_prefs
 from app.core.aits_state import AITSRuntimeState
 from app.services.aits_orchestrator import AITSOrchestrator
-
-
-def _get_packaged_writable_data_dir() -> str:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        local_app_data = os.path.join(os.path.expanduser("~"), "AppData", "Local")
-    return os.path.join(local_app_data, "AITS", "data")
+from app.services.aits_path_resolver import AITSPathResolver
 
 
 def resolve_paths() -> Dict[str, str]:
-    frozen = getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
-    if frozen:
-        root_dir = os.path.dirname(os.path.abspath(sys.executable))
-        data_dir = _get_packaged_writable_data_dir()
-    else:
-        root_dir = os.path.dirname(os.path.abspath(__file__))
-        data_dir = os.path.join(root_dir, "data")
-    log_dir = os.path.join(data_dir, "logs")
-    return {
-        "root_dir": root_dir,
-        "data_dir": data_dir,
-        "log_dir": log_dir,
-    }
+    paths = AITSPathResolver.resolve(module_file=__file__)
+    data_dir = AITSPathResolver.runtime_data_dir(paths)
+    return {**paths.as_strings(), "root_dir": str(paths.app_root), "data_dir": str(data_dir), "log_dir": str(paths.user_data_root / "logs")}
 
 
 def ensure_runtime_dirs(data_dir: str, log_dir: str) -> None:
@@ -353,6 +347,12 @@ def run_headless(app_context: Dict[str, Any]) -> int:
 
 
 def main() -> int:
+    if __name__ == "__main__":
+        try:
+            import multiprocessing
+            multiprocessing.freeze_support()
+        except Exception:
+            pass
     run_mode = "ui"
     if "--headless" in sys.argv:
         run_mode = "headless"
@@ -361,6 +361,8 @@ def main() -> int:
     logger: Optional[logging.Logger] = None
     try:
         paths = resolve_paths()
+        resolved = AITSPathResolver.resolve(module_file=__file__)
+        AITSPathResolver.ensure_writable_roots(resolved)
         ensure_runtime_dirs(paths["data_dir"], paths["log_dir"])
         logger = init_logging(paths["log_dir"])
         logger.info("AITS bootstrap start")

@@ -30,6 +30,8 @@ class LocalEngineSnapshotWorker(QThread):
             )
             from app.services.aits_data_governance import AITSDataGovernanceService
             value["data_governance"] = AITSDataGovernanceService().snapshot(deep=False)
+            from app.services.aits_release_operations import AITSReleaseOperations
+            value["release_operations"] = AITSReleaseOperations().snapshot()
         except Exception as exc:
             value = {"snapshot_ready": False, "error": type(exc).__name__}
         self.result_ready.emit(value)
@@ -325,6 +327,20 @@ def _apply_snapshot(window, snapshot: dict) -> None:
         for button in window.data_governance_heavy_buttons:
             button.setEnabled(not live)
 
+    release = dict(snapshot.get("release_operations") or {})
+    release_view = dict(release.get("user_view") or {})
+    if hasattr(window, "lbl_release_operations_summary"):
+        window.lbl_release_operations_summary.setText(
+            f"{release_view.get('headline', 'AITS 버전 확인 필요')}\n"
+            f"설치 유형 · {release_view.get('install_type', '확인 필요')}\n"
+            f"현재 데이터 위치 · {release_view.get('data_location', '')}\n"
+            f"백업 위치 · {release_view.get('backup_location', '')}\n"
+            f"데이터 schema · {release_view.get('schema_status', '확인 필요')}\n"
+            f"{release_view.get('low_resource_status', '')}\n{release_view.get('first_run_notice', '')}"
+        )
+        for button in window.release_operations_off_only_buttons:
+            button.setEnabled(not live)
+
     from app.services.local_engine_status_snapshot import AITSLocalEngineStatusSnapshot
     events = AITSLocalEngineStatusSnapshot.recent_history(limit=8)
     lines = [
@@ -395,6 +411,27 @@ def _governance_plan(window, action: str) -> None:
         plan = {"operation_executed": False}
         detail = "원본을 보존하는 파생 데이터 재생성 계획이 준비됐습니다."
     QMessageBox.information(window, "데이터·백업", detail + f"\n실제 실행: {'예' if plan.get('operation_executed') else '아니요'}")
+
+
+def _release_plan(window, action: str) -> None:
+    if _runtime_active(window):
+        QMessageBox.warning(window, "앱 정보·업데이트", "실시간 감시 중에는 업데이트·복구 작업을 실행할 수 없습니다.")
+        return
+    from app.services.aits_release_operations import AITSReleaseOperations
+    from app.services.aits_support_bundle import AITSSupportBundle
+    if action == "update":
+        result = AITSReleaseOperations().update_plan("사용자가 선택할 package", runtime_active=False)
+        text = "업데이트 package의 manifest, hash, schema 호환성을 확인하는 계획입니다. 사용자 데이터는 덮어쓰지 않습니다."
+    elif action == "rollback":
+        result = AITSReleaseOperations().rollback_plan("이전 release manifest", runtime_active=False)
+        text = "이전 앱 버전으로 되돌려도 사용자 데이터는 유지됩니다. 데이터 rollback은 별도 승인 대상입니다."
+    elif action == "support":
+        result = AITSSupportBundle().plan(Path("data"))
+        text = "API key와 개인 데이터를 제외한 지원용 진단 파일 생성 계획입니다."
+    else:
+        result = {"operation_executed": False}
+        text = "앱 버전과 데이터 위치를 새로 확인했습니다."
+    QMessageBox.information(window, "앱 정보·업데이트", text + f"\n실제 실행: {'예' if result.get('operation_executed') else '아니요'}")
 
 
 def _state_file_action(window, action: str) -> None:
@@ -653,6 +690,21 @@ def build_local_engine_operations_card(window, build_card):
         governance_header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
     advanced.addWidget(window.tbl_data_governance_catalog)
     advanced.addWidget(QLabel("보관 정책 설정 · 원본 자동 삭제 꺼짐 · 학습 제외는 원본 삭제가 아닙니다."))
+
+    advanced.addWidget(_section_label("앱 정보·데이터 위치·업데이트"))
+    window.lbl_release_operations_summary = QLabel("앱 버전과 데이터 위치를 확인하는 중입니다.")
+    window.lbl_release_operations_summary.setObjectName("release_operations_user_summary")
+    window.lbl_release_operations_summary.setWordWrap(True)
+    advanced.addWidget(window.lbl_release_operations_summary)
+    release_actions = QHBoxLayout()
+    window.release_operations_off_only_buttons = []
+    for text, action in (("업데이트 계획 보기", "update"), ("이전 앱 버전으로 되돌리기", "rollback"), ("지원용 진단 파일 만들기", "support")):
+        button = QPushButton(text)
+        button.setProperty("off_only_release_operation", True)
+        button.clicked.connect(lambda checked=False, name=action: _release_plan(window, name))
+        release_actions.addWidget(button)
+        window.release_operations_off_only_buttons.append(button)
+    advanced.addLayout(release_actions)
 
     window.lbl_local_history = QLabel("최근 운영 이력을 확인하는 중입니다.")
     window.lbl_local_history.setObjectName("local_engine_history_ui")

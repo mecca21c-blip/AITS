@@ -1,0 +1,22 @@
+{
+  "schema": "aits_release_model_bundle.v1",
+  "bundle_id": "aits-no-bootstrap-model-v1",
+  "model_id": null,
+  "model_schema": null,
+  "model_version": null,
+  "calibrator_id": null,
+  "supported_tasks": [],
+  "supported_actions": [],
+  "model_hash": "",
+  "artifact_size_mb": 0,
+  "cpu_only_supported": true,
+  "gpu_required": false,
+  "external_runtime_required": false,
+  "minimum_memory_mb": 0,
+  "package_compatible": true,
+  "license_id": null,
+  "approved_for_release": false,
+  "safe_for_live_decision": false,
+  "default_authority_level": 0,
+  "blocker": "no_approved_bootstrap_model"
+}

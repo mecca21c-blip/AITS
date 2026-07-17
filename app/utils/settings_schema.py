@@ -112,6 +112,17 @@ class DataGovernancePolicyConfig(BaseModel):
     allow_derived_reset: bool = True
     allow_full_reset: bool = False
 
+
+class ReleaseOperationsConfig(BaseModel):
+    release_channel: str = "release_candidate"
+    low_resource_release_profile: bool = True
+    automatic_network_update_enabled: bool = False
+    update_requires_user_approval: bool = True
+    update_requires_offline: bool = True
+    preserve_user_data_on_uninstall: bool = True
+    support_bundle_secret_exclusion: bool = True
+    optional_backup_encryption_enabled: bool = False
+
 # ---- Strategy schema (defaults only; UI validates ranges) ----
 # 사용자 노출: aggressiveness(3단계), order_amount_krw, allow_downscale_order_amount, whitelist, blacklist
 # 내부 전용: aggressiveness_level, pos_size_pct, rr_ratio 등 → aggressiveness 프리셋으로 설정
@@ -268,6 +279,7 @@ class AppSettings(BaseModel):
     ui: UIConfig = UIConfig()
     runtime_resource: RuntimeResourceConfig = RuntimeResourceConfig()
     data_governance_policy: DataGovernancePolicyConfig = DataGovernancePolicyConfig()
+    release_operations: ReleaseOperationsConfig = ReleaseOperationsConfig()
     # [위험 지점] AppSettings() 인자 없이 생성 시 strategy가 기본 인스턴스 → ai_provider=local. docs/P0_AI_PROVIDER_SSOT_DESIGN_AND_PATCH.md
     strategy: StrategyConfig = StrategyConfig()
     trade: TradeConfig = TradeConfig()

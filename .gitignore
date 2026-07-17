@@ -17,3 +17,5 @@ data/shadow_history.json
 data/shadow_performance.json
 data/.claude/settings.local.json
 .claude/settings.local.json
+release/build/
+release/output/
