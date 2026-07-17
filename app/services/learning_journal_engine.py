@@ -225,6 +225,9 @@ class AITSLearningJournalEngine:
         latest_training = AITSDerivedJsonRepository.load_json(
             self.data_root / "local_models" / "latest_training_attempt.json", {}
         )
+        latest_calibration = AITSDerivedJsonRepository.load_json(
+            self.data_root / "local_models" / "latest_confidence_calibration_attempt.json", {}
+        )
         entries: list[dict[str, Any]] = []
         for review in reviews:
             if review.get("review_status") == "pending":
@@ -351,6 +354,37 @@ class AITSLearningJournalEngine:
                     "digest", latest_training.get("model_id"), latest_training.get("trained_at")
                 ),
                 "safe_for_learning": not bool(latest_training.get("blocker")),
+            })
+
+        if latest_calibration.get("calibrator_id"):
+            accepted = latest_calibration.get("attempt_status") == "usable"
+            entries.append({
+                "schema": self.JOURNAL_SCHEMA,
+                "journal_id": _id("journal", "confidence_calibration", latest_calibration.get("calibrator_id")),
+                "entry_type": "confidence_calibration_completed",
+                "created_at": latest_calibration.get("fitted_at") or now,
+                "period_start": latest_calibration.get("fitted_at") or now,
+                "period_end": latest_calibration.get("fitted_at") or now,
+                "title_ko": "LOCAL_ENGINE 신뢰도 보정 평가 완료",
+                "summary_ko": (
+                    "최신 검증 구간에서 신뢰도 오차가 개선되어 보정 후보를 사용할 수 있습니다."
+                    if accepted else
+                    "최신 검증 구간에서 신뢰도 오차가 개선되지 않아 기존 모델 신뢰도 경로를 유지합니다."
+                ),
+                "evidence_count": int(latest_calibration.get("holdout_count") or 0),
+                "decision_ids": [],
+                "affected_tasks": list(latest_calibration.get("supported_tasks") or []),
+                "affected_actions": [],
+                "affected_symbols": [],
+                "market_regime": None,
+                "model_id": latest_calibration.get("source_model_id"),
+                "authority_level": authority_state.get("effective_global_level"),
+                "health_status": authority_state.get("health_status"),
+                "lesson_tags": ["confidence_calibration", latest_calibration.get("attempt_status")],
+                "policy_suggestion_ids": [],
+                "user_attention_required": not accepted,
+                "source_digest": _id("digest", latest_calibration.get("calibrator_id")),
+                "safe_for_learning": True,
             })
 
         status_counts = Counter(review.get("review_status") for review in reviews)

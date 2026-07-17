@@ -51,15 +51,27 @@ def build_local_engine_user_centered_ui_report(root: Path | str = Path(".")) -> 
     promotion_visible = bool(view.get("promotion_visible"))
     challenger_visible = bool(view.get("challenger_visible"))
     rollback_visible = bool(view.get("rollback_visible"))
+    raw_maintenance = str(maintenance.get("raw_state") or "")
+    maintenance_titles = {
+        "idle": "대기 중",
+        "data_accumulating": "학습 데이터 수집 중",
+        "training_pending": "새 학습 준비됨",
+        "curating": "학습 데이터를 정리하고 있습니다",
+        "feature_building": "학습용 특징을 만들고 있습니다",
+        "training": "새 모델을 학습하고 있습니다",
+        "calibrating": "모델 신뢰도를 조정하고 있습니다",
+        "promotion_ready": "Level 승격 검토 가능",
+        "failed": "학습 작업에 문제가 발생했습니다",
+    }
+    expected_title_fragment = maintenance_titles.get(raw_maintenance, "")
+    if raw_maintenance == "evaluating_challenger":
+        expected_title_fragment = (
+            "새 모델 평가 완료" if comparison.get("comparison_complete") else "새 모델의 성능을 평가"
+        )
     maintenance_consistent = bool(
-        maintenance.get("title") == "모델 갱신 · 새 모델 평가 완료"
-        and comparison.get("comparison_complete")
-        and comparison.get("challenger_better")
+        expected_title_fragment and expected_title_fragment in str(maintenance.get("title") or "")
     )
-    maintenance_raw_hidden = bool(
-        "evaluating_challenger" not in panel
-        and str(maintenance.get("raw_state") or "") == "evaluating_challenger"
-    )
+    maintenance_raw_hidden = bool(raw_maintenance and raw_maintenance not in panel)
     simple_columns = all(
         value in panel
         for value in ("판단 기능", "현재 상태", "LOCAL 역할", "외부 AI", "다음 성장 조건")

@@ -207,6 +207,12 @@ def build_local_engine_candidate_observation(
         "confidence_calibrated": bool(source.get("confidence_calibrated")),
         "raw_confidence": source.get("raw_confidence"),
         "calibration_method": str(source.get("calibration_method") or ""),
+        "calibrator_id": str(source.get("calibrator_id") or ""),
+        "raw_action": str(source.get("raw_action") or ""),
+        "raw_action_probabilities": dict(source.get("raw_action_probabilities") or {}),
+        "top1_probability": source.get("top1_probability"),
+        "top2_probability": source.get("top2_probability"),
+        "calibration_sample_count": int(source.get("calibration_sample_count") or 0),
         "abstain_required": bool(source.get("abstain_required")),
         "abstain_reason": str(source.get("abstain_reason") or ""),
         "risk_level": str(source.get("risk_level") or "unknown"),
@@ -304,6 +310,12 @@ def build_local_engine_decision_candidate(
     risk_summary_ko: str = "",
     reason_template_id: str = "",
     provider_route_recommendation: str = "",
+    calibrator_id: str = "",
+    raw_action: str = "",
+    raw_action_probabilities: Optional[dict] = None,
+    top1_probability: Optional[float] = None,
+    top2_probability: Optional[float] = None,
+    calibration_sample_count: int = 0,
 ) -> dict:
     """Build a candidate only from supplied model output and factual evidence."""
     normalized_action = str(action or "").lower()
@@ -326,6 +338,12 @@ def build_local_engine_decision_candidate(
         "confidence_calibrated": bool(confidence_calibrated),
         "raw_confidence": raw_confidence,
         "calibration_method": str(calibration_method or ""),
+        "calibrator_id": str(calibrator_id or ""),
+        "raw_action": str(raw_action or ""),
+        "raw_action_probabilities": dict(raw_action_probabilities or {}),
+        "top1_probability": top1_probability,
+        "top2_probability": top2_probability,
+        "calibration_sample_count": max(0, int(calibration_sample_count or 0)),
         "confidence_bucket": str(confidence_bucket or ""),
         "confidence_reliability": str(confidence_reliability or ""),
         "abstain_required": bool(abstain_required),
@@ -674,11 +692,14 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
     multi_head_model = bundle.get("multi_head_model")
     if bundle.get("schema") == "aits_local_engine_multi_head_bundle.v1" and multi_head_model is not None:
         task = model_task
+        from app.services.local_engine_confidence_calibrator import load_compatible_confidence_calibrator
+        probability_calibrator = load_compatible_confidence_calibrator(str(metadata.get("model_id") or ""))
         multi = multi_head_model.predict(
             feature_context=multi_head_feature_context,
             task=task,
             scope=scope,
             quality_grade=grade,
+            probability_calibrator=probability_calibrator,
         )
         if multi.get("status") != "available":
             return {
@@ -719,7 +740,9 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
             evidence=evidence,
             safe_for_live_decision=base["local_model_safe_for_live_decision"],
             live_decision_enabled=base["local_model_live_decision_enabled"],
-            confidence_calibrated=str(multi.get("calibration_method") or "") == "empirical_bucket_shrinkage",
+            confidence_calibrated=str(multi.get("calibration_method") or "") in {
+                "empirical_bucket_shrinkage", "temperature_scaling", "class_aware_platt",
+            },
             risk_level=str(multi.get("risk_level") or "unknown"),
             escalation_required=bool(multi.get("escalation_required")),
             escalation_reason=str(multi.get("escalation_reason") or ""),
@@ -754,6 +777,12 @@ def predict_local_model_decision(context: dict, manifest_summary: dict, local_de
             risk_summary_ko=str(multi.get("risk_summary_ko") or ""),
             reason_template_id=str(multi.get("reason_template_id") or ""),
             provider_route_recommendation=str(multi.get("provider_route_recommendation") or ""),
+            calibrator_id=str(multi.get("calibrator_id") or ""),
+            raw_action=str(multi.get("raw_action") or ""),
+            raw_action_probabilities=dict(multi.get("raw_action_probabilities") or {}),
+            top1_probability=_number(multi.get("top1_probability")),
+            top2_probability=_number(multi.get("top2_probability")),
+            calibration_sample_count=int(multi.get("calibration_sample_count") or 0),
         )
         candidate["source_task"] = source_task
         candidate["model_task"] = model_task

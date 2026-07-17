@@ -71,6 +71,9 @@ class AITSLocalEngineStatusSnapshot:
             "activation_performed": False, "user_approval_required": True,
         }
         calibration = read_json_dict(self.models_root / "latest_calibration_summary.json", {})
+        confidence_calibration = read_json_dict(
+            self.models_root / "latest_confidence_calibration_attempt.json", {}
+        )
         curated = read_json_dict(self.training_root / "curated_local_training_summary.json", {})
         features = read_json_dict(self.training_root / "local_training_feature_summary.json", {})
         distillation = read_json_dict(self.training_root / "local_engine_teacher_distillation_summary.json", {})
@@ -140,6 +143,7 @@ class AITSLocalEngineStatusSnapshot:
             "maintenance_enabled": not runtime_active, "runtime_active": runtime_active,
             "promotion_candidate": authority.get("promotion_candidate"),
             "level2_readiness": level2,
+            "confidence_calibration": confidence_calibration,
             "rollback_available": bool(authority.get("rollback_available")),
             "raw_jsonl_scanned": False, "low_resource_mode_integrated": True,
         }

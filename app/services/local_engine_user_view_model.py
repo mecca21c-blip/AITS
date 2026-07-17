@@ -166,6 +166,7 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
     challenger_better = bool(comparison.get("comparison_complete") and comparison.get("challenger_better"))
     promotion_visible = bool(snapshot.get("promotion_candidate"))
     level2 = dict(snapshot.get("level2_readiness") or {})
+    confidence_calibration = dict(snapshot.get("confidence_calibration") or {})
     level2_eligible = bool(level2.get("global_level2_eligibility"))
     eligible_tasks = list(level2.get("level2_eligible_tasks") or [])
     ineligible_tasks = list(level2.get("level2_ineligible_tasks") or [])
@@ -232,6 +233,16 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
             "ineligible_task_count": len(ineligible_tasks),
             "review_eligible_count": int(level2.get("review_learning_eligible_count") or 0),
             "blockers": list(level2.get("global_level2_blockers") or []),
+            "confidence_message": (
+                "신뢰도 보정 후보가 최신 검증 구간에서 오차를 줄이지 못해 Lv1을 유지합니다."
+                if confidence_calibration.get("attempt_status") == "holdout_rejected"
+                else "LOCAL_ENGINE의 자신감과 실제 정확도의 차이를 조정하고 있습니다."
+            ),
+            "brier_before": (confidence_calibration.get("holdout_raw_metrics") or {}).get("brier_score"),
+            "brier_after": (confidence_calibration.get("holdout_metrics") or {}).get("brier_score"),
+            "ece_before": (confidence_calibration.get("holdout_raw_metrics") or {}).get("expected_calibration_error"),
+            "ece_after": (confidence_calibration.get("holdout_metrics") or {}).get("expected_calibration_error"),
+            "calibration_attempt_status": str(confidence_calibration.get("attempt_status") or ""),
         },
         "rollback_visible": bool(snapshot.get("rollback_available")),
         "recommended_action": recommended,

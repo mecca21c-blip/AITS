@@ -43,6 +43,15 @@ class AITSLocalEngineLevel2Evaluator:
         authority = dict(authority_state or {})
         model = AITSLocalModelRegistry().latest_multi_head_candidate()
         metrics = dict(model.get("metrics") or {})
+        calibrator = AITSLocalModelRegistry().load_latest_usable_calibrator(str(model.get("model_id") or ""))
+        if calibrator:
+            metrics.update({
+                "brier_score": calibrator.get("brier_after"),
+                "expected_calibration_error": calibrator.get("ece_after"),
+                "log_loss": calibrator.get("log_loss_after"),
+                "calibrator_id": calibrator.get("calibrator_id"),
+                "calibration_holdout_count": calibrator.get("holdout_count"),
+            })
         per_action = dict(model.get("per_action_metrics") or metrics.get("per_action_metrics") or {})
         classes = Counter(model.get("class_distribution") or {})
         capability = AITSLocalEngineCapabilityEvaluator().evaluate()
@@ -183,6 +192,10 @@ class AITSLocalEngineLevel2Evaluator:
                     "macro_f1": metrics.get("macro_f1"),
                     "balanced_accuracy": metrics.get("balanced_accuracy"),
                     "brier_score": brier,
+                    "brier_before_calibration": calibrator.get("brier_before") if calibrator else None,
+                    "ece_before_calibration": calibrator.get("ece_before") if calibrator else None,
+                    "ece_after_calibration": calibrator.get("ece_after") if calibrator else None,
+                    "calibrator_id": calibrator.get("calibrator_id") if calibrator else "",
                     "review_learning_eligible_count": eligible_reviews,
                 },
                 "review_evidence": {"eligible": eligible_reviews, "total": total_reviews},
@@ -216,6 +229,7 @@ class AITSLocalEngineLevel2Evaluator:
             "global_level2_eligibility": global_eligible,
             "global_level2_blockers": global_blockers,
             "promotion_candidate": promotion_candidate,
+            "confidence_calibrator": calibrator,
             "review_learning_eligible_count": eligible_reviews,
             "candidate_coverage_count": int(calibration.get("candidate_observation_valid_count") or 0),
             "external_final_required": True,

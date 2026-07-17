@@ -15,6 +15,7 @@ from app.services.local_training_dataset_curation import atomic_write_json, read
 from app.services.local_training_dataset_curation import AITSLocalTrainingDatasetCurator
 from app.services.ai_review_repository import AITSAIReviewRepository, AITSDerivedJsonRepository
 from app.services.local_engine_review_learning_bridge import AITSLocalEngineReviewLearningBridge
+from app.services.local_engine_confidence_calibrator import AITSLocalEngineConfidenceCalibrator
 
 
 class AITSLocalEngineContinuousLearning:
@@ -85,6 +86,9 @@ class AITSLocalEngineContinuousLearning:
         distilled = AITSLocalEngineTeacherDistillation().build(persist=persist)
         trained = AITSLocalEngineMultiHeadTrainer().train(persist=persist, activate=False)
         calibrated = AITSLocalModelCalibration().run(persist=persist)
+        confidence_calibration = AITSLocalEngineConfidenceCalibrator(
+            self.root.parent
+        ).evaluate(persist=persist)
         comparison_state = AITSLocalEngineChampionChallenger().inspect()
         challenger = dict(trained.get("metadata") or {})
         comparison = {
@@ -117,6 +121,7 @@ class AITSLocalEngineContinuousLearning:
             "distillation": distilled.get("summary") or {},
             "training": trained,
             "calibration": calibrated,
+            "confidence_calibration": confidence_calibration,
             "comparison": comparison,
             "authority": authority,
             "level2_evaluation": level2.get("level2_evaluation") or {},

@@ -233,6 +233,12 @@ def _apply_snapshot(window, snapshot: dict) -> None:
         f"학습 중인 기능 {int(level2.get('ineligible_task_count') or 0)}개 · "
         f"학습 활용 가능 복기 {int(level2.get('review_eligible_count') or 0):,}건 · "
         f"남은 기준 {blocker_count}개"
+        f"\n{level2.get('confidence_message', '')}"
+        + (
+            f"\n신뢰도 오차: {float(level2.get('brier_before')):.6f} → {float(level2.get('brier_after')):.6f}"
+            if level2.get("brier_before") is not None and level2.get("brier_after") is not None
+            else ""
+        )
     )
 
     challenger_visible = bool(view.get("challenger_visible"))

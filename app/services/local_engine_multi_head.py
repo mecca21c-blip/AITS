@@ -261,7 +261,15 @@ class AITSLocalEngineMultiHeadModel:
             "invalidation_missing_reason": "" if conditions else "structured_threshold_evidence_unavailable",
         }
 
-    def predict(self, *, feature_context: dict, task: str, scope: str, quality_grade: str) -> dict:
+    def predict(
+        self,
+        *,
+        feature_context: dict,
+        task: str,
+        scope: str,
+        quality_grade: str,
+        probability_calibrator: dict | None = None,
+    ) -> dict:
         if task not in self.supported_tasks:
             return {
                 "status": "unsupported",
@@ -271,13 +279,35 @@ class AITSLocalEngineMultiHeadModel:
             }
         record = {"feature_context": feature_context, "task": task, "scope": scope}
         matrix = self.encoder.transform([record])
-        probabilities = self.action_head.predict_proba(matrix)[0]
-        ranked = sorted(zip(self.action_head.classes, probabilities), key=lambda item: item[1], reverse=True)
-        action, raw_confidence = ranked[0]
-        margin = float(ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else float(ranked[0][1])
-        calibrated, calibration_method = self._calibrate(float(raw_confidence))
+        raw_probabilities = self.action_head.predict_proba(matrix)[0]
+        raw_ranked = sorted(zip(self.action_head.classes, raw_probabilities), key=lambda item: item[1], reverse=True)
+        raw_action, raw_confidence = raw_ranked[0]
+        from app.services.local_engine_confidence_calibrator import apply_probability_calibrator
+        registered = apply_probability_calibrator(
+            raw_probabilities,
+            list(self.action_head.classes),
+            probability_calibrator,
+            task=task,
+        )
+        if registered.get("available"):
+            probabilities = np.asarray([
+                float((registered.get("action_probabilities") or {}).get(name) or 0.0)
+                for name in self.action_head.classes
+            ], dtype=float)
+            ranked = sorted(zip(self.action_head.classes, probabilities), key=lambda item: item[1], reverse=True)
+            action = str(registered.get("action") or ranked[0][0])
+            calibrated = float(registered.get("calibrated_confidence") or ranked[0][1])
+            calibration_method = str(registered.get("confidence_method") or "class_aware_platt")
+            margin = float(registered.get("action_margin") or 0.0)
+        else:
+            probabilities = raw_probabilities
+            ranked = raw_ranked
+            action = raw_action
+            margin = float(ranked[0][1] - ranked[1][1]) if len(ranked) > 1 else float(ranked[0][1])
+            calibrated, calibration_method = self._calibrate(float(raw_confidence))
         quality_factor = {"A": 1.0, "B": 0.9, "C": 0.75, "D": 0.5, "F": 0.25}.get(quality_grade, 0.5)
-        calibrated *= quality_factor
+        if not registered.get("available"):
+            calibrated *= quality_factor
         risk = self._risk(feature_context, quality_grade)
         if not risk["risk_blockers"] and margin < 0.15:
             risk["risk_score"] = round(min(1.0, float(risk["risk_score"]) + 0.25), 6)
@@ -347,14 +377,21 @@ class AITSLocalEngineMultiHeadModel:
             "status": "available",
             "action": action,
             "action_probabilities": {name: round(float(value), 8) for name, value in zip(self.action_head.classes, probabilities)},
+            "raw_action": raw_action,
+            "raw_action_probabilities": {name: round(float(value), 8) for name, value in zip(self.action_head.classes, raw_probabilities)},
             "action_margin": round(margin, 8),
             "action_supported": True,
             "unsupported_action_reasons": [],
             "raw_confidence": round(float(raw_confidence), 8),
             "calibrated_confidence": round(max(0.0, min(1.0, calibrated)), 8),
             "calibration_method": calibration_method,
+            "calibrator_id": str(registered.get("calibrator_id") or ""),
+            "global_calibration_fallback_used": bool(registered.get("global_fallback_used")),
+            "calibration_sample_count": int(registered.get("calibration_sample_count") or 0),
+            "top1_probability": round(float(registered.get("top1_probability") or calibrated), 8),
+            "top2_probability": round(float(registered.get("top2_probability") or max(0.0, calibrated - margin)), 8),
             "confidence_bucket": f"{int(calibrated * 10) / 10:.1f}",
-            "confidence_reliability": "limited" if calibrated < 0.6 else "observed",
+            "confidence_reliability": str(registered.get("confidence_reliability") or ("limited" if calibrated < 0.6 else "observed")),
             "abstain_required": abstain,
             "abstain_reason": abstain_reason,
             **risk,

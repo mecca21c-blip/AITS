@@ -221,6 +221,16 @@ class AITSAIReviewEngine:
                 "candidate_join_method": candidate_join,
                 "final_action": final_action,
                 "final_confidence": decision.get("final_confidence") or decision.get("ai_confidence"),
+                "raw_confidence": candidate.get("raw_confidence"),
+                "calibrated_confidence": candidate.get("confidence"),
+                "calibration_method": candidate.get("calibration_method"),
+                "calibrator_id": candidate.get("calibrator_id"),
+                "confidence_reliability": candidate.get("confidence_reliability"),
+                "high_confidence_error": bool(
+                    candidate.get("confidence") is not None
+                    and float(candidate.get("confidence") or 0.0) >= 0.8
+                    and candidate.get("action") != final_action
+                ),
                 "reason_ko": decision.get("final_reason_ko") or decision.get("ai_reason_ko") or "",
                 "evidence": decision.get("evidence") or decision.get("feature_coverage_summary") or {},
                 "risk_level": decision.get("risk_level") or candidate.get("risk_level"),
@@ -266,6 +276,7 @@ class AITSAIReviewEngine:
                 "copilot_consulted": bool(decision.get("copilot_consulted")),
                 "copilot_routing_used": bool(decision.get("copilot_recommendation_used")),
                 "copilot_routing_effect": str(decision.get("copilot_routing_effect") or "not_recorded"),
+                "external_confirmation_result": str(decision.get("final_provider_source") or decision.get("provider") or ""),
                 "task_capability_level": int(decision.get("local_engine_task_level") or 0),
                 "factual_evidence_only": True,
                 "hindsight_leakage_detected": False,

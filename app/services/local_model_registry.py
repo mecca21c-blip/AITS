@@ -39,6 +39,10 @@ class AITSLocalModelRegistry:
                 "latest_usable_multi_head_model_id": "",
                 "latest_multi_head_training_attempt_id": "",
                 "latest_training_status": "",
+                "latest_usable_calibrator_id": "",
+                "latest_calibration_attempt_id": "",
+                "calibration_attempts": [],
+                "calibrators": [],
                 "models": [],
             },
         )
@@ -159,6 +163,10 @@ class AITSLocalModelRegistry:
             "latest_usable_model_id": str(latest_usable.get("model_id") or ""),
             "latest_training_attempt_id": str(latest_attempt.get("model_id") or ""),
             "latest_training_status": str(latest_attempt.get("training_status") or ""),
+            "latest_usable_calibrator_id": str(registry.get("latest_usable_calibrator_id") or ""),
+            "latest_calibration_attempt_id": str(registry.get("latest_calibration_attempt_id") or ""),
+            "calibration_attempts": list(registry.get("calibration_attempts") or []),
+            "calibrators": list(registry.get("calibrators") or []),
             "latest_usable_multi_head_model_id": str(
                 max(
                     (
@@ -216,6 +224,10 @@ class AITSLocalModelRegistry:
             "latest_usable_multi_head_model_id": str(
                 registry.get("latest_usable_multi_head_model_id") or ""
             ),
+            "latest_usable_calibrator_id": str(registry.get("latest_usable_calibrator_id") or ""),
+            "latest_calibration_attempt_id": str(registry.get("latest_calibration_attempt_id") or ""),
+            "calibration_attempts": list(registry.get("calibration_attempts") or []),
+            "calibrators": list(registry.get("calibrators") or []),
         }
         latest_usable = (
             self.resolve_latest_usable_model({"registry_schema": self.REGISTRY_SCHEMA, "models": models})
@@ -251,6 +263,83 @@ class AITSLocalModelRegistry:
             self._write_json_atomic(self.latest_path, latest_value)
         self._write_json_atomic(self.metrics_status_path, dict(metrics_status or {}))
         return value
+
+    def record_calibrator(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Link an evaluated calibrator to its exact source model without changing the Champion."""
+        value = dict(entry or {})
+        if (
+            not str(value.get("calibrator_id") or "")
+            or not str(value.get("source_model_id") or "")
+            or value.get("safe_for_copilot") is not True
+            or value.get("safe_for_live_decision") is not False
+        ):
+            return {"recorded": False, "blocker": "calibrator_registry_contract_invalid"}
+        artifact = Path(str(value.get("artifact_path") or ""))
+        if not artifact.is_absolute():
+            artifact = Path.cwd() / artifact
+        try:
+            artifact.resolve().relative_to(self.root.resolve())
+        except (OSError, ValueError):
+            return {"recorded": False, "blocker": "calibrator_artifact_outside_model_root"}
+        if not artifact.is_file():
+            return {"recorded": False, "blocker": "calibrator_artifact_missing"}
+        registry = self.load_registry()
+        calibrator_id = str(value["calibrator_id"])
+        calibrators = [
+            dict(item) for item in registry.get("calibrators") or []
+            if isinstance(item, dict) and str(item.get("calibrator_id") or "") != calibrator_id
+        ]
+        calibrators.append(value)
+        models = [dict(item) for item in registry.get("models") or [] if isinstance(item, dict)]
+        linked = False
+        for model in models:
+            if str(model.get("model_id") or "") == str(value["source_model_id"]):
+                model["calibrator_id"] = calibrator_id
+                model["calibration_status"] = "holdout_evaluated_safe_for_copilot"
+                linked = True
+        if not linked:
+            return {"recorded": False, "blocker": "calibrator_source_model_missing"}
+        registry.update({
+            "models": models,
+            "calibrators": calibrators,
+            "latest_usable_calibrator_id": calibrator_id,
+        })
+        self._write_json_atomic(self.registry_path, registry)
+        return {"recorded": True, **value}
+
+    def record_calibration_attempt(self, entry: dict[str, Any]) -> dict[str, Any]:
+        """Record success/failure provenance while preserving the last usable pointer."""
+        value = dict(entry or {})
+        attempt_id = str(value.get("calibrator_id") or "")
+        if not attempt_id or not str(value.get("source_model_id") or ""):
+            return {"recorded": False, "blocker": "calibration_attempt_contract_invalid"}
+        registry = self.load_registry()
+        attempts = [
+            dict(item) for item in registry.get("calibration_attempts") or []
+            if isinstance(item, dict) and str(item.get("calibrator_id") or "") != attempt_id
+        ]
+        attempts.append(value)
+        registry["calibration_attempts"] = attempts
+        registry["latest_calibration_attempt_id"] = attempt_id
+        self._write_json_atomic(self.registry_path, registry)
+        return {"recorded": True, **value}
+
+    def load_latest_usable_calibrator(self, model_id: str) -> dict[str, Any]:
+        registry = self.load_registry()
+        compatible = [
+            dict(item) for item in registry.get("calibrators") or []
+            if isinstance(item, dict)
+            and str(item.get("source_model_id") or "") == str(model_id or "")
+            and item.get("safe_for_copilot") is True
+            and item.get("safe_for_live_decision") is False
+        ]
+        if not compatible:
+            return {}
+        pointer = str(registry.get("latest_usable_calibrator_id") or "")
+        return next(
+            (item for item in compatible if str(item.get("calibrator_id") or "") == pointer),
+            compatible[-1],
+        )
 
     def restore_multi_head_pointer(self, model_id: str, *, reason: str) -> dict:
         """Explicit offline rollback of the candidate Champion pointer."""
