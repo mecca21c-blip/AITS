@@ -14,6 +14,7 @@ from app.services.local_training_dataset_curation import (
     read_json_dict,
     read_recoverable_jsonl,
 )
+from app.services.aits_data_source_resolver import AITSDataSourceResolver
 
 
 class AITSLocalModelCalibration:
@@ -49,6 +50,11 @@ class AITSLocalModelCalibration:
         self.profile_path = self.model_root / "calibration_profile.json"
         self.history_path = self.model_root / "calibration_history.jsonl"
         self.summary_path = self.model_root / "latest_calibration_summary.json"
+        self.data_source_resolver = AITSDataSourceResolver(self.training_root.parent)
+        self.source_dataset_ids = {
+            "outcomes": "outcomes", "providers": "provider_comparisons",
+            "curated": "curated_training", "features": "training_features",
+        }
 
     @staticmethod
     def _number(value: Any) -> Optional[float]:
@@ -151,7 +157,7 @@ class AITSLocalModelCalibration:
         return errors
 
     def load_candidate_observations(self) -> dict:
-        rows, read_metrics = read_recoverable_jsonl(self.candidate_path)
+        rows, read_metrics = self.data_source_resolver.read_records("candidate_observations")
         raw_payload = self.candidate_path.read_bytes() if self.candidate_path.exists() else b""
         valid_rows: list[dict] = []
         invalid_rows: list[dict] = []
@@ -279,7 +285,12 @@ class AITSLocalModelCalibration:
         corrupted = 0
         source_count = 0
         for name, path in self.source_paths.items():
-            rows, bad = self._read_jsonl(path)
+            dataset_id = self.source_dataset_ids.get(name, "")
+            if dataset_id:
+                rows, metrics = self.data_source_resolver.read_records(dataset_id)
+                bad = int(metrics.get("corrupted_lines") or 0) + int(metrics.get("nul_lines_recovered") or 0)
+            else:
+                rows, bad = self._read_jsonl(path)
             rows_by_source[name] = rows
             source_count += len(rows)
             corrupted += bad

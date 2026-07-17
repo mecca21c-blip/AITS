@@ -28,6 +28,8 @@ class LocalEngineSnapshotWorker(QThread):
             value = AITSLocalEngineStatusSnapshot().build(
                 provider=self.provider, runtime_active=self.runtime_active
             )
+            from app.services.aits_data_governance import AITSDataGovernanceService
+            value["data_governance"] = AITSDataGovernanceService().snapshot(deep=False)
         except Exception as exc:
             value = {"snapshot_ready": False, "error": type(exc).__name__}
         self.result_ready.emit(value)
@@ -304,6 +306,25 @@ def _apply_snapshot(window, snapshot: dict) -> None:
             window.tbl_local_state_files.setItem(row_no, col, item)
     window.tbl_local_state_files.scrollToTop()
 
+    governance = dict(snapshot.get("data_governance") or {})
+    governance_view = dict(governance.get("user_view") or {})
+    if hasattr(window, "lbl_data_governance_summary"):
+        window.lbl_data_governance_summary.setText(
+            f"{governance_view.get('headline', '데이터 상태 · 확인 필요')}\n"
+            f"{governance_view.get('summary', '')}\n"
+            f"{governance_view.get('source_notice', '원본 판단 기록은 자동으로 삭제되지 않습니다.')}\n"
+            f"{governance_view.get('backup_notice', '')}"
+        )
+        rows = list(governance_view.get("catalog_rows") or [])
+        window.tbl_data_governance_catalog.setRowCount(len(rows))
+        for row_no, row in enumerate(rows):
+            values = (row.get("name"), row.get("status"), row.get("records") if row.get("records") is not None else "요약 준비", f"{int(row.get('size_bytes') or 0):,} B")
+            for col, value in enumerate(values):
+                window.tbl_data_governance_catalog.setItem(row_no, col, QTableWidgetItem(str(value)))
+        window.tbl_data_governance_catalog.scrollToTop()
+        for button in window.data_governance_heavy_buttons:
+            button.setEnabled(not live)
+
     from app.services.local_engine_status_snapshot import AITSLocalEngineStatusSnapshot
     events = AITSLocalEngineStatusSnapshot.recent_history(limit=8)
     lines = [
@@ -352,6 +373,28 @@ def _maintenance(window) -> None:
         )
     )
     worker.start()
+
+
+def _governance_plan(window, action: str) -> None:
+    if _runtime_active(window):
+        QMessageBox.warning(window, "데이터·백업", "실시간 감시 중에는 이 관리 작업을 실행할 수 없습니다.")
+        return
+    from app.services.aits_backup_manager import AITSBackupManager
+    from app.services.aits_data_archive import AITSDataArchiveManager
+    from app.services.aits_restore_manager import AITSRestoreManager
+    if action == "backup":
+        plan = AITSBackupManager().plan("essential")
+        detail = f"필수 상태 백업 계획이 준비됐습니다. 포함 데이터 {len(plan['included_datasets'])}개 · 보안 정보 제외 확인 완료"
+    elif action == "archive":
+        plan = AITSDataArchiveManager().plan("outcomes")
+        detail = "오래된 원본 기록의 압축 보관 계획이 준비됐습니다. 원본 정리는 별도 승인 전까지 수행되지 않습니다."
+    elif action == "restore":
+        plan = AITSRestoreManager().plan("선택한 백업", mode="essential")
+        detail = "복구는 staging 검증과 최종 사용자 승인 후에만 가능합니다. 현재 데이터에는 적용하지 않았습니다."
+    else:
+        plan = {"operation_executed": False}
+        detail = "원본을 보존하는 파생 데이터 재생성 계획이 준비됐습니다."
+    QMessageBox.information(window, "데이터·백업", detail + f"\n실제 실행: {'예' if plan.get('operation_executed') else '아니요'}")
 
 
 def _state_file_action(window, action: str) -> None:
@@ -583,6 +626,33 @@ def build_local_engine_operations_card(window, build_card):
         button.clicked.connect(lambda checked=False, name=action: _state_file_action(window, name))
         file_actions.addWidget(button)
     advanced.addLayout(file_actions)
+
+    advanced.addWidget(_section_label("데이터·백업"))
+    window.lbl_data_governance_summary = QLabel("데이터 상태를 확인하는 중입니다.")
+    window.lbl_data_governance_summary.setObjectName("data_governance_user_summary")
+    window.lbl_data_governance_summary.setWordWrap(True)
+    advanced.addWidget(window.lbl_data_governance_summary)
+    governance_actions = QHBoxLayout()
+    window.data_governance_heavy_buttons = []
+    for text, action in (("백업 만들기", "backup"), ("오래된 기록 압축 보관", "archive"), ("파생 데이터 다시 만들기", "regenerate"), ("백업에서 복구", "restore")):
+        button = QPushButton(text)
+        button.setProperty("off_only_governance_operation", True)
+        button.clicked.connect(lambda checked=False, name=action: _governance_plan(window, name))
+        governance_actions.addWidget(button)
+        window.data_governance_heavy_buttons.append(button)
+    advanced.addLayout(governance_actions)
+    window.tbl_data_governance_catalog = QTableWidget(0, 4)
+    window.tbl_data_governance_catalog.setObjectName("data_governance_catalog_table")
+    window.tbl_data_governance_catalog.setHorizontalHeaderLabels(["데이터 이름", "상태", "기록 수", "크기"])
+    window.tbl_data_governance_catalog.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    window.tbl_data_governance_catalog.verticalHeader().setVisible(False)
+    window.tbl_data_governance_catalog.setMaximumHeight(260)
+    governance_header = window.tbl_data_governance_catalog.horizontalHeader()
+    governance_header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+    for col in range(1, 4):
+        governance_header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+    advanced.addWidget(window.tbl_data_governance_catalog)
+    advanced.addWidget(QLabel("보관 정책 설정 · 원본 자동 삭제 꺼짐 · 학습 제외는 원본 삭제가 아닙니다."))
 
     window.lbl_local_history = QLabel("최근 운영 이력을 확인하는 중입니다.")
     window.lbl_local_history.setObjectName("local_engine_history_ui")

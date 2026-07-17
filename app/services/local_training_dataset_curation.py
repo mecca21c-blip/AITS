@@ -232,6 +232,12 @@ def read_recoverable_jsonl(path: Path) -> tuple[list[dict], dict[str, int]]:
     return rows, metrics
 
 
+def read_governed_dataset(dataset_id: str, data_root: Path | str = Path("data")) -> tuple[list[dict], dict[str, int]]:
+    """Read active and verified archive segments without mutating source records."""
+    from app.services.aits_data_source_resolver import AITSDataSourceResolver
+    return AITSDataSourceResolver(data_root).read_records(dataset_id)
+
+
 def inspect_data_file(path: Path, *, source: bool) -> dict:
     result = {
         "path": str(path),

@@ -15,6 +15,7 @@ from app.services.ai_review_reason_composer import (
 )
 from app.services.ai_review_repository import AITSAIReviewRepository, AITSDerivedJsonRepository
 from app.services.local_engine_review_learning_bridge import AITSLocalEngineReviewLearningBridge
+from app.services.aits_data_source_resolver import AITSDataSourceResolver
 
 
 ELIGIBLE_TASKS = {
@@ -70,6 +71,7 @@ class AITSAIReviewEngine:
         self.outcome_path = self.training_root / "outcome_records.jsonl"
         self.comparison_path = self.training_root / "provider_comparison_outcomes.jsonl"
         self.candidate_path = self.local_root / "local_engine_candidate_observations.jsonl"
+        self.data_source_resolver = AITSDataSourceResolver(self.data_root)
 
     @staticmethod
     def _richer(current: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
@@ -90,9 +92,9 @@ class AITSAIReviewEngine:
                 if not decision_id or (task and task not in ELIGIBLE_TASKS) or (action and action not in ELIGIBLE_ACTIONS):
                     continue
                 decisions[decision_id] = self._richer(decisions.get(decision_id, {}), row)
-        outcomes, outcome_stats = AITSDerivedJsonRepository.read_jsonl(self.outcome_path)
-        comparisons, comparison_stats = AITSDerivedJsonRepository.read_jsonl(self.comparison_path)
-        candidates, candidate_stats = AITSDerivedJsonRepository.read_jsonl(self.candidate_path)
+        outcomes, outcome_stats = self.data_source_resolver.read_records("outcomes")
+        comparisons, comparison_stats = self.data_source_resolver.read_records("provider_comparisons")
+        candidates, candidate_stats = self.data_source_resolver.read_records("candidate_observations")
         source_stats[self.outcome_path.name] = outcome_stats
         source_stats[self.comparison_path.name] = comparison_stats
         source_stats[self.candidate_path.name] = candidate_stats

@@ -10,6 +10,7 @@ from app.services.ai_review_repository import (
     AITSDerivedJsonRepository,
     AITSLearningJournalRepository,
 )
+from app.services.aits_data_source_resolver import AITSDataSourceResolver
 
 
 MIN_PATTERN_SAMPLES = 3
@@ -88,6 +89,7 @@ class AITSLearningJournalEngine:
 
     def __init__(self, data_root: Path | str = Path("data")) -> None:
         self.data_root = Path(data_root)
+        self.data_source_resolver = AITSDataSourceResolver(self.data_root)
         self.repository = AITSLearningJournalRepository(self.data_root)
         self.suggestion_repository = AITSDerivedJsonRepository(
             self.repository.suggestions_path,
@@ -204,7 +206,9 @@ class AITSLearningJournalEngine:
             "corrupt_source_count": stats["corrupt"],
         }
 
-    def build(self, reviews: list[dict[str, Any]], *, persist: bool = False) -> dict[str, Any]:
+    def build(self, reviews: list[dict[str, Any]] | None = None, *, persist: bool = False) -> dict[str, Any]:
+        if reviews is None:
+            reviews, _ = self.data_source_resolver.read_records("ai_reviews")
         patterns = self.detect_patterns(reviews)
         suggestions = self.build_policy_suggestions(patterns)
         previous_suggestions, _ = AITSDerivedJsonRepository.read_jsonl(

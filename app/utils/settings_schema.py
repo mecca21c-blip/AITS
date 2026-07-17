@@ -52,6 +52,66 @@ class RuntimeResourceConfig(BaseModel):
     on_startup_stage_timeout_sec: float = 10.0
     on_click_fast_return_warning_ms: int = 300
 
+
+class DataGovernancePolicyConfig(BaseModel):
+    """Single settings SSOT for retention, archive, backup, and recovery."""
+
+    policy_version: int = 1
+    enabled: bool = True
+    last_updated_at: str = ""
+    last_updated_by: str = "system_default"
+    total_data_limit_mb: int = 10_240
+    warning_threshold_pct: int = 80
+    critical_threshold_pct: int = 95
+    minimum_free_disk_mb: int = 2_048
+    behavior_on_warning: str = "notify_and_plan_archive"
+    behavior_on_critical: str = "block_noncritical_heavy_work"
+    source_auto_delete_enabled: bool = False
+    source_archive_enabled: bool = True
+    source_archive_after_days: int = 90
+    source_archive_chunk_policy: str = "monthly"
+    source_permanent_delete_requires_backup: bool = True
+    source_permanent_delete_requires_explicit_confirmation: bool = True
+    derived_retention_days: int = 365
+    derived_rebuild_allowed: bool = True
+    derived_auto_prune_enabled: bool = False
+    derived_prune_requires_offline: bool = True
+    summary_retention_days: int = 730
+    log_retention_days: int = 30
+    log_max_total_mb: int = 512
+    keep_latest_failure_logs: bool = True
+    pinned_log_protection: bool = True
+    runtime_report_keep_count: int = 30
+    runtime_failure_report_keep_count: int = 20
+    keep_champion: bool = True
+    keep_previous_champion: bool = True
+    keep_active_challenger: bool = True
+    keep_usable_model_count: int = 5
+    keep_failed_attempt_metadata: bool = True
+    unused_model_retention_days: int = 180
+    backup_enabled: bool = True
+    backup_directory: str = "data/backups"
+    essential_backup_keep_count: int = 5
+    learning_backup_keep_count: int = 3
+    full_backup_keep_count: int = 2
+    backup_compression: str = "zip_deflated"
+    backup_encryption_supported: bool = False
+    secret_exclusion_required: bool = True
+    archived_source_training_enabled: bool = True
+    historical_replay_enabled: bool = True
+    training_date_range: Dict[str, str] = Field(default_factory=dict)
+    excluded_dataset_ids: List[str] = Field(default_factory=list)
+    included_dataset_ids: List[str] = Field(default_factory=list)
+    user_training_overrides: Dict[str, Any] = Field(default_factory=dict)
+    minimum_review_reliability: str = "medium"
+    heavy_governance_operations_off_only: bool = True
+    allow_manual_archive: bool = True
+    allow_manual_backup: bool = True
+    allow_manual_restore: bool = True
+    allow_derived_regeneration: bool = True
+    allow_derived_reset: bool = True
+    allow_full_reset: bool = False
+
 # ---- Strategy schema (defaults only; UI validates ranges) ----
 # 사용자 노출: aggressiveness(3단계), order_amount_krw, allow_downscale_order_amount, whitelist, blacklist
 # 내부 전용: aggressiveness_level, pos_size_pct, rr_ratio 등 → aggressiveness 프리셋으로 설정
@@ -207,6 +267,7 @@ class AppSettings(BaseModel):
     poll: PollConfig = PollConfig()
     ui: UIConfig = UIConfig()
     runtime_resource: RuntimeResourceConfig = RuntimeResourceConfig()
+    data_governance_policy: DataGovernancePolicyConfig = DataGovernancePolicyConfig()
     # [위험 지점] AppSettings() 인자 없이 생성 시 strategy가 기본 인스턴스 → ai_provider=local. docs/P0_AI_PROVIDER_SSOT_DESIGN_AND_PATCH.md
     strategy: StrategyConfig = StrategyConfig()
     trade: TradeConfig = TradeConfig()
