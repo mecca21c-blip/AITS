@@ -14,6 +14,7 @@ from app.services.ai_review_reason_composer import (
     evaluate_result_quality,
 )
 from app.services.ai_review_repository import AITSAIReviewRepository, AITSDerivedJsonRepository
+from app.services.local_engine_review_learning_bridge import AITSLocalEngineReviewLearningBridge
 
 
 ELIGIBLE_TASKS = {
@@ -261,11 +262,17 @@ class AITSAIReviewEngine:
                 "safe_for_learning": bool(decision.get("safe_for_local_training") or (decision_quality != "inconclusive" and result_quality != "unavailable")),
                 "review_limitations": limitations,
                 "provider_comparison": comparison,
+                "copilot_decision": dict(decision.get("local_engine_copilot") or {}),
+                "copilot_consulted": bool(decision.get("copilot_consulted")),
+                "copilot_routing_used": bool(decision.get("copilot_recommendation_used")),
+                "copilot_routing_effect": str(decision.get("copilot_routing_effect") or "not_recorded"),
+                "task_capability_level": int(decision.get("local_engine_task_level") or 0),
                 "factual_evidence_only": True,
                 "hindsight_leakage_detected": False,
                 "fake_causality": False,
                 "source_records_preserved": True,
             }
+            review.update(AITSLocalEngineReviewLearningBridge.evaluate_review(review))
             reviews.append(review)
 
         status_counts = Counter(row["review_status"] for row in reviews)
@@ -280,6 +287,10 @@ class AITSAIReviewEngine:
             "decision_quality_counts": dict(decision_counts),
             "result_quality_counts": dict(result_counts),
             "decision_result_matrix_counts": dict(matrix_counts),
+            "review_learning_eligible_count": sum(bool(row.get("review_learning_eligible")) for row in reviews),
+            "review_learning_excluded_count": sum(not bool(row.get("review_learning_eligible")) for row in reviews),
+            "review_reliability_grade_counts": dict(Counter(row.get("review_reliability_grade") for row in reviews)),
+            "rubric_overreach_count": sum(bool(row.get("rubric_overreach_detected")) for row in reviews),
             "candidate_join_method_counts": dict(join_counts),
             "source_counts": {
                 "decision": len(decisions),
@@ -303,6 +314,12 @@ class AITSAIReviewEngine:
                         "review_summary_ko", "what_went_well_ko",
                         "what_went_wrong_ko", "what_was_unknown_ko", "lesson_ko",
                         "order_submitted", "review_limitations",
+                        "review_learning_eligible", "review_reliability_grade",
+                        "review_learning_weight", "review_target_eligibility",
+                        "review_exclusion_reasons", "rubric_overreach_detected",
+                        "local_engine_candidate", "provider_comparison",
+                        "copilot_decision", "copilot_consulted", "copilot_routing_used",
+                        "copilot_routing_effect", "task_capability_level",
                     )
                 }
                 for row in reviews[-100:]

@@ -94,6 +94,13 @@ class AITSAIReviewStatusSnapshot:
             "lesson_ko": row.get("lesson_ko"),
             "order_submitted": bool(row.get("order_submitted")),
             "review_limitations": row.get("review_limitations") or [],
+            "copilot_decision": dict(row.get("copilot_decision") or {}),
+            "copilot_consulted": bool(row.get("copilot_consulted")),
+            "copilot_routing_used": bool(row.get("copilot_routing_used")),
+            "copilot_routing_effect": row.get("copilot_routing_effect"),
+            "task_capability_level": int(row.get("task_capability_level") or 0),
+            "review_learning_eligible": bool(row.get("review_learning_eligible")),
+            "review_reliability_grade": row.get("review_reliability_grade"),
         }
 
     def build(self, *, review_limit: int = 100) -> dict[str, Any]:
@@ -110,6 +117,14 @@ class AITSAIReviewStatusSnapshot:
         decision_counts = dict(review_summary.get("decision_quality_counts") or {})
         matrix_counts = dict(review_summary.get("decision_result_matrix_counts") or {})
         daily = dict(journal_summary.get("daily_summary") or {})
+        from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+        from app.services.local_engine_level2_evaluator import AITSLocalEngineLevel2Evaluator
+        authority_manager = AITSLocalEngineAuthorityManager(self.data_root / "local_engine")
+        authority = authority_manager.inspect(persist_initial=False)
+        level2 = AITSLocalEngineLevel2Evaluator(
+            data_root=self.data_root,
+            policy=authority_manager.policy.as_dict(),
+        ).evaluate(authority)
         return {
             "schema": self.SCHEMA,
             "snapshot_ready": bool(review_summary or journal_summary),
@@ -140,6 +155,13 @@ class AITSAIReviewStatusSnapshot:
             "daily_summary": daily,
             "weekly_summary": journal_summary.get("weekly_summary") or {},
             "monthly_summary": journal_summary.get("monthly_summary") or {"status": "structure_ready"},
+            "level2_summary": {
+                "eligible": bool(level2.get("global_level2_eligibility")),
+                "eligible_tasks": list(level2.get("level2_eligible_tasks") or []),
+                "ineligible_tasks": list(level2.get("level2_ineligible_tasks") or []),
+                "blockers": list(level2.get("global_level2_blockers") or []),
+                "promotion_candidate": level2.get("promotion_candidate"),
+            },
             "data_files": [
                 self._file_status(
                     self.review_repository.path, "AI 복기 기록",

@@ -13,6 +13,8 @@ from app.services.local_model_calibration import AITSLocalModelCalibration
 from app.services.local_training_feature_pipeline import AITSLocalTrainingFeaturePipeline
 from app.services.local_training_dataset_curation import atomic_write_json, read_json_dict
 from app.services.local_training_dataset_curation import AITSLocalTrainingDatasetCurator
+from app.services.ai_review_repository import AITSAIReviewRepository, AITSDerivedJsonRepository
+from app.services.local_engine_review_learning_bridge import AITSLocalEngineReviewLearningBridge
 
 
 class AITSLocalEngineContinuousLearning:
@@ -34,6 +36,9 @@ class AITSLocalEngineContinuousLearning:
         persisted = read_json_dict(self.path, {})
         drift = AITSLocalEngineDriftMonitor().evaluate()
         state = str(persisted.get("status") or "data_accumulating")
+        review_priority = AITSLocalEngineReviewLearningBridge(
+            self.root.parent
+        ).inspect_priority()
         return {
             "schema": self.SCHEMA,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -49,6 +54,13 @@ class AITSLocalEngineContinuousLearning:
             "historical_replay_weight": 0.3,
             "last_training_at": str(persisted.get("last_training_at") or ""),
             "last_error": str(persisted.get("last_error") or ""),
+            "review_learning_bridge_ready": bool(review_priority),
+            "priority_tasks": list(review_priority.get("priority_tasks") or []),
+            "priority_actions": list(review_priority.get("priority_actions") or []),
+            "teacher_sampling_priority": dict(review_priority.get("teacher_sampling_priority") or {}),
+            "challenger_evaluation_focus": dict(review_priority.get("challenger_evaluation_focus") or {}),
+            "review_required_before_training": bool(review_priority.get("review_required_before_training", True)),
+            "retraining_reason_codes": list(review_priority.get("retraining_reason_codes") or []),
         }
 
     def mark_training_pending(self, reason: str, *, runtime_active: bool, persist: bool = True) -> dict[str, Any]:
@@ -61,6 +73,12 @@ class AITSLocalEngineContinuousLearning:
     def run_manual_maintenance(self, *, runtime_active: bool, explicit: bool, persist: bool = False) -> dict[str, Any]:
         if runtime_active or not explicit:
             return {**self.inspect(), "maintenance_started": False, "blocker": "runtime_must_be_off_and_manual_maintenance_explicit"}
+        review_records, _review_stats = AITSDerivedJsonRepository.read_jsonl(
+            AITSAIReviewRepository(self.root.parent).path
+        )
+        review_bridge = AITSLocalEngineReviewLearningBridge(self.root.parent).build(
+            review_records, persist=persist
+        )
         champion_before = AITSLocalEngineChampionChallenger().registry.latest_multi_head_candidate()
         curated = AITSLocalTrainingDatasetCurator().curate()
         features = AITSLocalTrainingFeaturePipeline().build()
@@ -78,6 +96,7 @@ class AITSLocalEngineContinuousLearning:
             "challenger_model_id": str(challenger.get("model_id") or ""),
         }
         authority = self.authority.evaluate_and_apply_safety_caps(persist=persist)
+        level2 = self.authority.evaluate_level2_promotion_candidate(persist=persist)
         state = self.inspect()
         state.update({
             "status": "evaluating_challenger" if trained.get("training_ready") else "failed",
@@ -85,6 +104,8 @@ class AITSLocalEngineContinuousLearning:
             "last_training_at": datetime.now(timezone.utc).isoformat(),
             "challenger_model_id": str((trained.get("metadata") or {}).get("model_id") or ""),
             "promotion_applied": False,
+            "priority_tasks": list((review_bridge.get("summary") or {}).get("priority_tasks") or []),
+            "priority_actions": list((review_bridge.get("summary") or {}).get("priority_actions") or []),
         })
         if persist:
             atomic_write_json(self.path, state)
@@ -98,4 +119,7 @@ class AITSLocalEngineContinuousLearning:
             "calibration": calibrated,
             "comparison": comparison,
             "authority": authority,
+            "level2_evaluation": level2.get("level2_evaluation") or {},
+            "level2_promotion_candidate_created": bool(level2.get("promotion_candidate_created")),
+            "review_learning_bridge": review_bridge.get("summary") or {},
         }

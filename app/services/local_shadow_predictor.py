@@ -167,6 +167,9 @@ def build_local_engine_candidate_observation(
     outcome_linkage_key = hashlib.sha256(
         f"{decision_id}|{prediction_id}|{task}|{scope}".encode("utf-8")
     ).hexdigest()[:32]
+    copilot = dict(final_decision.get("local_engine_copilot") or {})
+    copilot["decision_id"] = decision_id
+    copilot["prediction_id"] = prediction_id
     teacher_present = final_provider in {"openai", "gemini"}
     guard_blocker = str(cost_guard.get("blocker") or final_decision.get("cost_guard_blocker") or "")
     if teacher_present:
@@ -239,6 +242,13 @@ def build_local_engine_candidate_observation(
             "passed": bool(final_decision.get("cost_guard_passed")),
             "blocker": guard_blocker,
         },
+        "local_engine_copilot_schema": str(copilot.get("schema") or ""),
+        "local_engine_copilot": copilot,
+        "copilot_consulted": bool(final_decision.get("copilot_consulted")),
+        "copilot_recommendation_used": bool(final_decision.get("copilot_recommendation_used")),
+        "copilot_routing_effect": str(final_decision.get("copilot_routing_effect") or ""),
+        "copilot_not_used_reason": str(final_decision.get("copilot_not_used_reason") or ""),
+        "external_confirmation_performed": bool(final_decision.get("external_confirmation_performed")),
         "decision_id": decision_id,
         "outcome_linkage_key": outcome_linkage_key,
         "fake_prediction": False,

@@ -165,6 +165,10 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
     challenger_ready = bool(challenger.get("model_id"))
     challenger_better = bool(comparison.get("comparison_complete") and comparison.get("challenger_better"))
     promotion_visible = bool(snapshot.get("promotion_candidate"))
+    level2 = dict(snapshot.get("level2_readiness") or {})
+    level2_eligible = bool(level2.get("global_level2_eligibility"))
+    eligible_tasks = list(level2.get("level2_eligible_tasks") or [])
+    ineligible_tasks = list(level2.get("level2_ineligible_tasks") or [])
     if challenger_ready and challenger_better:
         recommended = {"code": "apply_challenger", "text": "새 모델 적용 검토", "button": "새 모델 적용"}
     elif snapshot.get("teacher_sync_required"):
@@ -217,6 +221,18 @@ def build_local_engine_user_view_model(snapshot: dict[str, Any]) -> dict[str, An
         "same_level_explanation": "모델만 교체되며 LOCAL_ENGINE Level과 판단 권한은 변하지 않습니다.",
         "promotion_visible": promotion_visible,
         "promotion_explanation": "Level 승격은 LOCAL_ENGINE의 판단 권한을 확대하며 사용자 승인이 필요합니다.",
+        "level2_readiness": {
+            "title": "Lv2 보조 판단자 기준을 충족했습니다." if level2_eligible else "Lv2 보조 판단자 준비 데이터를 학습 중입니다.",
+            "detail": (
+                "Lv2에서는 LOCAL_ENGINE이 GPT/Gemini 확인 우선순위와 확인 경로 선택에 참여하지만, "
+                "최종 주문 판단은 계속 외부 AI와 안전 계층이 담당합니다."
+            ),
+            "eligible": level2_eligible,
+            "eligible_task_count": len(eligible_tasks),
+            "ineligible_task_count": len(ineligible_tasks),
+            "review_eligible_count": int(level2.get("review_learning_eligible_count") or 0),
+            "blockers": list(level2.get("global_level2_blockers") or []),
+        },
         "rollback_visible": bool(snapshot.get("rollback_available")),
         "recommended_action": recommended,
         "friendly_state_files": file_rows,

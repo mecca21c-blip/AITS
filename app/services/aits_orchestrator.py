@@ -620,6 +620,25 @@ class AITSDecisionOutcomeTracker:
                     "local_engine_task_coverage_id": record.get("local_engine_task_coverage_id"),
                     "local_engine_task_coverage_recorded": bool(record.get("local_engine_task_coverage_recorded")),
                     "local_engine_task_coverage_blocker": record.get("local_engine_task_coverage_blocker"),
+                    "local_engine_global_level": int(record.get("local_engine_global_level") or 0),
+                    "local_engine_task_level": int(record.get("local_engine_task_level") or 0),
+                    "local_engine_effective_level": int(record.get("local_engine_effective_level") or 0),
+                    "local_engine_authority_state": str(record.get("local_engine_authority_state") or ""),
+                    "local_engine_copilot_schema": str(
+                        record.get("local_engine_copilot_schema")
+                        or (record.get("local_engine_copilot") or {}).get("schema")
+                        or ""
+                    ),
+                    "local_engine_copilot": record.get("local_engine_copilot") or {},
+                    "copilot_consulted": bool(record.get("copilot_consulted")),
+                    "copilot_recommendation_used": bool(record.get("copilot_recommendation_used")),
+                    "copilot_routing_effect": str(record.get("copilot_routing_effect") or ""),
+                    "copilot_not_used_reason": str(record.get("copilot_not_used_reason") or ""),
+                    "external_confirmation_performed": bool(record.get("external_confirmation_performed")),
+                    "final_action_source": str(record.get("final_action_source") or record.get("final_provider_source") or ""),
+                    "copilot_final_action_count": int(record.get("copilot_final_action_count") or 0),
+                    "copilot_final_action_unchanged": bool(record.get("copilot_final_action_unchanged", True)),
+                    "copilot_final_action_mutation_detected": bool(record.get("copilot_final_action_mutation_detected")),
                     "execution_result": record.get("execution_result"),
                     "checkpoint": checkpoint,
                     "provider_comparison": comparison,

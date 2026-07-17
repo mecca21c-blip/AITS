@@ -22,6 +22,7 @@ from app.services.local_shadow_predictor import (
 from app.services.local_model_calibration import load_local_model_calibration_profile
 from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
 from app.services.local_engine_task_coverage import AITSLocalEngineTaskCoverage
+from app.services.local_engine_copilot import AITSLocalEngineCopilot
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -1060,6 +1061,7 @@ class AIEngineProvider:
         post_order = bool(context.get("post_order_replanning") or context.get("post_order_cycle_id"))
         model_state = dict(local_model or {})
         model_action = str(model_state.get("model_recommended_action") or "").lower()
+        copilot = dict(model_state.get("local_engine_copilot_decision") or {})
         reasons: list[str] = []
         blocker = ""
         if not local_available:
@@ -1072,6 +1074,10 @@ class AIEngineProvider:
             reasons.append("local_model_order_action_requires_external_confirmation")
         if model_state.get("local_model_prediction_available") and model_action and model_action != action:
             reasons.append("local_model_local_action_disagreement")
+        if int(copilot.get("effective_level") or 0) >= 2 and copilot.get("teacher_confirmation_required"):
+            reasons.append("copilot_external_confirmation_required")
+        if int(copilot.get("effective_level") or 0) >= 2 and copilot.get("abstain_required"):
+            reasons.append("copilot_abstention_requires_external_confirmation")
         if requested_provider in {"openai", "gemini"}:
             reasons.append("user_external_provider_policy")
         if post_order:
@@ -1663,8 +1669,30 @@ class AIEngineProvider:
                 "contract_warnings": [],
             }
 
-        escalation = self._evaluate_external_escalation(
+        pre_copilot_action = str(local_model.get("model_recommended_action") or "").lower()
+        authority_metadata = AITSLocalEngineAuthorityManager().router_metadata(
+            task_key=_local_engine_authority_task_key(task, pre_copilot_action),
+            action=pre_copilot_action,
+        )
+        copilot_decision = AITSLocalEngineCopilot().build(
+            candidate=model_routing_decision if local_model.get("local_model_decision_available") else {},
+            model_state=local_model,
+            context=context,
+            authority=authority_metadata,
             requested_provider=requested_provider,
+        )
+        local_model["local_engine_copilot_decision"] = copilot_decision
+        copilot_routing_active = bool(
+            int(authority_metadata.get("effective_level") or 0) >= 2
+            and local_model.get("local_model_decision_available")
+        )
+        copilot_recommended_provider = str(copilot_decision.get("provider_route_recommendation") or "")
+        routing_requested_provider = requested_provider
+        if copilot_routing_active and copilot_recommended_provider in {"openai", "gemini"}:
+            routing_requested_provider = copilot_recommended_provider
+
+        escalation = self._evaluate_external_escalation(
+            requested_provider=routing_requested_provider,
             local_decision=local_decision,
             local_available=local_available,
             feature_manifest=feature_manifest,
@@ -1684,9 +1712,18 @@ class AIEngineProvider:
         cost_guard_passed = False
         cost_guard: Dict[str, Any] = {}
         if escalation.get("escalation_required") and external_provider:
+            cost_guard_context = dict(context)
+            cost_guard_context["local_engine_copilot"] = {
+                key: copilot_decision.get(key)
+                for key in (
+                    "task", "action_candidate", "confidence", "risk_level",
+                    "abstain_required", "escalation_required",
+                    "teacher_sampling_recommended", "review_pattern_context", "effective_level",
+                )
+            }
             cost_guard = self._provider_cost_guard_policy(
                 provider=external_provider,
-                context=context,
+                context=cost_guard_context,
                 payload_hash=payload_hash,
                 reserve=False,
             )
@@ -1723,10 +1760,6 @@ class AIEngineProvider:
         local_action = str(local_decision.get("action") or "wait").lower()
         model_action = str(local_model.get("model_recommended_action") or "").lower()
         model_available = bool(local_model.get("local_model_decision_available"))
-        authority_metadata = AITSLocalEngineAuthorityManager().router_metadata(
-            task_key=_local_engine_authority_task_key(task, model_action),
-            action=model_action,
-        )
         model_live_allowed = bool(
             local_model.get("local_model_live_allowed")
             and authority_metadata.get("local_final_allowed")
@@ -1752,7 +1785,11 @@ class AIEngineProvider:
                 f"task={task or '-'} scope={symbol_or_scope} model_action={model_action} "
                 f"model_confidence={model_confidence:.4f} actual_order=False submitted=0"
             )
-        elif local_available and local_action in _LOCAL_SAFE_ACTIONS:
+        elif (
+            local_available
+            and local_action in _LOCAL_SAFE_ACTIONS
+            and int(authority_metadata.get("effective_level") or 0) < 2
+        ):
             final_decision = dict(local_decision)
             final_provider_source = "local"
             source_reason = "local_decision_retained"
@@ -1842,12 +1879,35 @@ class AIEngineProvider:
                 "local_engine_authority_state": str(authority_metadata.get("authority_state") or "external_only"),
                 "local_engine_local_final_allowed": bool(authority_metadata.get("local_final_allowed")),
                 "local_engine_external_confirmation_required": bool(authority_metadata.get("external_confirmation_required", True)),
+                "local_engine_copilot": copilot_decision,
+                "copilot_consulted": bool(local_model.get("local_model_decision_available")),
+                "copilot_recommendation_used": copilot_routing_active,
+                "copilot_routing_effect": (
+                    "external_teacher_priority" if copilot_routing_active else "preview_only_level1"
+                    if local_model.get("local_model_decision_available") else "not_available"
+                ),
+                "copilot_not_used_reason": "" if copilot_routing_active else (
+                    "level1_preview_only" if local_model.get("local_model_decision_available") else "candidate_unavailable"
+                ),
+                "external_confirmation_performed": bool(external_valid),
+                "final_action_source": final_provider_source,
+                "copilot_final_action_count": 0,
                 "validator_applied_to_external_response": bool(external_called),
                 "local_only_order_action_blocked_without_external_confirmation": source_reason == "local_order_action_blocked_without_external_confirmation",
                 "actual_order": False,
                 "submitted": 0,
             }
         )
+        copilot_decision["decision_id"] = str(
+            final_decision.get("decision_id")
+            or final_decision.get("response_id")
+            or payload_hash
+        )
+        copilot_decision["final_action_unchanged"] = True
+        copilot_decision["applied_to_final_action"] = False
+        final_decision["local_engine_copilot"] = copilot_decision
+        final_decision["copilot_final_action_unchanged"] = True
+        final_decision["copilot_final_action_mutation_detected"] = False
         final_action_before_observation = str(final_decision.get("action") or "wait")
         observation_status = "skipped"
         observation_blocker = str(local_model.get("local_model_prediction_blocker") or "local_model_prediction_unavailable")
@@ -1898,8 +1958,11 @@ class AIEngineProvider:
                 "local_engine_candidate_only": True,
                 "local_engine_applied_to_final_action": False,
                 "local_engine_final_action_unchanged": str(final_decision.get("action") or "wait") == final_action_before_observation,
+                "copilot_prediction_id": prediction_id,
+                "copilot_outcome_linkage_key": outcome_linkage_key,
             }
         )
+        copilot_decision["prediction_id"] = prediction_id or copilot_decision.get("prediction_id")
         supported_tasks = set((local_model.get("local_model_metadata") or {}).get("supported_tasks") or [])
         source_task = str(context.get("task") or "")
         model_task = str(local_model.get("local_model_task") or source_task)

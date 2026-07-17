@@ -39,6 +39,20 @@ class LocalEngineAuthorityPolicyV1:
         "maximum_brier_score": 0.35,
         "maximum_unsafe_predictions": 0,
     }
+    level2_task_thresholds = {
+        "minimum_samples": 20,
+        "minimum_review_eligible": 20,
+        "minimum_action_f1": 0.50,
+        "maximum_brier_score": 0.45,
+    }
+    level2_global_thresholds = {
+        "minimum_eligible_tasks": 4,
+        "minimum_review_eligible": 100,
+        "minimum_macro_f1": 0.50,
+        "minimum_balanced_accuracy": 0.60,
+        "maximum_brier_score": 0.35,
+        "maximum_unsafe_predictions": 0,
+    }
     demotion_thresholds = {
         "maximum_drift_score": 0.65,
         "maximum_teacher_disagreement": 0.55,
@@ -56,6 +70,8 @@ class LocalEngineAuthorityPolicyV1:
         return {
             "schema": cls.schema,
             "promotion_thresholds": dict(cls.promotion_thresholds),
+            "level2_task_thresholds": dict(cls.level2_task_thresholds),
+            "level2_global_thresholds": dict(cls.level2_global_thresholds),
             "demotion_thresholds": dict(cls.demotion_thresholds),
             "recent_data_weight": cls.recent_data_weight,
             "historical_replay_weight": cls.historical_replay_weight,
@@ -307,7 +323,7 @@ class AITSLocalEngineAuthorityManager:
         candidate = dict(state.get("promotion_candidate") or {})
         if not candidate:
             return {**state, "promotion_rejected": False, "promotion_blocker": "promotion_candidate_missing"}
-        candidate.update({"approval_status": "rejected", "approved_by": None, "approved_at": self._now()})
+        candidate.update({"approval_status": "rejected", "approved_by": None, "rejected_at": self._now()})
         state["promotion_candidate"] = candidate
         result = self._persist_state(state, event="promotion_rejected", reason_codes=[reason]) if persist else state
         return {**result, "promotion_rejected": True}
@@ -316,6 +332,8 @@ class AITSLocalEngineAuthorityManager:
         state = self.inspect()
         current = int(state.get("global_level") or 0)
         proposed = min(5, max(current, int(proposed_level)))
+        if current == 1 and proposed == 2:
+            return self.evaluate_level2_promotion_candidate(persist=persist)
         model = AITSLocalModelRegistry().latest_multi_head_candidate()
         metrics = dict(model.get("metrics") or {})
         classes = dict(model.get("class_distribution") or {})
@@ -359,25 +377,69 @@ class AITSLocalEngineAuthorityManager:
         state["promotion_candidate"] = candidate
         return self._persist_state(state, event="promotion_candidate_created", reason_codes=candidate["blockers"]) if persist else state
 
+    def evaluate_level2_promotion_candidate(self, *, persist: bool = False) -> dict[str, Any]:
+        """Evaluate Level 2 without changing authority; persist only an eligible approval candidate."""
+        from app.services.local_engine_level2_evaluator import AITSLocalEngineLevel2Evaluator
+
+        state = self.inspect()
+        evaluation = AITSLocalEngineLevel2Evaluator(
+            data_root=self.root.parent,
+            policy=self.policy.as_dict(),
+        ).evaluate(state)
+        candidate = evaluation.get("promotion_candidate")
+        result = {**state, "level2_evaluation": evaluation, "promotion_candidate_created": False}
+        if not candidate:
+            return result
+        state["promotion_candidate"] = candidate
+        state["blocker"] = "level2_user_approval_required"
+        if persist:
+            state = self._persist_state(
+                state,
+                event="promotion_candidate_created",
+                reason_codes=["level2_eligible_user_approval_required"],
+            )
+        return {**state, "level2_evaluation": evaluation, "promotion_candidate_created": True}
+
     def approve_promotion(self, *, approved_by: str, persist: bool = True) -> dict[str, Any]:
         state = self.inspect()
         candidate = dict(state.get("promotion_candidate") or {})
         blockers = list(candidate.get("blockers") or [])
+        proposed_candidate_level = int(candidate.get("proposed_level") or 0)
+        if proposed_candidate_level == 2 and candidate.get("schema") != "aits_local_engine_level2_promotion_candidate.v1":
+            return {**state, "promotion_applied": False, "promotion_blocker": "level2_promotion_candidate_schema_invalid"}
         if not candidate or blockers or not str(approved_by or "").strip():
             return {**state, "promotion_applied": False, "promotion_blocker": "promotion_evidence_or_user_approval_missing"}
         before = int(state.get("global_level") or 0)
         proposed = min(5, max(before, int(candidate.get("proposed_level") or before)))
+        eligible_tasks = list(candidate.get("eligible_tasks") or [])
+        task_capabilities = dict(state.get("task_capabilities") or {})
+        if proposed == 2:
+            for task_key in eligible_tasks:
+                entry = dict(task_capabilities.get(task_key) or {})
+                entry.update({
+                    "capability_level": 2,
+                    "authority_state": "co_pilot",
+                    "blocker": "external_final_required_at_level2",
+                })
+                task_capabilities[task_key] = entry
         state.update({
             "previous_global_level": before,
             "global_level": proposed,
             "user_level_cap": proposed,
-            "effective_global_level": min(proposed, int(state.get("health_level_cap") or 0), int(state.get("model_capability_level") or 0)),
-            "global_authority_state": LEVEL_AUTHORITY[proposed],
+            "model_capability_level": max(int(state.get("model_capability_level") or 0), 2 if proposed == 2 else proposed),
+            "task_capabilities": task_capabilities,
             "authority_approved_by_user": True,
             "authority_approval_at": self._now(),
             "authority_approval_model_id": state.get("champion_model_id"),
             "promotion_candidate": {**candidate, "approval_status": "approved", "approved_by": approved_by, "approved_at": self._now()},
         })
+        state["effective_global_level"] = min(
+            proposed,
+            int(state.get("health_level_cap") or 0),
+            int(state.get("model_capability_level") or 0),
+            int(state.get("user_level_cap") or 0),
+        )
+        state["global_authority_state"] = LEVEL_AUTHORITY[state["effective_global_level"]]
         result = self._persist_state(state, event="promotion_approved", reason_codes=["user_approved_evaluated_promotion"]) if persist else state
         return {**result, "promotion_applied": True}
 

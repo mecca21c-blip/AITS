@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.local_engine_review_learning_bridge import relevant_missing_features
+
 
 GOOD_DECISIONS = {"good", "acceptable"}
 WEAK_DECISIONS = {"weak", "poor"}
@@ -13,6 +15,11 @@ def evaluate_decision_quality(decision: dict[str, Any]) -> tuple[str, list[str],
     failure: list[str] = []
     reason = str(decision.get("final_reason_ko") or decision.get("ai_reason_ko") or "").strip()
     missing = list(decision.get("missing_critical_features") or [])
+    relevant_missing, _ignored_missing = relevant_missing_features(
+        decision.get("task") or decision.get("request_task"),
+        decision.get("final_action") or decision.get("ai_action"),
+        missing,
+    )
     stale = list(decision.get("stale_features") or [])
     validator = decision.get("validator_result")
     quality = str(decision.get("payload_quality_grade") or "").lower()
@@ -21,7 +28,7 @@ def evaluate_decision_quality(decision: dict[str, Any]) -> tuple[str, list[str],
         success.append("evidence_aligned")
     else:
         failure.append("insufficient_data")
-    if missing or bool(decision.get("ai_reason_mentions_insufficient_data")):
+    if relevant_missing or bool(decision.get("ai_reason_mentions_insufficient_data")):
         failure.append("insufficient_data")
     if stale:
         failure.append("stale_data")
@@ -31,13 +38,13 @@ def evaluate_decision_quality(decision: dict[str, Any]) -> tuple[str, list[str],
         failure.append("evidence_conflicted")
     if confidence is not None:
         try:
-            if float(confidence) >= 0.9 and (missing or stale):
+            if float(confidence) >= 0.9 and (relevant_missing or stale):
                 failure.append("confidence_overestimated")
         except (TypeError, ValueError):
             pass
     if not reason and not quality:
         return "inconclusive", sorted(set(success)), sorted(set(failure))
-    if "evidence_conflicted" in failure or len(missing) >= 3:
+    if "evidence_conflicted" in failure or len(relevant_missing) >= 3:
         decision_quality = "poor"
     elif failure:
         decision_quality = "weak"

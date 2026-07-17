@@ -224,6 +224,16 @@ def _apply_snapshot(window, snapshot: dict) -> None:
         "성장 현황\n" + "  ·  ".join(f"{name} {int(value):,}건" for name, value in growth)
         + "\n최근 학습 이후 새 데이터는 다음 모델 갱신 시 정확히 집계됩니다."
     )
+    level2 = dict(view.get("level2_readiness") or {})
+    blocker_count = len(level2.get("blockers") or [])
+    window.lbl_local_level2_readiness.setText(
+        f"{level2.get('title', 'Lv2 보조 판단자 준비도 확인 중')}\n"
+        f"{level2.get('detail', '')}\n"
+        f"준비된 기능 {int(level2.get('eligible_task_count') or 0)}개 · "
+        f"학습 중인 기능 {int(level2.get('ineligible_task_count') or 0)}개 · "
+        f"학습 활용 가능 복기 {int(level2.get('review_eligible_count') or 0):,}건 · "
+        f"남은 기준 {blocker_count}개"
+    )
 
     challenger_visible = bool(view.get("challenger_visible"))
     window.frm_local_new_model.setVisible(challenger_visible)
@@ -427,6 +437,12 @@ def build_local_engine_operations_card(window, build_card):
     window.lbl_local_data_status.setWordWrap(True)
     layout.addWidget(window.lbl_local_data_status)
 
+    layout.addWidget(_section_label("Lv2 보조 판단자 준비도"))
+    window.lbl_local_level2_readiness = QLabel("Lv2 준비도를 확인하는 중입니다.")
+    window.lbl_local_level2_readiness.setObjectName("local_engine_level2_readiness")
+    window.lbl_local_level2_readiness.setWordWrap(True)
+    layout.addWidget(window.lbl_local_level2_readiness)
+
     window.frm_local_new_model = QFrame()
     window.frm_local_new_model.setObjectName("local_engine_champion_challenger")
     model_layout = QVBoxLayout(window.frm_local_new_model)
@@ -506,9 +522,12 @@ def build_local_engine_operations_card(window, build_card):
 
     window.frm_local_promotion = QFrame()
     promotion_layout = QVBoxLayout(window.frm_local_promotion)
-    promotion_layout.addWidget(QLabel("Level 승격은 판단 권한을 확대하며 사용자 승인이 필요합니다."))
+    promotion_layout.addWidget(QLabel(
+        "Lv2에서는 LOCAL_ENGINE이 GPT/Gemini 확인 우선순위와 확인 경로 선택에 참여합니다. "
+        "LOCAL 단독 최종 판단과 주문 권한은 생기지 않으며 사용자 승인이 필요합니다."
+    ))
     promotion_buttons = QHBoxLayout()
-    window.btn_local_ops_approve = QPushButton("Level 승격 승인")
+    window.btn_local_ops_approve = QPushButton("Lv2 전환 승인")
     window.btn_local_ops_reject = QPushButton("이번 승격 보류")
     window.btn_local_ops_approve.clicked.connect(lambda: _operation(window, "promote"))
     window.btn_local_ops_reject.clicked.connect(lambda: _operation(window, "reject"))

@@ -35,10 +35,17 @@ class AIReviewGenerationWorker(QThread):
             journal_result = AITSLearningJournalEngine().build(
                 review_result["records"], persist=True
             )
+            from app.services.local_engine_review_learning_bridge import AITSLocalEngineReviewLearningBridge
+            bridge_result = AITSLocalEngineReviewLearningBridge().build(
+                review_result["records"], persist=True
+            )
             value = {
                 "completed": True,
                 "review_count": len(review_result["records"]),
                 "journal_count": len(journal_result["entries"]),
+                "review_learning_eligible_count": int(
+                    (bridge_result.get("summary") or {}).get("review_learning_eligible_count") or 0
+                ),
             }
         except Exception as exc:
             value = {"completed": False, "error": type(exc).__name__}
@@ -159,7 +166,10 @@ def _apply_snapshot(window, snapshot: dict) -> None:
         f"학습 일지 {snapshot.get('journal_entry_count', 0):,}건 · "
         f"반복 성공 {snapshot.get('repeated_success_pattern_count', 0):,}개 · "
         f"반복 실패 {snapshot.get('repeated_failure_pattern_count', 0):,}개 · "
-        f"정책 제안 {snapshot.get('policy_suggestion_count', 0):,}개"
+        f"정책 제안 {snapshot.get('policy_suggestion_count', 0):,}개\n"
+        f"Lv2 보조 판단자 준비 · "
+        f"{'기준 충족·사용자 승인 대기' if (snapshot.get('level2_summary') or {}).get('eligible') else '학습 기준 보강 중'} · "
+        f"준비된 기능 {len((snapshot.get('level2_summary') or {}).get('eligible_tasks') or [])}개"
     )
 
 
@@ -217,9 +227,25 @@ def _show_review_detail(window, row_no: int) -> None:
     if row_no < 0 or row_no >= len(rows):
         return
     row = rows[row_no]
+    copilot = dict(row.get("copilot_decision") or {})
+    action_text = {
+        "wait": "대기", "hold": "보유", "buy": "매수", "add": "추가 매수",
+        "sell": "매도", "reduce": "축소", "take_profit": "익절",
+        "stop_loss": "손절", "rotate": "교체",
+    }.get(str(copilot.get("action_candidate") or "").lower(), "기록 없음")
+    copilot_text = (
+        "LOCAL_ENGINE 보조 판단\n"
+        f"후보 판단: {action_text} · "
+        f"외부 AI 확인: {'필요' if copilot.get('teacher_confirmation_required') else '기록 없음'}\n"
+        f"외부 AI 확인 경로 반영: {'사용됨' if row.get('copilot_routing_used') else '사용 안 함'} · "
+        f"현재 기능 Level: {int(row.get('task_capability_level') or 0)}\n"
+        f"학습 활용: {'가능' if row.get('review_learning_eligible') else '제외'} · "
+        f"복기 신뢰 등급: {row.get('review_reliability_grade') or '확인 필요'}\n\n"
+    )
     limitations = row.get("review_limitations") or []
     limitation_text = " · ".join("추가 결과 필요" for _ in limitations) if limitations else "확인된 자료 범위 내 평가"
     window.lbl_ai_review_detail.setText(
+        copilot_text +
         f"당시 판단\n{row.get('decision_summary_ko') or '기록 확인 필요'}\n\n"
         f"실제 결과\n{row.get('result_summary_ko') or '결과 대기'}\n\n"
         f"판단 평가\n판단 품질 {row.get('decision_quality_text')} · 결과 품질 {row.get('result_quality_text')}\n"

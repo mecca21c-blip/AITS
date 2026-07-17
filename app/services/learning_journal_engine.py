@@ -285,6 +285,10 @@ class AITSLearningJournalEngine:
             "teacher_sync_requested": "teacher_sync_started",
             "challenger_evaluated": "challenger_evaluated",
             "champion_replaced": "champion_replaced", "rollback_completed": "rollback_completed",
+            "promotion_candidate_created": "level2_promotion_candidate_created",
+            "promotion_approved": "level_changed",
+            "promotion_rejected": "level2_promotion_rejected",
+            "authority_resumed": "health_changed",
         }
         for event in authority_history:
             event_type = event_types.get(str(event.get("event") or ""))

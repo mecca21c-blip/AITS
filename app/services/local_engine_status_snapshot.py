@@ -10,6 +10,7 @@ from app.services.local_engine_champion_challenger import AITSLocalEngineChampio
 from app.services.local_engine_continuous_learning import AITSLocalEngineContinuousLearning
 from app.services.local_model_registry import AITSLocalModelRegistry
 from app.services.local_training_dataset_curation import read_json_dict
+from app.services.local_engine_level2_evaluator import AITSLocalEngineLevel2Evaluator
 
 
 LEVEL_NAMES = {0: "외부전용", 1: "학습자", 2: "보조판단", 3: "제한독립", 4: "주판단", 5: "내부운용"}
@@ -53,7 +54,12 @@ class AITSLocalEngineStatusSnapshot:
             return {"name": path.name, "path": str(path), "exists": False, "status": "없음", "valid": False, "modified_at": "", "size_bytes": 0, "record_count": record_count, "kind": "원본" if source else "파생", "regenerable": not source, "blocker": "파일을 찾을 수 없습니다."}
 
     def build(self, *, provider: str = "", runtime_active: bool = False) -> dict[str, Any]:
-        authority = AITSLocalEngineAuthorityManager(self.local_root).inspect(persist_initial=False)
+        authority_manager = AITSLocalEngineAuthorityManager(self.local_root)
+        authority = authority_manager.inspect(persist_initial=False)
+        level2 = AITSLocalEngineLevel2Evaluator(
+            data_root=self.data_root,
+            policy=authority_manager.policy.as_dict(),
+        ).evaluate(authority)
         learning = AITSLocalEngineContinuousLearning(self.local_root).inspect()
         models = AITSLocalEngineChampionChallenger().inspect()
         registry = AITSLocalModelRegistry().load_registry()
@@ -133,6 +139,7 @@ class AITSLocalEngineStatusSnapshot:
             "provider": provider, "teacher_sync_required": bool(authority.get("teacher_sync_required")),
             "maintenance_enabled": not runtime_active, "runtime_active": runtime_active,
             "promotion_candidate": authority.get("promotion_candidate"),
+            "level2_readiness": level2,
             "rollback_available": bool(authority.get("rollback_available")),
             "raw_jsonl_scanned": False, "low_resource_mode_integrated": True,
         }

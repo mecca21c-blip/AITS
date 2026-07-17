@@ -42594,6 +42594,25 @@ class MainWindow(QMainWindow):
             "local_engine_task_coverage_id": str(value.get("local_engine_task_coverage_id") or ""),
             "local_engine_task_coverage_recorded": bool(value.get("local_engine_task_coverage_recorded")),
             "local_engine_task_coverage_blocker": str(value.get("local_engine_task_coverage_blocker") or ""),
+            "local_engine_global_level": int(value.get("local_engine_global_level") or 0),
+            "local_engine_task_level": int(value.get("local_engine_task_level") or 0),
+            "local_engine_effective_level": int(value.get("local_engine_effective_level") or 0),
+            "local_engine_authority_state": str(value.get("local_engine_authority_state") or ""),
+            "local_engine_copilot_schema": str(
+                value.get("local_engine_copilot_schema")
+                or (value.get("local_engine_copilot") or {}).get("schema")
+                or ""
+            ),
+            "local_engine_copilot": dict(value.get("local_engine_copilot") or {}),
+            "copilot_consulted": bool(value.get("copilot_consulted")),
+            "copilot_recommendation_used": bool(value.get("copilot_recommendation_used")),
+            "copilot_routing_effect": str(value.get("copilot_routing_effect") or ""),
+            "copilot_not_used_reason": str(value.get("copilot_not_used_reason") or ""),
+            "external_confirmation_performed": bool(value.get("external_confirmation_performed")),
+            "final_action_source": str(value.get("final_action_source") or value.get("final_provider_source") or ""),
+            "copilot_final_action_count": int(value.get("copilot_final_action_count") or 0),
+            "copilot_final_action_unchanged": bool(value.get("copilot_final_action_unchanged", True)),
+            "copilot_final_action_mutation_detected": bool(value.get("copilot_final_action_mutation_detected")),
             "local_model_calibration_profile_loaded": bool(value.get("local_model_calibration_profile_loaded")),
             "local_model_calibration_data_sufficient": bool(value.get("local_model_calibration_data_sufficient")),
             "local_model_calibration_recommendation_recorded": bool(value.get("local_model_calibration_recommendation_recorded")),
