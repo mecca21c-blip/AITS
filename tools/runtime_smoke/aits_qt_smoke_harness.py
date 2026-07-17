@@ -27293,6 +27293,7 @@ def run_harness(
         "local-engine-lv3-lv5-full-structure-completion-v1-summary",
         "local-engine-full-structure-completion-v1-summary",
         "aits-master-integrated-runtime-acceptance-v1-summary",
+        "aits-intent-effective-policy-runtime-completion-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -27678,6 +27679,10 @@ def run_harness(
             _install_provider_post_guard(report)
             from app.services.local_engine_lv3_lv5_report import build_master_runtime_acceptance_contract
             report.update(build_master_runtime_acceptance_contract(ROOT))
+        elif mode == "aits-intent-effective-policy-runtime-completion-v1-summary":
+            _install_provider_post_guard(report)
+            from app.services.aits_intent_effective_policy_report import build_aits_intent_effective_policy_report
+            report.update(build_aits_intent_effective_policy_report(ROOT))
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -28361,6 +28366,7 @@ def main() -> int:
             "local-engine-lv3-lv5-full-structure-completion-v1-summary",
             "local-engine-full-structure-completion-v1-summary",
             "aits-master-integrated-runtime-acceptance-v1-summary",
+            "aits-intent-effective-policy-runtime-completion-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",

@@ -195,8 +195,14 @@ class AITSAIReviewEngine:
                 limitations.append("local_engine_candidate_missing")
             if decision_quality == "inconclusive":
                 limitations.append("decision_evidence_insufficient")
+            if isinstance(decision.get("effective_policy_snapshot"), dict) and not bool(decision.get("effective_policy_snapshot", {}).get("policy_valid", True)):
+                limitations.append("effective_policy_conflict")
+            if decision.get("ai_intent") is not None and not isinstance(decision.get("ai_intent"), dict):
+                limitations.append("canonical_intent_invalid")
             execution = decision.get("execution_result") if isinstance(decision.get("execution_result"), dict) else {}
             order_result = decision.get("order_result") if isinstance(decision.get("order_result"), dict) else {}
+            canonical_intent = decision.get("ai_intent") if isinstance(decision.get("ai_intent"), dict) else {}
+            effective_policy = decision.get("effective_policy_snapshot") if isinstance(decision.get("effective_policy_snapshot"), dict) else {}
             review = {
                 "schema": self.SCHEMA,
                 "review_id": review_id,
@@ -211,10 +217,20 @@ class AITSAIReviewEngine:
                 "symbol": decision.get("symbol") or decision.get("scope"),
                 "created_at": decision.get("timestamp") or now,
                 "updated_at": now,
-                "intent_goal": decision.get("trigger_reason") or "",
-                "intent_watch_points": decision.get("feature_coverage_summary") or {},
-                "intent_conditions": decision.get("invalidation_conditions") or [],
-                "expected_scenario": decision.get("expected_scenario") or "",
+                "intent_id": canonical_intent.get("intent_id") or decision.get("intent_id"),
+                "parent_intent_id": canonical_intent.get("parent_intent_id"),
+                "intent_revision": canonical_intent.get("revision") or decision.get("intent_revision"),
+                "intent_status": canonical_intent.get("status") or "not_recorded",
+                "intent_goal": canonical_intent.get("goal") or decision.get("trigger_reason") or "",
+                "intent_watch_points": canonical_intent.get("watch_points") or decision.get("feature_coverage_summary") or {},
+                "intent_conditions": canonical_intent.get("confirmation_conditions") or decision.get("invalidation_conditions") or [],
+                "intent_invalidation_conditions": canonical_intent.get("invalidation_conditions") or decision.get("invalidation_conditions") or [],
+                "expected_scenario": canonical_intent.get("expected_scenario") or decision.get("expected_scenario") or "",
+                "effective_policy_id": effective_policy.get("policy_id") or decision.get("effective_policy_id"),
+                "effective_policy_version": effective_policy.get("policy_version") or decision.get("effective_policy_version"),
+                "effective_policy_hash": effective_policy.get("policy_hash") or decision.get("effective_policy_hash"),
+                "policy_constraints": canonical_intent.get("policy_constraints") or {},
+                "intent_is_order_promise": False,
                 "provider_source": decision.get("final_provider_source") or decision.get("provider"),
                 "teacher_provider": decision.get("external_provider_name") if decision.get("external_provider_called") else None,
                 "local_engine_candidate": candidate,

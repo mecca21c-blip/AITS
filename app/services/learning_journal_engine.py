@@ -23,6 +23,9 @@ FAILURE_PATTERN_TYPES = {
     "insufficient_data": "핵심 데이터 부족 반복",
     "order_not_submitted": "주문 요청과 제출 기록 불일치",
     "trend_reversed": "판단 이후 추세 반전 반복",
+    "intent_expired_without_resolution": "재확인 시점이 반복적으로 만료됨",
+    "intent_invalidation_repeated": "관찰 계획 무효화 반복",
+    "effective_policy_conflict": "운용 정책 충돌 반복",
 }
 SUCCESS_PATTERN_TYPES = {
     "good_wait": "대기 판단 성공 반복",
@@ -102,6 +105,13 @@ class AITSLearningJournalEngine:
             for code in review.get("failure_reasons") or []:
                 if code in FAILURE_PATTERN_TYPES:
                     evidence[("failure", code)].append(review)
+            intent_status = str(review.get("intent_status") or "")
+            if intent_status == "expired":
+                evidence[("failure", "intent_expired_without_resolution")].append(review)
+            elif intent_status == "invalidated":
+                evidence[("failure", "intent_invalidation_repeated")].append(review)
+            if "effective_policy_conflict" in (review.get("review_limitations") or []):
+                evidence[("failure", "effective_policy_conflict")].append(review)
         patterns = []
         for (kind, code), rows in evidence.items():
             if len(rows) < MIN_PATTERN_SAMPLES:

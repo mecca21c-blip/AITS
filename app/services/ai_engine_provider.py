@@ -23,6 +23,9 @@ from app.services.local_model_calibration import load_local_model_calibration_pr
 from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
 from app.services.local_engine_task_coverage import AITSLocalEngineTaskCoverage
 from app.services.local_engine_copilot import AITSLocalEngineCopilot
+from app.services.aits_effective_policy import AITSEffectivePolicyResolver, AITSEffectivePolicySnapshotRepository
+from app.services.ai_intent_service import AITSAIIntentService
+from app.services.ai_intent_repository import AITSAIIntentRepository
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -520,6 +523,8 @@ def validate_ai_decision_response(
     task: str = "",
     symbol: str = "",
     candidates: Any = None,
+    effective_policy: Optional[Dict[str, Any]] = None,
+    intent_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Normalize and validate the final AI decision contract.
 
@@ -564,7 +569,11 @@ def validate_ai_decision_response(
         return {"valid": False, "validation_passed": False, "blocker": blocker, "blockers": [blocker], "decision": decision}
 
     source = dict(response or {})
+    policy = dict(effective_policy or {})
+    intent = dict(source.get("ai_intent") or intent_context or {})
     blockers: list[str] = []
+    policy_blockers: list[str] = []
+    intent_blockers: list[str] = []
     execution_plan = source.get("execution_plan")
     if not isinstance(execution_plan, dict):
         execution_plan = {}
@@ -592,6 +601,29 @@ def validate_ai_decision_response(
         blockers.append("ai_decision_eta_invalid")
         eta_seconds = 300
 
+    if policy:
+        if str(policy.get("schema") or "") != "aits_effective_policy.v1":
+            policy_blockers.append("effective_policy_schema_invalid")
+        expected_hash = str(policy.get("policy_hash") or "")
+        response_hash = str(source.get("effective_policy_hash") or expected_hash)
+        if expected_hash and response_hash != expected_hash:
+            policy_blockers.append("effective_policy_hash_mismatch")
+        if not bool(policy.get("policy_valid", True)):
+            policy_blockers.append("effective_policy_invalid")
+        allowed_actions = {str(value).lower() for value in (policy.get("allowed_actions") or [])}
+        if allowed_actions and action not in allowed_actions:
+            policy_blockers.append("effective_policy_action_not_allowed")
+        eta_bounds = policy.get("eta_bounds") if isinstance(policy.get("eta_bounds"), dict) else {}
+        try:
+            minimum_eta = max(0, int(float(eta_bounds.get("minimum_seconds") or 0)))
+            maximum_eta = max(0, int(float(eta_bounds.get("maximum_seconds") or 0)))
+        except (TypeError, ValueError):
+            minimum_eta, maximum_eta = 0, 0
+        if minimum_eta and eta_seconds < minimum_eta:
+            policy_blockers.append("effective_policy_eta_below_minimum")
+        if maximum_eta and eta_seconds > maximum_eta:
+            policy_blockers.append("effective_policy_eta_above_maximum")
+
     invalidation_conditions = source.get("invalidation_conditions")
     if invalidation_conditions is None:
         invalidation_conditions = []
@@ -599,6 +631,33 @@ def validate_ai_decision_response(
         invalidation_conditions = [invalidation_conditions]
     elif not isinstance(invalidation_conditions, list):
         invalidation_conditions = [str(invalidation_conditions)]
+
+    if policy:
+        required_types = {str(value) for value in (policy.get("required_invalidation_types") or []) if str(value)}
+        present_types = {
+            str(value.get("type") or "") if isinstance(value, dict) else str(value)
+            for value in invalidation_conditions
+        }
+        if required_types and not required_types.issubset(present_types):
+            intent_blockers.append("ai_intent_required_invalidation_missing")
+        if bool(policy.get("reason_required", True)) and not reason_ko:
+            intent_blockers.append("ai_intent_reason_missing")
+        if intent:
+            if bool(intent.get("intent_is_order_promise", False)):
+                intent_blockers.append("ai_intent_order_promise_forbidden")
+            if str(intent.get("effective_policy_hash") or expected_hash) != expected_hash:
+                intent_blockers.append("ai_intent_policy_hash_mismatch")
+            if not str(intent.get("goal") or "").strip():
+                intent_blockers.append("ai_intent_goal_missing")
+            if not isinstance(intent.get("watch_points"), list) or not intent.get("watch_points"):
+                intent_blockers.append("ai_intent_watch_points_missing")
+            if bool(policy.get("expected_scenario_required", True)) and not str(intent.get("expected_scenario") or "").strip():
+                intent_blockers.append("ai_intent_expected_scenario_missing")
+        elif source.get("ai_intent") is not None:
+            intent_blockers.append("ai_intent_contract_invalid")
+
+    blockers.extend(policy_blockers)
+    blockers.extend(intent_blockers)
 
     risk_notes = str(source.get("risk_notes") or "")[:1000]
     sell_ratio = _decision_float(source.get("sell_ratio", execution_plan.get("sell_ratio", 0.0)), 0.0)
@@ -662,6 +721,16 @@ def validate_ai_decision_response(
             "blocker": blocker or str(source.get("blocker") or ""),
             "actual_order": False,
             "submitted": 0,
+            "effective_policy_hash": str(policy.get("policy_hash") or source.get("effective_policy_hash") or ""),
+            "policy_validation_passed": not bool(policy_blockers),
+            "policy_validation_blockers": list(policy_blockers),
+            "intent_validation_passed": not bool(intent_blockers),
+            "intent_validation_blockers": list(intent_blockers),
+            "external_confirmation_required": bool(
+                policy.get("external_confirmation_required")
+                or action in {str(value).lower() for value in (policy.get("confirmation_required_actions") or [])}
+            ),
+            "safe_hold_required": bool(policy_blockers or intent_blockers),
         }
     )
     _safe_log_info(
@@ -678,7 +747,13 @@ def validate_ai_decision_response(
             "ok" if valid else blocker or "invalid_schema",
         )
     )
-    return {"valid": bool(valid), "validation_passed": bool(valid), "blocker": blocker, "blockers": blockers, "decision": decision}
+    return {
+        "valid": bool(valid), "validation_passed": bool(valid), "blocker": blocker, "blockers": blockers,
+        "policy_validation_passed": not bool(policy_blockers), "policy_validation_blockers": policy_blockers,
+        "intent_validation_passed": not bool(intent_blockers), "intent_validation_blockers": intent_blockers,
+        "external_confirmation_required": bool(decision.get("external_confirmation_required")),
+        "safe_hold_required": bool(decision.get("safe_hold_required")), "decision": decision,
+    }
 
 
 def normalize_ai_decision_response(response: Optional[Dict[str, Any]], **kwargs: Any) -> Dict[str, Any]:
@@ -1421,6 +1496,54 @@ class AIEngineProvider:
         """
         provider = str(provider or "local").strip().lower()
         context = dict(context or {})
+        settings_obj = self.settings
+        ui_state = getattr(settings_obj, "ui_state", {}) if settings_obj is not None else {}
+        ui_state = ui_state if isinstance(ui_state, dict) else {}
+        symbol_for_policy = str(context.get("symbol") or "").strip().upper()
+        saved_global_policy = ui_state.get("ai_policy_snapshot") if isinstance(ui_state.get("ai_policy_snapshot"), dict) else {}
+        saved_asset_policies = ui_state.get("asset_policy_snapshots") if isinstance(ui_state.get("asset_policy_snapshots"), dict) else {}
+        saved_asset_policy = saved_asset_policies.get(symbol_for_policy) if isinstance(saved_asset_policies.get(symbol_for_policy), dict) else {}
+        strategy_obj = self.strategy if self.strategy is not None else getattr(settings_obj, "strategy", {})
+        strategy_map = strategy_obj if isinstance(strategy_obj, dict) else getattr(strategy_obj, "__dict__", {})
+        basic_obj = getattr(settings_obj, "basic_config", {}) if settings_obj is not None else {}
+        basic_map = basic_obj if isinstance(basic_obj, dict) else getattr(basic_obj, "__dict__", {})
+        effective_policy = context.get("effective_policy_snapshot") if isinstance(context.get("effective_policy_snapshot"), dict) else {}
+        if not effective_policy:
+            policy_overrides = context.get("policy_overrides") if isinstance(context.get("policy_overrides"), dict) else {}
+            policy_overrides = dict(policy_overrides)
+            requested_decision = context.get("requested_decision") if isinstance(context.get("requested_decision"), dict) else {}
+            if requested_decision.get("allowed_actions") and not policy_overrides.get("allowed_actions"):
+                policy_overrides["allowed_actions"] = list(requested_decision.get("allowed_actions") or [])
+            effective_policy = AITSEffectivePolicyResolver.resolve(
+                global_policy=context.get("global_policy_snapshot") if isinstance(context.get("global_policy_snapshot"), dict) else saved_global_policy,
+                asset_policy=context.get("asset_policy_snapshot") if isinstance(context.get("asset_policy_snapshot"), dict) else saved_asset_policy,
+                user_overrides=policy_overrides,
+                authority=context.get("local_engine_authority") if isinstance(context.get("local_engine_authority"), dict) else AITSLocalEngineAuthorityManager().inspect(persist_initial=False),
+                execution_mode=str(((context.get("runtime_context") or {}).get("execution_mode") if isinstance(context.get("runtime_context"), dict) else context.get("execution_mode")) or ""),
+                preferred_provider=str(strategy_map.get("ai_provider") or provider),
+                basic_config=context.get("basic_config") if isinstance(context.get("basic_config"), dict) else basic_map,
+                managed_pool_rows=context.get("managed_pool_rows") if isinstance(context.get("managed_pool_rows"), list) else [],
+                scope_type="portfolio" if str(context.get("scope") or "").lower().startswith("portfolio") else "position",
+                scope=str(context.get("scope") or context.get("symbol") or ""),
+                symbol=str(context.get("symbol") or ""),
+                preview_only=False,
+            )
+        context["effective_policy_snapshot"] = effective_policy
+        AITSEffectivePolicySnapshotRepository().persist(effective_policy)
+        context["effective_policy_hash"] = str(effective_policy.get("policy_hash") or "")
+        context["policy_constraints"] = {
+            key: effective_policy.get(key) for key in (
+                "max_asset_weight", "max_total_exposure", "max_order_krw", "cash_reserve", "portfolio_cap"
+            ) if effective_policy.get(key) not in (None, "", 0, 0.0)
+        }
+        context.setdefault("current_intent_context", {})
+        if not context.get("current_intent_context"):
+            context["current_intent_context"] = AITSAIIntentRepository().find_active(
+                task=str(context.get("task") or ""), scope=str(context.get("scope") or ""), symbol=symbol_for_policy,
+            )
+        context.setdefault("previous_intent_id", "")
+        context.setdefault("intent_revision", 0)
+        context.setdefault("required_intent_fields", ["goal", "watch_points", "invalidation_conditions", "eta_seconds"])
         raw_task = str(context.get("task") or "").strip()
         canonical_task = AI_POSITION_TASK_ALIASES.get(raw_task, raw_task)
         if canonical_task != raw_task:
@@ -1843,6 +1966,8 @@ class AIEngineProvider:
                 task=str(context.get("task") or "position_management_decision"),
                 symbol=str(context.get("symbol") or ""),
                 candidates=context.get("candidates"),
+                effective_policy=effective_policy,
+                intent_context=context.get("current_intent_context"),
             )
             final_decision = dict(safety_validation.get("decision") or final_decision)
             final_decision["blocker"] = safety_blocker
@@ -1957,6 +2082,32 @@ class AIEngineProvider:
         final_decision["local_engine_copilot"] = copilot_decision
         final_decision["copilot_final_action_unchanged"] = True
         final_decision["copilot_final_action_mutation_detected"] = False
+        intent_service = AITSAIIntentService()
+        parent_intent = context.get("current_intent_context") if isinstance(context.get("current_intent_context"), dict) else {}
+        trigger_reason = str(context.get("trigger_reason") or "")
+        if parent_intent and trigger_reason in {"eta_expired", "invalidation_condition_triggered"}:
+            intent_service.transition(
+                str(parent_intent.get("intent_id") or ""),
+                "expired" if trigger_reason == "eta_expired" else "invalidated",
+                reason=trigger_reason,
+            )
+        canonical_intent = intent_service.build(
+            decision=final_decision,
+            payload=context,
+            effective_policy=effective_policy,
+            parent_intent=parent_intent,
+            status="active" if bool(final_decision.get("validation_passed")) else "blocked",
+            persist=bool(final_decision.get("validation_passed")),
+        )
+        final_decision["effective_policy_snapshot"] = dict(effective_policy)
+        final_decision["effective_policy_id"] = str(effective_policy.get("policy_id") or "")
+        final_decision["effective_policy_version"] = effective_policy.get("policy_version")
+        final_decision["effective_policy_hash"] = str(effective_policy.get("policy_hash") or "")
+        final_decision["ai_intent"] = canonical_intent
+        final_decision["intent_id"] = str(canonical_intent.get("intent_id") or "")
+        final_decision["intent_revision"] = int(canonical_intent.get("revision") or 1)
+        final_decision["intent_is_order_promise"] = False
+        final_decision["final_action_unchanged_by_intent"] = True
         final_action_before_observation = str(final_decision.get("action") or "wait")
         observation_status = "skipped"
         observation_blocker = str(local_model.get("local_model_prediction_blocker") or "local_model_prediction_unavailable")
@@ -2079,7 +2230,8 @@ class AIEngineProvider:
                 "ETA expiry or invalidation is a request for judgment, never a direct trade action.\n"
                 "Compare prior_decision, current_state, and delta_since_prior_decision.\n"
                 "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
-                "execution_plan, sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
+                "execution_plan, sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions, intent.\n"
+                "intent must contain only factual goal, expected_scenario, watch_points, confirmation_conditions, and alternative_scenarios.\n"
                 "Allowed action values: hold, wait, sell, reduce, add, buy, rotate, stop_loss, take_profit.\n"
                 "Each invalidation condition should be an object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
                 "If evidence is incomplete, choose wait or hold with a new ETA and explicit invalidation conditions.\n"
@@ -2091,7 +2243,8 @@ class AIEngineProvider:
                 "You are the AITS final AI decision authority for managed-pool rotation.\n"
                 "BASIC has collected rotation score evidence only. normalized_rotation_score is a trigger, not action.\n"
                 "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
-                "execution_plan, replace_symbol, rotate_to_symbol, sell_ratio, buy_amount_krw, risk_notes, invalidation_conditions.\n"
+                "execution_plan, replace_symbol, rotate_to_symbol, sell_ratio, buy_amount_krw, risk_notes, invalidation_conditions, intent.\n"
+                "intent must contain only factual goal, expected_scenario, watch_points, confirmation_conditions, and alternative_scenarios.\n"
                 "Allowed action values: rotate, wait, hold, replace, reduce_and_rotate, reject.\n"
                 "Each invalidation condition should be a structured object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
                 "Protected, user-added, live holding, or external holding rows must not be removed by simple replacement.\n"
@@ -2104,7 +2257,8 @@ class AIEngineProvider:
                 "You are the AITS final AI decision authority for managed-pool promotion.\n"
                 "BASIC has collected candidate and portfolio data only. Decide whether the candidate should enter the Managed Pool.\n"
                 "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
-                "execution_plan, replace_symbol, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
+                "execution_plan, replace_symbol, rotate_to_symbol, risk_notes, invalidation_conditions, intent.\n"
+                "intent must contain only factual goal, expected_scenario, watch_points, confirmation_conditions, and alternative_scenarios.\n"
                 "Allowed action values: promote, reject, wait, replace, rotate_review, hold.\n"
                 "Each invalidation condition should be a structured object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
                 "Do not decide from scanner score alone. Use market context, current pool, holdings protection, cap, and alternatives together.\n"
@@ -2116,7 +2270,8 @@ class AIEngineProvider:
             "You are the AITS final AI decision authority for live position management.\n"
             "BASIC has collected data only. Decide action; do not claim execution.\n"
             "Return only compact JSON with keys: action, confidence, reason_ko, eta_seconds, "
-            "sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions.\n"
+            "sell_ratio, buy_amount_krw, rotate_to_symbol, risk_notes, invalidation_conditions, intent.\n"
+            "intent must contain only factual goal, expected_scenario, watch_points, confirmation_conditions, and alternative_scenarios.\n"
             "Allowed action values: hold, wait, sell, reduce, add, buy, rotate, stop_loss, take_profit.\n"
             "Each invalidation condition should be a structured object with condition_type, feature, operator, threshold, current_value, expected_direction, and reason_ko.\n"
             "Use pnl, RSI, MACD, volume, volatility, portfolio cap, alternatives, and risk context together; "
@@ -2319,6 +2474,8 @@ class AIEngineProvider:
             "risk_notes": str(parsed.get("risk_notes") or "")[:800],
             "invalidation_conditions": parsed.get("invalidation_conditions") or [],
             "blocker": "",
+            "ai_intent": parsed.get("intent") if isinstance(parsed.get("intent"), dict) else {},
+            "effective_policy_hash": str(context.get("effective_policy_hash") or ""),
         }
         validation = validate_ai_decision_response(
             raw_decision,
@@ -2326,6 +2483,8 @@ class AIEngineProvider:
             task=str(context.get("task") or "manage_position_decision"),
             symbol=str(context.get("symbol") or ""),
             candidates=context.get("candidates"),
+            effective_policy=context.get("effective_policy_snapshot") if isinstance(context.get("effective_policy_snapshot"), dict) else None,
+            intent_context=context.get("current_intent_context") if isinstance(context.get("current_intent_context"), dict) else None,
         )
         return dict(validation.get("decision") or raw_decision)
 

@@ -411,6 +411,7 @@ class AIPolicyCenterTab(QWidget):
         layout.addWidget(self._summary_section("safe", "Preview/주문 없음"))
 
         self._saved_at_label = QLabel("미저장")
+        layout.addWidget(self._summary_section("effective", "현재 적용 정책·Intent"))
         self._saved_at_label.setProperty("muted", True)
         layout.addWidget(self._saved_at_label)
 
@@ -680,6 +681,44 @@ class AIPolicyCenterTab(QWidget):
     def _update_summary(self) -> None:
         if not self._summary_values:
             return
+        effective_text = "미리보기 · runtime 판단 전"
+        try:
+            from app.services.aits_effective_policy import AITSEffectivePolicyResolver, AITSEffectivePolicySnapshotRepository
+            from app.services.ai_intent_repository import AITSAIIntentRepository
+            from app.services.ai_intent_view_model import build_ai_intent_view_model
+            from app.services.local_engine_authority_manager import AITSLocalEngineAuthorityManager
+            settings = load_settings()
+            ui_state = getattr(settings, "ui_state", {})
+            ui_state = ui_state if isinstance(ui_state, dict) else {}
+            parent = getattr(self, "_parent_window", None)
+            symbol = str(getattr(parent, "_selected_ai_pool_symbol", "") or "").strip().upper()
+            assets = ui_state.get("asset_policy_snapshots") if isinstance(ui_state.get("asset_policy_snapshots"), dict) else {}
+            asset_policy = assets.get(symbol) if isinstance(assets.get(symbol), dict) else {}
+            preview = AITSEffectivePolicyResolver.resolve(
+                global_policy=self._snapshot(), asset_policy=asset_policy,
+                authority=AITSLocalEngineAuthorityManager().inspect(persist_initial=False),
+                execution_mode=str(getattr(parent, "_get_aits_execution_mode", lambda: "")() or ""),
+                preferred_provider=str(getattr(getattr(settings, "strategy", None), "ai_provider", "") or ""),
+                scope_type="portfolio" if symbol == "PORTFOLIO" else "position",
+                scope=symbol or "GLOBAL", symbol=symbol, preview_only=True,
+            )
+            active_intent = AITSAIIntentRepository().find_active(symbol=symbol) if symbol else {}
+            runtime_policy = AITSEffectivePolicySnapshotRepository().inspect()
+            view = build_ai_intent_view_model(active_intent, preview)
+            runtime_hash = str(runtime_policy.get("policy_hash") or active_intent.get("effective_policy_hash") or "")
+            state_text = "현재 적용 중" if runtime_hash and runtime_hash == str(preview.get("policy_hash") or "") else "변경 대기" if runtime_hash else "미리보기"
+            if preview.get("policy_conflicts"):
+                state_text = "충돌 있음"
+            effective_text = (
+                f"{state_text} · {view.get('operating_style') or '균형 운용'}\n"
+                f"현재 목표: {view.get('current_goal') or '판단 대기'}\n"
+                f"지금 보고 있는 것: {view.get('watch_points') or '시장 변화'}\n"
+                f"행동 조건: {view.get('condition') or '조건 변화 시 재확인'}\n"
+                f"계획 변경 조건: {view.get('plan_change_condition') or '위험 변화 시 재확인'}\n"
+                f"{view.get('order_promise_notice') or '이 내용은 주문 예약이 아닙니다.'}"
+            )
+        except Exception:
+            pass
         mode = self.MODE_LABELS.get(self._current_mode(), "균형형")
         involvement = self.INVOLVEMENT_LABELS.get(self._current_involvement(), "표준")
         values = {
@@ -700,6 +739,7 @@ class AIPolicyCenterTab(QWidget):
             ),
             "safe": "Preview 전용\n저장만으로 주문 없음",
         }
+        values["effective"] = effective_text
         for key, text in values.items():
             label = self._summary_values.get(key)
             if label is not None:
