@@ -8,8 +8,11 @@ class AITSSchemaRegistry:
         "data_catalog": "aits_data_asset_catalog_entry.v1",
         "archive_manifest": "aits_data_archive_manifest.v1",
         "period_summary": "aits_data_period_summary.v1",
-        "backup_manifest": "aits_data_backup_manifest.v1",
+        "backup_manifest": "aits_backup_manifest.v1",
         "governance_policy": "aits_data_governance_policy.v1",
+        "release_operation_context": "aits_release_operation_context.v1",
+        "installation_migration": "aits_installation_migration.v1",
+        "support_bundle_manifest": "aits_support_bundle_manifest.v1",
     }
 
     def inspect(self) -> dict[str, Any]:

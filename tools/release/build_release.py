@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from tools.release.collect_licenses import collect
 from tools.release.generate_manifest import generate
 from tools.release.release_config import BUILD_ROOT, CANONICAL_SPEC, MANIFEST_ROOT, OUTPUT_ROOT
+from app.version import SEMANTIC_VERSION
 
 
 def sha256(path: Path) -> str:
@@ -29,8 +30,8 @@ def sha256(path: Path) -> str:
 def build(profile: str, *, clean: bool, no_run: bool) -> dict:
     if profile not in {"release_candidate", "development", "stable"}:
         raise ValueError("unsupported_release_profile")
-    profile_output = OUTPUT_ROOT / profile
-    work_dir = BUILD_ROOT / profile
+    profile_output = OUTPUT_ROOT / SEMANTIC_VERSION / profile
+    work_dir = BUILD_ROOT / SEMANTIC_VERSION / profile
     if clean:
         for target in (profile_output, work_dir):
             if target.exists():
@@ -42,7 +43,7 @@ def build(profile: str, *, clean: bool, no_run: bool) -> dict:
     subprocess.run(command, cwd=ROOT, check=True)
     app_dir = profile_output / "AITS"
     manifest = generate(app_dir, profile)
-    portable = profile_output / f"AITS-{profile}-portable.zip"
+    portable = profile_output / f"AITS-{SEMANTIC_VERSION}-{profile}-portable.zip"
     with zipfile.ZipFile(portable, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for path in sorted(app_dir.rglob("*")):
             if path.is_file():
@@ -50,6 +51,7 @@ def build(profile: str, *, clean: bool, no_run: bool) -> dict:
         archive.writestr("AITS/portable.flag", "AITS explicit portable profile\n")
     artifacts = {
         "schema": "aits_release_artifacts.v1", "profile": profile,
+        "version": SEMANTIC_VERSION,
         "release_dir": str(app_dir), "portable_path": str(portable),
         "portable_sha256": sha256(portable), "installer_path": "",
         "packaged_app_runtime_executed": not no_run,

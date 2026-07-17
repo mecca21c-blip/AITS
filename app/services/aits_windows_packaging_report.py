@@ -52,8 +52,9 @@ def build_aits_windows_packaging_report(repo_root: Path | str = Path(".")) -> di
     version = version_info()
     model_bundle_path = root / "release/assets/release_model_bundle.json"
     model_bundle = json.loads(model_bundle_path.read_text(encoding="utf-8")) if model_bundle_path.is_file() else default_release_model_bundle()
-    release_dir = root / "release/output/release_candidate/AITS"
-    artifact_index_path = root / "release/output/release_candidate/release_artifacts.json"
+    release_output = root / "release" / "output" / str(version["semantic_version"]) / "release_candidate"
+    release_dir = release_output / "AITS"
+    artifact_index_path = release_output / "release_artifacts.json"
     artifact_index = json.loads(artifact_index_path.read_text(encoding="utf-8")) if artifact_index_path.is_file() else {}
     manifest_path = release_dir / "release_manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
@@ -63,7 +64,7 @@ def build_aits_windows_packaging_report(repo_root: Path | str = Path(".")) -> di
         verification = verify(release_dir)
     portable_path = Path(str(artifact_index.get("portable_path") or "")) if artifact_index else Path()
     installer_tool = shutil.which("ISCC.exe") or shutil.which("iscc")
-    installer_candidates = list((root / "release/output/release_candidate").glob("AITS-Setup-*.exe"))
+    installer_candidates = list(release_output.glob("AITS-Setup-*.exe"))
     run_source = (root / "run.py").read_text(encoding="utf-8")
     resolver_source = (root / "app/services/aits_path_resolver.py").read_text(encoding="utf-8")
     ui_source = (root / "app/ui/local_engine_operations_panel.py").read_text(encoding="utf-8")

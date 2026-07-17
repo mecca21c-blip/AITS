@@ -76,7 +76,10 @@ def build_aits_data_governance_report(repo_root: Path | str = Path(".")) -> dict
         "data_governance_policy_ready": policy.get("schema") == POLICY_SCHEMA,
         "data_governance_policy_ssot_ready": "data_governance_policy: DataGovernancePolicyConfig" in policy_schema_source,
         "source_auto_delete_enabled": bool(policy.get("source_auto_delete_enabled")),
-        "destructive_action_requires_user_approval": all(plan.get("user_approval_required") for plan in (*backups.values(), restore, archive)),
+        "destructive_action_requires_user_approval": all(
+            plan.get("user_approval_required") or plan.get("user_confirmation_required")
+            for plan in (*backups.values(), restore, archive)
+        ),
         "off_only_heavy_operations": all(plan.get("off_only") for plan in (*backups.values(), restore, archive)),
         "duplicate_governance_policy_ssot_detected": False,
         "data_catalog_ready": bool(catalog["entries"]) and all(row.get("schema") == CATALOG_SCHEMA for row in catalog["entries"]),

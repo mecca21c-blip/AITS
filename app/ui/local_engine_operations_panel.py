@@ -7,7 +7,7 @@ from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFormLayout, QFrame, QGridLayout, QHeaderView,
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QTableWidget,
+    QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -31,7 +31,7 @@ class LocalEngineSnapshotWorker(QThread):
             from app.services.aits_data_governance import AITSDataGovernanceService
             value["data_governance"] = AITSDataGovernanceService().snapshot(deep=False)
             from app.services.aits_release_operations import AITSReleaseOperations
-            value["release_operations"] = AITSReleaseOperations().snapshot()
+            value["release_operations"] = AITSReleaseOperations().snapshot(runtime_active=self.runtime_active)
         except Exception as exc:
             value = {"snapshot_ready": False, "error": type(exc).__name__}
         self.result_ready.emit(value)
@@ -48,6 +48,34 @@ class LocalEngineMaintenanceWorker(QThread):
             )
         except Exception as exc:
             value = {"maintenance_started": False, "blocker": type(exc).__name__}
+        self.result_ready.emit(value)
+
+
+class ReleaseOperationWorker(QThread):
+    result_ready = Signal(dict)
+
+    def __init__(self, action: str, source: str = "", target: str = "", parent=None):
+        super().__init__(parent)
+        self.action = action
+        self.source = source
+        self.target = target
+
+    def run(self):
+        try:
+            from app.services.aits_release_operations import AITSReleaseOperations
+            operations = AITSReleaseOperations()
+            if self.action == "essential_backup":
+                value = operations.create_essential_backup(runtime_active=False, approved=True)
+            elif self.action == "support_bundle":
+                value = operations.create_support_bundle(runtime_active=False, approved=True)
+            elif self.action == "migration":
+                value = operations.migrate(
+                    self.source, self.target, runtime_active=False, approved=True
+                )
+            else:
+                value = {"operation_executed": False, "blocker": "unsupported_operation"}
+        except Exception as exc:
+            value = {"operation_executed": False, "blocker": type(exc).__name__}
         self.result_ready.emit(value)
 
 
@@ -393,7 +421,10 @@ def _maintenance(window) -> None:
 
 def _governance_plan(window, action: str) -> None:
     if _runtime_active(window):
-        QMessageBox.warning(window, "데이터·백업", "실시간 감시 중에는 이 관리 작업을 실행할 수 없습니다.")
+        QMessageBox.warning(window, "데이터·백업", "실시간 감시 중에는 실행할 수 없습니다.")
+        return
+    if action == "backup":
+        _release_plan(window, "essential_backup")
         return
     from app.services.aits_backup_manager import AITSBackupManager
     from app.services.aits_data_archive import AITSDataArchiveManager
@@ -415,23 +446,67 @@ def _governance_plan(window, action: str) -> None:
 
 def _release_plan(window, action: str) -> None:
     if _runtime_active(window):
-        QMessageBox.warning(window, "앱 정보·업데이트", "실시간 감시 중에는 업데이트·복구 작업을 실행할 수 없습니다.")
+        QMessageBox.warning(window, "앱 정보·데이터 위치", "실시간 감시 중에는 실행할 수 없습니다.")
         return
-    from app.services.aits_release_operations import AITSReleaseOperations
-    from app.services.aits_support_bundle import AITSSupportBundle
-    if action == "update":
-        result = AITSReleaseOperations().update_plan("사용자가 선택할 package", runtime_active=False)
-        text = "업데이트 package의 manifest, hash, schema 호환성을 확인하는 계획입니다. 사용자 데이터는 덮어쓰지 않습니다."
-    elif action == "rollback":
-        result = AITSReleaseOperations().rollback_plan("이전 release manifest", runtime_active=False)
-        text = "이전 앱 버전으로 되돌려도 사용자 데이터는 유지됩니다. 데이터 rollback은 별도 승인 대상입니다."
-    elif action == "support":
-        result = AITSSupportBundle().plan(Path("data"))
-        text = "API key와 개인 데이터를 제외한 지원용 진단 파일 생성 계획입니다."
+    if action in {"update", "rollback"}:
+        from app.services.aits_release_operations import AITSReleaseOperations
+        operations = AITSReleaseOperations()
+        if action == "update":
+            operations.update_plan("사용자가 선택한 패키지", runtime_active=False)
+            text = "검증된 패키지와 manifest를 확인하는 계획입니다. 사용자 데이터는 삭제되지 않습니다."
+        else:
+            operations.rollback_plan("이전 릴리스 manifest", runtime_active=False)
+            text = "이전 앱 버전으로 되돌려도 사용자 데이터는 유지됩니다."
+        QMessageBox.information(window, "앱 정보·데이터 위치", text)
+        return
+
+    source = target = ""
+    if action == "migration":
+        source = QFileDialog.getExistingDirectory(window, "기존 데이터 위치 선택")
+        if not source:
+            return
+        parent = QFileDialog.getExistingDirectory(window, "새 데이터 위치의 상위 폴더 선택")
+        if not parent:
+            return
+        target = str(Path(parent) / "AITS")
+        prompt = (
+            f"기존 위치: {source}\n새 위치: {target}\n\n"
+            "원본 데이터는 삭제되지 않습니다. 검증이 끝난 뒤에만 새 데이터 위치가 활성화됩니다.\n"
+            "실제로 staging, 검증, 활성화를 실행할까요?"
+        )
+    elif action == "essential_backup":
+        prompt = (
+            "Authority, 모델 포인터, 정책과 Intent 등 필수 상태를 ZIP으로 백업합니다.\n"
+            "API 키와 민감정보는 포함되지 않습니다. 실행할까요?"
+        )
     else:
-        result = {"operation_executed": False}
-        text = "앱 버전과 데이터 위치를 새로 확인했습니다."
-    QMessageBox.information(window, "앱 정보·업데이트", text + f"\n실제 실행: {'예' if result.get('operation_executed') else '아니요'}")
+        action = "support_bundle"
+        prompt = (
+            "문제 해결에 필요한 진단 요약을 ZIP으로 만듭니다.\n"
+            "API 키, 원문 prompt와 계정 데이터는 포함되지 않습니다. 실행할까요?"
+        )
+    if QMessageBox.question(window, "Release Operations 실행 승인", prompt) != QMessageBox.StandardButton.Yes:
+        return
+    if getattr(window, "_release_operation_inflight", False):
+        QMessageBox.information(window, "Release Operations", "이미 작업을 실행하고 있습니다.")
+        return
+    window._release_operation_inflight = True
+    worker = ReleaseOperationWorker(action, source, target, window)
+    window._release_operation_worker = worker
+
+    def completed(result):
+        ok = bool(result.get("operation_executed"))
+        artifact = result.get("artifact_path") or result.get("operation_root") or ""
+        message = "작업과 검증이 완료됐습니다."
+        if artifact:
+            message += f"\n결과: {artifact}"
+        if not ok:
+            message = f"작업을 완료하지 못했습니다.\n{human_blocker(result.get('blocker'))}"
+        QMessageBox.information(window, "Release Operations", message)
+
+    worker.result_ready.connect(completed)
+    worker.finished.connect(lambda: setattr(window, "_release_operation_inflight", False))
+    worker.start()
 
 
 def _state_file_action(window, action: str) -> None:
@@ -671,7 +746,7 @@ def build_local_engine_operations_card(window, build_card):
     advanced.addWidget(window.lbl_data_governance_summary)
     governance_actions = QHBoxLayout()
     window.data_governance_heavy_buttons = []
-    for text, action in (("백업 만들기", "backup"), ("오래된 기록 압축 보관", "archive"), ("파생 데이터 다시 만들기", "regenerate"), ("백업에서 복구", "restore")):
+    for text, action in (("Essential 백업 만들기", "backup"), ("오래된 기록 압축 보관", "archive"), ("파생 데이터 다시 만들기", "regenerate"), ("백업에서 복구", "restore")):
         button = QPushButton(text)
         button.setProperty("off_only_governance_operation", True)
         button.clicked.connect(lambda checked=False, name=action: _governance_plan(window, name))
@@ -698,7 +773,12 @@ def build_local_engine_operations_card(window, build_card):
     advanced.addWidget(window.lbl_release_operations_summary)
     release_actions = QHBoxLayout()
     window.release_operations_off_only_buttons = []
-    for text, action in (("업데이트 계획 보기", "update"), ("이전 앱 버전으로 되돌리기", "rollback"), ("지원용 진단 파일 만들기", "support")):
+    for text, action in (
+        ("기존 데이터 가져오기", "migration"),
+        ("지원용 진단 파일 만들기", "support_bundle"),
+        ("업데이트 계획 보기", "update"),
+        ("이전 앱 버전으로 되돌리기", "rollback"),
+    ):
         button = QPushButton(text)
         button.setProperty("off_only_release_operation", True)
         button.clicked.connect(lambda checked=False, name=action: _release_plan(window, name))

@@ -27294,6 +27294,9 @@ def run_harness(
         "local-engine-full-structure-completion-v1-summary",
         "aits-master-integrated-runtime-acceptance-v1-summary",
         "aits-intent-effective-policy-runtime-completion-v1-summary",
+        "aits-data-governance-retention-backup-recovery-v1-summary",
+        "aits-windows-packaging-release-operations-v1-summary",
+        "aits-release-operations-execution-stabilization-v1-summary",
         "local-model-registry-latest-pointer-policy-v1-summary",
         "low-resource-runtime-stability-v1-summary",
         "on-button-nonblocking-startup-stability-v1-summary",
@@ -27691,6 +27694,10 @@ def run_harness(
             _install_provider_post_guard(report)
             from app.services.aits_windows_packaging_report import build_aits_windows_packaging_report
             report.update(build_aits_windows_packaging_report(ROOT))
+        elif mode == "aits-release-operations-execution-stabilization-v1-summary":
+            _install_provider_post_guard(report)
+            from app.services.aits_release_operations_stabilization_report import build_aits_release_operations_stabilization_report
+            report.update(build_aits_release_operations_stabilization_report(ROOT))
         elif mode == "local-model-registry-latest-pointer-policy-v1-summary":
             _install_provider_post_guard(report)
             _run_local_model_registry_latest_pointer_policy_v1_summary(
@@ -28377,6 +28384,7 @@ def main() -> int:
             "aits-intent-effective-policy-runtime-completion-v1-summary",
             "aits-data-governance-retention-backup-recovery-v1-summary",
             "aits-windows-packaging-release-operations-v1-summary",
+            "aits-release-operations-execution-stabilization-v1-summary",
             "local-model-registry-latest-pointer-policy-v1-summary",
             "low-resource-runtime-stability-v1-summary",
             "on-button-nonblocking-startup-stability-v1-summary",
