@@ -2355,6 +2355,12 @@ class AITSLargeChartDialog(QDialog):
         lay.addWidget(self.lbl_ai_intent_placeholder)
         lay.addWidget(self.ai_intent_container)
         lay.addWidget(self.lbl_ai_review_learning_placeholder)
+        from app.ui.ai_review_learning_journal_panel import (
+            install_ai_review_learning_journal_entry,
+        )
+        self.btn_ai_review_learning_journal = install_ai_review_learning_journal_entry(
+            self, lay
+        )
         return card
 
     def _make_detail_popup_value_label(self):
