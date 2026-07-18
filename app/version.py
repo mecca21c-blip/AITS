@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 APP_NAME = "AITS"
-SEMANTIC_VERSION = "1.0.0-rc.3"
+SEMANTIC_VERSION = "1.0.0-rc.4"
 RELEASE_CHANNEL = "release_candidate"
 BUILD_NUMBER = 3
 MIN_DATA_SCHEMA_VERSION = 1

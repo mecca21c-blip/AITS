@@ -43486,7 +43486,7 @@ class MainWindow(QMainWindow):
         }
         return self._attach_ai_provider_runtime_context(payload)
 
-    def _record_initial_ai_management_training(self, *, payload: dict, decision: dict, session_id: str, registered: bool, blocker: str) -> None:
+    def _record_initial_ai_management_training(self, *, payload: dict, decision: dict, session_id: str, registered: bool, blocker: str) -> bool:
         try:
             self._emit_provider_reason_timeline(
                 decision=decision,
@@ -43549,7 +43549,7 @@ class MainWindow(QMainWindow):
             }
             with (root / "initial_management_decisions.jsonl").open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
-            self._register_ai_decision_outcome_tracking(
+            outcome_tracking_registered = self._register_ai_decision_outcome_tracking(
                 payload={**dict(payload or {}), "session_id": session_id},
                 decision=decision,
                 decision_id=decision_id,
@@ -43559,11 +43559,24 @@ class MainWindow(QMainWindow):
                 "[AITS][AIManagementSeed] event=initial_seed_training_record_created session_id=%s task=%s symbol=%s provider=%s payload_hash=%s blocker=%s actual_order=False submitted=0",
                 session_id, record["task"] or "-", record["symbol"] or "-", record["provider"] or "-", payload_hash, blocker or "-",
             )
+            return bool(outcome_tracking_registered)
         except Exception as exc:
             logging.getLogger("aits").info(
                 "[AITS][AIManagementSeed] event=initial_seed_training_record_failed session_id=%s blocker=training_record_failed exception_type=%s actual_order=False submitted=0",
                 session_id, type(exc).__name__,
             )
+            return False
+
+    def _safe_emit_initial_decision_timeline(self, **kwargs) -> bool:
+        try:
+            self._emit_live_cycle_reason_timeline(**kwargs)
+            return True
+        except Exception as exc:
+            logging.getLogger("aits").exception(
+                "[AITS][ValidatedDecisionApplication] event=ui_writer_isolated writer=live_cycle_reason_timeline exception_type=%s blocker=ui_status_render_failed actual_order=False submitted=0",
+                type(exc).__name__,
+            )
+            return False
 
     def _request_initial_ai_management_decision(self, *, payload: dict, session_id: str) -> dict:
         seed_logger = logging.getLogger("aits")
@@ -43581,6 +43594,10 @@ class MainWindow(QMainWindow):
             engine = AIEngineProvider(settings=getattr(self, "_settings", None), strategy=getattr(self, "strategy", None))
             decision = dict(engine.generate_position_management_decision(provider=provider, context=payload) or {})
         except Exception as exc:
+            seed_logger.exception(
+                "[AITS][AIManagementSeed] event=initial_seed_provider_exception session_id=%s task=%s symbol=%s exception_type=%s blocker=initial_seed_response_missing actual_order=False submitted=0",
+                session_id, task or "-", symbol or "-", type(exc).__name__,
+            )
             decision = {"provider": provider, "response_confirmed": False, "validation_passed": False, "blocker": f"initial_seed_response_missing:{type(exc).__name__}"}
         response_received = bool(decision.get("response_confirmed"))
         validation_passed = bool(decision.get("validation_passed"))
@@ -43616,7 +43633,7 @@ class MainWindow(QMainWindow):
                 "[AITS][AIManagementSeed] event=initial_seed_response_received session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=response_confirmed actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
             )
-            self._emit_live_cycle_reason_timeline(
+            self._safe_emit_initial_decision_timeline(
                 event="initial_ai_decision",
                 message_ko=f"{symbol} AI 초기 판단: {str(decision.get('reason_ko') or '현재 조건을 계속 감시합니다.')}",
                 symbol=symbol,
@@ -43657,8 +43674,30 @@ class MainWindow(QMainWindow):
                 "[AITS][AIManagementSeed] event=initial_seed_registration_failed session_id=%s trigger_reason=on_initial_management_seed holding_symbols=%s provider=%s payload_hash=%s registered_decision_count=0 eta_registered_count=0 invalidation_registered_count=0 failed_registration_count=1 active_decision_count_after=%s registered_decision_ids=- failed_symbols=%s blocker=%s reason=%s actual_order=False submitted=0",
                 session_id, symbol, provider or "-", payload_hash, int(registration.get("active_decision_count_after") or 0), symbol, blocker, registration.get("reason") or "registration_failed",
             )
-        self._record_initial_ai_management_training(payload=payload, decision=decision, session_id=session_id, registered=registered, blocker=blocker)
-        return {"decision": decision, "registered": registered, "registration": registration, "blocker": blocker, "payload_hash": payload_hash}
+        outcome_tracking_registered = self._record_initial_ai_management_training(
+            payload=payload, decision=decision, session_id=session_id, registered=registered, blocker=blocker,
+        )
+        application = dict(decision.get("validated_decision_application") or {})
+        if validation_passed and application:
+            from app.services.validated_decision_application import AITSValidatedDecisionApplication
+            application = AITSValidatedDecisionApplication.complete_core(
+                application,
+                decision=decision,
+                runtime_registration=registration,
+                outcome_tracking_registered=outcome_tracking_registered,
+            )
+            decision["validated_decision_application"] = dict(application)
+            registration["validated_decision_application"] = dict(application)
+            registration["outcome_tracking_registered"] = bool(outcome_tracking_registered)
+            seed_logger.info(
+                "[AITS][ValidatedDecisionApplication] event=%s application_id=%s decision_id=%s runtime_state_registered=%s intent_registered=%s eta_registered=%s invalidation_registered=%s outcome_tracking_registered=%s application_status=%s blocker=%s actual_order=False submitted=0",
+                "application_core_registered" if application.get("application_status") == "core_registered" else "application_failed",
+                application.get("application_id") or "-", application.get("decision_id") or "-",
+                bool(application.get("runtime_state_registered")), bool(application.get("intent_registered")),
+                bool(application.get("eta_registered")), bool(application.get("invalidation_registered")),
+                bool(application.get("outcome_tracking_registered")), application.get("application_status") or "-", application.get("blocker") or "-",
+            )
+        return {"decision": decision, "registered": registered, "registration": registration, "application": application, "blocker": blocker, "payload_hash": payload_hash}
 
     def _run_initial_ai_management_seed(self, *, rows: list[dict], contract_snapshot: dict) -> dict:
         seed_logger = logging.getLogger("aits")

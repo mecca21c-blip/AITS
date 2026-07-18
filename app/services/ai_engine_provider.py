@@ -26,6 +26,7 @@ from app.services.local_engine_copilot import AITSLocalEngineCopilot
 from app.services.aits_effective_policy import AITSEffectivePolicyResolver, AITSEffectivePolicySnapshotRepository
 from app.services.ai_intent_service import AITSAIIntentService
 from app.services.ai_intent_repository import AITSAIIntentRepository
+from app.services.validated_decision_application import AITSValidatedDecisionApplication
 
 
 RUNTIME_DECISION_ALLOWED_TASKS = {
@@ -1612,6 +1613,7 @@ class AIEngineProvider:
                 requested_provider=provider,
                 context=context,
                 feature_manifest=feature_manifest,
+                effective_policy=effective_policy,
             )
         )
         try:
@@ -1710,6 +1712,7 @@ class AIEngineProvider:
         requested_provider: str,
         context: Dict[str, Any],
         feature_manifest: Dict[str, Any],
+        effective_policy: Dict[str, Any],
     ) -> Dict[str, Any]:
         requested_provider = requested_provider if requested_provider in {"openai", "gemini"} else "local"
         prompt = self._build_position_management_decision_prompt(context)
@@ -2108,6 +2111,21 @@ class AIEngineProvider:
         final_decision["intent_revision"] = int(canonical_intent.get("revision") or 1)
         final_decision["intent_is_order_promise"] = False
         final_decision["final_action_unchanged_by_intent"] = True
+        application = AITSValidatedDecisionApplication.start(
+            decision=final_decision,
+            payload=context,
+            effective_policy=effective_policy,
+        )
+        final_decision["decision_id"] = str(application.get("decision_id") or final_decision.get("decision_id") or payload_hash)
+        final_decision["validated_decision_application"] = application
+        _safe_log_info(
+            "[AITS][ValidatedDecisionApplication] event=application_started "
+            f"application_id={application.get('application_id') or '-'} "
+            f"decision_id={application.get('decision_id') or '-'} task={task or '-'} scope={symbol_or_scope} "
+            f"provider_source={final_provider_source} validated_action={final_decision.get('action') or 'wait'} "
+            f"application_status={application.get('application_status') or '-'} blocker={application.get('blocker') or '-'} "
+            "actual_order=False submitted=0"
+        )
         final_action_before_observation = str(final_decision.get("action") or "wait")
         observation_status = "skipped"
         observation_blocker = str(local_model.get("local_model_prediction_blocker") or "local_model_prediction_unavailable")
