@@ -12,6 +12,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from app.services.aits_data_catalog import AITSDataCatalog
 from app.services.aits_hardware_probe import AITSHardwareProbe
+from app.services.aits_path_resolver import AITSPathResolver
 from app.services.aits_release_manifest import safe_git_commit
 from app.services.aits_release_operation_context import AITSReleaseOperationContext
 from app.services.aits_secret_store import sanitized_config
@@ -26,6 +27,9 @@ _SECRET_PATTERNS = (
     re.compile(rb'"(?:access_key|secret_key|api_key|password|token)"\s*:\s*"(?!<excluded>|<configured>|<not_configured>)[^"\s]{8,}"', re.I),
 )
 _PRIVATE_LOG_LINE = re.compile(r"account|balance|holding|authorization|raw_prompt|prompt=|payload=|credential|secret_key|access_key", re.I)
+_MAX_LOG_FILES = 4
+_MAX_LOG_TAIL_BYTES_PER_FILE = 256 * 1024
+_MAX_SANITIZED_LOG_BYTES = 512 * 1024
 
 
 def _sha256(data: bytes) -> str:
@@ -50,6 +54,23 @@ def _sanitize_text(text: str) -> str:
     text = re.sub(r"C:\\Users\\[^\\\s]+", r"C:\\Users\\<user>", text, flags=re.I)
     text = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<email>", text)
     return text
+
+
+def _sanitize_text_with_count(text: str) -> tuple[str, int]:
+    sanitized = text
+    count = 0
+    substitutions = (
+        (r"sk-[A-Za-z0-9_-]{8,}", "<excluded>", 0),
+        (r"AIza[A-Za-z0-9_-]{12,}", "<excluded>", 0),
+        (r"(Authorization\s*:\s*)(?:Bearer\s+)?\S+", r"\1<excluded>", re.I),
+        (r"((?:access_key|secret_key|api_key|password|token)\s*[=:]\s*)\S+", r"\1<excluded>", re.I),
+        (r"C:\\Users\\[^\\\s]+", r"C:\\Users\\<user>", re.I),
+        (r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<email>", 0),
+    )
+    for pattern, replacement, flags in substitutions:
+        sanitized, replaced = re.subn(pattern, replacement, sanitized, flags=flags)
+        count += replaced
+    return sanitized, count
 
 
 def _scan(name: str, data: bytes) -> list[str]:
@@ -89,7 +110,74 @@ class AITSSupportBundle:
             "operation_executed": False,
         }
 
-    def _sections(self, source_root: Path, safe_settings: dict[str, Any] | None) -> dict[str, bytes]:
+    @staticmethod
+    def _read_tail(path: Path, limit: int) -> bytes:
+        with path.open("rb") as handle:
+            size = path.stat().st_size
+            offset = max(0, size - limit)
+            handle.seek(offset)
+            data = handle.read(limit)
+        if offset and b"\n" in data:
+            data = data.split(b"\n", 1)[1]
+        return data
+
+    def _collect_recent_logs(self, source_root: Path) -> tuple[bytes, dict[str, Any]]:
+        resolved = AITSPathResolver.resolve_support_log_sources(source_root=source_root)
+        available = list(resolved["log_paths"])
+        selected = available[:_MAX_LOG_FILES]
+        source_bytes = sum(path.stat().st_size for path in available)
+        selected_bytes = sum(path.stat().st_size for path in selected)
+        output_lines: list[str] = []
+        redacted_values = 0
+        dropped_lines = 0
+        skipped_reasons: Counter[str] = Counter()
+        for path in selected:
+            try:
+                raw = self._read_tail(path, _MAX_LOG_TAIL_BYTES_PER_FILE)
+            except OSError:
+                skipped_reasons["read_error"] += 1
+                continue
+            if b"\x00" in raw:
+                skipped_reasons["nul_content"] += 1
+                continue
+            for line in raw.decode("utf-8", errors="replace").splitlines():
+                if _PRIVATE_LOG_LINE.search(line):
+                    dropped_lines += 1
+                    continue
+                sanitized, replacements = _sanitize_text_with_count(line)
+                redacted_values += replacements
+                if sanitized.strip():
+                    output_lines.append(sanitized)
+        output = ("\n".join(output_lines) + ("\n" if output_lines else "")).encode("utf-8")
+        if len(output) > _MAX_SANITIZED_LOG_BYTES:
+            output = output[-_MAX_SANITIZED_LOG_BYTES:]
+            if b"\n" in output:
+                output = output.split(b"\n", 1)[1]
+        blocker = ""
+        if available and not output:
+            blocker = "support_log_collection_empty_with_available_source"
+        status = "no_logs_available" if not available else ("failed" if blocker else "collected")
+        metadata = {
+            "log_collection_status": status,
+            "canonical_log_root_used": str(resolved["root_label"]),
+            "source_log_file_count": len(available),
+            "source_log_total_bytes": source_bytes,
+            "selected_log_file_count": len(selected),
+            "selected_log_total_bytes": selected_bytes,
+            "selected_log_paths": list(resolved["path_labels"][:len(selected)]),
+            "sanitized_log_lines": output.count(b"\n"),
+            "sanitized_log_bytes": len(output),
+            "redacted_value_count": redacted_values,
+            "dropped_line_count": dropped_lines,
+            "skipped_file_count": sum(skipped_reasons.values()),
+            "skipped_file_reasons": dict(skipped_reasons),
+            "log_collection_blocker": blocker,
+            "path_values_sanitized": True,
+            "support_log_uses_app_root": bool(resolved["uses_app_root"]),
+        }
+        return output, metadata
+
+    def _sections(self, source_root: Path, safe_settings: dict[str, Any] | None) -> tuple[dict[str, bytes], dict[str, Any]]:
         data_root = source_root / "data" if (source_root / "data").is_dir() else source_root
         authority = _safe_json(data_root / "local_engine/local_engine_authority_state.json")
         registry = _safe_json(data_root / "local_models/registry.json")
@@ -126,17 +214,7 @@ class AITSSupportBundle:
             "raw_policy_or_intent_included": False,
         }
         catalog = AITSDataCatalog(data_root).inspect(deep=False)
-        log_candidates = (data_root / "logs/aits.log", data_root / "logs" / "aits.log")
-        sanitized_lines: list[str] = []
-        for log_path in log_candidates:
-            if not log_path.is_file():
-                continue
-            try:
-                lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-250:]
-                sanitized_lines = [_sanitize_text(line) for line in lines if not _PRIVATE_LOG_LINE.search(line)][-200:]
-            except OSError:
-                sanitized_lines = []
-            break
+        sanitized_logs, log_metadata = self._collect_recent_logs(source_root)
         defects_path = data_root / "acceptance/master_acceptance_defects.jsonl"
         defect_counts: Counter[str] = Counter()
         if defects_path.is_file():
@@ -162,8 +240,8 @@ class AITSSupportBundle:
             "crash_marker.json": {"hard_freeze_marker_present": (data_root / "runtime/hard_freeze.marker").is_file()},
         }
         sections = {f"payload/{name}": json.dumps(sanitized_config(value), ensure_ascii=False, indent=2, default=str).encode("utf-8") for name, value in values.items()}
-        sections["payload/sanitized_recent_logs.txt"] = ("\n".join(sanitized_lines) + ("\n" if sanitized_lines else "")).encode("utf-8")
-        return sections
+        sections["payload/sanitized_recent_logs.txt"] = sanitized_logs
+        return sections, log_metadata
 
     @staticmethod
     def validate_bundle(path: Path | str) -> dict[str, Any]:
@@ -188,6 +266,13 @@ class AITSSupportBundle:
                     if _sha256(data) != row.get("sha256"):
                         errors.append(f"hash_mismatch:{name}")
                     secret_hits.extend(f"{name}:{hit}" for hit in _scan(name, data))
+                log_data = archive.read("payload/sanitized_recent_logs.txt") if "payload/sanitized_recent_logs.txt" in names else b""
+                if int(manifest.get("source_log_file_count") or 0) > 0 and not log_data:
+                    errors.append("support_log_collection_empty_with_available_source")
+                if int(manifest.get("sanitized_log_bytes") or 0) != len(log_data):
+                    errors.append("sanitized_log_size_mismatch")
+                if manifest.get("path_values_sanitized") is not True:
+                    errors.append("support_log_path_provenance_not_sanitized")
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             errors.append(type(exc).__name__)
             manifest = {}
@@ -219,7 +304,15 @@ class AITSSupportBundle:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         final_path = context.target_root / f"AITS-support-{timestamp}-{context.operation_id[-8:]}.zip"
         temporary = final_path.with_suffix(".partial")
-        sections = self._sections(context.source_root, safe_settings)
+        sections, log_metadata = self._sections(context.source_root, safe_settings)
+        if log_metadata["log_collection_blocker"]:
+            return {
+                **plan,
+                **log_metadata,
+                "operation_executed": False,
+                "valid": False,
+                "blocker": log_metadata["log_collection_blocker"],
+            }
         scan_hits = [f"{name}:{hit}" for name, data in sections.items() for hit in _scan(name, data)]
         if scan_hits:
             return {**plan, "operation_executed": False, "blocker": "support_bundle_sanitization_failed", "secret_hits": scan_hits}
@@ -237,6 +330,7 @@ class AITSSupportBundle:
             "sanitization_rules": ["key_token_masking", "authorization_removal", "private_account_line_exclusion", "user_path_masking", "raw_payload_exclusion"],
             "secret_scan_result": "pass",
             "validation_result": "pending_readback",
+            **log_metadata,
         }
         with context.operation_lock():
             try:
@@ -253,4 +347,4 @@ class AITSSupportBundle:
             finally:
                 temporary.unlink(missing_ok=True)
         validation = self.validate_bundle(final_path)
-        return {**plan, **validation, "artifact_path": str(final_path), "manifest": manifest, "operation_executed": True, "blocker": ""}
+        return {**plan, **validation, **log_metadata, "artifact_path": str(final_path), "manifest": manifest, "operation_executed": True, "blocker": ""}

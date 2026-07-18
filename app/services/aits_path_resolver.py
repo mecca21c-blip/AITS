@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 import os
 from pathlib import Path
 import sys
-from typing import Mapping
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -91,6 +91,62 @@ class AITSPathResolver:
     @staticmethod
     def runtime_data_dir(paths: AITSPaths) -> Path:
         return paths.user_data_root / "data" if paths.install_type != "development" else paths.user_data_root / "data"
+
+    @classmethod
+    def get_logs_root(cls, paths: AITSPaths) -> Path:
+        """Return the one canonical runtime log root for the resolved install profile."""
+        if paths.install_type == "development":
+            return cls.runtime_data_dir(paths) / "logs"
+        return paths.user_data_root / "logs"
+
+    @classmethod
+    def get_runtime_log_paths(cls, paths: AITSPaths) -> tuple[Path, ...]:
+        """Return deterministic existing AITS log files without consulting the app root."""
+        logs_root = cls.get_logs_root(paths)
+        try:
+            candidates = [
+                path for path in logs_root.iterdir()
+                if path.is_file() and (path.name == "aits.log" or path.name.startswith("aits.log."))
+            ]
+        except OSError:
+            candidates = []
+        return tuple(sorted(candidates, key=lambda path: (-path.stat().st_mtime_ns, path.name.lower())))
+
+    @classmethod
+    def resolve_support_log_sources(
+        cls,
+        *,
+        source_root: Path | str | None = None,
+        paths: AITSPaths | None = None,
+    ) -> dict[str, Any]:
+        """Resolve support-log inputs through the path SSOT, including acceptance overrides."""
+        resolved = paths or cls.resolve()
+        if source_root is not None:
+            requested_root = Path(source_root).expanduser().resolve()
+            if requested_root != resolved.user_data_root.resolve():
+                resolved = AITSPaths(
+                    app_root=resolved.app_root,
+                    user_data_root=requested_root,
+                    user_config_root=requested_root / "config",
+                    user_backup_root=resolved.user_backup_root,
+                    packaged_resource_root=resolved.packaged_resource_root,
+                    dev_root=resolved.dev_root,
+                    portable_root=None,
+                    install_type="override",
+                )
+        logs_root = cls.get_logs_root(resolved)
+        log_paths = cls.get_runtime_log_paths(resolved)
+        root_label = "%PORTABLE_DATA_ROOT%\\logs" if resolved.install_type == "portable" else "%USER_DATA_ROOT%\\logs"
+        path_source = "user_data_root"
+        return {
+            "logs_root": logs_root,
+            "log_paths": log_paths,
+            "root_label": root_label,
+            "path_labels": tuple(f"{root_label}\\{path.name}" for path in log_paths),
+            "install_type": resolved.install_type,
+            "path_source": path_source,
+            "uses_app_root": path_source == "app_root",
+        }
 
     @staticmethod
     def app_root_write_allowed(paths: AITSPaths) -> bool:

@@ -86,6 +86,22 @@ def _copy_current_state(source_data: Path, destination_data: Path) -> int:
     return count + 1
 
 
+def _copy_current_logs(source_data: Path, destination_root: Path) -> tuple[int, int]:
+    source_logs = source_data / "logs"
+    destination_logs = destination_root / "logs"
+    destination_logs.mkdir(parents=True, exist_ok=True)
+    selected = [
+        path for path in source_logs.glob("aits.log*")
+        if path.is_file() and (path.name == "aits.log" or path.name.startswith("aits.log."))
+    ]
+    selected.sort(key=lambda path: (-path.stat().st_mtime_ns, path.name.lower()))
+    total_bytes = 0
+    for path in selected[:4]:
+        shutil.copy2(path, destination_logs / path.name)
+        total_bytes += path.stat().st_size
+    return min(len(selected), 4), total_bytes
+
+
 def _context(operation: str, source: Path, target: Path, staging: Path) -> AITSReleaseOperationContext:
     return AITSReleaseOperationContext.create(
         operation_type=operation,
@@ -239,12 +255,77 @@ def run() -> dict[str, Any]:
     return result
 
 
+def run_support_bundle_only() -> dict[str, Any]:
+    source_data = ROOT / "data"
+    source_before = _tree_digest(source_data, exclude_acceptance=True)
+    with tempfile.TemporaryDirectory(prefix="aits-support-bundle-") as temp:
+        temp_root = Path(temp)
+        isolated_source = temp_root / "source"
+        copied_state = _copy_current_state(source_data, isolated_source / "data")
+        source_log_count, source_log_bytes = _copy_current_logs(source_data, isolated_source)
+        source_log_hashes = {
+            path.name: _sha256(path) for path in sorted((isolated_source / "logs").glob("aits.log*")) if path.is_file()
+        }
+        context = _context("support_bundle", isolated_source, temp_root / "support", temp_root / "staging")
+        support = AITSSupportBundle().execute(context=context)
+        validation = AITSSupportBundle.validate_bundle(support.get("artifact_path", "")) if support.get("artifact_path") else {}
+        source_log_hashes_after = {
+            path.name: _sha256(path) for path in sorted((isolated_source / "logs").glob("aits.log*")) if path.is_file()
+        }
+        result = {
+            "schema": "aits_support_bundle_log_path_contract_test.v1",
+            "executed_at": datetime.now(timezone.utc).isoformat(),
+            "copied_real_state_file_count": copied_state,
+            "packaged_source_log_count": source_log_count,
+            "packaged_source_log_bytes": source_log_bytes,
+            "support_bundle": support,
+            "support_bundle_readback": validation,
+            "source_log_hash_unchanged": source_log_hashes == source_log_hashes_after,
+        }
+    result["source_user_data_hash_unchanged"] = source_before == _tree_digest(source_data, exclude_acceptance=True)
+    result["passed"] = all((
+        source_log_count > 0,
+        source_log_bytes > 0,
+        support.get("operation_executed") is True,
+        validation.get("valid") is True,
+        int(support.get("sanitized_log_bytes") or 0) > 0,
+        support.get("support_log_uses_app_root") is False,
+        result["source_log_hash_unchanged"],
+        result["source_user_data_hash_unchanged"],
+        not validation.get("secret_leak_detected"),
+        not validation.get("raw_prompt_detected"),
+        not validation.get("private_account_data_detected"),
+    ))
+    result["first_blocker"] = "" if result["passed"] else (
+        support.get("blocker") or "support_bundle_log_path_contract_failed"
+    )
+    report = ROOT / "data" / "acceptance" / "support_bundle_log_path_contract_test.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    temporary = report.with_suffix(".tmp")
+    temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(report)
+    return result
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--use-current-data-readonly-clone", action="store_true", required=True)
     parser.add_argument("--isolated-temp-root", action="store_true", required=True)
-    parser.parse_args()
-    result = run()
+    parser.add_argument("--support-bundle-only", action="store_true")
+    args = parser.parse_args()
+    result = run_support_bundle_only() if args.support_bundle_only else run()
+    if args.support_bundle_only:
+        print(json.dumps({
+            "passed": result["passed"],
+            "first_blocker": result["first_blocker"],
+            "packaged_source_log_count": result["packaged_source_log_count"],
+            "packaged_source_log_bytes": result["packaged_source_log_bytes"],
+            "sanitized_log_lines": result["support_bundle"].get("sanitized_log_lines"),
+            "sanitized_log_bytes": result["support_bundle"].get("sanitized_log_bytes"),
+            "source_log_hash_unchanged": result["source_log_hash_unchanged"],
+            "source_unchanged": result["source_user_data_hash_unchanged"],
+        }, ensure_ascii=False, indent=2))
+        return 0 if result["passed"] else 1
     print(json.dumps({
         "passed": result["passed"],
         "first_blocker": result["first_blocker"],
