@@ -123,3 +123,22 @@ class AITSAIIntentService:
         if status not in LIFECYCLE - {"proposed", "active", "revised"}:
             return {"written": False, "blocker": "intent_lifecycle_transition_invalid"}
         return self.repository.transition(intent_id, status, reason=reason)
+
+    def persist_active(
+        self,
+        intent: Mapping[str, Any],
+        *,
+        parent_intent: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Persist only a fully prepared canonical Intent after identity preflight."""
+        value = dict(intent or {})
+        if not str(value.get("decision_id") or ""):
+            return {"written": False, "blocker": "intent_decision_id_missing", "intent": value}
+        if not str(value.get("intent_id") or ""):
+            return {"written": False, "blocker": "intent_id_missing", "intent": value}
+        if str(value.get("status") or "") not in {"active", "revised"}:
+            return {"written": False, "blocker": "intent_not_active", "intent": value}
+        return self.repository.upsert_active(
+            value,
+            event_type="intent_revised" if dict(parent_intent or {}) else "intent_activated",
+        )

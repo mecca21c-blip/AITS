@@ -19512,6 +19512,11 @@ class MainWindow(QMainWindow):
         return [row for row in rows if isinstance(row, dict) and row.get("symbol")]
 
     def _ensure_managed_pool_holdings_included(self, *, reason: str = "refresh", holdings: list | None = None, persist: bool = True) -> dict:
+        if reason != "restore" and not bool(getattr(self, "_managed_pool_restore_attempted", False)):
+            try:
+                self._restore_managed_pool_rows_from_settings()
+            except Exception:
+                pass
         rows = list(getattr(self, "ai_managed_rows", None) or [])
         holding_rows = self._load_managed_pool_live_holding_rows(reason=reason, holdings=holdings)
         dust_excluded_current = [row for row in (getattr(self, "_last_managed_pool_dust_excluded", []) or []) if isinstance(row, dict)]
@@ -19654,21 +19659,48 @@ class MainWindow(QMainWindow):
                 "[AITS][ManagedPoolRecovery] event=holding_recovery_removed_by_later_writer symbol=%s exclusion_reason=later_writer_removed_recovered_holding writer=_ensure_managed_pool_holdings_included callsite=%s mutation=False non_holding_promotion=False actual_order=False submitted=0",
                 symbol, reason,
             )
+        missing_after = sorted(candidate_symbols - after_symbols)
+        persisted_symbols = set()
+        try:
+            persisted_rows = list((self._get_ui_state_dict().get("managed_pool_rows") or []))
+            persisted_symbols = {
+                self._normalize_managed_pool_symbol_for_persistence(row.get("symbol") or row.get("market"))
+                for row in persisted_rows if isinstance(row, dict)
+            }
+            persisted_symbols.discard("")
+        except Exception:
+            persisted_symbols = set()
+        from app.services.managed_pool_recovery_classification import classify_managed_pool_recovery
+        recovery_classification = classify_managed_pool_recovery(
+            holding_rows=holding_rows,
+            added_symbols=added,
+            dust_excluded_symbols=[
+                row.get("symbol") or row.get("market")
+                for row in dust_excluded_current if isinstance(row, dict)
+            ],
+            missing_symbols=missing_after,
+            non_holding_promotion=False,
+            persisted_symbols_expected=persisted_symbols,
+        )
         for symbol in added:
             recovered_row = next((row for row in ordered if str(row.get("symbol") or "") == symbol), {})
             recovery_logger.info(
-                "[AITS][ManagedPoolRecovery] event=holding_recovery_applied symbol=%s qty=%s valuation_krw=%s dust=False manageable=True source_type=%s protected=True managed_pool_before=%s managed_pool_after=%s max_size=%s current_size=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=True non_holding_promotion=False holding_recovery_exception=True actual_order=False submitted=0",
+                "[AITS][ManagedPoolRecovery] event=holding_recovery_applied symbol=%s qty=%s valuation_krw=%s dust=False manageable=True source_type=%s protected=True managed_pool_before=%s managed_pool_after=%s max_size=%s current_size=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=True recovery_classification=%s expected_protective_recovery=%s non_holding_promotion=False holding_recovery_exception=True actual_order=False submitted=0",
                 symbol, recovered_row.get("qty") or recovered_row.get("quantity") or 0,
                 recovered_row.get("eval_krw") or recovered_row.get("value_krw") or recovered_row.get("position_value_krw") or 0,
                 recovered_row.get("source_type") or "managed_holding_recovered",
                 ",".join(sorted(before_symbols)) or "-", ",".join(sorted(after_symbols)) or "-",
                 int(max_count), len(ordered), reason,
+                recovery_classification.get("classification") or "-",
+                bool(recovery_classification.get("expected_protective_recovery")),
             )
-        missing_after = sorted(candidate_symbols - after_symbols)
         recovery_logger.info(
-            "[AITS][ManagedPoolRecovery] event=holding_recovery_final_consistency_check symbol=- managed_pool_before=%s managed_pool_after=%s max_size=%s current_size=%s exclusion_reason=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=%s non_holding_promotion=False missing_symbols=%s consistent=%s actual_order=False submitted=0",
+            "[AITS][ManagedPoolRecovery] event=holding_recovery_final_consistency_check symbol=- managed_pool_before=%s managed_pool_after=%s max_size=%s current_size=%s exclusion_reason=%s writer=_ensure_managed_pool_holdings_included callsite=%s mutation=%s recovery_classification=%s expected_protective_recovery=%s state_loss_detected=%s non_holding_promotion=False missing_symbols=%s consistent=%s actual_order=False submitted=0",
             ",".join(sorted(before_symbols)) or "-", ",".join(sorted(after_symbols)) or "-", int(max_count), len(ordered),
             "holding_recovery_incomplete" if missing_after else "-", reason, bool(added),
+            recovery_classification.get("classification") or "-",
+            bool(recovery_classification.get("expected_protective_recovery")),
+            bool(recovery_classification.get("state_loss_detected")),
             ",".join(missing_after) or "-", not missing_after,
         )
         self._aits_managed_pool_recovered_symbols = previous_recovered | set(added)
@@ -19753,6 +19785,10 @@ class MainWindow(QMainWindow):
             "max_count": max_count,
             "final_count": len(ordered),
             "holdings_overrode_max_count": overrode,
+            "recovery_classification": recovery_classification.get("classification"),
+            "expected_protective_recovery": bool(recovery_classification.get("expected_protective_recovery")),
+            "state_loss_detected": bool(recovery_classification.get("state_loss_detected")),
+            "non_holding_promotion_detected": bool(recovery_classification.get("non_holding_promotion_detected")),
         }
     def _build_managed_pool_rows_snapshot(self) -> list[dict]:
         rows = getattr(self, "ai_managed_rows", None)
@@ -43652,13 +43688,29 @@ class MainWindow(QMainWindow):
                 "[AITS][AIManagementSeed] event=initial_seed_provider_blocked session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=%s reason=provider_response_unavailable actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []), blocker,
             )
+        application = dict(decision.get("validated_decision_application") or {})
+        application_ready = bool(
+            not application
+            or (
+                application.get("application_status") == "started"
+                and application.get("intent_registered")
+                and not application.get("blocker")
+            )
+        )
         registration = {"registered": False, "eta_registered": False, "invalidation_registered": False, "active_decision_count_after": 0, "decision_id": "", "blocker": "", "reason": "not_attempted"}
-        if validation_passed:
+        if validation_passed and application_ready:
             seed_logger.info(
                 "[AITS][AIManagementSeed] event=initial_seed_validated session_id=%s trigger_reason=on_initial_management_seed runtime_contract_active=True execution_mode=%s managed_symbols=- holding_symbols=%s candidate_count=0 provider=%s payload_hash=%s ai_action=%s ai_confidence=%s ai_eta_seconds=%s invalidation_condition_count=%s blocker=- reason=validator_passed actual_order=False submitted=0",
                 session_id, str(self._get_aits_execution_mode() or ""), symbol, provider or "-", payload_hash, decision.get("action") or "-", decision.get("confidence"), decision.get("eta_seconds"), len(decision.get("invalidation_conditions") or []),
             )
             registration = self._register_ai_decision_runtime_state(payload=payload, decision=decision, payload_hash=payload_hash)
+        elif validation_passed:
+            blocker = str(application.get("blocker") or "validated_application_preflight_blocked")
+            registration.update({"blocker": blocker, "reason": "application_preflight_failed"})
+            seed_logger.info(
+                "[AITS][AIManagementSeed] event=initial_seed_application_preflight_blocked session_id=%s task=%s symbol=%s decision_id=%s blocker=%s partial_registration=False actual_order=False submitted=0",
+                session_id, task or "-", symbol or "-", decision.get("decision_id") or "-", blocker,
+            )
         elif response_received:
             blocker = blocker or "initial_seed_invalid_schema"
         registered = bool(registration.get("registered"))
@@ -43674,10 +43726,11 @@ class MainWindow(QMainWindow):
                 "[AITS][AIManagementSeed] event=initial_seed_registration_failed session_id=%s trigger_reason=on_initial_management_seed holding_symbols=%s provider=%s payload_hash=%s registered_decision_count=0 eta_registered_count=0 invalidation_registered_count=0 failed_registration_count=1 active_decision_count_after=%s registered_decision_ids=- failed_symbols=%s blocker=%s reason=%s actual_order=False submitted=0",
                 session_id, symbol, provider or "-", payload_hash, int(registration.get("active_decision_count_after") or 0), symbol, blocker, registration.get("reason") or "registration_failed",
             )
-        outcome_tracking_registered = self._record_initial_ai_management_training(
-            payload=payload, decision=decision, session_id=session_id, registered=registered, blocker=blocker,
-        )
-        application = dict(decision.get("validated_decision_application") or {})
+        outcome_tracking_registered = False
+        if registered and application_ready:
+            outcome_tracking_registered = self._record_initial_ai_management_training(
+                payload=payload, decision=decision, session_id=session_id, registered=registered, blocker=blocker,
+            )
         if validation_passed and application:
             from app.services.validated_decision_application import AITSValidatedDecisionApplication
             application = AITSValidatedDecisionApplication.complete_core(

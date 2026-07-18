@@ -2075,10 +2075,11 @@ class AIEngineProvider:
                 "submitted": 0,
             }
         )
+        canonical_decision_id = AITSValidatedDecisionApplication.resolve_decision_id(final_decision, context)
+        final_decision["decision_id"] = canonical_decision_id
+        context["decision_id"] = canonical_decision_id
         copilot_decision["decision_id"] = str(
-            final_decision.get("decision_id")
-            or final_decision.get("response_id")
-            or payload_hash
+            canonical_decision_id
         )
         copilot_decision["final_action_unchanged"] = True
         copilot_decision["applied_to_final_action"] = False
@@ -2100,12 +2101,13 @@ class AIEngineProvider:
             effective_policy=effective_policy,
             parent_intent=parent_intent,
             status="active" if bool(final_decision.get("validation_passed")) else "blocked",
-            persist=bool(final_decision.get("validation_passed")),
+            persist=False,
         )
         final_decision["effective_policy_snapshot"] = dict(effective_policy)
         final_decision["effective_policy_id"] = str(effective_policy.get("policy_id") or "")
         final_decision["effective_policy_version"] = effective_policy.get("policy_version")
         final_decision["effective_policy_hash"] = str(effective_policy.get("policy_hash") or "")
+        final_decision["effective_policy_decision_id"] = canonical_decision_id
         final_decision["ai_intent"] = canonical_intent
         final_decision["intent_id"] = str(canonical_intent.get("intent_id") or "")
         final_decision["intent_revision"] = int(canonical_intent.get("revision") or 1)
@@ -2116,7 +2118,22 @@ class AIEngineProvider:
             payload=context,
             effective_policy=effective_policy,
         )
-        final_decision["decision_id"] = str(application.get("decision_id") or final_decision.get("decision_id") or payload_hash)
+        intent_persistence = {"written": False, "blocker": "application_identity_preflight_blocked", "intent": canonical_intent}
+        if application.get("application_status") == "started" and bool(final_decision.get("validation_passed")):
+            intent_persistence = intent_service.persist_active(canonical_intent, parent_intent=parent_intent)
+            application = AITSValidatedDecisionApplication.confirm_intent_registration(application, intent_persistence)
+            persisted_intent = intent_persistence.get("intent") if isinstance(intent_persistence.get("intent"), dict) else {}
+            if persisted_intent:
+                canonical_intent = dict(persisted_intent)
+                final_decision["ai_intent"] = canonical_intent
+                final_decision["intent_id"] = str(canonical_intent.get("intent_id") or "")
+        final_decision["intent_persisted"] = bool(application.get("intent_registered"))
+        final_decision["canonical_decision_identity_ready"] = bool(
+            application.get("application_status") == "started"
+            and application.get("decision_id") == canonical_decision_id
+            and application.get("effective_policy_decision_id") == canonical_decision_id
+            and canonical_intent.get("decision_id") == canonical_decision_id
+        )
         final_decision["validated_decision_application"] = application
         _safe_log_info(
             "[AITS][ValidatedDecisionApplication] event=application_started "
