@@ -14,6 +14,13 @@ from app.services.ai_review_reason_composer import (
     evaluate_result_quality,
 )
 from app.services.ai_review_repository import AITSAIReviewRepository, AITSDerivedJsonRepository
+from app.services.ai_review_checkpoint_selector import (
+    checkpoint_name as _checkpoint_name,
+    exact_checkpoint_dedupe,
+    monotonic_review_status,
+    select_checkpoint_payload as _checkpoint_payload,
+    select_latest_checkpoint,
+)
 from app.services.local_engine_review_learning_bridge import AITSLocalEngineReviewLearningBridge
 from app.services.aits_data_source_resolver import AITSDataSourceResolver
 
@@ -33,26 +40,6 @@ def _now() -> str:
 def _stable_id(prefix: str, *parts: object) -> str:
     digest = hashlib.sha256("|".join(str(part or "") for part in parts).encode("utf-8")).hexdigest()[:24]
     return f"{prefix}-{digest}"
-
-
-def _checkpoint_name(row: dict[str, Any]) -> str:
-    checkpoint = row.get("checkpoint")
-    if isinstance(checkpoint, dict):
-        return str(checkpoint.get("checkpoint_name") or "")
-    return str(checkpoint or "")
-
-
-def _checkpoint_payload(rows: list[dict[str, Any]], name: str) -> dict[str, Any]:
-    matches = [row for row in rows if _checkpoint_name(row) == name]
-    if not matches:
-        return {}
-    row = matches[-1]
-    checkpoint = row.get("checkpoint")
-    return dict(checkpoint) if isinstance(checkpoint, dict) else {
-        "checkpoint_name": name,
-        "outcome_label": row.get("outcome_label"),
-        "outcome_score": row.get("outcome_score"),
-    }
 
 
 class AITSAIReviewEngine:
@@ -92,7 +79,13 @@ class AITSAIReviewEngine:
                 if not decision_id or (task and task not in ELIGIBLE_TASKS) or (action and action not in ELIGIBLE_ACTIONS):
                     continue
                 decisions[decision_id] = self._richer(decisions.get(decision_id, {}), row)
-        outcomes, outcome_stats = self.data_source_resolver.read_records("outcomes")
+        raw_outcomes = list(self.data_source_resolver.iter_records("outcomes", exact_dedupe=False))
+        outcomes = exact_checkpoint_dedupe(raw_outcomes)
+        outcome_stats = {
+            "records": len(outcomes),
+            "duplicates": len(raw_outcomes) - len(outcomes),
+            "checkpoint_identity_dedupe": True,
+        }
         comparisons, comparison_stats = self.data_source_resolver.read_records("provider_comparisons")
         candidates, candidate_stats = self.data_source_resolver.read_records("candidate_observations")
         source_stats[self.outcome_path.name] = outcome_stats
@@ -105,29 +98,6 @@ class AITSAIReviewEngine:
             "candidates": candidates,
             "source_stats": source_stats,
         }
-
-    @staticmethod
-    def _review_stage(outcomes: list[dict[str, Any]], decision: dict[str, Any]) -> str:
-        if decision.get("final_outcome"):
-            return "final"
-        names = {_checkpoint_name(row) for row in outcomes}
-        available = False
-        for row in outcomes:
-            checkpoint = dict(row.get("checkpoint") or {})
-            if str(checkpoint.get("status") or "") not in {"skipped", "unavailable"} and str(checkpoint.get("outcome_label") or row.get("outcome_label") or "") != "data_unavailable":
-                available = True
-                break
-        if outcomes and not available:
-            return "data_unavailable"
-        if "outcome_final" in names:
-            return "final"
-        if "outcome_1h" in names:
-            return "partial_1h"
-        if "outcome_15m" in names:
-            return "partial_15m"
-        if "outcome_5m" in names:
-            return "partial_5m"
-        return "pending"
 
     @staticmethod
     def _candidate_indexes(candidates: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, Any]]]:
@@ -167,6 +137,12 @@ class AITSAIReviewEngine:
             if row.get("decision_id"):
                 comparisons_by_id[str(row["decision_id"])].append(row)
         candidate_indexes = self._candidate_indexes(loaded["candidates"])
+        previous_reviews, _ = AITSDerivedJsonRepository.read_jsonl(self.repository.path)
+        previous_by_decision = {
+            str(row.get("decision_id") or ""): row
+            for row in previous_reviews
+            if row.get("decision_id")
+        }
         now = _now()
         reviews: list[dict[str, Any]] = []
         join_counts: Counter[str] = Counter()
@@ -184,7 +160,24 @@ class AITSAIReviewEngine:
                 decision, result, decision_quality, result_quality,
                 success_reasons, failure_reasons,
             )
-            stage = self._review_stage(outcome_rows, decision)
+            checkpoint_selection = select_latest_checkpoint(outcome_rows)
+            candidate_stage = "final" if decision.get("final_outcome") else str(checkpoint_selection["review_status"])
+            if outcome_rows and candidate_stage == "pending":
+                candidate_stage = "data_unavailable"
+            previous_review = previous_by_decision.get(decision_id, {})
+            stage, lifecycle_advanced, lifecycle_downgrade_blocked = monotonic_review_status(
+                previous_review.get("review_status"), candidate_stage
+            )
+            if lifecycle_downgrade_blocked:
+                checkpoint_selection = {
+                    **checkpoint_selection,
+                    "selected_checkpoint": previous_review.get("selected_checkpoint") or str(stage).removeprefix("partial_"),
+                    "selected_checkpoint_rank": previous_review.get("selected_checkpoint_rank"),
+                    "selected_checkpoint_record_id": previous_review.get("selected_checkpoint_record_id"),
+                    "available_checkpoints": previous_review.get("available_checkpoints") or checkpoint_selection.get("available_checkpoints") or [],
+                    "checkpoint_record_ids": previous_review.get("checkpoint_record_ids") or checkpoint_selection.get("checkpoint_record_ids") or [],
+                    "latest_evaluated_at": previous_review.get("latest_evaluated_at"),
+                }
             final_action = str(decision.get("final_action") or decision.get("ai_action") or "").lower()
             comparison = comparisons_by_id.get(decision_id, [])[-1] if comparisons_by_id.get(decision_id) else {}
             review_id = _stable_id("review", decision_id)
@@ -279,6 +272,19 @@ class AITSAIReviewEngine:
                 "avoided_drawdown": "avoided_loss" in success_reasons,
                 "missed_opportunity": "missed_opportunity" in failure_reasons,
                 "review_status": stage,
+                "selected_checkpoint": checkpoint_selection.get("selected_checkpoint"),
+                "selected_checkpoint_rank": checkpoint_selection.get("selected_checkpoint_rank"),
+                "selected_checkpoint_record_id": checkpoint_selection.get("selected_checkpoint_record_id"),
+                "available_checkpoints": checkpoint_selection.get("available_checkpoints") or [],
+                "checkpoint_record_ids": checkpoint_selection.get("checkpoint_record_ids") or [],
+                "latest_evaluated_at": checkpoint_selection.get("latest_evaluated_at"),
+                "previous_review_status": previous_review.get("review_status") or "pending",
+                "lifecycle_advanced": lifecycle_advanced,
+                "lifecycle_downgrade_blocked": lifecycle_downgrade_blocked,
+                "review_revision": int(previous_review.get("review_revision") or 0) + (
+                    1 if not previous_review or stage != previous_review.get("review_status")
+                    or checkpoint_selection.get("selected_checkpoint_record_id") != previous_review.get("selected_checkpoint_record_id") else 0
+                ),
                 "decision_quality": decision_quality,
                 "result_quality": result_quality,
                 "decision_result_matrix": matrix,
@@ -349,6 +355,9 @@ class AITSAIReviewEngine:
                         "local_engine_candidate", "provider_comparison",
                         "copilot_decision", "copilot_consulted", "copilot_routing_used",
                         "copilot_routing_effect", "task_capability_level",
+                        "selected_checkpoint", "available_checkpoints",
+                        "review_revision", "review_learning_stage",
+                        "review_stage_weight", "stage_source_checkpoint",
                     )
                 }
                 for row in reviews[-100:]

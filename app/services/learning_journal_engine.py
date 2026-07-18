@@ -229,6 +229,17 @@ class AITSLearningJournalEngine:
             ):
                 if field in previous:
                     suggestion[field] = previous[field]
+            suggestion["evidence_active"] = True
+        active_suggestion_ids = {
+            str(row.get("suggestion_id") or "") for row in suggestions if row.get("suggestion_id")
+        }
+        for suggestion_id, previous in previous_by_id.items():
+            if suggestion_id in active_suggestion_ids:
+                continue
+            retained = dict(previous)
+            retained["evidence_active"] = False
+            retained["runtime_policy_applied"] = bool(previous.get("runtime_policy_applied", False))
+            suggestions.append(retained)
         now = _now()
         authority_state = AITSDerivedJsonRepository.load_json(
             self.data_root / "local_engine" / "local_engine_authority_state.json", {}
@@ -267,7 +278,13 @@ class AITSLearningJournalEngine:
                 "lesson_tags": review.get("repeated_pattern_tags") or [],
                 "policy_suggestion_ids": review.get("policy_suggestion_ids") or [],
                 "user_attention_required": review.get("decision_quality") in {"weak", "poor"},
-                "source_digest": _id("digest", review.get("review_id"), review.get("decision_id")),
+                "source_digest": _id(
+                    "digest", review.get("review_id"), review.get("decision_id"),
+                    review.get("review_revision"), review.get("review_status"),
+                ),
+                "source_review_id": review.get("review_id"),
+                "source_review_revision": int(review.get("review_revision") or 0),
+                "source_review_stage": review.get("review_status"),
                 "safe_for_learning": bool(review.get("safe_for_learning")),
             })
         for pattern in patterns:

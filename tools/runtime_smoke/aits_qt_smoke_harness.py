@@ -27288,6 +27288,7 @@ def run_harness(
         "local-engine-level-status-operations-ui-v1-summary",
         "local-engine-user-centered-ui-simplification-v1-summary",
         "ai-review-learning-journal-v1-summary",
+        "ai-review-lifecycle-latest-checkpoint-stabilization-v1-summary",
         "local-engine-level2-copilot-completion-v1-summary",
         "local-engine-confidence-calibration-level2-promotion-v1-summary",
         "local-engine-lv3-lv5-full-structure-completion-v1-summary",
@@ -27663,6 +27664,10 @@ def run_harness(
             _install_provider_post_guard(report)
             from app.services.ai_review_learning_journal_report import build_ai_review_learning_journal_report
             report.update(build_ai_review_learning_journal_report(ROOT))
+        elif mode == "ai-review-lifecycle-latest-checkpoint-stabilization-v1-summary":
+            _install_provider_post_guard(report)
+            from app.services.ai_review_checkpoint_selector import build_review_lifecycle_stabilization_report
+            report.update(build_review_lifecycle_stabilization_report(ROOT))
         elif mode == "local-engine-level2-copilot-completion-v1-summary":
             _install_provider_post_guard(report)
             from app.services.local_engine_level2_copilot_report import build_local_engine_level2_copilot_report
@@ -28391,6 +28396,7 @@ def main() -> int:
             "local-engine-level-status-operations-ui-v1-summary",
             "local-engine-user-centered-ui-simplification-v1-summary",
             "ai-review-learning-journal-v1-summary",
+            "ai-review-lifecycle-latest-checkpoint-stabilization-v1-summary",
             "local-engine-level2-copilot-completion-v1-summary",
             "local-engine-confidence-calibration-level2-promotion-v1-summary",
             "local-engine-lv3-lv5-full-structure-completion-v1-summary",

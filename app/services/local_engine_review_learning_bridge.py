@@ -125,6 +125,8 @@ class AITSLocalEngineReviewLearningBridge:
             grade = "D"
         learning_eligible = bool(target_eligibility["action"] or target_eligibility["task_capability_evidence"])
         return {
+            "review_learning_stage": stage,
+            "stage_source_checkpoint": review.get("selected_checkpoint"),
             "review_learning_eligible": learning_eligible,
             "review_reliability_grade": grade,
             "review_learning_weight": reliability_score,
